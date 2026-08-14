@@ -18,6 +18,38 @@
 - id: session
   name: '@deepseek-ai/dsh-session'
 
+- id: session-persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/sessions'"
+
+- id: session-checkpoint
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
+  config:
+    fallbackMaxWords: 8
+    fallbackMaxBytes: 80
+    maxTitleBytes: 120
+
+- id: session-stats
+  name: '@deepseek-ai/dsh-session-stats'
+
+- id: session-query
+  name: '@deepseek-ai/dsh-session-query-sqlite'
+  config:
+    path: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/sessions-query.sqlite'"
+    openAt: first-search
+
+- id: attachments
+  name: '@deepseek-ai/dsh-attachment-local'
+  config:
+    dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
+
 # User settings document ($DSH_HOME/settings.yaml) and credential sources
 # (inherited env, managed .credentials.yaml, project/user .env) — the same
 # rows the harness base mounts, so omdsh honors the user's existing model
@@ -37,6 +69,17 @@
     provider: !!js process.env.OMDSH_PROVIDER || 'deepseek-official'
     model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
 
+- id: commands
+  name: '@deepseek-ai/dsh-commands'
+
+- id: user-questions
+  name: '@deepseek-ai/dsh-user-questions'
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
 # Trusted-local permission seam: the default matches an interactive coding
 # agent on the user's own machine; OMDSH_PERMISSION_MODE narrows it.
 - id: sandbox
@@ -51,6 +94,9 @@
 - id: fs
   name: '@deepseek-ai/dsh-fs-local'
 
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
@@ -60,8 +106,78 @@
 - id: spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    workspaceContext: false
+    workspaceContext:
+      maxBytes: 65536
     dshHome: !!js process.env.OMDSH_HOME || undefined
+    skills:
+      enabled: true
+    goals:
+      domain: {}
+      tool: {}
+
+# Human and model workflow contributions. The TUI discovers human commands
+# from dsh-commands and renders unknown tools through its safe fallback.
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  config:
+    section: |
+      You are in plan mode. Explore the workspace, resolve important design
+      questions, and present a complete implementation plan through
+      exit_plan_mode before making changes.
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction
+  name: '@deepseek-ai/dsh-compaction-basic'
+
+- id: command-compact
+  name: '@deepseek-ai/dsh-command-compact'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: subagent-list
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
 
 - id: tui
   name: '@omdsh/tui'

@@ -12,7 +12,9 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "omdsh": "pnpm --filter @omdsh/app omdsh",
+    "format:md": "node scripts/format-markdown.mjs",
+    "check:md": "node scripts/format-markdown.mjs --check",
+    "omdsh": "pnpm --dir apps/omdsh omdsh",
     "smoke": "node scripts/pty-smoke.mjs",
     "build:runtime": "node scripts/build-runtime.mjs",
     "smoke:happy": "node scripts/happy-smoke.mjs"

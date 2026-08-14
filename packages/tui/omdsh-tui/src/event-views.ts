@@ -11,15 +11,20 @@
 
 import type { CallId, ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
-import type { AutocompleteItem } from './autocomplete.ts'
-import { renderAutocomplete } from './autocomplete.ts'
+import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
+import { renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
 import { editorStatusLabel, renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
 import { renderMarkdown } from './markdown.ts'
 import type { Frame, TranscriptScroll } from './renderer.ts'
-import { renderSettings, type SettingsState } from './settings-list.ts'
+import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
+import { renderSettings, type SettingsState, type StatusPreset } from './settings-list.ts'
+import { renderPromptSelector, type PromptSelectorState } from './prompt-selector.ts'
+import { renderSessionStatusLabel } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
+import type { TuiRecentSession, TuiSessionStats } from './definition.ts'
+import { BUILTIN_TOOL_RENDERERS, renderTool, type TuiToolRenderer } from './tool-renderers.ts'
 
 /** Display state of one tool invocation. */
 export type ToolBlockStatus = 'running' | 'ok' | 'error'
@@ -28,7 +33,7 @@ export type ToolBlockStatus = 'running' | 'ok' | 'error'
 export type Block =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean }
-  | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string }
+  | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean }
   | { kind: 'notice'; level: 'info' | 'error'; text: string }
 
 /** Live session status shown on the status line. */
@@ -52,8 +57,14 @@ export function initialTranscript(): TranscriptState {
 /** Extract plain text from text blocks, ignoring other block kinds. */
 function contentToText(content: readonly ContentBlock[]): string {
   return content
-    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-    .map((block) => block.text)
+    .flatMap((block) => {
+      if (block.type === 'text') return [block.text]
+      if (block.type === 'image') {
+        const ref = block.attachment
+        return [`[image ${ref.width}×${ref.height} · ${ref.mediaType}]`]
+      }
+      return []
+    })
     .join('')
 }
 
@@ -152,6 +163,25 @@ export function applyEvent(state: TranscriptState, event: SessionEvent): Transcr
         }
         return { ...state, blocks }
       }
+      if (chunk.type === 'tool-call-delta') {
+        const blocks = state.blocks.slice()
+        const index = blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
+        const existing = blocks[index]
+        if (existing?.kind === 'tool') {
+          blocks[index] = {
+            ...existing,
+            name: chunk.name ?? existing.name,
+            args: existing.args + chunk.argumentsDelta,
+            partial: true,
+          }
+        } else {
+          blocks.push({
+            kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
+            args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
+          })
+        }
+        return { ...state, blocks }
+      }
       return state
     }
     case 'assistant/message': {
@@ -167,7 +197,11 @@ export function applyEvent(state: TranscriptState, event: SessionEvent): Transcr
         status: 'running',
         output: '',
       }
-      return { ...state, blocks: [...state.blocks, block] }
+      const blocks = state.blocks.slice()
+      const partial = blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
+      if (partial >= 0) blocks[partial] = block
+      else blocks.push(block)
+      return { ...state, blocks }
     }
     case 'tool/result':
       return applyToolResult(state, event.data.message, event.data.error)
@@ -237,6 +271,20 @@ export interface ViewOptions {
   historySearch?: HistorySearchState
   /** `/settings` overlay; replaces the editor while open. */
   settings?: SettingsState
+  /** `/copy` picker overlay; replaces the editor while open. */
+  copySelector?: CopySelectorState
+  /** Human-interaction selector; replaces the normal editor while active. */
+  promptSelector?: PromptSelectorState
+  /** Effective local + agent-scoped slash command catalog. */
+  commands?: readonly SlashCommand[]
+  /** Durable rows shown in the welcome card. */
+  recentSessions?: readonly TuiRecentSession[]
+  /** Whole-session figures rendered in the editor's bottom border. */
+  sessionStats?: TuiSessionStats
+  /** Amount of session telemetry shown in the editor chrome. */
+  statusPreset?: StatusPreset
+  /** Built-in plus plugin-contributed exact-name tool renderers. */
+  toolRenderers?: readonly TuiToolRenderer[]
   /**
    * First transcript row to show (0 = top). Omit or pass +Infinity to pin
    * the window to the latest lines — the OMP follow-tail default.
@@ -247,10 +295,26 @@ export interface ViewOptions {
    * is the collapsed preview of {@link TOOL_COLLAPSED_LINES} rows.
    */
   toolsExpanded?: boolean
+  /** Individual tool calls expanded by the user. */
+  expandedTools?: ReadonlySet<string>
 }
 
 /** Collapsed tool-output preview height (OMP `DEFAULT_TERMINAL_PREVIEW_LINES`). */
 export const TOOL_COLLAPSED_LINES = 10
+
+/** OMP AssistantMessage uses one horizontal cell of padding and no vertical padding. */
+const ASSISTANT_PADDING_X = 1
+
+function assistantContentLines(lines: readonly string[], width: number, paddingX: number): string[] {
+  const margin = ' '.repeat(paddingX)
+  return lines.map((line) => padToWidth(margin + line + margin, width))
+}
+
+function assistantMarkdown(source: string, theme: Theme, width: number): string[] {
+  const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
+  const contentWidth = Math.max(1, width - paddingX * 2)
+  return assistantContentLines(renderMarkdown(source, theme, contentWidth), width, paddingX)
+}
 
 function userBubble(text: string, theme: Theme, width: number): string[] {
   const inner = Math.max(1, width - 2)
@@ -277,11 +341,21 @@ function toolBlockLines(
   width: number,
   spinnerFrame: number,
   expanded: boolean,
+  renderers: readonly TuiToolRenderer[],
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
-  const args = block.args === '' ? '' : theme.fg('dim', ' ' + block.args)
-  const header = icon + ' ' + theme.bold(block.name) + args
-  const raw = block.output === '' ? [] : block.output.split('\n')
+  const presentation = renderTool({
+    name: block.name,
+    arguments: prettyArgs(block.args),
+    output: block.output,
+    status: block.status,
+    expanded,
+  }, renderers)
+  const summary = presentation.summary === undefined || presentation.summary === ''
+    ? ''
+    : theme.fg('dim', ' ' + presentation.summary)
+  const header = icon + ' ' + theme.bold(presentation.title ?? block.name) + summary
+  const raw = [...(presentation.lines ?? [])]
   const hidden = expanded ? 0 : Math.max(0, raw.length - TOOL_COLLAPSED_LINES)
   const shown = hidden > 0 ? raw.slice(0, TOOL_COLLAPSED_LINES) : raw
   const output = shown.map((line) => theme.fg('toolOutput', line))
@@ -308,24 +382,32 @@ export function blockLines(
   width: number,
   spinnerFrame = 0,
   toolsExpanded = false,
+  toolRenderers: readonly TuiToolRenderer[] = BUILTIN_TOOL_RENDERERS,
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
     const lines: string[] = []
     if (block.reasoning !== '') {
-      for (const part of renderMarkdown(block.reasoning, theme, width)) {
-        lines.push(theme.italic(theme.fg('thinkingText', part === '' ? '' : part)))
+      for (const part of assistantMarkdown(block.reasoning, theme, width)) {
+        lines.push(theme.italic(theme.fg('thinkingText', part)))
       }
       if (block.text !== '') lines.push('')
     }
     if (block.text === '' && block.streaming) {
-      lines.push(theme.fg('dim', '…'))
+      const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
+      lines.push(...assistantContentLines([theme.fg('dim', '…')], width, paddingX))
     } else if (block.text !== '') {
-      lines.push(...renderMarkdown(block.text, theme, width))
+      lines.push(...assistantMarkdown(block.text, theme, width))
     }
     return lines
   }
-  if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
+  if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded, toolRenderers)
+  if (block.level === 'info' && !block.text.includes('\n')) {
+    const prefix = '  ' + theme.fg('dim', SYMBOL.done) + ' '
+    const continuation = ' '.repeat(visibleWidth(prefix))
+    return wrapText(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
+      truncateToWidth((index === 0 ? prefix : continuation) + theme.fg('dim', line), width))
+  }
   const state = block.level === 'error' ? 'error' : 'idle'
   const icon = block.level === 'error' ? theme.fg('error', SYMBOL.error) : theme.fg('dim', SYMBOL.done)
   const paint = (text: string): string => (block.level === 'error' ? theme.fg('error', text) : theme.fg('dim', text))
@@ -343,6 +425,73 @@ function fitFrame(lines: string[], width: number): string[] {
     if (visibleWidth(line) <= width) return line
     return truncateToWidth(line, width)
   })
+}
+
+interface TranscriptBodyCache {
+  width: number
+  colors: boolean
+  trueColor: boolean
+  themeName: ThemeName
+  spinnerFrame: number
+  toolsExpanded: boolean
+  expandedTools: string
+  toolRenderers: readonly TuiToolRenderer[]
+  lines: readonly string[]
+}
+
+/**
+ * Scroll changes only the viewport. Cache the expensive Markdown/tool fold by
+ * immutable TranscriptState identity so wheel frames slice already-rendered
+ * rows instead of formatting the complete session again.
+ */
+const transcriptBodyCache = new WeakMap<TranscriptState, TranscriptBodyCache>()
+
+function sameRenderers(left: readonly TuiToolRenderer[], right: readonly TuiToolRenderer[]): boolean {
+  return left.length === right.length && left.every((renderer, index) => renderer === right[index])
+}
+
+function renderTranscriptBody(
+  state: TranscriptState,
+  options: ViewOptions,
+  theme: Theme,
+  spinnerFrame: number,
+): readonly string[] {
+  const toolRenderers = options.toolRenderers ?? BUILTIN_TOOL_RENDERERS
+  const toolsExpanded = options.toolsExpanded === true
+  const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
+  const themeName = options.themeName ?? 'dark'
+  const trueColor = options.trueColor === true
+  const cached = transcriptBodyCache.get(state)
+  if (cached !== undefined
+    && cached.width === options.width
+    && cached.colors === options.colors
+    && cached.trueColor === trueColor
+    && cached.themeName === themeName
+    && cached.spinnerFrame === spinnerFrame
+    && cached.toolsExpanded === toolsExpanded
+    && cached.expandedTools === expandedTools
+    && sameRenderers(cached.toolRenderers, toolRenderers)) {
+    return cached.lines
+  }
+
+  const lines: string[] = []
+  for (const block of state.blocks) {
+    if (lines.length > 0) lines.push('')
+    const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
+    lines.push(...blockLines(block, theme, options.width, spinnerFrame, expanded, toolRenderers))
+  }
+  transcriptBodyCache.set(state, {
+    width: options.width,
+    colors: options.colors,
+    trueColor,
+    themeName,
+    spinnerFrame,
+    toolsExpanded,
+    expandedTools,
+    toolRenderers: [...toolRenderers],
+    lines,
+  })
+  return lines
 }
 
 /** Rows moved per Shift+Arrow (OMP ScrollView `fastScrollLines`). */
@@ -472,34 +621,53 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     provider: appName,
     version,
     appName,
+    ...(options.recentSessions === undefined ? {} : { recentSessions: options.recentSessions }),
   }, theme)
 
+  const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)
   const body: string[] = [...welcome]
-  const toolsExpanded = options.toolsExpanded === true
-  for (const block of state.blocks) {
+  if (transcript.length > 0) {
     if (body.length > 0) body.push('')
-    body.push(...blockLines(block, theme, width, spinnerFrame, toolsExpanded))
+    body.push(...transcript)
   }
 
   const working = state.status === 'running' ? renderWorking(theme, spinnerFrame) : []
+  const preset = options.statusPreset ?? 'compact'
   const statusWord = state.status === 'running' ? 'running' : 'idle'
+  const inlineHint = slashInlineHint(options.input, options.inputCursor, options.commands)
+  const sessionStatus = renderSessionStatusLabel(options.sessionStats, preset, theme, Math.max(0, width - 4))
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
     inputCursor: options.inputCursor,
     status: editorStatusLabel(theme, {
-      appName,
+      appName: '🐳',
       model: options.model,
       status: statusWord,
       pwd,
       ...(options.branch !== undefined && options.branch !== '' ? { branch: options.branch } : {}),
     }),
+    ...(sessionStatus !== '' ? { footer: sessionStatus } : {}),
     border: state.status === 'running' ? 'accent' : 'border',
+    ...(inlineHint !== null ? { inlineHint } : {}),
   }
-  const settings = options.settings === undefined
+  const promptSelector = options.promptSelector === undefined
+    ? undefined
+    : renderPromptSelector(
+      options.promptSelector,
+      theme,
+      width,
+      options.input,
+      options.inputCursor,
+      Math.max(3, Math.min(10, height - working.length - 14)),
+    )
+  const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
     : renderSettings(options.settings, theme, width)
-  const search = settings !== undefined || options.historySearch === undefined
+  const copySelector = promptSelector !== undefined || settings !== undefined || options.copySelector === undefined
+    ? undefined
+    : renderCopySelector(options.copySelector, theme, width)
+  const search = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || options.historySearch === undefined
     ? undefined
     : renderHistorySearch(
       options.historySearch,
@@ -507,12 +675,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       width,
       Math.max(1, Math.min(HISTORY_SEARCH_MAX_VISIBLE, height - working.length - 8)),
     )
-  const editor = settings === undefined && search === undefined ? renderEditor(editorOpts, theme) : undefined
-  const autocomplete = settings !== undefined || search !== undefined || options.autocomplete === undefined
+  const editor = promptSelector === undefined && settings === undefined && copySelector === undefined && search === undefined
+    ? renderEditor(editorOpts, theme)
+    : undefined
+  const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
+    || options.autocomplete === undefined
     ? []
     : renderAutocomplete(options.autocomplete.items, options.autocomplete.selected, theme, width)
-
-  const inputLines = settings?.lines ?? search?.lines ?? editor?.lines ?? []
+  const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
+    ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
   const reserved = inputLines.length + working.length + spacer + autocomplete.length
   const budget = Math.max(0, height - reserved)
@@ -526,13 +697,25 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   lines.push(...inputLines)
   lines.push(...autocomplete)
   const trimmed = fitFrame(lines, width)
-  const caret = settings?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
+  const caret = promptSelector?.cursor ?? settings?.cursor ?? copySelector?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   return {
     lines: trimmed,
     cursor: {
       row: editorStart + caret.row,
       column: Math.min(caret.column, width),
     },
+    ...(promptSelector?.editor !== undefined
+      ? { editor: { start: editorStart + promptSelector.editor.start, rows: promptSelector.editor.rows } }
+      : editor === undefined ? {} : { editor: { start: editorStart, rows: editor.lines.length } }),
+    ...(settings !== undefined
+      ? { overlay: { kind: 'settings' as const, start: editorStart } }
+      : copySelector !== undefined
+        ? { overlay: { kind: 'copy' as const, start: editorStart } }
+        : search !== undefined
+          ? { overlay: { kind: 'search' as const, start: editorStart, resultsRow: search.resultsRow } }
+          : autocomplete.length > 0
+            ? { overlay: { kind: 'autocomplete' as const, start: editorStart + (editor?.lines.length ?? 0) } }
+            : {}),
     transcript: {
       start: windowed.start,
       maxStart: windowed.maxStart,

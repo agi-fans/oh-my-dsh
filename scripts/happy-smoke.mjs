@@ -5,9 +5,14 @@
 // Run: node scripts/happy-smoke.mjs
 
 import { spawn, spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-happy-smoke-'))
+process.on('exit', () => { rmSync(omdshHome, { recursive: true, force: true }) })
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const server = spawn('pnpm', ['exec', 'node', '--import', 'tsx',
@@ -24,9 +29,9 @@ await new Promise((resolve) => {
   setTimeout(resolve, 15000)
 })
 
-const result = spawnSync('pnpm', ['--filter', '@omdsh/app', 'omdsh'], {
+const result = spawnSync('pnpm', ['--dir', 'apps/omdsh', 'omdsh'], {
   cwd: root, input: 'ping\n', encoding: 'utf8', timeout: 120_000,
-  env: { ...process.env, DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' },
+  env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' },
 })
 server.kill()
 

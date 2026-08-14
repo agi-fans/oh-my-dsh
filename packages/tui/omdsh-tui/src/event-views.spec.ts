@@ -4,10 +4,11 @@
  * transcript state and rendered frame — what a terminal shows.
  */
 import { describe, expect, it } from 'vitest'
-import { applyEvent, initialTranscript, renderView, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import { applyEvent, blockLines, initialTranscript, renderView, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme } from './theme.ts'
-import { visibleWidth } from './width.ts'
+import { stripAnsi, visibleWidth } from './width.ts'
 
 /** Fixture builder: a session event with a sequence number. */
 function ev(type: string, data: unknown, seq: number): SessionEvent {
@@ -135,6 +136,82 @@ describe('applyEvent', () => {
   })
 })
 
+describe('blockLines', () => {
+  const theme = createTheme(false)
+
+  it('renders a one-line informational notice inline without an empty frame', () => {
+    const lines = blockLines({
+      kind: 'notice',
+      level: 'info',
+      text: 'Resumed session-example.',
+    }, theme, 60)
+
+    expect(lines.join('\n')).toContain('Resumed session-example.')
+    expect(lines.join('\n')).not.toMatch(/[╭│╰]/u)
+  })
+
+  it('keeps multiline results and errors framed', () => {
+    const multiline = blockLines({ kind: 'notice', level: 'info', text: 'Results\nfirst row' }, theme, 60)
+    const error = blockLines({ kind: 'notice', level: 'error', text: 'Resume failed.' }, theme, 60)
+
+    expect(multiline.join('\n')).toMatch(/[╭╰]/u)
+    expect(error.join('\n')).toMatch(/[╭╰]/u)
+  })
+
+  it('matches oh-my-pi assistant padding and wraps inside both margins', () => {
+    const lines = blockLines({
+      kind: 'assistant',
+      turn: 1,
+      step: 1,
+      text: 'abcdefghijkl',
+      reasoning: '',
+      streaming: false,
+    }, theme, 8)
+
+    expect(lines).toEqual([' abcdef ', ' ghijkl '])
+    expect(lines.every((line) => visibleWidth(line) === 8)).toBe(true)
+  })
+
+  it('keeps the right cap visible for a styled long bash command', () => {
+    const command = 'pnpm --filter @omdsh/tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @omdsh/tui build'
+    const lines = blockLines({
+      kind: 'tool',
+      callId: CallId('call-long'),
+      name: 'bash',
+      args: JSON.stringify({ command }),
+      status: 'ok',
+      output: 'Done',
+    }, createTheme(true, true), 80)
+    const top = stripAnsi(lines[0] ?? '')
+
+    expect(top).toMatch(/^╭─── /u)
+    expect(top).toMatch(/ ───╮$/u)
+    expect(visibleWidth(top)).toBe(80)
+  })
+
+  it('applies the same padding to reasoning and the streaming placeholder', () => {
+    const reasoning = blockLines({
+      kind: 'assistant',
+      turn: 1,
+      step: 1,
+      text: 'answer',
+      reasoning: 'thought',
+      streaming: false,
+    }, theme, 12)
+    const streaming = blockLines({
+      kind: 'assistant',
+      turn: 1,
+      step: 1,
+      text: '',
+      reasoning: '',
+      streaming: true,
+    }, theme, 12)
+
+    expect(reasoning).toEqual([' thought    ', '', ' answer     '])
+    expect(streaming).toEqual([' …          '])
+  })
+})
+
 describe('renderView', () => {
   it('fits every line to the terminal width in visible cells', () => {
     let state = initialTranscript()
@@ -146,9 +223,10 @@ describe('renderView', () => {
   it('places the cursor on the editor input row', () => {
     const state = initialTranscript()
     const frame = renderView(state, { width: 60, height: 24, model: 'm', input: 'abc', inputCursor: 2, colors: false })
-    expect(frame.cursor).toEqual({ row: frame.lines.length - 1, column: 4 })
+    expect(frame.cursor).toEqual({ row: frame.lines.length - 2, column: 4 })
+    expect(frame.lines[frame.lines.length - 2]).toMatch(/^│ /)
+    expect(frame.lines[frame.lines.length - 2]).toContain('abc')
     expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
-    expect(frame.lines[frame.lines.length - 1]).toContain('abc')
   })
 
   it('keeps the frame inside the terminal height with a scroll indicator', () => {
@@ -187,6 +265,33 @@ describe('renderView', () => {
     expect(scrolled.transcript?.start).toBeLessThan(tail.transcript?.start ?? 0)
   })
 
+  it('reuses rendered transcript blocks when only the viewport moves', () => {
+    let renders = 0
+    let state = initialTranscript()
+    state = applyEvent(state, ev('tool/call', { callId: 'call-cache', name: 'cache_probe', arguments: '{}' }, 1))
+    const toolRenderers = [{
+      names: ['cache_probe'],
+      render: () => {
+        renders += 1
+        return { title: 'cache probe', lines: ['result'] }
+      },
+    }]
+    const base = {
+      width: 60,
+      height: 12,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      toolRenderers,
+    } as const
+
+    renderView(state, { ...base, scrollStart: Number.POSITIVE_INFINITY })
+    renderView(state, { ...base, scrollStart: 0 })
+
+    expect(renders).toBe(1)
+  })
+
   it('does not scroll-indicate when the transcript fits', () => {
     const state = initialTranscript()
     const frame = view(state)
@@ -196,7 +301,7 @@ describe('renderView', () => {
   it('paints oh-my-pi chrome: welcome card, rounded editor, no readline prompt', () => {
     const frame = view(initialTranscript())
     const text = frame.lines.join('\n')
-    expect(text).toContain('Welcome back!')
+    expect(text).toContain('Into the Unknown')
     expect(text).toContain('omdsh')
     expect(text).toContain('╭')
     expect(text).toContain('╰')
@@ -207,6 +312,40 @@ describe('renderView', () => {
     expect(text).toContain('/  commands')
     expect(text).toContain('^R search')
     expect(text).toContain('Pg↑ scroll')
+  })
+
+  it('uses a whale editor title and embeds dsh metrics in the bottom border', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 180,
+      height: 24,
+      model: 'deepseek-v4-pro',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      sessionStats: {
+        turns: 1,
+        steps: 74,
+        llmMs: 1_011_000,
+        toolMs: 213_000,
+        ttftMs: 88_800,
+        ttftSteps: 74,
+        decodeMs: 922_500,
+        decodeTokens: 73_800,
+        inputTokens: 5_900_000,
+        outputTokens: 73_800,
+        cacheReadTokens: 5_841_000,
+        cacheWriteTokens: 0,
+      },
+    })
+    const editorStart = frame.editor?.start ?? -1
+    expect(frame.lines[editorStart]).toContain('🐳')
+    expect(frame.lines[editorStart]).not.toContain('omdsh')
+    expect(frame.lines[editorStart]).not.toContain('tok')
+    const footer = frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1] ?? ''
+    expect(footer).toMatch(/^╰─/)
+    expect(footer).toContain('1 turn · 74 steps')
+    expect(footer).toContain('5.9M in · 73.8K out')
+    expect(footer).toMatch(/─╯$/)
   })
 
   it('replaces the editor with the history-search overlay', () => {
@@ -227,9 +366,57 @@ describe('renderView', () => {
     const text = frame.lines.join('\n')
     expect(text).toContain('Search History')
     expect(text).toContain('git commit')
+    expect(frame.overlay?.kind).toBe('search')
+    expect(frame.overlay?.resultsRow).toBeGreaterThan(0)
     expect(text).toContain('enter select')
     expect(text).not.toContain('draft')
     expect(frame.cursor?.row).toBeGreaterThan(0)
+  })
+
+  it('windows long fixed-choice prompt lists around the selection', () => {
+    const options = Array.from({ length: 24 }, (_, index) => ({
+      label: `skill-${index + 1}`,
+      description: `Capability ${index + 1}`,
+    }))
+    const frame = renderView(initialTranscript(), {
+      width: 80,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      promptSelector: {
+        request: {
+          title: 'Skills · 24 available',
+          question: 'Skills are reusable playbooks.',
+          options,
+          allowCustom: false,
+          submitLabel: 'run',
+        },
+        selected: 12,
+        checked: new Set(),
+      },
+    })
+    const text = frame.lines.join('\n')
+    expect(text).toContain('skill-13')
+    expect(text).toContain('13/24 · scroll for more')
+    expect(text).toContain('enter run')
+    expect(text).not.toContain('skill-1 —')
+    expect(frame.editor).toBeUndefined()
+    expect(frame.lines.length).toBeLessThanOrEqual(24)
+  })
+
+  it('paints slash-argument ghost text in the editor', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '/theme ',
+      inputCursor: 7,
+      colors: false,
+    })
+    expect(frame.lines.join('\n')).toContain('dark|light')
+    expect(frame.cursor?.column).toBe(9)
   })
 
   it('paints the slash-command popup under the editor', () => {
@@ -254,6 +441,46 @@ describe('renderView', () => {
     expect(text).toContain('❯')
     expect(frame.lines[frame.lines.length - 1]).toContain('/q')
     expect(frame.cursor?.row).toBeLessThan(frame.lines.length - 1)
+    expect(frame.editor?.rows).toBeGreaterThan(0)
+    expect(frame.overlay?.kind).toBe('autocomplete')
+  })
+
+  it('replaces the editor with the copy picker overlay', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: 'draft',
+      inputCursor: 5,
+      colors: false,
+      copySelector: {
+        selected: 0,
+        items: [
+          { id: 'msg:1', label: 'hello from the model', hint: '1 line', text: 'hello from the model', copyMessage: 'last message' },
+        ],
+      },
+    })
+    const text = frame.lines.join('\n')
+    expect(text).toContain('Copy')
+    expect(text).toContain('hello from the model')
+    expect(text).toContain('enter copy')
+    expect(text).not.toContain('draft')
+    expect(frame.editor).toBeUndefined()
+    expect(frame.overlay?.kind).toBe('copy')
+  })
+
+  it('omits the editor hit box while settings is open', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      settings: { selected: 0, prefs: { theme: 'dark', colors: true, expandTools: false } },
+    })
+    expect(frame.editor).toBeUndefined()
+    expect(frame.overlay?.kind).toBe('settings')
   })
 
   it('replaces the editor with the settings overlay', () => {
@@ -264,7 +491,7 @@ describe('renderView', () => {
       input: 'draft',
       inputCursor: 5,
       colors: false,
-      settings: { selected: 0, prefs: { theme: 'dark', colors: true } },
+      settings: { selected: 0, prefs: { theme: 'dark', colors: true, expandTools: false } },
     })
     const text = frame.lines.join('\n')
     expect(text).toContain('Settings')

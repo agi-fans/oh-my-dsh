@@ -1,11 +1,11 @@
 /**
  * Rounded-box chrome ported from oh-my-pi: framed tool output, the welcome
- * card, and the two-line editor whose top border carries the status line.
+ * card, and the framed editor whose top border carries the status line.
  * @module @omdsh/tui
  */
 
-import { BOX, gradientLogo, PI_LOGO, type Theme, type ThemeColor } from './theme.ts'
-import { padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped } from './width.ts'
+import { BOX, DEEPSEEK_LOGO, gradientLogo, type Theme, type ThemeColor } from './theme.ts'
+import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped, indexOnWrapped } from './width.ts'
 
 /** Visual state that drives border + fill color. */
 export type BoxState = 'idle' | 'running' | 'ok' | 'error' | 'warning'
@@ -70,18 +70,23 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
   const paint = (line: string): string => (bg ? applyBg(line, theme, bg, width) : padToWidth(line, width))
 
   const cap = h.repeat(3)
-  const leftGlyphs = BOX.topLeft + cap
   const labelParts = [options.header, options.headerMeta].filter((part): part is string => Boolean(part))
-  const rawLabel = labelParts.length > 0 ? ` ${labelParts.join(' · ')} ` : ''
-  const maxLabel = Math.max(0, width - visibleWidth(leftGlyphs) - 1)
-  const label = rawLabel === '' ? '' : truncateToWidth(rawLabel, maxLabel)
-  const fill = Math.max(0, width - visibleWidth(leftGlyphs) - visibleWidth(label) - 1)
-  const top = border(leftGlyphs) + label + border(h.repeat(fill) + BOX.topRight)
+  const labelChromeWidth = visibleWidth(BOX.topLeft + cap + '  ' + cap + BOX.topRight)
+  const top = labelParts.length === 0 || width < labelChromeWidth
+    ? border(BOX.topLeft + h.repeat(Math.max(0, width - 2)) + BOX.topRight)
+    : (() => {
+        // The spaces and three-glyph caps belong to the frame, not the label's
+        // truncation budget. A long command can consume only the middle span.
+        const maxLabel = Math.max(0, width - labelChromeWidth)
+        const label = truncateToWidth(labelParts.join(' · '), maxLabel)
+        const fill = Math.max(0, maxLabel - visibleWidth(label))
+        return border(BOX.topLeft + cap) + ' ' + label + ' ' + border(h.repeat(fill) + cap + BOX.topRight)
+      })()
 
   const contentWidth = Math.max(1, width - 4)
   const body: string[] = []
   for (const raw of options.lines ?? []) {
-    for (const wrapped of wrapText(raw, contentWidth)) {
+    for (const wrapped of wrapText(expandTabs(raw, 8, 2), contentWidth)) {
       body.push(border(v) + ' ' + padToWidth(wrapped, contentWidth) + ' ' + border(v))
     }
   }
@@ -98,25 +103,26 @@ export interface WelcomeOptions {
   provider: string
   version: string
   appName: string
+  recentSessions?: readonly { id: string; title: string }[]
 }
 
 /**
- * Two-column welcome card: gradient π logo + tips, titled `app vversion`.
+ * Two-column welcome card: gradient DeepSeek logo + tips, titled `app vversion`.
  */
 export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const boxWidth = Math.min(100, Math.max(0, options.width))
   if (boxWidth < 8) return []
   const dualContentWidth = boxWidth - 3
-  const minLeft = 12
+  const minLeft = visibleWidth(DEEPSEEK_LOGO[0]) + 2
   const minRight = 20
   const desiredLeft = Math.min(26, Math.max(minLeft, Math.floor(dualContentWidth * 0.35)))
   const showRight = dualContentWidth >= minRight + minLeft
   const leftCol = showRight ? Math.min(desiredLeft, dualContentWidth - minRight) : boxWidth - 2
   const rightCol = showRight ? Math.max(1, dualContentWidth - leftCol) : 0
 
-  const logo = gradientLogo(theme, PI_LOGO)
+  const logo = gradientLogo(theme, DEEPSEEK_LOGO)
   const leftLines = [
-    centerText(theme.bold('Welcome back!'), leftCol),
+    centerText(theme.bold('Into the Unknown'), leftCol),
     '',
     ...logo.map((line) => centerText(line, leftCol)),
     '',
@@ -130,7 +136,7 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
       ` ${theme.bold(theme.fg('accent', 'Tips'))}`,
       ` ${theme.fg('dim', '↵')}${theme.fg('muted', '  submit')}`,
       ` ${theme.fg('dim', '⌥↵')}${theme.fg('muted', ' newline')}`,
-      ` ${theme.fg('dim', '^C')}${theme.fg('muted', ' interrupt')}`,
+      ` ${theme.fg('dim', '^C×2')}${theme.fg('muted', ' exit')}`,
       ` ${theme.fg('dim', '^D')}${theme.fg('muted', ' quit')}`,
       ` ${theme.fg('dim', '↑↓')}${theme.fg('muted', ' history')}`,
       ` ${theme.fg('dim', 'Pg↑')}${theme.fg('muted', ' scroll')}`,
@@ -139,7 +145,10 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
       ` ${theme.fg('dim', '⇥')}${theme.fg('muted', ' complete')}`,
       sep,
       ` ${theme.bold(theme.fg('accent', 'Recent sessions'))}`,
-      ` ${theme.fg('dim', 'No recent sessions')}`,
+      ...(options.recentSessions === undefined || options.recentSessions.length === 0
+        ? [` ${theme.fg('dim', 'No recent sessions')}`]
+        : options.recentSessions.slice(0, 3).map((session) =>
+          ` ${theme.fg('muted', truncateToWidth(session.title || session.id, Math.max(1, rightCol - 2)))}`)),
     ]
     : []
 
@@ -189,7 +198,11 @@ export interface EditorOptions {
   input: string
   inputCursor: number
   status: string
+  /** Session telemetry embedded in the bottom border. */
+  footer?: string
   border: ThemeColor
+  /** Dim ghost text painted after the caret (slash-arg hint). */
+  inlineHint?: string
 }
 
 /** Editor frame plus a cursor offset relative to the editor's first row. */
@@ -199,8 +212,8 @@ export interface EditorFrame {
 }
 
 /**
- * OMP two-line (or wrapping) rounded editor: status lives in the top border,
- * the last content row merges into `╰─ … ─╯`.
+ * Rounded editor: status lives in the top border, input occupies one or more
+ * body rows, and a dedicated bottom border keeps the cursor off the chrome.
  */
 export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame {
   const width = Math.max(4, options.width)
@@ -223,23 +236,47 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   const lines = [top]
   for (let i = 0; i < rows.length; i += 1) {
     const text = rows[i]?.text ?? ''
-    const linePad = padding(Math.max(0, contentWidth - visibleWidth(text)))
-    const isLast = i === rows.length - 1
-    if (isLast) {
-      const left = border(BOX.bottomLeft + h)
-      const right = border(h + BOX.bottomRight)
-      lines.push(left + text + linePad + right)
-    } else {
-      const left = border(BOX.vertical + padding(padX))
-      const right = border(padding(padX) + BOX.vertical)
-      lines.push(left + text + linePad + right)
+    const hint = options.inlineHint
+    const atCaretEnd = i === caret.row && caret.column >= visibleWidth(text)
+    let body = text
+    if (atCaretEnd && hint !== undefined && hint !== '') {
+      const budget = Math.max(0, contentWidth - visibleWidth(text))
+      if (budget > 0) body = text + theme.fg('dim', truncateToWidth(hint, budget))
     }
+    const linePad = padding(Math.max(0, contentWidth - visibleWidth(body)))
+    const left = border(BOX.vertical) + padding(padX)
+    const right = padding(padX) + border(BOX.vertical)
+    lines.push(left + body + linePad + right)
   }
+  const bottomLeft = border(BOX.bottomLeft + h.repeat(padX))
+  const bottomRight = border(h.repeat(padX) + BOX.bottomRight)
+  const footer = truncateToWidth(options.footer ?? '', fillWidth)
+  const footerFill = Math.max(0, fillWidth - visibleWidth(footer))
+  lines.push(bottomLeft + footer + border(h.repeat(footerFill)) + bottomRight)
 
   return {
     lines,
     cursor: { row: 1 + caret.row, column: 2 + caret.column },
   }
+}
+
+/** Columns of left chrome before input text (`│ `). */
+export const EDITOR_CONTENT_COL = 2
+
+/**
+ * Map a click in editor-local coordinates to a buffer index.
+ * Row 0 is the status cap (no hit). Undefined when the click is outside.
+ */
+export function hitTestEditor(input: string, width: number, localRow: number, col: number): number | undefined {
+  if (localRow < 1) return undefined
+  const contentWidth = Math.max(1, Math.max(4, width) - 2 - 2)
+  const layout = wrapIndexed(input, contentWidth)
+  const rows = layout.length > 0 ? layout : [{ text: '', start: 0, end: 0 }]
+  if (localRow > rows.length) return undefined
+  const row = localRow - 1
+  const line = rows[row]
+  if (line === undefined) return 0
+  return indexOnWrapped(line, col - EDITOR_CONTENT_COL, input)
 }
 
 /**
@@ -250,7 +287,7 @@ export function renderWorking(theme: Theme, spinnerFrame: number): string[] {
   return [' ' + theme.fg('accent', frame) + ' ' + theme.fg('muted', 'Working... (ctrl-c to interrupt)')]
 }
 
-/** Build the ` status · model · pwd · branch ` label that sits in the editor cap. */
+/** Build the ` icon · model · status · pwd · branch ` label in the editor cap. */
 export function editorStatusLabel(
   theme: Theme,
   parts: { appName: string; model: string; status: string; pwd: string; branch?: string },
@@ -260,7 +297,7 @@ export function editorStatusLabel(
   if (parts.branch !== undefined && parts.branch !== '') items.push(parts.branch)
   const sep = theme.fg('dim', ' · ')
   const painted = items.map((item, index) => {
-    if (index === 2 && parts.status === 'running') return theme.fg('warning', item)
+    if (index === 2 && parts.status.startsWith('running')) return theme.fg('warning', item)
     if (index === 0) return theme.fg('accent', item)
     return theme.fg('muted', item)
   })

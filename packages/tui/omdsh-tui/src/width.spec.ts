@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cursorOnWrapped, padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapIndexed, wrapText } from './width.ts'
+import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapIndexed, wrapText } from './width.ts'
 
 describe('visibleWidth', () => {
   it('ignores SGR sequences', () => {
@@ -19,6 +19,13 @@ describe('truncateToWidth', () => {
   })
 })
 
+describe('expandTabs', () => {
+  it('uses terminal tab stops without disturbing ANSI styling', () => {
+    expect(expandTabs('\x1b[31m\tmodified\x1b[0m', 8, 2))
+      .toBe('\x1b[31m      modified\x1b[0m')
+  })
+})
+
 describe('wrapText', () => {
   it('wraps on word boundaries', () => {
     expect(wrapText('hello world friends', 8)).toEqual(['hello', 'world', 'friends'])
@@ -34,6 +41,8 @@ describe('wrapIndexed + cursorOnWrapped', () => {
     const lines = wrapIndexed('abcdef', 3)
     expect(lines.map((line) => line.text)).toEqual(['abc', 'def'])
     expect(cursorOnWrapped(lines, 4, 'abcdef')).toEqual({ row: 1, column: 1 })
+    expect(indexOnWrapped(lines[1]!, 1, 'abcdef')).toBe(4)
+    expect(indexOnWrapped(lines[0]!, 0, 'abcdef')).toBe(0)
   })
 })
 

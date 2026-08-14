@@ -1,6 +1,6 @@
 /**
  * omdsh argument parsing: one optional prompt (positional words joined)
- * plus --model/--provider overrides and --help/--version.
+ * plus --model/--provider overrides, durable --resume, and help/version.
  * @module @omdsh/app
  */
 
@@ -11,6 +11,8 @@ export interface OmdshInvocation {
   model: string | undefined
   /** --provider override (process.env.OMDSH_PROVIDER). */
   provider: string | undefined
+  /** Durable session selected by --resume/-r. */
+  resume: string | undefined
   /** --help requested. */
   help: boolean
 }
@@ -24,6 +26,7 @@ Usage:
 Options:
   --model <name>      model route (default deepseek-v4-flash)
   --provider <name>   provider route (default deepseek-official)
+  -r, --resume <id>   resume a durable session
   -h, --help          show this help
   --version           show the version
 
@@ -41,6 +44,7 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
   const prompt: string[] = []
   let model: string | undefined
   let provider: string | undefined
+  let resume: string | undefined
   let help = false
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? ''
@@ -57,6 +61,10 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
       provider = argv[i + 1]
       i += 1
       if (provider === undefined) usageError('--provider requires a value')
+    } else if (arg === '--resume' || arg === '-r') {
+      resume = argv[i + 1]
+      i += 1
+      if (resume === undefined || resume.startsWith('-')) usageError(`${arg} requires a session id`)
     } else if (arg.startsWith('-')) {
       usageError('unknown option ' + arg)
     } else {
@@ -67,7 +75,8 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
     console.log(HELP.trim())
     process.exit(0)
   }
-  return { prompt, model, provider, help }
+  if (resume !== undefined && prompt.length > 0) usageError('--resume cannot be combined with a prompt')
+  return { prompt, model, provider, resume, help }
 }
 
 function usageError(message: string): never {

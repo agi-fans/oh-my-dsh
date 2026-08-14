@@ -122,9 +122,31 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   customMessageLabel: '#7e57c2',
 }
 
+const MIDNIGHT_PALETTE: Record<ThemeColor, Swatch> = {
+  ...DARK_PALETTE,
+  accent: '#7aa2f7', border: '#3d59a1', success: '#9ece6a', warning: '#e0af68',
+  userMessageBg: '#1a1b26', toolPendingBg: '#16161e', toolSuccessBg: '#1b2430',
+  mdHeading: '#bb9af7', mdLink: '#7dcfff', mdCode: '#ff9e64',
+}
+
+const SOLARIZED_PALETTE: Record<ThemeColor, Swatch> = {
+  ...DARK_PALETTE,
+  accent: '#b58900', border: '#268bd2', success: '#859900', error: '#dc322f',
+  warning: '#cb4b16', muted: '#839496', dim: '#586e75', userMessageBg: '#073642',
+  toolPendingBg: '#002b36', toolSuccessBg: '#073642', toolErrorBg: '#3b2020',
+  mdHeading: '#b58900', mdLink: '#268bd2', mdCode: '#2aa198', mdQuote: '#839496',
+}
+
+const MONO_PALETTE: Record<ThemeColor, Swatch> = Object.fromEntries(
+  Object.keys(DARK_PALETTE).map(key => [key, '']),
+) as Record<ThemeColor, Swatch>
+
 const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
   dark: DARK_PALETTE,
   light: LIGHT_PALETTE,
+  midnight: MIDNIGHT_PALETTE,
+  solarized: SOLARIZED_PALETTE,
+  mono: MONO_PALETTE,
 }
 
 /** 16-color fallbacks when the terminal is not truecolor. */
@@ -185,12 +207,15 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
 const ANSI16: Record<ThemeName, Record<ThemeColor, string>> = {
   dark: DARK_ANSI16,
   light: LIGHT_ANSI16,
+  midnight: DARK_ANSI16,
+  solarized: DARK_ANSI16,
+  mono: Object.fromEntries(Object.keys(DARK_ANSI16).map(key => [key, '39'])) as Record<ThemeColor, string>,
 }
 
 const RESET = '\x1b[0m'
 
 /** Built-in palettes (OMP `dark.json` / `light.json`). */
-export const THEME_NAMES = ['dark', 'light'] as const
+export const THEME_NAMES = ['dark', 'light', 'midnight', 'solarized', 'mono'] as const
 
 /** One shipped palette name. */
 export type ThemeName = (typeof THEME_NAMES)[number]
@@ -298,7 +323,17 @@ export function createTheme(
   }
 }
 
-/** π block logo used on OMP's welcome (resting frame source). */
+/** DeepSeek mark adapted from the official SVG for a 20×6 terminal cell. */
+export const DEEPSEEK_LOGO = [
+  '         ⢀⣀  ⢀⡀     ',
+  '⢀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣧⣄⡀⢻⣿⣷⣶⣶⣶⡿',
+  '⣿⡟⠛⠛⠛⠿⢿⣿⣿⣿⣿⡿⢿⣷⣾⣿⣿⠉⠉ ',
+  '⢻⣿⣄⡀  ⢀⠈⠛⢿⣿⣿⣶⣿⣿⡿⠃   ',
+  ' ⠙⠻⢿⣶⣦⣼⣿⣷⣦⣭⣿⠿⣿⣷⠦    ',
+  '     ⠉⠉⠉⠉⠉⠁         ',
+] as const
+
+/** @deprecated Use {@link DEEPSEEK_LOGO}; retained for API compatibility. */
 export const PI_LOGO = [
   '▀██████████▀',
   ' ╘██    ██  ',
@@ -334,10 +369,10 @@ function gradientEscape(t: number, trueColor: boolean): string {
 }
 
 /**
- * Diagonal gradient across the π logo (OMP welcome resting frame).
+ * Diagonal gradient across the DeepSeek logo.
  * Unstyled when colors are off.
  */
-export function gradientLogo(theme: Theme, lines: readonly string[] = PI_LOGO): string[] {
+export function gradientLogo(theme: Theme, lines: readonly string[] = DEEPSEEK_LOGO): string[] {
   if (!theme.colors) return [...lines]
   const reset = '\x1b[0m'
   const rows = lines.length

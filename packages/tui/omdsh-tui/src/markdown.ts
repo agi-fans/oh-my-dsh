@@ -18,6 +18,63 @@ const HR = /^(?:-{3,}|_{3,}|\*{3,})\s*$/
 const TABLE_SEP = /^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/
 const AUTOLINK = /^(https?:\/\/[^\s<]+|www\.[^\s<]+)/
 const LINK = /^\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/
+const MATH_SYMBOLS: Readonly<Record<string, string>> = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', theta: 'θ', lambda: 'λ', mu: 'μ',
+  pi: 'π', sigma: 'σ', phi: 'φ', omega: 'ω', times: '×', cdot: '·', le: '≤', ge: '≥',
+  neq: '≠', approx: '≈', infty: '∞', sum: '∑', int: '∫', sqrt: '√', to: '→',
+}
+const SUPERSCRIPT: Readonly<Record<string, string>> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻',
+}
+
+function normalizeHtml(source: string): string {
+  return source
+    .replace(/<br\s*\/?>/giu, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6]|tr)>/giu, '\n')
+    .replace(/<li(?:\s[^>]*)?>/giu, '- ')
+    .replace(/<\/?(?:a|b|blockquote|code|details|div|em|h[1-6]|i|ol|p|pre|span|strong|summary|table|tbody|td|th|thead|tr|u|ul)(?:\s[^>]*)?>/giu, '')
+    .replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&nbsp;', ' ')
+}
+
+function renderMath(value: string, theme: Theme): string {
+  const normalized = value
+    .replace(/\\([A-Za-z]+)/gu, (whole, name: string) => MATH_SYMBOLS[name] ?? whole)
+    .replace(/\^\{?([0-9+-]+)\}?/gu, (_whole, body: string) =>
+      [...body].map(char => SUPERSCRIPT[char] ?? char).join(''))
+    .replace(/_\{([^}]+)\}/gu, '₍$1₎')
+  return theme.fg('mdCode', normalized)
+}
+
+function highlightCode(row: string, language: string, theme: Theme): string {
+  if (!theme.colors || language === '') return theme.fg('mdCode', row)
+  const supported = /^(?:js|jsx|ts|tsx|javascript|typescript|json|python|py|bash|sh|shell|rust|go|java|css|html)$/u.test(language)
+  if (!supported) return theme.fg('mdCode', row)
+  return row.split(/(\s+|\b)/u).map(token => {
+    if (/^(?:const|let|var|function|class|interface|type|return|if|else|for|while|async|await|import|export|from|def|fn|struct|package|func|true|false|null|undefined)$/u.test(token)) {
+      return theme.fg('accent', token)
+    }
+    if (/^(?:\d+(?:\.\d+)?|"[^"]*"|'[^']*')$/u.test(token)) return theme.fg('mdCode', token)
+    return token
+  }).join('')
+}
+
+function renderMermaid(rows: readonly string[], theme: Theme, width: number): string[] {
+  const output: string[] = []
+  for (const raw of rows) {
+    const row = raw.trim()
+    if (row === '' || /^(?:graph|flowchart|sequenceDiagram)\b/u.test(row)) continue
+    const sequence = /^([^:]+?)-+>>?([^:]+):\s*(.+)$/u.exec(row)
+    const edge = /^(.+?)-+(?:>|\|[^|]*\|)(.+)$/u.exec(row)
+    const text = sequence
+      ? `${sequence[1]?.trim()} → ${sequence[2]?.trim()}: ${sequence[3]?.trim()}`
+      : edge
+        ? `${edge[1]?.replace(/[\[\](){}]/gu, '').trim()} → ${edge[2]?.replace(/[\[\](){}]/gu, '').trim()}`
+        : row
+    output.push(...wrapStyled('  ' + theme.fg('mdCode', text), width))
+  }
+  return output.length > 0 ? output : [theme.fg('dim', '  (empty Mermaid diagram)')]
+}
 
 function wrapStyled(text: string, width: number): string[] {
   return wrapText(text, Math.max(1, width))
@@ -78,6 +135,13 @@ export function renderInline(text: string, theme: Theme): string {
     if (code) {
       out += theme.fg('mdCode', code[1] ?? '')
       i += code[0].length
+      continue
+    }
+
+    const math = rest.match(/^\$([^$\n]+)\$/u)
+    if (math) {
+      out += renderMath(math[1] ?? '', theme)
+      i += math[0].length
       continue
     }
 
@@ -238,18 +302,24 @@ function pushListItem(
  */
 export function renderMarkdown(source: string, theme: Theme, width: number): string[] {
   const lines: string[] = []
-  const raw = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')
+  const raw = normalizeHtml(source).replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')
   let fence: string | undefined
+  let fenceLang = ''
   let fenceBuf: string[] = []
 
   const flushFence = (): void => {
+    if (fenceLang === 'mermaid') {
+      lines.push(...renderMermaid(fenceBuf, theme, width))
+    } else {
     for (const row of fenceBuf) {
-      const body = row === '' ? '' : theme.fg('mdCode', row)
+      const body = row === '' ? '' : highlightCode(row, fenceLang, theme)
       lines.push(...wrapStyled(body === '' ? '  ' : '  ' + body, width))
+    }
     }
     lines.push(...wrapStyled(theme.fg('mdCodeBlockBorder', '  ```'), width))
     fenceBuf = []
     fence = undefined
+    fenceLang = ''
   }
 
   for (let i = 0; i < raw.length; i += 1) {
@@ -266,7 +336,18 @@ export function renderMarkdown(source: string, theme: Theme, width: number): str
     if (fenceMatch) {
       fence = fenceMatch[1]
       const lang = (fenceMatch[2] ?? '').trim()
+      fenceLang = lang.toLowerCase()
       lines.push(...wrapStyled(theme.fg('mdCodeBlockBorder', '  ```' + lang), width))
+      continue
+    }
+    if (row.trim() === '$$') {
+      const mathRows: string[] = []
+      i += 1
+      while (i < raw.length && (raw[i] ?? '').trim() !== '$$') {
+        mathRows.push(raw[i] ?? '')
+        i += 1
+      }
+      lines.push(...wrapStyled('  ' + renderMath(mathRows.join(' '), theme), width))
       continue
     }
     if (row === '') {

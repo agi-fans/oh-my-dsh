@@ -27,8 +27,22 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-attachment": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-session-projection": "workspace:^",
+    "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-session-stats": "workspace:^",
+    "@deepseek-ai/dsh-session-title": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
+    "@deepseek-ai/dsh-settings": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-token-meter": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^",
+    "@deepseek-ai/dsh-user-questions": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^"

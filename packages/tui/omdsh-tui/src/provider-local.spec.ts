@@ -1,21 +1,28 @@
 /**
  * LocalTui contract tests over a fake terminal: key routing (edit, history,
  * slash/tab autocomplete, Ctrl-R history search, PgUp/PgDn transcript
- * scroll, Ctrl-O tool expand, submit), Ctrl-C interrupt vs clear, Ctrl-D quit and the
+ * scroll, Ctrl-O tool expand, submit), double Ctrl-C exit, Ctrl-D quit and the
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { copyToClipboard } from './clipboard.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
+import { initialTranscript, renderView } from './event-views.ts'
+import { SETTINGS_ITEM_ROW } from './settings-list.ts'
+import { createHistorySearch } from './history-search.ts'
+import type { DirEntry } from './path-complete.ts'
+import { stripAnsi } from './width.ts'
 
 class FakeTerminal implements TerminalLike {
   captured = ''
+  writes = 0
   raw = false
   destroyed = false
   output = {
     isTTY: true,
-    write: (chunk: string): void => { this.captured += chunk },
+    write: (chunk: string): void => { this.writes += 1; this.captured += chunk },
   }
   input = Object.assign(new PassThrough(), {
     isTTY: true,
@@ -81,6 +88,52 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('interactively selects a prompt option with arrow keys and Enter', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const runnerLine = tui.readline()
+    const answer = tui.prompt({
+      title: 'Resume session',
+      question: 'Choose a session',
+      options: [
+        { label: 'session-one', description: 'First session' },
+        { label: 'session-two', description: 'Second session' },
+      ],
+    })
+
+    press(term, '\x1b[B\r')
+
+    expect(stripAnsi(term.captured)).toContain('❯ session-two')
+    expect(await answer).toBe('session-two')
+    press(term, 'next prompt\r')
+    expect(await runnerLine).toBe('next prompt')
+    tui.dispose()
+  })
+
+  it('renders a fixed-choice prompt without a custom-answer editor', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const answer = tui.prompt({
+      title: 'Skills · 2 available',
+      question: 'Skills are reusable playbooks.',
+      detail: 'Choose one to add its instructions to this turn.',
+      options: [
+        { label: 'code-review', description: 'Review a change for correctness.' },
+        { label: 'research', description: 'Research a question using primary sources.' },
+      ],
+      allowCustom: false,
+      submitLabel: 'run',
+    })
+
+    expect(stripAnsi(term.captured)).toContain('Skills · 2 available')
+    expect(stripAnsi(term.captured)).toContain('reusable playbooks')
+    expect(stripAnsi(term.captured)).toContain('enter run')
+    expect(stripAnsi(term.captured)).not.toContain('custom answer')
+    press(term, '\x1b[B\r')
+    expect(await answer).toBe('research')
+    tui.dispose()
+  })
+
   it('queues a line submitted while a turn is running', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -127,6 +180,26 @@ describe('LocalTui (tty)', () => {
     press(term, '\x03')
     expect(fired).toBe(1)
     tui.dispose()
+  })
+
+  it('quits on a rapid second Ctrl-C and prints a resume command after restoring the tty', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setSession({ id: 'session-double-c', recent: [] })
+    const pending = tui.readline()
+    let settled = false
+    void pending.then(() => { settled = true })
+
+    press(term, 'draft\x03')
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    press(term, '\x03')
+    expect(await pending).toBe(null)
+    tui.dispose()
+
+    expect(term.raw).toBe(false)
+    expect(term.captured).toContain('Resume this session with omdsh --resume session-double-c')
   })
 
   it('quits on Ctrl-D with an empty buffer', async () => {
@@ -223,17 +296,114 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('/help')
     expect(term.captured).toContain('/settings')
     expect(term.captured).toContain('/theme')
-    expect(term.captured).toContain('/clear')
-    expect(term.captured).toContain('/quit')
+    expect(term.captured).toContain('/hotkeys')
+    expect(term.captured).toContain('/copy')
+    expect(term.captured).toContain('1/9')
     tui.dispose()
   })
 
   it('completes the selected slash command on Tab', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    press(term, '/c')
+    press(term, '/cl')
     press(term, '\t')
     expect(term.captured).toContain('/clear ')
+    tui.dispose()
+  })
+
+  it('suggests /theme arguments after a space and completes on Tab', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '/th')
+    press(term, '\t')
+    expect(term.captured).toContain('/theme ')
+    expect(term.captured).toContain('Dark palette')
+    expect(term.captured).toContain('Light palette')
+    expect(term.captured).not.toContain('/dark')
+    press(term, '\t')
+    expect(term.captured).toContain('/theme dark ')
+    tui.dispose()
+  })
+
+  it('shows an inline argument hint after /theme ', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '/theme ')
+    expect(term.captured).toContain('dark|light')
+    tui.dispose()
+  })
+
+  it('suggests /copy arguments and completes the selected kind', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '/copy c')
+    expect(term.captured).toContain('code')
+    expect(term.captured).toContain('cmd')
+    press(term, '\t')
+    expect(term.captured).toContain('/copy code ')
+    tui.dispose()
+  })
+
+  it('completes @ paths from the injected listing', () => {
+    const listing = (dir: string): readonly DirEntry[] | undefined => {
+      if (dir === '/proj') {
+        return [
+          { name: 'src', directory: true },
+          { name: 'README.md', directory: false },
+        ]
+      }
+      if (dir === '/proj/src') return [{ name: 'index.ts', directory: false }]
+      return undefined
+    }
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      home: '/home/me',
+      listDir: listing,
+    })
+    press(term, '@')
+    expect(term.captured).toContain('src/')
+    expect(term.captured).toContain('README.md')
+    expect(term.captured).not.toContain('/src/')
+    press(term, '\t')
+    expect(term.captured).toContain('@src/')
+    expect(term.captured).toContain('index.ts')
+    press(term, '\t')
+    expect(term.captured).toContain('@src/index.ts ')
+    tui.dispose()
+  })
+
+  it('opens bare-word path suggestions on Tab and completes on a second Tab', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      home: '/home/me',
+      listDir: (dir) => dir === '/proj'
+        ? [
+          { name: 'src', directory: true },
+          { name: 'README.md', directory: false },
+        ]
+        : undefined,
+    })
+    press(term, 'READ')
+    expect(term.captured).not.toContain('README.md')
+    press(term, '\t')
+    expect(term.captured).toContain('README.md')
+    expect(term.captured).not.toContain('README.md ')
+    press(term, '\t')
+    expect(term.captured).toContain('README.md ')
+    tui.dispose()
+  })
+
+  it('does not replace the slash popup with file listings', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      listDir: () => [{ name: 'src', directory: true }],
+    })
+    press(term, '/')
+    expect(term.captured).toContain('/help')
+    expect(term.captured).not.toContain('src/')
     tui.dispose()
   })
 
@@ -251,6 +421,117 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('copies the last assistant reply on /copy', async () => {
+    const copied: string[] = []
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', async (text) => { copied.push(text) })
+    const pending = tui.readline()
+    tui.event(ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'hello from the model' }] },
+    }, 1))
+    press(term, '/copy text\r')
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    expect(copied).toEqual(['hello from the model'])
+    expect(term.captured).toContain('Copied assistant text')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('opens the /copy picker and copies the selected row', async () => {
+    const copied: string[] = []
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', async (text) => { copied.push(text) })
+    const pending = tui.readline()
+    tui.event(ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'hello from the model' }] },
+    }, 1))
+    press(term, '/copy\r')
+    expect(term.captured).toContain('hello from the model')
+    expect(term.captured).toContain('enter copy')
+    expect(copied).toEqual([])
+    press(term, '\r')
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    expect(copied).toEqual(['hello from the model'])
+    expect(term.captured).toContain('Copied last message')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('reports nothing to copy and rejects unknown /copy args', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', async () => { throw new Error('unused') })
+    const pending = tui.readline()
+    press(term, '/copy\r')
+    expect(term.captured).toContain('Nothing to copy.')
+    press(term, '/copy nope\r')
+    expect(term.captured).toContain('Usage: /copy [code|cmd]')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('runs /hotkeys locally and keeps readline pending', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, '/hotkeys\r')
+    expect(term.captured).toContain('Ctrl+R')
+    expect(term.captured).toContain('search history')
+    expect(term.captured).toContain('/hotkeys')
+    press(term, 'hi\r')
+    expect(await pending).toBe('hi')
+    tui.dispose()
+  })
+
+  it('treats /exit as quit', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, '/exit\r')
+    expect(await pending).toBe(null)
+    tui.dispose()
+  })
+
+  it('lists agent tools on /tools after setTools', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, '/tools\r')
+    expect(term.captured).toContain('No tools are available.')
+    tui.setTools([
+      { name: 'bash', description: 'Run a shell command' },
+      { name: 'fs', description: '' },
+    ])
+    press(term, '/tools\r')
+    expect(term.captured).toContain('Tools')
+    expect(term.captured).toContain('- bash  Run a shell command')
+    expect(term.captured).toContain('- fs')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('lists cwd and model on /pwd', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, '/pwd\r')
+    expect(term.captured).toContain('Workspace')
+    expect(term.captured).toContain('cwd: ' + process.cwd())
+    expect(term.captured).toContain('model: m')
+    press(term, '/dirs\r')
+    expect(term.captured).toContain('Workspace')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
   it('runs /help locally and keeps readline pending', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -259,6 +540,16 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('Commands')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
+    tui.dispose()
+  })
+
+  it('submits a namespaced skill command from the flat command catalog', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setCommands([{ name: 'skill:code-review', description: 'Review a change for correctness' }])
+    const pending = tui.readline()
+    press(term, '/skill:code-review focus on auth\r')
+    expect(await pending).toBe('/skill:code-review focus on auth')
     tui.dispose()
   })
 
@@ -293,6 +584,34 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('focuses the Tools row on /settings tools', async () => {
+    const persisted: Array<{ expandTools: boolean }> = []
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setPrefsPersist((prefs) => { persisted.push(prefs) })
+    void tui.readline()
+    press(term, '/settings tools\r')
+    expect(term.captured).toContain('Expand tool output')
+    press(term, '\r')
+    expect(persisted[0]?.expandTools).toBe(true)
+    tui.dispose()
+  })
+
+  it('persists /theme changes through the prefs hook', async () => {
+    const persisted: Array<{ theme: string; colors: boolean }> = []
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setPrefsPersist((prefs) => { persisted.push(prefs) })
+    const pending = tui.readline()
+    press(term, '/theme light\r')
+    expect(persisted).toEqual([{ theme: 'light', colors: false, expandTools: false, statusPreset: 'compact' }])
+    tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
+    expect(term.captured).not.toContain('Theme: dark')
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
   it('applies /theme light without submitting a prompt', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -323,6 +642,33 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('unknown command: /nope')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('inserts a history match when its result row is clicked', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const first = tui.readline()
+    press(term, 'unique zebra\r')
+    await first
+    const pending = tui.readline()
+    press(term, '\x12')
+    const layout = renderView(initialTranscript(), {
+      width: term.width(),
+      height: term.height(),
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      historySearch: createHistorySearch(['unique zebra']),
+    })
+    const start = layout.overlay?.start
+    const resultsRow = layout.overlay?.resultsRow
+    expect(start).toBeDefined()
+    expect(resultsRow).toBeDefined()
+    press(term, `\x1b[<0;1;${(start ?? 0) + (resultsRow ?? 0) + 1}M`)
+    press(term, '\r')
+    expect(await pending).toBe('unique zebra')
     tui.dispose()
   })
 
@@ -425,6 +771,21 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('expands tool output when expandTools pref is on', () => {
+    const term = new FakeTerminal()
+    term.height = () => 80
+    const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true })
+    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
+    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
+    tui.event(ev('tool/result', {
+      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
+    }, 2))
+    expect(term.captured).toContain('tool-line-13')
+    expect(term.captured).not.toContain('ctrl+o to expand')
+    tui.dispose()
+  })
+
   it('toggles truncated tool output on ctrl+o', () => {
     const term = new FakeTerminal()
     term.height = () => 80
@@ -446,7 +807,7 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('scrolls the transcript with the mouse wheel', () => {
+  it('scrolls the transcript with the mouse wheel', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     for (let i = 0; i < 16; i += 1) {
@@ -454,12 +815,30 @@ describe('LocalTui (tty)', () => {
     }
     expect(term.captured).not.toContain('later line')
     press(term, '\x1b[<64;10;5M')
+    await new Promise<void>(resolve => { setImmediate(resolve) })
     expect(term.captured).toContain('later line')
     const before = term.captured.length
     tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'NEW-TAIL' }] }, 99))
     expect(term.captured.slice(before)).not.toContain('NEW-TAIL')
     for (let i = 0; i < 24; i += 1) press(term, '\x1b[<65;10;5M')
+    await new Promise<void>(resolve => { setImmediate(resolve) })
     expect(term.captured).toContain('NEW-TAIL')
+    tui.dispose()
+  })
+
+  it('coalesces a burst of transcript wheel events into one terminal update', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    for (let i = 0; i < 40; i += 1) {
+      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'wheel-' + i }] }, i))
+    }
+    const before = term.writes
+
+    for (let i = 0; i < 12; i += 1) press(term, '\x1b[<64;10;5M')
+    await new Promise<void>(resolve => { setImmediate(resolve) })
+
+    expect(term.writes - before).toBe(1)
+    expect(term.captured).toContain('later line')
     tui.dispose()
   })
 
@@ -470,6 +849,77 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('/help')
     press(term, '\x1b[<65;4;20M')
     expect(term.captured).toContain('❯')
+    tui.dispose()
+  })
+
+  it('completes a slash command when its popup row is clicked', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '/')
+    const layout = renderView(initialTranscript(), {
+      width: term.width(),
+      height: term.height(),
+      model: 'm',
+      input: '/',
+      inputCursor: 1,
+      colors: false,
+      autocomplete: {
+        items: [
+          { value: 'help', label: 'help' },
+          { value: 'settings', label: 'settings' },
+        ],
+        selected: 0,
+      },
+    })
+    const start = layout.overlay?.start
+    expect(start).toBeDefined()
+    press(term, `\x1b[<0;1;${(start ?? 0) + 2}M`)
+    expect(term.captured).toContain('/settings ')
+    tui.dispose()
+  })
+
+  it('selects a settings row on click and cycles on a second click', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    void tui.readline()
+    press(term, '/settings\r')
+    const layout = renderView(initialTranscript(), {
+      width: term.width(),
+      height: term.height(),
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      settings: { selected: 0, prefs: { theme: 'dark', colors: false, expandTools: false } },
+    })
+    const start = layout.overlay?.start
+    expect(start).toBeDefined()
+    press(term, `\x1b[<0;1;${(start ?? 0) + SETTINGS_ITEM_ROW + 2}M`)
+    expect(term.captured).toContain('SGR styling')
+    const before = term.captured.length
+    press(term, `\x1b[<0;1;${(start ?? 0) + SETTINGS_ITEM_ROW + 2}M`)
+    expect(term.captured.slice(before)).toContain('on')
+    tui.dispose()
+  })
+
+  it('moves the caret when the input row is clicked', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, 'hello')
+    const layout = renderView(initialTranscript(), {
+      width: term.width(),
+      height: term.height(),
+      model: 'm',
+      input: 'hello',
+      inputCursor: 5,
+      colors: false,
+    })
+    const start = layout.editor?.start
+    expect(start).toBeDefined()
+    press(term, `\x1b[<0;3;${(start ?? 0) + 2}M`)
+    press(term, 'X\r')
+    expect(await pending).toBe('Xhello')
     tui.dispose()
   })
 
@@ -515,6 +965,20 @@ describe('LocalTui (plain)', () => {
     const second = tui.readline()
     term.input.end()
     expect(await second).toBe(null)
+    tui.dispose()
+  })
+
+  it('routes a human-interaction answer before the outstanding runner readline', async () => {
+    const term = new FakeTerminal()
+    term.input.isTTY = false
+    term.output.isTTY = false
+    const tui = new LocalTui(term, 'm', false)
+    const runnerLine = tui.readline()
+    const answer = tui.prompt({ title: 'Approval', question: 'Continue?' })
+    press(term, 'yes\n')
+    expect(await answer).toBe('yes')
+    press(term, 'next prompt\n')
+    expect(await runnerLine).toBe('next prompt')
     tui.dispose()
   })
 

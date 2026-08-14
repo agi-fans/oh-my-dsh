@@ -2,9 +2,9 @@
  * TUI capability seam — local terminal provider.
 
  * Owns the tty: raw-mode key input (editing, history, slash/tab
- * autocomplete, /settings overlay, Ctrl-R history search, PgUp/PgDn
- * and mouse-wheel transcript scroll, Ctrl-O tool expand, bracketed
- * paste, Ctrl-C interrupt, Ctrl-D quit),
+ * autocomplete, /settings overlay, /copy picker, Ctrl-R history search, PgUp/PgDn
+ * and mouse-wheel transcript scroll, click-to-caret, Ctrl-O tool
+ * expand, bracketed paste, double Ctrl-C exit, Ctrl-D quit),
  * SIGWINCH reflow, and the differential renderer. In non-tty mode
  * (pipes, CI) it degrades to line-based input with plain append-only
  * printing of settled blocks.
@@ -17,20 +17,55 @@ import { join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { TUI_SERVICE, type TuiService, type TuiStatus } from './definition.ts'
+import {
+  TUI_SERVICE,
+  type TuiCommand,
+  type TuiPrompt,
+  type TuiRecentSession,
+  type TuiService,
+  type TuiSessionStats,
+  type TuiStatus,
+} from './definition.ts'
 import {
   applySlashCompletion,
   formatHelpText,
+  hitTestAutocomplete,
   parseSlashInput,
   resolveSlashCommand,
   slashSuggestions,
   type AutocompleteItem,
+  type SlashCommand,
+  BUILTIN_SLASH_COMMANDS,
 } from './autocomplete.ts'
-import { applyHistorySearchEvent, createHistorySearch, type HistorySearchState } from './history-search.ts'
-import { type EditorCommand, InputEditor } from './editor.ts'
+import {
+  applyPathCompletion,
+  defaultPathSource,
+  pathSuggestions,
+  type DirReader,
+} from './path-complete.ts'
+import { formatHotkeysText } from './hotkeys.ts'
+import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from './clipboard.ts'
+import {
+  applyCopySelectorEvent,
+  createCopySelector,
+  hitTestCopySelector,
+  selectCopyTarget,
+  type CopySelectorState,
+} from './copy-selector.ts'
+import { buildCopyTargets, extractCopyTarget, parseCopyKind } from './copy-targets.ts'
+import {
+  applyHistorySearchEvent,
+  createHistorySearch,
+  hitTestHistorySearch,
+  type HistorySearchState,
+} from './history-search.ts'
+import { type EditorCommand, InputEditor, lineEnd, lineStart } from './editor.ts'
 import {
   applySettingsEvent,
   createSettings,
+  hitTestSettings,
+  selectSetting,
+  tuiSettingItems,
   type SettingsState,
   type TuiPrefs,
 } from './settings-list.ts'
@@ -45,14 +80,32 @@ import {
 } from './event-views.ts'
 import { flushPending, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, parseKeys, type KeyEvent } from './keys.ts'
 import { LineRenderer, type RenderSink } from './renderer.ts'
-import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from './theme.ts'
+import { hitTestEditor } from './box.ts'
+import { createTheme, detectTrueColor, parseThemeName, THEME_NAMES, type ThemeName } from './theme.ts'
+import { formatWorkspaceText } from './pwd.ts'
+import { formatToolsText, type ToolInfo } from './tools-list.ts'
+import { BUILTIN_TOOL_RENDERERS, type TuiToolRenderer } from './tool-renderers.ts'
+import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema } from './tui-settings.ts'
+import { HistoryStore } from './history-store.ts'
+import { loadKeybindings, type TuiAction } from './keybindings-config.ts'
+import { editExternally } from './external-editor.ts'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
+import {
+  movePromptSelection,
+  selectedPromptAnswer,
+  togglePromptSelection,
+  type PromptSelectorState,
+} from './prompt-selector.ts'
 
 const APP_NAME = 'omdsh'
 const APP_VERSION = '0.1.0'
+const DOUBLE_CTRL_C_MS = 500
 
 function settingsFocus(name: 'settings' | 'theme', token: string): string | undefined {
   if (name === 'theme' || token === 'theme') return 'theme'
   if (token === 'color' || token === 'colors') return 'colors'
+  if (token === 'tools' || token === 'expand') return 'expandTools'
   return undefined
 }
 
@@ -87,6 +140,10 @@ export interface Config {
   colors?: boolean
   /** Shipped palette; defaults to dark. */
   theme?: string
+  /** Optional JSONL prompt-history path. */
+  historyPath?: string
+  /** Optional `{ key-id: action }` JSON file. */
+  keybindingsPath?: string
 }
 
 /** The minimal terminal surface a LocalTui drives (process streams satisfy it). */
@@ -106,6 +163,10 @@ export interface TerminalLike {
 }
 
 type PendingRead = { resolve: (line: string | null) => void }
+type PendingPrompt = PromptSelectorState & {
+  resolve: (answer: string | null) => void
+  offAbort?: () => void
+}
 
 /**
  * Local terminal presentation service.
@@ -125,13 +186,17 @@ export class LocalTui implements TuiService {
   #ac: { items: AutocompleteItem[]; selected: number } | null = null
   #search: HistorySearchState | null = null
   #settings: SettingsState | null = null
+  #copySelector: CopySelectorState | null = null
   #pending: PendingRead | null = null
   #queue: string[] = []
   #quitRequested = false
+  #resumeHintRequested = false
+  #lastSigintTime = 0
   #interrupts = new Set<() => void>()
   #disposed = false
   #pendingKeys = ''
   #escapeTimer: ReturnType<typeof setTimeout> | null = null
+  #scrollRender: ReturnType<typeof setImmediate> | null = null
   #paste = false
   #pasteBuf = ''
   #lineReader: Interface | null = null
@@ -148,20 +213,65 @@ export class LocalTui implements TuiService {
   #maxStart = 0
   #scrollBudget = 0
   #follow = true
+  #expandTools = false
+  #statusPreset: NonNullable<TuiPrefs['statusPreset']> = 'compact'
   #toolsExpanded = false
+  #expandedToolCalls = new Set<string>()
+  #tools: ToolInfo[] = []
+  #runtimeCommands: TuiCommand[] = []
+  #prompt: PendingPrompt | null = null
+  #recentSessions: TuiRecentSession[] = []
+  #sessionId: string | undefined
+  #sessionStats: TuiSessionStats | undefined
+  #toolRenderers: TuiToolRenderer[] = [...BUILTIN_TOOL_RENDERERS]
+  #editorHit: { start: number; rows: number } | null = null
+  #overlayHit: { kind: 'autocomplete' | 'settings' | 'search' | 'copy'; start: number; resultsRow?: number } | null = null
   readonly #trueColor: boolean
+  readonly #copy: ClipboardWriter
+  readonly #readClipboard: ClipboardReader
+  readonly #historyStore: HistoryStore | undefined
+  readonly #keybindings: Record<string, TuiAction>
+  readonly #cwd: string
+  readonly #home: string
+  readonly #listDir: DirReader
+  #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
 
   /**
    * @param term - terminal surface (injectable for tests).
    * @param model - model label for the status line.
    * @param colors - SGR styling switch.
    * @param themeName - shipped palette.
+   * @param copy - clipboard writer (defaults to the platform tool).
+   * @param paths - cwd/home/listing used by `@` and path autocomplete.
    */
-  constructor(term: TerminalLike, model: string, colors: boolean, themeName: ThemeName = 'dark') {
+  constructor(
+    term: TerminalLike,
+    model: string,
+    colors: boolean,
+    themeName: ThemeName = 'dark',
+    copy: ClipboardWriter = copyToClipboard,
+    paths: {
+      cwd?: string
+      home?: string
+      listDir?: DirReader
+      historyPath?: string
+      keybindingsPath?: string
+      readClipboard?: ClipboardReader
+    } = {},
+  ) {
     this.#term = term
     this.#model = model
     this.#colors = colors
     this.#themeName = themeName
+    this.#copy = copy
+    this.#readClipboard = paths.readClipboard ?? readFromClipboard
+    this.#historyStore = paths.historyPath === undefined ? undefined : new HistoryStore(paths.historyPath)
+    this.#history = this.#historyStore?.load() ?? []
+    this.#keybindings = loadKeybindings(paths.keybindingsPath)
+    const fallback = defaultPathSource()
+    this.#cwd = paths.cwd ?? fallback.cwd
+    this.#home = paths.home ?? fallback.home
+    this.#listDir = paths.listDir ?? fallback.listDir
     this.#trueColor = colors && detectTrueColor()
     this.#tty = term.input.isTTY === true
     this.#pwd = shortenPath(process.cwd())
@@ -208,6 +318,101 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
+  setTools(tools: readonly ToolInfo[]): void {
+    this.#tools = tools.map((tool) => ({ name: tool.name, description: tool.description }))
+  }
+
+  registerToolRenderer(renderer: TuiToolRenderer): () => void {
+    this.#toolRenderers.push(renderer)
+    if (this.#tty) this.#render()
+    return () => {
+      const index = this.#toolRenderers.lastIndexOf(renderer)
+      if (index >= 0) this.#toolRenderers.splice(index, 1)
+      if (this.#tty) this.#render()
+    }
+  }
+
+  setCommands(commands: readonly TuiCommand[]): void {
+    this.#runtimeCommands = commands.map((command) => ({
+      name: command.name,
+      description: command.description,
+      ...(command.inputHint === undefined ? {} : { inputHint: command.inputHint }),
+    }))
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
+
+  notice(text: string, level: 'info' | 'error' = 'info'): void {
+    this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'notice', level, text }] }
+    if (this.#tty) this.#render()
+    else this.#printPlain()
+  }
+
+  prompt(request: TuiPrompt): Promise<string | null> {
+    if (this.#prompt !== null) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
+    if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
+    this.#editor.setText('')
+    this.#ac = null
+    return new Promise((resolve) => {
+      const pending: PendingPrompt = { request, selected: 0, checked: new Set(), resolve }
+      if (request.signal !== undefined) {
+        const onAbort = (): void => { this.#finishPrompt(null) }
+        request.signal.addEventListener('abort', onAbort, { once: true })
+        pending.offAbort = () => { request.signal?.removeEventListener('abort', onAbort) }
+      }
+      this.#prompt = pending
+      if (this.#tty) {
+        this.#render()
+      } else {
+        const lines = [request.question]
+        if (request.detail !== undefined && request.detail !== '') lines.push('', request.detail)
+        if (request.options !== undefined && request.options.length > 0) {
+          lines.push('', ...request.options.map((option, index) =>
+            `${index + 1}. ${option.label}${option.description === undefined ? '' : ' — ' + option.description}`))
+          lines.push('', request.allowCustom === false
+            ? 'Choose a label or number.'
+            : request.multiSelect === true
+              ? 'Choose labels/numbers separated by commas, or type a custom answer.'
+              : 'Choose a label/number, or type a custom answer.')
+        }
+        this.notice(`${request.title}\n${lines.join('\n')}`)
+      }
+    })
+  }
+
+  replaceSession(events: readonly SessionEvent[]): void {
+    let state = initialTranscript()
+    for (const event of events) state = applyEvent(state, event)
+    this.#state = { ...state, status: 'idle' }
+    this.#plainPrinted = 0
+    this.#followTail()
+    if (this.#tty) this.#render()
+    else this.#printPlain()
+  }
+
+  setSession(info: { id: string; recent: readonly TuiRecentSession[]; stats?: TuiSessionStats }): void {
+    this.#sessionId = info.id
+    this.#recentSessions = info.recent.map((session) => ({ ...session }))
+    this.#sessionStats = info.stats === undefined ? undefined : { ...info.stats }
+    if (this.#tty) this.#render()
+  }
+
+  /** Apply prefs loaded from the settings document (does not persist). */
+  applyStoredPrefs(prefs: TuiPrefs): void {
+    this.#themeName = prefs.theme
+    this.#colors = prefs.colors
+    this.#expandTools = prefs.expandTools
+    this.#statusPreset = prefs.statusPreset ?? 'compact'
+    this.#toolsExpanded = prefs.expandTools
+    if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
+    if (this.#tty) this.#render()
+  }
+
+  /** Called after a live `/settings` or `/theme` change. */
+  setPrefsPersist(persist: (prefs: TuiPrefs) => void): void {
+    this.#persistPrefs = persist
+  }
+
   readline(): Promise<string | null> {
     if (this.#pending !== null) return Promise.reject(new Error('omdsh-tui: readline already in flight'))
     if (this.#disposed) return Promise.resolve(null)
@@ -239,6 +444,10 @@ export class LocalTui implements TuiService {
       clearInterval(this.#tick)
       this.#tick = null
     }
+    if (this.#scrollRender !== null) {
+      clearImmediate(this.#scrollRender)
+      this.#scrollRender = null
+    }
     if (this.#tty) {
       this.#offData?.()
       this.#offResize?.()
@@ -247,6 +456,9 @@ export class LocalTui implements TuiService {
       // prompt does not overwrite the transcript. Disable mouse tracking
       // and bracketed paste.
       this.#term.output.write(MOUSE_TRACKING_OFF + '\x1b[?2004l\r\n')
+      if (this.#resumeHintRequested && this.#sessionId !== undefined) {
+        this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
+      }
       // A tty stdin keeps the event loop alive after the tree disposes;
       // release the descriptor so natural completion can exit the process.
       this.#term.input.destroy?.()
@@ -255,6 +467,7 @@ export class LocalTui implements TuiService {
     this.#lineReader?.close()
     this.#pending?.resolve(null)
     this.#pending = null
+    this.#finishPrompt(null)
   }
 
   /** Re-render the current frame (resize reflow). */
@@ -283,6 +496,23 @@ export class LocalTui implements TuiService {
   }
 
   #plainResolve(line: string | null): void {
+    if (this.#prompt !== null && line !== null) {
+      const value = line.trim()
+      if (value === '') {
+        this.#finishPrompt(null)
+      } else if (this.#prompt.request.allowCustom === false) {
+        const options = this.#prompt.request.options ?? []
+        const numeric = /^\d+$/u.test(value) ? Number(value) - 1 : -1
+        const option = numeric >= 0
+          ? options[numeric]
+          : options.find(item => item.label.toLowerCase() === value.toLowerCase())
+        this.#finishPrompt(option?.label ?? null)
+      } else {
+        this.#finishPrompt(value)
+      }
+      return
+    }
+    if (this.#prompt !== null) this.#finishPrompt(null)
     const pending = this.#plainPending
     this.#plainPending = null
     pending?.resolve(line)
@@ -296,7 +526,7 @@ export class LocalTui implements TuiService {
     let out = ''
     for (const block of fresh) {
       // Pipe / CI output is not a viewport: print the full tool body.
-      for (const line of blockLines(block, theme, width, 0, true)) out += line + '\n'
+      for (const line of blockLines(block, theme, width, 0, true, this.#toolRenderers)) out += line + '\n'
     }
     this.#plainPrinted = this.#state.blocks.length
     if (out !== '') this.#term.output.write(out)
@@ -323,6 +553,10 @@ export class LocalTui implements TuiService {
   }
 
   #render(): void {
+    if (this.#scrollRender !== null) {
+      clearImmediate(this.#scrollRender)
+      this.#scrollRender = null
+    }
     const width = this.#term.width()
     const frame = this.#tty
       ? renderView(this.#state, {
@@ -341,13 +575,24 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         toolsExpanded: this.#toolsExpanded,
+        expandedTools: this.#expandedToolCalls,
+        commands: this.#commands(),
+        recentSessions: this.#recentSessions,
+        toolRenderers: this.#toolRenderers,
+        ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
+        statusPreset: this.#statusPreset,
+        ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
           ? { settings: this.#settings }
-          : this.#search !== null
-            ? { historySearch: this.#search }
-            : this.#ac !== null ? { autocomplete: this.#ac } : {}),
+          : this.#copySelector !== null
+            ? { copySelector: this.#copySelector }
+            : this.#search !== null
+              ? { historySearch: this.#search }
+              : this.#ac !== null ? { autocomplete: this.#ac } : {}),
       })
       : { lines: [] }
+    this.#editorHit = frame.editor ?? null
+    this.#overlayHit = frame.overlay ?? null
     this.#syncScroll(frame.transcript)
     this.#renderer.render(frame)
   }
@@ -373,12 +618,20 @@ export class LocalTui implements TuiService {
     return Math.max(1, this.#scrollBudget > 2 ? this.#scrollBudget - 2 : 1)
   }
 
-  #scrollBy(delta: number): void {
+  #scrollBy(delta: number, coalesce = false): void {
     if (delta === 0 && this.#maxStart === 0) return
     this.#follow = false
     this.#scrollStart += delta
     if (this.#scrollStart <= 0) this.#scrollStart = 0
-    this.#render()
+    if (!coalesce) {
+      this.#render()
+      return
+    }
+    if (this.#scrollRender !== null) return
+    this.#scrollRender = setImmediate(() => {
+      this.#scrollRender = null
+      if (!this.#disposed) this.#render()
+    })
   }
 
   #followTail(): void {
@@ -435,9 +688,28 @@ export class LocalTui implements TuiService {
       this.#handleMouse(event)
       return
     }
+    if (this.#handlePrompt(event)) return
+    if (event.type === 'key') {
+      const action = this.#keybindings[event.id]
+      if (action !== undefined) {
+        this.#runAction(action)
+        return
+      }
+    }
     if (event.type === 'key' && event.id === 'ctrl+c') {
+      if (this.#prompt !== null) {
+        this.#finishPrompt(null)
+        this.#editor.setText('')
+        this.#render()
+        return
+      }
       if (this.#settings !== null) {
         this.#settings = null
+        this.#render()
+        return
+      }
+      if (this.#copySelector !== null) {
+        this.#copySelector = null
         this.#render()
         return
       }
@@ -446,6 +718,13 @@ export class LocalTui implements TuiService {
         this.#render()
         return
       }
+      const now = Date.now()
+      if (now - this.#lastSigintTime < DOUBLE_CTRL_C_MS) {
+        this.#lastSigintTime = 0
+        this.#quit()
+        return
+      }
+      this.#lastSigintTime = now
       if (this.#state.status === 'running') {
         for (const listener of this.#interrupts) listener()
       } else {
@@ -458,6 +737,10 @@ export class LocalTui implements TuiService {
     }
     if (this.#settings !== null) {
       this.#applySettings(event)
+      return
+    }
+    if (this.#copySelector !== null) {
+      this.#applyCopySelector(event)
       return
     }
     if (event.type === 'key' && event.id === 'ctrl+r') {
@@ -489,7 +772,13 @@ export class LocalTui implements TuiService {
         return
       }
       if (event.id === 'ctrl+o') {
-        this.#toolsExpanded = !this.#toolsExpanded
+        const tool = this.#state.blocks.findLast(block => block.kind === 'tool')
+        if (tool?.kind === 'tool') {
+          if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
+          else this.#expandedToolCalls.add(tool.callId)
+        } else {
+          this.#toolsExpanded = !this.#toolsExpanded
+        }
         this.#render()
         return
       }
@@ -497,11 +786,64 @@ export class LocalTui implements TuiService {
     this.#applyCommand(this.#editor.handle(event))
   }
 
+  #handlePrompt(event: KeyEvent): boolean {
+    const prompt = this.#prompt
+    if (prompt === null) return false
+    if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true && this.#editor.text === '') {
+      this.#prompt = togglePromptSelection(prompt) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (event.type === 'text' && prompt.request.allowCustom === false) return true
+    if (event.type !== 'key') return false
+    const count = prompt.request.options?.length ?? 0
+    if (event.id === 'escape' || event.id === 'ctrl+c') {
+      this.#editor.setText('')
+      this.#finishPrompt(null)
+      this.#render()
+      return true
+    }
+    if (count === 0) return false
+    let next: number | undefined
+    if (event.id === 'up' || event.id === 'shift+tab') next = prompt.selected - 1
+    else if (event.id === 'down' || event.id === 'tab') next = prompt.selected + 1
+    else if (event.id === 'pageUp') next = prompt.selected - 10
+    else if (event.id === 'pageDown') next = prompt.selected + 10
+    else if (event.id === 'home') next = 0
+    else if (event.id === 'end') next = count - 1
+    if (next !== undefined) {
+      this.#prompt = movePromptSelection(prompt, next) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (event.id === 'enter' && this.#editor.text === '') {
+      const answer = selectedPromptAnswer(prompt)
+      if (prompt.request.multiSelect === true && answer === null) return true
+      this.#finishPrompt(answer)
+      this.#render()
+      return true
+    }
+    return false
+  }
+
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
+    if (event.leftClick) {
+      if (this.#clickOverlay(event.row)) return
+      this.#clickEditor(event.row, event.col)
+      return
+    }
     if (event.wheel === null) return
     const dir = event.wheel
+    if (this.#prompt !== null) {
+      this.#handlePrompt({ type: 'key', id: dir < 0 ? 'up' : 'down' })
+      return
+    }
     if (this.#settings !== null) {
       this.#applySettings({ type: 'key', id: dir < 0 ? 'up' : 'down' })
+      return
+    }
+    if (this.#copySelector !== null) {
+      this.#applyCopySelector({ type: 'key', id: dir < 0 ? 'up' : 'down' })
       return
     }
     if (this.#search !== null) {
@@ -513,16 +855,83 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    this.#scrollBy(dir < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL)
+    this.#scrollBy(dir < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL, true)
+  }
+
+  #clickOverlay(row: number): boolean {
+    const hit = this.#overlayHit
+    if (hit === null) return false
+    const localRow = row - hit.start
+    if (hit.kind === 'settings' && this.#settings !== null) {
+      const index = hitTestSettings(tuiSettingItems(this.#settings.prefs).length, localRow)
+      if (index === undefined) return true
+      if (index === this.#settings.selected) {
+        this.#applySettings({ type: 'key', id: 'enter' })
+      } else {
+        this.#settings = selectSetting(this.#settings, index)
+        this.#render()
+      }
+      return true
+    }
+    if (hit.kind === 'copy' && this.#copySelector !== null) {
+      const index = hitTestCopySelector(this.#copySelector.items.length, this.#copySelector.selected, localRow)
+      if (index === undefined) return true
+      if (index === this.#copySelector.selected) {
+        this.#applyCopySelector({ type: 'key', id: 'enter' })
+      } else {
+        this.#copySelector = selectCopyTarget(this.#copySelector, index)
+        this.#render()
+      }
+      return true
+    }
+    if (hit.kind === 'autocomplete' && this.#ac !== null) {
+      const index = hitTestAutocomplete(this.#ac.items.length, this.#ac.selected, localRow)
+      if (index === undefined) return true
+      this.#ac = { ...this.#ac, selected: index }
+      this.#applySelectedCompletion()
+      this.#render()
+      return true
+    }
+    if (hit.kind === 'search' && this.#search !== null) {
+      const index = hitTestHistorySearch(
+        this.#search.results.length,
+        this.#search.selected,
+        localRow,
+        hit.resultsRow ?? 0,
+      )
+      if (index === undefined) return true
+      this.#search = { ...this.#search, selected: index }
+      this.#applySearch({ type: 'key', id: 'enter' })
+      return true
+    }
+    return false
+  }
+
+  #clickEditor(row: number, col: number): void {
+    if (this.#settings !== null || this.#copySelector !== null || this.#search !== null) return
+    const hit = this.#editorHit
+    if (hit === null) return
+    const localRow = row - hit.start
+    if (localRow < 0 || localRow >= hit.rows) return
+    const index = hitTestEditor(this.#editor.text, this.#term.width(), localRow, col)
+    if (index === undefined) return
+    this.#editor.setCursor(index)
+    this.#refreshAutocomplete()
+    this.#render()
   }
 
   #prefs(): TuiPrefs {
-    return { theme: this.#themeName, colors: this.#colors }
+    return { theme: this.#themeName, colors: this.#colors, expandTools: this.#expandTools, statusPreset: this.#statusPreset }
   }
 
   #applyPrefs(prefs: TuiPrefs): void {
+    const expandChanged = prefs.expandTools !== this.#expandTools
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
+    this.#expandTools = prefs.expandTools
+    this.#statusPreset = prefs.statusPreset ?? 'compact'
+    if (expandChanged) this.#toolsExpanded = prefs.expandTools
+    this.#persistPrefs?.(prefs)
   }
 
   #applySettings(event: KeyEvent): void {
@@ -543,6 +952,35 @@ export class LocalTui implements TuiService {
       this.#settings = null
       this.#render()
     }
+  }
+
+  #applyCopySelector(event: KeyEvent): void {
+    if (this.#copySelector === null) return
+    const command = applyCopySelectorEvent(this.#copySelector, event)
+    if (command.kind === 'update') {
+      this.#copySelector = command.state
+      this.#render()
+      return
+    }
+    if (command.kind === 'pick') {
+      this.#copySelector = null
+      void this.#copyPicked(command.item.text, command.item.copyMessage)
+      return
+    }
+    if (command.kind === 'close') {
+      this.#copySelector = null
+      this.#render()
+    }
+  }
+
+  async #copyPicked(text: string, label: string): Promise<void> {
+    try {
+      await this.#copy(text)
+      this.#notice('Copied ' + label)
+    } catch {
+      this.#notice('Copy failed')
+    }
+    this.#render()
   }
 
   #applySearch(event: KeyEvent): void {
@@ -570,8 +1008,11 @@ export class LocalTui implements TuiService {
   #handleAutocomplete(event: KeyEvent): boolean {
     if (event.type !== 'key') return false
     if (event.id === 'tab') {
-      this.#refreshAutocomplete()
-      if (this.#ac !== null) this.#applySelectedCompletion()
+      if (this.#ac !== null) {
+        this.#applySelectedCompletion()
+      } else {
+        this.#refreshAutocomplete(true)
+      }
       this.#render()
       return true
     }
@@ -599,8 +1040,18 @@ export class LocalTui implements TuiService {
     return false
   }
 
-  #refreshAutocomplete(): void {
-    const result = slashSuggestions(this.#editor.text, this.#editor.cursor)
+  #refreshAutocomplete(forcePath = false): void {
+    if (this.#prompt !== null) {
+      this.#ac = null
+      return
+    }
+    const result = slashSuggestions(this.#editor.text, this.#editor.cursor, this.#commands())
+      ?? pathSuggestions(this.#editor.text, this.#editor.cursor, {
+        cwd: this.#cwd,
+        home: this.#home,
+        listDir: this.#listDir,
+        force: forcePath,
+      })
     if (result === null) {
       this.#ac = null
       return
@@ -623,7 +1074,9 @@ export class LocalTui implements TuiService {
   #applySelectedCompletion(): void {
     const item = this.#ac?.items[this.#ac.selected]
     if (item === undefined) return
-    const next = applySlashCompletion(this.#editor.text, this.#editor.cursor, item)
+    const next = item.kind === 'path'
+      ? applyPathCompletion(this.#editor.text, this.#editor.cursor, item)
+      : applySlashCompletion(this.#editor.text, this.#editor.cursor, item)
     this.#editor.setText(next.text, next.cursor)
     this.#refreshAutocomplete()
   }
@@ -698,6 +1151,7 @@ export class LocalTui implements TuiService {
   }
 
   #quit(): void {
+    this.#resumeHintRequested = true
     if (this.#pending !== null) {
       const pending = this.#pending
       this.#pending = null
@@ -708,13 +1162,23 @@ export class LocalTui implements TuiService {
   }
 
   #submit(text: string): void {
-    if (text !== '' && this.#history[this.#history.length - 1] !== text) this.#history.push(text)
+    if (this.#prompt !== null) {
+      this.#editor.setText('')
+      this.#finishPrompt(text.trim() === '' ? null : text.trim())
+      this.#render()
+      return
+    }
+    if (text !== '' && this.#history[this.#history.length - 1] !== text) {
+      this.#history.push(text)
+      this.#historyStore?.add(text)
+    }
     this.#historyIndex = 0
     this.#draft = ''
     this.#editor.setText('')
     this.#ac = null
     this.#search = null
     this.#settings = null
+    this.#copySelector = null
     this.#followTail()
     const slash = parseSlashInput(text)
     if (slash !== null) {
@@ -736,7 +1200,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    const command = resolveSlashCommand(name)
+    const command = resolveSlashCommand(name, this.#commands())
     if (command === undefined) {
       this.#notice('unknown command: /' + name)
       this.#render()
@@ -757,8 +1221,89 @@ export class LocalTui implements TuiService {
       this.#runThemeSettings(command.name, args)
       return
     }
-    this.#notice(formatHelpText())
+    if (command.name === 'hotkeys') {
+      this.#notice(formatHotkeysText())
+      this.#render()
+      return
+    }
+    if (command.name === 'copy') {
+      void this.#runCopy(args)
+      return
+    }
+    if (command.name === 'tools') {
+      this.#notice(formatToolsText(this.#tools))
+      this.#render()
+      return
+    }
+    if (command.name === 'pwd') {
+      this.#notice(formatWorkspaceText({
+        cwd: process.cwd(),
+        model: this.#model,
+        ...(this.#branch !== undefined ? { branch: this.#branch } : {}),
+      }))
+      this.#render()
+      return
+    }
+    if (!BUILTIN_SLASH_COMMANDS.some((entry) => entry.name === command.name)) {
+      this.#render()
+      const raw = '/' + name + (args === '' ? '' : ' ' + args)
+      const pending = this.#pending
+      if (pending !== null) {
+        this.#pending = null
+        pending.resolve(raw)
+      } else {
+        this.#queue.push(raw)
+      }
+      return
+    }
+    this.#notice(formatHelpText(this.#commands()))
     this.#render()
+  }
+
+  #commands(): readonly SlashCommand[] {
+    const localNames = new Set(BUILTIN_SLASH_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]))
+    const runtime: SlashCommand[] = this.#runtimeCommands
+      .filter((command) => !localNames.has(command.name))
+      .map((command) => ({ name: command.name, description: command.description }))
+    return [...BUILTIN_SLASH_COMMANDS, ...runtime]
+  }
+
+  #finishPrompt(answer: string | null): void {
+    const pending = this.#prompt
+    if (pending === null) return
+    this.#prompt = null
+    pending.offAbort?.()
+    pending.resolve(answer)
+  }
+
+  async #runCopy(args: string): Promise<void> {
+    if (args.trim() === '') {
+      const items = buildCopyTargets(this.#state.blocks)
+      if (items.length === 0) {
+        this.#notice('Nothing to copy.')
+        this.#render()
+        return
+      }
+      this.#search = null
+      this.#ac = null
+      this.#settings = null
+      this.#copySelector = createCopySelector(items)
+      this.#render()
+      return
+    }
+    const kind = parseCopyKind(args)
+    if (kind === undefined) {
+      this.#notice('Usage: /copy [code|cmd]')
+      this.#render()
+      return
+    }
+    const target = extractCopyTarget(this.#state.blocks, kind)
+    if (target === undefined) {
+      this.#notice(kind === 'code' ? 'No code block to copy.' : kind === 'cmd' ? 'No command to copy.' : 'Nothing to copy.')
+      this.#render()
+      return
+    }
+    await this.#copyPicked(target.text, target.label)
   }
 
   #runThemeSettings(name: 'settings' | 'theme', args: string): void {
@@ -766,11 +1311,11 @@ export class LocalTui implements TuiService {
     if (name === 'theme' && token !== '') {
       const themeName = parseThemeName(token)
       if (themeName !== token) {
-        this.#notice('Usage: /theme [dark|light]')
+        this.#notice('Usage: /theme [' + THEME_NAMES.join('|') + ']')
         this.#render()
         return
       }
-      this.#themeName = themeName
+      this.#applyPrefs({ ...this.#prefs(), theme: themeName })
       this.#notice('Theme: ' + themeName)
       this.#render()
       return
@@ -787,6 +1332,47 @@ export class LocalTui implements TuiService {
       blocks: [...this.#state.blocks, { kind: 'notice', level: 'info', text }],
     }
   }
+
+  #runAction(action: TuiAction): void {
+    if (this.#prompt !== null) return
+    if (action === 'retry') {
+      this.#submit('/retry')
+      return
+    }
+    if (action === 'copy-prompt') {
+      void this.#copyPicked(this.#editor.text, 'current prompt')
+      return
+    }
+    if (action === 'copy-line') {
+      const text = this.#editor.text.slice(
+        lineStart(this.#editor.text, this.#editor.cursor),
+        lineEnd(this.#editor.text, this.#editor.cursor),
+      )
+      void this.#copyPicked(text, 'current line')
+      return
+    }
+    if (action === 'paste-clipboard') {
+      void this.#readClipboard().then((text) => {
+        if (text !== '') this.#editor.handle({ type: 'text', value: text })
+        this.#refreshAutocomplete()
+        this.#render()
+      }, () => { this.notice('Clipboard read failed.', 'error') })
+      return
+    }
+    try {
+      this.#term.input.setRawMode?.(false)
+      const text = editExternally(this.#editor.text)
+      this.#editor.setText(text)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      this.#term.input.setRawMode?.(true)
+      this.#renderer.reset()
+      this.#term.output.write('\x1b[2J\x1b[H')
+      this.#refreshAutocomplete()
+      this.#render()
+    }
+  }
 }
 
 /**
@@ -795,6 +1381,7 @@ export class LocalTui implements TuiService {
  * @param config - model label and color switch.
  */
 export function apply(ctx: Context, config: Config): void {
+  const dshHome = process.env.OMDSH_HOME ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
   const term: TerminalLike = {
     output: process.stdout,
     input: process.stdin,
@@ -810,7 +1397,22 @@ export function apply(ctx: Context, config: Config): void {
     config.model,
     config.colors ?? term.output.isTTY === true,
     parseThemeName(config.theme),
+    copyToClipboard,
+    {
+      historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
+      keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
+    },
   )
   ctx.provide(TUI_SERVICE, tui)
   ctx.effect(() => () => { tui.dispose() })
+  ctx.inject(['settings'], (settingsCtx) => {
+    const scope = settingsCtx.settings.register(
+      settingsNamespace(TUI_SETTINGS_NAMESPACE),
+      TuiSettingsSchema,
+      { base: { theme: parseThemeName(config.theme), colors: config.colors ?? term.output.isTTY === true, expandTools: false } },
+    )
+    tui.applyStoredPrefs(scope.get())
+    tui.setPrefsPersist((prefs) => { void scope.update(prefs) })
+    scope.watch((next) => { tui.applyStoredPrefs(next) })
+  })
 }

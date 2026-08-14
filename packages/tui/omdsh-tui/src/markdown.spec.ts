@@ -77,4 +77,17 @@ describe('renderMarkdown', () => {
     )
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(24)
   })
+
+  it('normalizes HTML and renders inline/block math', () => {
+    const text = plain('<p>Hello<br>world &amp; friends</p>\n$x^2 \\le 4$\n$$\n\\sum x^2\n$$')
+    expect(text).toContain('Hello\nworld & friends')
+    expect(text).toContain('x² ≤ 4')
+    expect(text).toContain('∑ x²')
+    expect(plain('Array<T>')).toContain('Array<T>')
+  })
+
+  it('renders Mermaid as a stable terminal text diagram', () => {
+    const text = plain('```mermaid\ngraph TD\nA[Start] --> B[Done]\n```')
+    expect(text).toContain('AStart → BDone')
+  })
 })

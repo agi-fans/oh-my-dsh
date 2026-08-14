@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BOX, createTheme, detectTrueColor, gradientLogo, parseThemeName, SYMBOL } from './theme.ts'
+import { BOX, createTheme, DEEPSEEK_LOGO, detectTrueColor, gradientLogo, parseThemeName, SYMBOL } from './theme.ts'
 
 describe('createTheme', () => {
   it('is identity when colors are off', () => {
@@ -34,12 +34,19 @@ describe('createTheme', () => {
     expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;90;128;128m')
     expect(light.getFgAnsi('accent')).not.toBe(dark.getFgAnsi('accent'))
   })
+
+  it('ships additional coding palettes', () => {
+    expect(createTheme(true, true, 'midnight').name).toBe('midnight')
+    expect(createTheme(true, true, 'solarized').name).toBe('solarized')
+    expect(createTheme(true, true, 'mono').name).toBe('mono')
+  })
 })
 
 describe('parseThemeName', () => {
   it('accepts shipped names and falls back to dark', () => {
     expect(parseThemeName('light')).toBe('light')
     expect(parseThemeName('dark')).toBe('dark')
+    expect(parseThemeName('midnight')).toBe('midnight')
     expect(parseThemeName('nope')).toBe('dark')
     expect(parseThemeName(undefined)).toBe('dark')
   })
@@ -59,9 +66,11 @@ describe('chrome', () => {
     expect(SYMBOL.error).toBe('✘')
   })
 
-  it('paints the π logo without styling when colors are off', () => {
+  it('paints the DeepSeek logo without styling when colors are off', () => {
     const lines = gradientLogo(createTheme(false))
-    expect(lines[0]).toContain('▀')
+    expect(lines).toEqual(DEEPSEEK_LOGO)
+    expect(lines.every((line) => line.length === 20)).toBe(true)
+    expect(lines[1]).toContain('⣿')
     expect(lines[0]).not.toContain('\x1b[')
   })
 })

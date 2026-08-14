@@ -35,6 +35,17 @@ describe('InputEditor', () => {
     expect(editor.cursor).toBe(10)
     editor.handle(key('ctrl+f'))
     expect(editor.cursor).toBe(11)
+    editor.setCursor(3)
+    expect(editor.text).toBe('hello world')
+    expect(editor.cursor).toBe(3)
+    editor.setCursor(0)
+    editor.handle(key('ctrl+]'))
+    editor.handle(text('o'))
+    expect(editor.cursor).toBe(4)
+    editor.handle(key('ctrl+e'))
+    editor.handle(key('ctrl+alt+]'))
+    editor.handle(text('l'))
+    expect(editor.cursor).toBe(9)
   })
 
   it('kills words and lines, then yanks them back', () => {

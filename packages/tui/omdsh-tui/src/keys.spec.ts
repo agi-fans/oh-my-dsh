@@ -17,6 +17,10 @@ describe('parseKeys', () => {
     expect(parseKeys('\x1a').events).toEqual([{ type: 'key', id: 'ctrl+z' }])
     expect(parseKeys('\x1f').events).toEqual([{ type: 'key', id: 'ctrl+-' }])
     expect(parseKeys('\x0f').events).toEqual([{ type: 'key', id: 'ctrl+o' }])
+    expect(parseKeys('\x1d').events).toEqual([{ type: 'key', id: 'ctrl+]' }])
+    expect(parseKeys('\x1b\x1d').events).toEqual([{ type: 'key', id: 'ctrl+alt+]' }])
+    expect(parseKeys('\x1b[93;5u').events).toEqual([{ type: 'key', id: 'ctrl+]' }])
+    expect(parseKeys('\x1b[93;7u').events).toEqual([{ type: 'key', id: 'ctrl+alt+]' }])
   })
 
   it('decodes arrows, home/end, delete, and modified CSI', () => {

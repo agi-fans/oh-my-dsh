@@ -65,6 +65,7 @@ const CTRL: Record<number, string> = {
   0x18: 'ctrl+x',
   0x19: 'ctrl+y',
   0x1a: 'ctrl+z',
+  0x1d: 'ctrl+]',
   0x1f: 'ctrl+-',
   0x7f: 'backspace',
 }
@@ -101,6 +102,7 @@ const ALT_SPECIAL: Record<string, string> = {
   '\x08': 'alt+backspace',
   '\r': 'alt+enter',
   '\n': 'alt+enter',
+  '\x1d': 'ctrl+alt+]',
 }
 
 /** Build `ctrl+shift+alt+name` from a CSI modifier parameter (1 = none). */

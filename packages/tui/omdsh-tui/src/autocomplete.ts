@@ -4,14 +4,22 @@
  * @module @omdsh/tui
  */
 
-import { SYMBOL, type Theme } from './theme.ts'
+import { SYMBOL, THEME_NAMES, type Theme } from './theme.ts'
 import { truncateToWidth } from './width.ts'
+
+/** One argument token a slash command can complete. */
+export interface SlashArgument {
+  value: string
+  aliases?: readonly string[]
+  description: string
+}
 
 /** One slash command the editor can complete and the TUI can run. */
 export interface SlashCommand {
   name: string
   aliases?: readonly string[]
   description: string
+  arguments?: readonly SlashArgument[]
 }
 
 /** One ranked suggestion shown in the popup. */
@@ -19,15 +27,38 @@ export interface AutocompleteItem {
   value: string
   label: string
   description?: string
+  /** Argument and path rows paint without a leading `/`. */
+  kind?: 'command' | 'argument' | 'path'
 }
+
+const THEME_ARGUMENTS: readonly SlashArgument[] = THEME_NAMES.map((name) => ({
+  value: name,
+  description: name === 'light' ? 'Light palette' : 'Dark palette',
+}))
+
+const SETTINGS_ARGUMENTS: readonly SlashArgument[] = [
+  { value: 'theme', description: 'Focus the theme row' },
+  { value: 'color', aliases: ['colors'], description: 'Focus the color row' },
+  { value: 'tools', aliases: ['expand'], description: 'Focus the tool-preview row' },
+]
+
+const COPY_ARGUMENTS: readonly SlashArgument[] = [
+  { value: 'text', description: 'Last assistant reply' },
+  { value: 'code', description: 'Last fenced code block' },
+  { value: 'cmd', aliases: ['command'], description: 'Last bash command' },
+]
 
 /** Built-in session-surface commands (no extra backend required). */
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', aliases: ['h', '?'], description: 'Show available slash commands' },
-  { name: 'settings', aliases: ['set'], description: 'Open settings' },
-  { name: 'theme', description: 'Switch color theme (dark/light)' },
+  { name: 'settings', aliases: ['set'], description: 'Open settings', arguments: SETTINGS_ARGUMENTS },
+  { name: 'theme', description: 'Switch color theme', arguments: THEME_ARGUMENTS },
+  { name: 'hotkeys', description: 'Show keyboard shortcuts' },
+  { name: 'copy', description: 'Pick text, code, or a command to copy', arguments: COPY_ARGUMENTS },
+  { name: 'tools', description: 'Show tools visible to the agent' },
+  { name: 'pwd', aliases: ['dirs'], description: 'Show working directory and model' },
   { name: 'clear', description: 'Clear the transcript display' },
-  { name: 'quit', aliases: ['q'], description: 'Quit the application' },
+  { name: 'quit', aliases: ['q', 'exit'], description: 'Quit the application' },
 ]
 
 /** Visible popup rows (OMP editor default). */
@@ -84,8 +115,42 @@ export function scoreCommandTextMatch(lowerPrefix: string, lowerTarget: string):
   return fuzzyMatch(lowerPrefix, lowerTarget) ? fuzzyScore(lowerPrefix, lowerTarget) : 0
 }
 
-function commandNames(command: SlashCommand): string[] {
-  return [command.name, ...(command.aliases ?? [])]
+function namesOf(value: string, aliases?: readonly string[]): string[] {
+  return [value, ...(aliases ?? [])]
+}
+
+interface NamedMatch {
+  value: string
+  aliases?: readonly string[]
+  description: string
+}
+
+function buildNamedCompletions(
+  entries: readonly NamedMatch[],
+  lowerPrefix: string,
+  kind: 'command' | 'argument',
+): AutocompleteItem[] {
+  if (kind === 'argument' && lowerPrefix.includes(' ')) return []
+  return entries
+    .flatMap((entry) => {
+      let best: (AutocompleteItem & { score: number }) | undefined
+      for (const name of namesOf(entry.value, entry.aliases)) {
+        const score = scoreCommandTextMatch(lowerPrefix, name.toLowerCase())
+        if (score === 0) continue
+        if (best !== undefined && score <= best.score) continue
+        const item: AutocompleteItem & { score: number } = {
+          value: entry.value,
+          label: name,
+          kind,
+          score,
+        }
+        if (entry.description !== '') item.description = entry.description
+        best = item
+      }
+      return best === undefined ? [] : [best]
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(({ score: _score, ...rest }) => rest)
 }
 
 /** Ranked command-name completions for a prefix (no leading slash). */
@@ -93,25 +158,59 @@ export function buildSlashCommandCompletions(
   commands: readonly SlashCommand[],
   lowerPrefix: string,
 ): AutocompleteItem[] {
-  return commands
-    .flatMap((command) => {
-      let best: (AutocompleteItem & { score: number }) | undefined
-      for (const name of commandNames(command)) {
-        const score = scoreCommandTextMatch(lowerPrefix, name.toLowerCase())
-        if (score === 0) continue
-        if (best !== undefined && score <= best.score) continue
-        const item: AutocompleteItem & { score: number } = {
-          value: command.name,
-          label: name,
-          score,
-        }
-        if (command.description !== '') item.description = command.description
-        best = item
-      }
-      return best === undefined ? [] : [best]
-    })
-    .sort((a, b) => b.score - a.score)
-    .map(({ score: _score, ...rest }) => rest)
+  return buildNamedCompletions(
+    commands.map((command) => ({
+      value: command.name,
+      ...(command.aliases === undefined ? {} : { aliases: command.aliases }),
+      description: command.description,
+    })),
+    lowerPrefix,
+    'command',
+  )
+}
+
+/** Ranked argument completions for the token after `/name `. */
+export function buildSlashArgumentCompletions(
+  args: readonly SlashArgument[],
+  lowerPrefix: string,
+): AutocompleteItem[] {
+  return buildNamedCompletions(args, lowerPrefix, 'argument')
+}
+
+function argumentHint(command: SlashCommand): string {
+  const args = command.arguments
+  if (args === undefined || args.length === 0) return ''
+  return ' [' + args.map((arg) => arg.value).join('|') + ']'
+}
+
+/** Dim ghost text after the caret for `/name ` argument state. */
+export function slashInlineHint(
+  text: string,
+  cursor: number,
+  commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
+): string | null {
+  if (cursor !== text.length || text.includes('\n')) return null
+  const start = findLeadingSlashCommandStart(text)
+  if (start === null) return null
+  const token = text.slice(start)
+  if (token.slice(1).includes('/')) return null
+  const space = token.indexOf(' ')
+  if (space === -1) return null
+  const command = resolveSlashCommand(token.slice(1, space), commands)
+  const args = command?.arguments
+  if (args === undefined || args.length === 0) return null
+  const prefix = token.slice(space + 1)
+  if (prefix.includes(' ')) return null
+  if (prefix === '') return args.map((arg) => arg.value).join('|')
+  const lower = prefix.toLowerCase()
+  for (const arg of args) {
+    for (const name of [arg.value, ...(arg.aliases ?? [])]) {
+      if (!name.toLowerCase().startsWith(lower)) continue
+      const remaining = name.slice(prefix.length)
+      return remaining === '' ? null : remaining
+    }
+  }
+  return null
 }
 
 /** Suggestions for the live buffer, or null when the cursor is not in a command token. */
@@ -125,13 +224,22 @@ export function slashSuggestions(
   const start = findLeadingSlashCommandStart(before)
   if (start === null) return null
   const token = before.slice(start)
-  if (token.includes(' ') || token.slice(1).includes('/')) return null
-  const items = buildSlashCommandCompletions(commands, token.slice(1).toLowerCase())
+  if (token.slice(1).includes('/')) return null
+  const space = token.indexOf(' ')
+  if (space === -1) {
+    const items = buildSlashCommandCompletions(commands, token.slice(1).toLowerCase())
+    if (items.length === 0) return null
+    return { items, prefix: before }
+  }
+  const command = resolveSlashCommand(token.slice(1, space), commands)
+  const args = command?.arguments
+  if (args === undefined || args.length === 0) return null
+  const items = buildSlashArgumentCompletions(args, token.slice(space + 1).toLowerCase())
   if (items.length === 0) return null
   return { items, prefix: before }
 }
 
-/** Replace the live command token with `/${item.value} `. */
+/** Replace the live command or argument token with the selected completion. */
 export function applySlashCompletion(
   text: string,
   cursor: number,
@@ -141,6 +249,13 @@ export function applySlashCompletion(
   const after = text.slice(cursor)
   const start = findLeadingSlashCommandStart(before)
   if (start === null) return { text, cursor }
+  if (item.kind === 'argument') {
+    const space = before.slice(start).lastIndexOf(' ')
+    if (space === -1) return { text, cursor }
+    const argStart = start + space + 1
+    const insert = item.value.endsWith(' ') ? item.value : item.value + ' '
+    return { text: text.slice(0, argStart) + insert + after, cursor: argStart + insert.length }
+  }
   const insert = `/${item.value} `
   return { text: text.slice(0, start) + insert + after, cursor: start + insert.length }
 }
@@ -152,6 +267,11 @@ export function parseSlashInput(text: string): { name: string; args: string } | 
   if (!trimmed.startsWith('/')) return null
   const body = trimmed.slice(1)
   if (body === '') return { name: '', args: '' }
+  if (body.startsWith('skill:')) {
+    const space = body.search(/\s/u)
+    if (space === -1) return { name: body, args: '' }
+    return { name: body.slice(0, space), args: body.slice(space + 1).trim() }
+  }
   const sep = body.search(/[\s:]/)
   if (sep === -1) return { name: body, args: '' }
   return { name: body.slice(0, sep), args: body.slice(sep + 1).trim() }
@@ -170,10 +290,36 @@ export function resolveSlashCommand(
 export function formatHelpText(commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS): string {
   const lines = ['Commands']
   for (const command of commands) {
-    const names = ['/' + command.name, ...(command.aliases ?? []).map((alias) => '/' + alias)]
+    const names = [
+      '/' + command.name + argumentHint(command),
+      ...(command.aliases ?? []).map((alias) => '/' + alias),
+    ]
     lines.push(names.join(', ') + '  ' + command.description)
   }
   return lines.join('\n')
+}
+
+/** Visible item-index window around `selected` (counter row is not included). */
+export function autocompleteVisibleRange(
+  count: number,
+  selected: number,
+): { start: number; end: number } {
+  const max = AUTOCOMPLETE_MAX_VISIBLE
+  const index = Math.max(0, Math.min(selected, Math.max(0, count - 1)))
+  const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, count - max)))
+  return { start, end: Math.min(count, start + max) }
+}
+
+/** Item index under a popup-local row, or undefined on the counter/padding. */
+export function hitTestAutocomplete(
+  count: number,
+  selected: number,
+  localRow: number,
+): number | undefined {
+  const { start, end } = autocompleteVisibleRange(count, selected)
+  const index = start + localRow
+  if (index < start || index >= end) return undefined
+  return index
 }
 
 /** Popup rows: cursor + name + description, windowed around the selection. */
@@ -184,24 +330,22 @@ export function renderAutocomplete(
   width: number,
 ): string[] {
   if (items.length === 0 || width <= 0) return []
-  const max = AUTOCOMPLETE_MAX_VISIBLE
+  const { start, end } = autocompleteVisibleRange(items.length, selected)
   const index = Math.max(0, Math.min(selected, items.length - 1))
-  const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, items.length - max)))
-  const end = Math.min(items.length, start + max)
   const lines: string[] = []
   for (let i = start; i < end; i += 1) {
     const item = items[i]
     if (item === undefined) continue
     const isSelected = i === index
     const cursor = isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
-    const name = '/' + item.label
+    const name = item.kind === 'argument' || item.kind === 'path' ? item.label : '/' + item.label
     const painted = isSelected ? theme.bold(theme.fg('accent', name)) : name
     const desc = item.description !== undefined && item.description !== ''
       ? theme.fg('muted', '  ' + item.description)
       : ''
     lines.push(truncateToWidth(cursor + painted + desc, width))
   }
-  if (items.length > max) {
+  if (items.length > AUTOCOMPLETE_MAX_VISIBLE) {
     lines.push(theme.fg('dim', '  ' + String(index + 1) + '/' + String(items.length)))
   }
   return lines

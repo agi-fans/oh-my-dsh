@@ -1,16 +1,8 @@
 # oh-my-dsh
 
-**omdsh** — a TUI coding agent in the style of
-[oh-my-pi](https://github.com/can1357/oh-my-pi), running on the
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) core
-runtime. Everything omdsh adds is a Cordis plugin or an app over the harness
-package tier; the harness itself is an unmodified git submodule under
-refs/.
+**omdsh** — a TUI coding agent in the style of [oh-my-pi](https://github.com/can1357/oh-my-pi), running on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) core runtime. Everything omdsh adds is a Cordis plugin or an app over the harness package tier; the harness itself is an unmodified git submodule under refs/.
 
-Status: v0 complete — TUI + runner + omdsh bin, verified keyless in pipe
-and PTY modes from both source and the built artifact; honors the user's
-$DSH_HOME settings (model route) and layered credentials. Design:
-[docs/architecture.md](docs/architecture.md).
+Status: the three oh-my-pi parity rounds are implemented: durable/resumable sessions, dynamic commands, approvals/questions, coding-tool renderers, model/context controls, attachments, transcript search/export, external editing, themes and plan/goal/subagent workflows. It is verified keyless in pipe and PTY modes and honors `$DSH_HOME` settings and layered credentials. See [architecture](docs/architecture.md) and the [implementation matrix](docs/implementation-rounds.md). Skills and MCP setup are documented in [Skills and MCP](docs/skills-and-mcp.md).
 
 ## Layout
 

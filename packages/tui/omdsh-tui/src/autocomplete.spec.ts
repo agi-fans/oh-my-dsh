@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   applySlashCompletion,
+  buildSlashArgumentCompletions,
   buildSlashCommandCompletions,
   BUILTIN_SLASH_COMMANDS,
   findLeadingSlashCommandStart,
   formatHelpText,
   parseSlashInput,
   renderAutocomplete,
+  hitTestAutocomplete,
   resolveSlashCommand,
   scoreCommandTextMatch,
+  slashInlineHint,
   slashSuggestions,
 } from './autocomplete.ts'
 import { createTheme } from './theme.ts'
@@ -37,7 +40,9 @@ describe('scoreCommandTextMatch', () => {
 describe('buildSlashCommandCompletions', () => {
   it('keeps registry order for an empty prefix', () => {
     const items = buildSlashCommandCompletions(BUILTIN_SLASH_COMMANDS, '')
-    expect(items.map((item) => item.value)).toEqual(['help', 'settings', 'theme', 'clear', 'quit'])
+    expect(items.map((item) => item.value)).toEqual([
+      'help', 'settings', 'theme', 'hotkeys', 'copy', 'tools', 'pwd', 'clear', 'quit',
+    ])
   })
 
   it('matches aliases and still completes the canonical name', () => {
@@ -60,6 +65,53 @@ describe('slashSuggestions', () => {
     expect(slashSuggestions('run /he', 7)).toBe(null)
     expect(slashSuggestions('/he\nmore', 3)).toBe(null)
   })
+
+  it('suggests /theme and /copy arguments after a space', () => {
+    const theme = slashSuggestions('/theme ', 7)
+    expect(theme?.items.map((item) => item.value)).toEqual(['dark', 'light', 'midnight', 'solarized', 'mono'])
+    expect(theme?.items.every((item) => item.kind === 'argument')).toBe(true)
+    const copy = slashSuggestions('/copy c', 7)
+    expect(copy?.items.map((item) => item.value)).toEqual(['code', 'cmd'])
+    const settings = slashSuggestions('/set col', 8)
+    expect(settings?.items[0]).toMatchObject({ value: 'color', label: 'color', kind: 'argument' })
+    expect(slashSuggestions('/theme dark ', 12)).toBe(null)
+  })
+
+  it('filters namespaced skills as one flat command catalog', () => {
+    const commands = [
+      ...BUILTIN_SLASH_COMMANDS,
+      { name: 'skill:code-review', description: 'Review a change for correctness' },
+      { name: 'skill:research', description: 'Investigate primary sources' },
+    ]
+    const result = slashSuggestions('/skill:', 7, commands)
+    expect(result?.items).toEqual([
+      expect.objectContaining({ value: 'skill:code-review', description: 'Review a change for correctness' }),
+      expect.objectContaining({ value: 'skill:research', description: 'Investigate primary sources' }),
+    ])
+  })
+})
+
+describe('slashInlineHint', () => {
+  it('shows the catalog after /name and remaining chars of a prefix', () => {
+    expect(slashInlineHint('/theme ', 7)).toBe('dark|light|midnight|solarized|mono')
+    expect(slashInlineHint('/theme d', 8)).toBe('ark')
+    expect(slashInlineHint('/theme dark', 11)).toBe(null)
+    expect(slashInlineHint('/copy ', 6)).toBe('text|code|cmd')
+    expect(slashInlineHint('/copy com', 9)).toBe('mand')
+    expect(slashInlineHint('/help ', 6)).toBe(null)
+    expect(slashInlineHint('/theme ', 6)).toBe(null)
+  })
+})
+
+describe('buildSlashArgumentCompletions', () => {
+  it('matches aliases and still completes the canonical value', () => {
+    const items = buildSlashArgumentCompletions(
+      resolveSlashCommand('copy')?.arguments ?? [],
+      'com',
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ value: 'cmd', label: 'command', kind: 'argument' })
+  })
 })
 
 describe('applySlashCompletion', () => {
@@ -73,6 +125,19 @@ describe('applySlashCompletion', () => {
       cursor: 8,
     })
   })
+
+  it('replaces the live argument token without rewriting the command', () => {
+    expect(applySlashCompletion('/theme d', 8, {
+      value: 'dark',
+      label: 'dark',
+      kind: 'argument',
+    })).toEqual({ text: '/theme dark ', cursor: 12 })
+    expect(applySlashCompletion('  /copy com', 11, {
+      value: 'cmd',
+      label: 'command',
+      kind: 'argument',
+    })).toEqual({ text: '  /copy cmd ', cursor: 12 })
+  })
 })
 
 describe('parseSlashInput / resolveSlashCommand', () => {
@@ -80,9 +145,16 @@ describe('parseSlashInput / resolveSlashCommand', () => {
     expect(parseSlashInput('/help')).toEqual({ name: 'help', args: '' })
     expect(parseSlashInput('  /clear now  ')).toEqual({ name: 'clear', args: 'now' })
     expect(parseSlashInput('/foo:bar')).toEqual({ name: 'foo', args: 'bar' })
+    expect(parseSlashInput('/skill:code-review')).toEqual({ name: 'skill:code-review', args: '' })
+    expect(parseSlashInput('/skill:code-review focus on auth')).toEqual({
+      name: 'skill:code-review',
+      args: 'focus on auth',
+    })
     expect(parseSlashInput('/')).toEqual({ name: '', args: '' })
     expect(parseSlashInput('hello')).toBe(null)
+    expect(resolveSlashCommand('dirs')?.name).toBe('pwd')
     expect(resolveSlashCommand('q')?.name).toBe('quit')
+    expect(resolveSlashCommand('exit')?.name).toBe('quit')
     expect(resolveSlashCommand('?')?.name).toBe('help')
     expect(resolveSlashCommand('set')?.name).toBe('settings')
     expect(resolveSlashCommand('nope')).toBeUndefined()
@@ -95,9 +167,16 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(text).toContain('/help')
     expect(text).toContain('/settings')
     expect(text).toContain('/set')
-    expect(text).toContain('/theme')
+    expect(text).toContain('/theme [dark|light|midnight|solarized|mono]')
+    expect(text).toContain('/hotkeys')
+    expect(text).toContain('/copy [text|code|cmd]')
+    expect(text).toContain('/settings [theme|color|tools]')
+    expect(text).toContain('/tools')
+    expect(text).toContain('/pwd')
+    expect(text).toContain('/dirs')
     expect(text).toContain('/quit')
     expect(text).toContain('/q')
+    expect(text).toContain('/exit')
   })
 
   it('paints the selected row with a cursor and windows long lists', () => {
@@ -111,5 +190,19 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('/c6'))).toBe(true)
     expect(lines.some((line) => line.includes('7/8'))).toBe(true)
     expect(lines.every((line) => !line.includes('/c0'))).toBe(true)
+    expect(hitTestAutocomplete(8, 6, 0)).toBe(3)
+    expect(hitTestAutocomplete(8, 6, 3)).toBe(6)
+    expect(hitTestAutocomplete(8, 6, 5)).toBeUndefined()
+  })
+
+  it('paints argument rows without a leading slash', () => {
+    const lines = renderAutocomplete(
+      [{ value: 'dark', label: 'dark', description: 'Dark palette', kind: 'argument' }],
+      0,
+      theme,
+      40,
+    )
+    expect(lines.some((line) => line.includes('dark'))).toBe(true)
+    expect(lines.every((line) => !line.includes('/dark'))).toBe(true)
   })
 })

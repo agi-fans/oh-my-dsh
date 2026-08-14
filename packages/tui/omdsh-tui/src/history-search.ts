@@ -12,6 +12,39 @@ import { truncateToWidth } from './width.ts'
 /** Visible result rows (OMP history-search window). */
 export const HISTORY_SEARCH_MAX_VISIBLE = 10
 
+/** Overlay-local row of the first result (empty query editor). */
+export function historySearchResultsRow(editorLineCount: number): number {
+  return 3 + editorLineCount + 1
+}
+
+/** Visible result-index window around `selected`. */
+export function historyVisibleRange(
+  count: number,
+  selected: number,
+  maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
+): { start: number; end: number } {
+  const max = Math.max(1, maxVisible)
+  const index = Math.max(0, Math.min(selected, Math.max(0, count - 1)))
+  const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, count - max)))
+  return { start, end: Math.min(count, start + max) }
+}
+
+/** Result index under an overlay-local row, or undefined on chrome. */
+export function hitTestHistorySearch(
+  count: number,
+  selected: number,
+  localRow: number,
+  resultsRow: number,
+  maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
+): number | undefined {
+  if (count === 0) return undefined
+  const row = localRow - resultsRow
+  const { start, end } = historyVisibleRange(count, selected, maxVisible)
+  const index = start + row
+  if (index < start || index >= end) return undefined
+  return index
+}
+
 /** Result cap matching OMP's overlay. */
 export const HISTORY_SEARCH_LIMIT = 100
 
@@ -203,7 +236,7 @@ export function renderHistorySearch(
   theme: Theme,
   width: number,
   maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
-): { lines: string[]; cursor: { row: number; column: number } } {
+): { lines: string[]; cursor: { row: number; column: number }; resultsRow: number } {
   const title = ' ' + theme.bold(theme.fg('accent', '↺ Search History'))
   const editor = renderEditor({
     width,
@@ -222,6 +255,7 @@ export function renderHistorySearch(
   return {
     lines,
     cursor: { row: 3 + editor.cursor.row, column: editor.cursor.column },
+    resultsRow: historySearchResultsRow(editor.lines.length),
   }
 }
 
@@ -237,8 +271,7 @@ function renderHistoryResults(
     return ['  ' + theme.fg('muted', SYMBOL.info + ' ' + message)]
   }
   const index = Math.max(0, Math.min(state.selected, state.results.length - 1))
-  const start = Math.max(0, Math.min(index - Math.floor(maxVisible / 2), Math.max(0, state.results.length - maxVisible)))
-  const end = Math.min(state.results.length, start + maxVisible)
+  const { start, end } = historyVisibleRange(state.results.length, state.selected, maxVisible)
   const lines: string[] = []
   for (let i = start; i < end; i += 1) {
     const prompt = state.results[i] ?? ''

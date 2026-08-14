@@ -60,6 +60,34 @@ export function splitAnsi(text: string): { ansi: boolean; value: string }[] {
   return parts
 }
 
+/**
+ * Replace tabs with spaces using terminal tab stops while preserving ANSI.
+ * `initialColumn` is the screen column where the text will begin.
+ */
+export function expandTabs(text: string, tabWidth = 8, initialColumn = 0): string {
+  const size = Math.max(1, Math.trunc(tabWidth))
+  let column = Math.max(0, Math.trunc(initialColumn))
+  let out = ''
+  for (const part of splitAnsi(text)) {
+    if (part.ansi) {
+      out += part.value
+      continue
+    }
+    for (const char of part.value) {
+      if (char === '\t') {
+        const spaces = size - (column % size)
+        out += ' '.repeat(spaces)
+        column += spaces
+      } else {
+        out += char
+        if (char === '\n') column = Math.max(0, Math.trunc(initialColumn))
+        else column += charWidth(char.codePointAt(0) ?? 0)
+      }
+    }
+  }
+  return out
+}
+
 /** `n` spaces, or empty when n < 1. */
 export function padding(n: number): string {
   return n > 0 ? ' '.repeat(n) : ''
@@ -246,6 +274,22 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
   }
   flush(text.length)
   return lines.length > 0 ? lines : [{ text: '', start: 0, end: 0 }]
+}
+
+/** Map a visible column on a wrapped row back to a source index. */
+export function indexOnWrapped(line: IndexedLine, column: number, source: string): number {
+  const target = Math.max(0, column)
+  let col = 0
+  let i = line.start
+  while (i < line.end) {
+    const cp = source.codePointAt(i) ?? 0
+    const ch = String.fromCodePoint(cp)
+    const width = charWidth(cp)
+    if (col + width > target) return i
+    col += width
+    i += ch.length
+  }
+  return line.end
 }
 
 /** Map a source cursor index onto wrapped rows. */

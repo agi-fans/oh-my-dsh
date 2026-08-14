@@ -113,6 +113,7 @@ export class InputEditor {
   #last: 'none' | 'kill' | 'yank' | 'insert' = 'none'
   readonly #kills = new KillRing()
   #yankLen = 0
+  #jump: 'forward' | 'backward' | null = null
 
   get text(): string {
     return this.#text
@@ -129,6 +130,13 @@ export class InputEditor {
     this.#undo = []
     this.#last = 'none'
     this.#yankLen = 0
+    this.#jump = null
+  }
+
+  /** Move the caret without changing text or undo. */
+  setCursor(cursor: number): void {
+    this.#cursor = Math.max(0, Math.min(cursor, this.#text.length))
+    this.#last = 'none'
   }
 
   /** Empty the buffer, keeping undo of the previous contents. */
@@ -142,6 +150,19 @@ export class InputEditor {
 
   /** Apply one decoded event. */
   handle(event: KeyEvent): EditorCommand {
+    if (this.#jump !== null) {
+      if (event.type === 'key' && (event.id === 'ctrl+]' || event.id === 'ctrl+alt+]')) {
+        this.#jump = null
+        return { kind: 'changed' }
+      }
+      if (event.type === 'text' && event.value !== '') {
+        const dir = this.#jump
+        this.#jump = null
+        this.#jumpToChar(event.value[0] ?? '', dir)
+        return { kind: 'changed' }
+      }
+      this.#jump = null
+    }
     if (event.type === 'text') {
       this.#insert(event.value)
       return { kind: 'changed', edited: true }
@@ -227,6 +248,12 @@ export class InputEditor {
       case 'ctrl+_':
         this.#applyUndo()
         return { kind: 'changed', edited: true }
+      case 'ctrl+]':
+        this.#jump = 'forward'
+        return { kind: 'changed' }
+      case 'ctrl+alt+]':
+        this.#jump = 'backward'
+        return { kind: 'changed' }
       default:
         return { kind: 'ignored' }
     }
@@ -331,6 +358,19 @@ export class InputEditor {
     this.#cursor += next.length
     this.#yankLen = next.length
     this.#last = 'yank'
+  }
+
+  #jumpToChar(char: string, dir: 'forward' | 'backward'): void {
+    if (char === '') return
+    this.#last = 'none'
+    if (dir === 'forward') {
+      const at = this.#text.indexOf(char, this.#cursor + 1)
+      if (at >= 0) this.#cursor = at
+      return
+    }
+    if (this.#cursor === 0) return
+    const at = this.#text.lastIndexOf(char, this.#cursor - 1)
+    if (at >= 0) this.#cursor = at
   }
 
   #applyUndo(): void {

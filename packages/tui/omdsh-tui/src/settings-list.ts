@@ -21,7 +21,12 @@ export interface SettingItem {
 export interface TuiPrefs {
   theme: ThemeName
   colors: boolean
+  expandTools: boolean
+  statusPreset?: StatusPreset
 }
+
+export const STATUS_PRESETS = ['minimal', 'compact', 'full'] as const
+export type StatusPreset = (typeof STATUS_PRESETS)[number]
 
 /** Live overlay state. */
 export interface SettingsState {
@@ -55,6 +60,20 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
       value: prefs.colors ? 'on' : 'off',
       values: COLOR_VALUES,
     },
+    {
+      id: 'expandTools',
+      label: 'Tools',
+      description: 'Expand tool output (ctrl+o)',
+      value: prefs.expandTools ? 'on' : 'off',
+      values: COLOR_VALUES,
+    },
+    {
+      id: 'statusPreset',
+      label: 'Status',
+      description: 'Status line detail',
+      value: prefs.statusPreset ?? 'compact',
+      values: STATUS_PRESETS,
+    },
   ]
 }
 
@@ -62,6 +81,10 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
 export function applySettingValue(prefs: TuiPrefs, id: string, value: string): TuiPrefs {
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
+  if (id === 'expandTools') return { ...prefs, expandTools: value === 'on' }
+  if (id === 'statusPreset' && STATUS_PRESETS.includes(value as StatusPreset)) {
+    return { ...prefs, statusPreset: value as StatusPreset }
+  }
   return prefs
 }
 
@@ -118,6 +141,25 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
     default:
       return { kind: 'ignore' }
   }
+}
+
+/** First overlay-local row that paints a setting item. */
+export const SETTINGS_ITEM_ROW = 3
+
+/** Item index under an overlay-local row, or undefined on chrome. */
+export function hitTestSettings(itemCount: number, localRow: number): number | undefined {
+  const index = localRow - SETTINGS_ITEM_ROW
+  if (index < 0 || index >= itemCount) return undefined
+  return index
+}
+
+/** Move the highlight to `index` without cycling the value. */
+export function selectSetting(state: SettingsState, index: number): SettingsState {
+  const n = tuiSettingItems(state.prefs).length
+  if (n === 0) return state
+  const selected = Math.max(0, Math.min(index, n - 1))
+  if (selected === state.selected) return state
+  return { ...state, selected }
 }
 
 /** Overlay frame: title, cycleable rows, selected description, hints. */

@@ -40,6 +40,10 @@ export interface Frame {
   cursor?: { row: number; column: number }
   /** Clipped transcript window; omitted when the view has no body budget. */
   transcript?: TranscriptScroll
+  /** Rounded editor hit box (frame rows); omitted when an overlay replaced it. */
+  editor?: { start: number; rows: number }
+  /** Slash popup or settings list hit box (frame rows). */
+  overlay?: { kind: 'autocomplete' | 'settings' | 'search' | 'copy'; start: number; resultsRow?: number }
 }
 
 /** The write sink a renderer emits into (stdout or a test capture). */

@@ -26,4 +26,4 @@ if (invocation.model !== undefined) process.env.OMDSH_MODEL = invocation.model
 if (invocation.provider !== undefined) process.env.OMDSH_PROVIDER = invocation.provider
 
 const { runOmdsh } = await import('./boot.ts')
-await runOmdsh(invocation.prompt)
+await runOmdsh(invocation.prompt, invocation.resume)
