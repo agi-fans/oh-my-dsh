@@ -1,0 +1,53 @@
+# omdsh workspace: our packages, our apps, and the DeepSeek Harness
+# core runtime layer as workspace members (git submodule at refs/deepseek-harness).
+# We consume the harness package tier exactly as an in-repo app would and never
+# edit the submodule. Glob set mirrors the harness's own pnpm-workspace.yaml
+# minus the surfaces omdsh does not need (apps, examples, website, python,
+# native/landlock-run).
+packages:
+  - packages/*/*
+  - apps/*
+  - refs/deepseek-harness/packages/*/*
+  - refs/deepseek-harness/vendor/*
+  - refs/deepseek-harness/apps/web
+  - refs/deepseek-harness/apps/cli
+  - refs/deepseek-harness/native/landlock-run
+  - refs/deepseek-harness/native/landlock-run/packages/*
+
+# Vendored framework packages keep their upstream semver ranges, while local
+# builds must resolve those matching names to the pinned submodule sources.
+linkWorkspacePackages: true
+
+overrides:
+  '@deepseek-ai/cosmokit': 'link:refs/deepseek-harness/vendor/cosmokit'
+  '@deepseek-ai/schemastery': 'link:refs/deepseek-harness/vendor/schemastery'
+
+peerDependencyRules:
+  allowedVersions:
+    typescript: '>=5 <7'
+
+# Mirrors the harness workspace's build-script review: pnpm 10+ blocks any
+# dependency shipping an install/build script until explicitly listed here.
+allowBuilds:
+  esbuild: true
+  lefthook: true
+  node-pty: true
+  '@google/genai': false
+  protobufjs: false
+  node-addon-require-builtin: false
+  koffi: true
+  '@deepseek-ai/dsh-subprocess-local@file:packages/subprocess/subprocess-local': true
+
+minimumReleaseAgeExclude:
+  - '@earendil-works/pi-ai@0.82.1'
+  - node-addon-native-custom-loader@0.1.4
+  - node-addon-require-builtin-darwin-arm64@0.1.4
+  - node-addon-require-builtin-darwin-x64@0.1.4
+  - node-addon-require-builtin-linux-arm64-gnu@0.1.4
+  - node-addon-require-builtin-linux-x64-gnu@0.1.4
+  - node-addon-require-builtin-win32-arm64-msvc@0.1.4
+  - node-addon-require-builtin-win32-ia32-msvc@0.1.4
+  - node-addon-require-builtin@0.1.4
+
+patchedDependencies:
+  node-pty@1.1.0: refs/deepseek-harness/patches/node-pty@1.1.0.patch

@@ -1,0 +1,72 @@
+# omdsh composition — the TUI coding agent over the DeepSeek Harness core
+# runtime. No Host, no HTTP, no browser layer: local executors, the
+# executor-less agent spine, the DeepSeek adapter, and the omdsh TUI seam
+# (provider + interactive runner).
+#
+# Model/provider rows read the CLI/environment overrides through the
+# harness's sanctioned dynamic-config mechanism (!!js under plugin config).
+
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+# User settings document ($DSH_HOME/settings.yaml) and credential sources
+# (inherited env, managed .credentials.yaml, project/user .env) — the same
+# rows the harness base mounts, so omdsh honors the user's existing model
+# route and API key setup out of the box.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent'
+
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: !!js process.env.OMDSH_PROVIDER || 'deepseek-official'
+    model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
+
+# Trusted-local permission seam: the default matches an interactive coding
+# agent on the user's own machine; OMDSH_PERMISSION_MODE narrows it.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js process.env.OMDSH_PERMISSION_MODE || 'danger-full-access'
+    workspaceRoot: !!js process.cwd()
+
+- id: fs
+  name: '@deepseek-ai/dsh-fs-local'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext: false
+    dshHome: !!js process.env.OMDSH_HOME || undefined
+
+- id: tui
+  name: '@omdsh/tui'
+  config:
+    model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
+
+- id: runner
+  name: '@omdsh/tui/runner'

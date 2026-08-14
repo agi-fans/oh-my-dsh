@@ -1,0 +1,27 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../refs/deepseek-harness/packages/core/session"
+    },
+    {
+      "path": "../../../refs/deepseek-harness/packages/core/agent"
+    },
+    {
+      "path": "../../../refs/deepseek-harness/packages/llm/llm"
+    },
+    {
+      "path": "../../../refs/deepseek-harness/packages/boot/cmdline"
+    },
+    {
+      "path": "../../../refs/deepseek-harness/packages/core/agent-default-model"
+    }
+  ]
+}

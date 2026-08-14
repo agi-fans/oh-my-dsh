@@ -1,0 +1,28 @@
+{
+  "name": "oh-my-dsh",
+  "private": true,
+  "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "packageManager": "pnpm@11.20.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "omdsh": "pnpm --filter @omdsh/app omdsh",
+    "smoke": "node scripts/pty-smoke.mjs",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "smoke:happy": "node scripts/happy-smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "node-pty": "^1.1.0",
+    "tsdown": "^0.22.2"
+  }
+}
