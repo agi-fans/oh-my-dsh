@@ -11,7 +11,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { TuiToolRenderer } from './tool-renderers.ts'
+import type { TuiToolPresentation } from './tool-renderers.ts'
 
 /** Context service name providers publish under. */
 export const TUI_SERVICE = 'tui'
@@ -31,9 +31,23 @@ export interface TuiPrompt {
   title: string
   question: string
   detail?: string
-  options?: readonly { label: string; description?: string }[]
+  options?: readonly {
+    /** Human-facing option name. */
+    label: string
+    /** Answer returned to the caller; defaults to {@link label}. */
+    value?: string
+    /** Secondary content preview shown above metadata in spacious lists. */
+    preview?: string
+    description?: string
+    /** Optional semantic badge painted after the description. */
+    badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
+  }[]
   multiSelect?: boolean
   allowCustom?: boolean
+  /** Full-height searchable list instead of the default prompt card. */
+  presentation?: 'fullscreen-list'
+  /** Let typed text filter the available options. */
+  filterable?: boolean
   /** Verb shown after Enter in selector navigation, such as "run". */
   submitLabel?: string
   signal?: AbortSignal
@@ -43,7 +57,11 @@ export interface TuiPrompt {
 export interface TuiRecentSession {
   id: string
   title: string
+  preview?: string
   createdAt: number
+  updatedAt?: number
+  eventCount?: number
+  status?: 'done' | 'interrupted' | 'blocked' | 'failed'
 }
 
 /** Optional whole-session figures shown below the editor. */
@@ -78,23 +96,23 @@ export interface TuiSessionStats {
  */
 export interface TuiService {
   /** Render one session-log event (streamed as recorded). */
-  event(event: SessionEvent): void
+  event(event: SessionEvent, presentation?: TuiToolPresentation): void
   /** Update the status line liveness. */
   setStatus(status: TuiStatus): void
-  /** Update the model label shown on the status line. */
-  setModel(model: string): void
+  /** Update the model and effective reasoning effort shown in the composer. */
+  setModel(model: string, reasoningEffort?: string): void
   /** Replace the tool list shown by `/tools`. */
   setTools(tools: readonly { name: string; description: string }[]): void
-  /** Register a rich exact-name tool renderer; later registrations win. */
-  registerToolRenderer(renderer: TuiToolRenderer): () => void
   /** Replace commands contributed by the active agent's Harness scope. */
   setCommands(commands: readonly TuiCommand[]): void
   /** Append a direct UI/command result without fabricating a session event. */
   notice(text: string, level?: 'info' | 'error'): void
+  /** Append one successful plugin command result using the command-output surface. */
+  commandOutput(command: string, text: string): void
   /** Temporarily own the composer and collect one human answer. */
   prompt(request: TuiPrompt): Promise<string | null>
   /** Replace the transcript when a new or resumed session becomes active. */
-  replaceSession(events: readonly SessionEvent[]): void
+  replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void
   /** Update session identity, recent rows, and aggregate status figures. */
   setSession(info: { id: string; recent: readonly TuiRecentSession[]; stats?: TuiSessionStats }): void
   /**

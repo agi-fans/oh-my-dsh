@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { mcpCatalogText, sessionStats, userSkillCommands } from './session-controller.ts'
+import { mcpCatalogText } from './command-integrations.ts'
+import { modelStatus, recentSessionContent, sessionStats, userSkillCommands } from './session-controller.ts'
+
+describe('modelStatus', () => {
+  it('shows the effective adapter default and prefers an explicit effort', () => {
+    const base = { provider: 'deepseek-official', model: 'deepseek-v4-pro' }
+    const info = {
+      reasoning: {
+        efforts: [],
+        defaultEffort: ReasoningEffortId('high'),
+      },
+    }
+    expect(modelStatus(base, info)).toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'high' })
+    expect(modelStatus({ ...base, reasoningEffort: ReasoningEffortId('max') }, info))
+      .toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'max' })
+  })
+})
 
 describe('sessionStats', () => {
   it('folds boundaries and disjoint token usage', () => {
@@ -45,6 +62,30 @@ describe('sessionStats', () => {
   })
 })
 
+describe('recentSessionContent', () => {
+  it('keeps the generated title and previews the latest human message', () => {
+    const events = [
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'First question' }] } },
+      { type: 'session/title', data: { title: 'Renderer work' } },
+      { type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'Hidden context' }] } },
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '  Latest\nquestion  ' }] } },
+    ] as unknown as SessionEvent[]
+
+    expect(recentSessionContent(events)).toEqual({
+      title: 'Renderer work',
+      preview: 'Latest question',
+    })
+  })
+
+  it('does not duplicate a single human message as its own preview', () => {
+    const events = [
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Only message' }] } },
+    ] as unknown as SessionEvent[]
+
+    expect(recentSessionContent(events)).toEqual({ title: 'Only message' })
+  })
+})
+
 describe('capability catalogs', () => {
   it('exposes only human-invocable skills as slash commands', () => {
     const base = {
@@ -63,6 +104,19 @@ describe('capability catalogs', () => {
       { name: 'mcp__github__issues', description: 'List issues' },
       { name: 'mcp__github__pulls', description: 'List pulls' },
       { name: 'mcp__memory__search', description: '' },
-    ])).toBe('github · 2 tools\n  issues — List issues\n  pulls — List pulls\n\nmemory · 1 tool\n  search')
+    ])).toBe([
+      'MCP Servers · 2 connected · 3 tools',
+      '',
+      '**github · 2 tools**',
+      '| Tool | Description |',
+      '|---|---|',
+      '| `issues` | List issues |',
+      '| `pulls` | List pulls |',
+      '',
+      '**memory · 1 tool**',
+      '| Tool | Description |',
+      '|---|---|',
+      '| `search` | No description provided. |',
+    ].join('\n'))
   })
 })

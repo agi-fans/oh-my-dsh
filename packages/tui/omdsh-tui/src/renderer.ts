@@ -38,12 +38,19 @@ export interface Frame {
   lines: readonly string[]
   /** Final cursor position, 0-based; defaults to (lines.length, 0). */
   cursor?: { row: number; column: number }
+  /** False for non-editable overlays that use a painted selection marker. */
+  cursorVisible?: boolean
   /** Clipped transcript window; omitted when the view has no body budget. */
   transcript?: TranscriptScroll
   /** Rounded editor hit box (frame rows); omitted when an overlay replaced it. */
   editor?: { start: number; rows: number }
   /** Slash popup or settings list hit box (frame rows). */
-  overlay?: { kind: 'autocomplete' | 'settings' | 'search' | 'copy'; start: number; resultsRow?: number }
+  overlay?: {
+    kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
+    start: number
+    resultsRow?: number
+    itemRows?: readonly (number | undefined)[]
+  }
 }
 
 /** The write sink a renderer emits into (stdout or a test capture). */
@@ -104,6 +111,7 @@ export class LineRenderer {
   #row = 0
   /** Terminal cursor column after the last render (0-based). */
   #col = 0
+  #cursorVisible = true
   readonly #sink: RenderSink
   readonly #synchronized: boolean
 
@@ -174,6 +182,7 @@ export class LineRenderer {
     }
     this.#last = next
     const target = frame.cursor ?? { row: next.length, column: 0 }
+    const cursorVisible = frame.cursorVisible !== false
     let move = ''
     if (target.row !== row || target.column !== col) {
       if (target.row < row) move += `\x1b[${row - target.row}A`
@@ -181,12 +190,15 @@ export class LineRenderer {
       if (target.column < col) move += `\x1b[${col - target.column}D`
       else if (target.column > col) move += `\x1b[${target.column - col}C`
     }
-    const payload = out + move
+    const hide = !cursorVisible && this.#cursorVisible ? '\x1b[?25l' : ''
+    const show = cursorVisible && !this.#cursorVisible ? '\x1b[?25h' : ''
+    const payload = hide + out + move + show
     if (payload !== '') {
       this.#sink.write(this.#synchronized ? `\x1b[?2026h${payload}\x1b[?2026l` : payload)
     }
     this.#row = target.row
     this.#col = target.column
+    this.#cursorVisible = cursorVisible
   }
 
   /** Forget the rendered state; the next render treats the screen as empty. */

@@ -184,5 +184,32 @@
   config:
     model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
 
+- id: tui-tool-presentation
+  name: '@omdsh/tui/tool-presentation'
+
+- id: tui-session-runtime
+  name: '@omdsh/tui/session-runtime'
+
+- id: tui-human-interaction
+  name: '@omdsh/tui/human-interaction'
+
+- id: tui-command-session
+  name: '@omdsh/tui/command-session'
+
+- id: tui-command-queue
+  name: '@omdsh/tui/command-queue'
+
+- id: tui-command-model
+  name: '@omdsh/tui/command-model'
+
+- id: tui-command-transcript
+  name: '@omdsh/tui/command-transcript'
+
+- id: tui-command-attachment
+  name: '@omdsh/tui/command-attachment'
+
+- id: tui-command-integrations
+  name: '@omdsh/tui/command-integrations'
+
 - id: runner
   name: '@omdsh/tui/runner'

@@ -30,7 +30,7 @@ omdsh 的终端交互外壳已经比较完整：TTY/pipe 双模式、差分渲�
 | 补全 | 基础完整 | slash、slash 参数、`@`、相对/绝对路径、Tab 和鼠标选择 | 命令源为静态列表；没有 skill/file/plugin 动态命令 |
 | 历史搜索 | 部分具备 | Ctrl+R 搜索当前进程输入历史 | 无跨进程持久化、session transcript 搜索和全局 session 搜索 |
 | 设置 | 部分具备 | dark/light、颜色开关、默认展开工具输出，并写入 Harness settings | 设置项和主题数量很少；不支持自定义主题和 keybindings |
-| Slash commands | 较少 | 9 个本地命令：help、settings、theme、hotkeys、copy、tools、pwd、clear、quit | oh-my-pi 当前定义约 70 个顶级内置命令，且还有动态命令来源 |
+| Slash commands | 较少 | 8 个本地命令：help、settings、hotkeys、copy、tools、pwd、clear、quit | oh-my-pi 当前定义约 70 个顶级内置命令，且还有动态命令来源 |
 | Session | 基本缺失 | 每个进程创建一个随机 session | 无 persistence、resume、new、fork、branch、tree、rename、compact |
 | 模型选择 | 启动时可用 | CLI/env/settings 决定初始 provider/model | 无会话内 model/provider/effort 选择 |
 | 审批与提问 | 缺失 | 默认 trusted-local sandbox | 无 approval、ask-user、选项表单和 plan-review UI |
@@ -92,7 +92,6 @@ omdsh 的终端交互外壳已经比较完整：TTY/pipe 双模式、差分渲�
 | --- | --- |
 | `/help` | 显示本地命令 |
 | `/settings` | 打开 TUI 设置 |
-| `/theme` | 切换 dark/light |
 | `/hotkeys` | 显示快捷键 |
 | `/copy` | 选择或直接复制回复、代码块和 bash 命令 |
 | `/tools` | 显示当前 agent 可见工具 |

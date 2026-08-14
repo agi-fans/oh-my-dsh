@@ -18,13 +18,18 @@ import { editorStatusLabel, renderEditor, renderFramedBlock, renderWelcome, rend
 import { renderMarkdown } from './markdown.ts'
 import type { Frame, TranscriptScroll } from './renderer.ts'
 import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
-import { renderSettings, type SettingsState, type StatusPreset } from './settings-list.ts'
-import { renderPromptSelector, type PromptSelectorState } from './prompt-selector.ts'
+import { renderSettings, type SettingsState } from './settings-list.ts'
+import { renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from './status-config.ts'
 import { renderSessionStatusLabel } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
 import type { TuiRecentSession, TuiSessionStats } from './definition.ts'
-import { BUILTIN_TOOL_RENDERERS, renderTool, type TuiToolRenderer } from './tool-renderers.ts'
+import { renderTool, type TuiToolPresentation } from './tool-renderers.ts'
+import { renderToolsPanel, type ToolInfo } from './tools-list.ts'
+import { renderHotkeysPanel, type HotkeyBindings } from './hotkeys.ts'
+import { renderCommandOutput, renderCommandSeparator } from './command-output.ts'
+import type { WelcomeTip } from './welcome-tips.ts'
 
 /** Display state of one tool invocation. */
 export type ToolBlockStatus = 'running' | 'ok' | 'error'
@@ -33,7 +38,10 @@ export type ToolBlockStatus = 'running' | 'ok' | 'error'
 export type Block =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean }
-  | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean }
+  | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
+  | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
+  | { kind: 'hotkeyCatalog'; bindings: HotkeyBindings }
+  | { kind: 'commandOutput'; command: string; text: string }
   | { kind: 'notice'; level: 'info' | 'error'; text: string }
 
 /** Live session status shown on the status line. */
@@ -110,7 +118,11 @@ function settleAssistant(state: TranscriptState, turn: number, step: number, tex
  * @param event - the appended session event.
  * @returns the next state.
  */
-export function applyEvent(state: TranscriptState, event: SessionEvent): TranscriptState {
+export function applyEvent(
+  state: TranscriptState,
+  event: SessionEvent,
+  presentation?: TuiToolPresentation,
+): TranscriptState {
   switch (event.type) {
     case 'turn/start':
       return { ...state, status: 'running', turn: event.data.turn }
@@ -196,6 +208,7 @@ export function applyEvent(state: TranscriptState, event: SessionEvent): Transcr
         args: prettyArgs(event.data.arguments),
         status: 'running',
         output: '',
+        ...(presentation === undefined ? {} : { presentation }),
       }
       const blocks = state.blocks.slice()
       const partial = blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
@@ -204,7 +217,7 @@ export function applyEvent(state: TranscriptState, event: SessionEvent): Transcr
       return { ...state, blocks }
     }
     case 'tool/result':
-      return applyToolResult(state, event.data.message, event.data.error)
+      return applyToolResult(state, event.data.message, event.data.error, presentation)
     // Log-only vocabulary (boundaries, usage, compaction, approvals, ...):
     // nothing to display; the recognized core events above own the surface.
     default:
@@ -217,6 +230,7 @@ function applyToolResult(
   state: TranscriptState,
   message: ToolResultMessage,
   error: { name: string; code: string } | undefined,
+  presentation: TuiToolPresentation | undefined,
 ): TranscriptState {
   // A tool-result message carries exactly one tool-result block; the call
   // identity and outcome live on that inner block.
@@ -230,6 +244,7 @@ function applyToolResult(
         ...block,
         status: error !== undefined || inner.isError === true ? 'error' : 'ok',
         output: contentToText(inner.content),
+        ...(presentation === undefined ? {} : { presentation }),
       }
       return { ...state, blocks }
     }
@@ -245,6 +260,8 @@ export interface ViewOptions {
   height: number
   /** Model name for the status line. */
   model: string
+  /** Effective reasoning effort for the selected model, including adapter defaults. */
+  reasoningEffort?: string
   /** Current input buffer text. */
   input: string
   /** Cursor column inside the input buffer (0-based, before the prefix). */
@@ -279,12 +296,14 @@ export interface ViewOptions {
   commands?: readonly SlashCommand[]
   /** Durable rows shown in the welcome card. */
   recentSessions?: readonly TuiRecentSession[]
+  /** Startup-stable sample of hints shown in the welcome card. */
+  welcomeTips?: readonly WelcomeTip[]
   /** Whole-session figures rendered in the editor's bottom border. */
   sessionStats?: TuiSessionStats
-  /** Amount of session telemetry shown in the editor chrome. */
+  /** Visible groups, order, and label style for editor telemetry. */
+  statusBar?: StatusBarConfig
+  /** Legacy status preset accepted while direct render callers migrate. */
   statusPreset?: StatusPreset
-  /** Built-in plus plugin-contributed exact-name tool renderers. */
-  toolRenderers?: readonly TuiToolRenderer[]
   /**
    * First transcript row to show (0 = top). Omit or pass +Infinity to pin
    * the window to the latest lines — the OMP follow-tail default.
@@ -341,7 +360,6 @@ function toolBlockLines(
   width: number,
   spinnerFrame: number,
   expanded: boolean,
-  renderers: readonly TuiToolRenderer[],
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
   const presentation = renderTool({
@@ -350,7 +368,8 @@ function toolBlockLines(
     output: block.output,
     status: block.status,
     expanded,
-  }, renderers)
+    ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
+  })
   const summary = presentation.summary === undefined || presentation.summary === ''
     ? ''
     : theme.fg('dim', ' ' + presentation.summary)
@@ -360,7 +379,7 @@ function toolBlockLines(
   const shown = hidden > 0 ? raw.slice(0, TOOL_COLLAPSED_LINES) : raw
   const output = shown.map((line) => theme.fg('toolOutput', line))
   if (hidden > 0) {
-    output.push(theme.fg('dim', '… ' + hidden + ' more lines (ctrl+o to expand)'))
+    output.push(theme.fg('dim', '… ' + hidden + ' more lines · ⟨Ctrl+O: Expand⟩'))
   }
   const state = block.status === 'running' ? 'running' : block.status === 'ok' ? 'ok' : 'error'
   return renderFramedBlock({ header, state, lines: output, width }, theme)
@@ -382,7 +401,6 @@ export function blockLines(
   width: number,
   spinnerFrame = 0,
   toolsExpanded = false,
-  toolRenderers: readonly TuiToolRenderer[] = BUILTIN_TOOL_RENDERERS,
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
@@ -401,22 +419,26 @@ export function blockLines(
     }
     return lines
   }
-  if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded, toolRenderers)
+  if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
+  if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
+  if (block.kind === 'hotkeyCatalog') return renderHotkeysPanel(block.bindings, theme, width)
+  if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
   if (block.level === 'info' && !block.text.includes('\n')) {
-    const prefix = '  ' + theme.fg('dim', SYMBOL.done) + ' '
+    const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
     return wrapText(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
       truncateToWidth((index === 0 ? prefix : continuation) + theme.fg('dim', line), width))
   }
-  const state = block.level === 'error' ? 'error' : 'idle'
-  const icon = block.level === 'error' ? theme.fg('error', SYMBOL.error) : theme.fg('dim', SYMBOL.done)
+  const state = block.level === 'error' ? 'error' : 'info'
   const paint = (text: string): string => (block.level === 'error' ? theme.fg('error', text) : theme.fg('dim', text))
   const wrapped = wrapText(block.text, Math.max(1, width - 4))
+  const title = paint(wrapped[0] ?? '')
   return renderFramedBlock({
-    header: icon + ' ' + paint(wrapped[0] ?? ''),
+    header: title,
     state,
     width,
     lines: wrapped.slice(1).map(paint),
+    applyBg: false,
   }, theme)
 }
 
@@ -435,7 +457,6 @@ interface TranscriptBodyCache {
   spinnerFrame: number
   toolsExpanded: boolean
   expandedTools: string
-  toolRenderers: readonly TuiToolRenderer[]
   lines: readonly string[]
 }
 
@@ -446,17 +467,12 @@ interface TranscriptBodyCache {
  */
 const transcriptBodyCache = new WeakMap<TranscriptState, TranscriptBodyCache>()
 
-function sameRenderers(left: readonly TuiToolRenderer[], right: readonly TuiToolRenderer[]): boolean {
-  return left.length === right.length && left.every((renderer, index) => renderer === right[index])
-}
-
 function renderTranscriptBody(
   state: TranscriptState,
   options: ViewOptions,
   theme: Theme,
   spinnerFrame: number,
 ): readonly string[] {
-  const toolRenderers = options.toolRenderers ?? BUILTIN_TOOL_RENDERERS
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
@@ -469,16 +485,25 @@ function renderTranscriptBody(
     && cached.themeName === themeName
     && cached.spinnerFrame === spinnerFrame
     && cached.toolsExpanded === toolsExpanded
-    && cached.expandedTools === expandedTools
-    && sameRenderers(cached.toolRenderers, toolRenderers)) {
+    && cached.expandedTools === expandedTools) {
     return cached.lines
   }
 
   const lines: string[] = []
+  let previous: Block | undefined
   for (const block of state.blocks) {
-    if (lines.length > 0) lines.push('')
+    if (lines.length > 0) {
+      const previousCommand = commandSurfaceName(previous)
+      const currentCommand = commandSurfaceName(block)
+      if (previousCommand !== undefined && currentCommand !== undefined && previousCommand !== currentCommand) {
+        lines.push('', renderCommandSeparator(theme, options.width), '')
+      } else {
+        lines.push('')
+      }
+    }
     const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
-    lines.push(...blockLines(block, theme, options.width, spinnerFrame, expanded, toolRenderers))
+    lines.push(...blockLines(block, theme, options.width, spinnerFrame, expanded))
+    previous = block
   }
   transcriptBodyCache.set(state, {
     width: options.width,
@@ -488,10 +513,16 @@ function renderTranscriptBody(
     spinnerFrame,
     toolsExpanded,
     expandedTools,
-    toolRenderers: [...toolRenderers],
     lines,
   })
   return lines
+}
+
+function commandSurfaceName(block: Block | undefined): string | undefined {
+  if (block?.kind === 'toolCatalog') return 'tools'
+  if (block?.kind === 'hotkeyCatalog') return 'hotkeys'
+  if (block?.kind === 'commandOutput') return block.command
+  return undefined
 }
 
 /** Rows moved per Shift+Arrow (OMP ScrollView `fastScrollLines`). */
@@ -501,11 +532,45 @@ export const TRANSCRIPT_FAST_SCROLL = 5
 export const TRANSCRIPT_WHEEL_SCROLL = 3
 
 function earlierLabel(count: number): string {
-  return '… ↑ ' + count + ' earlier line' + (count === 1 ? '' : 's')
+  return '… ↑ ' + count + ' earlier line' + (count === 1 ? '' : 's') + ' ⟨Pg↑⟩'
 }
 
 function laterLabel(count: number): string {
-  return '… ↓ ' + count + ' later line' + (count === 1 ? '' : 's')
+  return '… ↓ ' + count + ' later line' + (count === 1 ? '' : 's') + ' ⟨Pg↓⟩'
+}
+
+function argumentAction(args: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(args)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const record = parsed as Record<string, unknown>
+    for (const key of ['command', 'path', 'query', 'url', 'pattern', 'prompt']) {
+      const value = record[key]
+      if (typeof value === 'string' && value.trim() !== '') return value.replace(/\s+/gu, ' ').trim()
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+function workingAction(state: TranscriptState): string {
+  const block = state.blocks.findLast(candidate => candidate.kind === 'tool' && candidate.status === 'running')
+  if (block?.kind !== 'tool') return 'Waiting for DeepSeek response…'
+  const presentation = renderTool({
+    name: block.name,
+    arguments: block.args,
+    output: block.output,
+    status: block.status,
+    expanded: false,
+    ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
+  })
+  const title = presentation.title ?? block.name
+  const summary = argumentAction(block.args)
+    ?? presentation.summary?.replace(/\s+/gu, ' ').trim()
+  return summary === undefined || summary === '' || summary === '{}'
+    ? title
+    : `${title} · ${summary}`
 }
 
 /**
@@ -536,7 +601,7 @@ export function windowTranscript(
       ? earlierLabel(len)
       : atTop
         ? laterLabel(len)
-        : '… ↑ ' + s + ' · ↓ ' + (len - s)
+        : '… ↑ ' + s + ' · ↓ ' + (len - s) + ' ⟨Pg↑/Pg↓⟩'
     return {
       lines: [theme.fg('dim', label)],
       start: s,
@@ -615,13 +680,45 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const version = options.version ?? '0.1.0'
   const pwd = options.pwd ?? ''
   const spinnerFrame = options.spinnerFrame ?? 0
+  if (options.settings !== undefined && options.promptSelector === undefined) {
+    const settings = renderSettings(options.settings, theme, width, height)
+    return {
+      lines: fitFrame(settings.lines, width),
+      cursor: settings.cursor,
+      cursorVisible: false,
+      overlay: { kind: 'settings', start: 0, itemRows: settings.itemRows },
+    }
+  }
+  if (options.promptSelector?.request.presentation === 'fullscreen-list') {
+    const selector = renderPromptSelectorPage(
+      options.promptSelector,
+      theme,
+      width,
+      height,
+      options.input,
+      options.inputCursor,
+      appName,
+    )
+    return {
+      lines: fitFrame(selector.lines, width),
+      cursor: selector.cursor,
+      cursorVisible: true,
+      ...(selector.editor === undefined ? {} : { editor: selector.editor }),
+      overlay: {
+        kind: 'prompt',
+        start: 0,
+        ...(selector.itemRows === undefined ? {} : { itemRows: selector.itemRows }),
+      },
+    }
+  }
   const welcome = renderWelcome({
     width,
     model: options.model,
-    provider: appName,
+    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     version,
     appName,
     ...(options.recentSessions === undefined ? {} : { recentSessions: options.recentSessions }),
+    ...(options.welcomeTips === undefined ? {} : { tips: options.welcomeTips }),
   }, theme)
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)
@@ -631,11 +728,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     body.push(...transcript)
   }
 
-  const working = state.status === 'running' ? renderWorking(theme, spinnerFrame) : []
-  const preset = options.statusPreset ?? 'compact'
+  const working = state.status === 'running' ? renderWorking(theme, spinnerFrame, workingAction(state), width) : []
+  const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const statusWord = state.status === 'running' ? 'running' : 'idle'
   const inlineHint = slashInlineHint(options.input, options.inputCursor, options.commands)
-  const sessionStatus = renderSessionStatusLabel(options.sessionStats, preset, theme, Math.max(0, width - 4))
+  const sessionStatus = renderSessionStatusLabel(options.sessionStats, statusBar, theme, Math.max(0, width - 4))
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
@@ -643,6 +740,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     status: editorStatusLabel(theme, {
       appName: '🐳',
       model: options.model,
+      ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
       status: statusWord,
       pwd,
       ...(options.branch !== undefined && options.branch !== '' ? { branch: options.branch } : {}),

@@ -17,6 +17,8 @@ const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-pty-smoke-'))
 process.on('exit', () => { rmSync(omdshHome, { recursive: true, force: true }) })
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const cleanOutput = (value) => value.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '')
+const hasReasoningEffort = (value) => /deepseek-v4-flash · (?:off|high|max) · idle/u.test(cleanOutput(value))
 
 // OMDSH_RUN_MODE=built exercises the shipped artifact (lib/bin.js); the
 // default exercises the tsx source launch.
@@ -48,6 +50,11 @@ const waitFor = async (predicate, label) => {
 }
 
 await sleep(2500)
+if (!(await waitFor(() => hasReasoningEffort(out), 'effective reasoning effort'))) {
+  console.error(cleanOutput(out).slice(-2000))
+  term.kill()
+  process.exit(1)
+}
 term.write('hi\r')
 if (!(await waitFor(() => out.includes('error'), 'rendered turn error'))) {
   term.kill()
@@ -57,7 +64,7 @@ term.write('\x03')
 await sleep(100)
 term.write('\x03')
 if (!(await waitFor(() => exitCode !== null, 'clean exit'))) {
-  const clean = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\r/g, '')
+  const clean = cleanOutput(out)
   console.error('--- pty output at failure ---')
   console.error(clean.slice(-1500))
   term.kill()
@@ -65,10 +72,12 @@ if (!(await waitFor(() => exitCode !== null, 'clean exit'))) {
 }
 term.kill()
 
-const clean = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\r/g, '')
+const clean = cleanOutput(out)
 const ok = exitCode === 0
   && clean.includes('hi')
   && clean.includes('error:')
+  && clean.includes('deepseek-v4-flash')
+  && hasReasoningEffort(clean)
   && clean.includes('Resume this session with omdsh --resume session-')
 if (!ok) {
   console.error('FAIL: exit=' + exitCode)

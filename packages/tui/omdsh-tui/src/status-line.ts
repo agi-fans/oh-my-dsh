@@ -9,11 +9,10 @@
  */
 
 import type { TuiSessionStats } from './definition.ts'
-import type { StatusPreset } from './settings-list.ts'
+import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig, type StatusGroupId } from './status-config.ts'
 import type { Theme, ThemeColor } from './theme.ts'
 import { truncateToWidth, visibleWidth } from './width.ts'
 
-type StatusGroupId = 'counts' | 'durations' | 'speed' | 'cache' | 'tokens'
 type StatusTone = 'label' | 'value' | 'positive' | 'token' | 'separator'
 
 interface StatusPart {
@@ -26,9 +25,8 @@ interface StatusGroup {
   parts: StatusPart[]
 }
 
-const STATUS_PRIORITY: readonly StatusGroupId[] = ['cache', 'tokens', 'speed', 'durations', 'counts']
 const LABEL_PADDING = 2
-const GROUP_SEPARATOR = ' │ '
+const GROUP_SEPARATOR = ' • '
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M. */
 export function formatTokens(value: number): string {
@@ -51,6 +49,12 @@ export function formatTokensPerSecond(value: number): string {
   return value >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
 }
 
+function formatContextPercent(tokens: number, window: number): string {
+  const percent = Math.max(0, tokens) / window * 100
+  const rounded = percent < 10 ? Math.round(percent * 10) / 10 : Math.round(percent)
+  return String(rounded)
+}
+
 function part(text: string, tone: StatusTone): StatusPart {
   return { text, tone }
 }
@@ -60,20 +64,30 @@ function metric(label: string, value: string, tone: StatusTone = 'value'): Statu
 }
 
 /** English semantic groups; language selection will replace copy here. */
-function buildStatusGroups(stats: TuiSessionStats): StatusGroup[] {
+function buildStatusGroups(stats: TuiSessionStats, config: StatusBarConfig): StatusGroup[] {
   const groups: StatusGroup[] = []
-  if (stats.steps > 0) {
+  if (stats.contextWindow !== undefined && stats.contextWindow > 0) {
+    const used = stats.contextTokens ?? 0
     groups.push({
-      id: 'counts',
+      id: 'context',
       parts: [
-        part(String(stats.turns), 'value'),
-        part(stats.turns === 1 ? ' turn' : ' turns', 'label'),
+        ...metric(config.labels === 'compact' ? 'Ctx' : 'Context', `${formatContextPercent(used, stats.contextWindow)}%`),
         part(' · ', 'separator'),
-        part(String(stats.steps), 'value'),
-        part(stats.steps === 1 ? ' step' : ' steps', 'label'),
+        part(`${formatTokens(used)}/${formatTokens(stats.contextWindow)}`, 'token'),
       ],
     })
-
+  }
+  groups.push({
+    id: 'counts',
+    parts: [
+      part(String(stats.turns), 'value'),
+      part(stats.turns === 1 ? ' turn' : ' turns', 'label'),
+      part(' · ', 'separator'),
+      part(String(stats.steps), 'value'),
+      part(stats.steps === 1 ? ' step' : ' steps', 'label'),
+    ],
+  })
+  if (stats.steps > 0) {
     const durations: StatusPart[] = []
     if (stats.llmMs > 0) durations.push(...metric('LLM', formatDuration(stats.llmMs)))
     if (stats.llmMs > 0 && stats.toolMs > 0) durations.push(part(' · ', 'separator'))
@@ -107,7 +121,7 @@ function buildStatusGroups(stats: TuiSessionStats): StatusGroup[] {
       ],
     })
   }
-  return STATUS_PRIORITY.flatMap(id => groups.filter(group => group.id === id))
+  return config.groups.flatMap(id => groups.filter(group => group.id === id))
 }
 
 function groupText(group: StatusGroup): string {
@@ -115,8 +129,13 @@ function groupText(group: StatusGroup): string {
 }
 
 /** Build the unpainted English groups for diagnostics and tests. */
-export function sessionStatusGroups(stats: TuiSessionStats): string[] {
-  return buildStatusGroups(stats).map(groupText)
+export function sessionStatusGroups(
+  stats: TuiSessionStats,
+  config: StatusBarConfig = defaultStatusBarConfig(),
+): string[] {
+  const normalized = resolveStatusBarConfig(config)
+  if (!normalized.enabled) return []
+  return buildStatusGroups(stats, normalized).map(groupText)
 }
 
 function groupsWidth(groups: readonly StatusGroup[]): number {
@@ -161,16 +180,17 @@ function paintColumn(groups: readonly StatusGroup[], theme: Theme): string {
 
 /**
  * Render a responsive label for the editor's bottom border. Groups stay
- * intact on narrow terminals; `minimal` remains an explicit opt-out.
+ * intact on narrow terminals and follow the configured visibility and order.
  */
 export function renderSessionStatusLabel(
   stats: TuiSessionStats | undefined,
-  preset: StatusPreset,
+  config: StatusBarConfig,
   theme: Theme,
   width: number,
 ): string {
-  if (stats === undefined || preset === 'minimal' || width <= LABEL_PADDING) return ''
-  const groups = selectGroups(buildStatusGroups(stats), width)
+  const normalized = resolveStatusBarConfig(config)
+  if (stats === undefined || !normalized.enabled || width <= LABEL_PADDING) return ''
+  const groups = selectGroups(buildStatusGroups(stats, normalized), width)
   if (groups.length === 0) return ''
   const line = ' ' + paintColumn(groups, theme) + ' '
   return truncateToWidth(line, width)

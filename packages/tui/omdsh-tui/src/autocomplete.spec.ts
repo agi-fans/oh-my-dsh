@@ -41,7 +41,7 @@ describe('buildSlashCommandCompletions', () => {
   it('keeps registry order for an empty prefix', () => {
     const items = buildSlashCommandCompletions(BUILTIN_SLASH_COMMANDS, '')
     expect(items.map((item) => item.value)).toEqual([
-      'help', 'settings', 'theme', 'hotkeys', 'copy', 'tools', 'pwd', 'clear', 'quit',
+      'help', 'settings', 'hotkeys', 'copy', 'tools', 'pwd', 'clear', 'quit',
     ])
   })
 
@@ -66,15 +66,10 @@ describe('slashSuggestions', () => {
     expect(slashSuggestions('/he\nmore', 3)).toBe(null)
   })
 
-  it('suggests /theme and /copy arguments after a space', () => {
-    const theme = slashSuggestions('/theme ', 7)
-    expect(theme?.items.map((item) => item.value)).toEqual(['dark', 'light', 'midnight', 'solarized', 'mono'])
-    expect(theme?.items.every((item) => item.kind === 'argument')).toBe(true)
+  it('suggests /copy arguments after a space', () => {
     const copy = slashSuggestions('/copy c', 7)
     expect(copy?.items.map((item) => item.value)).toEqual(['code', 'cmd'])
-    const settings = slashSuggestions('/set col', 8)
-    expect(settings?.items[0]).toMatchObject({ value: 'color', label: 'color', kind: 'argument' })
-    expect(slashSuggestions('/theme dark ', 12)).toBe(null)
+    expect(slashSuggestions('/settings ', 10)).toBe(null)
   })
 
   it('filters namespaced skills as one flat command catalog', () => {
@@ -93,13 +88,10 @@ describe('slashSuggestions', () => {
 
 describe('slashInlineHint', () => {
   it('shows the catalog after /name and remaining chars of a prefix', () => {
-    expect(slashInlineHint('/theme ', 7)).toBe('dark|light|midnight|solarized|mono')
-    expect(slashInlineHint('/theme d', 8)).toBe('ark')
-    expect(slashInlineHint('/theme dark', 11)).toBe(null)
     expect(slashInlineHint('/copy ', 6)).toBe('text|code|cmd')
     expect(slashInlineHint('/copy com', 9)).toBe('mand')
+    expect(slashInlineHint('/settings ', 10)).toBe(null)
     expect(slashInlineHint('/help ', 6)).toBe(null)
-    expect(slashInlineHint('/theme ', 6)).toBe(null)
   })
 })
 
@@ -127,11 +119,6 @@ describe('applySlashCompletion', () => {
   })
 
   it('replaces the live argument token without rewriting the command', () => {
-    expect(applySlashCompletion('/theme d', 8, {
-      value: 'dark',
-      label: 'dark',
-      kind: 'argument',
-    })).toEqual({ text: '/theme dark ', cursor: 12 })
     expect(applySlashCompletion('  /copy com', 11, {
       value: 'cmd',
       label: 'command',
@@ -167,16 +154,38 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(text).toContain('/help')
     expect(text).toContain('/settings')
     expect(text).toContain('/set')
-    expect(text).toContain('/theme [dark|light|midnight|solarized|mono]')
+    expect(text).not.toContain('/theme')
     expect(text).toContain('/hotkeys')
-    expect(text).toContain('/copy [text|code|cmd]')
-    expect(text).toContain('/settings [theme|color|tools]')
+    expect(text).toContain('/copy [text\\|code\\|cmd]')
+    expect(text).not.toContain('/settings [')
     expect(text).toContain('/tools')
     expect(text).toContain('/pwd')
     expect(text).toContain('/dirs')
     expect(text).toContain('/quit')
     expect(text).toContain('/q')
     expect(text).toContain('/exit')
+  })
+
+  it('groups plugin skills and formats commands as separated Markdown table rows', () => {
+    const text = formatHelpText([
+      ...BUILTIN_SLASH_COMMANDS,
+      { name: 'resume', description: 'Resume a durable session', inputHint: '[session-id]' },
+      {
+        name: 'skill:code-review',
+        description: 'Review changes against repository standards and the originating specification',
+      },
+      { name: 'skill:research', description: 'Investigate a question against high-trust primary sources' },
+    ])
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('Commands · 9 available')
+    expect(text).toContain('**Terminal Commands · 8**')
+    expect(text).toContain('**Agent Commands · 1**')
+    expect(text).toContain('| Command | Description |')
+    expect(text).toContain('/resume [session-id]')
+    expect(text).toContain('**Skills · 2**')
+    expect(text).toContain('Type `/skill:` to browse and filter skills')
+    expect(text).not.toContain('/skill:code-review')
+    expect(lines.filter(line => line.startsWith('| `/'))).toHaveLength(9)
   })
 
   it('paints the selected row with a cursor and windows long lists', () => {

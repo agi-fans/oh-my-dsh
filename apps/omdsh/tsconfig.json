@@ -10,63 +10,6 @@
   "references": [
     {
       "path": "../../packages/tui/omdsh-tui"
-    },
-    {
-      "path": "../../refs/deepseek-harness/vendor/cordis"
-    },
-    {
-      "path": "../../refs/deepseek-harness/vendor/loader"
-    },
-    {
-      "path": "../../refs/deepseek-harness/vendor/timer"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/boot/app-boot"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/boot/cmdline"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/util/launch-environment"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/examples/agent-spine-demo"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/core/session"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/core/agent"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/core/agent-default-model"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/llm/llm"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/llm/llm-deepseek"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/shell/bash-local"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/fs/fs-local"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/sandbox/sandbox-local"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/sandbox/sandbox-policy"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/subprocess/subprocess-local"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/settings/settings-file"
-    },
-    {
-      "path": "../../refs/deepseek-harness/packages/credentials/credentials-local"
     }
   ]
 }

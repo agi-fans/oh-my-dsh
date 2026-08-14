@@ -1,6 +1,6 @@
 {
   "name": "@omdsh/tui",
-  "description": "omdsh TUI capability seam: terminal presentation Service Definition, local provider, and interactive runner",
+  "description": "Cordis plugin suite for omdsh terminal presentation, session interaction, commands, and human input",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -14,6 +14,50 @@
       "types": "./lib/types/runner.d.ts",
       "default": "./lib/runner.js"
     },
+    "./definition": {
+      "types": "./lib/types/definition.d.ts",
+      "default": "./lib/definition.js"
+    },
+    "./provider-local": {
+      "types": "./lib/types/provider-local.d.ts",
+      "default": "./lib/provider-local.js"
+    },
+    "./session-runtime": {
+      "types": "./lib/types/session-runtime.d.ts",
+      "default": "./lib/session-runtime.js"
+    },
+    "./human-interaction": {
+      "types": "./lib/types/human-interaction.d.ts",
+      "default": "./lib/human-interaction.js"
+    },
+    "./tool-presentation": {
+      "types": "./lib/types/tool-presentation.d.ts",
+      "default": "./lib/tool-presentation.js"
+    },
+    "./command-session": {
+      "types": "./lib/types/command-session.d.ts",
+      "default": "./lib/command-session.js"
+    },
+    "./command-queue": {
+      "types": "./lib/types/command-queue.d.ts",
+      "default": "./lib/command-queue.js"
+    },
+    "./command-model": {
+      "types": "./lib/types/command-model.d.ts",
+      "default": "./lib/command-model.js"
+    },
+    "./command-transcript": {
+      "types": "./lib/types/command-transcript.d.ts",
+      "default": "./lib/command-transcript.js"
+    },
+    "./command-attachment": {
+      "types": "./lib/types/command-attachment.d.ts",
+      "default": "./lib/command-attachment.js"
+    },
+    "./command-integrations": {
+      "types": "./lib/types/command-integrations.d.ts",
+      "default": "./lib/command-integrations.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -26,29 +70,32 @@
     "typecheck": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-attachment": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-session-persistence": "workspace:^",
-    "@deepseek-ai/dsh-session-projection": "workspace:^",
-    "@deepseek-ai/dsh-session-query": "workspace:^",
-    "@deepseek-ai/dsh-session-stats": "workspace:^",
-    "@deepseek-ai/dsh-session-title": "workspace:^",
-    "@deepseek-ai/dsh-skill": "workspace:^",
-    "@deepseek-ai/dsh-settings": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-token-meter": "workspace:^",
-    "@deepseek-ai/dsh-user-approval": "workspace:^",
-    "@deepseek-ai/dsh-user-questions": "workspace:^",
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/cordis-plugin-loader": "1.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-cmdline": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-commands": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-projection": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-query": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-stats": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-title": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-skill": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-token-meter": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "3.18.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis": "4.0.1",
     "typescript": "^5.6.0",
     "tsx": "^4.19.0",
     "vitest": "^2.1.0",

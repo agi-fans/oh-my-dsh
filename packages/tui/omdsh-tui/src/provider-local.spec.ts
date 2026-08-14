@@ -110,6 +110,28 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('filters a full-screen prompt and returns the hidden option value', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const answer = tui.prompt({
+      title: 'Resume Session',
+      question: '',
+      presentation: 'fullscreen-list',
+      filterable: true,
+      allowCustom: false,
+      options: [
+        { label: 'Alpha session', value: 'session-alpha', description: '2m ago' },
+        { label: 'Beta session', value: 'session-beta', description: '1h ago' },
+      ],
+    })
+
+    press(term, 'session\x1b[B\r')
+
+    expect(stripAnsi(term.captured)).toContain('Beta session')
+    expect(await answer).toBe('session-beta')
+    tui.dispose()
+  })
+
   it('renders a fixed-choice prompt without a custom-answer editor', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -224,8 +246,9 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm0', false)
     tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }, 1))
     expect(term.captured).toContain('hi')
-    tui.setModel('deepseek-v4-pro')
+    tui.setModel('deepseek-v4-pro', 'max')
     expect(term.captured).toContain('deepseek-v4-pro')
+    expect(term.captured).toContain('max')
     tui.dispose()
   })
 
@@ -295,10 +318,10 @@ describe('LocalTui (tty)', () => {
     press(term, '/')
     expect(term.captured).toContain('/help')
     expect(term.captured).toContain('/settings')
-    expect(term.captured).toContain('/theme')
+    expect(term.captured).not.toContain('/theme')
     expect(term.captured).toContain('/hotkeys')
     expect(term.captured).toContain('/copy')
-    expect(term.captured).toContain('1/9')
+    expect(term.captured).toContain('1/8')
     tui.dispose()
   })
 
@@ -308,28 +331,6 @@ describe('LocalTui (tty)', () => {
     press(term, '/cl')
     press(term, '\t')
     expect(term.captured).toContain('/clear ')
-    tui.dispose()
-  })
-
-  it('suggests /theme arguments after a space and completes on Tab', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    press(term, '/th')
-    press(term, '\t')
-    expect(term.captured).toContain('/theme ')
-    expect(term.captured).toContain('Dark palette')
-    expect(term.captured).toContain('Light palette')
-    expect(term.captured).not.toContain('/dark')
-    press(term, '\t')
-    expect(term.captured).toContain('/theme dark ')
-    tui.dispose()
-  })
-
-  it('shows an inline argument hint after /theme ', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    press(term, '/theme ')
-    expect(term.captured).toContain('dark|light')
     tui.dispose()
   })
 
@@ -482,7 +483,7 @@ describe('LocalTui (tty)', () => {
     const pending = tui.readline()
     press(term, '/hotkeys\r')
     expect(term.captured).toContain('Ctrl+R')
-    expect(term.captured).toContain('search history')
+    expect(term.captured).toContain('Search prompt history')
     expect(term.captured).toContain('/hotkeys')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
@@ -503,15 +504,25 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/tools\r')
-    expect(term.captured).toContain('No tools are available.')
+    expect(term.captured).toContain('Available Tools')
+    expect(term.captured).toContain('0 active')
+    expect(term.captured).toContain('No tools are currently visible to the agent.')
     tui.setTools([
-      { name: 'bash', description: 'Run a shell command' },
+      { name: 'bash', description: 'Run a shell command and return its complete output with COMPLETE_TAIL metadata for diagnostics.' },
       { name: 'fs', description: '' },
     ])
     press(term, '/tools\r')
-    expect(term.captured).toContain('Tools')
-    expect(term.captured).toContain('- bash  Run a shell command')
-    expect(term.captured).toContain('- fs')
+    expect(term.captured).toContain('2 active')
+    expect(term.captured).toContain('Tool')
+    expect(term.captured).toContain('Description')
+    expect(term.captured).toContain('bash')
+    expect(term.captured).toContain('Run a shell command')
+    expect(term.captured).toContain('Descriptions shortened')
+    expect(term.captured).not.toContain('COMPLETE_TAIL')
+    expect(term.captured).toContain('No description provided.')
+    press(term, '\x0f')
+    expect(term.captured).toContain('COMPLETE_TAIL')
+    expect(term.captured).toContain('Collapse descriptions')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()
@@ -537,7 +548,8 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/help\r')
-    expect(term.captured).toContain('Commands')
+    expect(term.captured).toContain('/help / /h / /?')
+    expect(term.captured).toContain('├')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
     tui.dispose()
@@ -574,6 +586,19 @@ describe('LocalTui (tty)', () => {
     })
   })
 
+  it('hides the terminal cursor while the non-editable settings overlay is open', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    void tui.readline()
+    const beforeOpen = term.captured.length
+    press(term, '/settings\r')
+    expect(term.captured.slice(beforeOpen)).toContain('\x1b[?25l')
+    const beforeClose = term.captured.length
+    press(term, '\x03')
+    expect(term.captured.slice(beforeClose)).toContain('\x1b[?25h')
+    tui.dispose()
+  })
+
   it('opens settings from the /set alias', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -584,40 +609,37 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('focuses the Tools row on /settings tools', async () => {
-    const persisted: Array<{ expandTools: boolean }> = []
+  it('keeps individual settings out of slash-command arguments', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    tui.setPrefsPersist((prefs) => { persisted.push(prefs) })
     void tui.readline()
-    press(term, '/settings tools\r')
-    expect(term.captured).toContain('Expand tool output')
-    press(term, '\r')
-    expect(persisted[0]?.expandTools).toBe(true)
+    press(term, '/settings theme\r')
+    expect(term.captured).toContain('Usage: /settings')
     tui.dispose()
   })
 
-  it('persists /theme changes through the prefs hook', async () => {
+  it('persists theme changes made in the settings overlay', async () => {
     const persisted: Array<{ theme: string; colors: boolean }> = []
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.setPrefsPersist((prefs) => { persisted.push(prefs) })
     const pending = tui.readline()
-    press(term, '/theme light\r')
-    expect(persisted).toEqual([{ theme: 'light', colors: false, expandTools: false, statusPreset: 'compact' }])
+    press(term, '/settings\r')
+    press(term, '\r')
+    expect(persisted).toEqual([{
+      theme: 'light',
+      colors: false,
+      expandTools: false,
+      statusBar: {
+        enabled: true,
+        labels: 'compact',
+        groups: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
+        order: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
+      },
+    }])
+    press(term, '\x03')
     tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
     expect(term.captured).not.toContain('Theme: dark')
-    press(term, 'ok\r')
-    expect(await pending).toBe('ok')
-    tui.dispose()
-  })
-
-  it('applies /theme light without submitting a prompt', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
-    press(term, '/theme light\r')
-    expect(term.captured).toContain('Theme: light')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()
@@ -782,7 +804,7 @@ describe('LocalTui (tty)', () => {
       message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
     }, 2))
     expect(term.captured).toContain('tool-line-13')
-    expect(term.captured).not.toContain('ctrl+o to expand')
+    expect(term.captured).not.toContain('Ctrl+O: Expand')
     tui.dispose()
   })
 
@@ -796,13 +818,13 @@ describe('LocalTui (tty)', () => {
       message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
     }, 2))
     expect(term.captured).toContain('tool-line-0')
-    expect(term.captured).toContain('ctrl+o to expand')
+    expect(term.captured).toContain('Ctrl+O: Expand')
     expect(term.captured).not.toContain('tool-line-13')
     press(term, '\x0f')
     expect(term.captured).toContain('tool-line-13')
     const afterExpand = term.captured.length
     press(term, '\x0f')
-    expect(term.captured.slice(afterExpand)).toContain('ctrl+o to expand')
+    expect(term.captured.slice(afterExpand)).toContain('Ctrl+O: Expand')
     expect(term.captured.slice(afterExpand)).not.toContain('tool-line-13')
     tui.dispose()
   })

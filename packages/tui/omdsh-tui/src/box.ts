@@ -6,11 +6,14 @@
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, type Theme, type ThemeColor } from './theme.ts'
 import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped, indexOnWrapped } from './width.ts'
+import { formatRelativeAge } from './relative-time.ts'
+import { WELCOME_TIPS, type WelcomeTip } from './welcome-tips.ts'
 
 /** Visual state that drives border + fill color. */
-export type BoxState = 'idle' | 'running' | 'ok' | 'error' | 'warning'
+export type BoxState = 'idle' | 'info' | 'running' | 'ok' | 'error' | 'warning'
 
 function borderColorFor(state: BoxState | undefined): ThemeColor {
+  if (state === 'info') return 'border'
   if (state === 'error') return 'error'
   if (state === 'warning') return 'warning'
   if (state === 'running') return 'accent'
@@ -100,17 +103,20 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
 export interface WelcomeOptions {
   width: number
   model: string
-  provider: string
+  /** Effective reasoning effort for the selected model, painted under the model name. */
+  reasoningEffort?: string
   version: string
   appName: string
-  recentSessions?: readonly { id: string; title: string }[]
+  recentSessions?: readonly { id: string; title: string; createdAt: number; updatedAt?: number }[]
+  /** Per-process hint sample; defaults to a deterministic catalog prefix for pure callers. */
+  tips?: readonly WelcomeTip[]
 }
 
 /**
  * Two-column welcome card: gradient DeepSeek logo + tips, titled `app vversion`.
  */
 export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
-  const boxWidth = Math.min(100, Math.max(0, options.width))
+  const boxWidth = Math.max(0, options.width)
   if (boxWidth < 8) return []
   const dualContentWidth = boxWidth - 3
   const minLeft = visibleWidth(DEEPSEEK_LOGO[0]) + 2
@@ -121,34 +127,36 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const rightCol = showRight ? Math.max(1, dualContentWidth - leftCol) : 0
 
   const logo = gradientLogo(theme, DEEPSEEK_LOGO)
+  const effort = options.reasoningEffort ?? ''
   const leftLines = [
     centerText(theme.bold('Into the Unknown'), leftCol),
     '',
     ...logo.map((line) => centerText(line, leftCol)),
     '',
     centerText(theme.fg('muted', options.model), leftCol),
-    centerText(theme.fg('dim', options.provider), leftCol),
+    ...(effort === '' ? [] : [centerText(theme.fg('dim', effort), leftCol)]),
   ]
 
-  const sep = rightCol > 2 ? ` ${theme.fg('dim', BOX.horizontal.repeat(Math.max(0, rightCol - 2)))}` : ''
+  const tips = options.tips ?? WELCOME_TIPS.slice(0, 4)
+  const tipKeyWidth = tips.reduce((width, tip) => Math.max(width, visibleWidth(tip.key)), 0)
+  const tipLines = tips.map((tip) => {
+    const key = fitToWidth(tip.key, tipKeyWidth)
+    return ` ${theme.fg('dim', key)}${theme.fg('muted', '  ' + tip.text)}`
+  })
   const rightLines = showRight
     ? [
       ` ${theme.bold(theme.fg('accent', 'Tips'))}`,
-      ` ${theme.fg('dim', '↵')}${theme.fg('muted', '  submit')}`,
-      ` ${theme.fg('dim', '⌥↵')}${theme.fg('muted', ' newline')}`,
-      ` ${theme.fg('dim', '^C×2')}${theme.fg('muted', ' exit')}`,
-      ` ${theme.fg('dim', '^D')}${theme.fg('muted', ' quit')}`,
-      ` ${theme.fg('dim', '↑↓')}${theme.fg('muted', ' history')}`,
-      ` ${theme.fg('dim', 'Pg↑')}${theme.fg('muted', ' scroll')}`,
-      ` ${theme.fg('dim', '^R')}${theme.fg('muted', ' search')}`,
-      ` ${theme.fg('dim', '/')}${theme.fg('muted', '  commands')}`,
-      ` ${theme.fg('dim', '⇥')}${theme.fg('muted', ' complete')}`,
-      sep,
+      ...tipLines,
+      '',
       ` ${theme.bold(theme.fg('accent', 'Recent sessions'))}`,
       ...(options.recentSessions === undefined || options.recentSessions.length === 0
         ? [` ${theme.fg('dim', 'No recent sessions')}`]
-        : options.recentSessions.slice(0, 3).map((session) =>
-          ` ${theme.fg('muted', truncateToWidth(session.title || session.id, Math.max(1, rightCol - 2)))}`)),
+        : options.recentSessions.slice(0, 3).map((session) => {
+          const age = ` (${formatRelativeAge(session.updatedAt ?? session.createdAt)})`
+          const labelWidth = Math.max(1, rightCol - 2 - visibleWidth(age))
+          const label = truncateToWidth(session.title || session.id, labelWidth)
+          return ` ${theme.fg('muted', label)}${theme.fg('dim', age)}`
+        })),
     ]
     : []
 
@@ -158,37 +166,41 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const tr = theme.fg('dim', BOX.topRight)
   const bl = theme.fg('dim', BOX.bottomLeft)
   const br = theme.fg('dim', BOX.bottomRight)
-  const tee = theme.fg('dim', BOX.teeUp)
+  const teeUp = theme.fg('dim', BOX.teeUp)
+  const teeDown = theme.fg('dim', BOX.teeDown)
+  const teeLeft = theme.fg('dim', BOX.teeLeft)
+  const teeRight = theme.fg('dim', BOX.teeRight)
 
   const title = ` ${options.appName} v${options.version} `
   const titlePrefix = BOX.horizontal.repeat(3)
   const titleStyled = theme.fg('dim', titlePrefix) + theme.fg('muted', title)
-  const titleSpace = boxWidth - 2
-  const afterTitle = Math.max(0, titleSpace - visibleWidth(titlePrefix) - visibleWidth(title))
-  const lines: string[] = [
-    tl + (visibleWidth(titleStyled) >= titleSpace
-      ? truncateToWidth(titleStyled, titleSpace)
-      : titleStyled + theme.fg('dim', BOX.horizontal.repeat(afterTitle))) + tr,
-  ]
+  const titleWidth = showRight ? leftCol : boxWidth - 2
+  const afterTitle = Math.max(0, titleWidth - visibleWidth(titlePrefix) - visibleWidth(title))
+  const titleSegment = visibleWidth(titleStyled) >= titleWidth
+    ? truncateToWidth(titleStyled, titleWidth)
+    : titleStyled + theme.fg('dim', BOX.horizontal.repeat(afterTitle))
+  const lines: string[] = [showRight
+    ? tl + titleSegment + teeDown + h.repeat(rightCol) + tr
+    : tl + titleSegment + tr]
 
   const rows = showRight ? Math.max(leftLines.length, rightLines.length) : leftLines.length
+  const separatorRow = 1 + tipLines.length
   for (let i = 0; i < rows; i += 1) {
     const left = fitToWidth(leftLines[i] ?? '', leftCol)
     if (showRight) {
-      lines.push(v + left + v + fitToWidth(rightLines[i] ?? '', rightCol) + v)
+      lines.push(i === separatorRow
+        ? v + left + teeRight + h.repeat(rightCol) + teeLeft
+        : v + left + v + fitToWidth(rightLines[i] ?? '', rightCol) + v)
     } else {
       lines.push(v + left + v)
     }
   }
   if (showRight) {
-    lines.push(bl + h.repeat(leftCol) + tee + h.repeat(rightCol) + br)
+    lines.push(bl + h.repeat(leftCol) + teeUp + h.repeat(rightCol) + br)
   } else {
     lines.push(bl + h.repeat(leftCol) + br)
   }
 
-  const tipLabel = theme.italic(theme.fg('customMessageLabel', 'Tip: '))
-  const tipBody = theme.italic(theme.fg('muted', 'Type / for commands, or a message to start.'))
-  lines.push(' ' + tipLabel + tipBody)
   return lines
 }
 
@@ -282,24 +294,37 @@ export function hitTestEditor(input: string, width: number, localRow: number, co
 /**
  * OMP "Working..." row that sits above the editor while a turn is in flight.
  */
-export function renderWorking(theme: Theme, spinnerFrame: number): string[] {
+export function renderWorking(
+  theme: Theme,
+  spinnerFrame: number,
+  action = 'Waiting for DeepSeek response…',
+  width?: number,
+): string[] {
   const frame = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][spinnerFrame % 10] ?? '⠋'
-  return [' ' + theme.fg('accent', frame) + ' ' + theme.fg('muted', 'Working... (ctrl-c to interrupt)')]
+  const prefix = ' ' + theme.fg('accent', frame) + ' '
+  const hint = ' ' + theme.fg('dim', '⟨Ctrl+C: Interrupt⟩')
+  if (width === undefined) return [prefix + theme.fg('muted', action) + hint]
+  const actionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(hint))
+  if (actionWidth < 8) return [truncateToWidth(prefix + theme.fg('muted', action), width)]
+  return [prefix + theme.fg('muted', truncateToWidth(action, actionWidth)) + hint]
 }
 
-/** Build the ` icon · model · status · pwd · branch ` label in the editor cap. */
+/** Build the ` icon · model · effort · status · pwd · branch ` label in the editor cap. */
 export function editorStatusLabel(
   theme: Theme,
-  parts: { appName: string; model: string; status: string; pwd: string; branch?: string },
+  parts: { appName: string; model: string; reasoningEffort?: string; status: string; pwd: string; branch?: string },
 ): string {
-  const items = [parts.appName, parts.model, parts.status]
-  if (parts.pwd !== '') items.push(parts.pwd)
-  if (parts.branch !== undefined && parts.branch !== '') items.push(parts.branch)
+  const items: Array<{ text: string; tone: 'accent' | 'muted' | 'warning' }> = [
+    { text: parts.appName, tone: 'accent' },
+    { text: parts.model, tone: 'muted' },
+  ]
+  if (parts.reasoningEffort !== undefined && parts.reasoningEffort !== '') {
+    items.push({ text: parts.reasoningEffort, tone: 'muted' })
+  }
+  items.push({ text: parts.status, tone: parts.status.startsWith('running') ? 'warning' : 'muted' })
+  if (parts.pwd !== '') items.push({ text: parts.pwd, tone: 'muted' })
+  if (parts.branch !== undefined && parts.branch !== '') items.push({ text: parts.branch, tone: 'muted' })
   const sep = theme.fg('dim', ' · ')
-  const painted = items.map((item, index) => {
-    if (index === 2 && parts.status.startsWith('running')) return theme.fg('warning', item)
-    if (index === 0) return theme.fg('accent', item)
-    return theme.fg('muted', item)
-  })
+  const painted = items.map(item => theme.fg(item.tone, item.text))
   return ' ' + painted.join(sep) + ' '
 }

@@ -1,12 +1,12 @@
 # oh-my-dsh
 
-**omdsh** — a TUI coding agent in the style of [oh-my-pi](https://github.com/can1357/oh-my-pi), running on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) core runtime. Everything omdsh adds is a Cordis plugin or an app over the harness package tier; the harness itself is an unmodified git submodule under refs/.
+**omdsh** — a TUI coding agent in the style of [oh-my-pi](https://github.com/can1357/oh-my-pi), running on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) core runtime. Everything omdsh adds is a Cordis plugin or an app over published Harness packages; the refs/ submodules are read-only design and API references.
 
-Status: the three oh-my-pi parity rounds are implemented: durable/resumable sessions, dynamic commands, approvals/questions, coding-tool renderers, model/context controls, attachments, transcript search/export, external editing, themes and plan/goal/subagent workflows. It is verified keyless in pipe and PTY modes and honors `$DSH_HOME` settings and layered credentials. See [architecture](docs/architecture.md) and the [implementation matrix](docs/implementation-rounds.md). Skills and MCP setup are documented in [Skills and MCP](docs/skills-and-mcp.md).
+Status: the three oh-my-pi parity rounds are implemented: durable/resumable sessions, plugin-owned dynamic commands, approvals/questions, tool-owned presentation intents, model/context controls, attachments, transcript search/export, external editing, themes and plan/goal/subagent workflows. It is verified keyless in pipe and PTY modes and honors `$DSH_HOME` settings and layered credentials. See [architecture](docs/architecture.md) and the [implementation matrix](docs/implementation-rounds.md). Skills and MCP setup are documented in [Skills and MCP](docs/skills-and-mcp.md).
 
 ## Layout
 
-- refs/deepseek-harness — core runtime layer (submodule)
+- refs/deepseek-harness — read-only Harness API/design reference (submodule)
 - refs/oh-my-pi — TUI design reference (submodule)
 - packages/tui/omdsh-tui — the TUI capability seam
 - apps/omdsh — the omdsh command
@@ -17,7 +17,7 @@ Status: the three oh-my-pi parity rounds are implemented: durable/resumable sess
 pnpm install
 pnpm omdsh "list files"   # interactive TUI (needs DEEPSEEK_API_KEY for live turns)
 pnpm test               # unit + pipe-mode e2e
-pnpm run build:runtime   # build the shipped runtime closure
+pnpm build             # build omdsh against published npm packages
 node apps/omdsh/lib/bin.js "list files"  # the built command
 pnpm smoke              # interactive PTY e2e (keyless)
 pnpm smoke:happy        # happy-path e2e vs the harness mock LLM (keyless)

@@ -1,6 +1,6 @@
 /**
- * Interactive runner: continuously reads the terminal, delegates lifecycle
- * and command work to SessionController, and binds Harness human interaction.
+ * Interactive runner: reads submitted terminal input and delegates session
+ * lifecycle and slash-command dispatch to the mounted session runtime.
  * @module @omdsh/tui/runner
  */
 
@@ -11,14 +11,11 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-user-approval'
-import type {} from '@deepseek-ai/dsh-user-questions'
 import type { TuiService } from './definition.ts'
-import { bindHumanInteraction } from './interaction-adapter.ts'
-import { SessionController } from './session-controller.ts'
+import type {} from './session-runtime.ts'
 
 export const name = 'omdsh-runner'
-export const inject = ['tui', 'agentDefaultModel', 'agents']
+export const inject = ['tui', 'omdshSession']
 
 function fail(error: unknown, exit: (code: number) => void): void {
   console.error('omdsh: ' + (error instanceof Error ? error.message : String(error)))
@@ -27,11 +24,10 @@ function fail(error: unknown, exit: (code: number) => void): void {
 
 async function run(ctx: Context, tui: TuiService): Promise<void> {
   await ctx.get('loader')?.await()
-  if (ctx.get('agents') === undefined || ctx.get('agentDefaultModel') === undefined) return
+  const controller = ctx.get('omdshSession')
+  if (controller === undefined) return
 
-  const controller = new SessionController(ctx, tui)
   await controller.start()
-  const offInteraction = bindHumanInteraction(ctx, tui, () => controller.agent)
   let operation: AbortController | undefined
   const offInterrupt = tui.onInterrupt(() => {
     operation?.abort(new Error('cancelled by user'))
@@ -78,8 +74,6 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
   } finally {
     operation?.abort(new Error('runner disposed'))
     offInterrupt()
-    offInteraction()
-    await controller.dispose()
   }
   ctx.get('appExit')?.(0)
 }

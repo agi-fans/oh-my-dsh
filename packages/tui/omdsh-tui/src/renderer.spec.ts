@@ -111,6 +111,18 @@ describe('LineRenderer', () => {
     expect(screen.col).toBe(1)
   })
 
+  it('hides the physical cursor for selection overlays and restores it afterward', () => {
+    let captured = ''
+    const renderer = new LineRenderer({ write: chunk => { captured += chunk } })
+    renderer.render({ lines: ['settings'], cursor: { row: 0, column: 0 }, cursorVisible: false })
+    expect(captured).toContain('\x1b[?25l')
+    captured = ''
+    renderer.render({ lines: ['settings'], cursor: { row: 0, column: 1 }, cursorVisible: false })
+    expect(captured).not.toContain('\x1b[?25l')
+    renderer.render({ lines: ['editor'], cursor: { row: 0, column: 1 } })
+    expect(captured).toContain('\x1b[?25h')
+  })
+
   it('keeps frames aligned when each render ends on the input line', () => {
     // The tty path requests the cursor on the last (input) row after every
     // render; the next diff must be computed from that position, not from

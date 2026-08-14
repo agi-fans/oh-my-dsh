@@ -207,7 +207,25 @@ function splitTableRow(line: string): string[] {
   let body = line.trim()
   if (body.startsWith('|')) body = body.slice(1)
   if (body.endsWith('|')) body = body.slice(0, -1)
-  return body.split('|').map((cell) => cell.trim())
+  const cells: string[] = []
+  let cell = ''
+  let escaped = false
+  for (const char of body) {
+    if (escaped) {
+      cell += char === '|' ? '|' : '\\' + char
+      escaped = false
+    } else if (char === '\\') {
+      escaped = true
+    } else if (char === '|') {
+      cells.push(cell.trim())
+      cell = ''
+    } else {
+      cell += char
+    }
+  }
+  if (escaped) cell += '\\'
+  cells.push(cell.trim())
+  return cells
 }
 
 function isTableRow(line: string): boolean {
@@ -233,18 +251,49 @@ function renderTable(header: string[], rows: string[][], theme: Theme, width: nu
     for (const row of paintedRows) max = Math.max(max, visibleWidth(row[i] ?? ''))
     return Math.max(1, max)
   })
-  const totalNatural = natural.reduce((a, b) => a + b, 0)
-  let widths = natural.slice()
+  const longestWord = (text: string): number => Math.min(
+    30,
+    Math.max(1, ...text.split(/\s+/u).filter(Boolean).map(word => visibleWidth(word))),
+  )
+  let minimums = Array.from({ length: cols }, (_, i) => {
+    let max = longestWord(paintedHeader[i] ?? '')
+    for (const row of paintedRows) max = Math.max(max, longestWord(row[i] ?? ''))
+    return max
+  })
+  let minimumTotal = minimums.reduce((total, value) => total + value, 0)
+  if (minimumTotal > available) {
+    const remaining = available - cols
+    const weight = minimums.reduce((total, value) => total + Math.max(0, value - 1), 0)
+    minimums = minimums.map(value => 1 + (weight > 0
+      ? Math.floor((Math.max(0, value - 1) / weight) * remaining)
+      : 0))
+    let leftover = available - minimums.reduce((total, value) => total + value, 0)
+    for (let i = 0; leftover > 0 && i < cols; i += 1, leftover -= 1) {
+      minimums[i] = (minimums[i] ?? 1) + 1
+    }
+    minimumTotal = minimums.reduce((total, value) => total + value, 0)
+  }
+
+  const totalNatural = natural.reduce((total, value) => total + value, 0)
+  let widths = natural.map((value, i) => Math.max(value, minimums[i] ?? 1))
   if (totalNatural > available) {
-    const min = Array.from({ length: cols }, () => 1)
-    const extra = available - cols
-    const weight = natural.reduce((a, w) => a + Math.max(0, w - 1), 0)
-    widths = min.map((base, i) => {
-      const share = weight > 0 ? Math.floor((Math.max(0, natural[i]! - 1) / weight) * extra) : 0
-      return base + share
-    })
-    let leftover = available - widths.reduce((a, b) => a + b, 0)
-    for (let i = 0; leftover > 0 && i < cols; i += 1, leftover -= 1) widths[i] = (widths[i] ?? 1) + 1
+    const growth = natural.map((value, i) => Math.max(0, value - (minimums[i] ?? 1)))
+    const totalGrowth = growth.reduce((total, value) => total + value, 0)
+    const extra = Math.max(0, available - minimumTotal)
+    widths = minimums.map((value, i) => value + (totalGrowth > 0
+      ? Math.floor(((growth[i] ?? 0) / totalGrowth) * extra)
+      : 0))
+    let leftover = available - widths.reduce((total, value) => total + value, 0)
+    while (leftover > 0) {
+      let grew = false
+      for (let i = 0; i < cols && leftover > 0; i += 1) {
+        if ((widths[i] ?? 1) >= (natural[i] ?? 1)) continue
+        widths[i] = (widths[i] ?? 1) + 1
+        leftover -= 1
+        grew = true
+      }
+      if (!grew) break
+    }
   }
 
   const h = BOX.horizontal
@@ -273,8 +322,12 @@ function renderTable(header: string[], rows: string[][], theme: Theme, width: nu
     ...paintRow(headerCells, true),
     join(BOX.teeRight, fills, BOX.cross, BOX.teeLeft),
   ]
-  for (const row of paintedRows) {
+  for (let rowIndex = 0; rowIndex < paintedRows.length; rowIndex += 1) {
+    const row = paintedRows[rowIndex] ?? []
     lines.push(...paintRow(row.map((cell, i) => wrapCell(cell, i)), false))
+    if (rowIndex < paintedRows.length - 1) {
+      lines.push(join(BOX.teeRight, fills, BOX.cross, BOX.teeLeft))
+    }
   }
   lines.push(join(BOX.bottomLeft, fills, BOX.teeUp, BOX.bottomRight))
   return lines

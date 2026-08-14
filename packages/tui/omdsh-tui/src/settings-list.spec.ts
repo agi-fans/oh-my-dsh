@@ -7,9 +7,11 @@ import {
   renderSettings,
   selectSetting,
   tuiSettingItems,
+  type TuiPrefs,
 } from './settings-list.ts'
 import { createTheme } from './theme.ts'
 import type { KeyEvent } from './keys.ts'
+import { visibleWidth } from './width.ts'
 
 const theme = createTheme(false)
 const key = (id: string): KeyEvent => ({ type: 'key', id })
@@ -19,15 +21,39 @@ const prefs = { theme: 'dark' as const, colors: true, expandTools: false }
 describe('tuiSettingItems / applySettingValue', () => {
   it('exposes theme and color cycle rows', () => {
     const items = tuiSettingItems(prefs)
-    expect(items.map((item) => item.id)).toEqual(['theme', 'colors', 'expandTools', 'statusPreset'])
+    expect(items.map((item) => item.id)).toEqual([
+      'theme',
+      'colors',
+      'expandTools',
+      'statusEnabled',
+      'statusLabels',
+      'statusGroup:context',
+      'statusGroup:cache',
+      'statusGroup:tokens',
+      'statusGroup:speed',
+      'statusGroup:durations',
+      'statusGroup:counts',
+    ])
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
     expect(items[2]?.value).toBe('off')
-    expect(items[3]?.value).toBe('compact')
+    expect(items[3]?.value).toBe('on')
+    expect(items[3]?.label).toBe('Status bar')
+    expect(items[4]?.value).toBe('compact')
+    expect(items[5]?.value).toBe('shown')
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
     expect(applySettingValue(prefs, 'expandTools', 'on')).toEqual({ theme: 'dark', colors: true, expandTools: true })
+    expect(applySettingValue(prefs, 'statusEnabled', 'off').statusBar?.enabled).toBe(false)
+    expect(applySettingValue(prefs, 'statusLabels', 'full').statusBar?.labels).toBe('full')
     expect(applySettingValue(prefs, 'theme', 'nope')).toEqual(prefs)
+  })
+
+  it('hides and reorders individual status groups without duplicate positions', () => {
+    const hidden = applySettingValue(prefs, 'statusGroup:context', 'off')
+    expect(hidden.statusBar?.groups).toEqual(['cache', 'tokens', 'speed', 'durations', 'counts'])
+    const moved = applySettingValue(hidden, 'statusGroup:counts', '1')
+    expect(moved.statusBar?.groups).toEqual(['counts', 'cache', 'tokens', 'speed', 'durations'])
   })
 })
 
@@ -51,10 +77,49 @@ describe('applySettingsEvent', () => {
     expect(mid.kind === 'update' && mid.state.selected).toBe(2)
     const last = applySettingsEvent(mid.kind === 'update' ? mid.state : open, key('down'))
     expect(last.kind === 'update' && last.state.selected).toBe(3)
-    const wrap = applySettingsEvent(last.kind === 'update' ? last.state : open, key('down'))
-    expect(wrap.kind === 'update' && wrap.state.selected).toBe(0)
+    const next = applySettingsEvent(last.kind === 'update' ? last.state : open, key('down'))
+    expect(next.kind === 'update' && next.state.selected).toBe(4)
     expect(applySettingsEvent(open, key('escape'))).toEqual({ kind: 'close' })
     expect(applySettingsEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
+  })
+
+  it('uses tab to jump between General and Status bar sections', () => {
+    const open = createSettings(prefs, 'theme')
+    const status = applySettingsEvent(open, key('tab'))
+    expect(status.kind === 'update' && status.state.selected).toBe(3)
+    const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
+    expect(general.kind === 'update' && general.state.selected).toBe(0)
+  })
+
+  it('grabs a status group and reorders the visible list directly with up/down', () => {
+    const open = createSettings(prefs, 'statusGroup:tokens')
+    const grabbed = applySettingsEvent(open, key('enter'))
+    expect(grabbed.kind).toBe('apply')
+    expect(grabbed.kind === 'apply' && grabbed.state.moving).toBe('tokens')
+    const moved = applySettingsEvent(grabbed.kind === 'apply' ? grabbed.state : open, key('up'))
+    expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.groups).toEqual([
+      'context', 'tokens', 'cache', 'speed', 'durations', 'counts',
+    ])
+    expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.order).toEqual([
+      'context', 'tokens', 'cache', 'speed', 'durations', 'counts',
+    ])
+    expect(moved.kind === 'apply' && tuiSettingItems(moved.state.prefs)[moved.state.selected]?.label).toBe('Tokens')
+    const placed = applySettingsEvent(moved.kind === 'apply' ? moved.state : open, key('enter'))
+    expect(placed.kind === 'update' && placed.state.moving).toBeUndefined()
+  })
+
+  it('shows or hides a status group with space while preserving the visible order', () => {
+    const open = createSettings(prefs, 'statusGroup:cache')
+    const hidden = applySettingsEvent(open, { type: 'text', value: ' ' })
+    expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
+      'context', 'tokens', 'speed', 'durations', 'counts',
+    ])
+    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[6]?.id).toBe('statusGroup:cache')
+    const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
+    expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
+      'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
+    ])
+    expect(shown.kind === 'apply' && shown.state.selected).toBe(6)
   })
 
   it('ignores unrelated keys and non-space text', () => {
@@ -72,17 +137,61 @@ describe('renderSettings', () => {
     expect(lines).toContain('dark')
     expect(lines).toContain('Color')
     expect(lines).toContain('on')
-    expect(lines).toContain('enter cycle')
+    expect(lines).toContain('←→ change')
     expect(lines).toContain('Color palette')
     expect(lines).toContain('Tools')
     const tools = renderSettings(createSettings(prefs, 'expandTools'), theme, 50).lines.join('\n')
     expect(tools).toContain('Expand tool output')
+    const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
+    expect(status).toContain('Status bar')
+    expect(status).toContain('Show telemetry')
+    expect(status).toContain('Context')
+    expect(status).toContain('Latency')
+    expect(status).toContain('Preview')
+    expect(status).toContain('Cache 99%')
+  })
+
+  it('renders status rows in their effective order and marks a grabbed row', () => {
+    const reordered: TuiPrefs = {
+      ...prefs,
+      statusBar: {
+        enabled: true,
+        labels: 'compact',
+        groups: ['counts', 'context', 'cache', 'tokens', 'speed', 'durations'],
+        order: ['counts', 'context', 'cache', 'tokens', 'speed', 'durations'],
+      },
+    }
+    const open = createSettings(reordered, 'statusGroup:counts')
+    const grabbed = applySettingsEvent(open, key('enter'))
+    const view = renderSettings(grabbed.kind === 'apply' ? grabbed.state : open, theme, 72, 18)
+    const text = view.lines.join('\n')
+    expect(text.indexOf('Activity')).toBeLessThan(text.indexOf('Context'))
+    expect(text).toContain('↕ Activity')
+    expect(text).toContain('moving')
+    expect(text).toContain('↑↓ move item')
   })
 
   it('marks the selected row with the cursor glyph', () => {
     const selected = renderSettings(createSettings(prefs, 'colors'), theme, 40).lines.join('\n')
     expect(selected).toContain('❯')
     expect(selected).toContain('SGR styling')
+  })
+
+  it('renders a stable full-height framed panel with hit-testable rows', () => {
+    const view = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 60, 18)
+    expect(view.lines).toHaveLength(18)
+    expect(view.lines.every(line => visibleWidth(line) === 60)).toBe(true)
+    expect(view.lines[0]).toMatch(/^╭─ .*Settings.*╮$/)
+    expect(view.lines.at(-1)).toMatch(/^╰─+╯$/)
+    expect(view.lines.join('\n')).toContain('● Status bar')
+    expect(hitTestSettings(view.itemRows, view.cursor.row)).toBe(3)
+    const compact = renderSettings(createSettings(prefs, 'statusGroup:counts'), theme, 40, 10)
+    expect(compact.lines).toHaveLength(10)
+    expect(compact.lines.join('\n')).toContain('Activity')
+    const tiny = renderSettings(createSettings(prefs, 'statusGroup:counts'), theme, 40, 8)
+    expect(tiny.lines).toHaveLength(8)
+    expect(tiny.lines.every(line => visibleWidth(line) === 40)).toBe(true)
+    expect(tiny.lines.join('\n')).toContain('Activity')
   })
 
   it('hit-tests item rows and selects without cycling', () => {

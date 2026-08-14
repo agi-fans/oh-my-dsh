@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { formatToolsText } from './tools-list.ts'
 
 describe('formatToolsText', () => {
-  it('lists names alphabetically with descriptions', () => {
-    expect(formatToolsText([])).toBe('No tools are available.')
+  it('builds an alphabetical two-column tool catalog', () => {
+    expect(formatToolsText([])).toBe('No tools are currently visible to the agent.')
     const text = formatToolsText([
-      { name: 'bash', description: 'Run a shell command' },
+      { name: 'bash', description: 'Run a shell\ncommand | safely' },
       { name: 'fs', description: '  ' },
     ])
-    expect(text).toBe('Tools\n- bash  Run a shell command\n- fs')
+    expect(text).toBe([
+      '| Tool | Description |',
+      '|---|---|',
+      '| `bash` | Run a shell command \\| safely |',
+      '| `fs` | No description provided. |',
+    ].join('\n'))
   })
 })

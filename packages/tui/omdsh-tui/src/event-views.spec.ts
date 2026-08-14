@@ -16,7 +16,15 @@ function ev(type: string, data: unknown, seq: number): SessionEvent {
 }
 
 const view = (state: ReturnType<typeof initialTranscript>, input = '') =>
-  renderView(state, { width: 60, height: 24, model: 'deepseek-v4-flash', input, inputCursor: input.length, colors: false })
+  renderView(state, {
+    width: 60,
+    height: 24,
+    model: 'deepseek-v4-flash',
+    input,
+    inputCursor: input.length,
+    colors: false,
+    welcomeTips: [{ key: '/', text: 'Browse available commands' }],
+  })
 
 describe('applyEvent', () => {
   it('renders a user prompt and streamed assistant text', () => {
@@ -59,6 +67,11 @@ describe('applyEvent', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"ls"}' }, 1))
     state = applyEvent(state, ev('tool/call', { callId: 'call-2', name: 'read', arguments: '{}' }, 2))
+    const running = renderView({ ...state, status: 'running' }, {
+      width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors: false,
+    })
+    expect(running.lines.join('\n')).toContain('read')
+    expect(running.lines.join('\n')).toContain('Ctrl+C: Interrupt')
     state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] }] } }, 3))
     state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] }] } }, 4))
     const tools = state.blocks.filter((block): block is Extract<typeof block, { kind: 'tool' }> => block.kind === 'tool')
@@ -90,7 +103,7 @@ describe('applyEvent', () => {
     expect(collapsedText).toContain('out-0')
     expect(collapsedText).toContain('out-' + (TOOL_COLLAPSED_LINES - 1))
     expect(collapsedText).not.toContain('out-' + TOOL_COLLAPSED_LINES)
-    expect(collapsedText).toContain('4 more lines (ctrl+o to expand)')
+    expect(collapsedText).toContain('4 more lines · ⟨Ctrl+O: Expand⟩')
     const expanded = renderView(state, {
       width: 60,
       height: 80,
@@ -102,7 +115,7 @@ describe('applyEvent', () => {
     })
     const expandedText = expanded.lines.join('\n')
     expect(expandedText).toContain('out-' + (TOOL_COLLAPSED_LINES + 3))
-    expect(expandedText).not.toContain('ctrl+o to expand')
+    expect(expandedText).not.toContain('Ctrl+O: Expand')
   })
 
   it('does not hint ctrl+o when tool output fits the preview', () => {
@@ -112,7 +125,7 @@ describe('applyEvent', () => {
       message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }] },
     }, 2))
     const frame = view(state)
-    expect(frame.lines.join('\n')).not.toContain('ctrl+o')
+    expect(frame.lines.join('\n')).not.toContain('Ctrl+O')
   })
 
   it('ignores log-only vocabulary events', () => {
@@ -148,14 +161,81 @@ describe('blockLines', () => {
 
     expect(lines.join('\n')).toContain('Resumed session-example.')
     expect(lines.join('\n')).not.toMatch(/[╭│╰]/u)
+    expect(stripAnsi(lines[0] ?? '')).toBe('  Resumed session-example.')
+    expect(stripAnsi(lines[0] ?? '')).not.toContain('•')
   })
 
   it('keeps multiline results and errors framed', () => {
     const multiline = blockLines({ kind: 'notice', level: 'info', text: 'Results\nfirst row' }, theme, 60)
     const error = blockLines({ kind: 'notice', level: 'error', text: 'Resume failed.' }, theme, 60)
+    const colorTheme = createTheme(true, true)
+    const coloredInfo = blockLines({ kind: 'notice', level: 'info', text: 'Status\ndetail' }, colorTheme, 60)
+    const coloredError = blockLines({ kind: 'notice', level: 'error', text: 'Status' }, colorTheme, 60)
 
     expect(multiline.join('\n')).toMatch(/[╭╰]/u)
+    expect(stripAnsi(multiline[0] ?? '')).toMatch(/^╭─── Results /u)
+    expect(stripAnsi(multiline[0] ?? '')).not.toContain('•')
     expect(error.join('\n')).toMatch(/[╭╰]/u)
+    expect(stripAnsi(error[0] ?? '')).toContain('Resume failed.')
+    expect(stripAnsi(error[0] ?? '')).not.toContain('✘')
+    expect(coloredInfo[0]).toContain(colorTheme.getFgAnsi('border'))
+    expect(coloredError[0]).toContain(colorTheme.getFgAnsi('error'))
+  })
+
+  it('renders the tool catalog as an unframed heading and a protected Markdown table', () => {
+    const lines = blockLines({
+      kind: 'toolCatalog',
+      tools: [
+        { name: 'ask_user_question', description: 'Ask a concise question when confirmation is needed.' },
+        { name: 'bash', description: 'Execute a bash command and return stdout and stderr.' },
+      ],
+    }, theme, 72)
+    expect(lines.every(line => visibleWidth(line) <= 72)).toBe(true)
+    expect(lines[0]).toContain('Available Tools')
+    expect(lines[0]).toContain('2 active')
+    expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
+    expect(lines[1]).toBe('')
+    expect(lines.join('\n')).toContain('Description')
+    expect(lines.join('\n')).toContain('ask_user_question')
+    expect(lines.join('\n')).toContain('Descriptions shortened')
+    expect(lines.join('\n')).toContain('Ctrl+O: Expand')
+    const askRow = lines.findIndex(line => line.includes('ask_user_question'))
+    const bashRow = lines.findIndex(line => line.includes('bash'))
+    expect(bashRow - askRow).toBeGreaterThan(1)
+    expect(lines.slice(askRow + 1, bashRow).some(line => /^\s*├.*┼.*┤$/u.test(stripAnsi(line)))).toBe(true)
+    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╭'))).toHaveLength(1)
+    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╰'))).toHaveLength(1)
+    expect(lines.some(line => stripAnsi(line).trimStart().startsWith('╰'))).toBe(true)
+    const expanded = blockLines({
+      kind: 'toolCatalog',
+      tools: [{ name: 'bash', description: 'Execute a bash command and return all stdout and stderr without shortening this complete description.' }],
+    }, theme, 48, 0, true)
+    expect(expanded.join('\n')).toContain('without')
+    expect(expanded.join('\n')).toContain('shortening this complete')
+    expect(expanded.join('\n')).toContain('Ctrl+O: Collapse descriptions')
+  })
+
+  it('renders the hotkey catalog as an unframed heading with grouped Markdown tables', () => {
+    const lines = blockLines({
+      kind: 'hotkeyCatalog',
+      bindings: {
+        'ctrl+x': 'external-editor',
+        'alt+r': 'retry',
+        'ctrl+v': 'paste-clipboard',
+        'alt+c': 'copy-prompt',
+        'ctrl+alt+c': 'copy-line',
+      },
+    }, theme, 72)
+    expect(lines.every(line => visibleWidth(line) <= 72)).toBe(true)
+    expect(lines[0]).toContain('Keyboard Shortcuts')
+    expect(lines[0]).toContain('bindings')
+    expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
+    expect(lines[1]).toBe('')
+    expect(lines.join('\n')).toContain('Navigation')
+    expect(lines.join('\n')).toContain('Editing')
+    expect(lines.join('\n')).toContain('Transcript')
+    expect(lines.join('\n')).toContain('Session')
+    expect(lines.join('\n')).toContain('Ctrl+R')
   })
 
   it('matches oh-my-pi assistant padding and wraps inside both margins', () => {
@@ -213,6 +293,26 @@ describe('blockLines', () => {
 })
 
 describe('renderView', () => {
+  it('separates adjacent outputs from different slash commands', () => {
+    const state = {
+      ...initialTranscript(),
+      blocks: [
+        { kind: 'commandOutput', command: 'session', text: 'Session Details\n\nfirst' },
+        { kind: 'commandOutput', command: 'queue', text: 'Queued Messages\n\nsecond' },
+      ],
+    } as ReturnType<typeof initialTranscript>
+    const frame = renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+    })
+
+    expect(frame.lines).toContain(' ' + '─'.repeat(58) + ' ')
+  })
+
   it('fits every line to the terminal width in visible cells', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'x'.repeat(200) }] }, 1))
@@ -237,6 +337,7 @@ describe('renderView', () => {
     const frame = view(state)
     expect(frame.lines.length).toBeLessThanOrEqual(24)
     expect(frame.lines[0]).toContain('earlier lines')
+    expect(frame.lines[0]).toContain('Pg↑')
     expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
     expect(frame.transcript?.hiddenBelow).toBe(0)
     expect(frame.transcript?.hiddenAbove).toBeGreaterThan(0)
@@ -268,14 +369,17 @@ describe('renderView', () => {
   it('reuses rendered transcript blocks when only the viewport moves', () => {
     let renders = 0
     let state = initialTranscript()
-    state = applyEvent(state, ev('tool/call', { callId: 'call-cache', name: 'cache_probe', arguments: '{}' }, 1))
-    const toolRenderers = [{
-      names: ['cache_probe'],
-      render: () => {
-        renders += 1
-        return { title: 'cache probe', lines: ['result'] }
+    const call = new Proxy({ card: 'generic', title: 'cache probe' } as const, {
+      get: (target, property, receiver) => {
+        if (property === 'title') renders += 1
+        return Reflect.get(target, property, receiver)
       },
-    }]
+    })
+    state = applyEvent(
+      state,
+      ev('tool/call', { callId: 'call-cache', name: 'cache_probe', arguments: '{}' }, 1),
+      { call },
+    )
     const base = {
       width: 60,
       height: 12,
@@ -283,13 +387,14 @@ describe('renderView', () => {
       input: '',
       inputCursor: 0,
       colors: false,
-      toolRenderers,
     } as const
 
     renderView(state, { ...base, scrollStart: Number.POSITIVE_INFINITY })
+    const firstRenderReads = renders
     renderView(state, { ...base, scrollStart: 0 })
 
-    expect(renders).toBe(1)
+    expect(firstRenderReads).toBeGreaterThan(0)
+    expect(renders).toBe(firstRenderReads)
   })
 
   it('does not scroll-indicate when the transcript fits', () => {
@@ -309,9 +414,7 @@ describe('renderView', () => {
     expect(text).not.toMatch(/(^|\n)> /)
     expect(frame.lines[0]).toMatch(/^╭/)
     expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
-    expect(text).toContain('/  commands')
-    expect(text).toContain('^R search')
-    expect(text).toContain('Pg↑ scroll')
+    expect(text).toContain('/  Browse available commands')
   })
 
   it('uses a whale editor title and embeds dsh metrics in the bottom border', () => {
@@ -319,6 +422,7 @@ describe('renderView', () => {
       width: 180,
       height: 24,
       model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
       input: '',
       inputCursor: 0,
       colors: false,
@@ -339,13 +443,48 @@ describe('renderView', () => {
     })
     const editorStart = frame.editor?.start ?? -1
     expect(frame.lines[editorStart]).toContain('🐳')
+    expect(frame.lines[editorStart]).toContain('deepseek-v4-pro · max · idle')
     expect(frame.lines[editorStart]).not.toContain('omdsh')
     expect(frame.lines[editorStart]).not.toContain('tok')
+    const plain = frame.lines.map(stripAnsi)
+    const modelRow = plain.findIndex((line) => line.includes('deepseek-v4-pro'))
+    expect(modelRow).toBeGreaterThanOrEqual(0)
+    expect(plain[modelRow + 1]).toContain('max')
+    expect(plain[modelRow + 1]).not.toContain('omdsh')
     const footer = frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1] ?? ''
     expect(footer).toMatch(/^╰─/)
     expect(footer).toContain('1 turn · 74 steps')
     expect(footer).toContain('5.9M in · 73.8K out')
     expect(footer).toMatch(/─╯$/)
+  })
+
+  it('shows context and zero-count telemetry before the first turn', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 120,
+      height: 24,
+      model: 'deepseek-v4-flash',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      sessionStats: {
+        turns: 0,
+        steps: 0,
+        llmMs: 0,
+        toolMs: 0,
+        ttftMs: 0,
+        ttftSteps: 0,
+        decodeMs: 0,
+        decodeTokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        contextWindow: 1_000_000,
+      },
+    })
+    const footer = frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1] ?? ''
+    expect(footer).toContain('Ctx 0% · 0/1M')
+    expect(footer).toContain('0 turns · 0 steps')
   })
 
   it('replaces the editor with the history-search overlay', () => {
@@ -406,17 +545,61 @@ describe('renderView', () => {
     expect(frame.lines.length).toBeLessThanOrEqual(24)
   })
 
+  it('renders resume as one full-height searchable session list', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 80,
+      height: 24,
+      model: 'm',
+      appName: 'omdsh',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      promptSelector: {
+        request: {
+          title: 'Resume Session',
+          question: '',
+          presentation: 'fullscreen-list',
+          filterable: true,
+          allowCustom: false,
+          options: [
+            {
+              label: 'Fix renderer scrolling',
+              value: 'session-one',
+              preview: 'The scrolling path still feels sluggish.',
+              description: '2m ago · 42 events',
+              badge: { label: 'done', tone: 'success' },
+            },
+            { label: 'Review tools view', value: 'session-two', description: '1h ago · 18 events' },
+          ],
+        },
+        selected: 0,
+        checked: new Set(),
+      },
+    })
+    const text = frame.lines.join('\n')
+    expect(frame.lines).toHaveLength(24)
+    expect(frame.lines[0]).toContain('omdsh')
+    expect(text).toContain('Resume Session')
+    expect(text).toContain('Fix renderer scrolling')
+    expect(text).toContain('The scrolling path still feels sluggish.')
+    expect(text).toContain('2m ago · 42 events · ✔ done')
+    expect(text).not.toContain('Choose a session')
+    expect(text).not.toContain('answer')
+    expect(frame.overlay?.kind).toBe('prompt')
+    expect(frame.cursor?.row).toBe(5)
+  })
+
   it('paints slash-argument ghost text in the editor', () => {
     const frame = renderView(initialTranscript(), {
       width: 60,
       height: 24,
       model: 'm',
-      input: '/theme ',
-      inputCursor: 7,
+      input: '/copy ',
+      inputCursor: 6,
       colors: false,
     })
-    expect(frame.lines.join('\n')).toContain('dark|light')
-    expect(frame.cursor?.column).toBe(9)
+    expect(frame.lines.join('\n')).toContain('text|code|cmd')
+    expect(frame.cursor?.column).toBe(8)
   })
 
   it('paints the slash-command popup under the editor', () => {
@@ -497,8 +680,11 @@ describe('renderView', () => {
     expect(text).toContain('Settings')
     expect(text).toContain('Theme')
     expect(text).toContain('dark')
-    expect(text).toContain('enter cycle')
+    expect(text).toContain('←→ change')
     expect(text).not.toContain('draft')
+    expect(frame.lines).toHaveLength(24)
+    expect(frame.lines[0]).toMatch(/^╭─ .*Settings/)
+    expect(frame.cursorVisible).toBe(false)
     expect(frame.cursor?.row).toBeGreaterThan(0)
   })
 })

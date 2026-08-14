@@ -1,16 +1,13 @@
 /**
- * Active-agent/session control plane for the terminal runner.
+ * Active-agent/session runtime shared by the runner and command plugins.
  *
  * This is the deep module between Harness runtime services and the TUI:
- * create/resume/switch, command dispatch, model selection, recent sessions,
- * statistics, queue controls, and lifecycle cleanup stay behind one API.
+ * Agent creation, replacement, persistence lookup, model selection, recent
+ * sessions, projections, command routing, and cleanup stay behind one API.
  * @module @omdsh/tui/session-controller
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
-import { extname, resolve } from 'node:path'
-import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   installModelSelection,
@@ -19,7 +16,7 @@ import {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
 import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
@@ -29,27 +26,9 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type {} from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TuiCommand, TuiRecentSession, TuiService, TuiSessionStats } from './definition.ts'
-import { formatTranscriptMarkdown } from './transcript-export.ts'
-
-const CONTROL_COMMANDS: readonly TuiCommand[] = [
-  { name: 'new', description: 'Start a new session' },
-  { name: 'resume', description: 'Resume a durable session', inputHint: '[session-id]' },
-  { name: 'session', description: 'Show current session details' },
-  { name: 'model', description: 'Select provider, model, and reasoning effort' },
-  { name: 'retry', description: 'Run the most recent human prompt again' },
-  { name: 'steer', description: 'Send guidance to the next model step', inputHint: '<message>' },
-  { name: 'queue', description: 'Show queued follow-up and steering messages' },
-  { name: 'dequeue', description: 'Clear queued follow-up and steering messages' },
-  { name: 'todo', description: 'Show the current session todo list' },
-  { name: 'mcp', description: 'Show connected MCP servers and tools' },
-  { name: 'attach', description: 'Attach a PNG/JPEG/WebP/GIF as an image-only prompt', inputHint: '<path>' },
-  { name: 'search', description: 'Search this transcript, or all sessions with --all', inputHint: '[--all] <query>' },
-  { name: 'export', description: 'Export the complete transcript as Markdown', inputHint: '[path]' },
-]
+import type {} from './tool-presentation.ts'
 
 interface ActiveSession {
   handle: AgentHandle
@@ -63,20 +42,23 @@ function parseControl(line: string): { name: string; input: string } | undefined
   return { name: match[1].toLowerCase(), input: match[2]?.trim() ?? '' }
 }
 
-function humanText(event: SessionEvent): string | undefined {
-  if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
-  const text = event.data.content
-    .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
-  return text === '' ? undefined : text
-}
-
 /** Projection values consumed as one consistent snapshot when the units exist. */
 export interface TuiStatsProjection {
   sessionStats?: SessionStatsProjection
   tokenUsage?: TokenUsageProjection
   contextPressure?: ContextPressureProjection
+}
+
+/** Composer projection of a Harness model selection and its adapter default. */
+export function modelStatus(
+  selection: ModelSelection,
+  info?: Pick<LlmResolvedModelInfo, 'reasoning'>,
+): { model: string; reasoningEffort?: string } {
+  const effort = selection.reasoningEffort ?? info?.reasoning?.defaultEffort
+  return {
+    model: selection.model,
+    ...(effort === undefined ? {} : { reasoningEffort: String(effort) }),
+  }
 }
 
 /** Fold a complete log as the capability-absence fallback for projections. */
@@ -194,22 +176,48 @@ export function sessionStats(
   }
 }
 
-function sessionTitle(events: readonly SessionEvent[], fallback: string): string {
+function explicitSessionTitle(events: readonly SessionEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
     if (event?.type === 'session/title') return event.data.title
   }
-  return fallback
+  return undefined
 }
 
-function formatAge(createdAt: number): string {
-  const elapsed = Math.max(0, Date.now() - createdAt)
-  const minutes = Math.floor(elapsed / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
+function humanMessageText(event: SessionEvent): string | undefined {
+  if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
+  const text = event.data.content
+    .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join(' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return text === '' ? undefined : text
+}
+
+/** Title and latest-human-message preview for durable session discovery. */
+export function recentSessionContent(events: readonly SessionEvent[]): { title: string; preview?: string } {
+  const generatedTitle = explicitSessionTitle(events)
+  const firstMessage = events.map(humanMessageText).find((text): text is string => text !== undefined)
+  let lastMessage: string | undefined
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    lastMessage = humanMessageText(events[index] as SessionEvent)
+    if (lastMessage !== undefined) break
+  }
+  const title = generatedTitle ?? firstMessage ?? '(no messages)'
+  return {
+    title,
+    ...(lastMessage === undefined || lastMessage === title ? {} : { preview: lastMessage }),
+  }
+}
+
+function recentSessionStatus(events: readonly SessionEvent[]): TuiRecentSession['status'] {
+  const end = events.findLast(event => event.type === 'turn/end')
+  if (end?.type !== 'turn/end') return undefined
+  if (end.data.reason.kind === 'completed') return 'done'
+  if (end.data.reason.kind === 'error') return 'failed'
+  if (end.data.reason.kind === 'blocked' || end.data.reason.kind === 'max-tokens') return 'blocked'
+  return 'interrupted'
 }
 
 /** Convert the human-visible part of a skill catalog into slash commands. */
@@ -229,33 +237,15 @@ function compactDescription(value: string, maxLength: number = 140): string {
   return normalized.length <= maxLength ? normalized : normalized.slice(0, maxLength - 1).trimEnd() + '…'
 }
 
-/** Render the MCP subset of the unified Harness tool catalog. */
-export function mcpCatalogText(tools: readonly { name: string; description: string }[]): string {
-  const servers = new Map<string, Array<{ name: string; description: string }>>()
-  for (const tool of tools) {
-    const match = /^mcp__(.+?)__(.+)$/u.exec(tool.name)
-    if (match?.[1] === undefined || match[2] === undefined) continue
-    const rows = servers.get(match[1]) ?? []
-    rows.push({ name: match[2], description: compactDescription(tool.description) })
-    servers.set(match[1], rows)
-  }
-  if (servers.size === 0) {
-    return 'No MCP tools are connected. Configure .dsh/mcp.json or ~/.dsh/mcp.json, then restart omdsh.'
-  }
-  return [...servers].map(([server, rows]) => [
-    `${server} · ${rows.length} tool${rows.length === 1 ? '' : 's'}`,
-    ...rows.map(row => `  ${row.name}${row.description === '' ? '' : ` — ${row.description}`}`),
-  ].join('\n')).join('\n\n')
-}
-
 /** Own one switchable top-level Agent and project it onto a TuiService. */
-export class SessionController {
+export class SessionRuntime {
   readonly #ctx: Context
   readonly #tui: TuiService
   #active: ActiveSession | undefined
   #recent: TuiRecentSession[] = []
   #skillCommands: TuiCommand[] = []
-  #toolCatalog: Array<{ name: string; description: string }> = []
+  #started = false
+  readonly #retired: AgentHandle[] = []
   #disposed = false
   readonly #off: Array<() => void> = []
 
@@ -268,7 +258,7 @@ export class SessionController {
     this.#off.push(ctx.on('session/event', (session, event) => {
       const active = this.#active
       if (active === undefined || session !== active.handle.agent.session) return
-      tui.event(event)
+      tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
       this.#pushSessionInfo()
       if (event.type === 'session/title') void this.refreshRecent()
     }))
@@ -279,7 +269,11 @@ export class SessionController {
       this.#off.push(ctx.on('skills/change', () => { void this.#refreshSkills() }))
     }
     if (ctx.get('tools') !== undefined) {
-      this.#off.push(ctx.on('tools/change', () => { this.#pushTools() }))
+      this.#off.push(ctx.on('tools/change', () => {
+        this.#pushTools()
+        const active = this.#active
+        if (active !== undefined) this.#replaceTranscript(active.handle.agent)
+      }))
     }
     const projections = ctx.get('sessionProjections')
     if (projections !== undefined) {
@@ -295,6 +289,8 @@ export class SessionController {
   }
 
   async start(): Promise<void> {
+    if (this.#started) return
+    this.#started = true
     const defaults = this.#ctx.get('agentDefaultModel')?.currentSelection()
     if (defaults === undefined) throw new Error('agent default model is unavailable')
     await this.#activate(await this.#create(defaults))
@@ -302,21 +298,23 @@ export class SessionController {
   }
 
   /** Submit ordinary human text; active turns retain it as a later follow-up. */
-  send(text: string): void {
-    const agent = this.#requiredAgent()
+  send(text: string, agent: Agent = this.#requiredAgent()): void {
+    this.assertActive(agent)
     agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
   }
 
-  /** Execute a runner-owned or plugin-owned slash command. */
+  /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
   async execute(line: string, signal: AbortSignal): Promise<boolean> {
     const parsed = parseControl(line)
     if (parsed === undefined) return false
-    if (CONTROL_COMMANDS.some(command => command.name === parsed.name)) {
-      await this.#executeControl(parsed.name, parsed.input, signal)
-      return true
-    }
     const commands = this.#ctx.get('commands')
-    const execution = await commands?.execute(this.#requiredAgent(), line, signal)
+    const execution = await (async () => {
+      try {
+        return await commands?.execute(this.#requiredAgent(), line, signal)
+      } finally {
+        await this.#disposeRetired()
+      }
+    })()
     if (execution === undefined) {
       const skill = await this.#findUserSkill(skillNameFromCommand(parsed.name), signal)
       if (skill === undefined) return false
@@ -324,8 +322,70 @@ export class SessionController {
       return true
     }
     const result = execution.result
-    if (result.text !== undefined) this.#tui.notice(result.text, result.kind === 'error' ? 'error' : 'info')
+    if (result.text !== undefined) {
+      if (result.kind === 'error') this.#tui.notice(result.text, 'error')
+      else this.#tui.commandOutput(parsed.name, result.text)
+    }
     return true
+  }
+
+  /** Fail when a command invocation targets a stale or background Agent. */
+  assertActive(agent: Agent): void {
+    if (agent !== this.#requiredAgent()) throw new Error('the command does not target the active omdsh session')
+  }
+
+  /** Immutable recent-session view used by the resume command. */
+  get recentSessions(): readonly TuiRecentSession[] {
+    return this.#recent
+  }
+
+  /** Current model selection for the active Agent. */
+  selection(agent: Agent = this.#requiredAgent()): ModelSelection {
+    this.assertActive(agent)
+    const current = this.#requiredActive().selection.current
+    if (current === undefined) throw new Error('active agent has no model selection')
+    return current
+  }
+
+  /** Replace the active Agent's selection and persist it as the next default. */
+  async changeSelection(agent: Agent, selection: ModelSelection, info?: LlmResolvedModelInfo): Promise<void> {
+    this.assertActive(agent)
+    const active = this.#requiredActive()
+    active.selection.current = selection
+    const resolved = info ?? await this.#resolveModelInfo(selection)
+    active.contextWindow = resolved?.context?.contextWindow
+    const status = modelStatus(selection, resolved)
+    this.#tui.setModel(status.model, status.reasoningEffort)
+    this.#pushSessionInfo()
+    await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
+  }
+
+  /** Start a new top-level session with the current model selection. */
+  async newSession(agent: Agent): Promise<void> {
+    this.assertActive(agent)
+    await this.#activate(await this.#create(this.selection(agent)))
+    await this.refreshRecent()
+  }
+
+  /** Replace the active top-level session with one durable session. */
+  async resumeSession(agent: Agent, id: string, signal: AbortSignal): Promise<void> {
+    this.assertActive(agent)
+    const selection = this.selection(agent)
+    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
+    const handle = await this.#ctx.agents.resume({
+      resumeSessionId: SessionId(id),
+      agentOptions: { provider: selection.provider, model: selection.model },
+      signal,
+      setup: agentCtx => { installModelSelection(agentCtx, ref) },
+    })
+    await this.#activate({ handle, selection: ref, contextWindow: undefined })
+    await this.refreshRecent()
+  }
+
+  /** Whole-session figures for the active Agent. */
+  stats(agent: Agent = this.#requiredAgent()): TuiSessionStats {
+    this.assertActive(agent)
+    return this.#stats(this.#requiredActive())
   }
 
   async refreshRecent(): Promise<void> {
@@ -341,13 +401,18 @@ export class SessionController {
     for (const header of headers) {
       try {
         const inspected = await persistence.inspect(header.id)
+        const status = recentSessionStatus(inspected.events)
+        const content = recentSessionContent(inspected.events)
         rows.push({
           id: header.id,
-          title: sessionTitle(inspected.events, header.id),
+          ...content,
           createdAt: header.createdAt,
+          updatedAt: inspected.events.at(-1)?.time ?? header.createdAt,
+          eventCount: inspected.events.length,
+          ...(status === undefined ? {} : { status }),
         })
       } catch {
-        rows.push({ id: header.id, title: header.id, createdAt: header.createdAt })
+        rows.push({ id: header.id, title: '(unavailable session)', createdAt: header.createdAt })
       }
     }
     this.#recent = rows
@@ -358,282 +423,9 @@ export class SessionController {
     if (this.#disposed) return
     this.#disposed = true
     for (const off of this.#off.splice(0).reverse()) off()
+    await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
     await this.#active?.handle.dispose()
     this.#active = undefined
-  }
-
-  async #executeControl(name: string, input: string, signal: AbortSignal): Promise<void> {
-    switch (name) {
-      case 'new':
-        if (input !== '') return this.#usage('/new')
-        if (this.#requiredAgent().status === 'running') return this.#tui.notice('Finish or interrupt the active turn before starting a new session.', 'error')
-        await this.#activate(await this.#create(this.#selection()))
-        await this.refreshRecent()
-        this.#tui.notice('Started a new session.')
-        return
-      case 'resume':
-        await this.#resume(input, signal)
-        return
-      case 'session':
-        this.#showSession()
-        return
-      case 'model':
-        await this.#selectModel(signal)
-        return
-      case 'retry':
-        this.#retry()
-        return
-      case 'steer':
-        if (input === '') return this.#usage('/steer <message>')
-        this.#requiredAgent().steer(createUserMessage({ content: [{ type: 'text', text: input }], source: { kind: 'user' } }))
-        this.#tui.notice('Steering queued for the next step.')
-        return
-      case 'queue':
-        this.#showQueue()
-        return
-      case 'dequeue':
-        this.#clearQueue()
-        return
-      case 'todo':
-        this.#showTodo()
-        return
-      case 'mcp':
-        if (input !== '') return this.#usage('/mcp')
-        this.#tui.notice(mcpCatalogText(this.#toolCatalog))
-        return
-      case 'attach':
-        await this.#attach(input)
-        return
-      case 'search':
-        await this.#search(input, signal)
-        return
-      case 'export':
-        await this.#export(input)
-        return
-    }
-  }
-
-  async #resume(input: string, signal: AbortSignal): Promise<void> {
-    const persistence = this.#ctx.get('sessionPersistence')
-    if (persistence === undefined) return this.#tui.notice('Session persistence is not configured.', 'error')
-    if (this.#requiredAgent().status === 'running') return this.#tui.notice('Finish or interrupt the active turn before resuming another session.', 'error')
-    await this.refreshRecent()
-    let id = input
-    if (id === '') {
-      if (this.#recent.length === 0) return this.#tui.notice('No durable sessions found.')
-      const answer = await this.#tui.prompt({
-        title: 'Resume session',
-        question: 'Choose a session',
-        options: this.#recent.map(row => ({ label: row.id, description: `${row.title} · ${formatAge(row.createdAt)}` })),
-        signal,
-      })
-      if (answer === null) return
-      const index = /^\d+$/u.test(answer) ? Number(answer) - 1 : -1
-      id = index >= 0 ? (this.#recent[index]?.id ?? answer) : answer
-    }
-    if (id === this.#requiredAgent().id) return this.#tui.notice('That session is already active.')
-    try {
-      const selection = this.#selection()
-      const ref: ModelSelectionRef = { current: selection, assembled: undefined }
-      const handle = await this.#ctx.agents.resume({
-        resumeSessionId: SessionId(id),
-        agentOptions: { provider: selection.provider, model: selection.model },
-        signal,
-        setup: agentCtx => { installModelSelection(agentCtx, ref) },
-      })
-      await this.#activate({ handle, selection: ref, contextWindow: undefined })
-      await this.refreshRecent()
-      this.#tui.notice(`Resumed ${id}.`)
-    } catch (error: unknown) {
-      this.#tui.notice('Resume failed: ' + (error instanceof Error ? error.message : String(error)), 'error')
-    }
-  }
-
-  async #selectModel(signal: AbortSignal): Promise<void> {
-    const llm = this.#ctx.get('llm')
-    if (llm === undefined) return this.#tui.notice('Model directory is unavailable.', 'error')
-    const providers = llm.listProviders()
-    if (providers.length === 0) return this.#tui.notice('No model providers are registered.', 'error')
-    const current = this.#selection()
-    const providerRaw = await this.#tui.prompt({
-      title: 'Model provider',
-      question: 'Choose a provider',
-      options: providers.map(provider => ({ label: provider.id, description: provider.name })),
-      signal,
-    })
-    if (providerRaw === null) return
-    const providerIndex = /^\d+$/u.test(providerRaw) ? Number(providerRaw) - 1 : -1
-    const provider = providerIndex >= 0 ? providers[providerIndex]?.id : providerRaw
-    if (provider === undefined || !providers.some(entry => entry.id === provider)) {
-      return this.#tui.notice(`Unknown provider: ${providerRaw}`, 'error')
-    }
-    const models = await llm.listModels(provider)
-    const modelRaw = await this.#tui.prompt({
-      title: 'Model',
-      question: `Choose a model for ${provider}`,
-      options: models.map(model => ({ label: model.id, description: model.description ?? model.name })),
-      signal,
-    })
-    if (modelRaw === null) return
-    const modelIndex = /^\d+$/u.test(modelRaw) ? Number(modelRaw) - 1 : -1
-    const model = modelIndex >= 0 ? models[modelIndex]?.id : modelRaw
-    if (model === undefined || !models.some(entry => entry.id === model)) {
-      return this.#tui.notice(`Unknown model: ${modelRaw}`, 'error')
-    }
-    const info = await llm.resolveModelInfo(provider, model, signal)
-    let reasoningEffort = current.reasoningEffort
-    if (info.reasoning !== undefined) {
-      const effortRaw = await this.#tui.prompt({
-        title: 'Reasoning effort',
-        question: 'Choose reasoning effort',
-        options: info.reasoning.efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
-        signal,
-      })
-      if (effortRaw === null) return
-      const effortIndex = /^\d+$/u.test(effortRaw) ? Number(effortRaw) - 1 : -1
-      const effort = effortIndex >= 0 ? info.reasoning.efforts[effortIndex]?.id : ReasoningEffortId(effortRaw)
-      if (effort === undefined || !info.reasoning.efforts.some(entry => entry.id === effort)) {
-        return this.#tui.notice(`Unknown reasoning effort: ${effortRaw}`, 'error')
-      }
-      reasoningEffort = effort
-    } else {
-      reasoningEffort = undefined
-    }
-    const selection: ModelSelection = {
-      provider,
-      model,
-      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    }
-    const active = this.#requiredActive()
-    active.selection.current = selection
-    active.contextWindow = info.context?.contextWindow
-    this.#tui.setModel(model)
-    this.#pushSessionInfo()
-    await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
-    this.#tui.notice(`Model: ${provider}/${model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`)
-  }
-
-  #retry(): void {
-    const events = this.#requiredAgent().session.events
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      const text = humanText(events[i] as SessionEvent)
-      if (text === undefined) continue
-      this.send(text)
-      this.#tui.notice('Re-running the most recent human prompt as a new turn.')
-      return
-    }
-    this.#tui.notice('No human prompt is available to retry.')
-  }
-
-  #showQueue(): void {
-    const inbox = this.#requiredAgent().inbox
-    const lines = [
-      `Follow-ups: ${inbox.nextTurn.length}`,
-      ...inbox.nextTurn.map((message, index) => `  ${index + 1}. ${message.content.map(block => block.type === 'text' ? block.text : `[${block.type}]`).join('')}`),
-      `Steering: ${inbox.nextStep.length}`,
-      ...inbox.nextStep.map((message, index) => `  ${index + 1}. ${message.content.map(block => block.type === 'text' ? block.text : `[${block.type}]`).join('')}`),
-    ]
-    this.#tui.notice(lines.join('\n'))
-  }
-
-  #clearQueue(): void {
-    const inbox = this.#requiredAgent().inbox
-    const count = inbox.nextTurn.length + inbox.nextStep.length
-    inbox.splice('next-turn', 0, inbox.nextTurn.length, [])
-    inbox.splice('next-step', 0, inbox.nextStep.length, [])
-    this.#tui.notice(`Removed ${count} queued message${count === 1 ? '' : 's'}.`)
-  }
-
-  #showTodo(): void {
-    const event = this.#requiredAgent().session.events.findLast(item => item.type === 'todo/write')
-    if (event === undefined) return this.#tui.notice('No todo list has been recorded.')
-    const todos = event.data.todos
-    this.#tui.notice(['Todo', ...todos.map((todo, index) => `${index + 1}. [${todo.status}] ${todo.content}`)].join('\n'))
-  }
-
-  async #attach(input: string): Promise<void> {
-    if (input === '') return this.#usage('/attach <image-path>')
-    const attachments = this.#ctx.get('attachments')
-    if (attachments === undefined) return this.#tui.notice('Attachment storage is not configured.', 'error')
-    const unquoted = input.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
-    const path = resolve(unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
-    const mediaTypes: Record<string, ImageMediaType> = {
-      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.webp': 'image/webp', '.gif': 'image/gif',
-    }
-    const mediaType = mediaTypes[extname(path).toLowerCase()]
-    if (mediaType === undefined) return this.#tui.notice('Supported images: PNG, JPEG, WebP, GIF.', 'error')
-    try {
-      const data = await readFile(path)
-      const name = path.split('/').at(-1)
-      const attachment = await attachments.saveImage({
-        data,
-        mediaType,
-        ...(name === undefined ? {} : { name }),
-      })
-      this.#requiredAgent().followup(createUserMessage({
-        content: [{ type: 'image', attachment }],
-        source: { kind: 'user' },
-      }))
-      this.#tui.notice(`Attached ${path.split('/').at(-1) ?? path} (${attachment.width}×${attachment.height}).`)
-    } catch (error: unknown) {
-      this.#tui.notice('Attach failed: ' + (error instanceof Error ? error.message : String(error)), 'error')
-    }
-  }
-
-  async #search(input: string, signal: AbortSignal): Promise<void> {
-    const all = input === '--all' || input.startsWith('--all ')
-    const query = (all ? input.slice('--all'.length) : input).trim()
-    if (query === '') return this.#usage('/search [--all] <query>')
-    const service = this.#ctx.get('sessionQuery')
-    if (service === undefined) return this.#tui.notice('Session search is not configured.', 'error')
-    try {
-      if (all) {
-        const page = await service.searchSessions({ query, limit: 20 }, { signal })
-        const lines = page.items.map((hit, index) =>
-          `${index + 1}. ${hit.header.id} · #${hit.bestMatch.seq} ${hit.bestMatch.type}\n   ${hit.bestMatch.snippet}`)
-        this.#tui.notice(lines.length === 0 ? `No sessions match “${query}”.` : `Session matches for “${query}”\n\n${lines.join('\n')}`)
-      } else {
-        const sessionId = this.#requiredAgent().session.id
-        const page = await service.searchEvents({ sessionId, query, limit: 30 }, { signal })
-        const lines = page.items.map((hit, index) => `${index + 1}. #${hit.seq} ${hit.type}\n   ${hit.snippet}`)
-        this.#tui.notice(lines.length === 0 ? `No transcript matches “${query}”.` : `Transcript matches for “${query}”\n\n${lines.join('\n')}`)
-      }
-    } catch (error: unknown) {
-      if (signal.aborted) return
-      this.#tui.notice('Search failed: ' + (error instanceof Error ? error.message : String(error)), 'error')
-    }
-  }
-
-  async #export(input: string): Promise<void> {
-    const agent = this.#requiredAgent()
-    const unquoted = input.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
-    const fallback = `omdsh-transcript-${agent.id}.md`
-    const path = resolve(unquoted === '' ? fallback : (unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted))
-    const title = sessionTitle(agent.session.events, agent.id)
-    try {
-      await writeFile(path, formatTranscriptMarkdown(agent.id, title, agent.session.events), { encoding: 'utf8', mode: 0o600 })
-      this.#tui.notice(`Exported complete transcript to ${path}`)
-    } catch (error: unknown) {
-      this.#tui.notice('Export failed: ' + (error instanceof Error ? error.message : String(error)), 'error')
-    }
-  }
-
-  #showSession(): void {
-    const active = this.#requiredActive()
-    const agent = active.handle.agent
-    const stats = this.#stats(active)
-    this.#tui.notice([
-      `Session: ${agent.id}`,
-      `Model: ${this.#selection().provider}/${this.#selection().model}`,
-      `Turns: ${stats.turns} · Steps: ${stats.steps}`,
-      `Tokens: ${stats.inputTokens} in · ${stats.outputTokens} out`,
-      `Queued: ${agent.inbox.nextTurn.length} follow-up · ${agent.inbox.nextStep.length} steering`,
-    ].join('\n'))
-  }
-
-  #usage(text: string): void {
-    this.#tui.notice('Usage: ' + text, 'error')
   }
 
   async #create(selection: ModelSelection): Promise<ActiveSession> {
@@ -647,39 +439,39 @@ export class SessionController {
     return { handle, selection: ref, contextWindow: undefined }
   }
 
+  async #resolveModelInfo(selection: ModelSelection): Promise<LlmResolvedModelInfo | undefined> {
+    try {
+      return await this.#ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model)
+    } catch {
+      return undefined
+    }
+  }
+
   async #activate(next: ActiveSession): Promise<void> {
     const previous = this.#active
     this.#active = next
     const agent = next.handle.agent
-    this.#tui.setModel(this.#selection().model)
     this.#tui.setStatus(agent.status)
-    this.#tui.replaceSession(agent.session.events)
+    this.#replaceTranscript(agent)
     this.#pushTools()
-    try {
-      const llm = this.#ctx.get('llm')
-      const selected = this.#selection()
-      next.contextWindow = llm === undefined
-        ? undefined
-        : (await llm.resolveModelInfo(selected.provider, selected.model)).context?.contextWindow
-    } catch {
-      next.contextWindow = undefined
-    }
+    const selected = this.selection(agent)
+    const info = await this.#resolveModelInfo(selected)
+    next.contextWindow = info?.context?.contextWindow
+    const status = modelStatus(selected, info)
+    this.#tui.setModel(status.model, status.reasoningEffort)
     await this.#refreshSkills()
     this.#pushSessionInfo()
-    if (previous !== undefined) await previous.handle.dispose()
+    if (previous !== undefined) this.#retired.push(previous.handle)
   }
 
   #pushCommands(): void {
     const agent = this.agent
     const runtime = agent === undefined ? [] : (this.#ctx.get('commands')?.list(agent) ?? [])
-    const commands: TuiCommand[] = [
-      ...CONTROL_COMMANDS,
-      ...runtime.map(command => ({
-        name: command.name,
-        description: command.description,
-        ...(command.input?.hint === undefined ? {} : { inputHint: command.input.hint }),
-      })),
-    ]
+    const commands: TuiCommand[] = runtime.map(command => ({
+      name: command.name,
+      description: command.description,
+      ...(command.input?.hint === undefined ? {} : { inputHint: command.input.hint }),
+    }))
     const names = new Set(commands.map(command => command.name))
     for (const skill of this.#skillCommands) {
       if (names.has(skill.name)) continue
@@ -691,13 +483,13 @@ export class SessionController {
 
   #pushTools(): void {
     const agent = this.agent
-    this.#toolCatalog = agent === undefined
+    const tools = agent === undefined
       ? []
       : (this.#ctx.get('tools')?.schemas(agent).map(schema => ({
           name: schema.name,
           description: schema.description,
         })) ?? [])
-    this.#tui.setTools(this.#toolCatalog)
+    this.#tui.setTools(tools)
   }
 
   async #refreshSkills(signal?: AbortSignal): Promise<void> {
@@ -731,17 +523,16 @@ export class SessionController {
     })
   }
 
+  #replaceTranscript(agent: Agent): void {
+    const events = agent.session.events
+    this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events))
+  }
+
   /** Read one consistent projection cut, with the complete-log fold as fallback. */
   #stats(active: ActiveSession): TuiSessionStats {
     const agent = active.handle.agent
     const values = this.#ctx.get('sessionProjections')?.snapshot(agent.session).values
     return sessionStats(agent.session.events, active.contextWindow, values)
-  }
-
-  #selection(): ModelSelection {
-    const current = this.#requiredActive().selection.current
-    if (current === undefined) throw new Error('active agent has no model selection')
-    return current
   }
 
   #requiredActive(): ActiveSession {
@@ -751,5 +542,9 @@ export class SessionController {
 
   #requiredAgent(): Agent {
     return this.#requiredActive().handle.agent
+  }
+
+  async #disposeRetired(): Promise<void> {
+    await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
   }
 }

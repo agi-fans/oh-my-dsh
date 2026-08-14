@@ -1,0 +1,47 @@
+import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import * as commandSession from './command-session.ts'
+import type { TuiService } from './definition.ts'
+import type { SessionRuntime } from './session-controller.ts'
+
+describe('omdsh command plugins', () => {
+  it('registers session commands through dsh-commands and removes them with its fiber', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const newSession = vi.fn(async () => undefined)
+    const runtime = {
+      newSession,
+      refreshRecent: vi.fn(async () => undefined),
+      recentSessions: [],
+      selection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
+      stats: () => ({ turns: 0, steps: 0, inputTokens: 0, outputTokens: 0 }),
+      send: vi.fn(),
+    } as unknown as SessionRuntime
+    const tui = { prompt: vi.fn() } as unknown as TuiService
+    ctx.provide('omdshSession', runtime)
+    ctx.provide('tui', tui)
+    const fiber = await ctx.plugin(commandSession)
+    const session = ctx.sessions.create(SessionId('command-plugin-test'))
+    const agent = {
+      id: session.id,
+      session,
+      status: 'idle',
+      inbox: { nextTurn: [], nextStep: [] },
+    } as unknown as Agent
+
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['new', 'resume', 'retry', 'session', 'todo'])
+    await expect(ctx.commands.execute(agent, '/new', new AbortController().signal))
+      .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
+    expect(newSession).toHaveBeenCalledWith(agent)
+    expect(session.events.filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
+      .toEqual(['command/run', 'command/done'])
+
+    await fiber.dispose()
+    expect(ctx.commands.list(agent)).toEqual([])
+    await ctx.fiber.dispose()
+  })
+})

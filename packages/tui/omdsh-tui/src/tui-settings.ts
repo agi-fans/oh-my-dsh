@@ -1,11 +1,17 @@
 /**
- * Durable TUI prefs (`theme`, `colors`, `expandTools`) on the user-settings seam.
+ * Durable TUI appearance and status-bar preferences on the user-settings seam.
  * @module @omdsh/tui
  */
 
 import z from '@deepseek-ai/schemastery'
+import {
+  STATUS_GROUP_IDS,
+  STATUS_LABEL_STYLES,
+  STATUS_PRESETS,
+  type StatusBarConfig,
+  type StatusPreset,
+} from './status-config.ts'
 import { THEME_NAMES, type ThemeName } from './theme.ts'
-import { STATUS_PRESETS, type StatusPreset } from './settings-list.ts'
 
 /** Settings namespace owned by the local TUI provider. */
 export const TUI_SETTINGS_NAMESPACE = 'omdsh-tui'
@@ -15,13 +21,21 @@ export interface TuiSettings {
   theme: ThemeName
   colors: boolean
   expandTools: boolean
+  statusBar?: StatusBarConfig
+  /** Legacy input retained so older settings documents can be migrated. */
   statusPreset?: StatusPreset
 }
 
-/** Schema: palette, SGR switch, and default tool-output expansion. */
+/** Schema: palette, SGR, tool expansion, and status-bar detail. */
 export const TuiSettingsSchema: z<TuiSettings> = z.object({
   theme: z.union([...THEME_NAMES]).default('dark'),
   colors: z.boolean().default(true),
   expandTools: z.boolean().default(false),
-  statusPreset: z.union([...STATUS_PRESETS]).default('compact'),
+  statusBar: z.union([z.object({
+    enabled: z.boolean().default(true),
+    labels: z.union([...STATUS_LABEL_STYLES]).default('compact'),
+    groups: z.array(z.union([...STATUS_GROUP_IDS])).default([...STATUS_GROUP_IDS]),
+    order: z.array(z.union([...STATUS_GROUP_IDS])),
+  })]),
+  statusPreset: z.union([...STATUS_PRESETS]),
 })

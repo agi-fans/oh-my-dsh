@@ -4,7 +4,7 @@
  * @module @omdsh/tui
  */
 
-import { SYMBOL, THEME_NAMES, type Theme } from './theme.ts'
+import { SYMBOL, type Theme } from './theme.ts'
 import { truncateToWidth } from './width.ts'
 
 /** One argument token a slash command can complete. */
@@ -20,6 +20,8 @@ export interface SlashCommand {
   aliases?: readonly string[]
   description: string
   arguments?: readonly SlashArgument[]
+  /** Free-form argument usage contributed by a runtime command plugin. */
+  inputHint?: string
 }
 
 /** One ranked suggestion shown in the popup. */
@@ -31,17 +33,6 @@ export interface AutocompleteItem {
   kind?: 'command' | 'argument' | 'path'
 }
 
-const THEME_ARGUMENTS: readonly SlashArgument[] = THEME_NAMES.map((name) => ({
-  value: name,
-  description: name === 'light' ? 'Light palette' : 'Dark palette',
-}))
-
-const SETTINGS_ARGUMENTS: readonly SlashArgument[] = [
-  { value: 'theme', description: 'Focus the theme row' },
-  { value: 'color', aliases: ['colors'], description: 'Focus the color row' },
-  { value: 'tools', aliases: ['expand'], description: 'Focus the tool-preview row' },
-]
-
 const COPY_ARGUMENTS: readonly SlashArgument[] = [
   { value: 'text', description: 'Last assistant reply' },
   { value: 'code', description: 'Last fenced code block' },
@@ -51,8 +42,7 @@ const COPY_ARGUMENTS: readonly SlashArgument[] = [
 /** Built-in session-surface commands (no extra backend required). */
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', aliases: ['h', '?'], description: 'Show available slash commands' },
-  { name: 'settings', aliases: ['set'], description: 'Open settings', arguments: SETTINGS_ARGUMENTS },
-  { name: 'theme', description: 'Switch color theme', arguments: THEME_ARGUMENTS },
+  { name: 'settings', aliases: ['set'], description: 'Open settings' },
   { name: 'hotkeys', description: 'Show keyboard shortcuts' },
   { name: 'copy', description: 'Pick text, code, or a command to copy', arguments: COPY_ARGUMENTS },
   { name: 'tools', description: 'Show tools visible to the agent' },
@@ -178,6 +168,7 @@ export function buildSlashArgumentCompletions(
 }
 
 function argumentHint(command: SlashCommand): string {
+  if (command.inputHint !== undefined && command.inputHint !== '') return ' ' + command.inputHint
   const args = command.arguments
   if (args === undefined || args.length === 0) return ''
   return ' [' + args.map((arg) => arg.value).join('|') + ']'
@@ -286,15 +277,54 @@ export function resolveSlashCommand(
   return commands.find((command) => command.name === lower || (command.aliases ?? []).includes(lower))
 }
 
-/** Help body painted as a notice when `/help` runs. */
-export function formatHelpText(commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS): string {
-  const lines = ['Commands']
-  for (const command of commands) {
-    const names = [
-      '/' + command.name + argumentHint(command),
-      ...(command.aliases ?? []).map((alias) => '/' + alias),
-    ]
-    lines.push(names.join(', ') + '  ' + command.description)
+function helpCell(value: string): string {
+  return value.replace(/\|/gu, '\\|').replace(/\s+/gu, ' ').trim()
+}
+
+function helpTable(commands: readonly SlashCommand[]): string[] {
+  if (commands.length === 0) return []
+  return [
+    '| Command | Description |',
+    '|---|---|',
+    ...commands.map((command) => {
+      const names = [command.name, ...(command.aliases ?? [])]
+        .map((name, index) => `\`${helpCell(`/${name}${index === 0 ? argumentHint(command) : ''}`)}\``)
+        .join(' / ')
+      return `| ${names} | ${helpCell(command.description)} |`
+    }),
+  ]
+}
+
+/** Grouped Markdown command directory rendered by the command-output surface. */
+export function formatHelpText(
+  commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
+): string {
+  const skills = commands.filter(command => command.name.startsWith('skill:'))
+  const terminalNames = new Set(BUILTIN_SLASH_COMMANDS.map(command => command.name))
+  const terminal = commands.filter(command => terminalNames.has(command.name))
+  const agent = commands.filter(command => !command.name.startsWith('skill:') && !terminalNames.has(command.name))
+  const lines = [`Commands · ${terminal.length + agent.length} available`]
+  if (terminal.length > 0) {
+    lines.push(
+      '',
+      `**Terminal Commands · ${terminal.length}**`,
+      ...helpTable(terminal),
+    )
+  }
+  if (agent.length > 0) {
+    lines.push(
+      '',
+      `**Agent Commands · ${agent.length}**`,
+      ...helpTable(agent),
+    )
+  }
+  if (skills.length > 0) {
+    lines.push(
+      '',
+      `**Skills · ${skills.length}**`,
+      '',
+      'Type `/skill:` to browse and filter skills with descriptions.',
+    )
   }
   return lines.join('\n')
 }

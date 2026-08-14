@@ -1,45 +1,53 @@
-// Happy-path e2e (keyless): boots omdsh against the harness's own mock LLM
-// server. The first request is refused (exercising the mounted provider
-// retry), the second streams a success — the transcript must render both
-// the prompt and the streamed assistant text, then exit 0 on stdin EOF.
+// Happy-path e2e (keyless): boots omdsh against the published Harness mock
+// LLM package. The response is streamed, and the transcript must render both
+// the prompt and assistant text before exiting cleanly on stdin EOF.
 // Run: node scripts/happy-smoke.mjs
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-happy-smoke-'))
 process.on('exit', () => { rmSync(omdshHome, { recursive: true, force: true }) })
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const server = spawn('pnpm', ['exec', 'node', '--import', 'tsx',
-  'refs/deepseek-harness/packages/test-support/llm-mock-server/src/bin.ts',
-  '--sequence', 'connection_refused,success',
-  '--success-text', 'hello from omdsh',
-  '--chunk-size', '3', '--chunk-delay-ms', '40', '--port', '8123'],
-  { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] })
-
-await new Promise((resolve) => {
-  server.stdout.on('data', (chunk) => { if (String(chunk).includes('ready')) resolve() })
-  server.stdout.on('close', resolve)
-  server.on('exit', resolve)
-  setTimeout(resolve, 15000)
+const server = await startMockLlmServer({
+  port: 8123,
+  sequence: ['success'],
+  successText: 'hello from omdsh',
+  chunkSize: 3,
+  chunkDelayMs: 40,
 })
 
-const result = spawnSync('pnpm', ['--dir', 'apps/omdsh', 'omdsh'], {
-  cwd: root, input: 'ping\n', encoding: 'utf8', timeout: 120_000,
+const omdsh = spawn('pnpm', ['--dir', 'apps/omdsh', 'omdsh'], {
+  cwd: root,
+  stdio: ['pipe', 'pipe', 'pipe'],
   env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' },
 })
-server.kill()
+let out = ''
+omdsh.stdout.on('data', (chunk) => { out += String(chunk) })
+omdsh.stderr.on('data', (chunk) => { out += String(chunk) })
+omdsh.stdin.end('ping\n')
 
-const out = (result.stdout ?? '') + (result.stderr ?? '')
-const ok = result.status === 0 && out.includes('ping') && out.includes('hello from omdsh')
+const status = await new Promise((resolve) => {
+  const timeout = setTimeout(() => {
+    omdsh.kill()
+    resolve(null)
+  }, 120_000)
+  omdsh.on('close', (code) => {
+    clearTimeout(timeout)
+    resolve(code)
+  })
+})
+await server.close()
+
+const ok = status === 0 && out.includes('ping') && out.includes('hello from omdsh')
 if (!ok) {
-  console.error('FAIL: status=' + result.status)
+  console.error('FAIL: status=' + status)
   console.error(out.slice(-1500))
   process.exit(1)
 }
-console.log('HAPPY_SMOKE_PASS status=' + result.status)
+console.log('HAPPY_SMOKE_PASS status=' + status)
