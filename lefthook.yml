@@ -1,0 +1,5 @@
+# https://lefthook.dev/configuration/
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
