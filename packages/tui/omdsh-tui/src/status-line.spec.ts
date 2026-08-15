@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { TuiSessionStats } from './definition.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from './status-config.ts'
-import { formatDuration, formatTokens, renderSessionStatusLabel, sessionStatusGroups } from './status-line.ts'
+import {
+  formatDuration,
+  formatTokens,
+  renderSessionStatusLabel,
+  renderStatusFooter,
+  sessionStatusGroups,
+} from './status-line.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
 
@@ -113,5 +119,46 @@ describe('session status line', () => {
 
   it('hides telemetry when no complete metric group fits', () => {
     expect(renderSessionStatusLabel(stats, statusBar(), createTheme(false), 10)).toBe('')
+  })
+
+  it('renders model/workspace and telemetry as two split footer rows', () => {
+    const lines = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+      pwd: '~/Workspace/dsh-tui',
+      branch: 'main *6 ?4',
+      stats,
+      config: statusBar(),
+      width: 140,
+    }, createTheme(false))
+
+    expect(lines).toHaveLength(2)
+    expect(lines.every(line => visibleWidth(line) === 140)).toBe(true)
+    expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek-v4-pro · max\s+~\/Workspace\/dsh-tui · main \*6 \?4  $/)
+    expect(stripAnsi(lines[1] ?? '')).toMatch(/^  Cache 99% • 5\.9M in · 73\.8K out • TTFT 1\.2s · 80 tok\/s\s+LLM 16m51s · Tools 3m33s • 1 turn · 74 steps  $/)
+  })
+
+  it('keeps complete high-priority footer groups and disables both rows together', () => {
+    const narrow = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+      pwd: '~/Workspace/a-very-long-project-name',
+      branch: 'main *6 ?4',
+      stats,
+      config: statusBar(),
+      width: 76,
+    }, createTheme(false))
+    const telemetry = stripAnsi(narrow[1] ?? '')
+    expect(narrow).toHaveLength(2)
+    expect(narrow.every(line => visibleWidth(line) === 76)).toBe(true)
+    expect(telemetry).toContain('Cache 99%')
+    expect(telemetry).toContain('5.9M in · 73.8K out')
+    expect(telemetry).not.toContain('LLM 16m51s')
+    expect(renderStatusFooter({
+      model: 'm',
+      stats,
+      config: statusBar({ enabled: false }),
+      width: 76,
+    }, createTheme(false))).toEqual([])
   })
 })

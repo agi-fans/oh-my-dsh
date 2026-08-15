@@ -10,7 +10,9 @@ import {
   parsePathPrefix,
   pathSuggestions,
   resolveSearch,
+  searchPathSuggestions,
   type DirEntry,
+  type PathSearcher,
 } from './path-complete.ts'
 
 const theme = createTheme(false)
@@ -149,6 +151,119 @@ describe('pathSuggestions / applyPathCompletion', () => {
       cursor: 14,
     })
     expect(pathSuggestions('/copy ', 6, { ...opts, force: true })).toBe(null)
+  })
+})
+
+describe('searchPathSuggestions', () => {
+  const searchFiles: PathSearcher = async (_root, query) => {
+    const entries = [
+      { path: 'src/', directory: true },
+      { path: 'src/index.ts', directory: false },
+      { path: 'history-search.ts', directory: false },
+    ]
+    return entries.filter(entry => {
+      let offset = 0
+      for (const char of query.toLowerCase()) {
+        offset = entry.path.toLowerCase().indexOf(char, offset)
+        if (offset < 0) return false
+        offset += 1
+      }
+      return true
+    })
+  }
+
+  it('finds a nested project file by basename without its directory prefix', async () => {
+    const result = await searchPathSuggestions('@index', 6, {
+      ...opts,
+      projectRoot: '/proj',
+      searchFiles,
+    })
+
+    expect(result?.items).toContainEqual({
+      value: '@src/index.ts',
+      label: 'index.ts',
+      description: 'src/index.ts',
+      kind: 'path',
+    })
+  })
+
+  it('supports abbreviated fuzzy filename queries', async () => {
+    const result = await searchPathSuggestions('@histsr', 7, {
+      ...opts,
+      projectRoot: '/proj',
+      searchFiles,
+    })
+
+    expect(result?.items).toContainEqual({
+      value: '@history-search.ts',
+      label: 'history-search.ts',
+      kind: 'path',
+    })
+  })
+
+  it('scopes slash queries while preserving their project-relative display path', async () => {
+    const calls: Array<{ root: string; query: string }> = []
+    const scopedSearch: PathSearcher = async (root, query) => {
+      calls.push({ root, query })
+      return [{ path: 'index.ts', directory: false }]
+    }
+    const result = await searchPathSuggestions('@src/ind', 8, {
+      ...opts,
+      projectRoot: '/proj',
+      searchFiles: scopedSearch,
+    })
+
+    expect(calls).toEqual([{ root: '/proj/src', query: 'ind' }])
+    expect(result?.items[0]).toEqual({
+      value: '@src/index.ts',
+      label: 'index.ts',
+      description: 'src/index.ts',
+      kind: 'path',
+    })
+  })
+
+  it('keeps a trailing-slash directory browse synchronous', async () => {
+    let searches = 0
+    const result = await searchPathSuggestions('@src/', 5, {
+      ...opts,
+      projectRoot: '/proj',
+      searchFiles: async () => {
+        searches += 1
+        return []
+      },
+    })
+
+    expect(searches).toBe(0)
+    expect(result?.items.map(item => item.value)).toEqual(['@src/index.ts'])
+  })
+
+  it('uses projectRoot for @ browsing when the process cwd is nested', () => {
+    const result = pathSuggestions('@', 1, {
+      ...opts,
+      cwd: '/proj/apps/omdsh',
+      projectRoot: '/proj',
+    })
+
+    expect(result?.items.map(item => item.value)).toContain('@README.md')
+  })
+
+  it('does not recursively search outside the project root', async () => {
+    let searches = 0
+    const result = await searchPathSuggestions('@../outside/wor', 15, {
+      cwd: '/proj/app',
+      projectRoot: '/proj',
+      home: '/home/me',
+      listDir: dir => dir === '/outside'
+        ? [{ name: 'workspace.md', directory: false }]
+        : undefined,
+      searchFiles: async () => {
+        searches += 1
+        return []
+      },
+    })
+
+    expect(searches).toBe(0)
+    expect(result?.items.map(item => item.value)).toEqual(['@../outside/workspace.md'])
   })
 })
 

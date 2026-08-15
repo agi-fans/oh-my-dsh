@@ -1,5 +1,5 @@
 /**
- * Status-bar customization shared by settings, persistence, and rendering.
+ * Status-line customization shared by settings, persistence, and rendering.
  * @module @omdsh/tui/status-config
  */
 
@@ -10,7 +10,7 @@ export type StatusGroupId = (typeof STATUS_GROUP_IDS)[number]
 export const STATUS_LABEL_STYLES = ['compact', 'full'] as const
 export type StatusLabelStyle = (typeof STATUS_LABEL_STYLES)[number]
 
-/** User-owned status-bar layout. Missing `groups` are hidden; `order` retains their slots. */
+/** User-owned status-line layout. Missing `groups` are hidden; `order` retains their slots. */
 export interface StatusBarConfig {
   enabled: boolean
   labels: StatusLabelStyle

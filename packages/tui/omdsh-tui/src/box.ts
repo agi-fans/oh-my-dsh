@@ -1,6 +1,6 @@
 /**
  * Rounded-box chrome ported from oh-my-pi: framed tool output, the welcome
- * card, and the framed editor whose top border carries the status line.
+ * card and the framed editor whose top border carries its compact label.
  * @module @omdsh/tui
  */
 
@@ -210,8 +210,6 @@ export interface EditorOptions {
   input: string
   inputCursor: number
   status: string
-  /** Session telemetry embedded in the bottom border. */
-  footer?: string
   border: ThemeColor
   /** Dim ghost text painted after the caret (slash-arg hint). */
   inlineHint?: string
@@ -224,7 +222,7 @@ export interface EditorFrame {
 }
 
 /**
- * Rounded editor: status lives in the top border, input occupies one or more
+ * Rounded editor: its label lives in the top border, input occupies one or more
  * body rows, and a dedicated bottom border keeps the cursor off the chrome.
  */
 export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame {
@@ -262,9 +260,7 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   }
   const bottomLeft = border(BOX.bottomLeft + h.repeat(padX))
   const bottomRight = border(h.repeat(padX) + BOX.bottomRight)
-  const footer = truncateToWidth(options.footer ?? '', fillWidth)
-  const footerFill = Math.max(0, fillWidth - visibleWidth(footer))
-  lines.push(bottomLeft + footer + border(h.repeat(footerFill)) + bottomRight)
+  lines.push(bottomLeft + border(h.repeat(fillWidth)) + bottomRight)
 
   return {
     lines,
@@ -291,40 +287,40 @@ export function hitTestEditor(input: string, width: number, localRow: number, co
   return indexOnWrapped(line, col - EDITOR_CONTENT_COL, input)
 }
 
-/**
- * OMP "Working..." row that sits above the editor while a turn is in flight.
- */
+/** DeepSeek Harness-aligned label shown while the model is driving a turn. */
+export const DEEP_DRIVING_LABEL = 'Deep Driving'
+
+/** Paint a restrained highlight that travels across the active driving label. */
+function renderDrivingShimmer(theme: Theme, text: string, spinnerFrame: number): string {
+  if (!theme.colors) return text
+  const characters = [...text]
+  const runway = 3
+  const highlight = (spinnerFrame % (characters.length + runway * 2)) - runway
+  return characters.map((character, index) => {
+    if (character === ' ') return character
+    const distance = Math.abs(index - highlight)
+    if (distance === 0) return theme.bold(theme.fg('accent', character))
+    if (distance === 1) return theme.fg('accent', character)
+    if (distance === 2) return theme.fg('text', character)
+    return theme.fg('muted', character)
+  }).join('')
+}
+
+/** Activity row that sits above the editor while a turn is in flight. */
 export function renderWorking(
   theme: Theme,
   spinnerFrame: number,
-  action = 'Waiting for DeepSeek response…',
+  action = DEEP_DRIVING_LABEL,
   width?: number,
 ): string[] {
   const frame = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][spinnerFrame % 10] ?? '⠋'
   const prefix = ' ' + theme.fg('accent', frame) + ' '
   const hint = ' ' + theme.fg('dim', '⟨Ctrl+C: Interrupt⟩')
-  if (width === undefined) return [prefix + theme.fg('muted', action) + hint]
+  const paintAction = (text: string): string => action === DEEP_DRIVING_LABEL
+    ? renderDrivingShimmer(theme, text, spinnerFrame)
+    : theme.fg('muted', text)
+  if (width === undefined) return [prefix + paintAction(action) + hint]
   const actionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(hint))
-  if (actionWidth < 8) return [truncateToWidth(prefix + theme.fg('muted', action), width)]
-  return [prefix + theme.fg('muted', truncateToWidth(action, actionWidth)) + hint]
-}
-
-/** Build the ` icon · model · effort · status · pwd · branch ` label in the editor cap. */
-export function editorStatusLabel(
-  theme: Theme,
-  parts: { appName: string; model: string; reasoningEffort?: string; status: string; pwd: string; branch?: string },
-): string {
-  const items: Array<{ text: string; tone: 'accent' | 'muted' | 'warning' }> = [
-    { text: parts.appName, tone: 'accent' },
-    { text: parts.model, tone: 'muted' },
-  ]
-  if (parts.reasoningEffort !== undefined && parts.reasoningEffort !== '') {
-    items.push({ text: parts.reasoningEffort, tone: 'muted' })
-  }
-  items.push({ text: parts.status, tone: parts.status.startsWith('running') ? 'warning' : 'muted' })
-  if (parts.pwd !== '') items.push({ text: parts.pwd, tone: 'muted' })
-  if (parts.branch !== undefined && parts.branch !== '') items.push({ text: parts.branch, tone: 'muted' })
-  const sep = theme.fg('dim', ' · ')
-  const painted = items.map(item => theme.fg(item.tone, item.text))
-  return ' ' + painted.join(sep) + ' '
+  if (actionWidth < 8) return [truncateToWidth(prefix + paintAction(action), width)]
+  return [prefix + paintAction(truncateToWidth(action, actionWidth)) + hint]
 }

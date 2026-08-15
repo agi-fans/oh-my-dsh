@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editorStatusLabel, hitTestEditor, renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
+import { hitTestEditor, renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
 
@@ -125,13 +125,12 @@ describe('renderWelcome', () => {
 })
 
 describe('renderEditor', () => {
-  it('embeds status in the top border and input on its own body row', () => {
-    const status = editorStatusLabel(theme, { appName: '🐳', model: 'm', reasoningEffort: 'max', status: 'idle', pwd: '~/p' })
-    const frame = renderEditor({ width: 40, input: 'hi', inputCursor: 2, status, border: 'border' }, theme)
+  it('embeds its compact label in the top border and input on its own body row', () => {
+    const frame = renderEditor({ width: 40, input: 'hi', inputCursor: 2, status: ' 🐳 ', border: 'border' }, theme)
     expect(frame.lines).toHaveLength(3)
     expect(frame.lines[0]).toMatch(/^╭─/)
     expect(frame.lines[0]).toContain('🐳')
-    expect(frame.lines[0]).toContain('m · max · idle')
+    expect(frame.lines[0]).not.toContain('idle')
     expect(frame.lines[1]).toMatch(/^│ /)
     expect(frame.lines[1]).toContain('hi')
     expect(frame.lines[2]).toMatch(/^╰─/)
@@ -139,12 +138,11 @@ describe('renderEditor', () => {
   })
 
   it('paints a dim inline hint after the caret', () => {
-    const status = editorStatusLabel(theme, { appName: 'omdsh', model: 'm', status: 'idle', pwd: '~/p' })
     const frame = renderEditor({
       width: 40,
       input: '/copy ',
       inputCursor: 6,
-      status,
+      status: ' 🐳 ',
       border: 'border',
       inlineHint: 'text|code|cmd',
     }, theme)
@@ -152,19 +150,6 @@ describe('renderEditor', () => {
     expect(frame.lines[1]).toContain('text|code|cmd')
     expect(frame.cursor).toEqual({ row: 1, column: 8 })
     expect(visibleWidth(frame.lines[1] ?? '')).toBe(40)
-  })
-
-  it('embeds telemetry in the bottom border', () => {
-    const frame = renderEditor({
-      width: 50,
-      input: '',
-      inputCursor: 0,
-      status: ' whale ',
-      footer: ' 1 turn · 4 steps ',
-      border: 'border',
-    }, theme)
-    expect(frame.lines.at(-1)).toMatch(/^╰─ 1 turn · 4 steps ─+─╯$/)
-    expect(visibleWidth(frame.lines.at(-1) ?? '')).toBe(50)
   })
 
   it('maps a click on the input row to a buffer index', () => {
@@ -177,7 +162,29 @@ describe('renderEditor', () => {
 })
 
 describe('renderWorking', () => {
-  it('shows the OMP working row', () => {
+  it('uses the DeepSeek Harness loading label by default', () => {
+    const line = renderWorking(theme, 0, undefined, 40)[0] ?? ''
+    expect(line).toContain('Deep Driving')
+    expect(line).toContain('Ctrl+C: Interrupt')
+  })
+
+  it('sweeps a highlight across the Deep Driving label without changing its text or width', () => {
+    const colorTheme = createTheme(true, true)
+    const first = renderWorking(colorTheme, 0, undefined, 40)[0] ?? ''
+    const later = renderWorking(colorTheme, 10, undefined, 40)[0] ?? ''
+    expect(first).not.toBe(later)
+    expect(stripAnsi(first)).toBe(stripAnsi(later))
+    expect(visibleWidth(first)).toBe(visibleWidth(later))
+    expect(later).toContain('\x1b[1m')
+  })
+
+  it('keeps the loading label stable when terminal colors are disabled', () => {
+    const first = renderWorking(theme, 0, undefined, 40)[0] ?? ''
+    const later = renderWorking(theme, 10, undefined, 40)[0] ?? ''
+    expect(first).toBe(later)
+  })
+
+  it('shows the active tool action when available', () => {
     const line = renderWorking(theme, 0, 'bash · pnpm test', 40)[0] ?? ''
     expect(line).toContain('bash · pnpm test')
     expect(line).toContain('Ctrl+C: Interrupt')

@@ -39,8 +39,12 @@ import {
 import {
   applyPathCompletion,
   defaultPathSource,
+  findPathToken,
+  parsePathPrefix,
   pathSuggestions,
+  searchPathSuggestions,
   type DirReader,
+  type PathSearcher,
 } from './path-complete.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from './clipboard.ts'
 import {
@@ -179,6 +183,9 @@ export class LocalTui implements TuiService {
   #disposed = false
   #pendingKeys = ''
   #escapeTimer: ReturnType<typeof setTimeout> | null = null
+  #autocompleteTimer: ReturnType<typeof setTimeout> | null = null
+  #autocompleteAbort: AbortController | null = null
+  #autocompleteRequestId = 0
   #scrollRender: ReturnType<typeof setImmediate> | null = null
   #paste = false
   #pasteBuf = ''
@@ -220,8 +227,11 @@ export class LocalTui implements TuiService {
   readonly #historyStore: HistoryStore | undefined
   readonly #keybindings: Record<string, TuiAction>
   readonly #cwd: string
+  readonly #projectRoot: string
   readonly #home: string
   readonly #listDir: DirReader
+  readonly #searchFiles: PathSearcher
+  readonly #autocompleteDebounceMs: number
   #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
 
   /**
@@ -240,8 +250,11 @@ export class LocalTui implements TuiService {
     copy: ClipboardWriter = copyToClipboard,
     paths: {
       cwd?: string
+      projectRoot?: string
       home?: string
       listDir?: DirReader
+      searchFiles?: PathSearcher
+      autocompleteDebounceMs?: number
       historyPath?: string
       keybindingsPath?: string
       readClipboard?: ClipboardReader
@@ -258,12 +271,15 @@ export class LocalTui implements TuiService {
     this.#keybindings = loadKeybindings(paths.keybindingsPath)
     const fallback = defaultPathSource()
     this.#cwd = paths.cwd ?? fallback.cwd
+    const project = resolveProjectContext(this.#cwd)
+    this.#projectRoot = paths.projectRoot ?? project.root
     this.#home = paths.home ?? fallback.home
     this.#listDir = paths.listDir ?? fallback.listDir
+    this.#searchFiles = paths.searchFiles ?? fallback.searchFiles
+    this.#autocompleteDebounceMs = Math.max(0, paths.autocompleteDebounceMs ?? 100)
     this.#welcomeTips = pickWelcomeTips()
     this.#trueColor = colors && detectTrueColor()
     this.#tty = term.input.isTTY === true
-    const project = resolveProjectContext(this.#cwd)
     this.#pwd = shortenPath(project.root)
     this.#branch = project.gitLabel
     this.#renderer = new LineRenderer(
@@ -451,6 +467,10 @@ export class LocalTui implements TuiService {
       this.#term.input.destroy?.()
     }
     if (this.#escapeTimer !== null) clearTimeout(this.#escapeTimer)
+    if (this.#autocompleteTimer !== null) clearTimeout(this.#autocompleteTimer)
+    this.#autocompleteAbort?.abort()
+    this.#autocompleteTimer = null
+    this.#autocompleteAbort = null
     this.#lineReader?.close()
     this.#pending?.resolve(null)
     this.#pending = null
@@ -1087,17 +1107,65 @@ export class LocalTui implements TuiService {
   }
 
   #refreshAutocomplete(forcePath = false): void {
+    const requestId = ++this.#autocompleteRequestId
+    if (this.#autocompleteTimer !== null) {
+      clearTimeout(this.#autocompleteTimer)
+      this.#autocompleteTimer = null
+    }
+    this.#autocompleteAbort?.abort()
+    this.#autocompleteAbort = null
     if (this.#prompt !== null) {
       this.#ac = null
       return
     }
-    const result = slashSuggestions(this.#editor.text, this.#editor.cursor, this.#commands())
-      ?? pathSuggestions(this.#editor.text, this.#editor.cursor, {
-        cwd: this.#cwd,
-        home: this.#home,
-        listDir: this.#listDir,
-        force: forcePath,
-      })
+    const commands = this.#commands()
+    const slashResult = slashSuggestions(this.#editor.text, this.#editor.cursor, commands)
+    if (slashResult !== null) {
+      this.#setAutocomplete(slashResult)
+      return
+    }
+    const pathOptions = {
+      cwd: this.#cwd,
+      projectRoot: this.#projectRoot,
+      home: this.#home,
+      listDir: this.#listDir,
+      force: forcePath,
+    }
+    const token = findPathToken(this.#editor.text, this.#editor.cursor, forcePath)
+    const atPrefix = token?.kind === 'at' ? parsePathPrefix(token.prefix).raw.replaceAll('\\', '/') : ''
+    const fuzzyAt = token?.kind === 'at' && atPrefix !== '' && !atPrefix.endsWith('/')
+    if (fuzzyAt) {
+      this.#ac = null
+      const text = this.#editor.text
+      const cursor = this.#editor.cursor
+      this.#autocompleteTimer = setTimeout(() => {
+        this.#autocompleteTimer = null
+        if (this.#disposed || requestId !== this.#autocompleteRequestId) return
+        const controller = new AbortController()
+        this.#autocompleteAbort = controller
+        void searchPathSuggestions(text, cursor, {
+          ...pathOptions,
+          searchFiles: this.#searchFiles,
+          signal: controller.signal,
+        }, commands).then((result) => {
+          if (this.#disposed || controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
+          this.#autocompleteAbort = null
+          this.#setAutocomplete(result)
+          this.#render()
+        }).catch((error: unknown) => {
+          if (controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
+          this.#autocompleteAbort = null
+          this.#ac = null
+          if ((error as { name?: unknown }).name !== 'AbortError') this.#render()
+        })
+      }, this.#autocompleteDebounceMs)
+      return
+    }
+    const result = pathSuggestions(this.#editor.text, this.#editor.cursor, pathOptions, commands)
+    this.#setAutocomplete(result)
+  }
+
+  #setAutocomplete(result: { items: AutocompleteItem[]; prefix: string } | null): void {
     if (result === null) {
       this.#ac = null
       return

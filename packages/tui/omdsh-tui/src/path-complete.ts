@@ -1,13 +1,17 @@
 /**
- * `@` and explicit path autocomplete: OMP-style cwd listing for `@file`,
- * `./`, `../`, `~/`, and absolute paths. Tab can force a bare-word token.
- * Pure over an injected directory reader — the provider owns the filesystem.
+ * `@` and explicit path autocomplete: immediate directory browsing plus
+ * asynchronous project-wide fuzzy search. Tab can force a bare-word token.
+ * Filesystem access stays behind injected directory and project-search seams.
  * @module @omdsh/tui
  */
 
 import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import {
+  ProjectFileSearch,
+  type PathSearcher,
+} from './project-file-search.ts'
 import {
   BUILTIN_SLASH_COMMANDS,
   findLeadingSlashCommandStart,
@@ -24,6 +28,8 @@ export interface DirEntry {
 
 /** Read one directory; undefined when it cannot be listed. */
 export type DirReader = (dir: string) => readonly DirEntry[] | undefined
+
+export type { PathSearcher, ProjectPathEntry } from './project-file-search.ts'
 
 /** Token in the buffer that should complete as a path. */
 export interface PathToken {
@@ -147,10 +153,10 @@ export function buildPathCompletions(
 /** List completions for a live `@` / path prefix. */
 export function listPathCompletions(
   prefix: string,
-  opts: { cwd: string; home: string; listDir: DirReader },
+  opts: { cwd: string; projectRoot?: string; home: string; listDir: DirReader },
 ): AutocompleteItem[] {
   const parsed = parsePathPrefix(prefix)
-  const search = resolveSearch(parsed.raw, opts.cwd, opts.home)
+  const search = resolveSearch(parsed.raw, parsed.at ? (opts.projectRoot ?? opts.cwd) : opts.cwd, opts.home)
   const entries = opts.listDir(search.searchDir)
   if (entries === undefined) return []
   return buildPathCompletions(entries, search.displayBase, search.searchPrefix, parsed.at)
@@ -175,7 +181,7 @@ function slashCommandOwnsInput(
 export function pathSuggestions(
   text: string,
   cursor: number,
-  opts: { cwd: string; home: string; listDir: DirReader; force?: boolean },
+  opts: { cwd: string; projectRoot?: string; home: string; listDir: DirReader; force?: boolean },
   commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
 ): { items: AutocompleteItem[]; prefix: string } | null {
   if (slashCommandOwnsInput(text, cursor, commands)) return null
@@ -183,6 +189,57 @@ export function pathSuggestions(
   if (token === null) return null
   const items = listPathCompletions(token.prefix, opts)
   if (items.length === 0) return null
+  return { items, prefix: text.slice(token.start, cursor) }
+}
+
+/** Async `@query` search with prefix-listing fallback. */
+export async function searchPathSuggestions(
+  text: string,
+  cursor: number,
+  opts: {
+    cwd: string
+    projectRoot: string
+    home: string
+    listDir: DirReader
+    searchFiles: PathSearcher
+    signal?: AbortSignal
+  },
+  commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
+): Promise<{ items: AutocompleteItem[]; prefix: string } | null> {
+  if (slashCommandOwnsInput(text, cursor, commands)) return null
+  const token = findPathToken(text, cursor)
+  if (token === null || token.kind !== 'at') return pathSuggestions(text, cursor, opts, commands)
+  const parsed = parsePathPrefix(token.prefix)
+  if (parsed.raw === '' || parsed.raw.replaceAll('\\', '/').endsWith('/')) {
+    return pathSuggestions(text, cursor, opts, commands)
+  }
+  const normalized = parsed.raw.replaceAll('\\', '/')
+  const slash = normalized.lastIndexOf('/')
+  const displayBase = slash < 0 ? '' : normalized.slice(0, slash + 1)
+  const query = slash < 0 ? normalized : normalized.slice(slash + 1)
+  const searchDir = resolveDir(displayBase, opts.projectRoot, opts.home)
+  const relative = path.relative(opts.projectRoot, searchDir)
+  const outside = path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)
+  if (outside) return pathSuggestions(text, cursor, opts, commands)
+  const matches = await opts.searchFiles(searchDir, query, {
+    ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+    maxResults: 100,
+  })
+  if (matches.length === 0) return pathSuggestions(text, cursor, opts, commands)
+  const items = matches.flatMap((entry): AutocompleteItem[] => {
+    const relativePath = entry.path.replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/$/u, '')
+    if (relativePath === '' || /(^|\/)\.git(\/|$)/u.test(relativePath)) return []
+    const displayPath = displayBase + relativePath
+    const pathValue = entry.directory ? displayPath + '/' : displayPath
+    const basename = path.posix.basename(relativePath)
+    return [{
+      value: formatPathValue(pathValue, true),
+      label: basename + (entry.directory ? '/' : ''),
+      ...(displayPath === basename ? {} : { description: displayPath }),
+      kind: 'path',
+    }]
+  })
+  if (items.length === 0) return pathSuggestions(text, cursor, opts, commands)
   return { items, prefix: text.slice(token.start, cursor) }
 }
 
@@ -215,6 +272,7 @@ export function readDirEntries(dir: string): DirEntry[] | undefined {
 }
 
 /** Filesystem options the provider uses for path completion. */
-export function defaultPathSource(): { cwd: string; home: string; listDir: DirReader } {
-  return { cwd: process.cwd(), home: homedir(), listDir: readDirEntries }
+export function defaultPathSource(): { cwd: string; home: string; listDir: DirReader; searchFiles: PathSearcher } {
+  const search = new ProjectFileSearch()
+  return { cwd: process.cwd(), home: homedir(), listDir: readDirEntries, searchFiles: search.search }
 }

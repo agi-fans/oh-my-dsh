@@ -38,7 +38,7 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[1]?.value).toBe('on')
     expect(items[2]?.value).toBe('off')
     expect(items[3]?.value).toBe('on')
-    expect(items[3]?.label).toBe('Status bar')
+    expect(items[3]?.label).toBe('Status line')
     expect(items[4]?.value).toBe('compact')
     expect(items[5]?.value).toBe('shown')
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
@@ -83,7 +83,7 @@ describe('applySettingsEvent', () => {
     expect(applySettingsEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
   })
 
-  it('uses tab to jump between General and Status bar sections', () => {
+  it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
     expect(status.kind === 'update' && status.state.selected).toBe(3)
@@ -143,8 +143,8 @@ describe('renderSettings', () => {
     const tools = renderSettings(createSettings(prefs, 'expandTools'), theme, 50).lines.join('\n')
     expect(tools).toContain('Expand tool output')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
-    expect(status).toContain('Status bar')
-    expect(status).toContain('Show telemetry')
+    expect(status).toContain('Status line')
+    expect(status).toContain('Show the fixed two-line footer')
     expect(status).toContain('Context')
     expect(status).toContain('Latency')
     expect(status).toContain('Preview')
@@ -183,7 +183,7 @@ describe('renderSettings', () => {
     expect(view.lines.every(line => visibleWidth(line) === 60)).toBe(true)
     expect(view.lines[0]).toMatch(/^╭─ .*Settings.*╮$/)
     expect(view.lines.at(-1)).toMatch(/^╰─+╯$/)
-    expect(view.lines.join('\n')).toContain('● Status bar')
+    expect(view.lines.join('\n')).toContain('● Status line')
     expect(hitTestSettings(view.itemRows, view.cursor.row)).toBe(3)
     const compact = renderSettings(createSettings(prefs, 'statusGroup:counts'), theme, 40, 10)
     expect(compact.lines).toHaveLength(10)

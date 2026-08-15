@@ -1,5 +1,5 @@
 /**
- * Settings overlay: cycleable theme, color, tool, and status-bar preferences.
+ * Settings overlay: cycleable theme, color, tool, and status-line preferences.
  * Pure — the provider owns live application of the selected values.
  * @module @omdsh/tui
  */
@@ -32,7 +32,7 @@ export interface TuiPrefs {
   colors: boolean
   expandTools: boolean
   statusBar?: StatusBarConfig
-  /** Read-only migration input for settings written before status-bar customization. */
+  /** Read-only migration input for settings written before status-line customization. */
   statusPreset?: StatusPreset
 }
 
@@ -99,8 +99,8 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
     },
     {
       id: 'statusEnabled',
-      label: 'Status bar',
-      description: 'Show telemetry in the composer border',
+      label: 'Status line',
+      description: 'Show the fixed two-line footer below the composer',
       value: statusBar.enabled ? 'on' : 'off',
       values: COLOR_VALUES,
     },
@@ -335,7 +335,7 @@ function renderSectionTabs(active: 'general' | 'status', theme: Theme, width: nu
   const tab = (id: 'general' | 'status', label: string): string => id === active
     ? theme.bold(theme.fg('accent', `● ${label}`))
     : theme.fg('muted', `○ ${label}`)
-  return framedRow(theme, ` ${tab('general', 'General')}    ${tab('status', 'Status bar')}`, width)
+  return framedRow(theme, ` ${tab('general', 'General')}    ${tab('status', 'Status line')}`, width)
 }
 
 const STATUS_PREVIEW_STATS = {

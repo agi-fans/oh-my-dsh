@@ -34,14 +34,14 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 
 - Use oh-my-pi as a design reference, not as source code or a dependency. Preserve omdsh's DeepSeek identity instead of cloning branding verbatim.
 - The startup header uses the DeepSeek logo and the slogan `Into the Unknown`. Preserve the logo's source aspect ratio and distinctive top detail when converting it for terminal cells.
-- The composer uses `🐳` as its label. Keep telemetry visually integrated with the composer rather than as a detached panel.
+- The composer uses `🐳` as its only label. Keep a fixed, unframed two-line status footer directly below it: model/reasoning and workspace/Git metadata on the first line, customizable session telemetry on the second.
 - Status information is English until language support exists. Design strings so they can later move behind a language layer instead of being scattered through rendering code.
 - Telemetry priority is: cache, input/output tokens, and TTFT first; LLM/tool duration second; turns/steps last. Degrade from the lowest-priority group when terminal width is limited.
 - Status values should be derived from Harness projections such as session stats and token metering, not duplicated counters invented by the TUI.
 - Ordinary notices such as session resume confirmation should not be wrapped in an unexplained box. Use borders only when they communicate a real component boundary or interaction state.
 - Assistant replies and tool output must have deliberate horizontal padding and must not touch transcript borders.
 - Treat terminal layout in display cells, not JavaScript string length. ANSI sequences, CJK text, emoji, combining characters, and long unbroken commands must not collapse right padding or borders.
-- Keep the composer and status area anchored at the bottom. Scrolling moves through transcript history without causing stale lines, mismatched borders, or full-screen jitter.
+- Keep the composer and two-line status footer anchored at the bottom. Scrolling moves through transcript history without causing stale lines, mismatched borders, or full-screen jitter.
 - Prefer incremental rendering, cached formatted rows, and coalesced wheel updates. Avoid reformatting the entire transcript for every scroll event or streaming token.
 - Preserve the established exit behavior: the first Ctrl-C clears or interrupts, a second Ctrl-C exits, and exit output includes an `omdsh --resume <session-id>` hint when a session can be resumed.
 - Interactive lists must support keyboard selection when they require a choice. Do not render a numbered menu and then leave the normal composer active as the only interaction path.

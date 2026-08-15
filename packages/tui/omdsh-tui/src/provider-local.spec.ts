@@ -12,7 +12,7 @@ import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { initialTranscript, renderView } from './event-views.ts'
 import { SETTINGS_ITEM_ROW } from './settings-list.ts'
 import { createHistorySearch } from './history-search.ts'
-import type { DirEntry } from './path-complete.ts'
+import type { DirEntry, PathSearcher, ProjectPathEntry } from './path-complete.ts'
 import { stripAnsi } from './width.ts'
 
 class FakeTerminal implements TerminalLike {
@@ -374,6 +374,58 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('updates @ suggestions from asynchronous recursive project search', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj/app',
+      projectRoot: '/proj',
+      home: '/home/me',
+      listDir: () => [],
+      autocompleteDebounceMs: 0,
+      searchFiles: async (_root, query) => query === 'index'
+        ? [{ path: 'src/index.ts', directory: false }]
+        : [],
+    })
+
+    press(term, '@index')
+    await new Promise(resolve => { setTimeout(resolve, 10) })
+
+    expect(stripAnsi(term.captured)).toContain('src/index.ts')
+    tui.dispose()
+  })
+
+  it('ignores a stale @ search response after the query changes', async () => {
+    const pending = new Map<string, (entries: readonly ProjectPathEntry[]) => void>()
+    const searchFiles: PathSearcher = async (_root, query) => new Promise((resolve) => {
+      pending.set(query, resolve)
+    })
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      projectRoot: '/proj',
+      home: '/home/me',
+      listDir: () => [],
+      autocompleteDebounceMs: 0,
+      searchFiles,
+    })
+
+    press(term, '@a')
+    await new Promise(resolve => { setTimeout(resolve, 5) })
+    press(term, 'b')
+    await new Promise(resolve => { setTimeout(resolve, 5) })
+    expect([...pending.keys()]).toEqual(['a', 'ab'])
+
+    pending.get('ab')?.([{ path: 'ab-new.ts', directory: false }])
+    await new Promise(resolve => { setTimeout(resolve, 5) })
+    expect(stripAnsi(term.captured)).toContain('ab-new.ts')
+
+    const beforeStale = term.captured.length
+    pending.get('a')?.([{ path: 'a-old.ts', directory: false }])
+    await new Promise(resolve => { setTimeout(resolve, 5) })
+    expect(stripAnsi(term.captured.slice(beforeStale))).not.toContain('a-old.ts')
+    tui.dispose()
+  })
+
   it('opens bare-word path suggestions on Tab and completes on a second Tab', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
@@ -548,7 +600,7 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/help\r')
-    expect(term.captured).toContain('/help / /h / /?')
+    expect(term.captured).toContain('/settings / /set')
     expect(term.captured).toContain('├')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')

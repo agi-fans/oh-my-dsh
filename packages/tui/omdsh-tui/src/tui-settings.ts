@@ -1,5 +1,5 @@
 /**
- * Durable TUI appearance and status-bar preferences on the user-settings seam.
+ * Durable TUI appearance and status-line preferences on the user-settings seam.
  * @module @omdsh/tui
  */
 
@@ -26,7 +26,7 @@ export interface TuiSettings {
   statusPreset?: StatusPreset
 }
 
-/** Schema: palette, SGR, tool expansion, and status-bar detail. */
+/** Schema: palette, SGR, tool expansion, and status-line detail. */
 export const TuiSettingsSchema: z<TuiSettings> = z.object({
   theme: z.union([...THEME_NAMES]).default('dark'),
   colors: z.boolean().default(true),

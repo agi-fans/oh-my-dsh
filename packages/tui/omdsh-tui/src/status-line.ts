@@ -1,5 +1,5 @@
 /**
- * Compact whole-session telemetry rendered in the editor's bottom border.
+ * Fixed two-line session footer rendered below the composer.
  *
  * The caller supplies one stable projection; this module owns copy,
  * responsive group selection, color hierarchy, and terminal layout. English
@@ -11,7 +11,7 @@
 import type { TuiSessionStats } from './definition.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig, type StatusGroupId } from './status-config.ts'
 import type { Theme, ThemeColor } from './theme.ts'
-import { truncateToWidth, visibleWidth } from './width.ts'
+import { padToWidth, truncateToWidth, visibleWidth } from './width.ts'
 
 type StatusTone = 'label' | 'value' | 'positive' | 'token' | 'separator'
 
@@ -27,6 +27,20 @@ interface StatusGroup {
 
 const LABEL_PADDING = 2
 const GROUP_SEPARATOR = ' • '
+const FOOTER_PADDING = 2
+const COLUMN_GAP = 3
+const RIGHT_GROUPS = new Set<StatusGroupId>(['durations', 'counts'])
+
+/** Context needed to render the fixed session footer. */
+export interface StatusFooterOptions {
+  model: string
+  reasoningEffort?: string
+  pwd?: string
+  branch?: string
+  stats?: TuiSessionStats
+  config: StatusBarConfig
+  width: number
+}
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M. */
 export function formatTokens(value: number): string {
@@ -178,9 +192,109 @@ function paintColumn(groups: readonly StatusGroup[], theme: Theme): string {
   return groups.map(group => paintGroup(group, theme)).join(separator)
 }
 
+function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[]): number {
+  const leftWidth = groupsWidth(left)
+  const rightWidth = groupsWidth(right)
+  return leftWidth + rightWidth + (leftWidth > 0 && rightWidth > 0 ? COLUMN_GAP : 0)
+}
+
+/** Select whole groups in user order, then place timing/activity on the right. */
+function selectFooterGroups(groups: readonly StatusGroup[], width: number): { left: StatusGroup[]; right: StatusGroup[] } {
+  const left: StatusGroup[] = []
+  const right: StatusGroup[] = []
+  for (const group of groups) {
+    const candidateLeft = RIGHT_GROUPS.has(group.id) ? left : [...left, group]
+    const candidateRight = RIGHT_GROUPS.has(group.id) ? [...right, group] : right
+    if (splitWidth(candidateLeft, candidateRight) > width) break
+    if (RIGHT_GROUPS.has(group.id)) right.push(group)
+    else left.push(group)
+  }
+  return { left, right }
+}
+
+function renderSplitRow(left: string, right: string, width: number): string {
+  if (width <= 0) return ''
+  const padding = width >= FOOTER_PADDING * 2 ? FOOTER_PADDING : 0
+  const innerWidth = Math.max(0, width - padding * 2)
+  const leftWidth = visibleWidth(left)
+  const rightWidth = visibleWidth(right)
+  if (leftWidth === 0 || rightWidth === 0) {
+    const content = leftWidth > 0 ? truncateToWidth(left, innerWidth) : truncateToWidth(right, innerWidth)
+    return padToWidth(' '.repeat(padding) + content, width)
+  }
+  const gap = Math.max(1, innerWidth - leftWidth - rightWidth)
+  return padToWidth(' '.repeat(padding) + left + ' '.repeat(gap) + right, width)
+}
+
+function fitModelColumn(model: string, effort: string | undefined, theme: Theme, width: number): string {
+  if (width <= 0) return ''
+  if (effort === undefined || effort === '') return theme.fg('text', truncateToWidth(model, width))
+  const separator = ' · '
+  const effortWidth = visibleWidth(effort)
+  if (effortWidth >= width) return theme.fg('customMessageLabel', truncateToWidth(effort, width))
+  const modelWidth = Math.max(1, width - visibleWidth(separator) - effortWidth)
+  return theme.fg('text', truncateToWidth(model, modelWidth))
+    + theme.fg('dim', separator)
+    + theme.fg('customMessageLabel', effort)
+}
+
+function fitWorkspaceColumn(pwd: string | undefined, branch: string | undefined, theme: Theme, width: number): string {
+  if (width <= 0) return ''
+  if (branch === undefined || branch === '') return theme.fg('muted', truncateToWidth(pwd ?? '', width))
+  const branchTone: ThemeColor = /(?:^|\s)[*?]\d+/.test(branch) ? 'warning' : 'muted'
+  if (pwd === undefined || pwd === '') return theme.fg(branchTone, truncateToWidth(branch, width))
+  const separator = ' · '
+  const branchWidth = visibleWidth(branch)
+  if (branchWidth >= width) return theme.fg(branchTone, truncateToWidth(branch, width))
+  const pwdWidth = Math.max(1, width - visibleWidth(separator) - branchWidth)
+  return theme.fg('muted', truncateToWidth(pwd, pwdWidth))
+    + theme.fg('dim', separator)
+    + theme.fg(branchTone, branch)
+}
+
+function metadataColumns(options: StatusFooterOptions, theme: Theme, innerWidth: number): { left: string; right: string } {
+  const rawLeftWidth = visibleWidth(options.model)
+    + (options.reasoningEffort === undefined || options.reasoningEffort === '' ? 0 : 3 + visibleWidth(options.reasoningEffort))
+  const rawRightWidth = visibleWidth(options.pwd ?? '')
+    + (options.branch === undefined || options.branch === '' ? 0 : 3 + visibleWidth(options.branch))
+  if (rawRightWidth === 0) return { left: fitModelColumn(options.model, options.reasoningEffort, theme, innerWidth), right: '' }
+  if (rawLeftWidth + COLUMN_GAP + rawRightWidth <= innerWidth) {
+    return {
+      left: fitModelColumn(options.model, options.reasoningEffort, theme, rawLeftWidth),
+      right: fitWorkspaceColumn(options.pwd, options.branch, theme, rawRightWidth),
+    }
+  }
+  const available = Math.max(2, innerWidth - COLUMN_GAP)
+  const leftWidth = Math.min(rawLeftWidth, Math.max(1, Math.floor(available * 0.45)))
+  const rightWidth = Math.max(1, available - leftWidth)
+  return {
+    left: fitModelColumn(options.model, options.reasoningEffort, theme, leftWidth),
+    right: fitWorkspaceColumn(options.pwd, options.branch, theme, rightWidth),
+  }
+}
+
 /**
- * Render a responsive label for the editor's bottom border. Groups stay
- * intact on narrow terminals and follow the configured visibility and order.
+ * Render the fixed footer: model/workspace metadata first, customizable
+ * session telemetry second. Both rows use left/right columns and exact width.
+ */
+export function renderStatusFooter(options: StatusFooterOptions, theme: Theme): string[] {
+  const normalized = resolveStatusBarConfig(options.config)
+  const width = Math.max(0, options.width)
+  if (!normalized.enabled || width === 0) return []
+  const innerWidth = Math.max(0, width - FOOTER_PADDING * 2)
+  const metadata = metadataColumns(options, theme, innerWidth)
+  const telemetryGroups = options.stats === undefined
+    ? { left: [], right: [] }
+    : selectFooterGroups(buildStatusGroups(options.stats, normalized), innerWidth)
+  return [
+    renderSplitRow(metadata.left, metadata.right, width),
+    renderSplitRow(paintColumn(telemetryGroups.left, theme), paintColumn(telemetryGroups.right, theme), width),
+  ]
+}
+
+/**
+ * Render the telemetry row without footer metadata. Used by the settings
+ * preview and retained as a compatibility seam for direct render callers.
  */
 export function renderSessionStatusLabel(
   stats: TuiSessionStats | undefined,

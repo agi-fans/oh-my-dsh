@@ -14,14 +14,14 @@ import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
-import { editorStatusLabel, renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
+import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
 import { renderMarkdown } from './markdown.ts'
 import type { Frame, TranscriptScroll } from './renderer.ts'
 import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from './status-config.ts'
-import { renderSessionStatusLabel } from './status-line.ts'
+import { renderStatusFooter } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
 import type { TuiRecentSession, TuiSessionStats } from './definition.ts'
@@ -30,6 +30,7 @@ import { renderToolsPanel, type ToolInfo } from './tools-list.ts'
 import { renderHotkeysPanel, type HotkeyBindings } from './hotkeys.ts'
 import { renderCommandOutput, renderCommandSeparator } from './command-output.ts'
 import type { WelcomeTip } from './welcome-tips.ts'
+import { renderPathMentionRows } from './path-mentions.ts'
 
 /** Display state of one tool invocation. */
 export type ToolBlockStatus = 'running' | 'ok' | 'error'
@@ -258,7 +259,7 @@ export interface ViewOptions {
   width: number
   /** Terminal height in rows; the view keeps the frame inside it. */
   height: number
-  /** Model name for the status line. */
+  /** Model name for the fixed footer. */
   model: string
   /** Effective reasoning effort for the selected model, including adapter defaults. */
   reasoningEffort?: string
@@ -268,13 +269,13 @@ export interface ViewOptions {
   inputCursor: number
   /** Whether to emit color SGR sequences. */
   colors: boolean
-  /** Working directory shown in the editor cap. */
+  /** Working directory shown in the footer. */
   pwd?: string
-  /** Git branch shown in the editor cap. */
+  /** Git branch shown in the footer. */
   branch?: string
   /** Product version painted on the welcome title. */
   version?: string
-  /** Product name painted on the welcome title and editor cap. */
+  /** Product name painted on the welcome title. */
   appName?: string
   /** Spinner phase while a turn or tool is running. */
   spinnerFrame?: number
@@ -298,9 +299,9 @@ export interface ViewOptions {
   recentSessions?: readonly TuiRecentSession[]
   /** Startup-stable sample of hints shown in the welcome card. */
   welcomeTips?: readonly WelcomeTip[]
-  /** Whole-session figures rendered in the editor's bottom border. */
+  /** Whole-session figures rendered in the footer's telemetry row. */
   sessionStats?: TuiSessionStats
-  /** Visible groups, order, and label style for editor telemetry. */
+  /** Visible groups, order, and label style for the status line. */
   statusBar?: StatusBarConfig
   /** Legacy status preset accepted while direct render callers migrate. */
   statusPreset?: StatusPreset
@@ -337,7 +338,7 @@ function assistantMarkdown(source: string, theme: Theme, width: number): string[
 
 function userBubble(text: string, theme: Theme, width: number): string[] {
   const inner = Math.max(1, width - 2)
-  const wrapped = wrapText(text, inner)
+  const wrapped = renderPathMentionRows(text, inner, theme)
   const rows = ['', ...wrapped, '']
   return rows.map((row) => {
     const content = row === '' ? padToWidth('', width) : padToWidth(' ' + row, width)
@@ -539,40 +540,6 @@ function laterLabel(count: number): string {
   return '… ↓ ' + count + ' later line' + (count === 1 ? '' : 's') + ' ⟨Pg↓⟩'
 }
 
-function argumentAction(args: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(args)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
-    const record = parsed as Record<string, unknown>
-    for (const key of ['command', 'path', 'query', 'url', 'pattern', 'prompt']) {
-      const value = record[key]
-      if (typeof value === 'string' && value.trim() !== '') return value.replace(/\s+/gu, ' ').trim()
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
-
-function workingAction(state: TranscriptState): string {
-  const block = state.blocks.findLast(candidate => candidate.kind === 'tool' && candidate.status === 'running')
-  if (block?.kind !== 'tool') return 'Waiting for DeepSeek response…'
-  const presentation = renderTool({
-    name: block.name,
-    arguments: block.args,
-    output: block.output,
-    status: block.status,
-    expanded: false,
-    ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
-  })
-  const title = presentation.title ?? block.name
-  const summary = argumentAction(block.args)
-    ?? presentation.summary?.replace(/\s+/gu, ' ').trim()
-  return summary === undefined || summary === '' || summary === '{}'
-    ? title
-    : `${title} · ${summary}`
-}
-
 /**
  * Window `body` into `budget` rows with ↑/↓ overflow markers.
  * `start` is the first body row to keep; non-finite values pin to the tail.
@@ -728,24 +695,23 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     body.push(...transcript)
   }
 
-  const working = state.status === 'running' ? renderWorking(theme, spinnerFrame, workingAction(state), width) : []
+  const working = state.status === 'running' ? renderWorking(theme, spinnerFrame, undefined, width) : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
-  const statusWord = state.status === 'running' ? 'running' : 'idle'
   const inlineHint = slashInlineHint(options.input, options.inputCursor, options.commands)
-  const sessionStatus = renderSessionStatusLabel(options.sessionStats, statusBar, theme, Math.max(0, width - 4))
+  const statusFooter = renderStatusFooter({
+    model: options.model,
+    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
+    ...(pwd === '' ? {} : { pwd }),
+    ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
+    ...(options.sessionStats === undefined ? {} : { stats: options.sessionStats }),
+    config: statusBar,
+    width,
+  }, theme)
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
     inputCursor: options.inputCursor,
-    status: editorStatusLabel(theme, {
-      appName: '🐳',
-      model: options.model,
-      ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
-      status: statusWord,
-      pwd,
-      ...(options.branch !== undefined && options.branch !== '' ? { branch: options.branch } : {}),
-    }),
-    ...(sessionStatus !== '' ? { footer: sessionStatus } : {}),
+    status: ' ' + theme.fg('accent', '🐳') + ' ',
     border: state.status === 'running' ? 'accent' : 'border',
     ...(inlineHint !== null ? { inlineHint } : {}),
   }
@@ -783,17 +749,21 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + spacer + autocomplete.length
+  const reserved = inputLines.length + working.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const windowed = windowTranscript(body, budget, options.scrollStart ?? Number.POSITIVE_INFINITY, theme)
   const visible = windowed.lines
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
+  const bottomRows = working.length + inputLines.length + autocomplete.length + statusFooter.length
+  const fill = Math.max(0, height - lines.length - bottomRows)
+  lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
   const editorStart = lines.length
   lines.push(...inputLines)
   lines.push(...autocomplete)
+  lines.push(...statusFooter)
   const trimmed = fitFrame(lines, width)
   const caret = promptSelector?.cursor ?? settings?.cursor ?? copySelector?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   return {

@@ -64,7 +64,7 @@ Modeled on the harness's own headless profile over dsh-base, plus the agent spin
 - Transcript: user/assistant messages; assistant text streams in as assistant/message events update (differential render, no full redraw).
 - Tool calls: one block per call — name, collapsed args, status (pending/running/ok/error), truncated output; terminal render intent (dsh-tools presentation mode terminal).
 - Input: rounded editor, readline-style editing, durable multiline history, raw clipboard paste, path completion and external `$VISUAL`/`$EDITOR`.
-- Composer: `🐳` top cap with model/session/path state; the bottom border embeds selectable telemetry sourced from whole-log session-stats/token-meter projections (turns, steps, timings, TTFT, throughput, cache and token use).
+- Composer and status line: the rounded editor keeps only the `🐳` top-cap label; a fixed unframed footer below it uses a model/reasoning plus workspace/Git row and a customizable telemetry row sourced from whole-log session-stats/token-meter projections (turns, steps, timings, TTFT, throughput, cache and token use).
 - Scrolling: wheel bursts coalesce into one paint per event-loop turn, while immutable transcript states cache their formatted Markdown/tool rows; moving the viewport slices cached rows instead of reformatting the complete log.
 - Keys: Enter submit, first Ctrl-C clears/interrupts and a second within 500ms exits with an `omdsh --resume <session-id>` hint; Ctrl-D quits; up/down history, SIGWINCH reflow.
 

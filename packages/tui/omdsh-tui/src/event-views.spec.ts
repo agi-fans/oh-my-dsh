@@ -41,7 +41,7 @@ describe('applyEvent', () => {
     const frame = view(state)
     expect(frame.lines.some((line) => line.includes('hi'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('Hello'))).toBe(true)
-    expect(frame.lines.some((line) => line.includes('running'))).toBe(true)
+    expect(frame.lines.some((line) => line.includes('Deep Driving'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('╭'))).toBe(true)
   })
 
@@ -72,6 +72,9 @@ describe('applyEvent', () => {
     })
     expect(running.lines.join('\n')).toContain('read')
     expect(running.lines.join('\n')).toContain('Ctrl+C: Interrupt')
+    const activity = running.lines.find(line => line.includes('Ctrl+C: Interrupt')) ?? ''
+    expect(activity).toContain('Deep Driving')
+    expect(activity).not.toContain('read')
     state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] }] } }, 3))
     state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] }] } }, 4))
     const tools = state.blocks.filter((block): block is Extract<typeof block, { kind: 'tool' }> => block.kind === 'tool')
@@ -151,6 +154,20 @@ describe('applyEvent', () => {
 
 describe('blockLines', () => {
   const theme = createTheme(false)
+
+  it('highlights @ paths inside the user-message bubble without breaking its background', () => {
+    const color = createTheme(true, true)
+    const lines = blockLines({ kind: 'user', text: 'open @src/index.ts, then inspect it' }, color, 40)
+    const rendered = lines.join('\n')
+
+    expect(rendered).toContain(
+      color.getFgAnsi('accent')
+      + '\x1b[1m@src/index.ts\x1b[22m'
+      + color.getFgAnsi('userMessageText')
+      + ',',
+    )
+    expect(lines.every(line => visibleWidth(line) === 40)).toBe(true)
+  })
 
   it('renders a one-line informational notice inline without an empty frame', () => {
     const lines = blockLines({
@@ -323,10 +340,12 @@ describe('renderView', () => {
   it('places the cursor on the editor input row', () => {
     const state = initialTranscript()
     const frame = renderView(state, { width: 60, height: 24, model: 'm', input: 'abc', inputCursor: 2, colors: false })
-    expect(frame.cursor).toEqual({ row: frame.lines.length - 2, column: 4 })
-    expect(frame.lines[frame.lines.length - 2]).toMatch(/^│ /)
-    expect(frame.lines[frame.lines.length - 2]).toContain('abc')
-    expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
+    const editorStart = frame.editor?.start ?? -1
+    expect(frame.cursor).toEqual({ row: editorStart + 1, column: 4 })
+    expect(frame.lines[editorStart + 1]).toMatch(/^│ /)
+    expect(frame.lines[editorStart + 1]).toContain('abc')
+    expect(frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
+    expect(frame.lines.at(-2)).toContain('m')
   })
 
   it('keeps the frame inside the terminal height with a scroll indicator', () => {
@@ -338,7 +357,7 @@ describe('renderView', () => {
     expect(frame.lines.length).toBeLessThanOrEqual(24)
     expect(frame.lines[0]).toContain('earlier lines')
     expect(frame.lines[0]).toContain('Pg↑')
-    expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
+    expect(frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
     expect(frame.transcript?.hiddenBelow).toBe(0)
     expect(frame.transcript?.hiddenAbove).toBeGreaterThan(0)
   })
@@ -413,11 +432,11 @@ describe('renderView', () => {
     expect(text).toContain('Tips')
     expect(text).not.toMatch(/(^|\n)> /)
     expect(frame.lines[0]).toMatch(/^╭/)
-    expect(frame.lines[frame.lines.length - 1]).toMatch(/^╰─/)
+    expect(frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
     expect(text).toContain('/  Browse available commands')
   })
 
-  it('uses a whale editor title and embeds dsh metrics in the bottom border', () => {
+  it('keeps the whale composer minimal and renders a fixed two-line status footer', () => {
     const frame = renderView(initialTranscript(), {
       width: 180,
       height: 24,
@@ -443,19 +462,17 @@ describe('renderView', () => {
     })
     const editorStart = frame.editor?.start ?? -1
     expect(frame.lines[editorStart]).toContain('🐳')
-    expect(frame.lines[editorStart]).toContain('deepseek-v4-pro · max · idle')
+    expect(frame.lines[editorStart]).not.toContain('deepseek-v4-pro')
     expect(frame.lines[editorStart]).not.toContain('omdsh')
     expect(frame.lines[editorStart]).not.toContain('tok')
     const plain = frame.lines.map(stripAnsi)
-    const modelRow = plain.findIndex((line) => line.includes('deepseek-v4-pro'))
-    expect(modelRow).toBeGreaterThanOrEqual(0)
-    expect(plain[modelRow + 1]).toContain('max')
-    expect(plain[modelRow + 1]).not.toContain('omdsh')
-    const footer = frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1] ?? ''
-    expect(footer).toMatch(/^╰─/)
-    expect(footer).toContain('1 turn · 74 steps')
-    expect(footer).toContain('5.9M in · 73.8K out')
-    expect(footer).toMatch(/─╯$/)
+    const modelRow = frame.lines.length - 2
+    expect(plain[modelRow]).toContain('deepseek-v4-pro · max')
+    expect(plain[modelRow]).not.toContain('omdsh')
+    expect(plain.at(-1)).toContain('1 turn · 74 steps')
+    expect(plain.at(-1)).toContain('5.9M in · 73.8K out')
+    expect(frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─+╯$/)
+    expect(frame.lines).toHaveLength(24)
   })
 
   it('shows context and zero-count telemetry before the first turn', () => {
@@ -482,9 +499,9 @@ describe('renderView', () => {
         contextWindow: 1_000_000,
       },
     })
-    const footer = frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1] ?? ''
-    expect(footer).toContain('Ctx 0% · 0/1M')
-    expect(footer).toContain('0 turns · 0 steps')
+    expect(frame.lines.at(-2)).toContain('deepseek-v4-flash')
+    expect(frame.lines.at(-1)).toContain('Ctx 0% · 0/1M')
+    expect(frame.lines.at(-1)).toContain('0 turns · 0 steps')
   })
 
   it('replaces the editor with the history-search overlay', () => {
@@ -622,7 +639,8 @@ describe('renderView', () => {
     expect(text).toContain('/help')
     expect(text).toContain('/q')
     expect(text).toContain('❯')
-    expect(frame.lines[frame.lines.length - 1]).toContain('/q')
+    const popupStart = (frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0)
+    expect(frame.lines.slice(popupStart, -2).join('\n')).toContain('/q')
     expect(frame.cursor?.row).toBeLessThan(frame.lines.length - 1)
     expect(frame.editor?.rows).toBeGreaterThan(0)
     expect(frame.overlay?.kind).toBe('autocomplete')
