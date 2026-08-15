@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Displayed the latest Harness Todo projection above the composer, including live updates, replay restoration, and turn-boundary clearing.
+
 ## [0.2.0] - 2026-08-16
 
 ### Added
@@ -21,7 +25,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
-- Displayed the latest Harness Todo projection above the composer, including live updates, replay restoration, and turn-boundary clearing.
 - Prevented exact-width terminal paints from triggering pending-wrap phantom rows, including duplicate `Deep Driving` indicators.
 - Removed long-session input and activity lag by caching transcript layout per immutable message block and recomputing only animated or changed blocks.
 - Reduced large-session resume work from quadratic to linear by using a private mutable replay builder with indexed tool-call lookup while preserving immutable live updates.
