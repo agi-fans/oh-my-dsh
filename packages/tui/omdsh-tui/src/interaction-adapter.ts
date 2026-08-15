@@ -48,6 +48,9 @@ async function askQuestions(tui: TuiService, request: AskUserQuestionRequest): P
       ...(question.detail === undefined ? {} : { detail: question.detail }),
       ...(question.options === undefined ? {} : { options: question.options }),
       ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
+      ...(question.intent?.kind === 'plan-review'
+        ? { presentation: 'plan-review' as const, approveValue: question.intent.approve }
+        : {}),
       allowCustom: true,
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     })

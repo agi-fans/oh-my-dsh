@@ -277,9 +277,13 @@ describe('listPathCompletions / render', () => {
       [{ value: '@src/', label: 'src/', kind: 'path' }],
       0,
       theme,
-      40,
+      80,
     )
     expect(lines.some((line) => line.includes('src/'))).toBe(true)
     expect(lines.every((line) => !line.includes('/src/'))).toBe(true)
+    expect(lines.at(-1)).toContain('↑↓ select')
+    expect(lines.at(-1)).toContain('Tab insert')
+    expect(lines.at(-1)).toContain('Enter send')
+    expect(lines.at(-1)).toContain('Esc close')
   })
 })

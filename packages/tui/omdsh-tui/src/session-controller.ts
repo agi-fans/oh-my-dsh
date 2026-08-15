@@ -19,6 +19,8 @@ import {
 import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
+import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/types'
+import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
 import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
@@ -27,13 +29,20 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type { TuiCommand, TuiRecentSession, TuiService, TuiSessionStats } from './definition.ts'
+import type {
+  TuiCommand,
+  TuiRecentSession,
+  TuiService,
+  TuiSessionControls,
+  TuiSessionStats,
+} from './definition.ts'
 import type {} from './tool-presentation.ts'
 
 interface ActiveSession {
   handle: AgentHandle
   selection: ModelSelectionRef
   contextWindow: number | undefined
+  reasoningEffort: string | undefined
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -47,6 +56,16 @@ export interface TuiStatsProjection {
   sessionStats?: SessionStatsProjection
   tokenUsage?: TokenUsageProjection
   contextPressure?: ContextPressureProjection
+  plan?: PlanProjection
+  permissions?: PermissionSelect
+}
+
+/** Present only the session controls whose owning Harness plugins are composed. */
+export function sessionControls(projection?: TuiStatsProjection): TuiSessionControls {
+  return {
+    ...(projection?.plan === undefined ? {} : { plan: { ...projection.plan } }),
+    ...(projection?.permissions === undefined ? {} : { permission: projection.permissions.currentValue }),
+  }
 }
 
 /** Composer projection of a Harness model selection and its adapter default. */
@@ -196,15 +215,16 @@ function humanMessageText(event: SessionEvent): string | undefined {
 }
 
 /** Title and latest-human-message preview for durable session discovery. */
-export function recentSessionContent(events: readonly SessionEvent[]): { title: string; preview?: string } {
+export function recentSessionContent(events: readonly SessionEvent[]): { title: string; preview?: string } | undefined {
   const generatedTitle = explicitSessionTitle(events)
   const firstMessage = events.map(humanMessageText).find((text): text is string => text !== undefined)
+  if (firstMessage === undefined) return undefined
   let lastMessage: string | undefined
   for (let index = events.length - 1; index >= 0; index -= 1) {
     lastMessage = humanMessageText(events[index] as SessionEvent)
     if (lastMessage !== undefined) break
   }
-  const title = generatedTitle ?? firstMessage ?? '(no messages)'
+  const title = generatedTitle ?? firstMessage
   return {
     title,
     ...(lastMessage === undefined || lastMessage === title ? {} : { preview: lastMessage }),
@@ -279,7 +299,8 @@ export class SessionRuntime {
     if (projections !== undefined) {
       this.#off.push(projections.onChanged((session, key) => {
         if (session !== this.#active?.handle.agent.session) return
-        if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure') this.#pushSessionInfo()
+        if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure'
+          || key === 'plan' || key === 'permissions') this.#pushSessionInfo()
       }))
     }
   }
@@ -355,6 +376,7 @@ export class SessionRuntime {
     const resolved = info ?? await this.#resolveModelInfo(selection)
     active.contextWindow = resolved?.context?.contextWindow
     const status = modelStatus(selection, resolved)
+    active.reasoningEffort = status.reasoningEffort
     this.#tui.setModel(status.model, status.reasoningEffort)
     this.#pushSessionInfo()
     await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
@@ -378,7 +400,7 @@ export class SessionRuntime {
       signal,
       setup: agentCtx => { installModelSelection(agentCtx, ref) },
     })
-    await this.#activate({ handle, selection: ref, contextWindow: undefined })
+    await this.#activate({ handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined })
     await this.refreshRecent()
   }
 
@@ -386,6 +408,18 @@ export class SessionRuntime {
   stats(agent: Agent = this.#requiredAgent()): TuiSessionStats {
     this.assertActive(agent)
     return this.#stats(this.#requiredActive())
+  }
+
+  /** Effective reasoning effort after applying the selected model's adapter default. */
+  reasoningEffort(agent: Agent = this.#requiredAgent()): string | undefined {
+    this.assertActive(agent)
+    return this.#requiredActive().reasoningEffort
+  }
+
+  /** Harness-owned collaboration and permission controls for the active Agent. */
+  controls(agent: Agent = this.#requiredAgent()): TuiSessionControls {
+    this.assertActive(agent)
+    return sessionControls(this.#projection(this.#requiredActive()))
   }
 
   async refreshRecent(): Promise<void> {
@@ -396,13 +430,14 @@ export class SessionRuntime {
       return
     }
     const headers = (await persistence.list()).filter(header => header.origin !== 'subagent')
-      .sort((left, right) => right.createdAt - left.createdAt).slice(0, 8)
+      .sort((left, right) => right.createdAt - left.createdAt)
     const rows: TuiRecentSession[] = []
     for (const header of headers) {
       try {
         const inspected = await persistence.inspect(header.id)
         const status = recentSessionStatus(inspected.events)
         const content = recentSessionContent(inspected.events)
+        if (content === undefined) continue
         rows.push({
           id: header.id,
           ...content,
@@ -411,8 +446,10 @@ export class SessionRuntime {
           eventCount: inspected.events.length,
           ...(status === undefined ? {} : { status }),
         })
+        if (rows.length >= 8) break
       } catch {
         rows.push({ id: header.id, title: '(unavailable session)', createdAt: header.createdAt })
+        if (rows.length >= 8) break
       }
     }
     this.#recent = rows
@@ -436,7 +473,7 @@ export class SessionRuntime {
       agentOptions: { provider: selection.provider, model: selection.model },
       setup: agentCtx => { installModelSelection(agentCtx, ref) },
     })
-    return { handle, selection: ref, contextWindow: undefined }
+    return { handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined }
   }
 
   async #resolveModelInfo(selection: ModelSelection): Promise<LlmResolvedModelInfo | undefined> {
@@ -458,6 +495,7 @@ export class SessionRuntime {
     const info = await this.#resolveModelInfo(selected)
     next.contextWindow = info?.context?.contextWindow
     const status = modelStatus(selected, info)
+    next.reasoningEffort = status.reasoningEffort
     this.#tui.setModel(status.model, status.reasoningEffort)
     await this.#refreshSkills()
     this.#pushSessionInfo()
@@ -516,10 +554,12 @@ export class SessionRuntime {
     const active = this.#active
     if (active === undefined) return
     const agent = active.handle.agent
+    const projection = this.#projection(active)
     this.#tui.setSession({
       id: agent.id,
       recent: this.#recent.filter(row => row.id !== agent.id),
-      stats: this.#stats(active),
+      stats: this.#stats(active, projection),
+      controls: sessionControls(projection),
     })
   }
 
@@ -529,10 +569,13 @@ export class SessionRuntime {
   }
 
   /** Read one consistent projection cut, with the complete-log fold as fallback. */
-  #stats(active: ActiveSession): TuiSessionStats {
+  #projection(active: ActiveSession): TuiStatsProjection | undefined {
+    return this.#ctx.get('sessionProjections')?.snapshot(active.handle.agent.session).values
+  }
+
+  #stats(active: ActiveSession, projection: TuiStatsProjection | undefined = this.#projection(active)): TuiSessionStats {
     const agent = active.handle.agent
-    const values = this.#ctx.get('sessionProjections')?.snapshot(agent.session).values
-    return sessionStats(agent.session.events, active.contextWindow, values)
+    return sessionStats(agent.session.events, active.contextWindow, projection)
   }
 
   #requiredActive(): ActiveSession {

@@ -22,6 +22,7 @@ import {
   type TuiPrompt,
   type TuiRecentSession,
   type TuiService,
+  type TuiSessionControls,
   type TuiSessionStats,
   type TuiStatus,
 } from './definition.ts'
@@ -203,6 +204,7 @@ export class LocalTui implements TuiService {
   #maxStart = 0
   #scrollBudget = 0
   #follow = true
+  #focusBlock: number | undefined
   #expandTools = false
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
@@ -214,12 +216,14 @@ export class LocalTui implements TuiService {
   readonly #welcomeTips: readonly WelcomeTip[]
   #sessionId: string | undefined
   #sessionStats: TuiSessionStats | undefined
+  #sessionControls: TuiSessionControls | undefined
   #editorHit: { start: number; rows: number } | null = null
   #overlayHit: {
     kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
     start: number
     resultsRow?: number
     itemRows?: readonly (number | undefined)[]
+    document?: { start: number; maxStart: number; pageSize: number }
   } | null = null
   readonly #trueColor: boolean
   readonly #copy: ClipboardWriter
@@ -291,7 +295,13 @@ export class LocalTui implements TuiService {
       const listener = (chunk: Buffer): void => { this.#onData(chunk) }
       term.input.on('data', listener)
       this.#offData = () => { term.input.off('data', listener) }
-      this.#offResize = term.onResize?.(() => { this.#render() }) ?? null
+      this.#offResize = term.onResize?.(() => {
+        // A terminal resize invalidates both the physical cursor position and
+        // the screen-relative frame retained by the differential renderer.
+        this.#renderer.reset()
+        this.#term.output.write('\x1b[2J\x1b[H')
+        this.#render()
+      }) ?? null
       // Boot output above us (package-manager warnings, loader logs) has
       // already scrolled the cursor off row 0; the renderer's screen-relative
       // frames require a clean origin. Clear the screen and home the cursor
@@ -393,10 +403,21 @@ export class LocalTui implements TuiService {
     else this.#printPlain()
   }
 
-  setSession(info: { id: string; recent: readonly TuiRecentSession[]; stats?: TuiSessionStats }): void {
+  setSession(info: {
+    id: string
+    recent: readonly TuiRecentSession[]
+    stats?: TuiSessionStats
+    controls?: TuiSessionControls
+  }): void {
     this.#sessionId = info.id
     this.#recentSessions = info.recent.map((session) => ({ ...session }))
     this.#sessionStats = info.stats === undefined ? undefined : { ...info.stats }
+    this.#sessionControls = info.controls === undefined
+      ? undefined
+      : {
+          ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
+          ...(info.controls.permission === undefined ? {} : { permission: info.controls.permission }),
+        }
     if (this.#tty) this.#render()
   }
 
@@ -458,6 +479,7 @@ export class LocalTui implements TuiService {
       // Leave the cursor on a fresh line below the last frame so the shell
       // prompt does not overwrite the transcript. Disable mouse tracking
       // and bracketed paste.
+      this.#renderer.finish()
       this.#term.output.write(MOUSE_TRACKING_OFF + '\x1b[?2004l\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
@@ -582,12 +604,14 @@ export class LocalTui implements TuiService {
         trueColor: this.#trueColor,
         themeName: this.#themeName,
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
+        ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock }),
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#expandedToolCalls,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
         welcomeTips: this.#welcomeTips,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
+        ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
@@ -599,6 +623,7 @@ export class LocalTui implements TuiService {
               : this.#ac !== null ? { autocomplete: this.#ac } : {}),
       })
       : { lines: [] }
+    this.#focusBlock = undefined
     this.#editorHit = frame.editor ?? null
     this.#overlayHit = frame.overlay ?? null
     this.#syncScroll(frame.transcript)
@@ -802,6 +827,7 @@ export class LocalTui implements TuiService {
   #handlePrompt(event: KeyEvent): boolean {
     const prompt = this.#prompt
     if (prompt === null) return false
+    if (prompt.request.presentation === 'plan-review') return this.#handlePlanReview(event, prompt)
     if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true && this.#editor.text === '') {
       this.#prompt = togglePromptSelection(prompt) as PendingPrompt
       this.#render()
@@ -869,6 +895,83 @@ export class LocalTui implements TuiService {
       return true
     }
     return false
+  }
+
+  #handlePlanReview(event: KeyEvent, prompt: PendingPrompt): boolean {
+    if (prompt.feedback === true) {
+      if (event.type === 'key' && event.id === 'ctrl+c') {
+        this.#editor.setText('')
+        this.#finishPrompt(null)
+        this.#render()
+        return true
+      }
+      if (event.type === 'key' && event.id === 'escape') {
+        this.#editor.setText('')
+        this.#prompt = { ...prompt, feedback: false }
+        this.#render()
+        return true
+      }
+      if (event.type === 'key' && (event.id === 'enter' || event.id === 'ctrl+j')) {
+        const feedback = this.#editor.text.trim()
+        this.#editor.setText('')
+        this.#finishPrompt(feedback === '' ? selectedPromptAnswer(prompt) : feedback)
+        this.#render()
+        return true
+      }
+      const command = this.#editor.handle(event)
+      if (command.kind === 'changed') this.#render()
+      return true
+    }
+
+    if (event.type === 'text') return true
+    if (event.type !== 'key') return false
+    if (event.id === 'escape' || event.id === 'ctrl+c') {
+      this.#editor.setText('')
+      this.#finishPrompt(null)
+      this.#render()
+      return true
+    }
+    const scroll = this.#overlayHit?.kind === 'prompt' ? this.#overlayHit.document : undefined
+    let documentScroll: number | undefined
+    if (event.id === 'up') documentScroll = (scroll?.start ?? prompt.documentScroll ?? 0) - 1
+    else if (event.id === 'down') documentScroll = (scroll?.start ?? prompt.documentScroll ?? 0) + 1
+    else if (event.id === 'pageUp') documentScroll = (scroll?.start ?? 0) - (scroll?.pageSize ?? 8)
+    else if (event.id === 'pageDown') documentScroll = (scroll?.start ?? 0) + (scroll?.pageSize ?? 8)
+    else if (event.id === 'home') documentScroll = 0
+    else if (event.id === 'end') documentScroll = scroll?.maxStart ?? prompt.documentScroll ?? 0
+    if (documentScroll !== undefined) {
+      this.#prompt = {
+        ...prompt,
+        documentScroll: Math.max(0, Math.min(documentScroll, scroll?.maxStart ?? Number.POSITIVE_INFINITY)),
+      }
+      this.#render()
+      return true
+    }
+    if (event.id === 'tab' || event.id === 'right') {
+      this.#prompt = movePromptSelection(prompt, prompt.selected + 1) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (event.id === 'shift+tab' || event.id === 'left') {
+      this.#prompt = movePromptSelection(prompt, prompt.selected - 1) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (event.id === 'enter') {
+      const answer = selectedPromptAnswer(prompt)
+      if (answer === null) return true
+      const approve = prompt.request.approveValue ?? prompt.request.options?.[0]?.value
+        ?? prompt.request.options?.[0]?.label
+      if (answer === approve) {
+        this.#finishPrompt(answer)
+      } else {
+        this.#editor.setText('')
+        this.#prompt = { ...prompt, feedback: true }
+      }
+      this.#render()
+      return true
+    }
+    return true
   }
 
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
@@ -1370,7 +1473,11 @@ export class LocalTui implements TuiService {
       }
       return
     }
-    this.commandOutput('help', formatHelpText(this.#commands()))
+    this.#state = {
+      ...this.#state,
+      blocks: [...this.#state.blocks, { kind: 'commandOutput', command: 'help', text: formatHelpText(this.#commands()) }],
+    }
+    this.#focusLatestBlock()
     this.#render()
   }
 
@@ -1448,6 +1555,7 @@ export class LocalTui implements TuiService {
       ...this.#state,
       blocks: [...this.#state.blocks, { kind: 'toolCatalog', tools: this.#tools }],
     }
+    this.#focusLatestBlock()
   }
 
   #hotkeyCatalog(): void {
@@ -1455,6 +1563,12 @@ export class LocalTui implements TuiService {
       ...this.#state,
       blocks: [...this.#state.blocks, { kind: 'hotkeyCatalog', bindings: this.#keybindings }],
     }
+    this.#focusLatestBlock()
+  }
+
+  #focusLatestBlock(): void {
+    this.#follow = false
+    this.#focusBlock = Math.max(0, this.#state.blocks.length - 1)
   }
 
   #runAction(action: TuiAction): void {

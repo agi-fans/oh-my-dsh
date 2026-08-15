@@ -8,7 +8,7 @@
  * @module @omdsh/tui/status-line
  */
 
-import type { TuiSessionStats } from './definition.ts'
+import type { TuiSessionControls, TuiSessionStats } from './definition.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig, type StatusGroupId } from './status-config.ts'
 import type { Theme, ThemeColor } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth } from './width.ts'
@@ -35,6 +35,7 @@ const RIGHT_GROUPS = new Set<StatusGroupId>(['durations', 'counts'])
 export interface StatusFooterOptions {
   model: string
   reasoningEffort?: string
+  controls?: TuiSessionControls
   pwd?: string
   branch?: string
   stats?: TuiSessionStats
@@ -226,19 +227,53 @@ function renderSplitRow(left: string, right: string, width: number): string {
   return padToWidth(' '.repeat(padding) + left + ' '.repeat(gap) + right, width)
 }
 
-function fitModelColumn(model: string, effort: string | undefined, theme: Theme, width: number): string {
-  if (width <= 0) return ''
-  if (effort === undefined || effort === '') return theme.fg('text', truncateToWidth(model, width))
-  const separator = ' · '
-  const effortWidth = visibleWidth(effort)
-  if (effortWidth >= width) return theme.fg('customMessageLabel', truncateToWidth(effort, width))
-  const modelWidth = Math.max(1, width - visibleWidth(separator) - effortWidth)
-  return theme.fg('text', truncateToWidth(model, modelWidth))
-    + theme.fg('dim', separator)
-    + theme.fg('customMessageLabel', effort)
+function planStatus(plan: TuiSessionControls['plan']): { text: string; tone: ThemeColor } | undefined {
+  if (plan === undefined) return undefined
+  if (plan.pending) return plan.active
+    ? { text: 'PLAN→DEFAULT', tone: 'warning' }
+    : { text: 'PLAN…', tone: 'accent' }
+  return plan.active ? { text: 'PLAN', tone: 'accent' } : undefined
 }
 
-function fitWorkspaceColumn(pwd: string | undefined, branch: string | undefined, theme: Theme, width: number): string {
+function fitModelColumn(
+  model: string,
+  effort: string | undefined,
+  plan: TuiSessionControls['plan'],
+  theme: Theme,
+  width: number,
+): string {
+  if (width <= 0) return ''
+  const mode = planStatus(plan)
+  if (mode === undefined) {
+    if (effort === undefined || effort === '') return theme.fg('text', truncateToWidth(model, width))
+    const separator = ' · '
+    const effortWidth = visibleWidth(effort)
+    if (effortWidth >= width) return theme.fg('customMessageLabel', truncateToWidth(effort, width))
+    const modelWidth = Math.max(1, width - visibleWidth(separator) - effortWidth)
+    return theme.fg('text', truncateToWidth(model, modelWidth))
+      + theme.fg('dim', separator)
+      + theme.fg('customMessageLabel', effort)
+  }
+  const separator = ' · '
+  const modeWidth = visibleWidth(mode.text)
+  if (modeWidth + visibleWidth(separator) >= width) return theme.fg(mode.tone, truncateToWidth(mode.text, width))
+  const prefixWidth = width - visibleWidth(separator) - modeWidth
+  const prefix = effort === undefined || effort === ''
+    ? theme.fg('text', truncateToWidth(model, Math.max(1, prefixWidth)))
+    : (() => {
+        const effortWidth = visibleWidth(effort)
+        if (effortWidth + visibleWidth(separator) >= prefixWidth) {
+          return theme.fg('customMessageLabel', truncateToWidth(effort, Math.max(1, prefixWidth)))
+        }
+        const modelWidth = Math.max(1, prefixWidth - visibleWidth(separator) - effortWidth)
+        return theme.fg('text', truncateToWidth(model, modelWidth))
+          + theme.fg('dim', separator)
+          + theme.fg('customMessageLabel', effort)
+      })()
+  return prefix + theme.fg('dim', separator) + theme.fg(mode.tone, mode.text)
+}
+
+function fitLocationColumn(pwd: string | undefined, branch: string | undefined, theme: Theme, width: number): string {
   if (width <= 0) return ''
   if (branch === undefined || branch === '') return theme.fg('muted', truncateToWidth(pwd ?? '', width))
   const branchTone: ThemeColor = /(?:^|\s)[*?]\d+/.test(branch) ? 'warning' : 'muted'
@@ -252,24 +287,64 @@ function fitWorkspaceColumn(pwd: string | undefined, branch: string | undefined,
     + theme.fg(branchTone, branch)
 }
 
+function permissionTone(permission: string): ThemeColor {
+  if (permission === 'danger-full-access' || permission === 'custom') return 'error'
+  if (permission === 'read-only') return 'accent'
+  return 'success'
+}
+
+function permissionLabel(permission: string): string {
+  if (permission === 'danger-full-access') return 'FULL ACCESS'
+  if (permission === 'workspace-write') return 'workspace-write'
+  if (permission === 'read-only') return 'read-only'
+  return permission === 'custom' ? 'CUSTOM ACCESS' : permission
+}
+
+function fitWorkspaceColumn(
+  pwd: string | undefined,
+  branch: string | undefined,
+  permission: string | undefined,
+  theme: Theme,
+  width: number,
+): string {
+  if (permission === undefined || permission === '') return fitLocationColumn(pwd, branch, theme, width)
+  const label = permissionLabel(permission)
+  const separator = ' · '
+  const labelWidth = visibleWidth(label)
+  if (labelWidth >= width) return theme.fg(permissionTone(permission), truncateToWidth(label, width))
+  const locationWidth = width - labelWidth - visibleWidth(separator)
+  const location = fitLocationColumn(pwd, branch, theme, locationWidth)
+  if (location === '') return theme.fg(permissionTone(permission), label)
+  return theme.fg(permissionTone(permission), label) + theme.fg('dim', separator) + location
+}
+
 function metadataColumns(options: StatusFooterOptions, theme: Theme, innerWidth: number): { left: string; right: string } {
+  const plan = planStatus(options.controls?.plan)
+  const permission = options.controls?.permission
   const rawLeftWidth = visibleWidth(options.model)
     + (options.reasoningEffort === undefined || options.reasoningEffort === '' ? 0 : 3 + visibleWidth(options.reasoningEffort))
-  const rawRightWidth = visibleWidth(options.pwd ?? '')
+    + (plan === undefined ? 0 : 3 + visibleWidth(plan.text))
+  const rawLocationWidth = visibleWidth(options.pwd ?? '')
     + (options.branch === undefined || options.branch === '' ? 0 : 3 + visibleWidth(options.branch))
-  if (rawRightWidth === 0) return { left: fitModelColumn(options.model, options.reasoningEffort, theme, innerWidth), right: '' }
+  const rawRightWidth = rawLocationWidth
+    + (permission === undefined || permission === ''
+      ? 0
+      : visibleWidth(permissionLabel(permission)) + (rawLocationWidth === 0 ? 0 : 3))
+  if (rawRightWidth === 0) {
+    return { left: fitModelColumn(options.model, options.reasoningEffort, options.controls?.plan, theme, innerWidth), right: '' }
+  }
   if (rawLeftWidth + COLUMN_GAP + rawRightWidth <= innerWidth) {
     return {
-      left: fitModelColumn(options.model, options.reasoningEffort, theme, rawLeftWidth),
-      right: fitWorkspaceColumn(options.pwd, options.branch, theme, rawRightWidth),
+      left: fitModelColumn(options.model, options.reasoningEffort, options.controls?.plan, theme, rawLeftWidth),
+      right: fitWorkspaceColumn(options.pwd, options.branch, permission, theme, rawRightWidth),
     }
   }
   const available = Math.max(2, innerWidth - COLUMN_GAP)
   const leftWidth = Math.min(rawLeftWidth, Math.max(1, Math.floor(available * 0.45)))
   const rightWidth = Math.max(1, available - leftWidth)
   return {
-    left: fitModelColumn(options.model, options.reasoningEffort, theme, leftWidth),
-    right: fitWorkspaceColumn(options.pwd, options.branch, theme, rightWidth),
+    left: fitModelColumn(options.model, options.reasoningEffort, options.controls?.plan, theme, leftWidth),
+    right: fitWorkspaceColumn(options.pwd, options.branch, permission, theme, rightWidth),
   }
 }
 
@@ -280,10 +355,10 @@ function metadataColumns(options: StatusFooterOptions, theme: Theme, innerWidth:
 export function renderStatusFooter(options: StatusFooterOptions, theme: Theme): string[] {
   const normalized = resolveStatusBarConfig(options.config)
   const width = Math.max(0, options.width)
-  if (!normalized.enabled || width === 0) return []
+  if (width === 0) return []
   const innerWidth = Math.max(0, width - FOOTER_PADDING * 2)
   const metadata = metadataColumns(options, theme, innerWidth)
-  const telemetryGroups = options.stats === undefined
+  const telemetryGroups = options.stats === undefined || !normalized.enabled
     ? { left: [], right: [] }
     : selectFooterGroups(buildStatusGroups(options.stats, normalized), innerWidth)
   return [

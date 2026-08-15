@@ -20,6 +20,9 @@ class FakeTerminal implements TerminalLike {
   writes = 0
   raw = false
   destroyed = false
+  columns = 60
+  rows = 24
+  resizeListener: (() => void) | undefined
   output = {
     isTTY: true,
     write: (chunk: string): void => { this.writes += 1; this.captured += chunk },
@@ -29,8 +32,17 @@ class FakeTerminal implements TerminalLike {
     setRawMode: (on: boolean): void => { this.raw = on },
     destroy: (): void => { this.destroyed = true },
   })
-  width(): number { return 60 }
-  height(): number { return 24 }
+  width(): number { return this.columns }
+  height(): number { return this.rows }
+  onResize(listener: () => void): () => void {
+    this.resizeListener = listener
+    return () => { this.resizeListener = undefined }
+  }
+  resize(columns: number, rows: number): void {
+    this.columns = columns
+    this.rows = rows
+    this.resizeListener?.()
+  }
 }
 
 function ev(type: string, data: unknown, seq: number): SessionEvent {
@@ -39,6 +51,49 @@ function ev(type: string, data: unknown, seq: number): SessionEvent {
 
 const press = (term: FakeTerminal, bytes: string): void => {
   term.input.write(bytes)
+}
+
+function emulatedScreenRows(output: string): string[] {
+  const rows: string[] = ['']
+  let row = 0
+  let column = 0
+  const tokens = output.match(/\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[?0-9;]*[ -/]*[@-~]|\r|\n|[^\x1b\r\n]+/gu) ?? []
+  for (const token of tokens) {
+    if (token === '\r') {
+      column = 0
+      continue
+    }
+    if (token === '\n') {
+      row += 1
+      rows[row] ??= ''
+      continue
+    }
+    if (token.startsWith('\x1b]')) continue
+    if (token.startsWith('\x1b[')) {
+      const operation = token.at(-1)
+      const rawParams = token.slice(2, -1).replace(/^\?/u, '')
+      const params = rawParams.split(';').map(value => Number(value || '1'))
+      const amount = params[0] ?? 1
+      if (operation === 'A') row = Math.max(0, row - amount)
+      else if (operation === 'B') row += amount
+      else if (operation === 'C') column += amount
+      else if (operation === 'D') column = Math.max(0, column - amount)
+      else if (operation === 'H' || operation === 'f') {
+        row = Math.max(0, (params[0] ?? 1) - 1)
+        column = Math.max(0, (params[1] ?? 1) - 1)
+      } else if (operation === 'J' && rawParams === '2') {
+        rows.splice(0, rows.length, '')
+      } else if (operation === 'K') {
+        rows[row] = (rows[row] ?? '').slice(0, column)
+      }
+      rows[row] ??= ''
+      continue
+    }
+    const current = rows[row] ?? ''
+    rows[row] = current.slice(0, column) + token + current.slice(column + token.length)
+    column += token.length
+  }
+  return rows
 }
 
 describe('LocalTui (tty)', () => {
@@ -58,6 +113,19 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('\x1b[2J\x1b[H')
     expect(term.captured).toContain('\x1b[?1000h')
     expect(term.captured).toContain('\x1b[?1006h')
+    tui.dispose()
+  })
+
+  it('clears and fully repaints after the terminal is resized', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const before = term.captured.length
+
+    term.resize(42, 18)
+
+    const repaint = term.captured.slice(before)
+    expect(repaint).toContain('\x1b[2J\x1b[H')
+    expect(stripAnsi(repaint)).toContain('🐳')
     tui.dispose()
   })
 
@@ -156,6 +224,45 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('reviews long plans in a bounded page and returns approval directly', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const answer = tui.prompt({
+      title: 'Plan review',
+      question: 'Approve this plan and leave plan mode?',
+      detail: ['# Plan', ...Array.from({ length: 60 }, (_, index) => `- Step ${index + 1}`)].join('\n'),
+      options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+      presentation: 'plan-review',
+      approveValue: 'Approve',
+      allowCustom: true,
+    })
+
+    expect(stripAnsi(term.captured)).toContain('later plan lines')
+    press(term, '\r')
+    expect(await answer).toBe('Approve')
+    tui.dispose()
+  })
+
+  it('collects feedback only after Keep planning is selected', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const answer = tui.prompt({
+      title: 'Plan review',
+      question: 'Approve this plan and leave plan mode?',
+      detail: '# Plan\n\n- Implement the change',
+      options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+      presentation: 'plan-review',
+      approveValue: 'Approve',
+      allowCustom: true,
+    })
+
+    press(term, '\t\r')
+    expect(stripAnsi(term.captured)).toContain('Revision feedback · optional')
+    press(term, 'Cover the failure path\r')
+    expect(await answer).toBe('Cover the failure path')
+    tui.dispose()
+  })
+
   it('queues a line submitted while a turn is running', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -222,6 +329,24 @@ describe('LocalTui (tty)', () => {
 
     expect(term.raw).toBe(false)
     expect(term.captured).toContain('Resume this session with omdsh --resume session-double-c')
+  })
+
+  it('prints the resume command below both fixed status lines', async () => {
+    const term = new FakeTerminal()
+    term.columns = 80
+    const tui = new LocalTui(term, 'deepseek-v4-flash', false)
+    tui.setSession({ id: 'session-exit-layout', recent: [] })
+    const pending = tui.readline()
+
+    press(term, '\x03\x03')
+    expect(await pending).toBe(null)
+    tui.dispose()
+
+    const rows = emulatedScreenRows(term.captured)
+    const statusRow = rows.findIndex(line => line.includes('~/Workspace/dsh-tui'))
+    const resumeRow = rows.findIndex(line => line.includes('Resume this session with omdsh --resume'))
+    expect(statusRow).toBeGreaterThanOrEqual(0)
+    expect(resumeRow).toBeGreaterThan(statusRow)
   })
 
   it('quits on Ctrl-D with an empty buffer', async () => {
@@ -534,12 +659,53 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/hotkeys\r')
-    expect(term.captured).toContain('Ctrl+R')
-    expect(term.captured).toContain('Search prompt history')
+    expect(term.captured).toContain('Keyboard Shortcuts')
+    expect(term.captured).toContain('Navigation')
+    expect(term.captured).toContain('later lines')
     expect(term.captured).toContain('/hotkeys')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
     tui.dispose()
+  })
+
+  it('opens long command catalogs at their heading instead of their tail', () => {
+    const cases = [
+      {
+        command: '/help\r',
+        heading: 'Commands · 32 available',
+        prepare: (tui: LocalTui): void => {
+          tui.setCommands(Array.from({ length: 24 }, (_, index) => ({
+            name: `runtime-${index}`,
+            description: `Runtime command ${index} with a deliberately descriptive explanation`,
+          })))
+        },
+      },
+      {
+        command: '/tools\r',
+        heading: 'Available Tools',
+        prepare: (tui: LocalTui): void => {
+          tui.setTools(Array.from({ length: 24 }, (_, index) => ({
+            name: `tool-${index}`,
+            description: `Tool ${index} performs a concrete operation for the active agent`,
+          })))
+        },
+      },
+      {
+        command: '/hotkeys\r',
+        heading: 'Keyboard Shortcuts',
+        prepare: (_tui: LocalTui): void => undefined,
+      },
+    ]
+
+    for (const entry of cases) {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', false)
+      entry.prepare(tui)
+      const before = term.captured.length
+      press(term, entry.command)
+      expect(stripAnsi(term.captured.slice(before))).toContain(entry.heading)
+      tui.dispose()
+    }
   })
 
   it('treats /exit as quit', async () => {

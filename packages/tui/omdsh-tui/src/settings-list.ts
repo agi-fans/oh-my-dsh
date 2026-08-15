@@ -52,6 +52,7 @@ export type SettingsCommand =
   | { kind: 'ignore' }
 
 const COLOR_VALUES = ['on', 'off'] as const
+const TOOL_DETAIL_VALUES = ['compact', 'expanded'] as const
 const STATUS_GROUP_COPY: Record<StatusGroupId, { label: string; description: string }> = {
   context: { label: 'Context', description: 'Context-window pressure' },
   cache: { label: 'Cache', description: 'Prompt-cache hit rate' },
@@ -92,10 +93,10 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
     },
     {
       id: 'expandTools',
-      label: 'Tools',
+      label: 'Tool details',
       description: 'Expand tool output and catalog details (Ctrl+O)',
-      value: prefs.expandTools ? 'on' : 'off',
-      values: COLOR_VALUES,
+      value: prefs.expandTools ? 'expanded' : 'compact',
+      values: TOOL_DETAIL_VALUES,
     },
     {
       id: 'statusEnabled',
@@ -135,7 +136,7 @@ function updateStatusGroup(config: StatusBarConfig, id: StatusGroupId, value: st
 export function applySettingValue(prefs: TuiPrefs, id: string, value: string): TuiPrefs {
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
-  if (id === 'expandTools') return { ...prefs, expandTools: value === 'on' }
+  if (id === 'expandTools') return { ...prefs, expandTools: value === 'expanded' || value === 'on' }
   const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
   if (id === 'statusEnabled') return { ...prefs, statusBar: { ...statusBar, enabled: value === 'on' } }
   if (id === 'statusLabels' && STATUS_LABEL_STYLES.includes(value as StatusBarConfig['labels'])) {

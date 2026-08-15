@@ -45,12 +45,22 @@ export interface TuiPrompt {
   multiSelect?: boolean
   allowCustom?: boolean
   /** Full-height searchable list instead of the default prompt card. */
-  presentation?: 'fullscreen-list'
+  presentation?: 'fullscreen-list' | 'plan-review'
+  /** Choice that approves a dedicated review; other choices may collect feedback. */
+  approveValue?: string
   /** Let typed text filter the available options. */
   filterable?: boolean
   /** Verb shown after Enter in selector navigation, such as "run". */
   submitLabel?: string
   signal?: AbortSignal
+}
+
+/** Durable, Harness-owned session controls projected into terminal chrome. */
+export interface TuiSessionControls {
+  /** Logged Plan Mode state, including a selection awaiting the next step boundary. */
+  plan?: { active: boolean; pending: boolean }
+  /** Effective permission preset, such as workspace-write or danger-full-access. */
+  permission?: string
 }
 
 /** Lightweight durable session row used by the welcome card and resume UI. */
@@ -113,8 +123,13 @@ export interface TuiService {
   prompt(request: TuiPrompt): Promise<string | null>
   /** Replace the transcript when a new or resumed session becomes active. */
   replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void
-  /** Update session identity, recent rows, and aggregate status figures. */
-  setSession(info: { id: string; recent: readonly TuiRecentSession[]; stats?: TuiSessionStats }): void
+  /** Update session identity, recent rows, projected controls, and aggregate figures. */
+  setSession(info: {
+    id: string
+    recent: readonly TuiRecentSession[]
+    stats?: TuiSessionStats
+    controls?: TuiSessionControls
+  }): void
   /**
    * Read the next submitted input line. Resolves null when the user quits
    * (Ctrl-D on empty input, or stdin EOF in non-tty mode). One in-flight

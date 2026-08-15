@@ -138,7 +138,37 @@ describe('session status line', () => {
     expect(stripAnsi(lines[1] ?? '')).toMatch(/^  Cache 99% • 5\.9M in · 73\.8K out • TTFT 1\.2s · 80 tok\/s\s+LLM 16m51s · Tools 3m33s • 1 turn · 74 steps  $/)
   })
 
-  it('keeps complete high-priority footer groups and disables both rows together', () => {
+  it('keeps collaboration and access controls visible in metadata', () => {
+    const active = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+      controls: {
+        plan: { active: true, pending: false },
+        permission: 'workspace-write',
+      },
+      pwd: '~/Workspace/dsh-tui',
+      branch: 'main',
+      stats,
+      config: statusBar(),
+      width: 140,
+    }, createTheme(false))
+    expect(active[0]).toContain('deepseek-v4-pro · max · PLAN')
+    expect(active[0]).toContain('workspace-write · ~/Workspace/dsh-tui · main')
+
+    const leaving = renderStatusFooter({
+      model: 'm',
+      controls: {
+        plan: { active: true, pending: true },
+        permission: 'danger-full-access',
+      },
+      config: statusBar(),
+      width: 48,
+    }, createTheme(false))
+    expect(leaving[0]).toContain('PLAN→DEFAULT')
+    expect(leaving[0]).toContain('FULL ACCESS')
+  })
+
+  it('keeps complete high-priority footer groups and only disables customizable telemetry', () => {
     const narrow = renderStatusFooter({
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
@@ -154,11 +184,19 @@ describe('session status line', () => {
     expect(telemetry).toContain('Cache 99%')
     expect(telemetry).toContain('5.9M in · 73.8K out')
     expect(telemetry).not.toContain('LLM 16m51s')
-    expect(renderStatusFooter({
+    const minimal = renderStatusFooter({
       model: 'm',
+      controls: {
+        plan: { active: true, pending: false },
+        permission: 'read-only',
+      },
       stats,
       config: statusBar({ enabled: false }),
       width: 76,
-    }, createTheme(false))).toEqual([])
+    }, createTheme(false))
+    expect(minimal).toHaveLength(2)
+    expect(minimal[0]).toContain('m · PLAN')
+    expect(minimal[0]).toContain('read-only')
+    expect(stripAnsi(minimal[1] ?? '').trim()).toBe('')
   })
 })

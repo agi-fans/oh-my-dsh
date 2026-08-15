@@ -17,6 +17,8 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Ctrl+C ×2', text: 'Exit with a resumable session hint' },
   { key: '/resume', text: 'Continue a durable session' },
   { key: '/model', text: 'Switch model and reasoning effort' },
+  { key: '/plan', text: 'Plan before making workspace changes' },
+  { key: '/permission', text: 'Switch the session access preset' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
   { key: '/search', text: 'Find text in this transcript' },

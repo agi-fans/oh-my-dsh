@@ -2,6 +2,7 @@
 
 import type { TuiPrompt } from './definition.ts'
 import { renderEditor, renderFramedBlock } from './box.ts'
+import { renderMarkdown } from './markdown.ts'
 import { BOX, SYMBOL, type Theme } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth } from './width.ts'
 
@@ -10,6 +11,10 @@ export interface PromptSelectorState {
   request: TuiPrompt
   selected: number
   checked: ReadonlySet<number>
+  /** Requested first document row for full-screen review surfaces. */
+  documentScroll?: number
+  /** Whether a rejected plan is collecting optional revision feedback. */
+  feedback?: boolean
 }
 
 export interface PromptSelectorFrame {
@@ -17,6 +22,8 @@ export interface PromptSelectorFrame {
   cursor: { row: number; column: number }
   editor?: { start: number; rows: number }
   itemRows?: readonly (number | undefined)[]
+  document?: { start: number; maxStart: number; pageSize: number }
+  cursorVisible?: boolean
 }
 
 /** Maximum option rows retained in the prompt overlay before it windows. */
@@ -178,6 +185,84 @@ export function renderPromptSelectorPage(
     cursor: { row: searchRow, column: cursorColumn },
     editor: { start: searchRow, rows: 1 },
     itemRows,
+  }
+}
+
+/** Render a bounded, scrollable Markdown plan with fixed review actions. */
+export function renderPlanReviewPage(
+  state: PromptSelectorState,
+  theme: Theme,
+  width: number,
+  height: number,
+  input: string,
+  inputCursor: number,
+  appName: string,
+): PromptSelectorFrame {
+  const pageHeight = Math.max(1, height)
+  if (pageHeight < 10 || width < 24) {
+    return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
+  }
+  const feedback = state.feedback === true
+  const footerRows = feedback ? 5 : 4
+  const bodyRows = Math.max(1, pageHeight - 5 - footerRows)
+  const markdownWidth = Math.max(1, width - 6)
+  const document = renderMarkdown(state.request.detail ?? '', theme, markdownWidth)
+  const maxStart = Math.max(0, document.length - bodyRows)
+  const start = Math.max(0, Math.min(state.documentScroll ?? 0, maxStart))
+  const visible = document.slice(start, start + bodyRows)
+  while (visible.length < bodyRows) visible.push('')
+  if (start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier plan lines`)
+  if (start + bodyRows < document.length) {
+    visible[Math.max(0, visible.length - 1)] = theme.fg('dim', `… ↓ ${document.length - start - bodyRows} later plan lines`)
+  }
+
+  const lines = [
+    pageTop(theme, width, `${appName} · ${state.request.title}`),
+    pageRow(theme, '', width),
+    pageRow(theme, ' ' + theme.bold(state.request.question), width),
+    pageRow(theme, '', width),
+    pageDivider(theme, width),
+    ...visible.map(line => pageRow(theme, '  ' + line, width)),
+    pageDivider(theme, width),
+  ]
+
+  let cursor = { row: Math.max(0, lines.length - 1), column: 1 }
+  let editor: PromptSelectorFrame['editor']
+  if (feedback) {
+    lines.push(pageRow(theme, ' ' + theme.bold('Revision feedback') + theme.fg('dim', ' · optional'), width))
+    const prefix = theme.fg('accent', '> ')
+    const available = Math.max(1, width - 8)
+    const displayInput = input.replace(/\r?\n/gu, ' ↵ ')
+    const displayBeforeCursor = input.slice(0, inputCursor).replace(/\r?\n/gu, ' ↵ ')
+    const value = truncateToWidth(displayInput, available)
+    const inputRow = lines.length
+    lines.push(pageRow(theme, ' ' + prefix + value, width))
+    lines.push(pageRow(theme, theme.fg('dim', '[Enter send feedback · empty Enter keeps planning · Esc back · Ctrl+C cancel]'), width))
+    lines.push(pageBottom(theme, width))
+    cursor = {
+      row: inputRow,
+      column: Math.min(Math.max(1, width - 3), 5 + visibleWidth(displayBeforeCursor)),
+    }
+    editor = { start: inputRow, rows: 1 }
+  } else {
+    const options = state.request.options ?? []
+    const actions = options.map((option, index) => {
+      const label = `[ ${option.label} ]`
+      return index === state.selected
+        ? theme.bold(theme.fg('accent', label))
+        : theme.fg('muted', label)
+    }).join(theme.fg('dim', '   '))
+    lines.push(pageRow(theme, ' ' + actions, width))
+    lines.push(pageRow(theme, theme.fg('dim', '[PgUp/PgDn scroll · Tab choose · Enter select · Esc cancel]'), width))
+    lines.push(pageBottom(theme, width))
+  }
+
+  return {
+    lines,
+    cursor,
+    ...(editor === undefined ? {} : { editor }),
+    document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1) },
+    cursorVisible: feedback,
   }
 }
 

@@ -11,6 +11,12 @@ import { registerCommands } from './command-registration.ts'
 export const name = 'omdsh-command-model'
 export const inject = ['commands', 'omdshSession', 'tui', 'llm']
 
+const FIXED_CHOICE = {
+  presentation: 'fullscreen-list' as const,
+  filterable: true,
+  allowCustom: false,
+}
+
 function selected(raw: string, values: readonly string[]): string | undefined {
   const index = /^\d+$/u.test(raw) ? Number(raw) - 1 : -1
   return index >= 0 ? values[index] : raw
@@ -22,6 +28,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
   const providerRaw = await ctx.tui.prompt({
+    ...FIXED_CHOICE,
     title: 'Model provider',
     question: 'Choose a provider',
     options: providers.map(provider => ({ label: provider.id, description: provider.name })),
@@ -34,6 +41,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   }
   const models = await ctx.llm.listModels(provider)
   const modelRaw = await ctx.tui.prompt({
+    ...FIXED_CHOICE,
     title: 'Model',
     question: `Choose a model for ${provider}`,
     options: models.map(model => ({ label: model.id, description: model.description ?? model.name })),
@@ -50,6 +58,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
     reasoningEffort = undefined
   } else {
     const effortRaw = await ctx.tui.prompt({
+      ...FIXED_CHOICE,
       title: 'Reasoning effort',
       question: 'Choose reasoning effort',
       options: info.reasoning.efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),

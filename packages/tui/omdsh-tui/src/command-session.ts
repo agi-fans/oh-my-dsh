@@ -85,6 +85,11 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
 function showSession(ctx: Context, invocation: CommandInvocation): CommandResult {
   const stats = ctx.omdshSession.stats(invocation.agent)
   const selection = ctx.omdshSession.selection(invocation.agent)
+  const reasoningEffort = ctx.omdshSession.reasoningEffort(invocation.agent)
+  const controls = ctx.omdshSession.controls(invocation.agent)
+  const mode = controls.plan?.pending === true
+    ? controls.plan.active ? 'Plan → Default (pending)' : 'Plan (pending)'
+    : controls.plan?.active === true ? 'Plan' : 'Default'
   return {
     kind: 'success',
     text: [
@@ -94,6 +99,9 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
       '|---|---|',
       `| Session | \`${invocation.agent.id}\` |`,
       `| Model | \`${selection.provider}/${selection.model}\` |`,
+      `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
+      `| Mode | ${mode} |`,
+      ...(controls.permission === undefined ? [] : [`| Permissions | \`${controls.permission}\` |`]),
       `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
       `| Tokens | ${stats.inputTokens} in · ${stats.outputTokens} out |`,
       `| Queue | ${invocation.agent.inbox.nextTurn.length} follow-up · ${invocation.agent.inbox.nextStep.length} steering |`,

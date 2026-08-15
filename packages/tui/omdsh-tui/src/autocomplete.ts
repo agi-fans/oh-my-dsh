@@ -375,7 +375,14 @@ export function renderAutocomplete(
       : ''
     lines.push(truncateToWidth(cursor + painted + desc, width))
   }
-  if (items.length > AUTOCOMPLETE_MAX_VISIBLE) {
+  const pathMode = items.some(item => item.kind === 'path')
+  if (pathMode) {
+    const position = items.length > 1 ? `${index + 1}/${items.length} · ` : ''
+    lines.push(theme.fg('dim', truncateToWidth(
+      `  ${position}↑↓ select · Tab insert · Enter send · Esc close`,
+      width,
+    )))
+  } else if (items.length > AUTOCOMPLETE_MAX_VISIBLE) {
     lines.push(theme.fg('dim', '  ' + String(index + 1) + '/' + String(items.length)))
   }
   return lines

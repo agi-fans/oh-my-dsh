@@ -19,12 +19,17 @@ import { renderMarkdown } from './markdown.ts'
 import type { Frame, TranscriptScroll } from './renderer.ts'
 import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
-import { renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import {
+  renderPlanReviewPage,
+  renderPromptSelector,
+  renderPromptSelectorPage,
+  type PromptSelectorState,
+} from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from './status-config.ts'
 import { renderStatusFooter } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
-import type { TuiRecentSession, TuiSessionStats } from './definition.ts'
+import type { TuiRecentSession, TuiSessionControls, TuiSessionStats } from './definition.ts'
 import { renderTool, type TuiToolPresentation } from './tool-renderers.ts'
 import { renderToolsPanel, type ToolInfo } from './tools-list.ts'
 import { renderHotkeysPanel, type HotkeyBindings } from './hotkeys.ts'
@@ -301,6 +306,8 @@ export interface ViewOptions {
   welcomeTips?: readonly WelcomeTip[]
   /** Whole-session figures rendered in the footer's telemetry row. */
   sessionStats?: TuiSessionStats
+  /** Harness-owned collaboration and permission state rendered in metadata. */
+  sessionControls?: TuiSessionControls
   /** Visible groups, order, and label style for the status line. */
   statusBar?: StatusBarConfig
   /** Legacy status preset accepted while direct render callers migrate. */
@@ -310,6 +317,8 @@ export interface ViewOptions {
    * the window to the latest lines — the OMP follow-tail default.
    */
   scrollStart?: number
+  /** Open one transcript block at its first row instead of following the tail. */
+  focusBlock?: number
   /**
    * When true, tool blocks paint their full output (OMP `ctrl+o`). Default
    * is the collapsed preview of {@link TOOL_COLLAPSED_LINES} rows.
@@ -459,6 +468,7 @@ interface TranscriptBodyCache {
   toolsExpanded: boolean
   expandedTools: string
   lines: readonly string[]
+  blockStarts: readonly number[]
 }
 
 /**
@@ -473,7 +483,7 @@ function renderTranscriptBody(
   options: ViewOptions,
   theme: Theme,
   spinnerFrame: number,
-): readonly string[] {
+): { lines: readonly string[]; blockStarts: readonly number[] } {
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
@@ -487,10 +497,11 @@ function renderTranscriptBody(
     && cached.spinnerFrame === spinnerFrame
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools) {
-    return cached.lines
+    return { lines: cached.lines, blockStarts: cached.blockStarts }
   }
 
   const lines: string[] = []
+  const blockStarts: number[] = []
   let previous: Block | undefined
   for (const block of state.blocks) {
     if (lines.length > 0) {
@@ -502,6 +513,7 @@ function renderTranscriptBody(
         lines.push('')
       }
     }
+    blockStarts.push(lines.length)
     const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     lines.push(...blockLines(block, theme, options.width, spinnerFrame, expanded))
     previous = block
@@ -515,8 +527,9 @@ function renderTranscriptBody(
     toolsExpanded,
     expandedTools,
     lines,
+    blockStarts,
   })
-  return lines
+  return { lines, blockStarts }
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -678,6 +691,28 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       },
     }
   }
+  if (options.promptSelector?.request.presentation === 'plan-review') {
+    const review = renderPlanReviewPage(
+      options.promptSelector,
+      theme,
+      width,
+      height,
+      options.input,
+      options.inputCursor,
+      appName,
+    )
+    return {
+      lines: fitFrame(review.lines, width),
+      cursor: review.cursor,
+      cursorVisible: review.cursorVisible === true,
+      ...(review.editor === undefined ? {} : { editor: review.editor }),
+      overlay: {
+        kind: 'prompt',
+        start: 0,
+        ...(review.document === undefined ? {} : { document: review.document }),
+      },
+    }
+  }
   const welcome = renderWelcome({
     width,
     model: options.model,
@@ -690,9 +725,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)
   const body: string[] = [...welcome]
-  if (transcript.length > 0) {
+  let transcriptStart = body.length
+  if (transcript.lines.length > 0) {
     if (body.length > 0) body.push('')
-    body.push(...transcript)
+    transcriptStart = body.length
+    body.push(...transcript.lines)
   }
 
   const working = state.status === 'running' ? renderWorking(theme, spinnerFrame, undefined, width) : []
@@ -701,6 +738,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const statusFooter = renderStatusFooter({
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
+    ...(options.sessionControls === undefined ? {} : { controls: options.sessionControls }),
     ...(pwd === '' ? {} : { pwd }),
     ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
     ...(options.sessionStats === undefined ? {} : { stats: options.sessionStats }),
@@ -751,7 +789,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const spacer = 1
   const reserved = inputLines.length + working.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
-  const windowed = windowTranscript(body, budget, options.scrollStart ?? Number.POSITIVE_INFINITY, theme)
+  const focusStart = options.focusBlock === undefined
+    ? undefined
+    : transcript.blockStarts[Math.max(0, Math.min(options.focusBlock, transcript.blockStarts.length - 1))]
+  const requestedStart = focusStart === undefined
+    ? (options.scrollStart ?? Number.POSITIVE_INFINITY)
+    : transcriptStart + focusStart
+  const windowed = windowTranscript(body, budget, requestedStart, theme)
   const visible = windowed.lines
 
   const lines: string[] = [...visible]

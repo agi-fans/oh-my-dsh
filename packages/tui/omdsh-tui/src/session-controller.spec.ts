@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from './command-integrations.ts'
-import { modelStatus, recentSessionContent, sessionStats, userSkillCommands } from './session-controller.ts'
+import { modelStatus, recentSessionContent, sessionControls, sessionStats, userSkillCommands } from './session-controller.ts'
 
 describe('modelStatus', () => {
   it('shows the effective adapter default and prefers an explicit effort', () => {
@@ -16,6 +16,19 @@ describe('modelStatus', () => {
     expect(modelStatus(base, info)).toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'high' })
     expect(modelStatus({ ...base, reasoningEffort: ReasoningEffortId('max') }, info))
       .toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'max' })
+  })
+})
+
+describe('sessionControls', () => {
+  it('projects Harness plan and permission state without inventing defaults', () => {
+    expect(sessionControls()).toEqual({})
+    expect(sessionControls({
+      plan: { active: true, pending: false },
+      permissions: { currentValue: 'workspace-write', options: [] },
+    })).toEqual({
+      plan: { active: true, pending: false },
+      permission: 'workspace-write',
+    })
   })
 })
 
@@ -63,6 +76,15 @@ describe('sessionStats', () => {
 })
 
 describe('recentSessionContent', () => {
+  it('does not expose a durable session before it contains a human message', () => {
+    const events = [
+      { type: 'session/start', data: {} },
+      { type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'Hidden context' }] } },
+    ] as unknown as SessionEvent[]
+
+    expect(recentSessionContent(events)).toBeUndefined()
+  })
+
   it('keeps the generated title and previews the latest human message', () => {
     const events = [
       { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'First question' }] } },

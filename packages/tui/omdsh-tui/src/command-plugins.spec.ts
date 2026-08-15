@@ -18,7 +18,12 @@ describe('omdsh command plugins', () => {
       refreshRecent: vi.fn(async () => undefined),
       recentSessions: [],
       selection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
+      reasoningEffort: () => 'high',
       stats: () => ({ turns: 0, steps: 0, inputTokens: 0, outputTokens: 0 }),
+      controls: () => ({
+        plan: { active: true, pending: false },
+        permission: 'workspace-write',
+      }),
       send: vi.fn(),
     } as unknown as SessionRuntime
     const tui = { prompt: vi.fn() } as unknown as TuiService
@@ -39,6 +44,16 @@ describe('omdsh command plugins', () => {
     expect(newSession).toHaveBeenCalledWith(agent)
     expect(session.events.filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
       .toEqual(['command/run', 'command/done'])
+
+    const details = await ctx.commands.execute(agent, '/session', new AbortController().signal)
+    expect(details).toBeDefined()
+    if (details === undefined) throw new Error('/session was not resolved')
+    expect(details.result).toMatchObject({
+      kind: 'success',
+      text: expect.stringContaining('| Mode | Plan |'),
+    })
+    expect(details.result).toMatchObject({ text: expect.stringContaining('| Permissions | `workspace-write` |') })
+    expect(details.result).toMatchObject({ text: expect.stringContaining('| Reasoning | `high` |') })
 
     await fiber.dispose()
     expect(ctx.commands.list(agent)).toEqual([])

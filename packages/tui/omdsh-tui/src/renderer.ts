@@ -50,6 +50,7 @@ export interface Frame {
     start: number
     resultsRow?: number
     itemRows?: readonly (number | undefined)[]
+    document?: { start: number; maxStart: number; pageSize: number }
   }
 }
 
@@ -199,6 +200,23 @@ export class LineRenderer {
     this.#row = target.row
     this.#col = target.column
     this.#cursorVisible = cursorVisible
+  }
+
+  /**
+   * Move to the start of the frame's final row so a following newline exits
+   * below the UI instead of overwriting rows beneath the editor cursor.
+   */
+  finish(): void {
+    const targetRow = Math.max(0, this.#last.length - 1)
+    let out = ''
+    if (this.#row > targetRow) out += `\x1b[${this.#row - targetRow}A`
+    else if (this.#row < targetRow) out += `\x1b[${targetRow - this.#row}B`
+    if (this.#col > 0) out += '\r'
+    if (!this.#cursorVisible) out += '\x1b[?25h'
+    if (out !== '') this.#sink.write(out)
+    this.#row = targetRow
+    this.#col = 0
+    this.#cursorVisible = true
   }
 
   /** Forget the rendered state; the next render treats the screen as empty. */
