@@ -38,6 +38,8 @@ import { renderCommandOutput, renderCommandSeparator } from './command-output.ts
 import type { WelcomeTip } from './welcome-tips.ts'
 import { renderPathMentionRows } from './path-mentions.ts'
 
+type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
+
 /** Display state of one tool invocation. */
 export type ToolBlockStatus = 'running' | 'ok' | 'error'
 
@@ -61,6 +63,8 @@ export interface TranscriptState {
   status: SessionStatus
   /** The most recent turn number. */
   turn: number
+  /** Latest whole Todo projection emitted by the Harness for this turn. */
+  todos: TodoItem[]
   /** Lifecycle id of a manual compact command currently owning the UI. */
   compactCommandId: string | undefined
   /** Durable follow-up turns waiting in the Harness-owned agent inbox. */
@@ -75,6 +79,7 @@ export function initialTranscript(): TranscriptState {
     blocks: [],
     status: 'idle',
     turn: 0,
+    todos: [],
     compactCommandId: undefined,
     nextTurnInbox: [],
     nextStepInbox: [],
@@ -184,7 +189,7 @@ function foldEvent(
 ): TranscriptState {
   switch (event.type) {
     case 'turn/start':
-      return { ...state, status: 'running', turn: event.data.turn, compactCommandId: undefined }
+      return { ...state, status: 'running', turn: event.data.turn, todos: [], compactCommandId: undefined }
     case 'turn/end': {
       const last = state.blocks[state.blocks.length - 1]
       const reason = event.data.reason
@@ -290,6 +295,8 @@ function foldEvent(
     }
     case 'tool/result':
       return applyToolResult(state, event.data.message, event.data.error, presentation, mutable, indexes)
+    case 'todo/write':
+      return { ...state, todos: event.data.todos.map(todo => ({ ...todo })) }
     case 'command/run':
       if (event.data.name !== 'compact') return state
       return {
@@ -827,6 +834,31 @@ function paintImageMarkerSlice(fullText: string, slice: string, sourceStart: num
 /** Maximum number of queued composer submissions kept visible above the editor. */
 export const QUEUED_SUBMISSION_PREVIEW = 3
 
+/** Maximum number of Todo items kept visible above the composer. */
+export const TODO_PREVIEW = 5
+
+/** Compact, unframed Todo projection placed above queued messages. */
+export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {
+  if (todos.length === 0 || width <= 0) return []
+  const completed = todos.filter(todo => todo.status === 'completed').length
+  const rail = '  ' + theme.fg('border', '│') + ' '
+  const header = rail + theme.bold(theme.fg('accent', 'Todo'))
+    + theme.fg('dim', ` · ${completed}/${todos.length}`)
+  const visible = todos.slice(0, TODO_PREVIEW)
+  const lines = [header, ...visible.map((todo) => {
+    if (todo.status === 'completed') {
+      return rail + theme.fg('success', SYMBOL.success) + ' ' + theme.fg('dim', todo.content)
+    }
+    if (todo.status === 'in_progress') {
+      return rail + theme.fg('accent', SYMBOL.cursor) + ' ' + theme.fg('text', todo.content)
+    }
+    return rail + theme.fg('dim', SYMBOL.bullet + ' ' + todo.content)
+  })]
+  const hidden = todos.length - visible.length
+  if (hidden > 0) lines.push(rail + theme.fg('dim', `… ${hidden} more`))
+  return lines.map(line => truncateToWidth(line, width))
+}
+
 function queuedSubmissionLabel(submission: TuiSubmission): string {
   const text = submission.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
     .replaceAll('\n', ' ↵ ')
@@ -1035,6 +1067,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const queuedSubmissions = editor === undefined
     ? []
     : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
+  const todos = editor === undefined ? [] : renderTodos(state.todos, theme, width)
   const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []
@@ -1042,7 +1075,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = inputLines.length + working.length + todos.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusStart = options.focusBlock === undefined
     ? undefined
@@ -1055,10 +1088,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
-  const bottomRows = working.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = working.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
+  lines.push(...todos)
   lines.push(...queuedSubmissions)
   const editorStart = lines.length
   lines.push(...inputLines)

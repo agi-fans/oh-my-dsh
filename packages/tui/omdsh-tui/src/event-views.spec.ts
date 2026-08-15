@@ -50,12 +50,15 @@ describe('applyEvent', () => {
           content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'done' }] }],
         },
       }, 8),
+      ev('todo/write', {
+        todos: [{ content: 'verify replay', status: 'in_progress' }],
+      }, 9),
       ev('agent/inbox/spliced', {
         target: 'next-turn',
         start: 0,
         inserted: [{ id: 'queued', source: { kind: 'user' }, content: [{ type: 'text', text: 'next' }] }],
-      }, 9),
-      ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 10),
+      }, 10),
+      ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 11),
     ]
     const immutable = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
 
@@ -214,10 +217,40 @@ describe('applyEvent', () => {
     expect(frame.lines.join('\n')).not.toContain('Ctrl+O')
   })
 
+  it('shows the current todo list immediately above the composer', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('todo/write', {
+      todos: [
+        { content: 'Inspect the projection chain', status: 'completed' },
+        { content: 'Render todos above the composer', status: 'in_progress' },
+      ],
+    }, 1))
+
+    const lines = view(state).lines
+    expect(state.todos).toEqual([
+      { content: 'Inspect the projection chain', status: 'completed' },
+      { content: 'Render todos above the composer', status: 'in_progress' },
+    ])
+    expect(lines.join('\n')).toContain('Todo · 1/2')
+    const todo = lines.findIndex(line => line.includes('Render todos above the composer'))
+    const composer = lines.findIndex(line => line.includes('🐳'))
+    expect(todo).toBeGreaterThanOrEqual(0)
+    expect(composer).toBeGreaterThan(todo)
+  })
+
+  it('clears the previous Todo projection when the next turn starts', () => {
+    let state = applyEvent(initialTranscript(), ev('todo/write', {
+      todos: [{ content: 'previous turn', status: 'pending' }],
+    }, 1))
+    state = applyEvent(state, ev('turn/start', { turn: 2 }, 2))
+
+    expect(state.todos).toEqual([])
+    expect(view(state).lines.join('\n')).not.toContain('previous turn')
+  })
+
   it('ignores log-only vocabulary events', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('todo/write', { todos: [] }, 1))
-    state = applyEvent(state, ev('request/header', { header: {}, reason: 'initial' }, 2))
+    state = applyEvent(state, ev('request/header', { header: {}, reason: 'initial' }, 1))
     expect(state.blocks).toEqual([])
     expect(state.status).toBe('idle')
   })
