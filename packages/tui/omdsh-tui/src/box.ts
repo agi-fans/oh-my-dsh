@@ -1,7 +1,7 @@
 /**
  * Rounded-box chrome ported from oh-my-pi: framed tool output, the welcome
  * card and the framed editor whose top border carries its compact label.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, type Theme, type ThemeColor } from './theme.ts'
@@ -213,6 +213,8 @@ export interface EditorOptions {
   border: ThemeColor
   /** Dim ghost text painted after the caret (slash-arg hint). */
   inlineHint?: string
+  /** Paint one wrapped input slice without changing its visible width. */
+  paintInput?: (text: string, sourceStart: number) => string
 }
 
 /** Editor frame plus a cursor offset relative to the editor's first row. */
@@ -248,10 +250,10 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
     const text = rows[i]?.text ?? ''
     const hint = options.inlineHint
     const atCaretEnd = i === caret.row && caret.column >= visibleWidth(text)
-    let body = text
+    let body = options.paintInput?.(text, rows[i]?.start ?? 0) ?? text
     if (atCaretEnd && hint !== undefined && hint !== '') {
       const budget = Math.max(0, contentWidth - visibleWidth(text))
-      if (budget > 0) body = text + theme.fg('dim', truncateToWidth(hint, budget))
+      if (budget > 0) body += theme.fg('dim', truncateToWidth(hint, budget))
     }
     const linePad = padding(Math.max(0, contentWidth - visibleWidth(body)))
     const left = border(BOX.vertical) + padding(padX)

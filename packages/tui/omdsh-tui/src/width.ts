@@ -2,7 +2,7 @@
  * ANSI-aware terminal cell metrics. Frames are laid out in visible columns,
  * not string lengths — SGR / OSC sequences and wide glyphs must not shift
  * box chrome.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[ -/]*[@-~]|].[^\x07\x1b]*(?:\x07|\x1b\\))/g

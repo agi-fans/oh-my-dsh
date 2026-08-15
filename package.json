@@ -3,6 +3,7 @@
   "private": true,
   "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": "^22.19 || >=24"

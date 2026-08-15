@@ -1,6 +1,6 @@
 /**
  * Keyboard-shortcut catalog painted by `/hotkeys`.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import { DEFAULT_KEYBINDINGS, type TuiAction } from './keybindings-config.ts'

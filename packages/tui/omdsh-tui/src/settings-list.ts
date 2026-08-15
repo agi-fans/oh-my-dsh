@@ -1,7 +1,7 @@
 /**
  * Settings overlay: cycleable theme, color, tool, and status-line preferences.
  * Pure — the provider owns live application of the selected values.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import type { KeyEvent } from './keys.ts'

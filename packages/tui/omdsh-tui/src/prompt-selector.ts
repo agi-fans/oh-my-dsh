@@ -308,6 +308,7 @@ export function renderPromptSelector(
       // Keep the terminal caret on body padding; the visible selector glyph
       // owns focus while no text editor is present.
       cursor: { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 },
+      cursorVisible: false,
     }
   }
   const editor = renderEditor({
@@ -322,6 +323,7 @@ export function renderPromptSelector(
     lines: [...card, '', ...editor.lines],
     cursor: { row: editorStart + editor.cursor.row, column: editor.cursor.column },
     editor: { start: editorStart, rows: editor.lines.length },
+    cursorVisible: true,
   }
 }
 

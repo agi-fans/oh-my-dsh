@@ -81,7 +81,7 @@
     policy: !!js "(process.env.OMDSH_PERMISSION_MODE || 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'"
 
 # Every session starts with one explicit access preset. The environment is a
-# deployment override; the session can switch later through /permission.
+# deployment override; the TUI switches it later through the /mode picker.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
 
@@ -208,36 +208,36 @@
     backgroundMode: continuable
 
 - id: tui
-  name: '@omdsh/tui'
+  name: '@oh-my-dsh/dsh-tui'
   config:
     model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
 
 - id: tui-tool-presentation
-  name: '@omdsh/tui/tool-presentation'
+  name: '@oh-my-dsh/dsh-tui/tool-presentation'
 
 - id: tui-session-runtime
-  name: '@omdsh/tui/session-runtime'
+  name: '@oh-my-dsh/dsh-tui/session-runtime'
 
 - id: tui-human-interaction
-  name: '@omdsh/tui/human-interaction'
+  name: '@oh-my-dsh/dsh-tui/human-interaction'
 
 - id: tui-command-session
-  name: '@omdsh/tui/command-session'
+  name: '@oh-my-dsh/dsh-tui/command-session'
 
 - id: tui-command-queue
-  name: '@omdsh/tui/command-queue'
+  name: '@oh-my-dsh/dsh-tui/command-queue'
 
 - id: tui-command-model
-  name: '@omdsh/tui/command-model'
+  name: '@oh-my-dsh/dsh-tui/command-model'
+
+- id: tui-command-mode
+  name: '@oh-my-dsh/dsh-tui/command-mode'
 
 - id: tui-command-transcript
-  name: '@omdsh/tui/command-transcript'
-
-- id: tui-command-attachment
-  name: '@omdsh/tui/command-attachment'
+  name: '@oh-my-dsh/dsh-tui/command-transcript'
 
 - id: tui-command-integrations
-  name: '@omdsh/tui/command-integrations'
+  name: '@oh-my-dsh/dsh-tui/command-integrations'
 
 - id: runner
-  name: '@omdsh/tui/runner'
+  name: '@oh-my-dsh/dsh-tui/runner'

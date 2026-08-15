@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from './command-integrations.ts'
-import { modelStatus, recentSessionContent, sessionControls, sessionStats, userSkillCommands } from './session-controller.ts'
+import {
+  createSubmissionMessage,
+  modelStatus,
+  recentSessionContent,
+  sessionControls,
+  sessionStats,
+  userSkillCommands,
+} from './session-controller.ts'
+
+const PNG_1X1 = new Uint8Array(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zk5sAAAAASUVORK5CYII=',
+  'base64',
+))
 
 describe('modelStatus', () => {
   it('shows the effective adapter default and prefers an explicit effort', () => {
@@ -29,6 +42,35 @@ describe('sessionControls', () => {
       plan: { active: true, pending: false },
       permission: 'workspace-write',
     })
+  })
+})
+
+describe('createSubmissionMessage', () => {
+  it('validates every draft image before saving and emits one mixed user message', async () => {
+    const calls: string[] = []
+    const ref = {
+      attachmentId: AttachmentId('attachment:test'),
+      mediaType: 'image/png' as const,
+      bytes: PNG_1X1.byteLength,
+      width: 1,
+      height: 1,
+      name: 'clipboard.png',
+    }
+    const attachments = {
+      validateImage: async () => { calls.push('validate') },
+      saveImage: async () => { calls.push('save'); return ref },
+    }
+
+    const message = await createSubmissionMessage({
+      text: '[Image #1, 1x1] describe this',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+    }, attachments)
+
+    expect(calls).toEqual(['validate', 'save'])
+    expect(message.content).toEqual([
+      { type: 'text', text: '[Image #1, 1x1] describe this' },
+      { type: 'image', attachment: ref },
+    ])
   })
 })
 

@@ -2,7 +2,7 @@
  * Compact markdown → terminal lines. Enough of OMP's Markdown component for
  * the transcript: headings, emphasis, links, strikethrough, inline/fenced
  * code, nested/task lists, quotes, tables, hr.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import { BOX, type Theme } from './theme.ts'

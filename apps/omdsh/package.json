@@ -1,5 +1,5 @@
 {
-  "name": "@omdsh/app",
+  "name": "@oh-my-dsh/dsh-coding-agent",
   "description": "omdsh: TUI coding agent command over the DeepSeek Harness runtime",
   "version": "0.1.0",
   "type": "module",
@@ -62,7 +62,7 @@
     "@deepseek-ai/dsh-tool-todo": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6",
-    "@omdsh/tui": "workspace:^",
+    "@oh-my-dsh/dsh-tui": "workspace:^",
     "@deepseek-ai/dsh-subprocess-local": "0.1.0-rc.6",
     "@deepseek-ai/dsh-settings-file": "0.1.0-rc.6",
     "@deepseek-ai/dsh-credentials-local": "0.1.0-rc.6"

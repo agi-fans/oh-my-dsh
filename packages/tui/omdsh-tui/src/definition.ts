@@ -7,10 +7,11 @@
  * through this protocol. The vocabulary mirrors the SDK wire surface
  * (session.event / session.status), so a future remote UI can reuse the
  * definition unchanged.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { TuiToolPresentation } from './tool-renderers.ts'
 
 /** Context service name providers publish under. */
@@ -44,6 +45,8 @@ export interface TuiPrompt {
   }[]
   multiSelect?: boolean
   allowCustom?: boolean
+  /** Option value selected when a fixed-choice prompt opens. */
+  initialValue?: string
   /** Full-height searchable list instead of the default prompt card. */
   presentation?: 'fullscreen-list' | 'plan-review'
   /** Choice that approves a dedicated review; other choices may collect feedback. */
@@ -100,9 +103,24 @@ export interface TuiSessionStats {
   elapsedMs?: number
 }
 
+/** One unsent image draft owned by the terminal until submission succeeds. */
+export interface TuiInputImage {
+  data: Uint8Array
+  mediaType: ImageMediaType
+  name?: string
+  width?: number
+  height?: number
+}
+
+/** Atomic composer submission: visible text plus its client-owned image drafts. */
+export interface TuiSubmission {
+  text: string
+  images: readonly TuiInputImage[]
+}
+
 /**
  * Terminal presentation service.
- * Implementations must be single-consumer: one runner owns readline().
+ * Implementations must be single-consumer: one runner owns readInput().
  */
 export interface TuiService {
   /** Render one session-log event (streamed as recorded). */
@@ -131,18 +149,20 @@ export interface TuiService {
     controls?: TuiSessionControls
   }): void
   /**
-   * Read the next submitted input line. Resolves null when the user quits
+   * Read the next submitted composer value. Resolves null when the user quits
    * (Ctrl-D on empty input, or stdin EOF in non-tty mode). One in-flight
    * call at a time.
    */
-  readline(): Promise<string | null>
+  readInput(): Promise<TuiSubmission | null>
+  /** Restore an accepted draft when persistence or dispatch fails. */
+  restoreInput(submission: TuiSubmission): void
   /**
    * Subscribe to Ctrl-C. The listener fires when the user presses Ctrl-C
    * while a turn is running; an idle Ctrl-C clears the input line instead.
    * @returns disposer removing the listener.
    */
   onInterrupt(listener: () => void): () => void
-  /** Restore terminal state and settle a pending readline with null. */
+  /** Restore terminal state and settle a pending input read with null. */
   dispose(): void
 }
 

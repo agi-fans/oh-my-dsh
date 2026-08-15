@@ -34,12 +34,12 @@ The application composition in [`apps/omdsh/config/cordis.yml`](../apps/omdsh/co
 
 The TUI exposes supported plugin entries with distinct roles:
 
-- `@omdsh/tui` provides the local terminal implementation of the TUI service.
-- `@omdsh/tui/session-runtime` owns the active top-level Agent and session lifecycle.
-- `@omdsh/tui/tool-presentation` adapts scoped tool-owned presentation intents.
-- `@omdsh/tui/human-interaction` adapts approval and user-question services.
-- `@omdsh/tui/command-*` groups product commands by capability and contributes them through `dsh-commands`.
-- `@omdsh/tui/runner` consumes the TUI and session runtime for the interactive input loop.
+- `@oh-my-dsh/dsh-tui` provides the local terminal implementation of the TUI service.
+- `@oh-my-dsh/dsh-tui/session-runtime` owns the active top-level Agent and session lifecycle.
+- `@oh-my-dsh/dsh-tui/tool-presentation` adapts scoped tool-owned presentation intents.
+- `@oh-my-dsh/dsh-tui/human-interaction` adapts approval and user-question services.
+- `@oh-my-dsh/dsh-tui/command-*` groups product commands by capability and contributes them through `dsh-commands`.
+- `@oh-my-dsh/dsh-tui/runner` consumes the TUI and session runtime for the interactive input loop.
 
 The status line consumes session-stats and token-meter projections instead of maintaining an unrelated source of truth. Commands, skills, tools, approval, and questions are discovered from the active Harness scope rather than compiled into the application composition.
 
@@ -104,55 +104,52 @@ Splitting these into Cordis plugins would add shallow interfaces and ordering co
 The first migration can keep one npm package and expose multiple Cordis plugin subpaths. Package separation is justified later only when a capability needs independent reuse, dependencies, release cadence, or ownership.
 
 ```text
-@omdsh/tui/definition
+@oh-my-dsh/dsh-tui/definition
 └── TuiService interface and provider-neutral view vocabulary
 
-@omdsh/tui/provider-local
+@oh-my-dsh/dsh-tui/provider-local
 ├── terminal ownership, raw input, viewport, cursor, and atomic rendering
 └── consumes provider-neutral view state and prompt requests
 
-@omdsh/tui/session-runtime
+@oh-my-dsh/dsh-tui/session-runtime
 ├── active Agent/session lifecycle
 ├── create, resume, switch, send, steer, retry, and queue operations
 └── publishes a small session-control interface
 
-@omdsh/tui/runner
+@oh-my-dsh/dsh-tui/runner
 ├── reads submitted input
 ├── dispatches slash commands through dsh-commands
 └── sends ordinary messages through session-runtime
 
-@omdsh/tui/human-interaction
+@oh-my-dsh/dsh-tui/human-interaction
 ├── approval provider adapter
 └── user-question provider adapter
 
-@omdsh/tui/tool-presentation
+@oh-my-dsh/dsh-tui/tool-presentation
 ├── resolves ToolDefinition.presentCall/presentResult for the active scope
 └── maps DSH render intents into terminal cards with a generic fallback
 
-@omdsh/tui/command-session
+@oh-my-dsh/dsh-tui/command-session
 ├── new, resume, session, and retry
 └── registers through dsh-commands
 
-@omdsh/tui/command-queue
+@oh-my-dsh/dsh-tui/command-queue
 ├── steer, queue, and dequeue
 └── registers through dsh-commands
 
-@omdsh/tui/command-model
+@oh-my-dsh/dsh-tui/command-model
 └── model selection and reasoning effort
 
-@omdsh/tui/command-transcript
+@oh-my-dsh/dsh-tui/command-transcript
 ├── search
 └── export
 
-@omdsh/tui/command-attachment
-└── attach
-
-@omdsh/tui/command-integrations
+@oh-my-dsh/dsh-tui/command-integrations
 ├── mcp catalog
 └── other integration discovery commands
 ```
 
-This shape keeps the terminal provider authoritative while making product capabilities visible in `cordis.yml`. An application profile can then include or omit transcript export, attachments, MCP discovery, or model switching without editing the TUI provider or runner.
+This shape keeps the terminal provider authoritative while making product capabilities visible in `cordis.yml`. An application profile can then include or omit transcript export, MCP discovery, or model switching without editing the TUI provider or runner. Image drafts stay inside the terminal provider until submission, while the independently composed Harness attachment store owns validation and durable persistence; no separate `/attach` command is needed.
 
 ## Proposed Interface Responsibilities
 

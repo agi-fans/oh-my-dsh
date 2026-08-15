@@ -1,6 +1,6 @@
 /**
  * Durable TUI appearance and status-line preferences on the user-settings seam.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import z from '@deepseek-ai/schemastery'

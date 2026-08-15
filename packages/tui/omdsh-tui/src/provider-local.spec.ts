@@ -15,6 +15,15 @@ import { createHistorySearch } from './history-search.ts'
 import type { DirEntry, PathSearcher, ProjectPathEntry } from './path-complete.ts'
 import { stripAnsi } from './width.ts'
 
+const PNG_1X1 = new Uint8Array(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zk5sAAAAASUVORK5CYII=',
+  'base64',
+))
+
+const flushAsyncPaste = async (): Promise<void> => {
+  await new Promise<void>(resolve => { setImmediate(resolve) })
+}
+
 class FakeTerminal implements TerminalLike {
   captured = ''
   writes = 0
@@ -203,6 +212,7 @@ describe('LocalTui (tty)', () => {
   it('renders a fixed-choice prompt without a custom-answer editor', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
+    const beforePrompt = term.captured.length
     const answer = tui.prompt({
       title: 'Skills · 2 available',
       question: 'Skills are reusable playbooks.',
@@ -219,8 +229,30 @@ describe('LocalTui (tty)', () => {
     expect(stripAnsi(term.captured)).toContain('reusable playbooks')
     expect(stripAnsi(term.captured)).toContain('enter run')
     expect(stripAnsi(term.captured)).not.toContain('custom answer')
+    expect(term.captured.slice(beforePrompt)).toContain('\x1b[?25l')
+    const beforeClose = term.captured.length
     press(term, '\x1b[B\r')
     expect(await answer).toBe('research')
+    expect(term.captured.slice(beforeClose)).toContain('\x1b[?25h')
+    tui.dispose()
+  })
+
+  it('opens a fixed-choice prompt on its current value', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const answer = tui.prompt({
+      title: 'Access mode',
+      question: 'Choose how omdsh may access your workspace',
+      options: [
+        { label: 'Read only', value: 'read-only' },
+        { label: 'Workspace write', value: 'workspace-write' },
+      ],
+      initialValue: 'workspace-write',
+      allowCustom: false,
+    })
+
+    press(term, '\r')
+    expect(await answer).toBe('workspace-write')
     tui.dispose()
   })
 
@@ -407,6 +439,106 @@ describe('LocalTui (tty)', () => {
     press(term, '\x1b\r')
     press(term, 'two\r')
     expect(await pending).toBe('one\ntwo')
+    tui.dispose()
+  })
+
+  it('smart-pastes a clipboard image as an OMP-style draft and submits it with text', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboard: async () => 'text fallback',
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png' }),
+    })
+    const pending = tui.readInput()
+
+    press(term, '\x16')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('[Image #1, 1x1]')
+    expect(stripAnsi(term.captured)).not.toContain('text fallback')
+
+    press(term, 'describe this\r')
+    await expect(pending).resolves.toEqual({
+      text: '[Image #1, 1x1] describe this',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+    })
+    tui.dispose()
+  })
+
+  it('loads Finder file-url clipboard images when no raw bitmap is available', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboard: async () => '',
+      readClipboardImage: async () => null,
+      readClipboardFiles: async () => ['/tmp/Screenshot 2026-08-15.png'],
+      readImagePath: async () => ({ data: PNG_1X1, mediaType: 'image/png', name: 'Screenshot 2026-08-15.png' }),
+    })
+    const pending = tui.readInput()
+
+    press(term, '\x16\r')
+    await expect(pending).resolves.toMatchObject({
+      text: '[Image #1, 1x1]',
+      images: [{ mediaType: 'image/png', name: 'Screenshot 2026-08-15.png' }],
+    })
+    tui.dispose()
+  })
+
+  it('turns a bracketed-paste image path into a draft attachment', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readImagePath: async path => path === '/tmp/screenshot.png'
+        ? { data: PNG_1X1, mediaType: 'image/png', name: 'screenshot.png' }
+        : null,
+    })
+    const pending = tui.readInput()
+
+    press(term, '\x1b[200~/tmp/screenshot.png\x1b[201~')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('[Image #1, 1x1]')
+    press(term, '\r')
+    await expect(pending).resolves.toMatchObject({
+      text: '[Image #1, 1x1]',
+      images: [{ mediaType: 'image/png', name: 'screenshot.png', width: 1, height: 1 }],
+    })
+    tui.dispose()
+  })
+
+  it('queues Enter behind an asynchronous image paste', async () => {
+    const term = new FakeTerminal()
+    let resolveImage: ((image: { data: Uint8Array; mediaType: 'image/png' }) => void) | undefined
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: () => new Promise(resolve => { resolveImage = resolve }),
+    })
+    const pending = tui.readInput()
+    let settled = false
+    void pending.then(() => { settled = true })
+
+    press(term, '\x16\r')
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    resolveImage?.({ data: PNG_1X1, mediaType: 'image/png' })
+    await expect(pending).resolves.toMatchObject({ text: '[Image #1, 1x1]' })
+    tui.dispose()
+  })
+
+  it('restores a failed image submission ahead of a newer draft without colliding markers', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png' }),
+    })
+    const firstRead = tui.readInput()
+    press(term, '\x16\r')
+    const first = await firstRead
+    expect(first).not.toBeNull()
+
+    press(term, '\x16')
+    await flushAsyncPaste()
+    tui.restoreInput(first as NonNullable<typeof first>)
+    const restored = tui.readInput()
+    press(term, '\r')
+
+    await expect(restored).resolves.toMatchObject({
+      text: '[Image #1, 1x1]\n[Image #2, 1x1]',
+      images: [{ mediaType: 'image/png' }, { mediaType: 'image/png' }],
+    })
     tui.dispose()
   })
 
@@ -780,6 +912,21 @@ describe('LocalTui (tty)', () => {
     const pending = tui.readline()
     press(term, '/skill:code-review focus on auth\r')
     expect(await pending).toBe('/skill:code-review focus on auth')
+    tui.dispose()
+  })
+
+  it('exposes /mode instead of the raw permission command', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setCommands([
+      { name: 'permission', description: 'Switch permission preset', inputHint: '<preset>' },
+      { name: 'mode', description: 'Choose the session access mode' },
+    ])
+    const pending = tui.readline()
+    press(term, '/permission danger-full-access\r')
+    expect(stripAnsi(term.captured)).toContain('unknown command: /permission')
+    press(term, '/mode\r')
+    expect(await pending).toBe('/mode')
     tui.dispose()
   })
 

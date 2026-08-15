@@ -1,6 +1,6 @@
 /**
  * Best-effort system clipboard write for `/copy`.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import { spawn } from 'node:child_process'

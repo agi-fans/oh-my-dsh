@@ -5,7 +5,7 @@
  * responsive group selection, color hierarchy, and terminal layout. English
  * copy deliberately stays local until a runtime language module provides a
  * second locale — then this is the single seam where a dictionary is chosen.
- * @module @omdsh/tui/status-line
+ * @module @oh-my-dsh/dsh-tui/status-line
  */
 
 import type { TuiSessionControls, TuiSessionStats } from './definition.ts'

@@ -1,7 +1,7 @@
 /**
  * Interactive runner: reads submitted terminal input and delegates session
  * lifecycle and slash-command dispatch to the mounted session runtime.
- * @module @omdsh/tui/runner
+ * @module @oh-my-dsh/dsh-tui/runner
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -45,17 +45,19 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
         operation = undefined
       }
     } else if (args.length > 0) {
-      controller.send(args.join(' '))
+      await controller.send(args.join(' '))
     }
     for (;;) {
-      const line = await tui.readline()
-      if (line === null) break
-      if (line.trim() === '') continue
-      if (line.trimStart().startsWith('/')) {
+      const submission = await tui.readInput()
+      if (submission === null) break
+      if (submission.text.trim() === '' && submission.images.length === 0) continue
+      if (submission.images.length === 0 && submission.text.trimStart().startsWith('/')) {
         operation = new AbortController()
         try {
-          const handled = await controller.execute(line, operation.signal)
-          if (!handled) tui.notice(`Unknown command: ${line.trim().split(/\s/u, 1)[0] ?? line}`, 'error')
+          const handled = await controller.execute(submission.text, operation.signal)
+          if (!handled) {
+            tui.notice(`Unknown command: ${submission.text.trim().split(/\s/u, 1)[0] ?? submission.text}`, 'error')
+          }
         } catch (error: unknown) {
           if (!operation.signal.aborted) {
             tui.notice(error instanceof Error ? error.message : String(error), 'error')
@@ -64,7 +66,12 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
           operation = undefined
         }
       } else {
-        controller.send(line)
+        try {
+          await controller.send(submission)
+        } catch (error: unknown) {
+          tui.restoreInput(submission)
+          tui.notice(error instanceof Error ? error.message : String(error), 'error')
+        }
       }
     }
     // EOF means "no more input", not "discard the accepted work". Let the
@@ -80,7 +87,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
 
 export function apply(ctx: Context): void {
   const tui = ctx.get('tui')
-  if (tui === undefined) throw new Error('omdsh-runner: the tui provider must be mounted (config row: @omdsh/tui)')
+  if (tui === undefined) throw new Error('omdsh-runner: the tui provider must be mounted (config row: @oh-my-dsh/dsh-tui)')
   const exit = ctx.get('appExit')
   if (exit === undefined) throw new Error('omdsh-runner: the launcher must provide ctx.appExit before the tree mounts')
   void run(ctx, tui).catch((error: unknown) => { fail(error, exit) })

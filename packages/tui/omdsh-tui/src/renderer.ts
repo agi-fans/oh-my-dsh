@@ -15,7 +15,7 @@
  * The renderer assumes exclusive write access to the output stream and a
  * terminal cursor that starts at row 0 column 0 when the first frame is
  * rendered.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 /** Transcript viewport after the height clip (OMP ScrollView equivalent). */

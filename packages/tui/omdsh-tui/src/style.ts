@@ -1,7 +1,7 @@
 /**
  * Thin adapter over the oh-my-pi theme for callers that still want the
  * original six wrap functions. New view code should use `createTheme`.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import { createTheme } from './theme.ts'

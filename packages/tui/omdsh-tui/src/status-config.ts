@@ -1,6 +1,6 @@
 /**
  * Status-line customization shared by settings, persistence, and rendering.
- * @module @omdsh/tui/status-config
+ * @module @oh-my-dsh/dsh-tui/status-config
  */
 
 /** Stable telemetry groups users can show, hide, and reorder. */

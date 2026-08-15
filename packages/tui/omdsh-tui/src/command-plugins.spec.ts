@@ -52,7 +52,7 @@ describe('omdsh command plugins', () => {
       kind: 'success',
       text: expect.stringContaining('| Mode | Plan |'),
     })
-    expect(details.result).toMatchObject({ text: expect.stringContaining('| Permissions | `workspace-write` |') })
+    expect(details.result).toMatchObject({ text: expect.stringContaining('| Access mode | `workspace-write` |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Reasoning | `high` |') })
 
     await fiber.dispose()

@@ -1,14 +1,26 @@
-# @omdsh/app
+# @oh-my-dsh/dsh-coding-agent
 
 The `omdsh` command: a TUI coding agent over the DeepSeek Harness core runtime. Boots the shipped `config/cordis.yml` composition through the harness boot machinery (`dsh-app-boot`), provides the command line and exit request, and leaves process lifetime to the mounted runner.
 
-## Run
+## Install
 
 ```sh
-# source mode (development)
+npm install --global @oh-my-dsh/dsh-coding-agent
+omdsh
+```
+
+Or run it without a global installation:
+
+```sh
+npx @oh-my-dsh/dsh-coding-agent
+```
+
+## Develop
+
+```sh
+pnpm install
 pnpm omdsh "list files"
 
-# built artifact
 node lib/bin.js "list files"
 ```
 
@@ -21,6 +33,6 @@ Skills are discovered from project/user `.dsh/skills` and `.agents/skills` roots
 ## Verify
 
 ```sh
-pnpm --filter @omdsh/app test   # keyless pipe-mode e2e
+pnpm --filter @oh-my-dsh/dsh-coding-agent test   # keyless pipe-mode e2e
 pnpm smoke                     # keyless interactive PTY e2e
 ```

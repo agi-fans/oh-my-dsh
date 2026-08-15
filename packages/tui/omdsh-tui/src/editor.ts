@@ -2,7 +2,7 @@
  * Input-editor state machine: OMP readline/emacs bindings over a single
  * buffer that may contain newlines. Pure — the provider owns history,
  * interrupt, and process lifetime.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import type { KeyEvent } from './keys.ts'

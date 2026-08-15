@@ -101,7 +101,7 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
       `| Model | \`${selection.provider}/${selection.model}\` |`,
       `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
       `| Mode | ${mode} |`,
-      ...(controls.permission === undefined ? [] : [`| Permissions | \`${controls.permission}\` |`]),
+      ...(controls.permission === undefined ? [] : [`| Access mode | \`${controls.permission}\` |`]),
       `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
       `| Tokens | ${stats.inputTokens} in · ${stats.outputTokens} out |`,
       `| Queue | ${invocation.agent.inbox.nextTurn.length} follow-up · ${invocation.agent.inbox.nextStep.length} steering |`,
@@ -109,12 +109,12 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
   }
 }
 
-function retry(ctx: Context, invocation: CommandInvocation): CommandResult {
+async function retry(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /retry' }
   for (let i = invocation.agent.session.events.length - 1; i >= 0; i -= 1) {
     const text = humanText(invocation.agent.session.events[i] as SessionEvent)
     if (text === undefined) continue
-    ctx.omdshSession.send(text, invocation.agent)
+    await ctx.omdshSession.send(text, invocation.agent)
     return { kind: 'success', text: 'Re-running the most recent human prompt as a new turn.' }
   }
   return { kind: 'success', text: 'No human prompt is available to retry.' }

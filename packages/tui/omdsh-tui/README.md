@@ -1,4 +1,4 @@
-# @omdsh/tui
+# @oh-my-dsh/dsh-tui
 
 The omdsh TUI capability seam: terminal presentation for the DeepSeek Harness core runtime. One capability seam, three roles, complete:
 

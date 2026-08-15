@@ -7,7 +7,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - `omdsh` is a TUI coding agent built on the published DeepSeek Harness packages and inspired by the interaction quality of oh-my-pi.
 - Preserve the DeepSeek Harness “everything is a plugin” architecture. New capabilities should be Cordis plugins, services, providers, consumers, or app composition whenever that model fits.
 - Keep product-owned implementation inside `apps/`, `packages/`, `scripts/`, and `docs/`. Do not place omdsh implementation in a reference project.
-- `apps/omdsh` owns command startup and runtime composition. `packages/tui/omdsh-tui` owns terminal presentation, input, session interaction, and reusable TUI behavior.
+- `apps/omdsh` owns the `@oh-my-dsh/dsh-coding-agent` package, command startup, and runtime composition. `packages/tui/omdsh-tui` owns the `@oh-my-dsh/dsh-tui` package, terminal presentation, input, session interaction, and reusable TUI behavior.
 - Prefer deep, explicit package seams over copying upstream internals. If a second provider or consumer creates a real independent lifecycle, split the seam then rather than pre-emptively.
 
 ## Reference Repositories Are Read-Only
@@ -25,7 +25,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - All `@deepseek-ai/dsh-*`, `@deepseek-ai/cordis*`, and other DeepSeek runtime packages must be consumed from npm through normal package exports.
 - Pin one coherent published DSH release across direct dependencies. Do not mix incompatible DSH release candidates merely because an npm `latest` tag points at an older line.
 - Use exact versions for DSH runtime packages so installs and the runtime composition are reproducible. Update `pnpm-lock.yaml` whenever dependency versions change.
-- The only expected `workspace:` dependencies are omdsh-owned packages such as `@omdsh/tui`. A DeepSeek package using `workspace:` is a boundary violation.
+- The only expected `workspace:` dependencies are omdsh-owned packages such as `@oh-my-dsh/dsh-tui`. A DeepSeek package using `workspace:` is a boundary violation.
 - Import only files that are actually present in the published package. Prefer public package exports; an export-map entry that targets an omitted source file is not a usable API.
 - If a required upstream capability is not published, first look for a public library API or implement a local adapter. Do not silently fall back to `refs/`.
 - Keep `pnpm-workspace.yaml` scoped to omdsh-owned packages and apps. Treat any addition under `refs/` as an error.

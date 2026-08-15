@@ -270,7 +270,7 @@ describe('blockLines', () => {
   })
 
   it('keeps the right cap visible for a styled long bash command', () => {
-    const command = 'pnpm --filter @omdsh/tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @omdsh/tui build'
+    const command = 'pnpm --filter @oh-my-dsh/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @oh-my-dsh/dsh-tui build'
     const lines = blockLines({
       kind: 'tool',
       callId: CallId('call-long'),
@@ -559,6 +559,7 @@ describe('renderView', () => {
     expect(text).toContain('enter run')
     expect(text).not.toContain('skill-1 —')
     expect(frame.editor).toBeUndefined()
+    expect(frame.cursorVisible).toBe(false)
     expect(frame.lines.length).toBeLessThanOrEqual(24)
   })
 
@@ -668,6 +669,7 @@ describe('renderView', () => {
     expect(text).not.toContain('draft')
     expect(frame.editor).toBeUndefined()
     expect(frame.overlay?.kind).toBe('copy')
+    expect(frame.cursorVisible).toBe(false)
   })
 
   it('omits the editor hit box while settings is open', () => {

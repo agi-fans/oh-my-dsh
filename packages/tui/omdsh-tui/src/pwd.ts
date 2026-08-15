@@ -1,7 +1,7 @@
 /**
  * `/pwd` notice: workspace cwd, git branch, and model.
  * Pure — the provider owns the live values.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 /** Inputs painted by `/pwd`. */

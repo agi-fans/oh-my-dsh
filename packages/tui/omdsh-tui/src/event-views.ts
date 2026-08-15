@@ -6,7 +6,7 @@
  * single reader. windowTranscript clips the body the way OMP's ScrollView
  * does. Both are pure so the whole rendering pipeline is testable without
  * a terminal.
- * @module @omdsh/tui
+ * @module @oh-my-dsh/dsh-tui
  */
 
 import type { CallId, ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -272,6 +272,8 @@ export interface ViewOptions {
   input: string
   /** Cursor column inside the input buffer (0-based, before the prefix). */
   inputCursor: number
+  /** Number of client-owned image drafts represented by input markers. */
+  inputImages?: number
   /** Whether to emit color SGR sequences. */
   colors: boolean
   /** Working directory shown in the footer. */
@@ -645,6 +647,26 @@ export function windowTranscript(
   }
 }
 
+const IMAGE_MARKER = /\[Image #\d+(?:, \d+x\d+)?\]/gu
+
+function paintImageMarkerSlice(fullText: string, slice: string, sourceStart: number, theme: Theme): string {
+  const sourceEnd = sourceStart + slice.length
+  let output = ''
+  let cursor = sourceStart
+  for (const match of fullText.matchAll(IMAGE_MARKER)) {
+    const markerStart = match.index
+    const markerEnd = markerStart + match[0].length
+    if (markerEnd <= sourceStart || markerStart >= sourceEnd) continue
+    const overlapStart = Math.max(sourceStart, markerStart)
+    const overlapEnd = Math.min(sourceEnd, markerEnd)
+    output += fullText.slice(cursor, overlapStart)
+    output += theme.underline(theme.bold(theme.fg('accent', fullText.slice(overlapStart, overlapEnd))))
+    cursor = overlapEnd
+  }
+  output += fullText.slice(cursor, sourceEnd)
+  return output
+}
+
 /**
  * Compose the welcome card, transcript, working row, and rounded editor into
  * one frame — the oh-my-pi surface.
@@ -751,6 +773,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     inputCursor: options.inputCursor,
     status: ' ' + theme.fg('accent', '🐳') + ' ',
     border: state.status === 'running' ? 'accent' : 'border',
+    ...(options.inputImages === undefined || options.inputImages === 0
+      ? {}
+      : { paintInput: (text: string, start: number) => paintImageMarkerSlice(options.input, text, start, theme) }),
     ...(inlineHint !== null ? { inlineHint } : {}),
   }
   const promptSelector = options.promptSelector === undefined
@@ -816,6 +841,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       row: editorStart + caret.row,
       column: Math.min(caret.column, width),
     },
+    cursorVisible: promptSelector?.cursorVisible
+      ?? (settings === undefined && copySelector === undefined),
     ...(promptSelector?.editor !== undefined
       ? { editor: { start: editorStart + promptSelector.editor.start, rows: promptSelector.editor.rows } }
       : editor === undefined ? {} : { editor: { start: editorStart, rows: editor.lines.length } }),

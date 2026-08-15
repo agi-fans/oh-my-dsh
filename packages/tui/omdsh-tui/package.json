@@ -1,5 +1,5 @@
 {
-  "name": "@omdsh/tui",
+  "name": "@oh-my-dsh/dsh-tui",
   "description": "Cordis plugin suite for omdsh terminal presentation, session interaction, commands, and human input",
   "version": "0.1.0",
   "type": "module",
@@ -46,13 +46,13 @@
       "types": "./lib/types/command-model.d.ts",
       "default": "./lib/command-model.js"
     },
+    "./command-mode": {
+      "types": "./lib/types/command-mode.d.ts",
+      "default": "./lib/command-mode.js"
+    },
     "./command-transcript": {
       "types": "./lib/types/command-transcript.d.ts",
       "default": "./lib/command-transcript.js"
-    },
-    "./command-attachment": {
-      "types": "./lib/types/command-attachment.d.ts",
-      "default": "./lib/command-attachment.js"
     },
     "./command-integrations": {
       "types": "./lib/types/command-integrations.d.ts",

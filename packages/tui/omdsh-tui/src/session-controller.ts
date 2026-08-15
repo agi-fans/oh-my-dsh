@@ -4,7 +4,7 @@
  * This is the deep module between Harness runtime services and the TUI:
  * Agent creation, replacement, persistence lookup, model selection, recent
  * sessions, projections, command routing, and cleanup stay behind one API.
- * @module @omdsh/tui/session-controller
+ * @module @oh-my-dsh/dsh-tui/session-controller
  */
 
 import { randomUUID } from 'node:crypto'
@@ -17,6 +17,8 @@ import {
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-attachment'
 import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/types'
@@ -35,6 +37,7 @@ import type {
   TuiService,
   TuiSessionControls,
   TuiSessionStats,
+  TuiSubmission,
 } from './definition.ts'
 import type {} from './tool-presentation.ts'
 
@@ -257,6 +260,35 @@ function compactDescription(value: string, maxLength: number = 140): string {
   return normalized.length <= maxLength ? normalized : normalized.slice(0, maxLength - 1).trimEnd() + '…'
 }
 
+interface SubmissionAttachmentStore {
+  validateImage(input: SaveImageAttachment): Promise<void>
+  saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
+}
+
+/** Validate all drafts, persist them, then build one atomic mixed user message. */
+export async function createSubmissionMessage(
+  submission: TuiSubmission,
+  attachments?: SubmissionAttachmentStore,
+) {
+  const inputs: SaveImageAttachment[] = submission.images.map(image => ({
+    data: image.data,
+    mediaType: image.mediaType,
+    ...(image.name === undefined ? {} : { name: image.name }),
+  }))
+  if (inputs.length > 0 && attachments === undefined) throw new Error('Attachment storage is not configured.')
+  const refs: ImageAttachmentRef[] = []
+  if (attachments !== undefined) {
+    for (const input of inputs) await attachments.validateImage(input)
+    for (const input of inputs) refs.push(await attachments.saveImage(input))
+  }
+  const content = [
+    ...(submission.text === '' ? [] : [{ type: 'text' as const, text: submission.text }]),
+    ...refs.map(attachment => ({ type: 'image' as const, attachment })),
+  ]
+  if (content.length === 0) throw new Error('Cannot submit an empty message.')
+  return createUserMessage({ content, source: { kind: 'user' } })
+}
+
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
   readonly #ctx: Context
@@ -318,10 +350,13 @@ export class SessionRuntime {
     await this.refreshRecent()
   }
 
-  /** Submit ordinary human text; active turns retain it as a later follow-up. */
-  send(text: string, agent: Agent = this.#requiredAgent()): void {
+  /** Submit one human composer value; active turns retain it as a later follow-up. */
+  async send(input: string | TuiSubmission, agent: Agent = this.#requiredAgent()): Promise<void> {
     this.assertActive(agent)
-    agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+    const submission = typeof input === 'string' ? { text: input, images: [] } : input
+    const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
+    this.assertActive(agent)
+    agent.followup(message)
   }
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
@@ -339,7 +374,7 @@ export class SessionRuntime {
     if (execution === undefined) {
       const skill = await this.#findUserSkill(skillNameFromCommand(parsed.name), signal)
       if (skill === undefined) return false
-      this.send('/' + skill.name + (parsed.input === '' ? '' : ' ' + parsed.input))
+      await this.send('/' + skill.name + (parsed.input === '' ? '' : ' ' + parsed.input))
       return true
     }
     const result = execution.result

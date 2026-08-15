@@ -18,11 +18,11 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/resume', text: 'Continue a durable session' },
   { key: '/model', text: 'Switch model and reasoning effort' },
   { key: '/plan', text: 'Plan before making workspace changes' },
-  { key: '/permission', text: 'Switch the session access preset' },
+  { key: '/mode', text: 'Choose the session access mode' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
   { key: '/search', text: 'Find text in this transcript' },
-  { key: '/attach', text: 'Send an image-only prompt' },
+  { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
   { key: '/tools', text: 'Inspect tools available to the agent' },
   { key: '/mcp', text: 'Inspect connected MCP servers' },
 ]

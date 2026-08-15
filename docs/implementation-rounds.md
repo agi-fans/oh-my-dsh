@@ -28,9 +28,9 @@
 
 | 能力 | 状态 | 实现位置 |
 |---|---|---|
-| 图片与附件 | 已完成 | 本地 attachment store；`/attach <path>` 支持 PNG/JPEG/WebP/GIF，事件重放中显示尺寸与类型占位 |
+| 图片与附件 | 已完成 | `Ctrl+V` 智能识别剪贴板图片或图片路径，在 composer 中显示 `[Image #N, WxH]` 草稿并支持图文混合提交；本地 attachment store 在提交边界统一校验和持久化 PNG/JPEG/WebP/GIF，事件重放中显示尺寸与类型占位 |
 | 外部编辑器 | 已完成 | `Ctrl+X` 使用 `$VISUAL`/`$EDITOR` 编辑当前多行 prompt，返回后重建终端 frame |
-| 可配置 keybindings | 已完成 | `$OMDSH_HOME/omdsh/keybindings.json`；支持外部编辑、retry、原样粘贴和复制 prompt/当前行 |
+| 可配置 keybindings | 已完成 | `$OMDSH_HOME/omdsh/keybindings.json`；支持外部编辑、retry、智能剪贴板粘贴和复制 prompt/当前行 |
 | 持久输入历史 | 已完成 | owner-only JSONL：`$OMDSH_HOME/omdsh/history.jsonl`，保留多行输入 |
 | Transcript 搜索/导出 | 已完成 | `/search <query>` 搜当前会话；`/search --all <query>` 搜全部会话；`/export [path]` 导出完整 Markdown 日志 |
 | 高级 Markdown | 已完成 | GFM 表格/任务列表/链接、代码语言高亮、HTML 归一化、行内/块公式和 Mermaid 终端文本图 |
@@ -52,7 +52,6 @@
 /dequeue
 /todo
 /mcp
-/attach <image-path>
 /search [--all] <query>
 /export [path]
 ```
@@ -83,4 +82,4 @@
 
 ## 验证基线
 
-当前 `@omdsh/tui` 有 30 个测试文件、269 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。
+当前 `@oh-my-dsh/dsh-tui` 有 30 个测试文件、269 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。
