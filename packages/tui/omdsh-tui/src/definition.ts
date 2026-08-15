@@ -27,6 +27,13 @@ export interface TuiCommand {
   inputHint?: string
 }
 
+/** Presentation intent for a direct, non-session notice. */
+export interface TuiNoticeOptions {
+  level?: 'info' | 'error'
+  /** Reserve a component frame for callers that explicitly own a panel. */
+  framed?: boolean
+}
+
 /** One terminal-owned human prompt used by approval and question adapters. */
 export interface TuiPrompt {
   title: string
@@ -45,10 +52,14 @@ export interface TuiPrompt {
   }[]
   multiSelect?: boolean
   allowCustom?: boolean
+  /** Mask custom input while retaining the real value only in the prompt editor. */
+  secret?: boolean
   /** Option value selected when a fixed-choice prompt opens. */
   initialValue?: string
   /** Full-height searchable list instead of the default prompt card. */
   presentation?: 'fullscreen-list' | 'plan-review'
+  /** Row density for full-screen lists; compact rows keep short choices together. */
+  optionLayout?: 'compact' | 'spacious'
   /** Choice that approves a dedicated review; other choices may collect feedback. */
   approveValue?: string
   /** Let typed text filter the available options. */
@@ -134,7 +145,7 @@ export interface TuiService {
   /** Replace commands contributed by the active agent's Harness scope. */
   setCommands(commands: readonly TuiCommand[]): void
   /** Append a direct UI/command result without fabricating a session event. */
-  notice(text: string, level?: 'info' | 'error'): void
+  notice(text: string, options?: TuiNoticeOptions): void
   /** Append one successful plugin command result using the command-output surface. */
   commandOutput(command: string, text: string): void
   /** Temporarily own the composer and collect one human answer. */

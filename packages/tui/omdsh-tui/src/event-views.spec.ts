@@ -182,21 +182,22 @@ describe('blockLines', () => {
     expect(stripAnsi(lines[0] ?? '')).not.toContain('•')
   })
 
-  it('keeps multiline results and errors framed', () => {
+  it('renders notices unframed by default and frames only explicit panels', () => {
     const multiline = blockLines({ kind: 'notice', level: 'info', text: 'Results\nfirst row' }, theme, 60)
     const error = blockLines({ kind: 'notice', level: 'error', text: 'Resume failed.' }, theme, 60)
     const colorTheme = createTheme(true, true)
     const coloredInfo = blockLines({ kind: 'notice', level: 'info', text: 'Status\ndetail' }, colorTheme, 60)
     const coloredError = blockLines({ kind: 'notice', level: 'error', text: 'Status' }, colorTheme, 60)
+    const panel = blockLines({ kind: 'notice', level: 'info', text: 'Panel\ndetail', framed: true }, theme, 60)
 
-    expect(multiline.join('\n')).toMatch(/[╭╰]/u)
-    expect(stripAnsi(multiline[0] ?? '')).toMatch(/^╭─── Results /u)
-    expect(stripAnsi(multiline[0] ?? '')).not.toContain('•')
-    expect(error.join('\n')).toMatch(/[╭╰]/u)
-    expect(stripAnsi(error[0] ?? '')).toContain('Resume failed.')
-    expect(stripAnsi(error[0] ?? '')).not.toContain('✘')
-    expect(coloredInfo[0]).toContain(colorTheme.getFgAnsi('border'))
+    for (const lines of [multiline, error, coloredInfo, coloredError]) {
+      expect(lines.join('\n')).not.toMatch(/[╭│╰]/u)
+      expect(stripAnsi(lines[0] ?? '')).toMatch(/^  /u)
+    }
+    expect(stripAnsi(error[0] ?? '')).toBe('  Resume failed.')
     expect(coloredError[0]).toContain(colorTheme.getFgAnsi('error'))
+    expect(panel.join('\n')).toMatch(/[╭╰]/u)
+    expect(stripAnsi(panel[0] ?? '')).toMatch(/^╭─── Panel /u)
   })
 
   it('renders the tool catalog as an unframed heading and a protected Markdown table', () => {

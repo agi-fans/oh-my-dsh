@@ -55,6 +55,15 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - Run `pnpm check:md` after changing Markdown. Use `pnpm format:md` when the repository formatter reports a fixable issue.
 - Keep architecture and feature documents consistent with the actual dependency boundary: published npm packages are runtime dependencies; `refs/` supplies reference links only.
 
+## Changelog and Releases
+
+- Maintain `CHANGELOG.md` using Keep a Changelog, with Semantic Versioning for releases.
+- Add every user-visible feature, behavior change, bug fix, deprecation, removal, or security fix to `Unreleased` in the same change that introduces it. Do not add routine refactors, tests, formatting, or internal documentation unless they materially affect users or release operations.
+- Use only the standard headings that apply: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and `Security`. Keep entries concise, user-facing, and free of commit-message noise.
+- Do not create a dated version section before that version is actually released. When releasing, move the accumulated `Unreleased` entries into `## [X.Y.Z] - YYYY-MM-DD`, restore an empty `Unreleased` section, and update the comparison links at the bottom of the file.
+- Keep the versions of the root manifest, `@agi-fans/oh-my-dsh`, and `@agi-fans/dsh-tui` synchronized unless the repository explicitly adopts independent package versioning.
+- Choose version increments by public impact: after `1.0.0`, incompatible behavior or API changes require a major increment, backward-compatible functionality requires a minor increment, and backward-compatible fixes require a patch increment. During the initial `0.y.z` development series, use a minor increment for compatibility breaks and document them prominently; use a patch increment only for backward-compatible fixes.
+
 ## Implementation Practices
 
 - Preserve user changes in a dirty worktree and keep unrelated edits out of the current task.

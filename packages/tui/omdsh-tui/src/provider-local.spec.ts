@@ -237,6 +237,26 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('returns secret prompt input without rendering its value', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const secret = 'sk-never-render-this'
+    const answer = tui.prompt({
+      title: 'Login to DeepSeek',
+      question: 'Paste your DeepSeek API key',
+      allowCustom: true,
+      secret: true,
+    })
+
+    press(term, secret)
+    expect(stripAnsi(term.captured)).not.toContain(secret)
+    expect(stripAnsi(term.captured)).toContain('•'.repeat(secret.length))
+    press(term, '\r')
+    expect(await answer).toBe(secret)
+    expect(stripAnsi(term.captured)).not.toContain(secret)
+    tui.dispose()
+  })
+
   it('opens a fixed-choice prompt on its current value', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

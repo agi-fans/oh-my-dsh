@@ -17,6 +17,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Ctrl+C ×2', text: 'Exit with a resumable session hint' },
   { key: '/resume', text: 'Continue a durable session' },
   { key: '/model', text: 'Switch model and reasoning effort' },
+  { key: '/login', text: 'Configure and validate your DeepSeek API key' },
   { key: '/plan', text: 'Plan before making workspace changes' },
   { key: '/mode', text: 'Choose the session access mode' },
   { key: '/settings', text: 'Customize appearance and status' },

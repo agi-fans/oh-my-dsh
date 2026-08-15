@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderPlanReviewPage, type PromptSelectorState } from './prompt-selector.ts'
+import { maskPromptSecret, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
 
@@ -66,5 +66,58 @@ describe('plan review page', () => {
     expect(text).toContain('Cover the failure path')
     expect(feedback.editor).toEqual({ start: 21, rows: 1 })
     expect(feedback.cursorVisible).toBe(true)
+  })
+})
+
+describe('secret prompt', () => {
+  it('masks the value without changing editor indices or exposing the key', () => {
+    const secret = 'sk-secret-value'
+    const state: PromptSelectorState = {
+      request: {
+        title: 'Login to DeepSeek',
+        question: 'Paste your DeepSeek API key',
+        allowCustom: true,
+        secret: true,
+      },
+      selected: 0,
+      checked: new Set(),
+    }
+    const frame = renderPromptSelector(state, createTheme(false), 72, secret, secret.length)
+    const text = stripAnsi(frame.lines.join('\n'))
+
+    expect(maskPromptSecret(secret)).toBe('•'.repeat(secret.length))
+    expect(text).not.toContain(secret)
+    expect(text).toContain('•'.repeat(secret.length))
+    expect(text).toContain('API key · hidden')
+    expect(frame.cursorVisible).toBe(true)
+  })
+})
+
+describe('full-screen selector density', () => {
+  it('keeps compact choices and their descriptions on one row', () => {
+    const state: PromptSelectorState = {
+      request: {
+        title: 'Model',
+        question: 'Choose a model',
+        presentation: 'fullscreen-list',
+        optionLayout: 'compact',
+        filterable: true,
+        allowCustom: false,
+        options: [
+          { label: 'deepseek-v4-flash', description: 'DeepSeek-V4-Flash' },
+          { label: 'deepseek-v4-pro', description: 'DeepSeek-V4-Pro' },
+        ],
+      },
+      selected: 0,
+      checked: new Set(),
+    }
+
+    const frame = renderPromptSelectorPage(state, createTheme(false), 80, 24, '', 0, 'omdsh')
+    const rows = frame.lines.map(stripAnsi)
+
+    expect(frame.lines).toHaveLength(24)
+    expect(rows.some(row => row.includes('deepseek-v4-flash — DeepSeek-V4-Flash'))).toBe(true)
+    expect(rows.some(row => row.includes('deepseek-v4-pro — DeepSeek-V4-Pro'))).toBe(true)
+    expect(frame.itemRows?.filter(index => index !== undefined)).toHaveLength(2)
   })
 })

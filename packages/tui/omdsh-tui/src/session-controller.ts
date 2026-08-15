@@ -379,7 +379,7 @@ export class SessionRuntime {
     }
     const result = execution.result
     if (result.text !== undefined) {
-      if (result.kind === 'error') this.#tui.notice(result.text, 'error')
+      if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error' })
       else this.#tui.commandOutput(parsed.name, result.text)
     }
     return true

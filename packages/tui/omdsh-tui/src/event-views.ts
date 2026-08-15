@@ -48,7 +48,7 @@ export type Block =
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'hotkeyCatalog'; bindings: HotkeyBindings }
   | { kind: 'commandOutput'; command: string; text: string }
-  | { kind: 'notice'; level: 'info' | 'error'; text: string }
+  | { kind: 'notice'; level: 'info' | 'error'; text: string; framed?: boolean }
 
 /** Live session status shown on the status line. */
 export type SessionStatus = 'idle' | 'running'
@@ -435,11 +435,12 @@ export function blockLines(
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'hotkeyCatalog') return renderHotkeysPanel(block.bindings, theme, width)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
-  if (block.level === 'info' && !block.text.includes('\n')) {
+  if (block.framed !== true) {
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
+    const tone = block.level === 'error' ? 'error' : 'dim'
     return wrapText(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
-      truncateToWidth((index === 0 ? prefix : continuation) + theme.fg('dim', line), width))
+      truncateToWidth((index === 0 ? prefix : continuation) + theme.fg(tone, line), width))
   }
   const state = block.level === 'error' ? 'error' : 'info'
   const paint = (text: string): string => (block.level === 'error' ? theme.fg('error', text) : theme.fg('dim', text))

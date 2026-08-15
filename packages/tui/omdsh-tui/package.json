@@ -59,6 +59,10 @@
       "types": "./lib/command-mode.d.ts",
       "default": "./lib/command-mode.js"
     },
+    "./command-auth": {
+      "types": "./lib/command-auth.d.ts",
+      "default": "./lib/command-auth.js"
+    },
     "./command-transcript": {
       "types": "./lib/command-transcript.d.ts",
       "default": "./lib/command-transcript.js"
@@ -90,6 +94,7 @@
     "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-cmdline": "0.1.0-rc.6",
     "@deepseek-ai/dsh-commands": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
     "@deepseek-ai/dsh-permission-presets": "0.1.0-rc.6",
     "@deepseek-ai/dsh-plan-mode": "0.1.0-rc.6",

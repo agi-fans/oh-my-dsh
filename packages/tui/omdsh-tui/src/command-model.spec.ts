@@ -8,12 +8,11 @@ import type { TuiService } from './definition.ts'
 import type { SessionRuntime } from './session-controller.ts'
 
 describe('model command', () => {
-  it('uses searchable fixed-choice pages without a custom-answer editor', async () => {
+  it('skips a sole provider and uses a compact searchable model page', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const prompt = vi.fn()
-      .mockResolvedValueOnce('deepseek-official')
       .mockResolvedValueOnce('deepseek-v4-flash')
     const tui = { prompt } as unknown as TuiService
     const runtime = {
@@ -39,12 +38,14 @@ describe('model command', () => {
 
     await ctx.commands.execute(agent, '/model', new AbortController().signal)
 
-    expect(prompt).toHaveBeenCalledTimes(2)
+    expect(prompt).toHaveBeenCalledTimes(1)
     for (const [request] of prompt.mock.calls) {
       expect(request).toMatchObject({
         presentation: 'fullscreen-list',
+        optionLayout: 'compact',
         filterable: true,
         allowCustom: false,
+        initialValue: 'deepseek-v4-flash',
       })
     }
     await ctx.fiber.dispose()

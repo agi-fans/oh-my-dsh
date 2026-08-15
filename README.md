@@ -50,9 +50,10 @@ Requirements: Node.js 22.19 or newer (Node.js 24 is also supported) and a DeepSe
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
-export DEEPSEEK_API_KEY=your_api_key
 omdsh
 ```
+
+Run `/login` inside omdsh to open the DeepSeek API-key dashboard, paste a key into a masked prompt, validate it, and save it through the Harness credential store. A key chosen interactively takes priority over an inherited `DEEPSEEK_API_KEY` on the next model request and across restarts. Use `/logout` to remove that omdsh-managed choice and fall back to `DEEPSEEK_API_KEY` when one is available. CI and externally managed environments can continue using the environment variable without running `/login`.
 
 You can also run omdsh without installing it globally:
 
@@ -60,7 +61,7 @@ You can also run omdsh without installing it globally:
 npx @agi-fans/oh-my-dsh
 ```
 
-Model and provider settings can also come from `$DSH_HOME/settings.yaml`, while credentials follow the DeepSeek Harness credential resolution flow. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).
+Model settings can also come from `$DSH_HOME/settings.yaml`, while credentials follow the DeepSeek Harness credential resolution flow. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).
 
 ## Development
 
@@ -75,6 +76,10 @@ pnpm smoke:happy         # mock-LLM happy path
 ```
 
 The checkouts in `refs/deepseek-harness` and `refs/oh-my-pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
+
+## Changelog
+
+User-visible changes and release history are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Acknowledgements
 

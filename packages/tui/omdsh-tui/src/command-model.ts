@@ -13,6 +13,7 @@ export const inject = ['commands', 'omdshSession', 'tui', 'llm']
 
 const FIXED_CHOICE = {
   presentation: 'fullscreen-list' as const,
+  optionLayout: 'compact' as const,
   filterable: true,
   allowCustom: false,
 }
@@ -27,24 +28,31 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   const providers = ctx.llm.listProviders()
   if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
-  const providerRaw = await ctx.tui.prompt({
-    ...FIXED_CHOICE,
-    title: 'Model provider',
-    question: 'Choose a provider',
-    options: providers.map(provider => ({ label: provider.id, description: provider.name })),
-    signal: invocation.signal,
-  })
-  if (providerRaw === null) return { kind: 'success' }
-  const provider = selected(providerRaw, providers.map(entry => entry.id))
-  if (provider === undefined || !providers.some(entry => entry.id === provider)) {
-    return { kind: 'error', text: `Unknown provider: ${providerRaw}` }
+  let provider = providers[0]?.id
+  if (providers.length > 1) {
+    const providerRaw = await ctx.tui.prompt({
+      ...FIXED_CHOICE,
+      title: 'Model provider',
+      question: 'Choose a provider',
+      options: providers.map(entry => ({ label: entry.id, description: entry.name })),
+      initialValue: current.provider,
+      signal: invocation.signal,
+    })
+    if (providerRaw === null) return { kind: 'success' }
+    provider = selected(providerRaw, providers.map(entry => entry.id))
+    if (provider === undefined || !providers.some(entry => entry.id === provider)) {
+      return { kind: 'error', text: `Unknown provider: ${providerRaw}` }
+    }
   }
+  if (provider === undefined) return { kind: 'error', text: 'No model provider is available.' }
   const models = await ctx.llm.listModels(provider)
+  if (models.length === 0) return { kind: 'error', text: `No models are available for ${provider}.` }
   const modelRaw = await ctx.tui.prompt({
     ...FIXED_CHOICE,
     title: 'Model',
     question: `Choose a model for ${provider}`,
     options: models.map(model => ({ label: model.id, description: model.description ?? model.name })),
+    ...(provider === current.provider ? { initialValue: current.model } : {}),
     signal: invocation.signal,
   })
   if (modelRaw === null) return { kind: 'success' }
@@ -62,6 +70,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
       title: 'Reasoning effort',
       question: 'Choose reasoning effort',
       options: info.reasoning.efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
+      ...(reasoningEffort === undefined ? {} : { initialValue: String(reasoningEffort) }),
       signal: invocation.signal,
     })
     if (effortRaw === null) return { kind: 'success' }

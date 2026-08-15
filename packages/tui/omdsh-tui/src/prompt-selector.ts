@@ -31,6 +31,11 @@ export const PROMPT_SELECTOR_MAX_VISIBLE = 10
 
 type PromptOption = NonNullable<TuiPrompt['options']>[number]
 
+/** Preserve editor indices and line breaks while hiding every entered cell. */
+export function maskPromptSecret(input: string): string {
+  return input.replace(/[^\r\n]/g, '•')
+}
+
 /** Options matching the current full-screen selector query. */
 export function filteredPromptOptions(request: TuiPrompt, query: string): readonly PromptOption[] {
   const options = request.options ?? []
@@ -129,21 +134,30 @@ export function renderPromptSelectorPage(
   }
   const options = filteredPromptOptions(state.request, input)
   const selected = Math.max(0, Math.min(state.selected, Math.max(0, options.length - 1)))
-  const fixedRows = 11
-  const visibleCount = Math.max(1, Math.floor((pageHeight - fixedRows) / 4))
+  const compact = state.request.optionLayout === 'compact'
+  const fixedRows = compact ? 9 : 11
+  const visibleCount = compact
+    ? Math.max(1, pageHeight - fixedRows)
+    : Math.max(1, Math.floor((pageHeight - fixedRows) / 4))
   const { start, end } = promptSelectorVisibleRange(options.length, selected, visibleCount)
   const itemRows: (number | undefined)[] = Array.from({ length: pageHeight })
   const detail = state.request.detail === undefined || state.request.detail === ''
     ? ''
     : ' ' + theme.fg('muted', `(${state.request.detail})`)
   const heading = theme.bold(state.request.title) + detail
-  const lines = [
-    pageTop(theme, width, appName),
-    pageRow(theme, '', width),
-    pageRow(theme, ' ' + heading, width),
-    pageRow(theme, '', width),
-    pageDivider(theme, width),
-  ]
+  const lines = compact
+    ? [
+        pageTop(theme, width, appName),
+        pageRow(theme, ' ' + heading, width),
+        pageDivider(theme, width),
+      ]
+    : [
+        pageTop(theme, width, appName),
+        pageRow(theme, '', width),
+        pageRow(theme, ' ' + heading, width),
+        pageRow(theme, '', width),
+        pageDivider(theme, width),
+      ]
   const searchPrefix = theme.fg('dim', '> ')
   const searchText = truncateToWidth(input, Math.max(1, width - 8))
   const searchRow = lines.length
@@ -156,6 +170,12 @@ export function renderPromptSelectorPage(
     for (let index = start; index < end; index += 1) {
       const option = options[index]
       if (option === undefined) continue
+      if (compact) {
+        const row = lines.length
+        itemRows[row] = index
+        lines.push(pageRow(theme, optionRow(option, index, { ...state, selected }, theme, Math.max(1, width - 6)), width))
+        continue
+      }
       const active = index === selected
       const marker = active ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
       const label = active ? theme.bold(option.label) : option.label
@@ -287,9 +307,10 @@ export function renderPromptSelector(
       body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · scroll for more`))
     }
   }
-  const submit = state.request.submitLabel?.trim() || (state.request.multiSelect === true ? 'confirm' : 'select')
+  const submit = state.request.submitLabel?.trim()
+    || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')
   const navigation = options.length === 0
-    ? 'enter answer · esc cancel'
+    ? `enter ${submit} · esc cancel`
     : state.request.multiSelect === true
       ? `↑↓ navigate · space toggle · enter ${submit} · esc cancel`
       : `↑↓ navigate · enter ${submit} · esc cancel`
@@ -311,11 +332,13 @@ export function renderPromptSelector(
       cursorVisible: false,
     }
   }
+  const secret = state.request.secret === true
+  const displayInput = secret ? maskPromptSecret(input) : input
   const editor = renderEditor({
     width,
-    input,
+    input: displayInput,
     inputCursor,
-    status: theme.fg('muted', input === '' ? 'answer' : 'custom answer'),
+    status: theme.fg('muted', secret ? 'API key · hidden' : input === '' ? 'answer' : 'custom answer'),
     border: 'accent',
   }, theme)
   const editorStart = card.length + 1

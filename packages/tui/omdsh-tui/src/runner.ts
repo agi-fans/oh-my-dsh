@@ -40,7 +40,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
       try {
         await controller.execute(`/resume ${args[1]}`, operation.signal)
       } catch (error: unknown) {
-        if (!operation.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), 'error')
+        if (!operation.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
       } finally {
         operation = undefined
       }
@@ -56,11 +56,11 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
         try {
           const handled = await controller.execute(submission.text, operation.signal)
           if (!handled) {
-            tui.notice(`Unknown command: ${submission.text.trim().split(/\s/u, 1)[0] ?? submission.text}`, 'error')
+            tui.notice(`Unknown command: ${submission.text.trim().split(/\s/u, 1)[0] ?? submission.text}`, { level: 'error' })
           }
         } catch (error: unknown) {
           if (!operation.signal.aborted) {
-            tui.notice(error instanceof Error ? error.message : String(error), 'error')
+            tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
           }
         } finally {
           operation = undefined
@@ -70,7 +70,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
           await controller.send(submission)
         } catch (error: unknown) {
           tui.restoreInput(submission)
-          tui.notice(error instanceof Error ? error.message : String(error), 'error')
+          tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
         }
       }
     }

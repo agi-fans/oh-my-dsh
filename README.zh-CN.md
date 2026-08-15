@@ -50,9 +50,10 @@ TUI 软件包在内部拆分为服务定义、本地终端 Provider 和交互式
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
-export DEEPSEEK_API_KEY=your_api_key
 omdsh
 ```
+
+进入 omdsh 后运行 `/login`，程序会打开 DeepSeek API Key 管理页，并通过遮罩输入框接收和验证 Key，再将其保存到 Harness 凭据存储中。用户主动选择的 Key 会从下一次模型请求开始优先于继承的 `DEEPSEEK_API_KEY`，重启后仍然有效。使用 `/logout` 可以删除这份由 omdsh 管理的配置，并在存在 `DEEPSEEK_API_KEY` 时回退到环境变量；CI 或外部托管环境仍可直接使用环境变量而无需运行 `/login`。
 
 也可以不进行全局安装，直接临时运行：
 
@@ -60,7 +61,7 @@ omdsh
 npx @agi-fans/oh-my-dsh
 ```
 
-模型和 Provider 配置也可以来自 `$DSH_HOME/settings.yaml`，凭据则遵循 DeepSeek Harness 的解析流程。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.md)。
+模型配置也可以来自 `$DSH_HOME/settings.yaml`，凭据则遵循 DeepSeek Harness 的解析流程。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.md)。
 
 ## 开发
 
@@ -77,6 +78,10 @@ pnpm smoke:happy         # 使用模拟 LLM 验证正常流程
 ```
 
 `refs/deepseek-harness` 与 `refs/oh-my-pi` 中的代码是只读参考项目。开发 omdsh 时不要将它们用作运行时依赖，也不要修改其内容。
+
+## 变更日志
+
+面向用户的变更与版本发布记录统一维护在 [CHANGELOG.md](CHANGELOG.md) 中。
 
 ## 致谢
 

@@ -56,9 +56,13 @@
 # route and API key setup out of the box.
 - id: settings
   name: '@deepseek-ai/dsh-settings-file'
+  config:
+    dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
 
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
+  config:
+    dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
 
 - id: agent
   name: '@deepseek-ai/dsh-agent'
@@ -232,6 +236,9 @@
 
 - id: tui-command-mode
   name: '@agi-fans/dsh-tui/command-mode'
+
+- id: tui-command-auth
+  name: '@agi-fans/dsh-tui/command-auth'
 
 - id: tui-command-transcript
   name: '@agi-fans/dsh-tui/command-transcript'

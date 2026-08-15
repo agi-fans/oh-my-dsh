@@ -20,6 +20,7 @@ import {
   TUI_SERVICE,
   type TuiCommand,
   type TuiPrompt,
+  type TuiNoticeOptions,
   type TuiRecentSession,
   type TuiService,
   type TuiSessionControls,
@@ -81,6 +82,7 @@ import {
   renderView,
   TRANSCRIPT_FAST_SCROLL,
   TRANSCRIPT_WHEEL_SCROLL,
+  type Block,
   type TranscriptState,
 } from './event-views.ts'
 import { flushPending, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, parseKeys, type KeyEvent } from './keys.ts'
@@ -376,8 +378,14 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
-  notice(text: string, level: 'info' | 'error' = 'info'): void {
-    this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'notice', level, text }] }
+  notice(text: string, options: TuiNoticeOptions = {}): void {
+    const block: Block = {
+      kind: 'notice',
+      level: options.level ?? 'info',
+      text,
+      ...(options.framed === true ? { framed: true } : {}),
+    }
+    this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
     if (this.#tty) this.#render()
     else this.#printPlain()
   }
@@ -747,7 +755,7 @@ export class LocalTui implements TuiService {
   #startAsyncPaste(operation: Promise<void>): void {
     this.#pasteInFlight += 1
     void operation.catch((error: unknown) => {
-      this.notice('Paste failed: ' + (error instanceof Error ? error.message : String(error)), 'error')
+      this.notice('Paste failed: ' + (error instanceof Error ? error.message : String(error)), { level: 'error' })
     }).finally(() => {
       this.#pasteInFlight = Math.max(0, this.#pasteInFlight - 1)
       if (this.#pasteInFlight !== 0 || this.#deferredPasteEvents.length === 0) return
@@ -1814,7 +1822,7 @@ export class LocalTui implements TuiService {
       this.#editor.setText(text)
       this.#reconcileImageDrafts()
     } catch (error: unknown) {
-      this.notice(error instanceof Error ? error.message : String(error), 'error')
+      this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {
       this.#term.input.setRawMode?.(true)
       this.#renderer.reset()
