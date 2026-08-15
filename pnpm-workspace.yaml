@@ -80,7 +80,6 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.6'
   - '@deepseek-ai/dsh-session-persistence@0.1.0-rc.6'
   - '@deepseek-ai/dsh-session-projection@0.1.0-rc.6'
-  - '@deepseek-ai/dsh-session-query-sqlite@0.1.0-rc.6'
   - '@deepseek-ai/dsh-session-query@0.1.0-rc.6'
   - '@deepseek-ai/dsh-session-stats@0.1.0-rc.6'
   - '@deepseek-ai/dsh-session-title@0.1.0-rc.6'

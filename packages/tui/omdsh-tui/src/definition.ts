@@ -167,12 +167,26 @@ export interface TuiService {
   readInput(): Promise<TuiSubmission | null>
   /** Restore an accepted draft when persistence or dispatch fails. */
   restoreInput(submission: TuiSubmission): void
+  /** Resolve one queued-message back-navigation request into the composer. */
+  resolveQueueEdit(submission: TuiSubmission | null): void
   /**
    * Subscribe to Ctrl-C. The listener fires when the user presses Ctrl-C
    * while a turn is running; an idle Ctrl-C clears the input line instead.
    * @returns disposer removing the listener.
    */
   onInterrupt(listener: () => void): () => void
+  /**
+   * Subscribe to an Up gesture while browsing queued follow-ups. The session
+   * runtime owns removing the previous durable message and resolving the
+   * request through {@link resolveQueueEdit}.
+   * @returns disposer removing the listener.
+   */
+  onQueueEdit(listener: () => void): () => void
+  /**
+   * Subscribe to the idle double-Escape gesture that opens conversation rewind.
+   * @returns disposer removing the listener.
+   */
+  onRewind(listener: () => void): () => void
   /** Restore terminal state and settle a pending input read with null. */
   dispose(): void
 }

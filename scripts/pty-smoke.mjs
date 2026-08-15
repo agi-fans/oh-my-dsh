@@ -1,6 +1,7 @@
 // Interactive-mode e2e: boots omdsh under a real PTY (raw-mode key path),
 // submits a prompt, waits for the failed turn's rendered error (fake API
-// key — keyless), quits with double Ctrl-C, and asserts the resume hint.
+// key — keyless), rewinds the failed human turn through double Escape, then
+// quits with double Ctrl-C and asserts the resume hint.
 // Run: node scripts/pty-smoke.mjs
 
 import { spawn } from 'node:child_process'
@@ -60,6 +61,18 @@ if (!(await waitFor(() => out.includes('error'), 'rendered turn error'))) {
   term.kill()
   process.exit(1)
 }
+term.write('\x1b')
+await sleep(100)
+term.write('\x1b')
+if (!(await waitFor(() => cleanOutput(out).includes('Rewind Conversation'), 'rewind selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Rewound to before turn 1.'), 'rewound session fork'))) {
+  term.kill()
+  process.exit(1)
+}
 term.write('\x03')
 await sleep(100)
 term.write('\x03')
@@ -78,6 +91,8 @@ const ok = exitCode === 0
   && clean.includes('error:')
   && clean.includes('deepseek-v4-flash')
   && hasReasoningEffort(clean)
+  && clean.includes('Rewind Conversation')
+  && clean.includes('Rewound to before turn 1.')
   && clean.includes('Resume this session with omdsh --resume session-')
 if (!ok) {
   console.error('FAIL: exit=' + exitCode)

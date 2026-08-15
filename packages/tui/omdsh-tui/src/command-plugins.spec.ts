@@ -4,10 +4,50 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandSession from './command-session.ts'
+import * as commandSteer from './command-steer.ts'
+import * as commandExport from './command-export.ts'
 import type { TuiService } from './definition.ts'
 import type { SessionRuntime } from './session-controller.ts'
 
 describe('omdsh command plugins', () => {
+  it('registers transcript export without a search command', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const fiber = await ctx.plugin(commandExport)
+    const session = ctx.sessions.create(SessionId('command-export-test'))
+    const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
+
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['export'])
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('registers steering without queue-management slash commands', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const steer = vi.fn()
+    const fiber = await ctx.plugin(commandSteer)
+    const session = ctx.sessions.create(SessionId('command-steer-test'))
+    const agent = {
+      id: session.id,
+      session,
+      status: 'idle',
+      inbox: { nextTurn: [], nextStep: [] },
+      steer,
+    } as unknown as Agent
+
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['steer'])
+    await expect(ctx.commands.execute(agent, '/steer focus on tests', new AbortController().signal))
+      .resolves.toMatchObject({ result: { kind: 'success' } })
+    expect(steer).toHaveBeenCalledOnce()
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('registers session commands through dsh-commands and removes them with its fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

@@ -30,7 +30,7 @@ omdsh 的终端交互外壳已经比较完整：TTY/pipe 双模式、差分渲�
 | 补全 | 基础完整 | slash、slash 参数、`@`、相对/绝对路径、Tab 和鼠标选择 | 命令源为静态列表；没有 skill/file/plugin 动态命令 |
 | 历史搜索 | 部分具备 | Ctrl+R 搜索当前进程输入历史 | 无跨进程持久化、session transcript 搜索和全局 session 搜索 |
 | 设置 | 部分具备 | dark/light、颜色开关、默认展开工具输出，并写入 Harness settings | 设置项和主题数量很少；不支持自定义主题和 keybindings |
-| Slash commands | 较少 | 8 个本地命令：help、settings、hotkeys、copy、tools、pwd、clear、quit | oh-my-pi 当前定义约 70 个顶级内置命令，且还有动态命令来源 |
+| Slash commands | 较少 | 6 个本地命令：help、settings、copy、tools、clear、quit；其余能力由插件动态贡献 | oh-my-pi 当前定义约 70 个顶级内置命令，且还有动态命令来源 |
 | Session | 基本缺失 | 每个进程创建一个随机 session | 无 persistence、resume、new、fork、branch、tree、rename、compact |
 | 模型选择 | 启动时可用 | CLI/env/settings 决定初始 provider/model | 无会话内 model/provider/effort 选择 |
 | 审批与提问 | 缺失 | 默认 trusted-local sandbox | 无 approval、ask-user、选项表单和 plan-review UI |
@@ -90,16 +90,14 @@ omdsh 的终端交互外壳已经比较完整：TTY/pipe 双模式、差分渲�
 
 | 命令 | 能力 |
 | --- | --- |
-| `/help` | 显示本地命令 |
+| `/help` | 显示命令与快捷键 |
 | `/settings` | 打开 TUI 设置 |
-| `/hotkeys` | 显示快捷键 |
 | `/copy` | 选择或直接复制回复、代码块和 bash 命令 |
 | `/tools` | 显示当前 agent 可见工具 |
-| `/pwd` | 显示 cwd、branch 和 model |
 | `/clear` | 仅清除本地 transcript 显示 |
 | `/quit` | 退出应用 |
 
-`/clear` 当前不会清除模型会话上下文，这一点与 oh-my-pi 的 conversation clear 语义不同。`/dirs` 目前只是 `/pwd` 的别名，也不等同于 oh-my-pi 的 multi-root workspace 管理。
+`/clear` 当前不会清除模型会话上下文，这一点与 oh-my-pi 的 conversation clear 语义不同。workspace、branch 和 model 已常驻状态 footer，因此不再重复提供 `/pwd` 和 `/dirs`。
 
 ## 缺失能力与优先级
 
@@ -252,13 +250,13 @@ command adapter 和 persistence 完成后，优先暴露：
 - 复制当前行和当前 prompt；
 - 持久化输入历史；
 - 自定义 keybindings 文件；
-- follow-up、steer、queue 和 dequeue 的明确语义；
+- follow-up 和 steer 的明确语义；
 - retry 快捷键；
 - tool visibility 与 tool expansion 分离。
 
 oh-my-pi 的应用级快捷键定义参考：[`refs/oh-my-pi/packages/coding-agent/src/config/keybindings.ts`](../refs/oh-my-pi/packages/coding-agent/src/config/keybindings.ts)。
 
-omdsh 当前虽然允许 agent 忙碌期间继续输入，但这些文本只进入本地 FIFO，runner 会在 `whenIdle()` 后按普通 follow-up 发送；它还没有 oh-my-pi 的 steer/follow-up/queue mode 区分。
+omdsh 允许 agent 忙碌期间继续输入，排队消息会显示在 composer 上方，runner 在 `whenIdle()` 后按 FIFO 发送；空输入时按 `↑` 可取回最新排队消息继续编辑，显式 `/steer` 则将指导发送到下一模型步骤。
 
 #### Markdown 与多模态
 

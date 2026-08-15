@@ -39,12 +39,6 @@
 - id: session-stats
   name: '@deepseek-ai/dsh-session-stats'
 
-- id: session-query
-  name: '@deepseek-ai/dsh-session-query-sqlite'
-  config:
-    path: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/sessions-query.sqlite'"
-    openAt: first-search
-
 - id: attachments
   name: '@deepseek-ai/dsh-attachment-local'
   config:
@@ -228,8 +222,8 @@
 - id: tui-command-session
   name: '@agi-fans/dsh-tui/command-session'
 
-- id: tui-command-queue
-  name: '@agi-fans/dsh-tui/command-queue'
+- id: tui-command-steer
+  name: '@agi-fans/dsh-tui/command-steer'
 
 - id: tui-command-model
   name: '@agi-fans/dsh-tui/command-model'
@@ -240,8 +234,8 @@
 - id: tui-command-auth
   name: '@agi-fans/dsh-tui/command-auth'
 
-- id: tui-command-transcript
-  name: '@agi-fans/dsh-tui/command-transcript'
+- id: tui-command-export
+  name: '@agi-fans/dsh-tui/command-export'
 
 - id: tui-command-integrations
   name: '@agi-fans/dsh-tui/command-integrations'

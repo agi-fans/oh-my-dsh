@@ -47,9 +47,9 @@
       "types": "./lib/command-session.d.ts",
       "default": "./lib/command-session.js"
     },
-    "./command-queue": {
-      "types": "./lib/command-queue.d.ts",
-      "default": "./lib/command-queue.js"
+    "./command-steer": {
+      "types": "./lib/command-steer.d.ts",
+      "default": "./lib/command-steer.js"
     },
     "./command-model": {
       "types": "./lib/command-model.d.ts",
@@ -63,9 +63,9 @@
       "types": "./lib/command-auth.d.ts",
       "default": "./lib/command-auth.js"
     },
-    "./command-transcript": {
-      "types": "./lib/command-transcript.d.ts",
-      "default": "./lib/command-transcript.js"
+    "./command-export": {
+      "types": "./lib/command-export.d.ts",
+      "default": "./lib/command-export.js"
     },
     "./command-integrations": {
       "types": "./lib/command-integrations.d.ts",

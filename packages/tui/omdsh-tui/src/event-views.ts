@@ -9,7 +9,9 @@
  * @module @agi-fans/dsh-tui
  */
 
-import type { CallId, ContentBlock } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-commands'
+import type { CallId, ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { renderAutocomplete, slashInlineHint } from './autocomplete.ts'
@@ -29,10 +31,9 @@ import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from 
 import { renderStatusFooter } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
-import type { TuiRecentSession, TuiSessionControls, TuiSessionStats } from './definition.ts'
+import type { TuiRecentSession, TuiSessionControls, TuiSessionStats, TuiSubmission } from './definition.ts'
 import { renderTool, type TuiToolPresentation } from './tool-renderers.ts'
 import { renderToolsPanel, type ToolInfo } from './tools-list.ts'
-import { renderHotkeysPanel, type HotkeyBindings } from './hotkeys.ts'
 import { renderCommandOutput, renderCommandSeparator } from './command-output.ts'
 import type { WelcomeTip } from './welcome-tips.ts'
 import { renderPathMentionRows } from './path-mentions.ts'
@@ -46,12 +47,11 @@ export type Block =
   | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean }
   | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
-  | { kind: 'hotkeyCatalog'; bindings: HotkeyBindings }
   | { kind: 'commandOutput'; command: string; text: string }
   | { kind: 'notice'; level: 'info' | 'error'; text: string; framed?: boolean }
 
-/** Live session status shown on the status line. */
-export type SessionStatus = 'idle' | 'running'
+/** Live session activity controlling the composer and activity row. */
+export type SessionStatus = 'idle' | 'running' | 'compacting'
 
 /** Mutable-free transcript state produced by applyEvent. */
 export interface TranscriptState {
@@ -61,11 +61,24 @@ export interface TranscriptState {
   status: SessionStatus
   /** The most recent turn number. */
   turn: number
+  /** Lifecycle id of a manual compact command currently owning the UI. */
+  compactCommandId: string | undefined
+  /** Durable follow-up turns waiting in the Harness-owned agent inbox. */
+  nextTurnInbox: UserMessage[]
+  /** Durable steering/context waiting for a later step (kept for splice fidelity). */
+  nextStepInbox: UserMessage[]
 }
 
 /** Empty starting state. */
 export function initialTranscript(): TranscriptState {
-  return { blocks: [], status: 'idle', turn: 0 }
+  return {
+    blocks: [],
+    status: 'idle',
+    turn: 0,
+    compactCommandId: undefined,
+    nextTurnInbox: [],
+    nextStepInbox: [],
+  }
 }
 
 /** Extract plain text from text blocks, ignoring other block kinds. */
@@ -131,7 +144,7 @@ export function applyEvent(
 ): TranscriptState {
   switch (event.type) {
     case 'turn/start':
-      return { ...state, status: 'running', turn: event.data.turn }
+      return { ...state, status: 'running', turn: event.data.turn, compactCommandId: undefined }
     case 'turn/end': {
       const blocks = state.blocks.slice()
       const last = blocks[blocks.length - 1]
@@ -144,7 +157,7 @@ export function applyEvent(
       } else if (reason.kind === 'aborted') {
         blocks.push({ kind: 'notice', level: 'info', text: 'interrupted' })
       }
-      return { ...state, blocks, status: 'idle' }
+      return { ...state, blocks, status: 'idle', compactCommandId: undefined }
     }
     case 'user/message': {
       // Synthetic plugin injections (system-prompt runtime context, skill
@@ -224,6 +237,29 @@ export function applyEvent(
     }
     case 'tool/result':
       return applyToolResult(state, event.data.message, event.data.error, presentation)
+    case 'command/run':
+      if (event.data.name !== 'compact') return state
+      return {
+        ...state,
+        status: 'compacting',
+        compactCommandId: event.data.commandId,
+      }
+    case 'command/done':
+      if (state.compactCommandId !== event.data.commandId) return state
+      return { ...state, status: 'idle', compactCommandId: undefined }
+    case 'agent/inbox/spliced': {
+      const key = event.data.target === 'next-turn' ? 'nextTurnInbox' : 'nextStepInbox'
+      return {
+        ...state,
+        [key]: state[key].toSpliced(
+          event.data.start,
+          event.data.removedCount ?? 0,
+          ...event.data.inserted,
+        ),
+      }
+    }
+    case 'session/end-seed':
+      return { ...state, nextTurnInbox: [], nextStepInbox: [] }
     // Log-only vocabulary (boundaries, usage, compaction, approvals, ...):
     // nothing to display; the recognized core events above own the surface.
     default:
@@ -274,6 +310,8 @@ export interface ViewOptions {
   inputCursor: number
   /** Number of client-owned image drafts represented by input markers. */
   inputImages?: number
+  /** Composer submissions accepted while the active turn is still running. */
+  queuedSubmissions?: readonly TuiSubmission[]
   /** Whether to emit color SGR sequences. */
   colors: boolean
   /** Working directory shown in the footer. */
@@ -433,7 +471,6 @@ export function blockLines(
   }
   if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
-  if (block.kind === 'hotkeyCatalog') return renderHotkeysPanel(block.bindings, theme, width)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
   if (block.framed !== true) {
     const prefix = '  '
@@ -475,11 +512,56 @@ interface TranscriptBodyCache {
 }
 
 /**
- * Scroll changes only the viewport. Cache the expensive Markdown/tool fold by
- * immutable TranscriptState identity so wheel frames slice already-rendered
- * rows instead of formatting the complete session again.
+ * Scroll, activity, inbox, and composer changes do not alter transcript blocks.
+ * Cache the expensive Markdown/tool fold by immutable block-array identity so
+ * those frames slice already-rendered rows instead of formatting the complete
+ * session again. Spinner frames matter only while a visible tool block runs.
  */
-const transcriptBodyCache = new WeakMap<TranscriptState, TranscriptBodyCache>()
+const transcriptBodyCache = new WeakMap<readonly Block[], TranscriptBodyCache>()
+
+interface BlockLinesCache {
+  width: number
+  colors: boolean
+  trueColor: boolean
+  themeName: ThemeName
+  spinnerFrame: number
+  expanded: boolean
+  lines: readonly string[]
+}
+
+/** Settled immutable blocks keep their expensive Markdown/tool layout. */
+const blockLinesCache = new WeakMap<Block, BlockLinesCache>()
+
+function cachedBlockLines(
+  block: Block,
+  options: ViewOptions,
+  theme: Theme,
+  themeName: ThemeName,
+  trueColor: boolean,
+  spinnerFrame: number,
+  expanded: boolean,
+): readonly string[] {
+  const animatedSpinnerFrame = block.kind === 'tool' && block.status === 'running' ? spinnerFrame : -1
+  const cached = blockLinesCache.get(block)
+  if (cached !== undefined
+    && cached.width === options.width
+    && cached.colors === options.colors
+    && cached.trueColor === trueColor
+    && cached.themeName === themeName
+    && cached.spinnerFrame === animatedSpinnerFrame
+    && cached.expanded === expanded) return cached.lines
+  const lines = blockLines(block, theme, options.width, spinnerFrame, expanded)
+  blockLinesCache.set(block, {
+    width: options.width,
+    colors: options.colors,
+    trueColor,
+    themeName,
+    spinnerFrame: animatedSpinnerFrame,
+    expanded,
+    lines,
+  })
+  return lines
+}
 
 function renderTranscriptBody(
   state: TranscriptState,
@@ -491,13 +573,16 @@ function renderTranscriptBody(
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
   const trueColor = options.trueColor === true
-  const cached = transcriptBodyCache.get(state)
+  const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
+    ? spinnerFrame
+    : -1
+  const cached = transcriptBodyCache.get(state.blocks)
   if (cached !== undefined
     && cached.width === options.width
     && cached.colors === options.colors
     && cached.trueColor === trueColor
     && cached.themeName === themeName
-    && cached.spinnerFrame === spinnerFrame
+    && cached.spinnerFrame === animatedSpinnerFrame
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools) {
     return { lines: cached.lines, blockStarts: cached.blockStarts }
@@ -518,15 +603,15 @@ function renderTranscriptBody(
     }
     blockStarts.push(lines.length)
     const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
-    lines.push(...blockLines(block, theme, options.width, spinnerFrame, expanded))
+    lines.push(...cachedBlockLines(block, options, theme, themeName, trueColor, spinnerFrame, expanded))
     previous = block
   }
-  transcriptBodyCache.set(state, {
+  transcriptBodyCache.set(state.blocks, {
     width: options.width,
     colors: options.colors,
     trueColor,
     themeName,
-    spinnerFrame,
+    spinnerFrame: animatedSpinnerFrame,
     toolsExpanded,
     expandedTools,
     lines,
@@ -537,7 +622,6 @@ function renderTranscriptBody(
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
   if (block?.kind === 'toolCatalog') return 'tools'
-  if (block?.kind === 'hotkeyCatalog') return 'hotkeys'
   if (block?.kind === 'commandOutput') return block.command
   return undefined
 }
@@ -668,6 +752,72 @@ function paintImageMarkerSlice(fullText: string, slice: string, sourceStart: num
   return output
 }
 
+/** Maximum number of queued composer submissions kept visible above the editor. */
+export const QUEUED_SUBMISSION_PREVIEW = 3
+
+function queuedSubmissionLabel(submission: TuiSubmission): string {
+  const text = submission.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+    .replaceAll('\n', ' ↵ ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (text !== '') return text
+  const count = submission.images.length
+  return count === 0 ? '(empty message)' : `${count} image${count === 1 ? '' : 's'}`
+}
+
+function queuedMessageLabel(message: UserMessage): string {
+  const text = contentToText(message.content).replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+    .replaceAll('\n', ' ↵ ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (text !== '') return text
+  const count = message.content.filter(block => block.type === 'image').length
+  return count === 0 ? '(empty message)' : `${count} image${count === 1 ? '' : 's'}`
+}
+
+/** Compact, unframed pending-message view placed immediately above the composer. */
+export function renderQueuedSubmissions(
+  submissions: readonly TuiSubmission[],
+  theme: Theme,
+  width: number,
+  inbox: readonly UserMessage[] = [],
+): string[] {
+  const labels = [
+    ...inbox.filter(message => message.source.kind === 'user').map(queuedMessageLabel),
+    ...submissions.map(queuedSubmissionLabel),
+  ]
+  if (labels.length === 0 || width <= 0) return []
+  const start = Math.max(0, labels.length - QUEUED_SUBMISSION_PREVIEW)
+  const hidden = start
+  const queueLabel = theme.bold(theme.fg('accent', 'Queued'))
+  const rail = '  ' + theme.fg('border', '│') + ' '
+  const alignAction = (left: string, action: string, preserveAction = true): string => {
+    const leftWidth = visibleWidth(left)
+    const actionWidth = visibleWidth(action)
+    if (leftWidth + actionWidth + 2 <= width) {
+      return left + ' '.repeat(width - leftWidth - actionWidth) + action
+    }
+    if (!preserveAction || actionWidth + 4 >= width) return truncateToWidth(left, width)
+    const paintedLeft = truncateToWidth(left, width - actionWidth - 2)
+    return paintedLeft + '  ' + action
+  }
+  if (labels.length === 1) {
+    return [alignAction(
+      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('text', labels[0] ?? ''),
+      theme.fg('dim', '↑ edit'),
+    )]
+  }
+  const summary = ` · ${labels.length}${hidden === 0 ? '' : ` · ${hidden} earlier`}`
+  const visibleLabels = labels.slice(start)
+  const lines = [
+    alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', '↑ edit latest'), false),
+    ...visibleLabels.map((label, index) =>
+      rail + theme.fg(index === visibleLabels.length - 1 ? 'accent' : 'dim', String(start + index + 1))
+        + '  ' + theme.fg('text', label)),
+  ]
+  return lines.map(line => truncateToWidth(line, width))
+}
+
 /**
  * Compose the welcome card, transcript, working row, and rounded editor into
  * one frame — the oh-my-pi surface.
@@ -755,7 +905,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     body.push(...transcript.lines)
   }
 
-  const working = state.status === 'running' ? renderWorking(theme, spinnerFrame, undefined, width) : []
+  const working = state.status === 'running'
+    ? renderWorking(theme, spinnerFrame, undefined, width)
+    : state.status === 'compacting'
+      ? renderWorking(theme, spinnerFrame, 'Compacting', width)
+      : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const inlineHint = slashInlineHint(options.input, options.inputCursor, options.commands)
   const statusFooter = renderStatusFooter({
@@ -773,7 +927,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     input: options.input,
     inputCursor: options.inputCursor,
     status: ' ' + theme.fg('accent', '🐳') + ' ',
-    border: state.status === 'running' ? 'accent' : 'border',
+    border: state.status === 'idle' ? 'border' : 'accent',
     ...(options.inputImages === undefined || options.inputImages === 0
       ? {}
       : { paintInput: (text: string, start: number) => paintImageMarkerSlice(options.input, text, start, theme) }),
@@ -806,6 +960,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const editor = promptSelector === undefined && settings === undefined && copySelector === undefined && search === undefined
     ? renderEditor(editorOpts, theme)
     : undefined
+  const queuedSubmissions = editor === undefined
+    ? []
+    : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
   const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []
@@ -813,7 +970,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = inputLines.length + working.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusStart = options.focusBlock === undefined
     ? undefined
@@ -826,10 +983,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
-  const bottomRows = working.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = working.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
+  lines.push(...queuedSubmissions)
   const editorStart = lines.length
   lines.push(...inputLines)
   lines.push(...autocomplete)
@@ -842,8 +1000,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       row: editorStart + caret.row,
       column: Math.min(caret.column, width),
     },
-    cursorVisible: promptSelector?.cursorVisible
-      ?? (settings === undefined && copySelector === undefined),
+    cursorVisible: state.status === 'compacting'
+      ? false
+      : promptSelector?.cursorVisible ?? (settings === undefined && copySelector === undefined),
     ...(promptSelector?.editor !== undefined
       ? { editor: { start: editorStart + promptSelector.editor.start, rows: promptSelector.editor.rows } }
       : editor === undefined ? {} : { editor: { start: editorStart, rows: editor.lines.length } }),

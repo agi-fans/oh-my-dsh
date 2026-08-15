@@ -22,7 +22,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/mode', text: 'Choose the session access mode' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
-  { key: '/search', text: 'Find text in this transcript' },
+  { key: 'Esc Esc', text: 'Rewind to an earlier conversation turn' },
   { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
   { key: '/tools', text: 'Inspect tools available to the agent' },
   { key: '/mcp', text: 'Inspect connected MCP servers' },

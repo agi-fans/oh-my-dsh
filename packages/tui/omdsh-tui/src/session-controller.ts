@@ -16,8 +16,8 @@ import {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
-import type { ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { createUserMessage, type LlmResolvedModelInfo, type UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-attachment'
 import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -28,7 +28,6 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
-import type {} from '@deepseek-ai/dsh-session-query'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
@@ -217,6 +216,54 @@ function humanMessageText(event: SessionEvent): string | undefined {
   return text === '' ? undefined : text
 }
 
+/** One direct human turn that can become a safe fork boundary. */
+export interface ConversationTurn {
+  /** Harness turn number shown to the user. */
+  turn: number
+  /** Index of the direct user/message event in the immutable log. */
+  messageIndex: number
+  /** Balanced seed boundary immediately before this turn starts. */
+  branchIndex: number
+  /** Single-line selector preview. */
+  preview: string
+  /** Number of image blocks in the selected message. */
+  imageCount: number
+}
+
+/** Find direct human messages whose preceding log prefix is safe to seed into a fork. */
+export function conversationTurns(events: readonly SessionEvent[]): ConversationTurn[] {
+  const turns: ConversationTurn[] = []
+  let open: { turn: number; branchIndex: number } | undefined
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index] as SessionEvent
+    if (event.type === 'turn/start') {
+      open = { turn: event.data.turn, branchIndex: index }
+      continue
+    }
+    if (event.type === 'turn/end') {
+      if (open?.turn === event.data.turn) open = undefined
+      continue
+    }
+    if (open === undefined || event.type !== 'user/message' || event.data.source.kind !== 'user') continue
+    const text = event.data.content
+      .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .replace(/\s+/gu, ' ')
+      .trim()
+    const imageCount = event.data.content.filter(block => block.type === 'image').length
+    if (text === '' && imageCount === 0) continue
+    turns.push({
+      turn: open.turn,
+      messageIndex: index,
+      branchIndex: open.branchIndex,
+      preview: text === '' ? (imageCount === 1 ? 'Image' : `${imageCount} images`) : text,
+      imageCount,
+    })
+  }
+  return turns
+}
+
 /** Title and latest-human-message preview for durable session discovery. */
 export function recentSessionContent(events: readonly SessionEvent[]): { title: string; preview?: string } | undefined {
   const generatedTitle = explicitSessionTitle(events)
@@ -265,6 +312,10 @@ interface SubmissionAttachmentStore {
   saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
 }
 
+interface RestoreAttachmentStore {
+  readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
+}
+
 /** Validate all drafts, persist them, then build one atomic mixed user message. */
 export async function createSubmissionMessage(
   submission: TuiSubmission,
@@ -287,6 +338,35 @@ export async function createSubmissionMessage(
   ]
   if (content.length === 0) throw new Error('Cannot submit an empty message.')
   return createUserMessage({ content, source: { kind: 'user' } })
+}
+
+/** Rehydrate one durable human inbox message into an editable composer draft. */
+export async function restoreSubmissionMessage(
+  message: UserMessage,
+  attachments?: RestoreAttachmentStore,
+): Promise<TuiSubmission> {
+  const text = message.content
+    .filter((block): block is Extract<(typeof message.content)[number], { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+  const refs = message.content
+    .filter((block): block is Extract<(typeof message.content)[number], { type: 'image' }> => block.type === 'image')
+    .map(block => block.attachment)
+  if (refs.length > 0 && attachments === undefined) {
+    throw new Error('The queued message contains images, but attachment storage is unavailable.')
+  }
+  const images = await Promise.all(refs.map(async (ref) => {
+    const stored = await attachments?.readImage(ref)
+    if (stored === undefined) throw new Error('Unable to restore an image from the queued message.')
+    return {
+      data: stored.data,
+      mediaType: stored.ref.mediaType,
+      ...(stored.ref.name === undefined ? {} : { name: stored.ref.name }),
+      width: stored.ref.width,
+      height: stored.ref.height,
+    }
+  }))
+  return { text, images }
 }
 
 /** Own one switchable top-level Agent and project it onto a TuiService. */
@@ -357,6 +437,21 @@ export class SessionRuntime {
     const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
     this.assertActive(agent)
     agent.followup(message)
+  }
+
+  /** Remove and rehydrate the newest durable human follow-up for queue browsing. */
+  async editLatestFollowup(agent: Agent = this.#requiredAgent()): Promise<TuiSubmission | undefined> {
+    this.assertActive(agent)
+    const message = agent.inbox.nextTurn.findLast(candidate => candidate.source.kind === 'user')
+    if (message === undefined || !agent.inbox.remove(message.id)) return undefined
+    try {
+      const submission = await restoreSubmissionMessage(message, this.#ctx.get('attachments'))
+      this.assertActive(agent)
+      return submission
+    } catch (error: unknown) {
+      try { agent.inbox.append('next-turn', message) } catch { /* agent retired or message was restored elsewhere */ }
+      throw error
+    }
   }
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
@@ -436,6 +531,96 @@ export class SessionRuntime {
       setup: agentCtx => { installModelSelection(agentCtx, ref) },
     })
     await this.#activate({ handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined })
+    await this.refreshRecent()
+  }
+
+  /** Fork before a selected human turn and restore that message as an editable draft. */
+  async rewindToTurn(signal: AbortSignal): Promise<void> {
+    const agent = this.#requiredAgent()
+    if (agent.status !== 'idle') return
+    const events = agent.session.events
+    const turns = conversationTurns(events)
+    if (turns.length === 0) {
+      this.#tui.notice('No conversation turns are available to rewind.')
+      return
+    }
+    const newestFirst = [...turns].reverse()
+    const answer = await this.#tui.prompt({
+      title: 'Rewind Conversation',
+      question: '',
+      detail: 'original session preserved',
+      options: newestFirst.map(turn => ({
+        label: `Turn ${turn.turn}`,
+        value: String(turn.messageIndex),
+        preview: turn.preview,
+        description: turn.imageCount === 0
+          ? 'Branch before this message'
+          : `Branch before this message · ${turn.imageCount} ${turn.imageCount === 1 ? 'image' : 'images'}`,
+      })),
+      initialValue: String(newestFirst[0]?.messageIndex),
+      presentation: 'fullscreen-list',
+      optionLayout: 'spacious',
+      filterable: true,
+      allowCustom: false,
+      submitLabel: 'rewind',
+      signal,
+    })
+    if (answer === null) return
+    this.assertActive(agent)
+    if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before rewinding.')
+    const selected = turns.find(turn => String(turn.messageIndex) === answer)
+    if (selected === undefined) throw new Error('The selected conversation turn is no longer available.')
+    const message = events[selected.messageIndex]
+    if (message?.type !== 'user/message' || message.data.source.kind !== 'user') {
+      throw new Error('The selected conversation turn is no longer available.')
+    }
+    const text = message.data.content
+      .filter((block): block is Extract<(typeof message.data.content)[number], { type: 'text' }> => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    const imageRefs = message.data.content
+      .filter((block): block is Extract<(typeof message.data.content)[number], { type: 'image' }> => block.type === 'image')
+      .map(block => block.attachment)
+    const attachments = this.#ctx.get('attachments')
+    if (imageRefs.length > 0 && attachments === undefined) {
+      throw new Error('The selected message contains images, but attachment storage is unavailable.')
+    }
+    const images = await Promise.all(imageRefs.map(async (ref) => {
+      const stored = await attachments?.readImage(ref, signal)
+      if (stored === undefined) throw new Error('Unable to restore an image from the selected message.')
+      return {
+        data: stored.data,
+        mediaType: stored.ref.mediaType,
+        ...(stored.ref.name === undefined ? {} : { name: stored.ref.name }),
+        width: stored.ref.width,
+        height: stored.ref.height,
+      }
+    }))
+    this.assertActive(agent)
+    const selection = this.selection(agent)
+    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
+    const handle = await this.#ctx.agents.create({
+      sessionId: SessionId('session-' + randomUUID()),
+      seed: events.slice(0, selected.branchIndex),
+      meta: {
+        ...(agent.session.header.cwd === undefined ? {} : { cwd: agent.session.header.cwd }),
+        parentSession: agent.id,
+        seedLength: selected.branchIndex,
+      },
+      agentOptions: { provider: selection.provider, model: selection.model },
+      signal,
+      setup: agentCtx => { installModelSelection(agentCtx, ref) },
+    })
+    try {
+      this.assertActive(agent)
+    } catch (error: unknown) {
+      await handle.dispose()
+      throw error
+    }
+    await this.#activate({ handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined })
+    this.#tui.restoreInput({ text, images })
+    this.#tui.notice(`Rewound to before turn ${selected.turn}. The original session remains available in /resume.`)
+    await this.#disposeRetired()
     await this.refreshRecent()
   }
 

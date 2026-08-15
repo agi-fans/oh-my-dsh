@@ -23,10 +23,10 @@ The TUI is deliberately a presentation and interaction layer. Sessions, tools, p
 
 ## What it supports
 
-- Streaming conversations with durable sessions, resume, search, retry, compact, and Markdown export
+- Streaming conversations with durable sessions, resume, turn rewind, retry, compact, and Markdown export
 - Plugin-owned slash commands, interactive settings, model and reasoning selection, and access modes
 - Tool calls, approval and question flows, collapsible output, and live session telemetry
-- Project-aware `@` file search, clipboard image paste, prompt history, and queued follow-up messages
+- Project-aware `@` file search, clipboard image paste, prompt history, and visible, editable queued follow-up messages
 - Harness skills and MCP servers discovered from project and user configuration
 - Responsive terminal layout, themes, transcript scrolling, and non-TTY fallback behavior
 

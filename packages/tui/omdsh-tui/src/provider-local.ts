@@ -4,7 +4,7 @@
  * Owns the tty: raw-mode key input (editing, history, slash/tab
  * autocomplete, /settings overlay, /copy picker, Ctrl-R history search, PgUp/PgDn
  * and mouse-wheel transcript scroll, click-to-caret, Ctrl-O tool
- * expand, bracketed paste, double Ctrl-C exit, Ctrl-D quit),
+ * expand, bracketed paste, double-Escape conversation rewind, double Ctrl-C exit, Ctrl-D quit),
  * SIGWINCH reflow, and the differential renderer. In non-tty mode
  * (pipes, CI) it degrades to line-based input with plain append-only
  * printing of settled blocks.
@@ -89,7 +89,6 @@ import { flushPending, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, parseKeys, type Ke
 import { LineRenderer, type RenderSink } from './renderer.ts'
 import { hitTestEditor } from './box.ts'
 import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from './theme.ts'
-import { formatWorkspaceText } from './pwd.ts'
 import type { ToolInfo } from './tools-list.ts'
 import type { TuiToolPresentation } from './tool-renderers.ts'
 import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema } from './tui-settings.ts'
@@ -109,6 +108,7 @@ import {
 } from './prompt-selector.ts'
 import { resolveProjectContext } from './project-context.ts'
 import { pickWelcomeTips, type WelcomeTip } from './welcome-tips.ts'
+import { formatHotkeysText, hotkeyCount } from './hotkeys.ts'
 import {
   imageMarker,
   imagePathCandidates,
@@ -124,6 +124,7 @@ import {
 const APP_NAME = 'omdsh'
 const APP_VERSION = '0.1.0'
 const DOUBLE_CTRL_C_MS = 500
+const DOUBLE_ESCAPE_MS = 500
 
 function shortenPath(cwd: string): string {
   const home = homedir()
@@ -193,11 +194,17 @@ export class LocalTui implements TuiService {
   #settings: SettingsState | null = null
   #copySelector: CopySelectorState | null = null
   #pending: PendingRead | null = null
-  #queue: TuiSubmission[] = []
+  #queuedSubmissions: TuiSubmission[] = []
+  /** Newer queue entries temporarily detached while Up browses backward. */
+  #queueEditNewer: TuiSubmission[] | null = null
+  #queueEditPending = false
   #quitRequested = false
   #resumeHintRequested = false
   #lastSigintTime = 0
+  #lastEscapeTime = 0
   #interrupts = new Set<() => void>()
+  #queueEdits = new Set<() => void>()
+  #rewinds = new Set<() => void>()
   #disposed = false
   #pendingKeys = ''
   #escapeTimer: ReturnType<typeof setTimeout> | null = null
@@ -353,6 +360,7 @@ export class LocalTui implements TuiService {
   }
 
   setStatus(status: TuiStatus): void {
+    if (this.#state.status === 'compacting') return
     this.#state = { ...this.#state, status }
     this.#syncTick()
     if (this.#tty) this.#render()
@@ -433,7 +441,7 @@ export class LocalTui implements TuiService {
   replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void {
     let state = initialTranscript()
     for (const event of events) state = applyEvent(state, event, presentations?.get(event.seq))
-    this.#state = { ...state, status: 'idle' }
+    this.#state = { ...state, status: 'idle', compactCommandId: undefined }
     this.#plainPrinted = 0
     this.#followTail()
     if (this.#tty) this.#render()
@@ -486,8 +494,11 @@ export class LocalTui implements TuiService {
     if (!this.#tty) return this.#readlinePlain()
     // Lines submitted while a turn was still running were queued instead of
     // dropped; serve the oldest before waiting for fresh input.
-    const queued = this.#queue.shift()
-    if (queued !== undefined) return Promise.resolve(queued)
+    const queued = this.#queuedSubmissions.shift()
+    if (queued !== undefined) {
+      this.#render()
+      return Promise.resolve(queued)
+    }
     return new Promise((resolve) => {
       this.#pending = { resolve }
     })
@@ -516,9 +527,50 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
+  resolveQueueEdit(submission: TuiSubmission | null): void {
+    if (!this.#queueEditPending) return
+    this.#queueEditPending = false
+    if (submission === null) {
+      if (this.#editor.text === '' && this.#images.length === 0 && this.#queueEditNewer?.length === 0) {
+        this.#queueEditNewer = null
+      }
+      return
+    }
+    if (this.#queueEditNewer === null) this.#queueEditNewer = []
+    if (this.#editor.text !== '' || this.#images.length > 0) {
+      this.#queueEditNewer.unshift(this.#currentSubmission())
+    }
+    this.#replaceInput(submission)
+  }
+
+  #currentSubmission(): TuiSubmission {
+    return {
+      text: this.#editor.text,
+      images: this.#images.map(image => ({ ...image })),
+    }
+  }
+
+  #replaceInput(submission: TuiSubmission): void {
+    this.#images = submission.images.map(image => ({ ...image }))
+    this.#editor.setText(submission.text)
+    this.#historyIndex = 0
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
+
   onInterrupt(listener: () => void): () => void {
     this.#interrupts.add(listener)
     return () => { this.#interrupts.delete(listener) }
+  }
+
+  onQueueEdit(listener: () => void): () => void {
+    this.#queueEdits.add(listener)
+    return () => { this.#queueEdits.delete(listener) }
+  }
+
+  onRewind(listener: () => void): () => void {
+    this.#rewinds.add(listener)
+    return () => { this.#rewinds.delete(listener) }
   }
 
   dispose(): void {
@@ -622,7 +674,7 @@ export class LocalTui implements TuiService {
   }
 
   #busy(): boolean {
-    if (this.#state.status === 'running') return true
+    if (this.#state.status !== 'idle') return true
     return this.#state.blocks.some((block) => block.kind === 'tool' && block.status === 'running')
   }
 
@@ -656,6 +708,9 @@ export class LocalTui implements TuiService {
         input: this.#editor.text,
         inputCursor: this.#editor.cursor,
         inputImages: this.#images.length,
+        queuedSubmissions: this.#queueEditNewer === null
+          ? this.#queuedSubmissions
+          : [...this.#queuedSubmissions, ...this.#queueEditNewer],
         colors: this.#colors,
         pwd: this.#pwd,
         ...(this.#branch !== undefined ? { branch: this.#branch } : {}),
@@ -902,6 +957,21 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    if (this.#state.status === 'compacting') {
+      if (event.type === 'mouse' && event.wheel !== null) {
+        this.#scrollBy(event.wheel < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL, true)
+        return
+      }
+      if (event.type === 'key' && event.id === 'pageUp') {
+        this.#scrollBy(-this.#pageSize())
+        return
+      }
+      if (event.type === 'key' && event.id === 'pageDown') {
+        this.#scrollBy(this.#pageSize())
+        return
+      }
+      if (event.type !== 'key' || event.id !== 'ctrl+c') return
+    }
     // Clipboard image inspection is asynchronous. Preserve the exact key
     // order so a fast Ctrl+V, Enter submits the finished image draft rather
     // than an empty prompt.
@@ -927,9 +997,11 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'mouse') {
+      this.#lastEscapeTime = 0
       this.#handleMouse(event)
       return
     }
+    if (event.type !== 'key' || event.id !== 'escape') this.#lastEscapeTime = 0
     if (this.#handlePrompt(event)) return
     if (event.type === 'key') {
       const action = this.#keybindings[event.id]
@@ -967,7 +1039,7 @@ export class LocalTui implements TuiService {
         return
       }
       this.#lastSigintTime = now
-      if (this.#state.status === 'running') {
+      if (this.#state.status !== 'idle') {
         for (const listener of this.#interrupts) listener()
       } else {
         this.#editor.clear()
@@ -997,7 +1069,25 @@ export class LocalTui implements TuiService {
       this.#applySearch(event)
       return
     }
-    if (this.#handleAutocomplete(event)) return
+    if (this.#handleAutocomplete(event)) {
+      if (event.type === 'key' && event.id === 'escape') this.#lastEscapeTime = 0
+      return
+    }
+    if (event.type === 'key' && event.id === 'escape') {
+      if (this.#state.status !== 'idle' || this.#pending === null
+        || this.#editor.text !== '' || this.#images.length > 0) {
+        this.#lastEscapeTime = 0
+      } else {
+        const now = Date.now()
+        if (now - this.#lastEscapeTime < DOUBLE_ESCAPE_MS) {
+          this.#lastEscapeTime = 0
+          for (const listener of this.#rewinds) listener()
+        } else {
+          this.#lastEscapeTime = now
+        }
+        return
+      }
+    }
     if (event.type === 'key' && (event.id === 'backspace' || event.id === 'delete')
       && this.#removeImageAtCursor(event.id)) return
     if (event.type === 'key') {
@@ -1524,6 +1614,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'historyPrev') {
+      if (this.#restoreLatestQueuedSubmission()) return
       this.#historyPrev()
       return
     }
@@ -1540,6 +1631,8 @@ export class LocalTui implements TuiService {
     if (command.kind === 'clear') {
       this.#editor.clear()
       this.#images = []
+      this.#queueEditNewer = null
+      this.#queueEditPending = false
       this.#historyIndex = 0
       this.#ac = null
       this.#search = null
@@ -1573,6 +1666,36 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
+  #restoreLatestQueuedSubmission(): boolean {
+    if (this.#queueEditPending) return true
+    if (this.#queueEditNewer !== null) {
+      const previous = this.#queuedSubmissions.pop()
+      if (previous !== undefined) {
+        this.#queueEditNewer.unshift(this.#currentSubmission())
+        this.#replaceInput(previous)
+        return true
+      }
+      const hasDurableFollowup = this.#state.nextTurnInbox.some(message => message.source.kind === 'user')
+      if (!hasDurableFollowup || this.#queueEdits.size === 0) return true
+      this.#queueEditPending = true
+      for (const listener of this.#queueEdits) listener()
+      return true
+    }
+    if (this.#editor.text !== '' || this.#images.length > 0 || this.#historyIndex !== 0) return false
+    const submission = this.#queuedSubmissions.pop()
+    if (submission !== undefined) {
+      this.#queueEditNewer = []
+      this.#replaceInput(submission)
+      return true
+    }
+    const hasDurableFollowup = this.#state.nextTurnInbox.some(message => message.source.kind === 'user')
+    if (!hasDurableFollowup || this.#queueEdits.size === 0) return false
+    this.#queueEditNewer = []
+    this.#queueEditPending = true
+    for (const listener of this.#queueEdits) listener()
+    return true
+  }
+
   #historyNext(): void {
     if (this.#images.length > 0) return
     if (this.#historyIndex === 0) return
@@ -1604,6 +1727,7 @@ export class LocalTui implements TuiService {
     }
     const images = this.#images.map(image => ({ ...image }))
     const submittedText = images.length > 0 ? text.trim() : text
+    const queueEditNewer = this.#queueEditNewer
     const historyText = images.reduce((value, image, index) => value.replaceAll(imageMarker(index, image), ''), submittedText)
       .replace(/[ \t]{2,}/gu, ' ')
       .trim()
@@ -1613,6 +1737,8 @@ export class LocalTui implements TuiService {
     }
     this.#historyIndex = 0
     this.#draft = ''
+    this.#queueEditNewer = null
+    this.#queueEditPending = false
     this.#editor.setText('')
     this.#images = []
     this.#ac = null
@@ -1622,17 +1748,22 @@ export class LocalTui implements TuiService {
     this.#followTail()
     const slash = images.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
+      if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
       this.#runSlash(slash.name, slash.args)
       return
     }
-    this.#render()
     const pending = this.#pending
     if (pending !== null) {
       this.#pending = null
       pending.resolve({ text: submittedText, images })
-    } else if (submittedText !== '' || images.length > 0) {
-      this.#queue.push({ text: submittedText, images })
+      if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
+    } else if (submittedText !== '' || images.length > 0 || queueEditNewer !== null) {
+      if (submittedText !== '' || images.length > 0) {
+        this.#queuedSubmissions.push({ text: submittedText, images })
+      }
+      if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
     }
+    this.#render()
   }
 
   #runSlash(name: string, args = ''): void {
@@ -1661,11 +1792,6 @@ export class LocalTui implements TuiService {
       this.#runSettings(args)
       return
     }
-    if (command.name === 'hotkeys') {
-      this.#hotkeyCatalog()
-      this.#render()
-      return
-    }
     if (command.name === 'copy') {
       void this.#runCopy(args)
       return
@@ -1675,30 +1801,31 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    if (command.name === 'pwd') {
-      this.#notice(formatWorkspaceText({
-        cwd: process.cwd(),
-        model: this.#model,
-        ...(this.#branch !== undefined ? { branch: this.#branch } : {}),
-      }))
-      this.#render()
-      return
-    }
     if (!BUILTIN_SLASH_COMMANDS.some((entry) => entry.name === command.name)) {
-      this.#render()
       const raw = '/' + name + (args === '' ? '' : ' ' + args)
       const pending = this.#pending
       if (pending !== null) {
         this.#pending = null
         pending.resolve({ text: raw, images: [] })
       } else {
-        this.#queue.push({ text: raw, images: [] })
+        this.#queuedSubmissions.push({ text: raw, images: [] })
       }
+      this.#render()
       return
     }
     this.#state = {
       ...this.#state,
-      blocks: [...this.#state.blocks, { kind: 'commandOutput', command: 'help', text: formatHelpText(this.#commands()) }],
+      blocks: [...this.#state.blocks, {
+        kind: 'commandOutput',
+        command: 'help',
+        text: [
+          formatHelpText(this.#commands()),
+          '',
+          `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} bindings**`,
+          '',
+          formatHotkeysText(this.#keybindings),
+        ].join('\n'),
+      }],
     }
     this.#focusLatestBlock()
     this.#render()
@@ -1777,14 +1904,6 @@ export class LocalTui implements TuiService {
     this.#state = {
       ...this.#state,
       blocks: [...this.#state.blocks, { kind: 'toolCatalog', tools: this.#tools }],
-    }
-    this.#focusLatestBlock()
-  }
-
-  #hotkeyCatalog(): void {
-    this.#state = {
-      ...this.#state,
-      blocks: [...this.#state.blocks, { kind: 'hotkeyCatalog', bindings: this.#keybindings }],
     }
     this.#focusLatestBlock()
   }

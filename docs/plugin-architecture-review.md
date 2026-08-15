@@ -133,15 +133,14 @@ The first migration can keep one npm package and expose multiple Cordis plugin s
 ├── new, resume, session, and retry
 └── registers through dsh-commands
 
-@agi-fans/dsh-tui/command-queue
-├── steer, queue, and dequeue
+@agi-fans/dsh-tui/command-steer
+├── steer
 └── registers through dsh-commands
 
 @agi-fans/dsh-tui/command-model
 └── model selection and reasoning effort
 
-@agi-fans/dsh-tui/command-transcript
-├── search
+@agi-fans/dsh-tui/command-export
 └── export
 
 @agi-fans/dsh-tui/command-integrations

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from './command-integrations.ts'
 import {
+  conversationTurns,
   createSubmissionMessage,
   modelStatus,
   recentSessionContent,
+  restoreSubmissionMessage,
   sessionControls,
   sessionStats,
   userSkillCommands,
@@ -71,6 +73,60 @@ describe('createSubmissionMessage', () => {
       { type: 'text', text: '[Image #1, 1x1] describe this' },
       { type: 'image', attachment: ref },
     ])
+  })
+
+  it('rehydrates a durable queued message into an editable mixed draft', async () => {
+    const ref = {
+      attachmentId: AttachmentId('attachment:queued'),
+      mediaType: 'image/png' as const,
+      bytes: PNG_1X1.byteLength,
+      width: 1,
+      height: 1,
+      name: 'queued.png',
+    }
+    const message = createUserMessage({
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: 'edit me' }, { type: 'image', attachment: ref }],
+    })
+
+    await expect(restoreSubmissionMessage(message, {
+      readImage: async () => ({ ref, data: PNG_1X1 }),
+    })).resolves.toEqual({
+      text: 'edit me',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'queued.png', width: 1, height: 1 }],
+    })
+  })
+})
+
+describe('conversationTurns', () => {
+  it('exposes direct human turns with the balanced prefix before each turn', () => {
+    const events = [
+      { type: 'session/start', data: {} },
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'First question' }] } },
+      { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'Injected context' }] } },
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [
+        { type: 'text', text: 'Second\nquestion' },
+        { type: 'image', attachment: {} },
+      ] } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+    ] as unknown as SessionEvent[]
+
+    expect(conversationTurns(events)).toEqual([
+      { turn: 1, messageIndex: 2, branchIndex: 1, preview: 'First question', imageCount: 0 },
+      { turn: 2, messageIndex: 7, branchIndex: 5, preview: 'Second question', imageCount: 1 },
+    ])
+  })
+
+  it('ignores human messages without a safe turn boundary', () => {
+    const events = [
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'orphan' }] } },
+    ] as unknown as SessionEvent[]
+
+    expect(conversationTurns(events)).toEqual([])
   })
 })
 

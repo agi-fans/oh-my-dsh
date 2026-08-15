@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Repository-local `publish-oh-my-dsh` Skill for preparing, publishing, recovering, and verifying synchronized npm and GitHub releases.
+- Double-Escape conversation rewind with an interactive human-turn selector, non-destructive session forks, and editable restoration of the selected text and images.
+
+### Changed
+
+- Replaced `/queue` and `/dequeue` with a composer-level view of the durable Harness inbox; repeated `↑` presses walk backward through follow-ups for editing without changing their send order.
+- Merged the keyboard-shortcut catalog into `/help` so commands and controls live in one discoverable surface.
+- Manual `/compact` now enters a visible `Compacting` state, locks composer actions until settlement, and remains cancellable with `Ctrl+C`.
+
+### Fixed
+
+- Prevented exact-width terminal paints from triggering pending-wrap phantom rows, including duplicate `Deep Driving` indicators.
+- Removed long-session input and activity lag by caching transcript layout per immutable message block and recomputing only animated or changed blocks.
+
+### Removed
+
+- Removed the redundant `/pwd` and `/dirs` commands because the fixed status footer already shows workspace, model, and Git context.
+- Removed `/search` and its SQLite session index; prompt-history search remains available through `Ctrl+R`.
+
 ## [0.1.1] - 2026-08-15
 
 ### Added

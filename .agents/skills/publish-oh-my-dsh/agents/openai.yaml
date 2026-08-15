@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish oh-my-dsh"
+  short_description: "Prepare, publish, and verify oh-my-dsh releases"
+  default_prompt: "Use $publish-oh-my-dsh to prepare and publish the next oh-my-dsh release."

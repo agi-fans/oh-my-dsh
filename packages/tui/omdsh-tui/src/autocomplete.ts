@@ -43,10 +43,8 @@ const COPY_ARGUMENTS: readonly SlashArgument[] = [
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', aliases: ['h', '?'], description: 'Show available slash commands' },
   { name: 'settings', aliases: ['set'], description: 'Open settings' },
-  { name: 'hotkeys', description: 'Show keyboard shortcuts' },
   { name: 'copy', description: 'Pick text, code, or a command to copy', arguments: COPY_ARGUMENTS },
   { name: 'tools', description: 'Show tools visible to the agent' },
-  { name: 'pwd', aliases: ['dirs'], description: 'Show working directory and model' },
   { name: 'clear', description: 'Clear the transcript display' },
   { name: 'quit', aliases: ['q', 'exit'], description: 'Quit the application' },
 ]

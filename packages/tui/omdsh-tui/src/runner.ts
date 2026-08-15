@@ -33,6 +33,29 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
     operation?.abort(new Error('cancelled by user'))
     controller.agent?.cancel({ kind: 'user' })
   })
+  let queueEditInFlight = false
+  const offQueueEdit = tui.onQueueEdit(() => {
+    if (queueEditInFlight) return
+    queueEditInFlight = true
+    void controller.editLatestFollowup().then((submission) => {
+      tui.resolveQueueEdit(submission ?? null)
+    }).catch((error: unknown) => {
+      tui.resolveQueueEdit(null)
+      tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    }).finally(() => { queueEditInFlight = false })
+  })
+  const offRewind = tui.onRewind(() => {
+    if (operation !== undefined || controller.agent?.status !== 'idle') return
+    const rewind = new AbortController()
+    operation = rewind
+    void controller.rewindToTurn(rewind.signal).catch((error: unknown) => {
+      if (!rewind.signal.aborted) {
+        tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      }
+    }).finally(() => {
+      if (operation === rewind) operation = undefined
+    })
+  })
   try {
     const args = ctx.get('cmdlineArgs')?.get() ?? []
     if (args[0] === '--resume' && args[1] !== undefined) {
@@ -80,6 +103,8 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
     await controller.agent?.whenIdle()
   } finally {
     operation?.abort(new Error('runner disposed'))
+    offQueueEdit()
+    offRewind()
     offInterrupt()
   }
   ctx.get('appExit')?.(0)

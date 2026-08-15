@@ -1,7 +1,7 @@
 /**
  * LocalTui contract tests over a fake terminal: key routing (edit, history,
  * slash/tab autocomplete, Ctrl-R history search, PgUp/PgDn transcript
- * scroll, Ctrl-O tool expand, submit), double Ctrl-C exit, Ctrl-D quit and the
+ * scroll, Ctrl-O tool expand, submit), double-Escape rewind, double Ctrl-C exit, Ctrl-D quit and the
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
 import { PassThrough } from 'node:stream'
@@ -320,8 +320,37 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     // No readline in flight — the runner is busy driving a turn.
     press(term, 'typed during turn\r')
+    expect(stripAnsi(term.captured)).toContain('│ Queued · typed during turn')
+    expect(stripAnsi(term.captured)).toContain('↑ edit')
     const next = tui.readline()
     expect(await next).toBe('typed during turn')
+    tui.dispose()
+  })
+
+  it('restores the newest queued line into an empty composer with up arrow', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, 'first queued\rsecond queued\r')
+    expect(stripAnsi(term.captured)).toContain('Queued · 2')
+    press(term, '\x1b[A')
+    const restored = stripAnsi(term.captured)
+    expect(restored).toContain('│ Queued · first queued')
+    expect(restored).toContain('second queued')
+    const next = tui.readline()
+    expect(await next).toBe('first queued')
+    tui.dispose()
+  })
+
+  it('walks backward through queued lines with repeated up arrows without reordering them', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, 'first queued\rsecond queued\rthird queued\r')
+
+    press(term, '\x1b[A\x1b[A!\r')
+
+    expect(await tui.readline()).toBe('first queued')
+    expect(await tui.readline()).toBe('second queued!')
+    expect(await tui.readline()).toBe('third queued')
     tui.dispose()
   })
 
@@ -361,6 +390,150 @@ describe('LocalTui (tty)', () => {
     press(term, '\x03')
     expect(fired).toBe(1)
     tui.dispose()
+  })
+
+  it('blocks composer input while compacting instead of queueing it', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    let interrupted = 0
+    tui.onInterrupt(() => { interrupted += 1 })
+    tui.event(ev('command/run', {
+      commandId: 'cmd-compact-1',
+      name: 'compact',
+      source: { kind: 'user' },
+    }, 1))
+
+    press(term, 'must not queue\r')
+    expect(stripAnsi(term.captured)).toContain('Compacting')
+    press(term, '\x03')
+    expect(interrupted).toBe(1)
+
+    tui.event(ev('command/done', {
+      commandId: 'cmd-compact-1',
+      kind: 'success',
+    }, 2))
+    const pending = tui.readline()
+    press(term, 'after compact\r')
+    expect(await pending).toBe('after compact')
+    tui.dispose()
+  })
+
+  it('keeps exactly one activity row while queued follow-ups change', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('turn/start', { turn: 1 }, 1))
+    tui.event(ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [
+        { id: 'message-1', source: { kind: 'user' }, content: [{ type: 'text', text: 'next one' }] },
+        { id: 'message-2', source: { kind: 'user' }, content: [{ type: 'text', text: 'next two' }] },
+      ],
+    }, 2))
+    tui.event(ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      removedCount: 1,
+      inserted: [],
+    }, 3))
+
+    const rows = emulatedScreenRows(term.captured)
+    expect(rows.filter(line => stripAnsi(line).includes('Deep Driving'))).toHaveLength(1)
+    tui.dispose()
+  })
+
+  it('requests editing the latest durable follow-up when Up is pressed in an empty composer', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    let edits = 0
+    const off = tui.onQueueEdit(() => { edits += 1 })
+    tui.event(ev('turn/start', { turn: 1 }, 1))
+    tui.event(ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [
+        { id: 'message-1', source: { kind: 'user' }, content: [{ type: 'text', text: 'edit this' }] },
+      ],
+    }, 2))
+
+    press(term, '\x1b[A')
+
+    expect(edits).toBe(1)
+    off()
+    tui.dispose()
+    expect(await pending).toBe(null)
+  })
+
+  it('continues backward through durable follow-ups and preserves newer drafts', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const messages = ['first durable', 'second durable', 'third durable']
+    let seq = 1
+    tui.event(ev('turn/start', { turn: 1 }, seq++))
+    tui.event(ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: messages.map((text, index) => ({
+        id: `message-${index}`,
+        source: { kind: 'user' },
+        content: [{ type: 'text', text }],
+      })),
+    }, seq++))
+    let edits = 0
+    tui.onQueueEdit(() => {
+      const text = messages.pop()
+      if (text === undefined) {
+        tui.resolveQueueEdit(null)
+        return
+      }
+      edits += 1
+      tui.event(ev('agent/inbox/spliced', {
+        target: 'next-turn',
+        start: messages.length,
+        removedCount: 1,
+        inserted: [],
+      }, seq++))
+      tui.resolveQueueEdit({ text, images: [] })
+    })
+
+    press(term, '\x1b[A\x1b[A!\r')
+
+    expect(edits).toBe(2)
+    expect(await tui.readline()).toBe('second durable!')
+    expect(await tui.readline()).toBe('third durable')
+    tui.dispose()
+  })
+
+  it('fires rewind listeners on double Escape while the idle composer is empty', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    let fired = 0
+    const off = tui.onRewind(() => { fired += 1 })
+
+    press(term, '\x1b\x1b')
+    await new Promise<void>(resolve => { setTimeout(resolve, 100) })
+
+    expect(fired).toBe(1)
+    off()
+    tui.dispose()
+    expect(await pending).toBe(null)
+  })
+
+  it('does not rewind when the composer contains a draft', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    let fired = 0
+    tui.onRewind(() => { fired += 1 })
+
+    press(term, 'draft\x1b\x1b')
+    await new Promise<void>(resolve => { setTimeout(resolve, 100) })
+
+    expect(fired).toBe(0)
+    tui.dispose()
+    expect(await pending).toBe(null)
   })
 
   it('quits on a rapid second Ctrl-C and prints a resume command after restoring the tty', async () => {
@@ -426,6 +599,35 @@ describe('LocalTui (tty)', () => {
     tui.setModel('deepseek-v4-pro', 'max')
     expect(term.captured).toContain('deepseek-v4-pro')
     expect(term.captured).toContain('max')
+    tui.dispose()
+  })
+
+  it('skips a footer repaint when only non-visible session timing changes', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const stats = {
+      turns: 1,
+      steps: 2,
+      llmMs: 10,
+      toolMs: 5,
+      ttftMs: 2,
+      ttftSteps: 1,
+      decodeMs: 8,
+      decodeTokens: 16,
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 80,
+      cacheWriteTokens: 0,
+      contextTokens: 120,
+      contextWindow: 1_000,
+      elapsedMs: 100,
+    }
+    tui.setSession({ id: 'session-perf', recent: [], stats })
+    const writesAfterVisibleStats = term.writes
+
+    tui.setSession({ id: 'session-perf', recent: [], stats: { ...stats, elapsedMs: 200 } })
+
+    expect(term.writes).toBe(writesAfterVisibleStats)
     tui.dispose()
   })
 
@@ -596,9 +798,11 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('/help')
     expect(term.captured).toContain('/settings')
     expect(term.captured).not.toContain('/theme')
-    expect(term.captured).toContain('/hotkeys')
+    expect(term.captured).not.toContain('/hotkeys')
+    expect(term.captured).not.toContain('/pwd')
+    expect(term.captured).not.toContain('/dirs')
     expect(term.captured).toContain('/copy')
-    expect(term.captured).toContain('1/8')
+    expect(term.captured).toContain('1/6')
     tui.dispose()
   })
 
@@ -806,25 +1010,11 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('runs /hotkeys locally and keeps readline pending', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
-    press(term, '/hotkeys\r')
-    expect(term.captured).toContain('Keyboard Shortcuts')
-    expect(term.captured).toContain('Navigation')
-    expect(term.captured).toContain('later lines')
-    expect(term.captured).toContain('/hotkeys')
-    press(term, 'hi\r')
-    expect(await pending).toBe('hi')
-    tui.dispose()
-  })
-
   it('opens long command catalogs at their heading instead of their tail', () => {
     const cases = [
       {
         command: '/help\r',
-        heading: 'Commands · 32 available',
+        heading: 'Commands · 30 available',
         prepare: (tui: LocalTui): void => {
           tui.setCommands(Array.from({ length: 24 }, (_, index) => ({
             name: `runtime-${index}`,
@@ -841,11 +1031,6 @@ describe('LocalTui (tty)', () => {
             description: `Tool ${index} performs a concrete operation for the active agent`,
           })))
         },
-      },
-      {
-        command: '/hotkeys\r',
-        heading: 'Keyboard Shortcuts',
-        prepare: (_tui: LocalTui): void => undefined,
       },
     ]
 
@@ -898,27 +1083,16 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('lists cwd and model on /pwd', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
-    press(term, '/pwd\r')
-    expect(term.captured).toContain('Workspace')
-    expect(term.captured).toContain('cwd: ' + process.cwd())
-    expect(term.captured).toContain('model: m')
-    press(term, '/dirs\r')
-    expect(term.captured).toContain('Workspace')
-    press(term, 'ok\r')
-    expect(await pending).toBe('ok')
-    tui.dispose()
-  })
-
   it('runs /help locally and keeps readline pending', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/help\r')
     expect(term.captured).toContain('/settings / /set')
+    for (let index = 0; index < 8; index += 1) press(term, '\x1b[6~')
+    expect(term.captured).toContain('Keyboard Shortcuts')
+    expect(term.captured).toContain('Navigation')
+    expect(term.captured).not.toContain('/hotkeys')
     expect(term.captured).toContain('├')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')

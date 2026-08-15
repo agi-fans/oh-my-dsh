@@ -1,11 +1,9 @@
 /**
- * Keyboard-shortcut catalog painted by `/hotkeys`.
+ * Keyboard-shortcut catalog embedded in `/help`.
  * @module @agi-fans/dsh-tui
  */
 
 import { DEFAULT_KEYBINDINGS, type TuiAction } from './keybindings-config.ts'
-import { renderMarkdown } from './markdown.ts'
-import type { Theme } from './theme.ts'
 
 /** Effective application bindings shown alongside built-in editor bindings. */
 export type HotkeyBindings = Readonly<Record<string, TuiAction>>
@@ -84,6 +82,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
     {
       title: 'Session',
       rows: [
+        { keys: 'Esc twice', action: 'Rewind to an earlier conversation turn' },
         { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
         { keys: 'Ctrl+Z', action: 'Suspend to the background' },
         { keys: 'Alt+L', action: 'Reset the terminal display' },
@@ -93,7 +92,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: '@ / ./ / ~/', action: 'Complete file paths' },
         { keys: 'Tab', action: 'Accept command or path completion' },
         { keys: '/copy', action: 'Open the copy picker' },
-        { keys: '/hotkeys', action: 'Show this catalog' },
+        { keys: '/help', action: 'Show commands and keyboard shortcuts' },
       ],
     },
   ]
@@ -108,7 +107,7 @@ export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): num
   return sections(bindings).reduce((total, section) => total + section.rows.length, 0)
 }
 
-/** Markdown tables used by the `/hotkeys` transcript panel. */
+/** Markdown tables embedded in the `/help` transcript panel. */
 export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): string {
   return sections(bindings).flatMap((section, index) => [
     ...(index === 0 ? [] : ['']),
@@ -117,19 +116,4 @@ export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS
     '|---|---|',
     ...section.rows.map(row => `| \`${tableCell(row.keys)}\` | ${tableCell(row.action)} |`),
   ]).join('\n')
-}
-
-/** OMP-style command heading followed by grouped native Markdown tables. */
-export function renderHotkeysPanel(
-  bindings: HotkeyBindings,
-  theme: Theme,
-  width: number,
-): string[] {
-  const inset = width > 2 ? 1 : 0
-  const contentWidth = Math.max(1, width - inset * 2)
-  const prefix = ' '.repeat(inset)
-  const title = theme.bold(theme.fg('accent', 'Keyboard Shortcuts'))
-    + theme.fg('muted', ` · ${hotkeyCount(bindings)} bindings`)
-  const body = renderMarkdown(formatHotkeysText(bindings), theme, contentWidth)
-  return [prefix + title, '', ...body.map(line => prefix + line)]
 }

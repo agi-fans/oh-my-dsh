@@ -7,7 +7,7 @@
 | 能力 | 状态 | 实现位置 |
 |---|---|---|
 | 动态命令 | 已完成 | omdsh 命令由独立 Cordis 插件注册到 `dsh-commands`；`SessionRuntime` 使用唯一 registry 路径发现和执行 agent-scoped command，未知命令不会误发给模型 |
-| persistence/query/projection/title | 已完成 | JSONL 会话日志、checkpoint、projection、stats、title，以及延迟打开的 SQLite FTS5 query index |
+| persistence/projection/title | 已完成 | JSONL 会话日志、checkpoint、projection、stats 和 title |
 | create/resume | 已完成 | `/new`、`/resume [session-id]`、CLI `omdsh --resume <session-id>`，切换时重放完整事件日志；双 Ctrl+C 退出后打印恢复命令 |
 | Recent sessions | 已完成 | Welcome 从持久化后端读取真实会话和折叠后的标题 |
 | approval/user questions | 已完成 | TUI provider 绑定 `userQuestions` 和 `approval/request`，支持选择、多选、自定义回答和取消 |
@@ -22,7 +22,7 @@
 | 流式工具调用 | 已完成 | `tool-call-delta` 创建 provisional block，最终调用原位替换；`Ctrl+O` 按调用展开 |
 | Model selector | 已完成 | `/model` 选择 provider、model、reasoning effort，并保存默认 selection |
 | Usage/context/stats | 已完成 | 输入框下边框使用英文状态标签显示 turns/steps、LLM/tools 耗时、TTFT、解码速率、cache hit 和 input/output token；窄屏按完整分组降级，数据来自 whole-log projections；`/session` 展示详细数据 |
-| 工作流命令 | 已完成 | `/compact`、`/goal` 来自 Harness commands；`/todo`、`/retry`、`/steer`、`/queue`、`/dequeue` 由会话控制层提供 |
+| 工作流命令 | 已完成 | `/compact`、`/goal` 来自 Harness commands；`/todo`、`/retry`、`/steer` 由会话控制层提供；运行中提交的 follow-up 会直接显示在 composer 上方，空输入时按 `↑` 可取回最新消息继续编辑 |
 
 ## 第三轮：高级交互
 
@@ -32,7 +32,7 @@
 | 外部编辑器 | 已完成 | `Ctrl+X` 使用 `$VISUAL`/`$EDITOR` 编辑当前多行 prompt，返回后重建终端 frame |
 | 可配置 keybindings | 已完成 | `$OMDSH_HOME/omdsh/keybindings.json`；支持外部编辑、retry、智能剪贴板粘贴和复制 prompt/当前行 |
 | 持久输入历史 | 已完成 | owner-only JSONL：`$OMDSH_HOME/omdsh/history.jsonl`，保留多行输入 |
-| Transcript 搜索/导出 | 已完成 | `/search <query>` 搜当前会话；`/search --all <query>` 搜全部会话；`/export [path]` 导出完整 Markdown 日志 |
+| 会话回退/导出 | 已完成 | 空输入时双击 `Esc` 打开用户轮次选择器；选中后在保留原会话的前提下，从该轮次之前创建分支并恢复所选消息供编辑；`/export [path]` 导出完整 Markdown 日志 |
 | 高级 Markdown | 已完成 | GFM 表格/任务列表/链接、代码语言高亮、HTML 归一化、行内/块公式和 Mermaid 终端文本图 |
 | 多主题和可定制状态栏 | 已完成 | dark、light、midnight、solarized、mono；可在 `/settings` 中开关状态栏、选择 compact/full 标签，并分别隐藏或排序 Context、Cache、Tokens、Latency、Time、Activity 指标组 |
 | plan/goal/subagent | 已完成 | 组合中挂载 Harness plan mode、goal domain/command/tool、in-process subagent 和控制工具 |
@@ -48,11 +48,8 @@
 /model
 /retry
 /steer <message>
-/queue
-/dequeue
 /todo
 /mcp
-/search [--all] <query>
 /export [path]
 ```
 
@@ -82,4 +79,4 @@
 
 ## 验证基线
 
-当前 `@agi-fans/dsh-tui` 有 30 个测试文件、269 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。
+当前 `@agi-fans/dsh-tui` 有 38 个测试文件、357 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟和真实 PTY 回退流程均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。

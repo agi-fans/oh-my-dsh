@@ -13,14 +13,14 @@ class Screen {
   col = 0
 
   write(chunk: string): void {
-    for (const token of chunk.match(/\x1b\[\d*[ABCDK]|\r|\n|[^\r\n\x1b]+/g) ?? []) {
+    for (const token of chunk.match(/\x1b\[[?0-9;]*[ -/]*[@-~]|\r|\n|[^\r\n\x1b]+/g) ?? []) {
       if (token === '\r') {
         this.col = 0
       } else if (token === '\n') {
         this.row += 1
         this.rows[this.row] ??= ''
       } else if (token.startsWith('\x1b[')) {
-        const n = Number(token.slice(2, -1) || '1')
+        const n = Number(token.slice(2, -1).replace(/^\?/u, '') || '1')
         const op = token.slice(-1)
         if (op === 'A') this.row = Math.max(0, this.row - n)
         else if (op === 'B') this.row += n
@@ -121,6 +121,15 @@ describe('LineRenderer', () => {
     expect(captured).not.toContain('\x1b[?25l')
     renderer.render({ lines: ['editor'], cursor: { row: 0, column: 1 } })
     expect(captured).toContain('\x1b[?25h')
+  })
+
+  it('disables autowrap around exact-width paints to prevent phantom rows', () => {
+    let captured = ''
+    const renderer = new LineRenderer({ write: chunk => { captured += chunk } }, { synchronized: true })
+    renderer.render({ lines: ['0123456789'], cursor: { row: 0, column: 0 } })
+
+    expect(captured).toContain('\x1b[?2026h\x1b[?7l')
+    expect(captured).toContain('\x1b[?7h\x1b[?2026l')
   })
 
   it('keeps frames aligned when each render ends on the input line', () => {

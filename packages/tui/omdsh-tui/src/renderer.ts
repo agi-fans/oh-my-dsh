@@ -72,6 +72,15 @@ export interface LineDiff {
   clears: number[]
 }
 
+// Exact-width rows leave a pending-wrap latch in several terminals. A later
+// cursor move can materialize that wrap and leave phantom copies of fixed UI
+// rows. Paints use explicit CRLFs, so disable DECAWM only for the write and
+// restore it before returning control to the terminal.
+const DISABLE_AUTOWRAP = '\x1b[?7l'
+const ENABLE_AUTOWRAP = '\x1b[?7h'
+const SYNC_OUTPUT_BEGIN = '\x1b[?2026h'
+const SYNC_OUTPUT_END = '\x1b[?2026l'
+
 /**
  * Compute the line diff between two frames.
  * @param oldLines - previously rendered lines.
@@ -195,7 +204,9 @@ export class LineRenderer {
     const show = cursorVisible && !this.#cursorVisible ? '\x1b[?25h' : ''
     const payload = hide + out + move + show
     if (payload !== '') {
-      this.#sink.write(this.#synchronized ? `\x1b[?2026h${payload}\x1b[?2026l` : payload)
+      this.#sink.write(this.#synchronized
+        ? SYNC_OUTPUT_BEGIN + DISABLE_AUTOWRAP + payload + ENABLE_AUTOWRAP + SYNC_OUTPUT_END
+        : DISABLE_AUTOWRAP + payload + ENABLE_AUTOWRAP)
     }
     this.#row = target.row
     this.#col = target.column

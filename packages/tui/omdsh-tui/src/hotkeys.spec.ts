@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYBINDINGS } from './keybindings-config.ts'
-import { formatHotkeysText, hotkeyCount, renderHotkeysPanel } from './hotkeys.ts'
-import { createTheme } from './theme.ts'
-import { stripAnsi, visibleWidth } from './width.ts'
+import { formatHotkeysText, hotkeyCount } from './hotkeys.ts'
 
 describe('formatHotkeysText', () => {
   it('groups the bindings this TUI implements into Markdown tables', () => {
@@ -15,8 +13,12 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Enter')
     expect(text).toContain('Send the message')
     expect(text).toContain('Ctrl+R')
+    expect(text).toContain('Esc twice')
+    expect(text).toContain('Rewind to an earlier conversation turn')
     expect(text).toContain('@ / ./ / ~/')
     expect(text).toContain('/copy')
+    expect(text).toContain('/help')
+    expect(text).not.toContain('/hotkeys')
     expect(text).toContain('PgUp')
     expect(text).toContain('Ctrl+O')
     expect(text).toContain('Mouse wheel')
@@ -29,16 +31,8 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Alt+R / Ctrl+G')
   })
 
-  it('renders like the tools catalog without a second outer frame', () => {
-    const theme = createTheme(false, false)
-    const lines = renderHotkeysPanel(DEFAULT_KEYBINDINGS, theme, 72)
-    expect(lines.every(line => visibleWidth(line) <= 72)).toBe(true)
-    expect(stripAnsi(lines[0] ?? '')).toBe(` Keyboard Shortcuts · ${hotkeyCount()} bindings`)
-    expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
-    expect(lines[1]).toBe('')
-    expect(lines.join('\n')).toContain('Navigation')
-    expect(lines.join('\n')).toContain('Shortcut')
-    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╭'))).toHaveLength(4)
-    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╰'))).toHaveLength(4)
+  it('counts catalog rows after configurable bindings are merged by action', () => {
+    expect(hotkeyCount()).toBeGreaterThan(0)
+    expect(hotkeyCount({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'retry' })).toBe(hotkeyCount())
   })
 })

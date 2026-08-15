@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, initialTranscript, renderView, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderView, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
@@ -27,6 +27,54 @@ const view = (state: ReturnType<typeof initialTranscript>, input = '') =>
   })
 
 describe('applyEvent', () => {
+  it('renders compact as a visible non-editable activity until the command settles', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('command/run', {
+      commandId: 'cmd-compact-1',
+      name: 'compact',
+      source: { kind: 'user' },
+    }, 1))
+
+    expect(state.status).toBe('compacting')
+    const active = view(state)
+    expect(active.lines.join('\n')).toContain('Compacting')
+    expect(active.cursorVisible).toBe(false)
+
+    state = applyEvent(state, ev('command/done', {
+      commandId: 'cmd-compact-1',
+      kind: 'success',
+    }, 2))
+    expect(state.status).toBe('idle')
+  })
+
+  it('projects queued agent follow-ups above the composer until they are claimed', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
+    state = applyEvent(state, ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [
+        { id: 'message-1', source: { kind: 'user' }, content: [{ type: 'text', text: 'first follow-up' }] },
+        { id: 'message-2', source: { kind: 'user' }, content: [{ type: 'text', text: 'second follow-up' }] },
+      ],
+    }, 2))
+
+    const queued = view(state)
+    expect(queued.lines.join('\n')).toContain('Queued · 2')
+    expect(queued.lines.join('\n')).toContain('│ 1  first follow-up')
+    expect(queued.lines.join('\n')).toContain('│ 2  second follow-up')
+
+    state = applyEvent(state, ev('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      removedCount: 1,
+      inserted: [],
+    }, 3))
+    const claimed = view(state)
+    expect(claimed.lines.join('\n')).toContain('Queued · second follow-up')
+    expect(claimed.lines.join('\n')).not.toContain('first follow-up')
+  })
+
   it('renders a user prompt and streamed assistant text', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
@@ -233,29 +281,6 @@ describe('blockLines', () => {
     expect(expanded.join('\n')).toContain('Ctrl+O: Collapse descriptions')
   })
 
-  it('renders the hotkey catalog as an unframed heading with grouped Markdown tables', () => {
-    const lines = blockLines({
-      kind: 'hotkeyCatalog',
-      bindings: {
-        'ctrl+x': 'external-editor',
-        'alt+r': 'retry',
-        'ctrl+v': 'paste-clipboard',
-        'alt+c': 'copy-prompt',
-        'ctrl+alt+c': 'copy-line',
-      },
-    }, theme, 72)
-    expect(lines.every(line => visibleWidth(line) <= 72)).toBe(true)
-    expect(lines[0]).toContain('Keyboard Shortcuts')
-    expect(lines[0]).toContain('bindings')
-    expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
-    expect(lines[1]).toBe('')
-    expect(lines.join('\n')).toContain('Navigation')
-    expect(lines.join('\n')).toContain('Editing')
-    expect(lines.join('\n')).toContain('Transcript')
-    expect(lines.join('\n')).toContain('Session')
-    expect(lines.join('\n')).toContain('Ctrl+R')
-  })
-
   it('matches oh-my-pi assistant padding and wraps inside both margins', () => {
     const lines = blockLines({
       kind: 'assistant',
@@ -311,12 +336,79 @@ describe('blockLines', () => {
 })
 
 describe('renderView', () => {
+  it('reuses transcript layout across activity-only state and spinner changes', () => {
+    let textReads = 0
+    const block = {
+      kind: 'user' as const,
+      get text() {
+        textReads += 1
+        return 'stable transcript content'
+      },
+    }
+    const state = { ...initialTranscript(), blocks: [block] }
+    renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      spinnerFrame: 0,
+    })
+    const readsAfterInitialLayout = textReads
+
+    renderView({ ...state, status: 'running' }, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      spinnerFrame: 1,
+    })
+
+    expect(textReads).toBe(readsAfterInitialLayout)
+  })
+
+  it('reuses settled block layouts while only a running tool spinner changes', () => {
+    let textReads = 0
+    const settled = {
+      kind: 'user' as const,
+      get text() {
+        textReads += 1
+        return 'settled transcript content'
+      },
+    }
+    const state = {
+      ...initialTranscript(),
+      status: 'running' as const,
+      blocks: [
+        settled,
+        { kind: 'tool' as const, callId: CallId('call-running'), name: 'bash', args: '{}', status: 'running' as const, output: '' },
+      ],
+    }
+    const options = {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+    }
+    const first = renderView(state, { ...options, spinnerFrame: 0 })
+    const readsAfterInitialLayout = textReads
+    const second = renderView(state, { ...options, spinnerFrame: 1 })
+
+    expect(textReads).toBe(readsAfterInitialLayout)
+    expect(second.lines).not.toEqual(first.lines)
+  })
+
   it('separates adjacent outputs from different slash commands', () => {
     const state = {
       ...initialTranscript(),
       blocks: [
         { kind: 'commandOutput', command: 'session', text: 'Session Details\n\nfirst' },
-        { kind: 'commandOutput', command: 'queue', text: 'Queued Messages\n\nsecond' },
+        { kind: 'commandOutput', command: 'export', text: 'Export complete\n\nsecond' },
       ],
     } as ReturnType<typeof initialTranscript>
     const frame = renderView(state, {
@@ -347,6 +439,49 @@ describe('renderView', () => {
     expect(frame.lines[editorStart + 1]).toContain('abc')
     expect(frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
     expect(frame.lines.at(-2)).toContain('m')
+  })
+
+  it('shows queued submissions immediately above the composer', () => {
+    const state = initialTranscript()
+    const frame = renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      queuedSubmissions: [
+        { text: 'first queued', images: [] },
+        { text: 'second\nqueued', images: [] },
+      ],
+      colors: false,
+    })
+    const editorStart = frame.editor?.start ?? -1
+    const queue = frame.lines.slice(editorStart - 3, editorStart)
+    expect(queue[0]).toMatch(/^  │ Queued · 2\s+↑ edit latest$/u)
+    expect(queue.slice(1)).toEqual([
+      '  │ 1  first queued',
+      '  │ 2  second ↵ queued',
+    ])
+  })
+
+  it('collapses one queued submission into a single action row', () => {
+    const lines = renderQueuedSubmissions([
+      { text: 'one queued message', images: [] },
+    ], createTheme(false), 48)
+    expect(lines[0]).toMatch(/^  │ Queued · one queued message\s+↑ edit$/u)
+  })
+
+  it('caps and truncates queued submission previews', () => {
+    const lines = renderQueuedSubmissions([
+      { text: 'one', images: [] },
+      { text: 'two', images: [] },
+      { text: 'three', images: [] },
+      { text: 'four '.repeat(20), images: [] },
+    ], createTheme(false), 24)
+    expect(lines).toHaveLength(4)
+    expect(lines[0]).toContain('Queued · 4')
+    expect(lines.join('\n')).not.toContain('│ 1  one')
+    expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)
   })
 
   it('keeps the frame inside the terminal height with a scroll indicator', () => {
