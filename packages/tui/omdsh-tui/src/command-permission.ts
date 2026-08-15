@@ -1,12 +1,12 @@
-/** Interactive access-mode command over the Harness permission preset seam. */
+/** Interactive permission command shadowing the Harness preset write command. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from './definition.ts'
 import { registerCommands } from './command-registration.ts'
 
-export const name = 'omdsh-command-mode'
+export const name = 'omdsh-command-permission'
 export const inject = ['commands', 'permissionPresets', 'tui']
 
 function titleCase(value: string): string {
@@ -19,9 +19,9 @@ async function confirmFullAccess(ctx: Context, invocation: CommandInvocation): P
   const answer = await ctx.tui.prompt({
     title: 'Full access',
     question: 'Allow unrestricted filesystem access without approval prompts?',
-    detail: 'Only enable this mode for a workspace and task you trust.',
+    detail: 'Only enable this permission for a workspace and task you trust.',
     options: [
-      { label: 'Cancel', value: 'cancel', description: 'Keep the current access mode.' },
+      { label: 'Cancel', value: 'cancel', description: 'Keep the current permission.' },
       { label: 'Enable full access', value: 'confirm', description: 'Disable sandbox and approval protection.' },
     ],
     initialValue: 'cancel',
@@ -32,8 +32,12 @@ async function confirmFullAccess(ctx: Context, invocation: CommandInvocation): P
   return answer === 'confirm'
 }
 
-async function selectMode(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /mode' }
+async function selectPermission(
+  ctx: Context,
+  invocation: CommandInvocation,
+  switchPreset: CommandDefinition['handler'],
+): Promise<CommandResult> {
+  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /permission' }
   const current = ctx.permissionPresets.current(invocation.agent.session.events)
   const options = ctx.permissionPresets.names.map((value) => {
     const option = ctx.permissionPresets.optionOf(value)
@@ -43,9 +47,9 @@ async function selectMode(ctx: Context, invocation: CommandInvocation): Promise<
       description: `${value === current ? 'Current · ' : ''}${option.description ?? titleCase(value)}`,
     }
   })
-  if (options.length === 0) return { kind: 'error', text: 'No access modes are configured.' }
+  if (options.length === 0) return { kind: 'error', text: 'No permissions are configured.' }
   const selected = await ctx.tui.prompt({
-    title: 'Access mode',
+    title: 'Permission',
     question: 'Choose how omdsh may access your workspace',
     options,
     initialValue: current,
@@ -55,28 +59,30 @@ async function selectMode(ctx: Context, invocation: CommandInvocation): Promise<
   })
   if (selected === null || selected === current) return { kind: 'success' }
   if (!ctx.permissionPresets.names.includes(selected)) {
-    return { kind: 'error', text: `Unknown access mode: ${selected}` }
+    return { kind: 'error', text: `Unknown permission: ${selected}` }
   }
   if (selected === 'danger-full-access' && !await confirmFullAccess(ctx, invocation)) {
     return { kind: 'success' }
   }
 
-  // Keep the Harness command as the single mutation path. omdsh owns only
-  // this fixed-choice presentation; policy events and model notifications
-  // remain inside the permission plugin.
-  const switched = await ctx.commands.execute(
-    invocation.agent,
-    `/permission ${selected}`,
-    invocation.signal,
-  )
-  if (switched === undefined) return { kind: 'error', text: 'Access modes are unavailable.' }
-  if (switched.result.kind === 'error') return switched.result
+  // The scoped presentation shadows the global Harness command, while its
+  // captured handler remains the single authoritative mutation path.
+  const switched = await switchPreset({ ...invocation, rawInput: ` ${selected}` })
+  if (switched.kind === 'error') return switched
   const option = ctx.permissionPresets.optionOf(selected)
-  return { kind: 'success', text: `Access mode: ${option.name}` }
+  return { kind: 'success', text: `Permission: ${option.name}` }
 }
 
 export function apply(ctx: Context): void {
+  const agent = ctx.agent
+  if (agent === undefined) throw new Error('omdsh-command-permission must be mounted under agent.ctx')
+  const upstream = ctx.commands.find(agent, 'permission')
+  if (upstream === undefined) throw new Error('the Harness permission command is unavailable')
   registerCommands(ctx, [
-    { name: 'mode', description: 'Choose the session access mode', handler: invocation => selectMode(ctx, invocation) },
-  ], 'omdsh access-mode command')
+    {
+      name: 'permission',
+      description: 'Choose the session permission',
+      handler: invocation => selectPermission(ctx, invocation, upstream.handler),
+    },
+  ], 'omdsh permission command')
 }

@@ -837,25 +837,39 @@ export const QUEUED_SUBMISSION_PREVIEW = 3
 /** Maximum number of Todo items kept visible above the composer. */
 export const TODO_PREVIEW = 5
 
-/** Compact, unframed Todo projection placed above queued messages. */
+function todoPreviewStart(todos: readonly TodoItem[]): number {
+  if (todos.length <= TODO_PREVIEW) return 0
+  const active = todos.findIndex(todo => todo.status === 'in_progress')
+  if (active >= 0) return active
+  const pending = todos.findIndex(todo => todo.status === 'pending')
+  return pending >= 0 ? pending : Math.max(0, todos.length - TODO_PREVIEW)
+}
+
+/** Compact, unframed Todo tree placed above queued messages. */
 export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {
   if (todos.length === 0 || width <= 0) return []
   const completed = todos.filter(todo => todo.status === 'completed').length
-  const rail = '  ' + theme.fg('border', '│') + ' '
-  const header = rail + theme.bold(theme.fg('accent', 'Todo'))
+  const header = '  ' + theme.bold(theme.fg('accent', 'Todos'))
     + theme.fg('dim', ` · ${completed}/${todos.length}`)
-  const visible = todos.slice(0, TODO_PREVIEW)
-  const lines = [header, ...visible.map((todo) => {
+  const start = todoPreviewStart(todos)
+  const end = Math.min(todos.length, start + TODO_PREVIEW)
+  const rows: Array<TodoItem | string> = [
+    ...(start === 0 ? [] : [`… ${start} earlier`]),
+    ...todos.slice(start, end),
+    ...(end === todos.length ? [] : [`… ${todos.length - end} more`]),
+  ]
+  const lines = [header, ...rows.map((row, index) => {
+    const branch = '  ' + theme.fg('dim', index === rows.length - 1 ? '└─' : '├─') + ' '
+    if (typeof row === 'string') return branch + theme.fg('dim', row)
+    const todo = row
     if (todo.status === 'completed') {
-      return rail + theme.fg('success', SYMBOL.success) + ' ' + theme.fg('dim', todo.content)
+      return branch + theme.fg('success', '☑ ' + theme.strikethrough(todo.content))
     }
     if (todo.status === 'in_progress') {
-      return rail + theme.fg('accent', SYMBOL.cursor) + ' ' + theme.fg('text', todo.content)
+      return branch + theme.fg('accent', '☐ ' + todo.content)
     }
-    return rail + theme.fg('dim', SYMBOL.bullet + ' ' + todo.content)
+    return branch + theme.fg('dim', '☐ ' + todo.content)
   })]
-  const hidden = todos.length - visible.length
-  if (hidden > 0) lines.push(rail + theme.fg('dim', `… ${hidden} more`))
   return lines.map(line => truncateToWidth(line, width))
 }
 

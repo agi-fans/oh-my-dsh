@@ -19,7 +19,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/model', text: 'Switch model and reasoning effort' },
   { key: '/login', text: 'Configure and validate your DeepSeek API key' },
   { key: '/plan', text: 'Plan before making workspace changes' },
-  { key: '/mode', text: 'Choose the session access mode' },
+  { key: '/permission', text: 'Choose the session permission' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
   { key: 'Esc Esc', text: 'Rewind to an earlier conversation turn' },

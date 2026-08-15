@@ -55,9 +55,9 @@
       "types": "./lib/command-model.d.ts",
       "default": "./lib/command-model.js"
     },
-    "./command-mode": {
-      "types": "./lib/command-mode.d.ts",
-      "default": "./lib/command-mode.js"
+    "./command-permission": {
+      "types": "./lib/command-permission.d.ts",
+      "default": "./lib/command-permission.js"
     },
     "./command-auth": {
       "types": "./lib/command-auth.d.ts",
@@ -117,9 +117,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-scope": "0.1.0-rc.6",
+    "@types/node": "^22.10.0",
     "typescript": "^5.6.0",
     "tsx": "^4.19.0",
-    "vitest": "^2.1.0",
-    "@types/node": "^22.10.0"
+    "vitest": "^2.1.0"
   }
 }

@@ -171,9 +171,6 @@ type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
 }
-/** Harness commands replaced by terminal-native interaction surfaces. */
-const HIDDEN_RUNTIME_COMMANDS = new Set(['permission'])
-
 /**
  * Local terminal presentation service.
  */
@@ -1834,7 +1831,7 @@ export class LocalTui implements TuiService {
   #commands(): readonly SlashCommand[] {
     const localNames = new Set(BUILTIN_SLASH_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]))
     const runtime: SlashCommand[] = this.#runtimeCommands
-      .filter((command) => !localNames.has(command.name) && !HIDDEN_RUNTIME_COMMANDS.has(command.name))
+      .filter((command) => !localNames.has(command.name))
       .map((command) => ({
         name: command.name,
         description: command.description,

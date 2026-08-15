@@ -80,6 +80,31 @@ const DISABLE_AUTOWRAP = '\x1b[?7l'
 const ENABLE_AUTOWRAP = '\x1b[?7h'
 const SYNC_OUTPUT_BEGIN = '\x1b[?2026h'
 const SYNC_OUTPUT_END = '\x1b[?2026l'
+const DISPLAY_ESCAPE = /\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))/gu
+const UNSAFE_CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/gu
+
+/** Keep styling/link escapes but remove content-owned cursor and screen controls. */
+export function sanitizeDisplayLine(value: string): string {
+  const plain = (text: string): string => text
+    .replaceAll('\r', ' ')
+    .replaceAll('\n', ' ')
+    .replace(UNSAFE_CONTROL, '')
+  let output = ''
+  let cursor = 0
+  for (const match of value.matchAll(DISPLAY_ESCAPE)) {
+    output += plain(value.slice(cursor, match.index))
+    const sequence = match[0]
+    if ((sequence.startsWith('\x1b[') && sequence.endsWith('m')) || sequence.startsWith('\x1b]8;')) {
+      output += sequence
+    }
+    cursor = match.index + sequence.length
+  }
+  return output + plain(value.slice(cursor))
+}
+
+function cursorPosition(row: number, column: number): string {
+  return `\x1b[${Math.max(0, row) + 1};${Math.max(0, column) + 1}H`
+}
 
 /**
  * Compute the line diff between two frames.
@@ -136,25 +161,23 @@ export class LineRenderer {
 
   /** Render a frame, rewriting only the lines that changed. */
   render(frame: Frame): void {
-    const next = frame.lines.map((line) => String(line))
+    const next = frame.lines.map((line) => sanitizeDisplayLine(String(line)))
     const diff = computeLineDiff(this.#last, next)
+    const changed = diff.writes.length > 0 || diff.clears.length > 0
     let out = ''
     // Simulate the cursor through the emitted operations so the final
     // positioning never depends on assumptions about where the ops left it.
     let row = this.#row
     let col = this.#col
-    if (diff.writes.length > 0 || diff.clears.length > 0) {
-      // Move from the tracked cursor to the first rewritten row — the
-      // previous render may have left the cursor on the input line, which
-      // the diff must not treat as a fixed reference row.
+    if (changed) {
+      // Anchor every paint to an absolute screen row. Terminal integrations,
+      // raw tool output, or another stdout owner may have moved the physical
+      // cursor without updating our cache; relative motion would preserve that
+      // drift and leave old viewport indicators behind.
       const prefix = diff.writes[0]?.row ?? diff.clears[0] ?? 0
-      if (row > prefix) out += `\x1b[${row - prefix}A`
-      else if (row < prefix) out += `\x1b[${prefix - row}B`
+      out += cursorPosition(prefix, 0)
       row = prefix
-      if (col > 0) {
-        out += '\r'
-        col = 0
-      }
+      col = 0
       for (const write of diff.writes) {
         out += '\r\x1b[K' + write.text
         row = write.row
@@ -193,13 +216,11 @@ export class LineRenderer {
     this.#last = next
     const target = frame.cursor ?? { row: next.length, column: 0 }
     const cursorVisible = frame.cursorVisible !== false
-    let move = ''
-    if (target.row !== row || target.column !== col) {
-      if (target.row < row) move += `\x1b[${row - target.row}A`
-      else if (target.row > row) move += `\x1b[${target.row - row}B`
-      if (target.column < col) move += `\x1b[${col - target.column}D`
-      else if (target.column > col) move += `\x1b[${target.column - col}C`
-    }
+    // Every changed paint ends at an absolute cursor coordinate. Identical
+    // frames remain true no-ops unless the logical caret itself moved.
+    const move = changed || target.row !== this.#row || target.column !== this.#col
+      ? cursorPosition(target.row, target.column)
+      : ''
     const hide = !cursorVisible && this.#cursorVisible ? '\x1b[?25l' : ''
     const show = cursorVisible && !this.#cursorVisible ? '\x1b[?25h' : ''
     const payload = hide + out + move + show

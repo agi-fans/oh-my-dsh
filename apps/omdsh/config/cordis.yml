@@ -79,7 +79,7 @@
     policy: !!js "(process.env.OMDSH_PERMISSION_MODE || 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'"
 
 # Every session starts with one explicit access preset. The environment is a
-# deployment override; the TUI switches it later through the /mode picker.
+# deployment override; the TUI switches it later through the /permission picker.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
 
@@ -227,9 +227,6 @@
 
 - id: tui-command-model
   name: '@agi-fans/dsh-tui/command-model'
-
-- id: tui-command-mode
-  name: '@agi-fans/dsh-tui/command-mode'
 
 - id: tui-command-auth
   name: '@agi-fans/dsh-tui/command-auth'

@@ -56,6 +56,17 @@ if (!(await waitFor(() => hasReasoningEffort(out), 'effective reasoning effort')
   term.kill()
   process.exit(1)
 }
+term.write('/permission\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access your workspace'), 'permission selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[A')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Permission: Read only'), 'permission switch'))) {
+  term.kill()
+  process.exit(1)
+}
 term.write('hi\r')
 if (!(await waitFor(() => out.includes('error'), 'rendered turn error'))) {
   term.kill()
@@ -91,6 +102,7 @@ const ok = exitCode === 0
   && clean.includes('error:')
   && clean.includes('deepseek-v4-flash')
   && hasReasoningEffort(clean)
+  && clean.includes('Permission: Read only')
   && clean.includes('Rewind Conversation')
   && clean.includes('Rewound to before turn 1.')
   && clean.includes('Resume this session with omdsh --resume session-')

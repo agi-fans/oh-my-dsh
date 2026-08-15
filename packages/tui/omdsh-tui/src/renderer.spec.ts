@@ -4,7 +4,7 @@
  * externally observable contract, independent of escape-sequence internals.
  */
 import { describe, expect, it } from 'vitest'
-import { computeLineDiff, LineRenderer, type Frame } from './renderer.ts'
+import { computeLineDiff, LineRenderer, sanitizeDisplayLine, type Frame } from './renderer.ts'
 
 /** Minimal emulator for the escape grammar our renderer emits. */
 class Screen {
@@ -20,12 +20,17 @@ class Screen {
         this.row += 1
         this.rows[this.row] ??= ''
       } else if (token.startsWith('\x1b[')) {
-        const n = Number(token.slice(2, -1).replace(/^\?/u, '') || '1')
+        const params = token.slice(2, -1).replace(/^\?/u, '').split(';').map(value => Number(value || '1'))
+        const n = params[0] ?? 1
         const op = token.slice(-1)
         if (op === 'A') this.row = Math.max(0, this.row - n)
         else if (op === 'B') this.row += n
         else if (op === 'C') this.col += n
         else if (op === 'D') this.col = Math.max(0, this.col - n)
+        else if (op === 'H' || op === 'f') {
+          this.row = Math.max(0, (params[0] ?? 1) - 1)
+          this.col = Math.max(0, (params[1] ?? 1) - 1)
+        }
         else if (op === 'K') this.rows[this.row] = (this.rows[this.row] ?? '').slice(0, this.col)
         this.rows[this.row] ??= ''
       } else {
@@ -83,6 +88,12 @@ describe('computeLineDiff', () => {
 })
 
 describe('LineRenderer', () => {
+  it('removes content-owned cursor controls while preserving SGR styles', () => {
+    expect(sanitizeDisplayLine('safe\x1b[2A\x1b[31mred\x1b[0m\r\nnext')).toBe(
+      'safe\x1b[31mred\x1b[0m  next',
+    )
+  })
+
   it('renders an initial frame', () => {
     expect(renderSequence([f(['one', 'two'])])).toEqual(['one', 'two'])
   })
@@ -183,5 +194,32 @@ describe('LineRenderer', () => {
     // A trailing newline past the bottom row would have grown the screen.
     expect(screen.rows.length).toBeLessThanOrEqual(height)
     expect(screen.rows.slice(0, height)).toEqual(['a', 'X', 'c', 'd', '> '])
+  })
+
+  it('reanchors after physical cursor drift so viewport indicators do not stack', () => {
+    const screen = new Screen()
+    const renderer = new LineRenderer(screen)
+    renderer.render({
+      lines: ['… ↑ 12 earlier lines', 'old body', '… ↓ 4 later lines', '> ', 'status'],
+      cursor: { row: 3, column: 2 },
+    })
+
+    // A terminal integration, control sequence, or concurrent writer may move
+    // the physical cursor without updating the renderer's cached position.
+    screen.write('\x1b[1B')
+    renderer.render({
+      lines: ['… ↑ 9 earlier lines', 'new body', '… ↓ 7 later lines', '> ', 'status'],
+      cursor: { row: 3, column: 2 },
+    })
+
+    expect(screen.rows.slice(0, 5)).toEqual([
+      '… ↑ 9 earlier lines',
+      'new body',
+      '… ↓ 7 later lines',
+      '> ',
+      'status',
+    ])
+    expect(screen.rows.filter(row => row.includes('earlier lines'))).toHaveLength(1)
+    expect(screen.rows.filter(row => row.includes('later lines'))).toHaveLength(1)
   })
 })

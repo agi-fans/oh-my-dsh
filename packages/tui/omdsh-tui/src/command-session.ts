@@ -101,7 +101,7 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
       `| Model | \`${selection.provider}/${selection.model}\` |`,
       `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
       `| Mode | ${mode} |`,
-      ...(controls.permission === undefined ? [] : [`| Access mode | \`${controls.permission}\` |`]),
+      ...(controls.permission === undefined ? [] : [`| Permission | \`${controls.permission}\` |`]),
       `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
       `| Tokens | ${stats.inputTokens} in · ${stats.outputTokens} out |`,
       `| Queue | ${invocation.agent.inbox.nextTurn.length} follow-up · ${invocation.agent.inbox.nextStep.length} steering |`,

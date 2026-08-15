@@ -261,7 +261,7 @@ describe('LocalTui (tty)', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const answer = tui.prompt({
-      title: 'Access mode',
+      title: 'Permission',
       question: 'Choose how omdsh may access your workspace',
       options: [
         { label: 'Read only', value: 'read-only' },
@@ -1109,18 +1109,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('exposes /mode instead of the raw permission command', async () => {
+  it('exposes the interactive /permission command without a raw input hint', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.setCommands([
-      { name: 'permission', description: 'Switch permission preset', inputHint: '<preset>' },
-      { name: 'mode', description: 'Choose the session access mode' },
+      { name: 'permission', description: 'Choose the session permission' },
     ])
     const pending = tui.readline()
-    press(term, '/permission danger-full-access\r')
-    expect(stripAnsi(term.captured)).toContain('unknown command: /permission')
     press(term, '/mode\r')
-    expect(await pending).toBe('/mode')
+    expect(stripAnsi(term.captured)).toContain('unknown command: /mode')
+    press(term, '/permission\r')
+    expect(await pending).toBe('/permission')
     tui.dispose()
   })
 

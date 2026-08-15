@@ -56,4 +56,24 @@ describe('omdsh smoke', () => {
     expect(out).toContain(missing)
     expect(out).not.toContain('Unsupported platform')
   }, 200_000)
+
+  it('mounts the interactive permission selector in the active agent scope', () => {
+    const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-permission-smoke-'))
+    const result = spawnSync(
+      'pnpm',
+      ['omdsh'],
+      {
+        cwd: root,
+        input: '/permission\n1\n',
+        encoding: 'utf8',
+        timeout: 180_000,
+        env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' },
+      },
+    )
+    rmSync(omdshHome, { recursive: true, force: true })
+    const out = (result.stdout ?? '') + (result.stderr ?? '')
+    expect(result.status).toBe(0)
+    expect(out).toContain('Choose how omdsh may access your workspace')
+    expect(out).not.toContain('Usage: /permission')
+  }, 200_000)
 })

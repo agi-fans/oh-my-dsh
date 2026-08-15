@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
@@ -231,11 +231,16 @@ describe('applyEvent', () => {
       { content: 'Inspect the projection chain', status: 'completed' },
       { content: 'Render todos above the composer', status: 'in_progress' },
     ])
-    expect(lines.join('\n')).toContain('Todo · 1/2')
+    expect(lines.join('\n')).toContain('Todos · 1/2')
     const todo = lines.findIndex(line => line.includes('Render todos above the composer'))
     const composer = lines.findIndex(line => line.includes('🐳'))
     expect(todo).toBeGreaterThanOrEqual(0)
     expect(composer).toBeGreaterThan(todo)
+    expect(lines.slice(todo - 2, todo + 1)).toEqual([
+      '  Todos · 1/2',
+      '  ├─ ☑ Inspect the projection chain',
+      '  └─ ☐ Render todos above the composer',
+    ])
   })
 
   it('clears the previous Todo projection when the next turn starts', () => {
@@ -549,6 +554,26 @@ describe('renderView', () => {
     expect(lines).toHaveLength(4)
     expect(lines[0]).toContain('Queued · 4')
     expect(lines.join('\n')).not.toContain('│ 1  one')
+    expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)
+  })
+
+  it('keeps current Todo work visible inside a bounded tree preview', () => {
+    const lines = renderTodos([
+      { content: 'done one', status: 'completed' },
+      { content: 'done two', status: 'completed' },
+      { content: 'done three', status: 'completed' },
+      { content: 'done four', status: 'completed' },
+      { content: 'done five', status: 'completed' },
+      { content: 'current work', status: 'in_progress' },
+      { content: 'next task with a long description', status: 'pending' },
+    ], createTheme(false), 24)
+
+    expect(lines.map(stripAnsi)).toEqual([
+      '  Todos · 5/7',
+      '  ├─ … 5 earlier',
+      '  ├─ ☐ current work',
+      '  └─ ☐ next task with a…',
+    ])
     expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)
   })
 

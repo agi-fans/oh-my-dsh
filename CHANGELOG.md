@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced `/mode` with an agent-scoped `/permission` selector that offers fixed Harness permission presets and requires confirmation before enabling full access.
+- Refined the composer Todo HUD into a bounded tree preview with completion progress, active-work visibility, completed-item strikethrough, and overflow summaries.
+
 ### Fixed
 
-- Displayed the latest Harness Todo projection above the composer, including live updates, replay restoration, and turn-boundary clearing.
+- Restored the latest Harness Todo projection above the composer, including live updates, replay restoration, and turn-boundary clearing.
+- Prevented stale transcript viewport indicators from stacking after terminal cursor drift by absolutely reanchoring changed paints and filtering content-owned cursor controls.
 
 ## [0.2.0] - 2026-08-16
 

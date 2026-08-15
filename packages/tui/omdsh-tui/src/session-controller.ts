@@ -39,12 +39,18 @@ import type {
   TuiSubmission,
 } from './definition.ts'
 import type {} from './tool-presentation.ts'
+import * as commandPermission from './command-permission.ts'
 
 interface ActiveSession {
   handle: AgentHandle
   selection: ModelSelectionRef
   contextWindow: number | undefined
   reasoningEffort: string | undefined
+}
+
+async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef): Promise<void> {
+  installModelSelection(agentCtx, selection)
+  await agentCtx.plugin(commandPermission)
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -545,7 +551,7 @@ export class SessionRuntime {
       resumeSessionId: SessionId(id),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: agentCtx => { installModelSelection(agentCtx, ref) },
+      setup: agentCtx => setupAgentContext(agentCtx, ref),
     })
     await this.#activate({ handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined })
     await this.refreshRecent()
@@ -626,7 +632,7 @@ export class SessionRuntime {
       },
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: agentCtx => { installModelSelection(agentCtx, ref) },
+      setup: agentCtx => setupAgentContext(agentCtx, ref),
     })
     try {
       this.assertActive(agent)
@@ -708,7 +714,7 @@ export class SessionRuntime {
       sessionId: SessionId('session-' + randomUUID()),
       meta: { cwd: process.cwd() },
       agentOptions: { provider: selection.provider, model: selection.model },
-      setup: agentCtx => { installModelSelection(agentCtx, ref) },
+      setup: agentCtx => setupAgentContext(agentCtx, ref),
     })
     return { handle, selection: ref, contextWindow: undefined, reasoningEffort: undefined }
   }
