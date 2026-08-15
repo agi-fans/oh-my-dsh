@@ -2,7 +2,7 @@
  * omdsh tree boot: mounts the shipped cordis.yml composition through the
  * harness boot machinery, providing the command line, the exit request,
  * and the launch-environment snapshot before any entry mounts.
- * @module @oh-my-dsh/dsh-coding-agent
+ * @module @agi-fans/oh-my-dsh
  */
 
 import { fileURLToPath } from 'node:url'

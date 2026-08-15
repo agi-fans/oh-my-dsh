@@ -2,7 +2,7 @@
  * Terminal key decoder. Turns raw stdin (legacy CSI, SS3, Kitty CSI-u,
  * modifyOtherKeys) into the same key-id vocabulary oh-my-pi uses:
  * `enter`, `ctrl+a`, `alt+left`, `shift+enter`, …
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 /** One decoded SGR mouse report (`\x1b[<button;col;rowM`). */

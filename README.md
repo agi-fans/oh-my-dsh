@@ -16,7 +16,7 @@ The TUI is deliberately a presentation and interaction layer. Sessions, tools, p
 
 - **Harness-native.** Use published DeepSeek Harness packages as the source of truth for agent behavior, state, and lifecycle.
 - **Everything remains a plugin.** New capabilities belong in Cordis plugins, services, providers, consumers, or app composition instead of a growing monolithic TUI.
-- **One owner for each concern.** `@oh-my-dsh/dsh-tui` owns terminal presentation and interaction, while `@oh-my-dsh/dsh-coding-agent` owns startup and runtime composition.
+- **One owner for each concern.** `@agi-fans/dsh-tui` owns terminal presentation and interaction, while `@agi-fans/oh-my-dsh` owns startup and runtime composition.
 - **Terminal-first interaction.** Keep the composer anchored, render incrementally, respect display-cell width, and make common workflows available from the keyboard.
 - **Progressive disclosure.** Keep the default view calm and concise while making tool output, telemetry, settings, and session details discoverable on demand.
 - **References stay references.** The projects under `refs/` are read-only material for API and UX research; omdsh runtime code depends only on published packages and its own workspace packages.
@@ -36,10 +36,10 @@ The TUI is deliberately a presentation and interaction layer. Sessions, tools, p
 DeepSeek Harness plugins and services
                 │
                 ▼
-  @oh-my-dsh/dsh-tui — terminal capability seam
+  @agi-fans/dsh-tui — terminal capability seam
                 │
                 ▼
-  @oh-my-dsh/dsh-coding-agent — boot and plugin composition
+  @agi-fans/oh-my-dsh — boot and plugin composition
 ```
 
 The TUI package is split internally into a service definition, a local terminal provider, and an interactive runner. This keeps terminal ownership isolated from event projection and rendering, and leaves room for other providers or consumers without coupling them to the local TTY implementation. See the [architecture overview](docs/architecture.md) and [plugin architecture review](docs/plugin-architecture-review.md) for more detail.
@@ -49,7 +49,7 @@ The TUI package is split internally into a service definition, a local terminal 
 Requirements: Node.js 22.19 or newer (Node.js 24 is also supported) and a DeepSeek API key for live model turns.
 
 ```sh
-npm install --global @oh-my-dsh/dsh-coding-agent
+npm install --global @agi-fans/oh-my-dsh
 export DEEPSEEK_API_KEY=your_api_key
 omdsh
 ```
@@ -57,7 +57,7 @@ omdsh
 You can also run omdsh without installing it globally:
 
 ```sh
-npx @oh-my-dsh/dsh-coding-agent
+npx @agi-fans/oh-my-dsh
 ```
 
 Model and provider settings can also come from `$DSH_HOME/settings.yaml`, while credentials follow the DeepSeek Harness credential resolution flow. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).

@@ -1,61 +1,70 @@
 {
-  "name": "@oh-my-dsh/dsh-tui",
+  "name": "@agi-fans/dsh-tui",
   "description": "Cordis plugin suite for omdsh terminal presentation, session interaction, commands, and human input",
   "version": "0.1.0",
+  "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agi-fans/oh-my-dsh.git",
+    "directory": "packages/tui/omdsh-tui"
+  },
+  "bugs": {
+    "url": "https://github.com/agi-fans/oh-my-dsh/issues"
+  },
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./runner": {
-      "types": "./lib/types/runner.d.ts",
+      "types": "./lib/runner.d.ts",
       "default": "./lib/runner.js"
     },
     "./definition": {
-      "types": "./lib/types/definition.d.ts",
+      "types": "./lib/definition.d.ts",
       "default": "./lib/definition.js"
     },
     "./provider-local": {
-      "types": "./lib/types/provider-local.d.ts",
+      "types": "./lib/provider-local.d.ts",
       "default": "./lib/provider-local.js"
     },
     "./session-runtime": {
-      "types": "./lib/types/session-runtime.d.ts",
+      "types": "./lib/session-runtime.d.ts",
       "default": "./lib/session-runtime.js"
     },
     "./human-interaction": {
-      "types": "./lib/types/human-interaction.d.ts",
+      "types": "./lib/human-interaction.d.ts",
       "default": "./lib/human-interaction.js"
     },
     "./tool-presentation": {
-      "types": "./lib/types/tool-presentation.d.ts",
+      "types": "./lib/tool-presentation.d.ts",
       "default": "./lib/tool-presentation.js"
     },
     "./command-session": {
-      "types": "./lib/types/command-session.d.ts",
+      "types": "./lib/command-session.d.ts",
       "default": "./lib/command-session.js"
     },
     "./command-queue": {
-      "types": "./lib/types/command-queue.d.ts",
+      "types": "./lib/command-queue.d.ts",
       "default": "./lib/command-queue.js"
     },
     "./command-model": {
-      "types": "./lib/types/command-model.d.ts",
+      "types": "./lib/command-model.d.ts",
       "default": "./lib/command-model.js"
     },
     "./command-mode": {
-      "types": "./lib/types/command-mode.d.ts",
+      "types": "./lib/command-mode.d.ts",
       "default": "./lib/command-mode.js"
     },
     "./command-transcript": {
-      "types": "./lib/types/command-transcript.d.ts",
+      "types": "./lib/command-transcript.d.ts",
       "default": "./lib/command-transcript.js"
     },
     "./command-integrations": {
-      "types": "./lib/types/command-integrations.d.ts",
+      "types": "./lib/command-integrations.d.ts",
       "default": "./lib/command-integrations.js"
     },
     "./package.json": "./package.json"
@@ -64,10 +73,15 @@
     "lib/**/*"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
     "build": "tsc -b tsconfig.json",
     "test": "vitest run src",
-    "typecheck": "tsc -b tsconfig.json"
+    "typecheck": "tsc -b tsconfig.json",
+    "prepack": "pnpm run clean && pnpm run build"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",

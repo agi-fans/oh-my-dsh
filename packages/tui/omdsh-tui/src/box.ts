@@ -1,7 +1,7 @@
 /**
  * Rounded-box chrome ported from oh-my-pi: framed tool output, the welcome
  * card and the framed editor whose top border carries its compact label.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, type Theme, type ThemeColor } from './theme.ts'

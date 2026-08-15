@@ -1,7 +1,7 @@
 /**
  * omdsh argument parsing: one optional prompt (positional words joined)
  * plus --model/--provider overrides, durable --resume, and help/version.
- * @module @oh-my-dsh/dsh-coding-agent
+ * @module @agi-fans/oh-my-dsh
  */
 
 export interface OmdshInvocation {

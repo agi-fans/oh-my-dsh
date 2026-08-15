@@ -34,12 +34,12 @@ The application composition in [`apps/omdsh/config/cordis.yml`](../apps/omdsh/co
 
 The TUI exposes supported plugin entries with distinct roles:
 
-- `@oh-my-dsh/dsh-tui` provides the local terminal implementation of the TUI service.
-- `@oh-my-dsh/dsh-tui/session-runtime` owns the active top-level Agent and session lifecycle.
-- `@oh-my-dsh/dsh-tui/tool-presentation` adapts scoped tool-owned presentation intents.
-- `@oh-my-dsh/dsh-tui/human-interaction` adapts approval and user-question services.
-- `@oh-my-dsh/dsh-tui/command-*` groups product commands by capability and contributes them through `dsh-commands`.
-- `@oh-my-dsh/dsh-tui/runner` consumes the TUI and session runtime for the interactive input loop.
+- `@agi-fans/dsh-tui` provides the local terminal implementation of the TUI service.
+- `@agi-fans/dsh-tui/session-runtime` owns the active top-level Agent and session lifecycle.
+- `@agi-fans/dsh-tui/tool-presentation` adapts scoped tool-owned presentation intents.
+- `@agi-fans/dsh-tui/human-interaction` adapts approval and user-question services.
+- `@agi-fans/dsh-tui/command-*` groups product commands by capability and contributes them through `dsh-commands`.
+- `@agi-fans/dsh-tui/runner` consumes the TUI and session runtime for the interactive input loop.
 
 The status line consumes session-stats and token-meter projections instead of maintaining an unrelated source of truth. Commands, skills, tools, approval, and questions are discovered from the active Harness scope rather than compiled into the application composition.
 
@@ -104,47 +104,47 @@ Splitting these into Cordis plugins would add shallow interfaces and ordering co
 The first migration can keep one npm package and expose multiple Cordis plugin subpaths. Package separation is justified later only when a capability needs independent reuse, dependencies, release cadence, or ownership.
 
 ```text
-@oh-my-dsh/dsh-tui/definition
+@agi-fans/dsh-tui/definition
 └── TuiService interface and provider-neutral view vocabulary
 
-@oh-my-dsh/dsh-tui/provider-local
+@agi-fans/dsh-tui/provider-local
 ├── terminal ownership, raw input, viewport, cursor, and atomic rendering
 └── consumes provider-neutral view state and prompt requests
 
-@oh-my-dsh/dsh-tui/session-runtime
+@agi-fans/dsh-tui/session-runtime
 ├── active Agent/session lifecycle
 ├── create, resume, switch, send, steer, retry, and queue operations
 └── publishes a small session-control interface
 
-@oh-my-dsh/dsh-tui/runner
+@agi-fans/dsh-tui/runner
 ├── reads submitted input
 ├── dispatches slash commands through dsh-commands
 └── sends ordinary messages through session-runtime
 
-@oh-my-dsh/dsh-tui/human-interaction
+@agi-fans/dsh-tui/human-interaction
 ├── approval provider adapter
 └── user-question provider adapter
 
-@oh-my-dsh/dsh-tui/tool-presentation
+@agi-fans/dsh-tui/tool-presentation
 ├── resolves ToolDefinition.presentCall/presentResult for the active scope
 └── maps DSH render intents into terminal cards with a generic fallback
 
-@oh-my-dsh/dsh-tui/command-session
+@agi-fans/dsh-tui/command-session
 ├── new, resume, session, and retry
 └── registers through dsh-commands
 
-@oh-my-dsh/dsh-tui/command-queue
+@agi-fans/dsh-tui/command-queue
 ├── steer, queue, and dequeue
 └── registers through dsh-commands
 
-@oh-my-dsh/dsh-tui/command-model
+@agi-fans/dsh-tui/command-model
 └── model selection and reasoning effort
 
-@oh-my-dsh/dsh-tui/command-transcript
+@agi-fans/dsh-tui/command-transcript
 ├── search
 └── export
 
-@oh-my-dsh/dsh-tui/command-integrations
+@agi-fans/dsh-tui/command-integrations
 ├── mcp catalog
 └── other integration discovery commands
 ```

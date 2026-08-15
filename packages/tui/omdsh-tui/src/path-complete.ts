@@ -2,7 +2,7 @@
  * `@` and explicit path autocomplete: immediate directory browsing plus
  * asynchronous project-wide fuzzy search. Tab can force a bare-word token.
  * Filesystem access stays behind injected directory and project-search seams.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import { readdirSync, statSync } from 'node:fs'

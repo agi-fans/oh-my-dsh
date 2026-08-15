@@ -5,7 +5,7 @@
  * `mcpServers` JSON shape into one Harness `dsh-mcp-client` plugin row per
  * server. Protocol, connection lifecycle, tool registration, and reconnects
  * remain owned by the Harness MCP client.
- * @module @oh-my-dsh/dsh-coding-agent
+ * @module @agi-fans/oh-my-dsh
  */
 
 import { existsSync, readFileSync } from 'node:fs'

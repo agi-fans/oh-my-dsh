@@ -3,7 +3,7 @@
  *
  * Domain services keep ownership of audit, cancellation, and validation;
  * this module only translates their fixed vocabularies to one Tui prompt.
- * @module @oh-my-dsh/dsh-tui/interaction-adapter
+ * @module @agi-fans/dsh-tui/interaction-adapter
  */
 
 import type { Context } from '@deepseek-ai/cordis'

@@ -7,7 +7,7 @@
  * through this protocol. The vocabulary mirrors the SDK wire surface
  * (session.event / session.status), so a future remote UI can reuse the
  * definition unchanged.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'

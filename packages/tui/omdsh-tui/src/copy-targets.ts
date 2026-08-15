@@ -1,7 +1,7 @@
 /**
  * `/copy` targets from the live transcript: last assistant text, last fenced
  * code block, or last bash command. Pure — the provider owns the clipboard.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import type { Block } from './event-views.ts'

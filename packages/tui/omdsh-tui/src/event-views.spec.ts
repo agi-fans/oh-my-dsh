@@ -270,7 +270,7 @@ describe('blockLines', () => {
   })
 
   it('keeps the right cap visible for a styled long bash command', () => {
-    const command = 'pnpm --filter @oh-my-dsh/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @oh-my-dsh/dsh-tui build'
+    const command = 'pnpm --filter @agi-fans/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @agi-fans/dsh-tui build'
     const lines = blockLines({
       kind: 'tool',
       callId: CallId('call-long'),

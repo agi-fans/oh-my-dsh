@@ -18,11 +18,11 @@ It boots an interactive terminal, creates or resumes durable DSH sessions, strea
 
 ## Package layout
 
-    apps/omdsh/                    @oh-my-dsh/dsh-coding-agent — bin omdsh
+    apps/omdsh/                    @agi-fans/oh-my-dsh — bin omdsh
       src/bin.ts                    argument parsing, env loading
       src/boot.ts                   tree boot over a shipped cordis.yml
       config/cordis.yml             the omdsh composition
-    packages/tui/omdsh-tui/        @oh-my-dsh/dsh-tui — composable TUI plugin suite
+    packages/tui/omdsh-tui/        @agi-fans/dsh-tui — composable TUI plugin suite
       src/definition.ts             Service Definition: tui service protocol
       src/provider-local.ts         local terminal provider (tty owner)
       src/renderer.ts               pure ANSI differential renderer
@@ -39,11 +39,11 @@ It boots an interactive terminal, creates or resumes durable DSH sessions, strea
 
 The package exposes several small Cordis entries around one deep terminal provider:
 
-- Service definition — `@oh-my-dsh/dsh-tui/definition` declares the provider-neutral TUI protocol and view vocabulary.
-- Local provider — `@oh-my-dsh/dsh-tui`/`provider-local` alone owns raw mode, key decoding, viewport, cursor and atomic differential rendering.
-- Session runtime — `@oh-my-dsh/dsh-tui/session-runtime` owns the active Agent, persistence-backed create/resume/switch, model selection, projections and cleanup behind one API.
+- Service definition — `@agi-fans/dsh-tui/definition` declares the provider-neutral TUI protocol and view vocabulary.
+- Local provider — `@agi-fans/dsh-tui`/`provider-local` alone owns raw mode, key decoding, viewport, cursor and atomic differential rendering.
+- Session runtime — `@agi-fans/dsh-tui/session-runtime` owns the active Agent, persistence-backed create/resume/switch, model selection, projections and cleanup behind one API.
 - Contributions — the command plugins register through `dsh-commands`; `human-interaction` adapts approval and questions; `tool-presentation` resolves each active `ToolDefinition`'s provider-neutral presentation intent.
-- Consumer — `@oh-my-dsh/dsh-tui/runner` only reads submitted input, routes slash commands through the session runtime, sends ordinary messages and handles exit.
+- Consumer — `@agi-fans/dsh-tui/runner` only reads submitted input, routes slash commands through the session runtime, sends ordinary messages and handles exit.
 
 These entries remain in one npm package because they share a release cadence. Pure width, Markdown, editor, overlay and frame-diff algorithms remain internal modules; a second independently owned adapter or lifecycle is required before creating another runtime seam.
 
@@ -57,7 +57,7 @@ Modeled on the harness's own headless profile over dsh-base, plus the agent spin
 - local bash/fs/subprocess/attachment providers plus sandbox policy
 - commands, compaction, todo, plan, approval/questions and subagents
 - native skill discovery plus the model-facing skill loader; project/user MCP documents are adapted to one Harness MCP client plugin per server
-- @oh-my-dsh/dsh-tui local provider, tool-presentation bridge, session runtime, human-interaction adapter, omdsh command contributions and thin runner
+- @agi-fans/dsh-tui local provider, tool-presentation bridge, session runtime, human-interaction adapter, omdsh command contributions and thin runner
 
 ## TUI surface (ported from oh-my-pi)
 

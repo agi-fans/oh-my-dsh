@@ -352,6 +352,6 @@ oh-my-pi 参考：[`refs/oh-my-pi/packages/tui/src/components/markdown.ts`](../r
 ## 当前工程状态备注
 
 - 三轮推荐路线已经实施；逐项落点见 [`implementation-rounds.md`](implementation-rounds.md)。
-- `@oh-my-dsh/dsh-tui` 的 typecheck、测试和完整 app EOF 启动冒烟均通过。
+- `@agi-fans/dsh-tui` 的 typecheck、测试和完整 app EOF 启动冒烟均通过。
 - 本文前半部分保留为实施前的功能快照，用于解释设计取舍；“推荐实施路线”不再表示当前缺失项。
 - 本文是指定日期的功能快照；Harness 或 oh-my-pi submodule 更新后应重新核对命令、插件和交互能力。

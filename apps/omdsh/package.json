@@ -1,21 +1,35 @@
 {
-  "name": "@oh-my-dsh/dsh-coding-agent",
+  "name": "@agi-fans/oh-my-dsh",
   "description": "omdsh: TUI coding agent command over the DeepSeek Harness runtime",
   "version": "0.1.0",
+  "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agi-fans/oh-my-dsh.git",
+    "directory": "apps/omdsh"
+  },
+  "bugs": {
+    "url": "https://github.com/agi-fans/oh-my-dsh/issues"
+  },
   "type": "module",
   "bin": {
     "omdsh": "lib/bin.js"
   },
   "files": [
     "lib/*.js",
-    "lib/types/**/*.d.ts",
+    "lib/*.d.ts",
     "config"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
     "build": "tsc -b tsconfig.json",
     "test": "vitest run src",
     "typecheck": "tsc -b tsconfig.json",
+    "prepack": "pnpm run clean && pnpm run build",
     "dev": "tsx src/bin.ts",
     "omdsh": "tsx src/bin.ts"
   },
@@ -62,7 +76,7 @@
     "@deepseek-ai/dsh-tool-todo": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6",
-    "@oh-my-dsh/dsh-tui": "workspace:^",
+    "@agi-fans/dsh-tui": "workspace:^",
     "@deepseek-ai/dsh-subprocess-local": "0.1.0-rc.6",
     "@deepseek-ai/dsh-settings-file": "0.1.0-rc.6",
     "@deepseek-ai/dsh-credentials-local": "0.1.0-rc.6"

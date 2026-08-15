@@ -16,7 +16,7 @@ TUI 被刻意限定为表现层与交互层。会话、工具、权限、模型�
 
 - **原生融入 Harness。** 使用正式发布的 DeepSeek Harness 软件包，并将其作为智能体行为、状态与生命周期的唯一事实来源。
 - **始终坚持一切皆插件。** 新能力应当进入 Cordis 插件、服务、Provider、Consumer 或应用组合，而不是不断膨胀的 TUI 单体。
-- **每项职责只有一个所有者。** `@oh-my-dsh/dsh-tui` 负责终端表现与交互，`@oh-my-dsh/dsh-coding-agent` 负责启动和运行时插件组合。
+- **每项职责只有一个所有者。** `@agi-fans/dsh-tui` 负责终端表现与交互，`@agi-fans/oh-my-dsh` 负责启动和运行时插件组合。
 - **终端优先。** 固定输入区、增量渲染、正确计算终端显示宽度，并让常用工作流都可以通过键盘完成。
 - **渐进式呈现。** 默认界面保持安静和简洁，同时让工具输出、遥测、设置及会话详情可以按需展开和发现。
 - **参考项目只用于参考。** `refs/` 下的项目仅用于 API 与交互研究；omdsh 运行时代码只依赖正式发布的软件包和自身 workspace 软件包。
@@ -36,10 +36,10 @@ TUI 被刻意限定为表现层与交互层。会话、工具、权限、模型�
 DeepSeek Harness 插件与服务
              │
              ▼
- @oh-my-dsh/dsh-tui — 终端能力边界
+ @agi-fans/dsh-tui — 终端能力边界
              │
              ▼
- @oh-my-dsh/dsh-coding-agent — 启动与插件组合
+ @agi-fans/oh-my-dsh — 启动与插件组合
 ```
 
 TUI 软件包在内部拆分为服务定义、本地终端 Provider 和交互式 Runner。这让终端所有权与事件投影、渲染相互隔离，也让未来的其他 Provider 或 Consumer 无需依赖本地 TTY 实现。更多细节请阅读[架构概览](docs/architecture.md)与[插件架构复盘](docs/plugin-architecture-review.md)。
@@ -49,7 +49,7 @@ TUI 软件包在内部拆分为服务定义、本地终端 Provider 和交互式
 运行环境需要 Node.js 22.19 或更高版本（同时支持 Node.js 24），进行真实模型对话时还需要 DeepSeek API Key。
 
 ```sh
-npm install --global @oh-my-dsh/dsh-coding-agent
+npm install --global @agi-fans/oh-my-dsh
 export DEEPSEEK_API_KEY=your_api_key
 omdsh
 ```
@@ -57,7 +57,7 @@ omdsh
 也可以不进行全局安装，直接临时运行：
 
 ```sh
-npx @oh-my-dsh/dsh-coding-agent
+npx @agi-fans/oh-my-dsh
 ```
 
 模型和 Provider 配置也可以来自 `$DSH_HOME/settings.yaml`，凭据则遵循 DeepSeek Harness 的解析流程。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.md)。

@@ -82,4 +82,4 @@
 
 ## 验证基线
 
-当前 `@oh-my-dsh/dsh-tui` 有 30 个测试文件、269 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。
+当前 `@agi-fans/dsh-tui` 有 30 个测试文件、269 个测试；TUI 与 app typecheck、完整组合 EOF 启动冒烟均通过。esbuild 对仓库既有 `es2024` target 会打印 warning，不影响测试结果。

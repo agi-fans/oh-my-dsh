@@ -1,7 +1,7 @@
 /**
  * Interactive runner: reads submitted terminal input and delegates session
  * lifecycle and slash-command dispatch to the mounted session runtime.
- * @module @oh-my-dsh/dsh-tui/runner
+ * @module @agi-fans/dsh-tui/runner
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -87,7 +87,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
 
 export function apply(ctx: Context): void {
   const tui = ctx.get('tui')
-  if (tui === undefined) throw new Error('omdsh-runner: the tui provider must be mounted (config row: @oh-my-dsh/dsh-tui)')
+  if (tui === undefined) throw new Error('omdsh-runner: the tui provider must be mounted (config row: @agi-fans/dsh-tui)')
   const exit = ctx.get('appExit')
   if (exit === undefined) throw new Error('omdsh-runner: the launcher must provide ctx.appExit before the tree mounts')
   void run(ctx, tui).catch((error: unknown) => { fail(error, exit) })

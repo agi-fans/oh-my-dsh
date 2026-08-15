@@ -8,7 +8,7 @@
  * SIGWINCH reflow, and the differential renderer. In non-tty mode
  * (pipes, CI) it degrades to line-based input with plain append-only
  * printing of settled blocks.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import { homedir } from 'node:os'

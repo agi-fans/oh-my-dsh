@@ -208,36 +208,36 @@
     backgroundMode: continuable
 
 - id: tui
-  name: '@oh-my-dsh/dsh-tui'
+  name: '@agi-fans/dsh-tui'
   config:
     model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
 
 - id: tui-tool-presentation
-  name: '@oh-my-dsh/dsh-tui/tool-presentation'
+  name: '@agi-fans/dsh-tui/tool-presentation'
 
 - id: tui-session-runtime
-  name: '@oh-my-dsh/dsh-tui/session-runtime'
+  name: '@agi-fans/dsh-tui/session-runtime'
 
 - id: tui-human-interaction
-  name: '@oh-my-dsh/dsh-tui/human-interaction'
+  name: '@agi-fans/dsh-tui/human-interaction'
 
 - id: tui-command-session
-  name: '@oh-my-dsh/dsh-tui/command-session'
+  name: '@agi-fans/dsh-tui/command-session'
 
 - id: tui-command-queue
-  name: '@oh-my-dsh/dsh-tui/command-queue'
+  name: '@agi-fans/dsh-tui/command-queue'
 
 - id: tui-command-model
-  name: '@oh-my-dsh/dsh-tui/command-model'
+  name: '@agi-fans/dsh-tui/command-model'
 
 - id: tui-command-mode
-  name: '@oh-my-dsh/dsh-tui/command-mode'
+  name: '@agi-fans/dsh-tui/command-mode'
 
 - id: tui-command-transcript
-  name: '@oh-my-dsh/dsh-tui/command-transcript'
+  name: '@agi-fans/dsh-tui/command-transcript'
 
 - id: tui-command-integrations
-  name: '@oh-my-dsh/dsh-tui/command-integrations'
+  name: '@agi-fans/dsh-tui/command-integrations'
 
 - id: runner
-  name: '@oh-my-dsh/dsh-tui/runner'
+  name: '@agi-fans/dsh-tui/runner'

@@ -1,7 +1,7 @@
 /**
  * Slash-command autocomplete: OMP-style leading-`/` matching, ranking, and
  * completion apply. Pure — the provider owns popup selection and execution.
- * @module @oh-my-dsh/dsh-tui
+ * @module @agi-fans/dsh-tui
  */
 
 import { SYMBOL, type Theme } from './theme.ts'

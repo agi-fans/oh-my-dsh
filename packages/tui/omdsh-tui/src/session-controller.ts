@@ -4,7 +4,7 @@
  * This is the deep module between Harness runtime services and the TUI:
  * Agent creation, replacement, persistence lookup, model selection, recent
  * sessions, projections, command routing, and cleanup stay behind one API.
- * @module @oh-my-dsh/dsh-tui/session-controller
+ * @module @agi-fans/dsh-tui/session-controller
  */
 
 import { randomUUID } from 'node:crypto'
