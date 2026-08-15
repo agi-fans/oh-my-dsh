@@ -2,7 +2,7 @@
   "name": "oh-my-dsh",
   "private": true,
   "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
   "repository": {
@@ -19,6 +19,7 @@
   "packageManager": "pnpm@11.20.0",
   "scripts": {
     "build": "pnpm -r build",
+    "benchmark:tui": "tsx scripts/benchmark-tui.mts",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "format:md": "node scripts/format-markdown.mjs",

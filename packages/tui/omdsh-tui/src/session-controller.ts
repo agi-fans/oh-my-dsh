@@ -88,6 +88,27 @@ export function sessionStats(
   contextWindow?: number,
   projection?: TuiStatsProjection,
 ): TuiSessionStats {
+  const projectedStats = projection?.sessionStats
+  const projectedUsage = projection?.tokenUsage
+  const pressure = projection?.contextPressure
+  const projectedContext = pressure?.projectedTokens ?? pressure?.pressureTokens
+  const projectedWindow = pressure?.contextWindow ?? contextWindow
+  if (projectedStats !== undefined && projectedUsage !== undefined && projectedContext !== undefined) {
+    const first = events[0]?.time
+    const last = events[events.length - 1]?.time
+    return {
+      ...projectedStats,
+      inputTokens: projectedUsage.uncachedInputTokens
+        + projectedUsage.cacheReadTokens
+        + projectedUsage.cacheWriteTokens,
+      outputTokens: projectedUsage.outputTokens,
+      cacheReadTokens: projectedUsage.cacheReadTokens,
+      cacheWriteTokens: projectedUsage.cacheWriteTokens,
+      contextTokens: projectedContext,
+      ...(projectedWindow === undefined ? {} : { contextWindow: projectedWindow }),
+      ...(first === undefined || last === undefined ? {} : { elapsedMs: Math.max(0, last - first) }),
+    }
+  }
   let turns = 0
   let steps = 0
   let llmMs = 0
@@ -170,14 +191,10 @@ export function sessionStats(
         break
     }
   }
-  const projectedStats = projection?.sessionStats
-  const projectedUsage = projection?.tokenUsage
-  const pressure = projection?.contextPressure
   const projectedInput = projectedUsage === undefined
     ? undefined
     : projectedUsage.uncachedInputTokens + projectedUsage.cacheReadTokens + projectedUsage.cacheWriteTokens
-  const projectedContext = pressure?.projectedTokens ?? pressure?.pressureTokens ?? contextTokens
-  const projectedWindow = pressure?.contextWindow ?? contextWindow
+  const fallbackContext = projectedContext ?? contextTokens
   return {
     turns: projectedStats?.turns ?? turns,
     steps: projectedStats?.steps ?? steps,
@@ -191,7 +208,7 @@ export function sessionStats(
     outputTokens: projectedUsage?.outputTokens ?? outputTokens,
     cacheReadTokens: projectedUsage?.cacheReadTokens ?? cacheReadTokens,
     cacheWriteTokens: projectedUsage?.cacheWriteTokens ?? cacheWriteTokens,
-    ...(projectedContext === undefined ? {} : { contextTokens: projectedContext }),
+    ...(fallbackContext === undefined ? {} : { contextTokens: fallbackContext }),
     ...(projectedWindow === undefined ? {} : { contextWindow: projectedWindow }),
     ...(first === undefined || last === undefined ? {} : { elapsedMs: Math.max(0, last - first) }),
   }

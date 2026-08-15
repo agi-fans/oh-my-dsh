@@ -79,6 +79,7 @@ import {
   applyEvent,
   blockLines,
   initialTranscript,
+  replayEvents,
   renderView,
   TRANSCRIPT_FAST_SCROLL,
   TRANSCRIPT_WHEEL_SCROLL,
@@ -439,8 +440,7 @@ export class LocalTui implements TuiService {
   }
 
   replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void {
-    let state = initialTranscript()
-    for (const event of events) state = applyEvent(state, event, presentations?.get(event.seq))
+    const state = replayEvents(events, presentations)
     this.#state = { ...state, status: 'idle', compactCommandId: undefined }
     this.#plainPrinted = 0
     this.#followTail()

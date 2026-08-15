@@ -44,6 +44,10 @@ DeepSeek Harness plugins and services
 
 The TUI package is split internally into a service definition, a local terminal provider, and an interactive runner. This keeps terminal ownership isolated from event projection and rendering, and leaves room for other providers or consumers without coupling them to the local TTY implementation. See the [architecture overview](docs/architecture.md) and [plugin architecture review](docs/plugin-architecture-review.md) for more detail.
 
+## Performance
+
+Performance is part of the TUI architecture: durable sessions replay in linear time, Harness projections avoid repeated history scans, settled transcript blocks retain their formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.15 ms, 10,000 tool calls take 21.21 ms, and cached updates over a 5,000-turn surface average 0.24 ms per frame. See the reproducible [TUI performance report](docs/performance.md) and run `pnpm benchmark:tui` locally.
+
 ## Installation
 
 Requirements: Node.js 22.19 or newer (Node.js 24 is also supported) and a DeepSeek API key for live model turns.

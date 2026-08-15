@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderView, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
@@ -27,6 +27,41 @@ const view = (state: ReturnType<typeof initialTranscript>, input = '') =>
   })
 
 describe('applyEvent', () => {
+  it('replays a complete log with the same state as immutable live folding', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] }, 2),
+      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } }, 3),
+      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'draft' } }, 4),
+      ev('assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'answer' }] },
+      }, 5),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":' },
+      }, 6),
+      ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"true"}' }, 7),
+      ev('tool/result', {
+        message: {
+          role: 'user',
+          content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'done' }] }],
+        },
+      }, 8),
+      ev('agent/inbox/spliced', {
+        target: 'next-turn',
+        start: 0,
+        inserted: [{ id: 'queued', source: { kind: 'user' }, content: [{ type: 'text', text: 'next' }] }],
+      }, 9),
+      ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 10),
+    ]
+    const immutable = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(replayEvents(events)).toEqual(immutable)
+  })
+
   it('renders compact as a visible non-editable activity until the command settles', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('command/run', {

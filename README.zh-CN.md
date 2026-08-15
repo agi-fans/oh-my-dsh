@@ -44,6 +44,10 @@ DeepSeek Harness 插件与服务
 
 TUI 软件包在内部拆分为服务定义、本地终端 Provider 和交互式 Runner。这让终端所有权与事件投影、渲染相互隔离，也让未来的其他 Provider 或 Consumer 无需依赖本地 TTY 实现。更多细节请阅读[架构概览](docs/architecture.md)与[插件架构复盘](docs/plugin-architecture-review.md)。
 
+## 性能
+
+性能是 TUI 架构本身的一部分：持久化会话按线性时间回放，Harness Projection 避免重复扫描历史，已完成的对话区块会保留格式化布局，终端写入器则只输出行级差异。在报告所用的 Apple M5 Pro 环境中，恢复 10,000 轮对话的中位耗时为 2.15 ms，恢复 10,000 次工具调用为 21.21 ms，在 5,000 轮对话界面上进行缓存更新的平均耗时为每帧 0.24 ms。完整方法与限制请参阅可复现的 [TUI 性能报告](docs/performance.zh-CN.md)，也可以在本地运行 `pnpm benchmark:tui`。
+
 ## 安装
 
 运行环境需要 Node.js 22.19 或更高版本（同时支持 Node.js 24），进行真实模型对话时还需要 DeepSeek API Key。

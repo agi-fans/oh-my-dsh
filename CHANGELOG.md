@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-16
+
 ### Added
 
 - Repository-local `publish-oh-my-dsh` Skill for preparing, publishing, recovering, and verifying synchronized npm and GitHub releases.
@@ -21,6 +23,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Prevented exact-width terminal paints from triggering pending-wrap phantom rows, including duplicate `Deep Driving` indicators.
 - Removed long-session input and activity lag by caching transcript layout per immutable message block and recomputing only animated or changed blocks.
+- Reduced large-session resume work from quadratic to linear by using a private mutable replay builder with indexed tool-call lookup while preserving immutable live updates.
+- Avoided rescanning the complete event log for every streaming update when durable Harness statistics, token usage, and context projections are available.
 
 ### Removed
 
@@ -62,7 +66,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/agi-fans/oh-my-dsh/releases/tag/v0.1.0
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/

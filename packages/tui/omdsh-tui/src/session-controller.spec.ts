@@ -171,6 +171,34 @@ describe('sessionStats', () => {
       cacheWriteTokens: 5,
     })
   })
+
+  it('reads only event boundaries when every durable stats projection is available', () => {
+    const events = [
+      { time: 10 },
+      { time: 15 },
+      { time: 30 },
+    ] as SessionEvent[]
+    let reads = 0
+    const observed = new Proxy(events, {
+      get(target, property, receiver) {
+        if (property !== 'length') reads += 1
+        return Reflect.get(target, property, receiver)
+      },
+    })
+
+    expect(sessionStats(observed, undefined, {
+      sessionStats: { turns: 2, steps: 5, llmMs: 10, toolMs: 20, ttftMs: 3, ttftSteps: 2, decodeMs: 4, decodeTokens: 8 },
+      tokenUsage: { uncachedInputTokens: 10, cacheReadTokens: 90, cacheWriteTokens: 5, outputTokens: 7 },
+      contextPressure: { projectedTokens: 123, contextWindow: 1_000 },
+    })).toMatchObject({
+      turns: 2,
+      steps: 5,
+      contextTokens: 123,
+      contextWindow: 1_000,
+      elapsedMs: 20,
+    })
+    expect(reads).toBe(2)
+  })
 })
 
 describe('recentSessionContent', () => {

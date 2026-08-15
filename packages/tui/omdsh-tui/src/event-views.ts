@@ -120,8 +120,19 @@ function streamingBlock(state: TranscriptState, turn: number, step: number): Blo
 }
 
 /** Replace the trailing streaming block with a settled one, or append. */
-function settleAssistant(state: TranscriptState, turn: number, step: number, text: string, reasoning: string): TranscriptState {
-  const blocks = state.blocks.slice()
+function editableBlocks(state: TranscriptState, mutable: boolean): Block[] {
+  return mutable ? state.blocks as Block[] : state.blocks.slice()
+}
+
+function settleAssistant(
+  state: TranscriptState,
+  turn: number,
+  step: number,
+  text: string,
+  reasoning: string,
+  mutable: boolean,
+): TranscriptState {
+  const blocks = editableBlocks(state, mutable)
   const last = blocks[blocks.length - 1]
   if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
     blocks[blocks.length - 1] = { kind: 'assistant', turn, step, text, reasoning, streaming: false }
@@ -142,16 +153,48 @@ export function applyEvent(
   event: SessionEvent,
   presentation?: TuiToolPresentation,
 ): TranscriptState {
+  return foldEvent(state, event, presentation, false)
+}
+
+/**
+ * Replay one immutable event log without repeatedly copying its growing block
+ * array. The mutable array is private to this fold and becomes readonly when
+ * the completed state escapes.
+ */
+export function replayEvents(
+  events: readonly SessionEvent[],
+  presentations?: ReadonlyMap<number, TuiToolPresentation>,
+): TranscriptState {
+  let state = initialTranscript()
+  const indexes: ReplayIndexes = { toolByCallId: new Map() }
+  for (const event of events) state = foldEvent(state, event, presentations?.get(event.seq), true, indexes)
+  return state
+}
+
+interface ReplayIndexes {
+  readonly toolByCallId: Map<string, number>
+}
+
+function foldEvent(
+  state: TranscriptState,
+  event: SessionEvent,
+  presentation: TuiToolPresentation | undefined,
+  mutable: boolean,
+  indexes?: ReplayIndexes,
+): TranscriptState {
   switch (event.type) {
     case 'turn/start':
       return { ...state, status: 'running', turn: event.data.turn, compactCommandId: undefined }
     case 'turn/end': {
-      const blocks = state.blocks.slice()
-      const last = blocks[blocks.length - 1]
+      const last = state.blocks[state.blocks.length - 1]
+      const reason = event.data.reason
+      const changesBlocks = (last?.kind === 'assistant' && last.streaming)
+        || reason.kind === 'error'
+        || reason.kind === 'aborted'
+      const blocks = changesBlocks ? editableBlocks(state, mutable) : state.blocks
       if (last?.kind === 'assistant' && last.streaming) {
         blocks[blocks.length - 1] = { ...last, streaming: false }
       }
-      const reason = event.data.reason
       if (reason.kind === 'error') {
         blocks.push({ kind: 'notice', level: 'error', text: 'error: ' + reason.error.code + ': ' + reason.error.message })
       } else if (reason.kind === 'aborted') {
@@ -166,12 +209,14 @@ export function applyEvent(
       if (event.data.source.kind !== 'user') return state
       const text = contentToText(event.data.content)
       if (text === '') return state
-      return { ...state, blocks: [...state.blocks, { kind: 'user', text }] }
+      const blocks = editableBlocks(state, mutable)
+      blocks.push({ kind: 'user', text })
+      return { ...state, blocks }
     }
     case 'assistant/chunk': {
       const { turn, step, chunk } = event.data
       if (chunk.type === 'text-delta') {
-        const blocks = state.blocks.slice()
+        const blocks = editableBlocks(state, mutable)
         const last = streamingBlock(state, turn, step)
         if (last !== undefined) {
           const idx = blocks.length - 1
@@ -183,7 +228,7 @@ export function applyEvent(
         return { ...state, blocks }
       }
       if (chunk.type === 'reasoning-delta') {
-        const blocks = state.blocks.slice()
+        const blocks = editableBlocks(state, mutable)
         const last = streamingBlock(state, turn, step)
         if (last !== undefined) {
           const idx = blocks.length - 1
@@ -195,8 +240,10 @@ export function applyEvent(
         return { ...state, blocks }
       }
       if (chunk.type === 'tool-call-delta') {
-        const blocks = state.blocks.slice()
-        const index = blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
+        const blocks = editableBlocks(state, mutable)
+        const index = indexes === undefined
+          ? blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
+          : indexes.toolByCallId.get(chunk.id) ?? -1
         const existing = blocks[index]
         if (existing?.kind === 'tool') {
           blocks[index] = {
@@ -210,6 +257,7 @@ export function applyEvent(
             kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
             args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
           })
+          indexes?.toolByCallId.set(chunk.id, blocks.length - 1)
         }
         return { ...state, blocks }
       }
@@ -217,7 +265,7 @@ export function applyEvent(
     }
     case 'assistant/message': {
       const { turn, step, message } = event.data
-      return settleAssistant(state, turn, step, contentToText(message.content), contentToReasoning(message.content))
+      return settleAssistant(state, turn, step, contentToText(message.content), contentToReasoning(message.content), mutable)
     }
     case 'tool/call': {
       const block: Block = {
@@ -229,14 +277,19 @@ export function applyEvent(
         output: '',
         ...(presentation === undefined ? {} : { presentation }),
       }
-      const blocks = state.blocks.slice()
-      const partial = blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
+      const blocks = editableBlocks(state, mutable)
+      const partial = indexes === undefined
+        ? blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
+        : indexes.toolByCallId.get(event.data.callId) ?? -1
       if (partial >= 0) blocks[partial] = block
-      else blocks.push(block)
+      else {
+        blocks.push(block)
+        indexes?.toolByCallId.set(event.data.callId, blocks.length - 1)
+      }
       return { ...state, blocks }
     }
     case 'tool/result':
-      return applyToolResult(state, event.data.message, event.data.error, presentation)
+      return applyToolResult(state, event.data.message, event.data.error, presentation, mutable, indexes)
     case 'command/run':
       if (event.data.name !== 'compact') return state
       return {
@@ -273,25 +326,44 @@ function applyToolResult(
   message: ToolResultMessage,
   error: { name: string; code: string } | undefined,
   presentation: TuiToolPresentation | undefined,
+  mutable: boolean,
+  indexes?: ReplayIndexes,
 ): TranscriptState {
   // A tool-result message carries exactly one tool-result block; the call
   // identity and outcome live on that inner block.
   const inner = message.content[0]
   if (inner?.type !== 'tool-result') return state
-  const blocks = state.blocks.slice()
+  const blocks = editableBlocks(state, mutable)
+  const indexed = indexes?.toolByCallId.get(inner.toolCallId)
+  if (indexed !== undefined) {
+    const block = blocks[indexed]
+    if (block?.kind === 'tool') {
+      blocks[indexed] = settleTool(block, inner, error, presentation)
+      return { ...state, blocks }
+    }
+  }
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i]
     if (block?.kind === 'tool' && block.callId === inner.toolCallId) {
-      blocks[i] = {
-        ...block,
-        status: error !== undefined || inner.isError === true ? 'error' : 'ok',
-        output: contentToText(inner.content),
-        ...(presentation === undefined ? {} : { presentation }),
-      }
+      blocks[i] = settleTool(block, inner, error, presentation)
       return { ...state, blocks }
     }
   }
   return state
+}
+
+function settleTool(
+  block: Extract<Block, { kind: 'tool' }>,
+  result: Extract<ToolResultMessage['content'][number], { type: 'tool-result' }>,
+  error: { name: string; code: string } | undefined,
+  presentation: TuiToolPresentation | undefined,
+): Extract<Block, { kind: 'tool' }> {
+  return {
+    ...block,
+    status: error !== undefined || result.isError === true ? 'error' : 'ok',
+    output: contentToText(result.content),
+    ...(presentation === undefined ? {} : { presentation }),
+  }
 }
 
 /** View options: terminal geometry and live input state. */
