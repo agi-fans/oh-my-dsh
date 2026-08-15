@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-15
+
 ### Added
 
 - DeepSeek `/login` and `/logout` flows with masked input, API-key validation, persistent Harness credentials, user-selected credential priority, and environment fallback.
@@ -39,7 +41,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/agi-fans/oh-my-dsh/releases/tag/v0.1.0
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Semantic Versioning]: https://semver.org/spec/v2.0.0.html
