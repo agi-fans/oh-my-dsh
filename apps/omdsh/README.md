@@ -15,6 +15,8 @@ Or run it without a global installation:
 npx @agi-fans/oh-my-dsh
 ```
 
+Follow the task-based [tutorials](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/tutorials.md) for the first login, a safe coding workflow, file and image context, queued follow-ups, session recovery, and interface customization.
+
 Inside the TUI, run `/login` to open the DeepSeek API-key dashboard and save a validated key through the Harness credential store. The key prompt is masked and never accepts an inline `/login <key>` argument. An interactively selected key takes priority over `DEEPSEEK_API_KEY`; `/logout` removes the omdsh-managed selection and returns the provider to the external credential when one is available.
 
 ## Develop

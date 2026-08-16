@@ -168,6 +168,49 @@ describe('session status line', () => {
     expect(leaving[0]).toContain('FULL ACCESS')
   })
 
+  it('shows process-local loop state beside the model controls', () => {
+    const waiting = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      loop: { phase: 'waiting', repeats: 0, total: 3 },
+      config: statusBar(),
+      width: 100,
+    }, createTheme(false))
+    expect(waiting[0]).toContain('LOOP WAITING · SEND PROMPT · 0/3 REPEATS')
+
+    const running = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+      loop: { phase: 'running', repeats: 1, total: 3 },
+      config: statusBar(),
+      width: 80,
+    }, createTheme(false))
+    expect(running[0]).toContain('deepseek-v4-pro · max · LOOP · 1/3 REPEATS')
+
+    const paused = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      loop: { phase: 'paused' },
+      config: statusBar(),
+      width: 80,
+    }, createTheme(false))
+    expect(paused[0]).toContain('LOOP PAUSED · SEND TO RESUME')
+
+    const duration = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      loop: { phase: 'running', repeats: 2, deadline: Date.now() + 2_000, limit: '10m' },
+      config: statusBar(),
+      width: 80,
+    }, createTheme(false))
+    expect(duration[0]).toMatch(/LOOP · 2(?:\.\d)?s LEFT/u)
+
+    const completed = renderStatusFooter({
+      model: 'deepseek-v4-pro',
+      loop: { phase: 'completed', repeats: 3, total: 3 },
+      config: statusBar(),
+      width: 80,
+    }, createTheme(false))
+    expect(completed[0]).toContain('LOOP DONE · 3 REPEATS')
+  })
+
   it('keeps complete high-priority footer groups and only disables customizable telemetry', () => {
     const narrow = renderStatusFooter({
       model: 'deepseek-v4-pro',

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Added an oh-my-pi-inspired `/loop [count|duration] [prompt]` plugin with atomic next-prompt capture, actionable waiting guidance, explicit repeat progress, duration countdown, Ctrl-C pause and resume guidance, transient completion feedback, active-session isolation, and no routine control-message transcript noise.
 - Added one-time startup release summaries, `/changelog [full]`, and cached non-blocking npm update notifications with controls in `/settings`.
 - Added repository-local Skills for change validation, architecture and UX review, simplification audits, prose maintenance, bilingual documentation synchronization, and reproducible TUI demonstrations.
 

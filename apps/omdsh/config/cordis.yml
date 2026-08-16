@@ -225,6 +225,9 @@
 - id: tui-command-steer
   name: '@agi-fans/dsh-tui/command-steer'
 
+- id: tui-command-loop
+  name: '@agi-fans/dsh-tui/command-loop'
+
 - id: tui-command-model
   name: '@agi-fans/dsh-tui/command-model'
 

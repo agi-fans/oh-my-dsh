@@ -5,6 +5,7 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandSession from './command-session.ts'
 import * as commandSteer from './command-steer.ts'
+import * as commandLoop from './command-loop.ts'
 import * as commandExport from './command-export.ts'
 import type { TuiService } from './definition.ts'
 import type { SessionRuntime } from './session-controller.ts'
@@ -43,6 +44,39 @@ describe('omdsh command plugins', () => {
     await expect(ctx.commands.execute(agent, '/steer focus on tests', new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success' } })
     expect(steer).toHaveBeenCalledOnce()
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('registers Loop through the scoped command registry and sends inline prompts through the session runtime', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const session = ctx.sessions.create(SessionId('command-loop-test'))
+    const agent = {
+      id: session.id,
+      session,
+      status: 'idle',
+      whenIdle: () => new Promise<void>(() => {}),
+    } as unknown as Agent
+    const send = vi.fn(async () => undefined)
+    ctx.provide('omdshSession', {
+      agent,
+      assertActive: vi.fn(),
+      send,
+    } as unknown as SessionRuntime)
+    ctx.provide('tui', {
+      setLoopStatus: vi.fn(),
+      notice: vi.fn(),
+    } as unknown as TuiService)
+
+    const fiber = await ctx.plugin(commandLoop)
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['loop'])
+    const execution = await ctx.commands.execute(agent, '/loop 2 inspect tests', new AbortController().signal)
+    expect(execution).toMatchObject({ result: { kind: 'success' } })
+    expect(execution?.result.text).toBeUndefined()
+    expect(send).toHaveBeenCalledWith({ text: 'inspect tests', images: [] }, agent)
 
     await fiber.dispose()
     await ctx.fiber.dispose()

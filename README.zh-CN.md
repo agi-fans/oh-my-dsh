@@ -1,35 +1,60 @@
+<div align="center">
+
 # oh-my-dsh
 
-[English](README.md) | 简体中文
+**探索未至之境。**
 
-**omdsh** 是一个构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 之上的插件优先终端编程智能体，其交互设计受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 启发。
+一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验的启发。
+
+[![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
+
+[English](README.md) · 简体中文
+
+</div>
 
 ![oh-my-dsh 终端界面](docs/resources/screenshot.png)
 
+## 快速开始
+
+运行环境需要 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本；进行真实模型对话时还需要 DeepSeek API Key。
+
+```sh
+npm install --global @agi-fans/oh-my-dsh
+omdsh
+```
+
+进入 omdsh 后运行一次 `/login`，验证并保存 DeepSeek API Key，即可开始对话。如果不想全局安装，可以运行 `npx @agi-fans/oh-my-dsh` 临时体验。
+
+## 功能亮点
+
+- **持久化对话：** 支持恢复会话、回退到指定用户轮次、重试、压缩，并将完整对话导出为 Markdown。
+- **Harness 原生工作流：** 使用插件提供的命令、权限、模型、推理强度、Plan、Goal、Todo、Skills、MCP Server、审批和用户提问。
+- **丰富的终端输入：** 使用 `@` 搜索项目文件，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
+- **清晰的工具活动：** 跟踪流式工具调用，查看独立的 Input 和 Output 分区，展开长输出，并让工具插件继续拥有领域展示语义。
+- **实时运行上下文：** 无需离开 Composer，即可查看模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤。
+- **为响应速度而设计：** 复用已完成的 Transcript 布局、合并滚动更新、只输出发生变化的终端行，并正确处理 CJK 文本和 emoji 的显示宽度。
+
+## 学习指南
+
+- [教程](docs/tutorials.zh-CN.md) — 完成第一个任务、提供精确上下文、引导队列任务、恢复长会话并定制工作环境。
+- [Skills 与 MCP](docs/skills-and-mcp.zh-CN.md) — 使用可复用指令和外部工具扩展项目。
+- [架构](docs/architecture.zh-CN.md) — 了解插件边界与运行时数据流。
+- [性能](docs/performance.zh-CN.md) — 查看 Benchmark、测试方法与渲染优化。
+
 ## 为什么做 oh-my-dsh
 
-DeepSeek Harness 提供了能力完整的智能体运行时，也带来了一条很重要的架构原则：一切皆插件。oh-my-dsh 希望为这套运行时提供专注、键盘友好的终端体验，同时不再创造第二套智能体核心，也不使用另一层抽象将 Harness 隐藏起来。
+DeepSeek Harness 提供了能力完整的 Agent Runtime，也带来了一条很重要的架构原则：一切皆插件。oh-my-dsh 将这套运行时带入安静、键盘驱动的终端体验，同时不创造第二套 Agent Core，也不使用平行抽象将 Harness 隐藏起来。
 
-TUI 被刻意限定为表现层与交互层。会话、工具、权限、模型、Skills、MCP 服务、命令和遥测数据仍然来自 Harness 的服务与插件；omdsh 负责把它们组合为终端应用，并补充舒适使用这些能力所需的界面行为。
+TUI 始终只是表现层与交互层。会话、工具、权限、模型、Skills、MCP Server、命令和遥测数据来自 Harness Service 与插件；omdsh 负责将它们组合为终端应用，并补充舒适使用这些能力所需的界面行为。
 
-## 设计原则
+项目遵循四项原则：
 
-- **原生融入 Harness。** 使用正式发布的 DeepSeek Harness 软件包，并将其作为智能体行为、状态与生命周期的唯一事实来源。
-- **始终坚持一切皆插件。** 新能力应当进入 Cordis 插件、服务、Provider、Consumer 或应用组合，而不是不断膨胀的 TUI 单体。
-- **每项职责只有一个所有者。** `@agi-fans/dsh-tui` 负责终端表现与交互，`@agi-fans/oh-my-dsh` 负责启动和运行时插件组合。
-- **终端优先。** 固定输入区、增量渲染、正确计算终端显示宽度，并让常用工作流都可以通过键盘完成。
-- **渐进式呈现。** 默认界面保持安静和简洁，同时让工具输出、遥测、设置及会话详情可以按需展开和发现。
-- **参考项目只用于参考。** `refs/` 下的项目仅用于 API 与交互研究；omdsh 运行时代码只依赖正式发布的软件包和自身 workspace 软件包。
+- **原生融入 Harness：** 使用正式发布的 DeepSeek Harness 软件包，并将其作为 Agent 行为、状态与生命周期的事实来源。
+- **建立真实插件边界：** 为拥有独立生命周期和贡献点的能力建立插件，而不是把每个源文件都变成插件。
+- **终端只有一个所有者：** 将 raw input、光标状态、viewport 管理和原子化渲染保留在本地 TUI Provider 中。
+- **渐进式呈现：** 默认界面保持简洁，同时让工具、遥测、设置及会话详情可以按需发现。
 
-## 当前能力
-
-- 支持流式对话以及持久化会话、恢复、轮次回退、重试、压缩和 Markdown 导出
-- 支持插件提供的斜杠命令、交互式设置、模型与推理强度选择，以及访问模式
-- 支持工具调用、审批与提问流程、可折叠输出和实时会话遥测
-- 支持项目内 `@` 文件搜索、剪贴板图片粘贴、输入历史，以及可见、可取回编辑的后续消息队列
-- 从项目与用户配置中发现 Harness Skills 和 MCP 服务
-- 支持一次性版本摘要、`/changelog`，以及带缓存且不阻塞启动的 npm 更新提示
-- 支持自适应终端布局、主题、会话记录滚动和非 TTY 降级模式
+`refs/` 下的参考项目始终是只读研究材料。运行时代码只依赖已发布软件包和 oh-my-dsh 自身的 workspace 软件包。
 
 ## 架构
 
@@ -43,36 +68,23 @@ DeepSeek Harness 插件与服务
  @agi-fans/oh-my-dsh — 启动与插件组合
 ```
 
-TUI 软件包在内部拆分为服务定义、本地终端 Provider、会话与交互适配器、命令贡献插件和交互式 Runner。这让终端所有权与 Harness 领域状态相互隔离，也只在能力拥有独立生命周期或所有者时建立插件边界。当前边界与数据流请参阅[架构概览](docs/architecture.md)。
+TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交互适配器、工具展示适配桥、命令贡献插件和交互式 Runner。这让终端所有权与 Harness 领域状态相互隔离，也只在能力拥有独立生命周期或所有者时公开插件边界。当前边界与数据流请参阅[架构概览](docs/architecture.zh-CN.md)。
 
 ## 性能
 
-性能是 TUI 架构本身的一部分：持久化会话按线性时间回放，Harness Projection 避免重复扫描历史，已完成的对话区块会保留格式化布局，终端写入器则只输出行级差异。在报告所用的 Apple M5 Pro 环境中，恢复 10,000 轮对话的中位耗时为 2.15 ms，恢复 10,000 次工具调用为 21.21 ms，在 5,000 轮对话界面上进行缓存更新的平均耗时为每帧 0.24 ms。完整方法与限制请参阅可复现的 [TUI 性能报告](docs/performance.zh-CN.md)，也可以在本地运行 `pnpm benchmark:tui`。
+性能是 TUI 架构本身的一部分：持久化会话按线性时间回放，Harness Projection 避免重复扫描历史，已完成的 Transcript 区块会保留格式化布局，终端写入器则只输出发生变化的行。在报告所用的 Apple M5 Pro 环境中，恢复 10,000 轮对话的中位耗时为 2.15 ms，恢复 10,000 次工具调用为 21.21 ms，在 5,000 轮对话界面上进行缓存更新的平均耗时为每帧 0.24 ms。
 
-## 安装
+完整方法与限制请参阅可复现的 [TUI 性能报告](docs/performance.zh-CN.md)，也可以在本地运行 `pnpm benchmark:tui`。
 
-运行环境需要 Node.js 22.19 或更高版本（同时支持 Node.js 24），进行真实模型对话时还需要 DeepSeek API Key。
+## 配置
 
-```sh
-npm install --global @agi-fans/oh-my-dsh
-omdsh
-```
+运行 `/login` 可以打开 DeepSeek API Key 管理页，通过遮罩输入框接收和验证 Key，再将其保存到 Harness 凭据存储中。用户主动选择的 Key 会从后续模型请求开始优先于继承的 `DEEPSEEK_API_KEY`，重启后仍然有效。`/logout` 会删除这份由 omdsh 管理的配置，并在环境变量可用时回退到环境变量。
 
-进入 omdsh 后运行 `/login`，程序会打开 DeepSeek API Key 管理页，并通过遮罩输入框接收和验证 Key，再将其保存到 Harness 凭据存储中。用户主动选择的 Key 会从下一次模型请求开始优先于继承的 `DEEPSEEK_API_KEY`，重启后仍然有效。使用 `/logout` 可以删除这份由 omdsh 管理的配置，并在存在 `DEEPSEEK_API_KEY` 时回退到环境变量；CI 或外部托管环境仍可直接使用环境变量而无需运行 `/login`。
+模型配置也可以来自 `$DSH_HOME/settings.yaml`。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.zh-CN.md)。
 
-也可以不进行全局安装，直接临时运行：
-
-```sh
-npx @agi-fans/oh-my-dsh
-```
-
-模型配置也可以来自 `$DSH_HOME/settings.yaml`，凭据则遵循 DeepSeek Harness 的解析流程。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.md)。
-
-升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存、非阻塞的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整或关闭。
+升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。
 
 ## 开发
-
-以下 pnpm 命令仅用于源码开发和调试：
 
 ```sh
 pnpm install
@@ -94,8 +106,8 @@ pnpm smoke:happy         # 使用模拟 LLM 验证正常流程
 
 oh-my-dsh 的诞生离不开两个项目：
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供了运行时基础、插件架构，以及智能体能力应当通过组合而非内嵌于单一应用中的设计信念。
-- [oh-my-pi](https://github.com/can1357/oh-my-pi) 展示了细致的终端交互、紧凑的信息设计和精心设计的键盘工作流，如何让智能体既快速又易于使用。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供了运行时基础、插件架构，以及 Agent 能力应当通过组合而非内嵌于单一应用中的设计信念。
+- [oh-my-pi](https://github.com/can1357/oh-my-pi) 展示了细致的终端交互、紧凑的信息设计和精心设计的键盘工作流，如何让 Agent 既快速又易于使用。
 
 感谢这两个项目及其所有贡献者。omdsh 是一个独立的社区项目：它构建于 DeepSeek Harness 之上并从 OMP 学习，但不是其中任何一个项目的官方发行版本。
 

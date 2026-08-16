@@ -51,6 +51,10 @@
       "types": "./lib/command-steer.d.ts",
       "default": "./lib/command-steer.js"
     },
+    "./command-loop": {
+      "types": "./lib/command-loop.d.ts",
+      "default": "./lib/command-loop.js"
+    },
     "./command-model": {
       "types": "./lib/command-model.d.ts",
       "default": "./lib/command-model.js"

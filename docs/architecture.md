@@ -1,5 +1,7 @@
 # oh-my-dsh Architecture
 
+[English](architecture.md) | [简体中文](architecture.zh-CN.md)
+
 oh-my-dsh is a terminal coding agent built by composing published DeepSeek Harness packages. The TUI owns terminal presentation and human interaction; Harness plugins continue to own sessions, models, tools, commands, permissions, skills, MCP integrations, and projections.
 
 ## Boundaries
@@ -39,6 +41,7 @@ The TUI package exposes several Cordis entry points from one npm package because
 - The local provider alone owns raw mode, key decoding, cursor placement, viewport state, and atomic terminal writes.
 - `session-runtime` owns Agent creation, durable session creation and recovery, active-session replacement, model selection, projections, and cleanup.
 - Command plugins register metadata and handlers through `dsh-commands`; the runner does not maintain a second command registry.
+- The Loop command owns its process-local scheduler and footer projection as a separate plugin. Repeated prompts still pass through `session-runtime`; Loop state is not written into durable session history and is discarded when the active Agent changes.
 - Tool plugins own semantics and provider-neutral presentation intent. The TUI maps `ToolDefinition.presentCall` and `presentResult` into terminal cards and retains a generic fallback.
 - Harness projection plugins own token, context, timing, title, and session statistics. The status line only formats their output.
 - The human-interaction adapter connects approval and question services to terminal selectors without moving those domains into the provider.

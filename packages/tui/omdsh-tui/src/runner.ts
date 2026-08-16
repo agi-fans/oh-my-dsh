@@ -14,9 +14,10 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type { TuiService } from './definition.ts'
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
+import type {} from './command-loop.ts'
 
 export const name = 'omdsh-runner'
-export const inject = ['tui', 'omdshSession', 'omdshStartup']
+export const inject = ['tui', 'omdshSession', 'omdshStartup', 'omdshLoop']
 
 function fail(error: unknown, exit: (code: number) => void): void {
   console.error('omdsh: ' + (error instanceof Error ? error.message : String(error)))
@@ -27,12 +28,14 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
   await ctx.get('loader')?.await()
   const controller = ctx.get('omdshSession')
   if (controller === undefined) return
+  const loop = ctx.get('omdshLoop')
 
   await controller.start()
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
   const offInterrupt = tui.onInterrupt(() => {
     operation?.abort(new Error('cancelled by user'))
+    loop?.pause(controller.agent)
     controller.agent?.cancel({ kind: 'user' })
   })
   let queueEditInFlight = false
@@ -68,6 +71,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
         if (!operation.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
       } finally {
         operation = undefined
+        loop?.syncAgent(controller.agent)
       }
     } else if (args.length > 0) {
       await controller.send(args.join(' '))
@@ -89,10 +93,13 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
           }
         } finally {
           operation = undefined
+          loop?.syncAgent(controller.agent)
         }
       } else {
         try {
-          await controller.send(submission)
+          const agent = controller.agent
+          const handledByLoop = agent === undefined ? false : await loop?.submit(submission, agent) ?? false
+          if (!handledByLoop) await controller.send(submission)
         } catch (error: unknown) {
           tui.restoreInput(submission)
           tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
@@ -105,6 +112,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
     await controller.agent?.whenIdle()
   } finally {
     operation?.abort(new Error('runner disposed'))
+    loop?.disable()
     offQueueEdit()
     offRewind()
     offInterrupt()

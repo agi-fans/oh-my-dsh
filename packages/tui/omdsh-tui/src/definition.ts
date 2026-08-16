@@ -77,6 +77,19 @@ export interface TuiSessionControls {
   permission?: string
 }
 
+/** Process-local repeated-prompt state contributed by the Loop plugin. */
+export interface TuiLoopStatus {
+  phase: 'waiting' | 'running' | 'paused' | 'completed'
+  /** Automatic submissions already dispatched by this Loop. */
+  repeats?: number
+  /** Configured automatic submissions for a count-limited Loop. */
+  total?: number
+  /** Absolute deadline while a duration-limited Loop is running. */
+  deadline?: number
+  /** Original duration expression for a time-limited loop. */
+  limit?: string
+}
+
 /** Lightweight durable session row used by the welcome card and resume UI. */
 export interface TuiRecentSession {
   id: string
@@ -140,6 +153,8 @@ export interface TuiService {
   setStatus(status: TuiStatus): void
   /** Update the model and effective reasoning effort shown in the composer. */
   setModel(model: string, reasoningEffort?: string): void
+  /** Update the optional process-local Loop indicator in the fixed footer. */
+  setLoopStatus(status: TuiLoopStatus | undefined): void
   /** Replace the tool list shown by `/tools`. */
   setTools(tools: readonly { name: string; description: string }[]): void
   /** Replace commands contributed by the active agent's Harness scope. */

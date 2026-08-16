@@ -1,5 +1,7 @@
 # Skills and MCP
 
+[English](skills-and-mcp.md) | [简体中文](skills-and-mcp.zh-CN.md)
+
 omdsh keeps both capabilities behind DeepSeek Harness interfaces. Skills are discovered by the Harness skill registry and filesystem provider; MCP servers are adapted into one `@deepseek-ai/dsh-mcp-client` plugin instance per server. The TUI does not implement either protocol.
 
 ## Skills

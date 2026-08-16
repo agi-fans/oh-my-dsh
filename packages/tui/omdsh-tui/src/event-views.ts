@@ -31,7 +31,7 @@ import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from 
 import { renderStatusFooter } from './status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from './width.ts'
-import type { TuiRecentSession, TuiSessionControls, TuiSessionStats, TuiSubmission } from './definition.ts'
+import type { TuiLoopStatus, TuiRecentSession, TuiSessionControls, TuiSessionStats, TuiSubmission } from './definition.ts'
 import { renderTool, type TuiToolPresentation } from './tool-renderers.ts'
 import { renderToolsPanel, type ToolInfo } from './tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from './command-output.ts'
@@ -427,6 +427,8 @@ export interface ViewOptions {
   sessionStats?: TuiSessionStats
   /** Harness-owned collaboration and permission state rendered in metadata. */
   sessionControls?: TuiSessionControls
+  /** Process-local repeated-prompt state rendered beside model controls. */
+  loopStatus?: TuiLoopStatus
   /** Visible groups, order, and label style for the status line. */
   statusBar?: StatusBarConfig
   /** Legacy status preset accepted while direct render callers migrate. */
@@ -1072,6 +1074,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     ...(options.sessionControls === undefined ? {} : { controls: options.sessionControls }),
+    ...(options.loopStatus === undefined ? {} : { loop: options.loopStatus }),
     ...(pwd === '' ? {} : { pwd }),
     ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
     ...(options.sessionStats === undefined ? {} : { stats: options.sessionStats }),

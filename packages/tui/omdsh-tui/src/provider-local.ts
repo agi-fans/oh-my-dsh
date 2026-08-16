@@ -27,6 +27,7 @@ import {
   type TuiSessionStats,
   type TuiStatus,
   type TuiInputImage,
+  type TuiLoopStatus,
   type TuiSubmission,
 } from './definition.ts'
 import {
@@ -225,6 +226,7 @@ export class LocalTui implements TuiService {
   #branch: string | undefined
   #spinner = 0
   #tick: ReturnType<typeof setInterval> | null = null
+  #loopTick: ReturnType<typeof setInterval> | null = null
   #scrollStart = 0
   #maxStart = 0
   #scrollBudget = 0
@@ -244,6 +246,7 @@ export class LocalTui implements TuiService {
   #sessionId: string | undefined
   #sessionStats: TuiSessionStats | undefined
   #sessionControls: TuiSessionControls | undefined
+  #loopStatus: TuiLoopStatus | undefined
   #editorHit: { start: number; rows: number } | null = null
   #overlayHit: {
     kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
@@ -369,6 +372,12 @@ export class LocalTui implements TuiService {
   setModel(model: string, reasoningEffort?: string): void {
     this.#model = model
     this.#reasoningEffort = reasoningEffort
+    if (this.#tty) this.#render()
+  }
+
+  setLoopStatus(status: TuiLoopStatus | undefined): void {
+    this.#loopStatus = status === undefined ? undefined : { ...status }
+    this.#syncLoopTick()
     if (this.#tty) this.#render()
   }
 
@@ -581,6 +590,10 @@ export class LocalTui implements TuiService {
       clearInterval(this.#tick)
       this.#tick = null
     }
+    if (this.#loopTick !== null) {
+      clearInterval(this.#loopTick)
+      this.#loopTick = null
+    }
     if (this.#scrollRender !== null) {
       clearImmediate(this.#scrollRender)
       this.#scrollRender = null
@@ -694,6 +707,18 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #syncLoopTick(): void {
+    if (!this.#tty) return
+    const countdown = this.#loopStatus?.phase === 'running' && this.#loopStatus.deadline !== undefined
+    if (countdown && this.#loopTick === null) {
+      this.#loopTick = setInterval(() => { this.#render() }, 1_000)
+      this.#loopTick.unref?.()
+    } else if (!countdown && this.#loopTick !== null) {
+      clearInterval(this.#loopTick)
+      this.#loopTick = null
+    }
+  }
+
   #render(): void {
     if (this.#scrollRender !== null) {
       clearImmediate(this.#scrollRender)
@@ -729,6 +754,7 @@ export class LocalTui implements TuiService {
         welcomeTips: this.#welcomeTips,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
+        ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null

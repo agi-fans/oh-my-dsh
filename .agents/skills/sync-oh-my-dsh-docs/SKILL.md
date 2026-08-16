@@ -12,7 +12,10 @@ Treat both languages as maintained product documentation. Synchronize meaning an
 The current maintained pairs are:
 
 - `README.md` ↔ `README.zh-CN.md`
+- `docs/architecture.md` ↔ `docs/architecture.zh-CN.md`
 - `docs/performance.md` ↔ `docs/performance.zh-CN.md`
+- `docs/skills-and-mcp.md` ↔ `docs/skills-and-mcp.zh-CN.md`
+- `docs/tutorials.md` ↔ `docs/tutorials.zh-CN.md`
 
 Do not assume every file under `docs/` needs a counterpart. Create a new pair only when the user requests bilingual coverage or the document is clearly part of the public bilingual surface.
 
