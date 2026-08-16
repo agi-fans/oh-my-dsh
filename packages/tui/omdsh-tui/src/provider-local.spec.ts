@@ -1027,7 +1027,7 @@ describe('LocalTui (tty)', () => {
     const cases = [
       {
         command: '/help\r',
-        heading: 'Commands · 30 available',
+        heading: 'Commands · 30 core',
         prepare: (tui: LocalTui): void => {
           tui.setCommands(Array.from({ length: 24 }, (_, index) => ({
             name: `runtime-${index}`,
@@ -1101,12 +1101,14 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, '/help\r')
-    expect(term.captured).toContain('/settings / /set')
-    for (let index = 0; index < 8; index += 1) press(term, '\x1b[6~')
+    expect(term.captured).toContain('/settings, /set')
+    expect(term.captured).toContain('Essential Shortcuts')
+    expect(term.captured).toContain('/help [full]')
+    press(term, '/help full\r')
+    for (let index = 0; index < 12; index += 1) press(term, '\x1b[6~')
     expect(term.captured).toContain('Keyboard Shortcuts')
     expect(term.captured).toContain('Navigation')
     expect(term.captured).not.toContain('/hotkeys')
-    expect(term.captured).toContain('├')
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
     tui.dispose()

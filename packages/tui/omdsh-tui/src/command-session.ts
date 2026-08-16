@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from './session-runtime.ts'
 import { registerCommands } from './command-registration.ts'
 import { formatRelativeAge } from './relative-time.ts'
+import { formatPermission, formatTokens } from './status-line.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
@@ -101,9 +102,9 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
       `| Model | \`${selection.provider}/${selection.model}\` |`,
       `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
       `| Mode | ${mode} |`,
-      ...(controls.permission === undefined ? [] : [`| Permission | \`${controls.permission}\` |`]),
+      ...(controls.permission === undefined ? [] : [`| Permission | ${formatPermission(controls.permission)} |`]),
       `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
-      `| Tokens | ${stats.inputTokens} in · ${stats.outputTokens} out |`,
+      `| Tokens | ${formatTokens(stats.inputTokens)} in · ${formatTokens(stats.outputTokens)} out |`,
       `| Queue | ${invocation.agent.inbox.nextTurn.length} follow-up · ${invocation.agent.inbox.nextStep.length} steering |`,
     ].join('\n'),
   }

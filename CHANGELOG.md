@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Made `/help` a compact command directory with essential shortcuts by default, added `/help full` for the complete key catalog, and limited the default `/changelog` view to the latest release.
+- Adapted model selectors to use compact prompt cards for short lists and searchable full-screen pages only when the option set is large.
+- Clarified that `/steer` affects the active turn's next model step, rejected idle steering, and normalized `/session` permission and token labels with the fixed footer.
 - Made the repository release Skill hand npm publication to the user for interactive OTP completion, then resume registry verification and GitHub finalization without repeating completed work.
 - Separated tool-call input from output in a single framed card, preserving long inputs after settlement and giving terminal output its own labeled, tail-focused preview.
 - Consolidated architecture guidance into one current-state reference covering plugin ownership, runtime composition, data flow, terminal guarantees, public exports, and verification boundaries.

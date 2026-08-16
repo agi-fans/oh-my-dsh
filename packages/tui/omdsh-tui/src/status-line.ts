@@ -314,11 +314,17 @@ function permissionTone(permission: string): ThemeColor {
   return 'success'
 }
 
+/** Human-facing permission preset used consistently across terminal surfaces. */
+export function formatPermission(permission: string): string {
+  if (permission === 'danger-full-access') return 'Full access'
+  if (permission === 'workspace-write') return 'Workspace write'
+  if (permission === 'read-only') return 'Read only'
+  return permission === 'custom' ? 'Custom access' : permission
+}
+
 function permissionLabel(permission: string): string {
-  if (permission === 'danger-full-access') return 'FULL ACCESS'
-  if (permission === 'workspace-write') return 'workspace-write'
-  if (permission === 'read-only') return 'read-only'
-  return permission === 'custom' ? 'CUSTOM ACCESS' : permission
+  const label = formatPermission(permission)
+  return permission === 'danger-full-access' || permission === 'custom' ? label.toUpperCase() : label
 }
 
 function fitWorkspaceColumn(

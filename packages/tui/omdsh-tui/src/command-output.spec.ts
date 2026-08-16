@@ -27,7 +27,7 @@ describe('renderCommandOutput', () => {
     expect(lines.every(line => visibleWidth(line) <= 60)).toBe(true)
   })
 
-  it('keeps every help command in a distinct table row', () => {
+  it('keeps every help command in a distinct compact row', () => {
     const source = formatHelpText([
       { name: 'help', aliases: ['h', '?'], description: 'Show available slash commands' },
       { name: 'copy', inputHint: '[text|code|cmd]', description: 'Pick content to copy' },
@@ -35,9 +35,10 @@ describe('renderCommandOutput', () => {
     const lines = renderCommandOutput('help', source, theme, 64).map(stripAnsi)
     const text = lines.join('\n')
 
-    expect(text).toContain('/help / /h / /?')
+    expect(text).toContain('/help, /h, /?')
     expect(text).toContain('/copy [text|code|cmd]')
-    expect(lines.filter(line => /^\s*├.*┼.*┤$/u.test(line))).toHaveLength(2)
+    expect(lines.filter(line => line.includes('Show available slash commands'))).toHaveLength(1)
+    expect(lines.filter(line => /^\s*├.*┼.*┤$/u.test(line))).toHaveLength(0)
   })
 
   it('renders short results inline and separators with side insets', () => {

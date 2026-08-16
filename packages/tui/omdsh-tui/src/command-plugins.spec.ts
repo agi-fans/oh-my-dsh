@@ -25,7 +25,7 @@ describe('omdsh command plugins', () => {
     await ctx.fiber.dispose()
   })
 
-  it('registers steering without queue-management slash commands', async () => {
+  it('registers steering for active turns without queue-management slash commands', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -35,7 +35,7 @@ describe('omdsh command plugins', () => {
     const agent = {
       id: session.id,
       session,
-      status: 'idle',
+      status: 'running',
       inbox: { nextTurn: [], nextStep: [] },
       steer,
     } as unknown as Agent
@@ -43,6 +43,16 @@ describe('omdsh command plugins', () => {
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['steer'])
     await expect(ctx.commands.execute(agent, '/steer focus on tests', new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success' } })
+    expect(steer).toHaveBeenCalledOnce()
+
+    agent.status = 'idle'
+    await expect(ctx.commands.execute(agent, '/steer too late', new AbortController().signal))
+      .resolves.toMatchObject({
+        result: {
+          kind: 'error',
+          text: expect.stringContaining('only available during an active turn'),
+        },
+      })
     expect(steer).toHaveBeenCalledOnce()
 
     await fiber.dispose()
@@ -126,7 +136,7 @@ describe('omdsh command plugins', () => {
       kind: 'success',
       text: expect.stringContaining('| Mode | Plan |'),
     })
-    expect(details.result).toMatchObject({ text: expect.stringContaining('| Permission | `workspace-write` |') })
+    expect(details.result).toMatchObject({ text: expect.stringContaining('| Permission | Workspace write |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Reasoning | `high` |') })
 
     await fiber.dispose()

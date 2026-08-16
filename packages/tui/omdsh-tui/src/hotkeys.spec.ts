@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYBINDINGS } from './keybindings-config.ts'
-import { formatHotkeysText, hotkeyCount } from './hotkeys.ts'
+import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount } from './hotkeys.ts'
 
 describe('formatHotkeysText', () => {
   it('groups the bindings this TUI implements into Markdown tables', () => {
@@ -29,6 +29,14 @@ describe('formatHotkeysText', () => {
   it('uses effective configurable bindings', () => {
     const text = formatHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'retry' })
     expect(text).toContain('Alt+R / Ctrl+G')
+  })
+
+  it('keeps the default help subset compact and honors the paste binding', () => {
+    const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
+    expect(text.split('\n')).toHaveLength(8)
+    expect(text).toContain('Ctrl+V / Ctrl+G')
+    expect(text).toContain('Esc twice')
+    expect(text).not.toContain('Ctrl+A')
   })
 
   it('counts catalog rows after configurable bindings are merged by action', () => {

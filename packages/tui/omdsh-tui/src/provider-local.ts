@@ -110,7 +110,7 @@ import {
 } from './prompt-selector.ts'
 import { resolveProjectContext } from './project-context.ts'
 import { pickWelcomeTips, type WelcomeTip } from './welcome-tips.ts'
-import { formatHotkeysText, hotkeyCount } from './hotkeys.ts'
+import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount } from './hotkeys.ts'
 import {
   imageMarker,
   imagePathCandidates,
@@ -1844,6 +1844,12 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
+    if (args !== '' && args !== 'full') {
+      this.#notice('Usage: /help [full]')
+      this.#render()
+      return
+    }
+    const full = args === 'full'
     this.#state = {
       ...this.#state,
       blocks: [...this.#state.blocks, {
@@ -1852,9 +1858,14 @@ export class LocalTui implements TuiService {
         text: [
           formatHelpText(this.#commands()),
           '',
-          `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} bindings**`,
+          full
+            ? `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} bindings**`
+            : '**Essential Shortcuts**',
           '',
-          formatHotkeysText(this.#keybindings),
+          full
+            ? formatHotkeysText(this.#keybindings)
+            : formatEssentialHotkeysText(this.#keybindings),
+          ...(full ? [] : ['', 'Use `/help full` to view every keyboard shortcut.']),
         ].join('\n'),
       }],
     }

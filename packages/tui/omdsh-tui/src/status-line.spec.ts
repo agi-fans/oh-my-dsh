@@ -153,7 +153,7 @@ describe('session status line', () => {
       width: 140,
     }, createTheme(false))
     expect(active[0]).toContain('deepseek-v4-pro · max · PLAN')
-    expect(active[0]).toContain('workspace-write · ~/Workspace/dsh-tui · main')
+    expect(active[0]).toContain('Workspace write · ~/Workspace/dsh-tui · main')
 
     const leaving = renderStatusFooter({
       model: 'm',
@@ -239,7 +239,7 @@ describe('session status line', () => {
     }, createTheme(false))
     expect(minimal).toHaveLength(2)
     expect(minimal[0]).toContain('m · PLAN')
-    expect(minimal[0]).toContain('read-only')
+    expect(minimal[0]).toContain('Read only')
     expect(stripAnsi(minimal[1] ?? '').trim()).toBe('')
   })
 })

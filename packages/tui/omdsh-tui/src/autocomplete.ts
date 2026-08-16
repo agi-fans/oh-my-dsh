@@ -39,9 +39,13 @@ const COPY_ARGUMENTS: readonly SlashArgument[] = [
   { value: 'cmd', aliases: ['command'], description: 'Last bash command' },
 ]
 
+const HELP_ARGUMENTS: readonly SlashArgument[] = [
+  { value: 'full', description: 'Include every keyboard shortcut' },
+]
+
 /** Built-in session-surface commands (no extra backend required). */
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
-  { name: 'help', aliases: ['h', '?'], description: 'Show available slash commands' },
+  { name: 'help', aliases: ['h', '?'], description: 'Show commands and essential shortcuts', arguments: HELP_ARGUMENTS },
   { name: 'settings', aliases: ['set'], description: 'Open settings' },
   { name: 'copy', description: 'Pick text, code, or a command to copy', arguments: COPY_ARGUMENTS },
   { name: 'tools', description: 'Show tools visible to the agent' },
@@ -276,21 +280,17 @@ export function resolveSlashCommand(
 }
 
 function helpCell(value: string): string {
-  return value.replace(/\|/gu, '\\|').replace(/\s+/gu, ' ').trim()
+  return value.replace(/\s+/gu, ' ').trim()
 }
 
-function helpTable(commands: readonly SlashCommand[]): string[] {
+function helpRows(commands: readonly SlashCommand[]): string[] {
   if (commands.length === 0) return []
-  return [
-    '| Command | Description |',
-    '|---|---|',
-    ...commands.map((command) => {
-      const names = [command.name, ...(command.aliases ?? [])]
-        .map((name, index) => `\`${helpCell(`/${name}${index === 0 ? argumentHint(command) : ''}`)}\``)
-        .join(' / ')
-      return `| ${names} | ${helpCell(command.description)} |`
-    }),
-  ]
+  return commands.map((command) => {
+    const names = [command.name, ...(command.aliases ?? [])]
+      .map((name, index) => `\`${helpCell(`/${name}${index === 0 ? argumentHint(command) : ''}`)}\``)
+      .join(', ')
+    return `- ${names} — ${helpCell(command.description)}`
+  })
 }
 
 /** Grouped Markdown command directory rendered by the command-output surface. */
@@ -301,19 +301,19 @@ export function formatHelpText(
   const terminalNames = new Set(BUILTIN_SLASH_COMMANDS.map(command => command.name))
   const terminal = commands.filter(command => terminalNames.has(command.name))
   const agent = commands.filter(command => !command.name.startsWith('skill:') && !terminalNames.has(command.name))
-  const lines = [`Commands · ${terminal.length + agent.length} available`]
+  const lines = [`Commands · ${terminal.length + agent.length} core${skills.length === 0 ? '' : ` · ${skills.length} skills`}`]
   if (terminal.length > 0) {
     lines.push(
       '',
       `**Terminal Commands · ${terminal.length}**`,
-      ...helpTable(terminal),
+      ...helpRows(terminal),
     )
   }
   if (agent.length > 0) {
     lines.push(
       '',
       `**Agent Commands · ${agent.length}**`,
-      ...helpTable(agent),
+      ...helpRows(agent),
     )
   }
   if (skills.length > 0) {

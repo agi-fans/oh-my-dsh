@@ -107,6 +107,21 @@ export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): num
   return sections(bindings).reduce((total, section) => total + section.rows.length, 0)
 }
 
+/** Short, high-frequency subset shown by the default `/help` view. */
+export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): string {
+  const rows: readonly HotkeyRow[] = [
+    { keys: 'Enter', action: 'Send the message' },
+    { keys: 'Shift+Enter / Alt+Enter / Ctrl+J', action: 'Insert a new line' },
+    { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
+    { keys: 'Esc twice', action: 'Rewind to an earlier conversation turn' },
+    { keys: 'Ctrl+R', action: 'Search prompt history' },
+    { keys: 'PgUp / PgDn', action: 'Scroll the transcript' },
+    { keys: 'Ctrl+O', action: 'Expand tool output or catalog descriptions' },
+    { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
+  ]
+  return rows.map(row => `- \`${tableCell(row.keys)}\` — ${tableCell(row.action)}`).join('\n')
+}
+
 /** Markdown tables embedded in the `/help` transcript panel. */
 export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): string {
   return sections(bindings).flatMap((section, index) => [

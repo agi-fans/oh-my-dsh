@@ -131,7 +131,7 @@ export async function resolveStartupChangelog(options: {
 }
 
 /** Render recent or complete release history for the slash-command surface. */
-export function changelogText(content: string, full: boolean, recentLimit = 3): string {
+export function changelogText(content: string, full: boolean, recentLimit = 1): string {
   const entries = parseChangelog(content)
   if (entries.length === 0) return 'No changelog entries found.'
   const selected = full ? entries : entries.slice(0, recentLimit)

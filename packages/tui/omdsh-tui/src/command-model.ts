@@ -11,11 +11,16 @@ import { registerCommands } from './command-registration.ts'
 export const name = 'omdsh-command-model'
 export const inject = ['commands', 'omdshSession', 'tui', 'llm']
 
-const FIXED_CHOICE = {
-  presentation: 'fullscreen-list' as const,
-  optionLayout: 'compact' as const,
-  filterable: true,
-  allowCustom: false,
+const FULLSCREEN_CHOICE_THRESHOLD = 8
+
+function fixedChoice(optionCount: number) {
+  const fullscreen = optionCount > FULLSCREEN_CHOICE_THRESHOLD
+  return {
+    ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
+    optionLayout: 'compact' as const,
+    filterable: fullscreen,
+    allowCustom: false,
+  }
 }
 
 function selected(raw: string, values: readonly string[]): string | undefined {
@@ -31,7 +36,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   let provider = providers[0]?.id
   if (providers.length > 1) {
     const providerRaw = await ctx.tui.prompt({
-      ...FIXED_CHOICE,
+      ...fixedChoice(providers.length),
       title: 'Model provider',
       question: 'Choose a provider',
       options: providers.map(entry => ({ label: entry.id, description: entry.name })),
@@ -48,7 +53,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   const models = await ctx.llm.listModels(provider)
   if (models.length === 0) return { kind: 'error', text: `No models are available for ${provider}.` }
   const modelRaw = await ctx.tui.prompt({
-    ...FIXED_CHOICE,
+    ...fixedChoice(models.length),
     title: 'Model',
     question: `Choose a model for ${provider}`,
     options: models.map(model => ({ label: model.id, description: model.description ?? model.name })),
@@ -66,7 +71,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
     reasoningEffort = undefined
   } else {
     const effortRaw = await ctx.tui.prompt({
-      ...FIXED_CHOICE,
+      ...fixedChoice(info.reasoning.efforts.length),
       title: 'Reasoning effort',
       question: 'Choose reasoning effort',
       options: info.reasoning.efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),

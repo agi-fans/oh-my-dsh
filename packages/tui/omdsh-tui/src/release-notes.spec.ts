@@ -73,8 +73,8 @@ describe('release notes', () => {
     expect(marker).toBe('0.3.0')
   })
 
-  it('shows recent releases by default and complete history on request', () => {
-    const recent = changelogText(CHANGELOG, false, 1)
+  it('shows only the latest release by default and complete history on request', () => {
+    const recent = changelogText(CHANGELOG, false)
     const full = changelogText(CHANGELOG, true, 1)
 
     expect(recent).toContain('## [0.3.0]')
