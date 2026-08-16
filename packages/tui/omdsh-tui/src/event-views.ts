@@ -449,6 +449,29 @@ export interface ViewOptions {
 
 /** Collapsed tool-output preview height (OMP `DEFAULT_TERMINAL_PREVIEW_LINES`). */
 export const TOOL_COLLAPSED_LINES = 10
+export const TOOL_INPUT_COLLAPSED_LINES = 3
+
+interface ToolPreview {
+  lines: string[]
+  hidden: number
+}
+
+function toolPreview(
+  lines: readonly string[],
+  width: number,
+  limit: number,
+  expanded: boolean,
+  direction: 'head' | 'tail',
+): ToolPreview {
+  const contentWidth = Math.max(1, width - 4)
+  const wrapped = lines.flatMap(line => wrapText(line, contentWidth))
+  if (expanded || wrapped.length <= limit) return { lines: wrapped, hidden: 0 }
+  const hidden = wrapped.length - limit
+  return {
+    lines: direction === 'tail' ? wrapped.slice(hidden) : wrapped.slice(0, limit),
+    hidden,
+  }
+}
 
 /** OMP AssistantMessage uses one horizontal cell of padding and no vertical padding. */
 const ASSISTANT_PADDING_X = 1
@@ -503,15 +526,30 @@ function toolBlockLines(
     ? ''
     : theme.fg('dim', ' ' + presentation.summary)
   const header = icon + ' ' + theme.bold(presentation.title ?? block.name) + summary
-  const raw = [...(presentation.lines ?? [])]
-  const hidden = expanded ? 0 : Math.max(0, raw.length - TOOL_COLLAPSED_LINES)
-  const shown = hidden > 0 ? raw.slice(0, TOOL_COLLAPSED_LINES) : raw
-  const output = shown.map((line) => theme.fg('toolOutput', line))
-  if (hidden > 0) {
-    output.push(theme.fg('dim', '… ' + hidden + ' more lines · ⟨Ctrl+O: Expand⟩'))
+  const input = toolPreview(presentation.input, width, TOOL_INPUT_COLLAPSED_LINES, expanded, 'head')
+  const output = toolPreview(presentation.output, width, TOOL_COLLAPSED_LINES, expanded, presentation.outputPreview)
+  const hasOutput = presentation.output.length > 0
+  const inputLines = input.lines.map(line => theme.fg('toolOutput', line))
+  if (input.hidden > 0) {
+    const hint = hasOutput && output.hidden > 0 ? '' : ' · ⟨Ctrl+O: Expand⟩'
+    inputLines.push(theme.fg('dim', `… ${input.hidden} more input lines${hint}`))
   }
+  const outputLines = output.lines.map(line => theme.fg('toolOutput', line))
+  if (output.hidden > 0) {
+    const position = presentation.outputPreview === 'tail' ? 'earlier' : 'more'
+    const hint = theme.fg('dim', `… ${output.hidden} ${position} lines · ⟨Ctrl+O: Expand⟩`)
+    if (presentation.outputPreview === 'tail') outputLines.unshift(hint)
+    else outputLines.push(hint)
+  }
+  const sections = [
+    ...(inputLines.length === 0 ? [] : [{ lines: inputLines }]),
+    ...(outputLines.length === 0 ? [] : [{
+      ...(inputLines.length === 0 ? {} : { label: theme.fg('toolTitle', 'Output') }),
+      lines: outputLines,
+    }]),
+  ]
   const state = block.status === 'running' ? 'running' : block.status === 'ok' ? 'ok' : 'error'
-  return renderFramedBlock({ header, state, lines: output, width }, theme)
+  return renderFramedBlock({ header, state, sections, width }, theme)
 }
 
 /**

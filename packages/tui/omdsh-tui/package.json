@@ -71,6 +71,10 @@
       "types": "./lib/command-integrations.d.ts",
       "default": "./lib/command-integrations.js"
     },
+    "./startup-notices": {
+      "types": "./lib/startup-notices.d.ts",
+      "default": "./lib/startup-notices.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -82,7 +86,7 @@
   },
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
-    "build": "tsc -b tsconfig.json",
+    "build": "tsc -b tsconfig.json && node ../../../scripts/copy-changelog.mjs lib/CHANGELOG.md",
     "test": "vitest run src",
     "typecheck": "tsc -b tsconfig.json",
     "prepack": "pnpm run clean && pnpm run build"

@@ -1,11 +1,11 @@
 ---
 name: publish-oh-my-dsh
-description: Prepare, publish, finalize, or audit oh-my-dsh releases across npm and GitHub. Use for version bumps, release readiness, Keep a Changelog updates, publishing @agi-fans/dsh-tui and @agi-fans/oh-my-dsh, creating or repairing Git tags and GitHub Releases, and verifying or recovering a partially completed release.
+description: Prepare, hand off, finalize, or audit oh-my-dsh releases across npm and GitHub. Use for version bumps, release readiness, Keep a Changelog updates, human-assisted publication of @agi-fans/dsh-tui and @agi-fans/oh-my-dsh, creating or repairing Git tags and GitHub Releases, and verifying or recovering a partially completed release.
 ---
 
 # Publish oh-my-dsh
 
-Release oh-my-dsh without drifting the two public packages, the repository version, npm, Git tags, or GitHub Releases out of sync. Treat every phase as resumable: inspect existing state first, perform only authorized writes, and skip work that is already correct.
+Release oh-my-dsh without drifting the two public packages, the repository version, npm, Git tags, or GitHub Releases out of sync. Treat every phase as resumable: inspect existing state first, perform only authorized writes, and skip work that is already correct. Always hand npm publication to the user because npm may require an interactive one-time password; the agent owns preparation and post-publication verification but never invokes a publish command.
 
 ## Establish scope
 
@@ -16,9 +16,9 @@ Release oh-my-dsh without drifting the two public packages, the repository versi
 Classify the request before writing anything:
 
 - **Prepare:** Update versions and Changelog, verify, and optionally commit. Do not publish, push, tag, or create a GitHub Release.
-- **Publish npm:** Publish only the requested packages. Do not infer permission to push or create GitHub state.
+- **Publish npm:** Prepare and verify the requested packages, then give the user exact dependency-ordered commands to run in an interactive terminal. Resume with registry verification after the user finishes. Do not infer permission to push or create GitHub state.
 - **Finalize GitHub:** Push the requested commit or branch, create and push the tag, and create the GitHub Release. Do not infer permission to publish npm.
-- **End-to-end release:** Run all applicable phases only when the user explicitly asks to release, publish and finalize, or otherwise clearly authorizes all external writes.
+- **End-to-end release:** Run all applicable phases only when the user explicitly asks to release, publish and finalize, or otherwise clearly authorizes all external writes. Pause at the mandatory human npm checkpoint, then continue the already-authorized GitHub phase after the user confirms publication and registry verification succeeds.
 - **Audit or recovery:** Inspect npm, Git, and GitHub; perform only the missing operations explicitly requested.
 
 ## Inspect release state
@@ -94,11 +94,11 @@ chore(release): prepare X.Y.Z
 
 Record the exact release commit SHA. If the correct release commit already exists, reuse it instead of creating an empty or duplicate commit. Require a clean worktree after the commit, apart from unrelated changes that were deliberately excluded and are safe to leave present.
 
-## Publish npm packages
+## Hand off npm publication
 
-Treat a direct request to publish or release as authorization for the npm writes it names. Otherwise stop after preparation and provide the exact commands instead of executing them.
+npm publication is always a human checkpoint, including during an explicitly requested end-to-end release. Never invoke `npm publish`, `pnpm publish`, or another command that writes a package to npm. Never supply an OTP flag, ask the user to paste a token or one-time password into chat, or try to automate the interactive challenge. The agent prepares, audits, and verifies; the user performs the registry write in their own interactive terminal.
 
-1. Run `npm whoami` and confirm the authenticated account can publish both `@agi-fans` packages. Never ask the user to paste an npm token or one-time password into chat.
+1. Run `npm whoami` and inspect package access when useful so authentication or ownership problems are found before handoff. These read-only checks do not authorize an npm write.
 2. Query each exact target version before publishing:
 
 ```sh
@@ -106,21 +106,20 @@ npm view @agi-fans/dsh-tui@X.Y.Z version
 npm view @agi-fans/oh-my-dsh@X.Y.Z version
 ```
 
-3. Publish the dependency package first when its target version is absent:
+3. Skip any package whose exact target version is already present. For each missing version, give the user these exact commands in dependency order and clearly label them as commands for the user to run, not commands for the agent:
 
 ```sh
 pnpm --filter @agi-fans/dsh-tui publish --access public --no-git-checks
-```
-
-4. Wait for the exact TUI version to become readable from the registry, then publish the CLI package when its target version is absent:
-
-```sh
 pnpm --filter @agi-fans/oh-my-dsh publish --access public --no-git-checks
 ```
 
-5. Verify both exact versions and their `latest` dist-tags with `npm view`.
+Tell the user to publish the TUI dependency first, wait until npm exposes that exact version, and then publish the CLI. The user must enter any OTP only in that terminal.
 
-Never attempt to republish an existing npm version. If TUI publication succeeds and CLI publication fails, report the partial state and resume later from the CLI publication step. Do not bump the version merely to conceal a recoverable partial release.
+4. Pause the workflow after recording the target version, release commit SHA, completed preparation checks, already-published packages, and remaining commands. This is an expected handoff, not a failure or blocked release. Do not perform GitHub release writes while npm publication is pending.
+5. When the user reports that publication is complete, resume from registry inspection rather than repeating preparation or attempting publication. Verify both exact versions and their `latest` dist-tags with `npm view`.
+6. If only the TUI version is visible, report the partial state and give only the remaining CLI command. If neither version is visible, repeat the original handoff without changing versions. If both are visible and correct, continue any GitHub finalization already authorized by the original end-to-end request without asking for authorization again.
+
+Never attempt to republish an existing npm version. Do not bump the version merely to conceal a recoverable partial release. If both exact target versions were already published before the workflow began, no human npm checkpoint is necessary; verify them and continue with the authorized remaining phases.
 
 ## Push, tag, and create the GitHub Release
 
@@ -170,4 +169,4 @@ Confirm that:
 - The local branch is synchronized with its upstream.
 - No generated tarballs, release-note files, build outputs, or reference-repository modifications remain.
 
-Report the version, release commit, npm package results, tag result, GitHub Release URL, verification result, and any intentionally deferred phase. When blocked, report the exact completed state so another run can resume without repeating irreversible operations.
+Report the version, release commit, npm package results, tag result, GitHub Release URL, verification result, and any intentionally deferred phase. At the human npm checkpoint, report the exact commands, dependency order, OTP safety instruction, and resumable state. When blocked for another reason, report the exact completed state so another run can resume without repeating irreversible operations.

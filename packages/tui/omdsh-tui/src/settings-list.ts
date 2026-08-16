@@ -5,6 +5,7 @@
  */
 
 import type { KeyEvent } from './keys.ts'
+import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from './release-notes.ts'
 import {
   STATUS_GROUP_IDS,
   STATUS_LABEL_STYLES,
@@ -31,6 +32,8 @@ export interface TuiPrefs {
   theme: ThemeName
   colors: boolean
   expandTools: boolean
+  checkUpdates?: boolean
+  startupChangelog?: StartupChangelogMode
   statusBar?: StatusBarConfig
   /** Read-only migration input for settings written before status-line customization. */
   statusPreset?: StatusPreset
@@ -53,6 +56,7 @@ export type SettingsCommand =
 
 const COLOR_VALUES = ['on', 'off'] as const
 const TOOL_DETAIL_VALUES = ['compact', 'expanded'] as const
+const STARTUP_CHANGELOG_VALUES = [...STARTUP_CHANGELOG_MODES]
 const STATUS_GROUP_COPY: Record<StatusGroupId, { label: string; description: string }> = {
   context: { label: 'Context', description: 'Context-window pressure' },
   cache: { label: 'Cache', description: 'Prompt-cache hit rate' },
@@ -99,6 +103,20 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
       values: TOOL_DETAIL_VALUES,
     },
     {
+      id: 'checkUpdates',
+      label: 'Update checks',
+      description: 'Check npm once a day and notify when a newer release is available',
+      value: prefs.checkUpdates === false ? 'off' : 'on',
+      values: COLOR_VALUES,
+    },
+    {
+      id: 'startupChangelog',
+      label: 'Release notes',
+      description: 'Show new release notes once after an upgrade',
+      value: prefs.startupChangelog ?? 'summary',
+      values: STARTUP_CHANGELOG_VALUES,
+    },
+    {
       id: 'statusEnabled',
       label: 'Status line',
       description: 'Show the fixed two-line footer below the composer',
@@ -137,6 +155,10 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'expandTools') return { ...prefs, expandTools: value === 'expanded' || value === 'on' }
+  if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
+  if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
+    return { ...prefs, startupChangelog: value as StartupChangelogMode }
+  }
   const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
   if (id === 'statusEnabled') return { ...prefs, statusBar: { ...statusBar, enabled: value === 'on' } }
   if (id === 'statusLabels' && STATUS_LABEL_STYLES.includes(value as StatusBarConfig['labels'])) {
@@ -211,7 +233,7 @@ function moveSelected(state: SettingsState, next: number): SettingsState {
   return { ...state, selected }
 }
 
-const GENERAL_SETTING_COUNT = 3
+const GENERAL_SETTING_COUNT = 5
 
 function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
   const inGeneral = state.selected < GENERAL_SETTING_COUNT

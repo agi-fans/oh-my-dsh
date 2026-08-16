@@ -10,11 +10,19 @@ describe('TuiSettingsSchema', () => {
       statusBar?: { enabled: boolean; labels: string; groups: string[]; order?: string[] }
       statusPreset?: string
     }
-    expect(validate({})).toEqual({ theme: 'dark', colors: true, expandTools: false })
+    expect(validate({})).toEqual({
+      theme: 'dark',
+      colors: true,
+      expandTools: false,
+      checkUpdates: true,
+      startupChangelog: 'summary',
+    })
     expect(validate({ theme: 'light', colors: false, expandTools: true })).toEqual({
       theme: 'light',
       colors: false,
       expandTools: true,
+      checkUpdates: true,
+      startupChangelog: 'summary',
     })
     expect(validate({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
       statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] },
@@ -27,6 +35,17 @@ describe('TuiSettingsSchema', () => {
         order: ['tokens', 'cache', 'context'],
       },
     })).toMatchObject({ statusBar: { order: ['tokens', 'cache', 'context'] } })
+  })
+
+  it('validates startup update and release-note preferences', () => {
+    const validate = TuiSettingsSchema as unknown as (input: object) => {
+      checkUpdates: boolean
+      startupChangelog: string
+    }
+    expect(validate({ checkUpdates: false, startupChangelog: 'expanded' })).toMatchObject({
+      checkUpdates: false,
+      startupChangelog: 'expanded',
+    })
   })
 
   it('keeps a legacy status preset available for runtime migration', () => {

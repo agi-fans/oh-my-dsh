@@ -20,15 +20,33 @@ export interface ToolRenderInput {
 export interface ToolPresentation {
   title?: string
   summary?: string
-  lines?: readonly string[]
+  /** Human- or tool-authored call input, retained after the result settles. */
+  input: readonly string[]
+  /** Result content, kept separate so the view can render an Output section. */
+  output: readonly string[]
+  /** Terminal output favors its most recent rows; other cards favor their start. */
+  outputPreview: 'head' | 'tail'
 }
 
 function printable(value: unknown): string {
   if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value, undefined, 2)
   } catch {
     return String(value)
+  }
+}
+
+function printableLines(value: unknown): string[] {
+  return printable(value).split('\n')
+}
+
+function fallbackArgumentLines(raw: string): string[] {
+  if (raw.trim() === '' || raw.trim() === '{}') return []
+  try {
+    return printableLines(JSON.parse(raw))
+  } catch {
+    return raw.split('\n')
   }
 }
 
@@ -60,19 +78,33 @@ function sourceLine(source: WebSource): string {
   return `${label}${label === source.url ? '' : ` — ${source.url}`}${source.snippet === undefined ? '' : `\n  ${source.snippet}`}`
 }
 
-function callPresentation(view: ToolCallView | undefined): ToolPresentation {
+interface PartialToolPresentation {
+  title?: string
+  summary?: string
+  lines?: readonly string[]
+  outputPreview?: 'head' | 'tail'
+}
+
+function callPresentation(view: ToolCallView | undefined, fallbackTitle: string): PartialToolPresentation {
   if (view === undefined) return {}
   switch (view.card) {
     case 'generic':
-      return {
-        title: view.title,
-        ...(view.rawInput === undefined ? {} : { summary: printable(view.rawInput) }),
-        lines: contentLines(view.content),
+      {
+        const lines = [
+          ...(view.rawInput === undefined ? [] : printableLines(view.rawInput)),
+          ...contentLines(view.content),
+        ]
+        return {
+          title: view.title,
+          ...(lines.length === 0 ? {} : { lines }),
+        }
       }
     case 'terminal':
       return {
-        title: view.title,
+        title: fallbackTitle,
         summary: [view.description, view.cwd].filter(Boolean).join(' · '),
+        lines: view.title.split('\n'),
+        outputPreview: 'tail',
       }
     case 'diff':
       return {
@@ -83,13 +115,16 @@ function callPresentation(view: ToolCallView | undefined): ToolPresentation {
   }
 }
 
-function resultPresentation(view: ToolResultView | undefined): ToolPresentation {
+function resultPresentation(view: ToolResultView | undefined): PartialToolPresentation {
   if (view === undefined) return {}
   switch (view.card) {
     case 'generic':
-      return {
-        ...(view.title === undefined ? {} : { title: view.title }),
-        lines: contentLines(view.content),
+      {
+        const lines = contentLines(view.content)
+        return {
+          ...(view.title === undefined ? {} : { title: view.title }),
+          ...(lines.length === 0 ? {} : { lines }),
+        }
       }
     case 'terminal':
       return {
@@ -140,12 +175,17 @@ function resultPresentation(view: ToolResultView | undefined): ToolPresentation 
 
 /** Render a Harness presentation intent, falling back to durable raw arguments/result text. */
 export function renderTool(input: ToolRenderInput): ToolPresentation {
-  const call = callPresentation(input.presentation?.call)
+  const call = callPresentation(input.presentation?.call, input.name)
   const result = resultPresentation(input.presentation?.result)
-  const lines = result.lines ?? call.lines
+  const callLines = call.lines ?? fallbackArgumentLines(input.arguments)
+  const outputLines = result.lines ?? (input.output === '' ? [] : input.output.split('\n'))
+  const duplicateDiff = input.presentation?.call?.card === 'diff' && input.presentation.result?.card === 'diff'
+  const summary = result.summary ?? call.summary
   return {
     title: result.title ?? call.title ?? input.name,
-    summary: result.summary ?? call.summary ?? input.arguments,
-    lines: lines === undefined || lines.length === 0 ? (input.output === '' ? [] : input.output.split('\n')) : lines,
+    ...(summary === undefined || summary === '' ? {} : { summary }),
+    input: duplicateDiff ? [] : callLines,
+    output: outputLines,
+    outputPreview: call.outputPreview ?? 'head',
   }
 }

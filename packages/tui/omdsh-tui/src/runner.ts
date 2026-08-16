@@ -13,9 +13,10 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { TuiService } from './definition.ts'
 import type {} from './session-runtime.ts'
+import type {} from './startup-notices.ts'
 
 export const name = 'omdsh-runner'
-export const inject = ['tui', 'omdshSession']
+export const inject = ['tui', 'omdshSession', 'omdshStartup']
 
 function fail(error: unknown, exit: (code: number) => void): void {
   console.error('omdsh: ' + (error instanceof Error ? error.message : String(error)))
@@ -28,6 +29,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
   if (controller === undefined) return
 
   await controller.start()
+  void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
   const offInterrupt = tui.onInterrupt(() => {
     operation?.abort(new Error('cancelled by user'))

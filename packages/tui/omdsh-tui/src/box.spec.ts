@@ -53,6 +53,24 @@ describe('renderFramedBlock', () => {
       expect(visibleWidth(top)).toBe(80)
     }
   })
+
+  it('renders labeled sections inside one continuous frame', () => {
+    const lines = renderFramedBlock({
+      header: '✔ bash',
+      sections: [
+        { lines: ['$ pnpm test'] },
+        { label: 'Output', lines: ['42 passed'] },
+      ],
+      width: 40,
+      state: 'ok',
+    }, theme)
+    const plain = lines.map(stripAnsi)
+
+    expect(plain.some(line => /^├─── Output .*───┤$/u.test(line))).toBe(true)
+    expect(plain.join('\n')).toContain('$ pnpm test')
+    expect(plain.join('\n')).toContain('42 passed')
+    for (const line of lines) expect(visibleWidth(line)).toBe(40)
+  })
 })
 
 describe('renderWelcome', () => {

@@ -28,6 +28,7 @@ The TUI is deliberately a presentation and interaction layer. Sessions, tools, p
 - Tool calls, approval and question flows, collapsible output, and live session telemetry
 - Project-aware `@` file search, clipboard image paste, prompt history, and visible, editable queued follow-up messages
 - Harness skills and MCP servers discovered from project and user configuration
+- One-time release summaries, `/changelog`, and a cached, non-blocking npm update notice
 - Responsive terminal layout, themes, transcript scrolling, and non-TTY fallback behavior
 
 ## Architecture
@@ -66,6 +67,8 @@ npx @agi-fans/oh-my-dsh
 ```
 
 Model settings can also come from `$DSH_HOME/settings.yaml`, while credentials follow the DeepSeek Harness credential resolution flow. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).
+
+After an upgrade, omdsh can show the release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A daily, non-blocking npm check reports newer versions without installing anything automatically; both behaviors can be customized or disabled in `/settings`.
 
 ## Development
 

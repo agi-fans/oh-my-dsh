@@ -217,6 +217,49 @@ describe('applyEvent', () => {
     expect(frame.lines.join('\n')).not.toContain('Ctrl+O')
   })
 
+  it('keeps terminal input above a labeled output section after settlement', () => {
+    const lines = blockLines({
+      kind: 'tool',
+      callId: CallId('call-terminal'),
+      name: 'bash',
+      args: '{"command":"ignored fallback"}',
+      status: 'ok',
+      output: 'fallback',
+      presentation: {
+        call: { card: 'terminal', title: 'SCOPE=/repo pnpm test', description: 'Run tests', cwd: '/repo' },
+        result: { card: 'terminal', output: '42 passed', exitCode: 0 },
+      },
+    }, createTheme(false), 60)
+    const text = lines.map(stripAnsi).join('\n')
+
+    expect(text).toContain('✔ bash')
+    expect(text).toContain('SCOPE=/repo pnpm test')
+    expect(text).toContain('Output')
+    expect(text).toContain('42 passed')
+    expect(text.indexOf('SCOPE=/repo pnpm test')).toBeLessThan(text.indexOf('Output'))
+  })
+
+  it('shows the latest terminal output rows while collapsed', () => {
+    const output = Array.from({ length: TOOL_COLLAPSED_LINES + 3 }, (_, index) => `line-${index}`)
+    const lines = blockLines({
+      kind: 'tool',
+      callId: CallId('call-terminal-tail'),
+      name: 'bash',
+      args: '{}',
+      status: 'ok',
+      output: output.join('\n'),
+      presentation: {
+        call: { card: 'terminal', title: 'pnpm test' },
+        result: { card: 'terminal', output: output.join('\n'), exitCode: 0 },
+      },
+    }, createTheme(false), 60)
+    const text = lines.map(stripAnsi).join('\n')
+
+    expect(text).toContain('… 3 earlier lines · ⟨Ctrl+O: Expand⟩')
+    expect(text).not.toContain('line-0')
+    expect(text).toContain(`line-${TOOL_COLLAPSED_LINES + 2}`)
+  })
+
   it('shows the current todo list immediately above the composer', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('todo/write', {
@@ -368,7 +411,7 @@ describe('blockLines', () => {
     expect(lines.every((line) => visibleWidth(line) === 8)).toBe(true)
   })
 
-  it('keeps the right cap visible for a styled long bash command', () => {
+  it('keeps a long bash command in the body and the right frame cap visible', () => {
     const command = 'pnpm --filter @agi-fans/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @agi-fans/dsh-tui build'
     const lines = blockLines({
       kind: 'tool',
@@ -379,9 +422,12 @@ describe('blockLines', () => {
       output: 'Done',
     }, createTheme(true, true), 80)
     const top = stripAnsi(lines[0] ?? '')
+    const text = lines.map(stripAnsi).join('\n')
 
     expect(top).toMatch(/^╭─── /u)
-    expect(top).toMatch(/ ───╮$/u)
+    expect(top).toMatch(/╮$/u)
+    expect(text).toContain('pnpm --filter @agi-fans/dsh-tui test')
+    expect(text).toContain('@agi-fans/dsh-tui build')
     expect(visibleWidth(top)).toBe(80)
   })
 

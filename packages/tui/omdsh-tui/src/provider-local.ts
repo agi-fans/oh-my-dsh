@@ -121,9 +121,9 @@ import {
   type ClipboardImageReader,
   type ImagePathReader,
 } from './image-paste.ts'
+import { APP_NAME, APP_VERSION } from './package-metadata.ts'
+import type { StartupChangelogMode } from './release-notes.ts'
 
-const APP_NAME = 'omdsh'
-const APP_VERSION = '0.1.0'
 const DOUBLE_CTRL_C_MS = 500
 const DOUBLE_ESCAPE_MS = 500
 
@@ -231,6 +231,8 @@ export class LocalTui implements TuiService {
   #follow = true
   #focusBlock: number | undefined
   #expandTools = false
+  #checkUpdates = true
+  #startupChangelog: StartupChangelogMode = 'summary'
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
   #expandedToolCalls = new Set<string>()
@@ -468,6 +470,8 @@ export class LocalTui implements TuiService {
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#expandTools = prefs.expandTools
+    this.#checkUpdates = prefs.checkUpdates ?? true
+    this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     this.#toolsExpanded = prefs.expandTools
     if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
@@ -1385,6 +1389,8 @@ export class LocalTui implements TuiService {
       theme: this.#themeName,
       colors: this.#colors,
       expandTools: this.#expandTools,
+      checkUpdates: this.#checkUpdates,
+      startupChangelog: this.#startupChangelog,
       statusBar: {
         ...this.#statusBar,
         groups: [...this.#statusBar.groups],
@@ -1398,6 +1404,8 @@ export class LocalTui implements TuiService {
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#expandTools = prefs.expandTools
+    this.#checkUpdates = prefs.checkUpdates ?? true
+    this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     if (expandChanged) this.#toolsExpanded = prefs.expandTools
     this.#persistPrefs?.(prefs)

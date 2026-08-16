@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Added one-time startup release summaries, `/changelog [full]`, and cached non-blocking npm update notifications with controls in `/settings`.
+
+### Changed
+
+- Made the repository release Skill hand npm publication to the user for interactive OTP completion, then resume registry verification and GitHub finalization without repeating completed work.
+- Separated tool-call input from output in a single framed card, preserving long inputs after settlement and giving terminal output its own labeled, tail-focused preview.
+
+### Fixed
+
+- Made the startup header read the current TUI package version instead of retaining the original `0.1.0` placeholder after releases.
+
 ## [0.3.0] - 2026-08-16
 
 ### Changed

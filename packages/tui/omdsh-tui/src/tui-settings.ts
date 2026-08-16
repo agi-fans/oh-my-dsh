@@ -4,6 +4,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from './release-notes.ts'
 import {
   STATUS_GROUP_IDS,
   STATUS_LABEL_STYLES,
@@ -21,6 +22,8 @@ export interface TuiSettings {
   theme: ThemeName
   colors: boolean
   expandTools: boolean
+  checkUpdates: boolean
+  startupChangelog: StartupChangelogMode
   statusBar?: StatusBarConfig
   /** Legacy input retained so older settings documents can be migrated. */
   statusPreset?: StatusPreset
@@ -31,6 +34,8 @@ export const TuiSettingsSchema: z<TuiSettings> = z.object({
   theme: z.union([...THEME_NAMES]).default('dark'),
   colors: z.boolean().default(true),
   expandTools: z.boolean().default(false),
+  checkUpdates: z.boolean().default(true),
+  startupChangelog: z.union([...STARTUP_CHANGELOG_MODES]).default('summary'),
   statusBar: z.union([z.object({
     enabled: z.boolean().default(true),
     labels: z.union([...STATUS_LABEL_STYLES]).default('compact'),

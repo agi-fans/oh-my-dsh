@@ -25,6 +25,8 @@ describe('tuiSettingItems / applySettingValue', () => {
       'theme',
       'colors',
       'expandTools',
+      'checkUpdates',
+      'startupChangelog',
       'statusEnabled',
       'statusLabels',
       'statusGroup:context',
@@ -37,10 +39,12 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
     expect(items[2]).toMatchObject({ label: 'Tool details', value: 'compact' })
-    expect(items[3]?.value).toBe('on')
-    expect(items[3]?.label).toBe('Status line')
-    expect(items[4]?.value).toBe('compact')
-    expect(items[5]?.value).toBe('shown')
+    expect(items[3]).toMatchObject({ label: 'Update checks', value: 'on' })
+    expect(items[4]).toMatchObject({ label: 'Release notes', value: 'summary' })
+    expect(items[5]?.value).toBe('on')
+    expect(items[5]?.label).toBe('Status line')
+    expect(items[6]?.value).toBe('compact')
+    expect(items[7]?.value).toBe('shown')
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual({ theme: 'dark', colors: true, expandTools: true })
@@ -54,6 +58,14 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(hidden.statusBar?.groups).toEqual(['cache', 'tokens', 'speed', 'durations', 'counts'])
     const moved = applySettingValue(hidden, 'statusGroup:counts', '1')
     expect(moved.statusBar?.groups).toEqual(['counts', 'cache', 'tokens', 'speed', 'durations'])
+  })
+
+  it('exposes update and startup release-note controls', () => {
+    const items = tuiSettingItems(prefs)
+    expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ value: 'on' })
+    expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ value: 'summary' })
+    expect(applySettingValue(prefs, 'checkUpdates', 'off').checkUpdates).toBe(false)
+    expect(applySettingValue(prefs, 'startupChangelog', 'expanded').startupChangelog).toBe('expanded')
   })
 })
 
@@ -86,7 +98,7 @@ describe('applySettingsEvent', () => {
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(3)
+    expect(status.kind === 'update' && status.state.selected).toBe(5)
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
   })
@@ -114,12 +126,12 @@ describe('applySettingsEvent', () => {
     expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
       'context', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[6]?.id).toBe('statusGroup:cache')
+    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[8]?.id).toBe('statusGroup:cache')
     const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
     expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
       'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(shown.kind === 'apply' && shown.state.selected).toBe(6)
+    expect(shown.kind === 'apply' && shown.state.selected).toBe(8)
   })
 
   it('ignores unrelated keys and non-space text', () => {
@@ -184,7 +196,7 @@ describe('renderSettings', () => {
     expect(view.lines[0]).toMatch(/^╭─ .*Settings.*╮$/)
     expect(view.lines.at(-1)).toMatch(/^╰─+╯$/)
     expect(view.lines.join('\n')).toContain('● Status line')
-    expect(hitTestSettings(view.itemRows, view.cursor.row)).toBe(3)
+    expect(hitTestSettings(view.itemRows, view.cursor.row)).toBe(5)
     const compact = renderSettings(createSettings(prefs, 'statusGroup:counts'), theme, 40, 10)
     expect(compact.lines).toHaveLength(10)
     expect(compact.lines.join('\n')).toContain('Activity')

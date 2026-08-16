@@ -28,6 +28,7 @@ TUI 被刻意限定为表现层与交互层。会话、工具、权限、模型�
 - 支持工具调用、审批与提问流程、可折叠输出和实时会话遥测
 - 支持项目内 `@` 文件搜索、剪贴板图片粘贴、输入历史，以及可见、可取回编辑的后续消息队列
 - 从项目与用户配置中发现 Harness Skills 和 MCP 服务
+- 支持一次性版本摘要、`/changelog`，以及带缓存且不阻塞启动的 npm 更新提示
 - 支持自适应终端布局、主题、会话记录滚动和非 TTY 降级模式
 
 ## 架构
@@ -66,6 +67,8 @@ npx @agi-fans/oh-my-dsh
 ```
 
 模型配置也可以来自 `$DSH_HOME/settings.yaml`，凭据则遵循 DeepSeek Harness 的解析流程。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.md)。
+
+升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存、非阻塞的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整或关闭。
 
 ## 开发
 

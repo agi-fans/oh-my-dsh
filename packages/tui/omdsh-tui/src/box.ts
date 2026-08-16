@@ -56,6 +56,8 @@ export interface FramedBlockOptions {
   headerMeta?: string
   state?: BoxState
   lines?: readonly string[]
+  /** Ordered body regions; labeled regions receive a full-width divider. */
+  sections?: readonly { label?: string; lines: readonly string[] }[]
   width: number
   applyBg?: boolean
 }
@@ -73,24 +75,32 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
   const paint = (line: string): string => (bg ? applyBg(line, theme, bg, width) : padToWidth(line, width))
 
   const cap = h.repeat(3)
-  const labelParts = [options.header, options.headerMeta].filter((part): part is string => Boolean(part))
-  const labelChromeWidth = visibleWidth(BOX.topLeft + cap + '  ' + cap + BOX.topRight)
-  const top = labelParts.length === 0 || width < labelChromeWidth
-    ? border(BOX.topLeft + h.repeat(Math.max(0, width - 2)) + BOX.topRight)
-    : (() => {
-        // The spaces and three-glyph caps belong to the frame, not the label's
-        // truncation budget. A long command can consume only the middle span.
-        const maxLabel = Math.max(0, width - labelChromeWidth)
-        const label = truncateToWidth(labelParts.join(' · '), maxLabel)
-        const fill = Math.max(0, maxLabel - visibleWidth(label))
-        return border(BOX.topLeft + cap) + ' ' + label + ' ' + border(h.repeat(fill) + cap + BOX.topRight)
-      })()
+  const bar = (left: string, right: string, labelParts: readonly (string | undefined)[]): string => {
+    const labels = labelParts.filter((part): part is string => Boolean(part))
+    const labelChromeWidth = visibleWidth(left + cap + '  ' + cap + right)
+    if (labels.length === 0 || width < labelChromeWidth) {
+      return border(left + h.repeat(Math.max(0, width - 2)) + right)
+    }
+    // Spaces and three-glyph caps are frame chrome, not label budget. This
+    // keeps both caps visible even when a command or section label is long.
+    const maxLabel = Math.max(0, width - labelChromeWidth)
+    const label = truncateToWidth(labels.join(' · '), maxLabel)
+    const fill = Math.max(0, maxLabel - visibleWidth(label))
+    return border(left + cap) + ' ' + label + ' ' + border(h.repeat(fill) + cap + right)
+  }
+  const top = bar(BOX.topLeft, BOX.topRight, [options.header, options.headerMeta])
 
   const contentWidth = Math.max(1, width - 4)
   const body: string[] = []
-  for (const raw of options.lines ?? []) {
-    for (const wrapped of wrapText(expandTabs(raw, 8, 2), contentWidth)) {
-      body.push(border(v) + ' ' + padToWidth(wrapped, contentWidth) + ' ' + border(v))
+  const sections = options.sections ?? [{ lines: options.lines ?? [] }]
+  for (const [index, section] of sections.entries()) {
+    if (section.label !== undefined && (index > 0 || section.label !== '')) {
+      body.push(bar(BOX.teeRight, BOX.teeLeft, [section.label]))
+    }
+    for (const raw of section.lines) {
+      for (const wrapped of wrapText(expandTabs(raw, 8, 2), contentWidth)) {
+        body.push(border(v) + ' ' + padToWidth(wrapped, contentWidth) + ' ' + border(v))
+      }
     }
   }
 

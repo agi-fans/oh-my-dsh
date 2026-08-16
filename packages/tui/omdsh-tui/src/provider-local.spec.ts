@@ -5,6 +5,8 @@
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
 import { PassThrough } from 'node:stream'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { copyToClipboard } from './clipboard.ts'
@@ -106,6 +108,17 @@ function emulatedScreenRows(output: string): string[] {
 }
 
 describe('LocalTui (tty)', () => {
+  it('renders the package version in the welcome title', () => {
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+    ) as { version: string }
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+
+    expect(stripAnsi(term.captured)).toContain(`omdsh v${manifest.version}`)
+    tui.dispose()
+  })
+
   it('renders typed input inside the rounded editor', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', true)
@@ -1188,6 +1201,8 @@ describe('LocalTui (tty)', () => {
       theme: 'light',
       colors: false,
       expandTools: false,
+      checkUpdates: true,
+      startupChangelog: 'summary',
       statusBar: {
         enabled: true,
         labels: 'compact',

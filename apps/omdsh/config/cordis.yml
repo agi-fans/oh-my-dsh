@@ -237,5 +237,8 @@
 - id: tui-command-integrations
   name: '@agi-fans/dsh-tui/command-integrations'
 
+- id: tui-startup-notices
+  name: '@agi-fans/dsh-tui/startup-notices'
+
 - id: runner
   name: '@agi-fans/dsh-tui/runner'

@@ -26,6 +26,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
   { key: '/tools', text: 'Inspect tools available to the agent' },
   { key: '/mcp', text: 'Inspect connected MCP servers' },
+  { key: '/changelog', text: 'Read recent release notes' },
 ]
 
 /** Pick distinct hints without mutating the shared catalog. */
