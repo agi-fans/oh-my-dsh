@@ -43,7 +43,7 @@ DeepSeek Harness plugins and services
   @agi-fans/oh-my-dsh — boot and plugin composition
 ```
 
-The TUI package is split internally into a service definition, a local terminal provider, and an interactive runner. This keeps terminal ownership isolated from event projection and rendering, and leaves room for other providers or consumers without coupling them to the local TTY implementation. See the [architecture overview](docs/architecture.md) and [plugin architecture review](docs/plugin-architecture-review.md) for more detail.
+The TUI package is split internally into a service definition, a local terminal provider, session and interaction adapters, command contributions, and an interactive runner. This keeps terminal ownership isolated from Harness domain state and exposes plugin seams only where a capability has an independent lifecycle or owner. See the [architecture overview](docs/architecture.md) for the current boundaries and data flow.
 
 ## Performance
 

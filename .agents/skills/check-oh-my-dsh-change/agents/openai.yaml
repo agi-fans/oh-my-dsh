@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check oh-my-dsh Change"
+  short_description: "Select and run focused checks for an oh-my-dsh change"
+  default_prompt: "Use $check-oh-my-dsh-change to validate my current oh-my-dsh changes."

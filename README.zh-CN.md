@@ -43,7 +43,7 @@ DeepSeek Harness 插件与服务
  @agi-fans/oh-my-dsh — 启动与插件组合
 ```
 
-TUI 软件包在内部拆分为服务定义、本地终端 Provider 和交互式 Runner。这让终端所有权与事件投影、渲染相互隔离，也让未来的其他 Provider 或 Consumer 无需依赖本地 TTY 实现。更多细节请阅读[架构概览](docs/architecture.md)与[插件架构复盘](docs/plugin-architecture-review.md)。
+TUI 软件包在内部拆分为服务定义、本地终端 Provider、会话与交互适配器、命令贡献插件和交互式 Runner。这让终端所有权与 Harness 领域状态相互隔离，也只在能力拥有独立生命周期或所有者时建立插件边界。当前边界与数据流请参阅[架构概览](docs/architecture.md)。
 
 ## 性能
 

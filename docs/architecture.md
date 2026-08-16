@@ -1,90 +1,99 @@
-# oh-my-dsh (omdsh) Architecture
+# oh-my-dsh Architecture
 
-omdsh architecture; the product now boots and runs in both tty and pipe modes. Implementation details live beside the code.
+oh-my-dsh is a terminal coding agent built by composing published DeepSeek Harness packages. The TUI owns terminal presentation and human interaction; Harness plugins continue to own sessions, models, tools, commands, permissions, skills, MCP integrations, and projections.
 
-## Objective
+## Boundaries
 
-omdsh is a TUI coding agent in the style of oh-my-pi (terminal transcript, streaming assistant text, tool-call display, input line, status line), running on the DeepSeek Harness core runtime. The product is one command:
+- **Runtime:** `@deepseek-ai/*` packages are installed from npm at pinned versions and consumed through their published exports.
+- **Product:** `apps/omdsh` owns the CLI and runtime composition; `packages/tui/omdsh-tui` owns the reusable terminal plugin suite.
+- **References:** `refs/deepseek-harness` and `refs/oh-my-pi` are read-only sources of architecture and interaction ideas. They never enter dependency resolution, builds, tests, or runtime execution.
 
-    omdsh [prompt]
-
-It boots an interactive terminal, creates or resumes durable DSH sessions, streams session-log events to the terminal, reads user input, and exits cleanly on Ctrl-D.
-
-## Layers
-
-- Core runtime layer — published `@deepseek-ai/*` npm packages. Package manifests pin the runtime versions; TypeScript and Node resolve them through normal package exports.
-- Reference layer — refs/deepseek-harness and refs/oh-my-pi (git submodules). They are read-only API/design references and never participate in dependency resolution, builds, tests, or runtime execution. oh-my-pi's Bun-coupled implementation is not reused; we port the experience onto Node ESM in DSH style.
-- Product layer — this repo: packages/tui/omdsh-tui (the TUI capability seam) and apps/omdsh (the omdsh bin). Everything we add is a Cordis plugin or an app over the package tier — no harness package is modified.
+The product deliberately avoids a second agent core. It adapts Harness capabilities to a local terminal without reimplementing their domain state.
 
 ## Package layout
 
-    apps/omdsh/                    @agi-fans/oh-my-dsh — bin omdsh
-      src/bin.ts                    argument parsing, env loading
-      src/boot.ts                   tree boot over a shipped cordis.yml
-      config/cordis.yml             the omdsh composition
-    packages/tui/omdsh-tui/        @agi-fans/dsh-tui — composable TUI plugin suite
-      src/definition.ts             Service Definition: tui service protocol
-      src/provider-local.ts         local terminal provider (tty owner)
-      src/renderer.ts               pure ANSI differential renderer
-      src/event-views.ts            SessionEvent -> frame mapping (pure)
-      src/status-line.ts            projection stats -> editor footer label (pure)
-      src/session-runtime.ts        active Agent/session lifecycle plugin
-      src/human-interaction.ts      approval and question adapter plugin
-      src/tool-presentation.ts      ToolDefinition presentation bridge plugin
-      src/command-*.ts              omdsh command contribution plugins
-      src/runner.ts                 thin interactive input-loop plugin
-      src/index.ts                  local provider plugin entry
+```text
+apps/omdsh/                         @agi-fans/oh-my-dsh
+├── src/bin.ts                      CLI entry and argument handling
+├── src/boot.ts                     Harness tree boot
+└── config/cordis.yml               application composition
 
-## Capability seam (DSH paradigm)
+packages/tui/omdsh-tui/            @agi-fans/dsh-tui
+├── src/definition.ts               provider-neutral TUI service
+├── src/provider-local.ts           terminal provider and TTY owner
+├── src/session-runtime.ts          active agent and session lifecycle
+├── src/human-interaction.ts        approval and question adapter
+├── src/tool-presentation.ts        Harness presentation-intent bridge
+├── src/command-*.ts                command contribution plugins
+├── src/startup-notices.ts          release and update notices
+├── src/runner.ts                   interactive input loop
+└── src/index.ts                    local provider plugin entry
+```
 
-The package exposes several small Cordis entries around one deep terminal provider:
+The TUI package exposes several Cordis entry points from one npm package because they share dependencies and a release cadence. A new npm package is justified only when a capability gains independent reuse, ownership, dependencies, or versioning.
 
-- Service definition — `@agi-fans/dsh-tui/definition` declares the provider-neutral TUI protocol and view vocabulary.
-- Local provider — `@agi-fans/dsh-tui`/`provider-local` alone owns raw mode, key decoding, viewport, cursor and atomic differential rendering.
-- Session runtime — `@agi-fans/dsh-tui/session-runtime` owns the active Agent, persistence-backed create/resume/switch, model selection, projections and cleanup behind one API.
-- Contributions — the command plugins register through `dsh-commands`; `human-interaction` adapts approval and questions; `tool-presentation` resolves each active `ToolDefinition`'s provider-neutral presentation intent.
-- Consumer — `@agi-fans/dsh-tui/runner` only reads submitted input, routes slash commands through the session runtime, sends ordinary messages and handles exit.
+## Plugin ownership
 
-These entries remain in one npm package because they share a release cadence. Pure width, Markdown, editor, overlay and frame-diff algorithms remain internal modules; a second independently owned adapter or lifecycle is required before creating another runtime seam.
+“Everything is a plugin” describes ownership rather than file count. A capability becomes a plugin when it has an independent lifecycle, configuration, dependency set, registration contract, scope, or replacement point.
 
-## Runtime composition (apps/omdsh/config/cordis.yml)
+- The local provider alone owns raw mode, key decoding, cursor placement, viewport state, and atomic terminal writes.
+- `session-runtime` owns Agent creation, durable session creation and recovery, active-session replacement, model selection, projections, and cleanup.
+- Command plugins register metadata and handlers through `dsh-commands`; the runner does not maintain a second command registry.
+- Tool plugins own semantics and provider-neutral presentation intent. The TUI maps `ToolDefinition.presentCall` and `presentResult` into terminal cards and retains a generic fallback.
+- Harness projection plugins own token, context, timing, title, and session statistics. The status line only formats their output.
+- The human-interaction adapter connects approval and question services to terminal selectors without moving those domains into the provider.
 
-Modeled on the harness's own headless profile over dsh-base, plus the agent spine and local executors (the spine bundle is executor-less by design; deployments choose LLM adapter, bash executor, and presentation):
+Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markdown formatting, editor movement, path matching, theme projection, frame diffing, viewport slicing, and overlay state transitions. They should not become runtime plugins until a second independently owned adapter creates a real seam.
 
-- cordis plugins: loader, timer
-- dsh-agent-spine-demo — session, system prompt, tools, skills, jobs, goal domain, agent registry and agent loop
-- JSONL persistence, SQLite session query, projection, title and stats
-- local bash/fs/subprocess/attachment providers plus sandbox policy
-- commands, compaction, todo, plan, approval/questions and subagents
-- native skill discovery plus the model-facing skill loader; project/user MCP documents are adapted to one Harness MCP client plugin per server
-- @agi-fans/dsh-tui local provider, tool-presentation bridge, session runtime, human-interaction adapter, omdsh command contributions and thin runner
+## Runtime composition
 
-## TUI surface (ported from oh-my-pi)
+[`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) is the authoritative application profile. It composes:
 
-- Transcript: user/assistant messages; assistant text streams in as assistant/message events update (differential render, no full redraw).
-- Tool calls: one block per call — name, collapsed args, status (pending/running/ok/error), truncated output; terminal render intent (dsh-tools presentation mode terminal).
-- Input: rounded editor, readline-style editing, durable multiline history, raw clipboard paste, path completion and external `$VISUAL`/`$EDITOR`.
-- Composer and status line: the rounded editor keeps only the `🐳` top-cap label; a fixed unframed footer below it uses a model/reasoning plus workspace/Git row and a customizable telemetry row sourced from whole-log session-stats/token-meter projections (turns, steps, timings, TTFT, throughput, cache and token use).
-- Scrolling: wheel bursts coalesce into one paint per event-loop turn, while immutable transcript states cache their formatted Markdown/tool rows; moving the viewport slices cached rows instead of reformatting the complete log.
-- Keys: Enter submit, first Ctrl-C clears/interrupts and a second within 500ms exits with an `omdsh --resume <session-id>` hint; Ctrl-D quits; up/down history, SIGWINCH reflow.
+- Cordis loader and timer infrastructure;
+- the DeepSeek LLM adapter, settings, credentials, default model, and Agent runtime;
+- durable JSONL sessions, checkpointing, query, title, statistics, and token projections;
+- local attachment, filesystem, subprocess, bash, sandbox, and permission providers;
+- Harness commands, compaction, todo, goal, plan, approval, questions, and subagents;
+- filesystem skill discovery and project/user MCP server adapters;
+- the local TUI provider, tool-presentation bridge, session runtime, human-interaction adapter, command contributions, startup notices, and runner.
 
-## Shipped command
+Skills and MCP deployment details live in [`skills-and-mcp.md`](skills-and-mcp.md).
 
-`pnpm build` compiles the two omdsh workspace packages against their npm dependencies, after which the built bin runs without tsx:
+## Data and interaction flow
 
-    node apps/omdsh/lib/bin.js "list files"
+```text
+terminal input
+  → local TUI provider
+  → runner or command registry
+  → session runtime / Harness capability
+  → durable session events and projections
+  → provider-neutral transcript and status views
+  → differential terminal renderer
+```
 
-Both the source launch and the built artifact pass the pipe and PTY smokes.
+Ordinary messages enter the active Agent through `session-runtime`. Slash commands execute through the scoped Harness registry. Session events are the durable source for transcript replay; projection services provide derived status rather than TUI-owned counters. Tool calls and results settle into one card with distinct Input and Output sections.
 
-## Verification (all keyless, like the harness snapshot policy)
+## Terminal guarantees
 
-- Rendering, editing, history, settings, command plugins, session runtime and tool presentation are covered by 30 TUI test files (269 tests), including fake-TTY contract tests.
-- Pipe-mode e2e (apps/omdsh/src/smoke.spec.ts): boots the full composition, renders a prompt, surfaces the failed turn's error notice (fake API key), exits 0 on stdin EOF.
-- Interactive e2e (scripts/pty-smoke.mjs): the same run under a real PTY — raw-mode key input, live frames, Ctrl-D quit, exit 0. Both the source launch and the built artifact pass it.
-- Happy-path e2e (scripts/happy-smoke.mjs): omdsh against the published Harness mock LLM package; the transcript renders the prompt and streamed assistant text, then exits 0. This covers the live-success path keylessly; a manual run against the real DeepSeek API uses the same adapter and rendering pipeline.
+- Layout uses terminal display cells, including ANSI sequences, CJK text, emoji, combining characters, and long unbroken content.
+- The composer and two-line status footer stay anchored at the bottom while the transcript viewport scrolls independently.
+- Settled transcript layouts are cached, wheel updates are coalesced, and the renderer emits row-level differences instead of repainting the complete screen.
+- Modal selectors own input and cursor visibility until they settle, then restore the composer.
+- The first Ctrl-C clears or interrupts; a second Ctrl-C exits. Ctrl-D exits directly, and a durable session produces an `omdsh --resume <session-id>` hint.
+- Pipe mode uses the same command and session semantics without claiming ownership of an interactive screen.
 
-## Implementation rounds
+## Public surface
 
-The three parity rounds are implemented. See [`implementation-rounds.md`](implementation-rounds.md) for the capability matrix, commands, keybindings and deliberate deployment boundary for MCP.
+The supported package exports are the provider, service definition, session runtime, human-interaction adapter, tool-presentation bridge, command groups, startup notices, and runner. Renderer, editor, Markdown, width, overlay, clipboard, and selector modules remain implementation details even when tests import them by relative path.
 
-The completed architecture round is recorded in [`plugin-architecture-review.md`](plugin-architecture-review.md), including the ownership rules, implemented plugin seams and deliberately deferred contribution registries.
+New contribution registries for themes, status segments, overlays, or key actions should be introduced only when at least two independently owned contributors require them. Configuration and internal state machines are preferable to speculative public seams.
+
+## Verification
+
+- Pure rendering tests cover width, ANSI, CJK, emoji, borders, Markdown, tool cards, viewport behavior, and cursor targets.
+- Runtime tests cover command registration, session creation and recovery, queueing, projections, model and permission selection, human interaction, and disposal.
+- `pnpm smoke:happy` boots the complete composition against the published Harness mock LLM path.
+- `pnpm smoke` exercises the built command through a real PTY for raw input, rendering, interruption, and exit behavior.
+- Dependency-boundary checks require published npm packages, clean reference submodules, and no links or aliases into `refs/`.
+
+The exact commands required for a change are defined in [`AGENTS.md`](../AGENTS.md).

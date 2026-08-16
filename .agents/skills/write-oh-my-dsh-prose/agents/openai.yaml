@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write oh-my-dsh Prose"
+  short_description: "Write clear docs, prompts, diagnostics, and TUI copy"
+  default_prompt: "Use $write-oh-my-dsh-prose to improve the prose in this change."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review oh-my-dsh"
+  short_description: "Review oh-my-dsh changes against its architecture and UX rules"
+  default_prompt: "Use $review-oh-my-dsh to review the current oh-my-dsh changes."

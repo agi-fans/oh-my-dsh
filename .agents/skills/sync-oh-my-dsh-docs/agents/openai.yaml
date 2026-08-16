@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync oh-my-dsh Docs"
+  short_description: "Keep English and Chinese oh-my-dsh documentation aligned"
+  default_prompt: "Use $sync-oh-my-dsh-docs to synchronize the affected bilingual documentation."

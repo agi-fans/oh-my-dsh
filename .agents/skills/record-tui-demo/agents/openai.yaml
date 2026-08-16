@@ -1,0 +1,4 @@
+interface:
+  display_name: "Record TUI Demo"
+  short_description: "Capture truthful, reproducible oh-my-dsh terminal demos"
+  default_prompt: "Use $record-tui-demo to record a concise demo of this oh-my-dsh workflow."

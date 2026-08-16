@@ -1,0 +1,4 @@
+interface:
+  display_name: "Simplify oh-my-dsh"
+  short_description: "Find evidence-backed simplifications in oh-my-dsh"
+  default_prompt: "Use $simplify-oh-my-dsh to audit oh-my-dsh for worthwhile simplifications."
