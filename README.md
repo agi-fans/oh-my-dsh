@@ -2,7 +2,7 @@
 
 # oh-my-dsh
 
-**Into the Unknown.**
+**Into the Unknown**
 
 A focused, keyboard-first DeepSeek coding agent built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and inspired by the interaction quality of [oh-my-pi](https://github.com/can1357/oh-my-pi).
 

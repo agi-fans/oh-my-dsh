@@ -2,7 +2,7 @@
 
 # oh-my-dsh
 
-**探索未至之境。**
+**探索未至之境**
 
 一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验的启发。
 
