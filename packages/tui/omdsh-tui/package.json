@@ -1,7 +1,7 @@
 {
   "name": "@agi-fans/dsh-tui",
   "description": "Cordis plugin suite for omdsh terminal presentation, session interaction, commands, and human input",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
   "repository": {
     "type": "git",
