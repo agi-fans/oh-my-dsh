@@ -1,6 +1,6 @@
 {
   "name": "@agi-fans/dsh-tui",
-  "description": "Cordis plugin suite for omdsh terminal presentation, session interaction, commands, and human input",
+  "description": "Library-only Cordis plugin suite for DeepSeek Harness terminal presentation and interaction",
   "version": "0.4.0",
   "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
   "repository": {
@@ -93,7 +93,7 @@
     "build": "tsc -b tsconfig.json && node ../../../scripts/copy-changelog.mjs lib/CHANGELOG.md",
     "test": "vitest run src",
     "typecheck": "tsc -b tsconfig.json",
-    "prepack": "pnpm run clean && pnpm run build"
+    "prepack": "node ../../../scripts/sync-package-readme.mjs --check && pnpm run clean && pnpm run build"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",

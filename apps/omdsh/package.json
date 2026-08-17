@@ -29,7 +29,7 @@
     "build": "tsc -b tsconfig.json",
     "test": "vitest run src",
     "typecheck": "tsc -b tsconfig.json",
-    "prepack": "pnpm run clean && pnpm run build",
+    "prepack": "node ../../scripts/sync-package-readme.mjs && pnpm run clean && pnpm run build",
     "dev": "tsx src/bin.ts",
     "omdsh": "tsx src/bin.ts"
   },

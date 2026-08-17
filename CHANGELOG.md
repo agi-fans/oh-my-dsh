@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Generate the CLI package README from the repository overview during packing, with npm-safe GitHub links, so npm documentation stays synchronized with the project homepage.
+- Clarify that `@agi-fans/dsh-tui` is a non-executable integration library, direct end users to `@agi-fans/oh-my-dsh`, and enforce that distinction during package checks.
+
 ## [0.4.0] - 2026-08-16
 
 ### Added

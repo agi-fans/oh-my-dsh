@@ -22,8 +22,9 @@
     "benchmark:tui": "tsx scripts/benchmark-tui.mts",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "format:md": "node scripts/format-markdown.mjs",
-    "check:md": "node scripts/format-markdown.mjs --check",
+    "format:md": "node scripts/format-markdown.mjs && node scripts/sync-package-readme.mjs",
+    "check:md": "node scripts/format-markdown.mjs --check && node scripts/sync-package-readme.mjs --check",
+    "sync:package-readme": "node scripts/sync-package-readme.mjs",
     "omdsh": "pnpm --dir apps/omdsh omdsh",
     "smoke": "node scripts/pty-smoke.mjs",
     "smoke:happy": "node scripts/happy-smoke.mjs"

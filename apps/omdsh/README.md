@@ -1,42 +1,118 @@
-# @agi-fans/oh-my-dsh
+<!-- Generated from the repository README by scripts/sync-package-readme.mjs. -->
 
-The `omdsh` command: a TUI coding agent over the DeepSeek Harness core runtime. Boots the shipped `config/cordis.yml` composition through the harness boot machinery (`dsh-app-boot`), provides the command line and exit request, and leaves process lifetime to the mounted runner.
+<div align="center">
 
-## Install
+# oh-my-dsh
+
+**Into the Unknown**
+
+A focused, keyboard-first DeepSeek coding agent built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and inspired by the interaction quality of [oh-my-pi](https://github.com/can1357/oh-my-pi).
+
+[![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE)
+
+English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README.zh-CN.md)
+
+</div>
+
+![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/docs/resources/screenshot.png)
+
+## Quick start
+
+Requirements: Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek API key for live model turns.
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-Or run it without a global installation:
+Run `/login` once inside omdsh to validate and save your DeepSeek API key, then start a conversation. To try it without a global installation, run `npx @agi-fans/oh-my-dsh`.
 
-```sh
-npx @agi-fans/oh-my-dsh
+## Highlights
+
+- **Durable conversations:** resume sessions, rewind to a human turn, retry, compact, and export complete transcripts as Markdown.
+- **Harness-native workflows:** use plugin-owned commands, permissions, models, reasoning effort, plans, goals, todos, Skills, MCP servers, approvals, and user questions.
+- **Rich terminal input:** search project files with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
+- **Readable tool activity:** follow streaming calls, inspect distinct Input and Output sections, expand long results, and keep domain-specific presentation owned by tool plugins.
+- **Live operational context:** see model, reasoning effort, workspace, Git state, context pressure, tokens, TTFT, throughput, cache, timings, turns, and steps without leaving the composer.
+- **Responsive by design:** retain settled transcript layout, coalesce scroll updates, emit row-level terminal diffs, and preserve correct display-cell alignment for CJK text and emoji.
+
+## Learn
+
+- [Tutorials](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/tutorials.md) — complete a first task, add precise context, guide queued work, recover long sessions, and customize the environment.
+- [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md) — extend a project with reusable instructions and external tools.
+- [Architecture](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/architecture.md) — understand the plugin boundaries and runtime data flow.
+- [Performance](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md) — inspect the benchmarks, methodology, and rendering optimizations.
+
+## Why oh-my-dsh
+
+DeepSeek Harness provides a capable agent runtime and a strong architectural idea: everything is a plugin. oh-my-dsh brings that runtime into a calm, keyboard-driven terminal experience without creating a second agent core or hiding Harness behind a parallel abstraction.
+
+The TUI remains a presentation and interaction layer. Sessions, tools, permissions, models, Skills, MCP servers, commands, and telemetry come from Harness services and plugins; omdsh composes them into a terminal application and adds the interface behavior needed to use them comfortably.
+
+The project follows four principles:
+
+- **Harness-native:** use published DeepSeek Harness packages as the source of truth for agent behavior, state, and lifecycle.
+- **Real plugin boundaries:** create plugins for independently owned lifecycles and contribution points, not for every source file.
+- **One terminal owner:** keep raw input, cursor state, viewport management, and atomic rendering inside the local TUI Provider.
+- **Progressive disclosure:** keep the default view concise while making tools, telemetry, settings, and session detail discoverable on demand.
+
+Reference checkouts under `refs/` remain read-only research material. Runtime code depends only on published packages and oh-my-dsh workspace packages.
+
+## Architecture
+
+```text
+DeepSeek Harness plugins and services
+                │
+                ▼
+  @agi-fans/dsh-tui — terminal capability seam
+                │
+                ▼
+  @agi-fans/oh-my-dsh — boot and plugin composition
 ```
 
-Follow the task-based [tutorials](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/tutorials.md) for the first login, a safe coding workflow, file and image context, queued follow-ups, session recovery, and interface customization.
+The TUI package is split into a service definition, local terminal Provider, session and interaction adapters, tool-presentation bridge, command contributions, and interactive Runner. This isolates terminal ownership from Harness domain state and exposes plugin seams only where a capability has an independent lifecycle or owner. See the [architecture overview](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/architecture.md) for the current boundaries and data flow.
 
-Inside the TUI, run `/login` to open the DeepSeek API-key dashboard and save a validated key through the Harness credential store. The key prompt is masked and never accepts an inline `/login <key>` argument. An interactively selected key takes priority over `DEEPSEEK_API_KEY`; `/logout` removes the omdsh-managed selection and returns the provider to the external credential when one is available.
+## Performance
 
-## Develop
+Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.15 ms, 10,000 tool calls take 21.21 ms, and cached updates over a 5,000-turn surface average 0.24 ms per frame.
+
+See the reproducible [TUI performance report](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md) or run `pnpm benchmark:tui` locally.
+
+## Configuration
+
+Run `/login` to open the DeepSeek API Key dashboard, enter a key in a masked prompt, validate it, and save it through the Harness credential store. An interactively selected key takes priority over an inherited `DEEPSEEK_API_KEY` on subsequent requests and across restarts. `/logout` removes the omdsh-managed choice and falls back to the environment when available.
+
+Model settings can also come from `$DSH_HOME/settings.yaml`. Skills and MCP configuration are documented in [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md).
+
+After an upgrade, omdsh can show release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A cached daily npm check reports newer versions without installing anything automatically; both behaviors can be customized in `/settings`.
+
+## Development
 
 ```sh
 pnpm install
-pnpm omdsh "list files"
-
-node lib/bin.js "list files"
+pnpm omdsh "list files"  # run from source
+pnpm typecheck           # check TypeScript
+pnpm test                # unit and pipe-mode tests
+pnpm build               # build all workspace packages
+pnpm smoke               # interactive PTY smoke test
+pnpm smoke:happy         # mock-LLM happy path
 ```
 
-Model/provider routes come from `OMDSH_MODEL`/`OMDSH_PROVIDER` or the user's `$DSH_HOME/settings.yaml` (mounted via `dsh-settings-file`); credentials resolve through `dsh-credentials-local` (inherited env, managed `.credentials.yaml`, project/user `.env`). The default permission mode is trusted-local (`danger-full-access`); `OMDSH_PERMISSION_MODE` narrows it.
+The checkouts in `refs/deepseek-harness` and `refs/oh-my-pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
 
-Run `/settings` to customize the TUI. The overlay controls themes, colors, tool expansion, startup release notes, daily update checks, and the composer status bar, including telemetry visibility, compact/full labels, and the order of Context, Cache, Tokens, Latency, Time, and Activity groups. Use up/down to navigate and left/right to change a value; preferences are stored in the user settings document. Use `/changelog` for recent release notes or `/changelog full` for the complete packaged history. Update checks only report a newer npm version and never install it automatically.
+## Changelog
 
-Skills are discovered from project/user `.dsh/skills` and `.agents/skills` roots. MCP servers are loaded from user and project `.dsh/mcp.json` files; see [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md) for the configuration shape and TUI commands.
+User-visible changes and release history are tracked in [CHANGELOG.md](https://github.com/agi-fans/oh-my-dsh/blob/main/CHANGELOG.md).
 
-## Verify
+## Acknowledgements
 
-```sh
-pnpm --filter @agi-fans/oh-my-dsh test   # keyless pipe-mode e2e
-pnpm smoke                     # keyless interactive PTY e2e
-```
+oh-my-dsh exists because of two projects:
+
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) provides the runtime foundation, plugin architecture, and the conviction that agent capabilities should be composable rather than embedded in one application.
+- [oh-my-pi](https://github.com/can1357/oh-my-pi) demonstrates how thoughtful terminal interaction, compact information design, and careful keyboard workflows can make an agent feel fast and approachable.
+
+Thank you to both projects and their contributors. omdsh is an independent community project: it is built on DeepSeek Harness and learns from OMP, but is not an official distribution of either project.
+
+## License
+
+oh-my-dsh is available under the [MIT License](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE).
