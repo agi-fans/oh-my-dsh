@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   defaultToolPresentation,
   formatAgentPreset,
@@ -16,6 +16,15 @@ describe('session configuration', () => {
     expect(resolveToolPresentation([
       { type: 'omdsh/tools-selected', data: { mode: 'both', source: 'user' } },
     ] as SessionEvent[], 'code')).toEqual({ tools: 'both', toolsSource: 'user' })
+  })
+
+  it('registers tool presentation so persistence can resume a written session', () => {
+    const session = Session.create(SessionId('tools-selected-resume'))
+    session.append('omdsh/tools-selected', { mode: 'both', source: 'user' })
+    const event = session.events.find(item => item.type === 'omdsh/tools-selected')
+    expect(event).toMatchObject({ type: 'omdsh/tools-selected', data: { mode: 'both', source: 'user' } })
+    expect(event?.ignorable).toBeUndefined()
+    expect(KNOWN_SESSION_EVENT_TYPES.has('omdsh/tools-selected')).toBe(true)
   })
 
   it('locks composition only after model work begins', () => {

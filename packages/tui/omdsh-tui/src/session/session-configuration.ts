@@ -1,6 +1,6 @@
 /** Durable session configuration spanning Agent preset and tool presentation. */
 
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -12,6 +12,17 @@ declare module '@deepseek-ai/dsh-session/types' {
     }
   }
 }
+
+/**
+ * Persistence refuses an unknown event type that is not marked ignorable.
+ * `Session.append` cannot set that marker yet, so this process adds omdsh-owned
+ * log-only types to the published vocabulary before any resume or inspect.
+ */
+function registerOmdshSessionEvents(): void {
+  (KNOWN_SESSION_EVENT_TYPES as Set<string>).add('omdsh/tools-selected')
+}
+
+registerOmdshSessionEvents()
 
 export interface SessionConfiguration {
   agentPreset: string

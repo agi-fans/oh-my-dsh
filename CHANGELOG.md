@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Resume sessions that recorded the omdsh tool-presentation event instead of refusing the log as an unknown harness type.
+
 ## [0.5.0] - 2026-08-18
 
 ### Added
