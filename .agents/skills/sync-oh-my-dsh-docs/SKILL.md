@@ -17,6 +17,15 @@ The current maintained pairs are:
 - `docs/skills-and-mcp.md` ↔ `docs/skills-and-mcp.zh-CN.md`
 - `docs/plugins.md` ↔ `docs/plugins.zh-CN.md`
 - `docs/tutorials.md` ↔ `docs/tutorials.zh-CN.md`
+- `docs/tutorials/first-task.md` ↔ `docs/tutorials/first-task.zh-CN.md`
+- `docs/tutorials/precise-context.md` ↔ `docs/tutorials/precise-context.zh-CN.md`
+- `docs/tutorials/guide-a-turn.md` ↔ `docs/tutorials/guide-a-turn.zh-CN.md`
+- `docs/tutorials/long-session.md` ↔ `docs/tutorials/long-session.zh-CN.md`
+- `docs/tutorials/environment.md` ↔ `docs/tutorials/environment.zh-CN.md`
+- `docs/tutorials/skills-and-mcp.md` ↔ `docs/tutorials/skills-and-mcp.zh-CN.md`
+- `docs/tutorials/install-plugin.md` ↔ `docs/tutorials/install-plugin.zh-CN.md`
+- `docs/tutorials/write-a-plugin.md` ↔ `docs/tutorials/write-a-plugin.zh-CN.md`
+- `examples/hello/README.md` ↔ `examples/hello/README.zh-CN.md`
 
 Do not assume every file under `docs/` needs a counterpart. Create a new pair only when the user requests bilingual coverage or the document is clearly part of the public bilingual surface.
 

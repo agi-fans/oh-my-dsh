@@ -18,7 +18,8 @@ oh-my-dsh 是一个通过组合已发布 DeepSeek Harness 软件包构建的终�
 apps/omdsh/                         @agi-fans/oh-my-dsh
 ├── src/bin.ts                      CLI 入口与参数处理
 ├── src/boot.ts                     启动 Harness 插件树
-└── config/cordis.yml               应用组合
+├── src/plugin.ts                   `omdsh plugin` Profile 安装器
+└── config/cordis.yml               产品 bundle insert
 
 packages/tui/omdsh-tui/            @agi-fans/dsh-tui
 ├── src/index.ts                    本地 Provider 插件入口
@@ -50,7 +51,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 
 ## 运行时组合
 
-[`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) 是应用 Profile 的权威来源，其中组合了：
+[`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) 是 `@agi-fans/oh-my-dsh` 产品 bundle，叠在空的 `$OMDSH_HOME/profiles/omdsh` 根上，其中组合了：
 
 - Cordis Loader 与 Timer 基础设施；
 - 官方 DeepSeek LLM Adapter、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
@@ -60,7 +61,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；
 - 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
 
-Skills 与 MCP 的部署细节见 [`skills-and-mcp.zh-CN.md`](skills-and-mcp.zh-CN.md)。可选的 `$OMDSH_HOME/cordis.patch.yml` 会在启动时叠加在这棵 composition 之上；`omdsh --dump-config` 打印结果。用户安装的 DSH bundle 仍计划作为 Profile 层，见 [`plugins.zh-CN.md`](plugins.zh-CN.md)。
+Skills 与 MCP 的部署细节见 [`skills-and-mcp.zh-CN.md`](skills-and-mcp.zh-CN.md)。`omdsh plugin add` 装入的用户 bundle、Profile 的 `cordis.patch.yml`，以及可选的 `$OMDSH_HOME/cordis.patch.yml` 会在启动时叠加在这棵 composition 之上；`omdsh --dump-config` 打印结果。[`examples/hello`](../examples/hello) 是可安装的编写样例。见 [`plugins.zh-CN.md`](plugins.zh-CN.md)。
 
 ## 数据与交互流
 

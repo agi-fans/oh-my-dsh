@@ -18,7 +18,8 @@ The product deliberately avoids a second agent core. It adapts Harness capabilit
 apps/omdsh/                         @agi-fans/oh-my-dsh
 ├── src/bin.ts                      CLI entry and argument handling
 ├── src/boot.ts                     Harness tree boot
-└── config/cordis.yml               application composition
+├── src/plugin.ts                   `omdsh plugin` Profile installer
+└── config/cordis.yml               product bundle insert
 
 packages/tui/omdsh-tui/            @agi-fans/dsh-tui
 ├── src/index.ts                    local provider plugin entry
@@ -50,7 +51,7 @@ Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markd
 
 ## Runtime composition
 
-[`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) is the authoritative application profile. It composes:
+[`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) is the `@agi-fans/oh-my-dsh` product bundle, inserted over an empty `$OMDSH_HOME/profiles/omdsh` root. It composes:
 
 - Cordis loader and timer infrastructure;
 - the official DeepSeek LLM adapter, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
@@ -60,7 +61,7 @@ Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markd
 - filesystem skill discovery and project/user MCP server adapters;
 - the local TUI provider, tool-presentation bridge, session runtime, human-interaction adapter, command contributions, startup notices, and runner.
 
-Skills and MCP deployment details live in [`skills-and-mcp.md`](skills-and-mcp.md). An optional `$OMDSH_HOME/cordis.patch.yml` overlays that composition at boot; `omdsh --dump-config` prints the result. User-installed DSH bundles remain a planned Profile layer; see [`plugins.md`](plugins.md).
+Skills and MCP deployment details live in [`skills-and-mcp.md`](skills-and-mcp.md). User bundles from `omdsh plugin add`, the Profile `cordis.patch.yml`, and an optional `$OMDSH_HOME/cordis.patch.yml` overlay that composition at boot; `omdsh --dump-config` prints the result. [`examples/hello`](../examples/hello) is the installable authoring fixture. See [`plugins.md`](plugins.md).
 
 ## Data and interaction flow
 
