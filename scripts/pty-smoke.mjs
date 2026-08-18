@@ -68,6 +68,12 @@ if (!(await waitFor(() => cleanOutput(out).includes('Agent: PTC · Tools: Code')
   term.kill()
   process.exit(1)
 }
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('ptc · code'), 'PTC footer'))) {
+  console.error('FAIL: Agent switch did not refresh the footer')
+  console.error(cleanOutput(out.slice(mark)).slice(-2000))
+  term.kill()
+  process.exit(1)
+}
 mark = out.length
 term.write('/tool-mode\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose how tools are exposed to the model'), 'Tools selector'))) {
@@ -176,6 +182,7 @@ const ok = exitCode === 0
   && clean.includes('deepseek-v4-flash')
   && hasReasoningEffort(clean)
   && clean.includes('Agent: PTC · Tools: Code')
+  && clean.includes('ptc · code')
   && clean.includes('Tools: Both')
   && clean.includes('Agent: Minimal · Tools: Native')
   && clean.includes('Agent: Cordis · Tools: Native')

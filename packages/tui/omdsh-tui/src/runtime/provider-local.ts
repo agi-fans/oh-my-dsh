@@ -468,8 +468,8 @@ export class LocalTui implements TuiService {
     this.#sessionControls = info.controls === undefined
       ? undefined
       : {
+          ...info.controls,
           ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
-          ...(info.controls.permission === undefined ? {} : { permission: info.controls.permission }),
         }
     if (this.#tty) this.#render()
   }

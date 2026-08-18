@@ -172,7 +172,7 @@ describe('session status line', () => {
       config: statusBar(),
       width: 140,
     }, createTheme(false))
-    expect(active[0]).toContain('deepseek-v4-pro · max · PTC · PLAN · BOTH')
+    expect(active[0]).toContain('deepseek-v4-pro · max · ptc · plan · both')
     expect(active[0]).toContain('~/Workspace/dsh-tui · main')
     expect(active[0]).not.toContain('Workspace write')
 
@@ -185,8 +185,36 @@ describe('session status line', () => {
       config: statusBar(),
       width: 48,
     }, createTheme(false))
-    expect(leaving[0]).toContain('PLAN→DEFAULT')
-    expect(leaving[0]).not.toContain('FULL ACCESS')
+    expect(leaving[0]).toContain('standard · plan off…')
+    expect(leaving[0]).not.toContain('default')
+    expect(leaving[0]).not.toContain('native')
+    expect(leaving[0]).not.toContain('full access')
+
+    const idle = renderStatusFooter({
+      model: 'm',
+      controls: {
+        agentPreset: 'minimal',
+        tools: 'native',
+        plan: { active: false, pending: false },
+      },
+      config: statusBar(),
+      width: 48,
+    }, createTheme(false))
+    expect(idle[0]).toContain('m · minimal')
+    expect(idle[0]).not.toContain('default')
+    expect(idle[0]).not.toContain('native')
+
+    const codeTools = renderStatusFooter({
+      model: 'm',
+      controls: {
+        agentPreset: 'code',
+        tools: 'code',
+        plan: { active: false, pending: false },
+      },
+      config: statusBar(),
+      width: 48,
+    }, createTheme(false))
+    expect(codeTools[0]).toContain('m · ptc · code')
   })
 
   it('shows process-local loop state beside the model controls', () => {
@@ -259,7 +287,8 @@ describe('session status line', () => {
       width: 76,
     }, createTheme(false))
     expect(minimal).toHaveLength(2)
-    expect(minimal[0]).toContain('m · STANDARD · PLAN · NATIVE')
+    expect(minimal[0]).toContain('m · standard · plan')
+    expect(minimal[0]).not.toContain('native')
     expect(minimal[0]).not.toContain('Read only')
     expect(stripAnsi(minimal[1] ?? '').trim()).toBe('')
   })

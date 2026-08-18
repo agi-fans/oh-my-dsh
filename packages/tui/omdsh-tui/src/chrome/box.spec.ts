@@ -186,13 +186,13 @@ describe('renderEditor', () => {
       input: 'hi',
       inputCursor: 2,
       status: ' 🐳 ',
-      statusRight: ' FULL ACCESS ',
+      statusRight: ' full access ',
       border: 'border',
     }, theme)
     const top = frame.lines[0] ?? ''
     expect(top.startsWith('╭')).toBe(true)
-    expect(top.indexOf('🐳')).toBeLessThan(top.indexOf('FULL ACCESS'))
-    expect(top).toMatch(/FULL ACCESS ─+╮$/)
+    expect(top.indexOf('🐳')).toBeLessThan(top.indexOf('full access'))
+    expect(top).toMatch(/full access ─+╮$/)
     expect(visibleWidth(top)).toBe(40)
   })
 

@@ -108,6 +108,36 @@ function emulatedScreenRows(output: string): string[] {
 }
 
 describe('LocalTui (tty)', () => {
+  it('repaints the footer when live Agent and tool controls change', () => {
+    const term = new FakeTerminal()
+    term.columns = 100
+    const tui = new LocalTui(term, 'm', false)
+    tui.setSession({
+      id: 'session-controls',
+      recent: [],
+      controls: {
+        agentPreset: 'standard',
+        tools: 'native',
+        plan: { active: false, pending: false },
+      },
+    })
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('m · standard')
+
+    tui.setSession({
+      id: 'session-controls',
+      recent: [],
+      controls: {
+        agentPreset: 'code',
+        tools: 'both',
+        plan: { active: false, pending: false },
+      },
+    })
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('m · ptc · both')
+    expect(screen).not.toContain('m · standard')
+    tui.dispose()
+  })
+
   it('renders the package version in the welcome title', () => {
     const manifest = JSON.parse(
       readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),

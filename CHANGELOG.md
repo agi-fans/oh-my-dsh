@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Upgraded every direct DeepSeek Harness dependency to the coherent `0.1.0-rc.7` release and adopted its published Agent preset and Code runtime packages.
-- Show Agent, Workflow, and Tools together in the fixed footer, keep Access on the composer boundary, and report all four separately in `/session`.
+- Keep the lowercase Agent mode visible in the fixed footer, reveal Workflow only while Plan is active, show non-default tool presentation without category labels, keep lowercase Access on the composer boundary, and report all four separately in `/session`.
 - Reset SGR attributes independently so nested color, bold, italic, and underline no longer wipe each other.
 - Paint thinking traces in a quieter gray italic so they stay distinct from assistant body text, including after inline Markdown.
 - Let the terminal own body ink across every palette while keeping thinking traces explicitly muted, so themes respect the user's foreground and background pairing.
@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Refresh the footer's Agent and tool-presentation labels immediately after `/agent` changes a blank session's composition.
 - Restore distinct Header title, body, metadata, and frame tones across every palette, including monochrome and 16-color terminals.
 - Keep the welcome card on the visible dim frame so Tips, Recent sessions, and the slogan do not sit on a near-invisible border.
 - Paint fenced-code keywords with a dedicated syntax color instead of the UI accent.

@@ -265,13 +265,15 @@ function renderSplitRow(left: string, right: string, width: number): string {
 
 function sessionConfigurationStatus(controls: TuiSessionControls | undefined): { text: string; tone: ThemeColor } | undefined {
   if (controls === undefined) return undefined
-  const agent = formatAgentPreset(controls.agentPreset ?? 'standard').toUpperCase()
-  const workflow = controls.plan?.pending === true
-    ? controls.plan.active ? 'PLAN→DEFAULT' : 'PLAN…'
-    : controls.plan?.active === true ? 'PLAN' : 'DEFAULT'
-  const tools = formatToolPresentation(controls.tools ?? 'native').toUpperCase()
+  const agent = formatAgentPreset(controls.agentPreset ?? 'standard').toLowerCase()
+  const parts = [agent]
+  if (controls.plan?.pending === true) parts.push(controls.plan.active ? 'plan off…' : 'plan…')
+  else if (controls.plan?.active === true) parts.push('plan')
+  if (controls.tools !== undefined && controls.tools !== 'native') {
+    parts.push(formatToolPresentation(controls.tools).toLowerCase())
+  }
   return {
-    text: `${agent} · ${workflow} · ${tools}`,
+    text: parts.join(' · '),
     tone: controls.plan?.pending === true ? 'warning' : 'accent',
   }
 }
@@ -346,8 +348,7 @@ export function formatPermission(permission: string): string {
 }
 
 function permissionLabel(permission: string): string {
-  const label = formatPermission(permission)
-  return permission === 'danger-full-access' || permission === 'custom' ? label.toUpperCase() : label
+  return formatPermission(permission).toLowerCase()
 }
 
 /** Painted permission mode for the composer top-right cap. */

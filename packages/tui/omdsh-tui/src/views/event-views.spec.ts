@@ -900,9 +900,9 @@ describe('renderView', () => {
     })
     const editorStart = frame.editor?.start ?? -1
     expect(frame.lines[editorStart]).toContain('🐳')
-    expect(frame.lines[editorStart]).toContain('FULL ACCESS')
-    expect(frame.lines[editorStart]?.indexOf('🐳') ?? 0).toBeLessThan(frame.lines[editorStart]?.indexOf('FULL ACCESS') ?? 0)
-    expect(frame.lines.at(-2)).not.toContain('FULL ACCESS')
+    expect(frame.lines[editorStart]).toContain('full access')
+    expect(frame.lines[editorStart]?.indexOf('🐳') ?? 0).toBeLessThan(frame.lines[editorStart]?.indexOf('full access') ?? 0)
+    expect(frame.lines.at(-2)).not.toContain('full access')
   })
 
   it('shows context and zero-count telemetry before the first turn', () => {
