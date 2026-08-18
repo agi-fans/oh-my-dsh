@@ -25,5 +25,16 @@ const invocation = parseOmdshArgs(process.argv.slice(2), readVersion())
 if (invocation.model !== undefined) process.env.OMDSH_MODEL = invocation.model
 if (invocation.provider !== undefined) process.env.OMDSH_PROVIDER = invocation.provider
 
-const { runOmdsh } = await import('./boot.ts')
-await runOmdsh(invocation.prompt, invocation.resume)
+if (invocation.dumpConfig) {
+  const { dumpErrorMessage, dumpOmdshConfig, prepareLaunchEnvironment, writeAll } = await import('./composition.ts')
+  try {
+    prepareLaunchEnvironment()
+    await writeAll(process.stdout, dumpOmdshConfig() + '\n')
+  } catch (error) {
+    process.stderr.write(dumpErrorMessage(error) + '\n')
+    process.exitCode = 1
+  }
+} else {
+  const { runOmdsh } = await import('./boot.ts')
+  await runOmdsh(invocation.prompt, invocation.resume)
+}

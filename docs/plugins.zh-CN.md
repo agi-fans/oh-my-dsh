@@ -4,7 +4,7 @@
 
 omdsh 通过 DeepSeek Harness 插件扩展，这些插件与产品自带的 composition 挂在同一棵 Cordis 树上。用户安装的能力是一个声明了 `dsh.bundle.patch` 的 npm 软件包，它加入 omdsh 的 Profile 层列表，并随其余插件一同启动。
 
-本文是计划中的支持模型。当前启动路径仍然只读取随包发布的 [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) 以及 MCP 的 insert patch。下文中的 Profile 目录、`omdsh plugin` 命令、`--dump-config` 选项和 `@agi-fans/oh-my-dsh` 的 bundle 声明，都要等这条启动路径落地后才会随产品发布。
+本文是计划中的支持模型。启动已经会应用随包发布的 [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml)、可选的 `$OMDSH_HOME/cordis.patch.yml`，以及 MCP 的 insert patch。`omdsh --dump-config` 会打印这棵组合后的树。Profile 目录、`omdsh plugin` 命令和 `@agi-fans/oh-my-dsh` 的 bundle 声明尚未随产品发布。
 
 Skills 与 MCP 仍是独立的部署面，见 [Skills 与 MCP](skills-and-mcp.zh-CN.md)。TUI 的丰富度来自安装层之上的 Cordis 贡献服务，而不是某个 TypeScript extensions 目录。主题、Overlay 和按键注册表在出现第二个拥有独立所有权的贡献者之前保持关闭，见 [架构](architecture.zh-CN.md) 和 [TUI 贡献层](#tui-贡献层)。
 
@@ -26,9 +26,9 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 
 ## 当前启动缺口
 
-`apps/omdsh/src/boot.ts` 调用 `boot()` 时只传入随包 composition 和 [`loadMcpPatches()`](../apps/omdsh/src/mcp-config.ts)。用户级 `cordis.patch.yml`、Profile 的 `dsh.profile.bundles` 列表，以及 `omdsh plugin` 安装器都还没有被读取。缺的是启动树还没有装载这些层，而不是安装器缺一套 TUI。
+`apps/omdsh/src/boot.ts` 先挂随包 composition，若存在则再挂 `$OMDSH_HOME/cordis.patch.yml`，最后挂 [`loadMcpPatches()`](../apps/omdsh/src/mcp-config.ts) 产生的 MCP insert patch。补丁文件存在但为空、或不是 YAML 列表时，启动失败并大声报错。启动和 `omdsh --dump-config` 会先共用一次 `loadLayeredEnv` 快照，因此项目级和用户级 `.env` 对 home patch 路径以及 MCP 变量展开的影响在两条路径上相同。`--dump-config` 打印这棵组合树，但不启动 TUI。
 
-因此即使用 npm 安装了标准 DSH bundle，也不会生效：该软件包不会被解析进 Loader 树。只在 `settings.yaml` 里写入提供方 profile，也无法激活 composition 从未挂载的 adapter。
+Profile 的 `dsh.profile.bundles` 列表和 `omdsh plugin` 仍未被读取。因此即使用 npm 安装了标准 DSH bundle，也不会生效，除非该软件包已经能从 omdsh 安装位置解析，并且 home patch 把它 insert 进去。只在 `settings.yaml` 里写入提供方 profile，也无法激活 composition 从未挂载的 adapter。
 
 `/login` 已经能通过随包、默认休眠的 `@deepseek-ai/dsh-llm-pi-ai` adapter 接入目录提供方和手写自定义路由。OAuth、refresh token 的所有权，以及 adapter 不在随包树中的提供方，仍然需要用户挂载插件。
 
@@ -91,24 +91,35 @@ Pi 的大多数插件是反应型，不是呈现型。它们属于 Harness 的�
 
 今天的 `ctx.tui` 是输入和通知通道（`event`、`prompt`、`notice`、`readInput`）。呈现型插件还需要一个窄而稳定的 `ctx.tui.contributions` 服务。插件向该服务注册句柄；Cordis 在 plugin fiber dispose 时注销这些句柄，因此卸掉的 bundle 不会留下过期渲染器。该服务是只读注册表，不是新的输入路径，也不能碰 TTY。
 
-贡献记录是可扩展的判别联合。第一批落地的变体是 `card` 和 `status`。之后的 `overlay` 和 `slash` 必须加 case，且不能破坏已有记录。每个卡片 presenter 声明展示种类、数字优先级和注册插件 id。两个 presenter 抢同一种类时，优先级高的胜出；优先级相同则保留先注册者，并在启动时打出警告。第一版就把这套注册表当成正式渲染 API 来设计，而不是垫片：真实工具经常超出 `presentCall` / `presentResult`，插件会依赖 presenter 契约。
+在用户 bundle 能够安装之前，不要发布 `ctx.tui.contributions`。没有安装路径的注册表就是没有用户的 API；omdsh 也没有 `/reload`，所以第一版公共形状必须耐用。TypeScript 联合类型和优先级规则，要跟第一批真实 bundle 一起冻结，不要单独预览。
 
-`@agi-fans/dsh-tui` 导出贡献 token、对应的 TypeScript 类型，以及一小套展示原语（按显示宽度处理的文本、主题颜色名、卡片分区形状）。它不导出 renderer、editor 或 TTY 所有者。
+贡献记录是可扩展的判别联合。第一批落地的变体是 `status`，以及只有真实工具证明 `presentCall` / `presentResult` 不够时才加的带类型 `card`。TUI 不再开命令注册表，也不开放可注册的 `/settings` 行。斜杠命令继续走 `dsh-commands`。插件偏好存 `ctx.settings`，通过该插件自己的斜杠命令加 `ctx.tui.prompt` 编辑。`/settings` 仍由产品拥有：`tuiSettingItems` 和 `TuiPrefs`、持久化、校验、分页导航、status 重排绑在一起。若日后多个插件反复实现同一套设置向导，再抽一个表单式的 `prompt` 缝，而不是打开产品设置列表。之后的 `overlay` 必须加 case，且不能破坏已有记录。每个卡片 presenter 声明工具或展示 id、数字优先级和注册插件 id。两个 presenter 抢同一 id 时，优先级高的胜出；优先级相同则保留先注册者，并在启动时打出警告。第一版就把这套注册表当成正式渲染 API 来设计，而不是垫片。在至少一个真实用户 bundle 用过这套形状之前，不要把它放进 `@agi-fans/dsh-tui` 的稳定公共导出。
 
-Pi 第一批里的大部分丰富度已经是 Harness 缝：命令、工具、审批、提问、notice、Session Event 和 Agent preset，bundle 一挂上就能用。剩下的第一批 TUI 工作，在用户 bundle 能够挂载之后开放：
+`@agi-fans/dsh-tui` 导出贡献 token、对应的 TypeScript 类型，以及一小套展示原语（按显示宽度处理的文本、主题颜色名、卡片分区形状）。没有这些原语，插件卡片一定会撑破布局。它不导出 renderer、editor 或 TTY 所有者。注册表永远不能变成第二条输入路径：`readInput` 保持单消费者，`onInterrupt` / `onQueueEdit` / `onRewind` / `onInspect*` 保持宿主私有。插件向人提问只走 `prompt()`。
 
-1. **卡片。** 优先使用 `ToolDefinition.presentCall` / `presentResult`。这些字段表达不了卡片时，在 `ctx.tui.contributions` 上注册带类型的卡片 presenter。布局、内边距、通用回退和上面的优先级规则仍由 TUI 拥有。
-2. **Status segment。** 插件只发布 projection id 和标签。数值来自 Harness projection，而不是插件自己发明的计数器。两行 footer 仍然按 cache、tokens、TTFT，然后是 duration，最后是 turns 降级。Loop 已经在写入进程内 footer 状态；这就是 [架构](architecture.zh-CN.md) 里的「第二个 owner」检验。
+Pi 第一批里的大部分丰富度已经是 Harness 缝：命令、工具、审批、提问、notice、Session Event 和 Agent preset，bundle 一挂上就能用。在 `omdsh plugin` 存在、并且挂上一个真实用户 bundle 之后：
+
+1. **Status segment。** 插件只发布 projection id 和标签。数值来自 Harness projection，而不是插件自己发明的计数器。两行 footer 仍然按 cache、tokens、TTFT，然后是 duration，最后是 turns 降级。Loop 已经在写入进程内 footer 状态；这就是 [架构](architecture.zh-CN.md) 里的「第二个 owner」检验。
+2. **卡片。** 优先使用 `ToolDefinition.presentCall` / `presentResult`。只有真实工具证明这些字段表达不了卡片时，才在 `ctx.tui.contributions` 上注册带类型的卡片 presenter。布局、内边距、通用回退和上面的优先级规则仍由 TUI 拥有。
 
 后置批次只在出现第二个 owner 时开放：
 
-- 接受纯 view 与 action 描述、再通过 `ctx.tui.prompt` 的展示种类渲染的 overlay 槽；
-- 只绑定 `dsh-commands` 元数据与处理器（含参数补全）、不另起命令注册表的 slash chrome；
-- Composer 旁预留的 widget 槽；
-- 只改现有槽位、不发明新调色板格式的主题 token 覆盖；
-- 用于持久化、且不进入 LLM 上下文的 Transcript entry 渲染器和 Markdown transformer。
+- 把更多 `prompt` 展示种类做成带版本的判别联合（select、confirm、input、list 和 action 描述），让向导保持「数据进、动作出」；
+- 预留 `interactive-view` 贡献 case，再做成仍走 `prompt()` 同一套独占仲裁的瘦身 `custom<T>()`；
+- Composer 旁预留、且不得移动 composer 或 footer 锚点的 widget 槽；
+- 只改现有槽位、不发明新调色板格式的主题 token 覆盖。
 
-本地 Provider 仍然独占 raw mode、按键解码、光标定位与可见性、viewport 分页、差分写入，以及 Ctrl-C / Ctrl-D 生命周期。
+omdsh 不克隆 Pi 的宿主 `TUI` 对象、`extensions/*.ts` 加载器或 `/reload`。以后可以复刻 Pi 已经证明的那条所有权分割：插件返回 Component，本地 Provider 仍拥有 raw mode、焦点、光标、viewport、合成和原子写。这和今天就发布第二套 UI 框架不是一回事。三家否决的是「在可安装 bundle 出现之前冻结公共贡献 API」，不是否定这个最终模型。
+
+未来的 Component 契约保持很窄：`render(width)` 返回宽度安全的行，可选的 `handleInput` 只收解码后的按键事件（绝不是原始终端字节），再加上 `invalidate()` 和可选的 `dispose()`。宿主负责 ANSI 规范化、裁切宽度和放置光标。`custom<T>()` 只给 factory 语义主题、`requestRender`、`done(result)` 和 `AbortSignal`。不传入 renderer、editor、keybinding manager 或 TUI 实例。调用会暂停 `readInput`、保存 composer 草稿、把焦点交给 Component，并在结束、取消或 fiber dispose 时恢复草稿、焦点和光标。第一版 overlay 是 capturing modal，只有宿主解释的宽高和锚点选项。
+
+若这条缝落地，最小积木是：宽度安全的 `Text`、`Spacer`、`Box`、`VStack`、`SelectList`，以及复用 composer 行、不重做 CJK IME 的宿主 `Input`。不导出 Markdown、Editor、Renderer 或通用布局引擎。禁止插件自绘输入框。卡片 presenter 以后可以返回 Component；status 仍是声明式 projection 段。消息和 transcript 渲染器要等持久化事件契约成熟，不能借 Component 绕过 session schema。
+
+绝不克隆 `setFooter` 整条替换、`setEditorComponent`、`onTerminalInput`、全局快捷键钩子、直接 TTY 控制、第二套 tool/command 总线，或 extensions 目录热加载。
+
+内部 prototype 可以走未导出的 experimental 路径，由产品自有插件驱动，并用 fake-TTY 覆盖嵌套、abort、dispose、异常、resize、ANSI、CJK、emoji 和 composer 恢复。在 Profile 安装可用、且有一个真实外部 bundle 用过之前，不得进入 `@agi-fans/dsh-tui` 的稳定导出。
+
+本地 Provider 仍然独占 raw mode、按键解码、光标定位与可见性、viewport 分页、差分写入，以及 Ctrl-C / Ctrl-D 生命周期。modal 必须保留宿主保留键集（两次 Ctrl-C、Ctrl-D、Alt 快捷键），并在插件 render 抛错或死循环时强制 `done()`。
 
 ## 兼容边界
 
@@ -134,6 +145,8 @@ Pi 第一批里的大部分丰富度已经是 Harness 缝：命令、工具、�
 - 第二套工具调用拦截总线。权限门留在 Harness 审批插件里，避免架空审计。
 - 自定义 Session Event 类型进入 Transcript。这条边界不会放宽。
 - 替换 Composer、按键映射，或任何其他由 TTY 拥有的表面。
+- 第二套斜杠命令注册表，或无限的 `/settings` 行列表。
+- 把宿主 TUI 实例、原始终端字节，或插件拥有的 assistant transcript 渲染器交给插件。瘦身 `custom()` Component 缝如果落地，在可安装 bundle 出现之前只能是 experimental。
 
 版本不匹配、已列入列表的 bundle 缺少 `dsh.bundle` 声明，或软件包名称无法解析时，沿用现有的 `boot()` / `assertEntriesActivated` 路径在启动阶段失败。剩下最大的风险是用户 bundle 再带一份 Cordis，或带上不兼容的 DSH 版本：service token 会分裂，插件看起来已激活，却无法注入或正确 dispose。核心 `@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 保持为随包发布版本的 peer；`omdsh plugin` 在安装时拒绝不兼容的版本范围，若解析出两份拷贝，启动失败并大声报错。
 
@@ -155,11 +168,11 @@ omdsh --dump-config
 
 ## 实现顺序
 
-1. 先在内存里组装补丁列表：应用 `$OMDSH_HOME/cordis.patch.yml`，增加 `omdsh --dump-config`，解析错误保持 fail-loud。这样，已经能被解析到的软件包可以通过手写补丁接入，并且在 Profile 目录出现之前就能看到组合后的树。
+1. 已完成。启动会应用 `$OMDSH_HOME/cordis.patch.yml`，`omdsh --dump-config` 会打印组合后的树。
 2. 把随包的 `cordis.yml` 表达为 `@agi-fans/oh-my-dsh` bundle，并以空 Profile 根按「产品 → 用户 bundles → Profile patch → home patch → MCP」启动。
 3. 针对应用软件包运行 `healProfilesModuleFallback`，并保留 `assertEntriesActivated`，让随包插件可解析，也避免损坏的用户层启动一棵只挂了一半的树。
 4. 初始化 `$OMDSH_HOME/profiles/omdsh`，并增加 `omdsh plugin add` / `remove`，包括对照随包 DSH 版本的 peer 范围检查。
-5. 把 `ctx.tui.contributions` 做成带版本的判别联合，先落地 card 和 status 变体，并包含 presenter 优先级和冲突警告。overlay 和 slash case 后补，只走现有的 `prompt` / `dsh-commands` 缝，且不得改已发布的记录形状。
+5. 等真实用户 bundle 能挂上之后，再发布带冻结 `status`、以及必要时 `card` case 的 `ctx.tui.contributions`。安装器存在之前，不要把这些类型放进稳定导出，也不要打开活的注册表。
 
 `apps/omdsh` 拥有 Profile、安装器、转储和 composition。`@agi-fans/dsh-tui` 拥有 `ctx.tui` 和 `ctx.tui.contributions`。插件依赖这些服务和已发布类型，不依赖 Renderer 内部实现。
 

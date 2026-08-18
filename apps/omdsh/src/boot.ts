@@ -5,18 +5,14 @@
  * @module @agi-fans/oh-my-dsh
  */
 
-import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { boot, installFailLoud, loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
+import { boot, installFailLoud } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import { CONFIG_PATH, loadBootPatches, NAME, prepareLaunchEnvironment } from './composition.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
-import { loadMcpPatches } from './mcp-config.ts'
 
-export const NAME = 'omdsh'
-
-/** Absolute path of the shipped composition (source and built layouts both sit one directory under apps/omdsh). */
-export const CONFIG_PATH = fileURLToPath(new URL('../config/cordis.yml', import.meta.url))
+export { CONFIG_PATH, NAME } from './composition.ts'
 
 /**
  * Boot the omdsh tree and leave process lifetime to the mounted runner.
@@ -40,8 +36,8 @@ export async function runOmdsh(
   process.on('SIGTERM', () => { interrupt(0) })
   process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => { await app.current?.fiber.dispose() })
-  const environment = loadLayeredEnv(NAME)
-  const ctx = await boot(NAME, CONFIG_PATH, loadMcpPatches(), (hostCtx) => {
+  const environment = prepareLaunchEnvironment()
+  const ctx = await boot(NAME, CONFIG_PATH, loadBootPatches(), (hostCtx) => {
     app.current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
     provideCmdline(hostCtx, {

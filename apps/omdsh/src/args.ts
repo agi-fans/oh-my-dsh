@@ -13,6 +13,8 @@ export interface OmdshInvocation {
   provider: string | undefined
   /** Durable session selected by --resume/-r. */
   resume: string | undefined
+  /** Print the composed plugin tree and exit. */
+  dumpConfig: boolean
   /** --help requested. */
   help: boolean
 }
@@ -27,6 +29,7 @@ Options:
   --model <name>      model route (default deepseek-v4-flash)
   --provider <name>   provider route (default deepseek-official)
   -r, --resume <id>   resume a durable session
+  --dump-config       print the composed plugin tree and exit
   -h, --help          show this help
   --version           show the version
 
@@ -45,11 +48,14 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
   let model: string | undefined
   let provider: string | undefined
   let resume: string | undefined
+  let dumpConfig = false
   let help = false
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? ''
     if (arg === '-h' || arg === '--help') {
       help = true
+    } else if (arg === '--dump-config') {
+      dumpConfig = true
     } else if (arg === '--version') {
       console.log(version)
       process.exit(0)
@@ -76,7 +82,10 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
     process.exit(0)
   }
   if (resume !== undefined && prompt.length > 0) usageError('--resume cannot be combined with a prompt')
-  return { prompt, model, provider, resume, help }
+  if (dumpConfig && (resume !== undefined || prompt.length > 0)) {
+    usageError('--dump-config cannot be combined with a prompt or --resume')
+  }
+  return { prompt, model, provider, resume, dumpConfig, help }
 }
 
 function usageError(message: string): never {

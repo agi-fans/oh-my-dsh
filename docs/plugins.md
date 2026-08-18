@@ -4,7 +4,7 @@
 
 omdsh extends through DeepSeek Harness plugins that mount in the same Cordis tree as the shipped composition. A user-installed capability is an npm package that declares `dsh.bundle.patch`, joins the omdsh Profile layer list, and starts with the rest of the tree.
 
-This document is the intended support model. The boot path today still reads only the shipped [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) plus MCP insert patches. The Profile directory, `omdsh plugin` command, `--dump-config` flag, and `@agi-fans/oh-my-dsh` bundle declaration named below are not shipped until that boot path lands.
+This document is the intended support model. Boot already applies the shipped [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml), an optional `$OMDSH_HOME/cordis.patch.yml`, and MCP insert patches. `omdsh --dump-config` prints that composed tree. The Profile directory, `omdsh plugin` command, and `@agi-fans/oh-my-dsh` bundle declaration are not shipped yet.
 
 Skills and MCP remain separate deployment surfaces; see [Skills and MCP](skills-and-mcp.md). TUI richness comes from Cordis contribution services on top of that install layer, not from a TypeScript extensions folder. Theme, overlay, and keybinding registries stay closed until a second independently owned contributor needs them; see [Architecture](architecture.md) and [TUI contribution layer](#tui-contribution-layer).
 
@@ -26,9 +26,9 @@ A plugin that only needs those seams does not require a TUI presentation adapter
 
 ## Current boot gap
 
-`apps/omdsh/src/boot.ts` calls `boot()` with the shipped composition and [`loadMcpPatches()`](../apps/omdsh/src/mcp-config.ts). User-level `cordis.patch.yml` files, Profile `dsh.profile.bundles` lists, and an `omdsh plugin` installer are not read. The missing piece is that the startup tree never loads those layers, not that the installer lacks a TUI.
+`apps/omdsh/src/boot.ts` mounts the shipped composition, then `$OMDSH_HOME/cordis.patch.yml` when that file exists, then MCP insert patches from [`loadMcpPatches()`](../apps/omdsh/src/mcp-config.ts). A present patch file that is empty or not a YAML list fails loud. Boot and `omdsh --dump-config` share one `loadLayeredEnv` snapshot first, so project and home `.env` files change home-patch lookup and MCP expansion the same way on both paths. `--dump-config` prints that composition without starting the TUI.
 
-Installing a standard DSH bundle with npm therefore has no effect: the package is never resolved into the Loader tree. Writing a provider profile in `settings.yaml` also cannot activate an adapter that the composition never mounted.
+Profile `dsh.profile.bundles` lists and `omdsh plugin` are not read. Installing a standard DSH bundle with npm therefore has no effect unless the package is already resolvable from the omdsh installation and a home patch inserts it. Writing a provider profile in `settings.yaml` also cannot activate an adapter that the composition never mounted.
 
 `/login` already covers catalog providers and a hand-declared custom route through the shipped, dormant `@deepseek-ai/dsh-llm-pi-ai` adapter. OAuth, refresh-token ownership, and any provider whose adapter is not in the shipped tree still need a user-mounted plugin.
 
@@ -91,24 +91,35 @@ Most Pi plugins are reactive, not presentational. They belong on the Harness eve
 
 `ctx.tui` today is an input and notice channel (`event`, `prompt`, `notice`, `readInput`). Presentational plugins also need a narrow, stable `ctx.tui.contributions` service. Plugins register handles on that service; Cordis disposes those handles with the plugin fiber, so a removed bundle cannot leave a stale renderer. The service is a read-only registry, not a new input path, and it must not touch the TTY.
 
-Contribution records are an extensible discriminated union. The first shipped variants are `card` and `status`. Later `overlay` and `slash` variants must add cases without breaking existing records. Each card presenter declares a presentation kind, a numeric priority, and the registering plugin id. When two presenters claim the same kind, the highest priority wins; equal priority keeps the earlier registrant and boot logs a warning. Treat this registry as a public rendering API from the first version, not a temporary shim: real tools outgrow `presentCall` / `presentResult` often enough that plugins will depend on the presenter contract.
+Do not ship `ctx.tui.contributions` before user bundles can install. A registry with no install path is an API with no users; omdsh also has no `/reload`, so the first public shape has to last. Freeze the TypeScript union and priority rules in types when the first real bundle lands, not as a standalone preview.
 
-`@agi-fans/dsh-tui` exports the contribution tokens, their TypeScript types, and a small set of presentation primitives (width-safe text, theme color names, card section shapes). It does not export the renderer, editor, or TTY owner.
+Contribution records are an extensible discriminated union. The first shipped variants are `status` and, only when a real tool proves `presentCall` / `presentResult` is not enough, typed `card`. There is no TUI command registry and no registrable `/settings` row. Slash commands stay on `dsh-commands`. Plugin preferences stay on `ctx.settings` and are edited through that plugin's own slash command plus `ctx.tui.prompt`. `/settings` remains product-owned: `tuiSettingItems` is coupled to `TuiPrefs`, persistence, validation, tab navigation, and status reorder. If several plugins later repeat the same settings wizard, extract a form-shaped `prompt` seam rather than opening the product settings list. Later `overlay` variants must add cases without breaking existing records. Each card presenter declares a tool or presentation id, a numeric priority, and the registering plugin id. When two presenters claim the same id, the highest priority wins; equal priority keeps the earlier registrant and boot logs a warning. Treat this registry as a public rendering API from the first version, not a temporary shim. Do not add it to `@agi-fans/dsh-tui` stable exports until at least one real user bundle has used the shape.
 
-Most of Pi's first-wave richness is already a Harness seam: commands, tools, approval, prompts, notices, session events, and Agent presets start working as soon as the bundle mounts. The remaining first TUI wave, after user bundles can mount:
+`@agi-fans/dsh-tui` exports the contribution tokens, their TypeScript types, and a small set of presentation primitives (width-safe text, theme color names, card section shapes). Those primitives are required so a plugin card cannot blow out layout. It does not export the renderer, editor, or TTY owner. The registry is never a second input path: `readInput` stays single-consumer, and `onInterrupt` / `onQueueEdit` / `onRewind` / `onInspect*` stay host-private. Plugins ask humans only through `prompt()`.
 
-1. **Cards.** Prefer `ToolDefinition.presentCall` / `presentResult`. Register a typed card presenter on `ctx.tui.contributions` when those fields cannot express the card. The TUI still owns layout, padding, the generic fallback, and the priority rule above.
-2. **Status segments.** Plugins publish projection ids and labels only. Values come from Harness projections, not from counters invented in the plugin. The two-line footer still degrades cache, tokens, and TTFT first, then durations, then turns. Loop already writes process-local footer state; that is the second-owner test in [Architecture](architecture.md).
+Most of Pi's first-wave richness is already a Harness seam: commands, tools, approval, prompts, notices, session events, and Agent presets start working as soon as the bundle mounts. After `omdsh plugin` exists and a real user bundle is mounted:
+
+1. **Status segments.** Plugins publish projection ids and labels only. Values come from Harness projections, not from counters invented in the plugin. The two-line footer still degrades cache, tokens, and TTFT first, then durations, then turns. Loop already writes process-local footer state; that is the second-owner test in [Architecture](architecture.md).
+2. **Cards.** Prefer `ToolDefinition.presentCall` / `presentResult`. Register a typed card presenter on `ctx.tui.contributions` only when a real tool proves those fields cannot express the card. The TUI still owns layout, padding, the generic fallback, and the priority rule above.
 
 Later waves, only when a second owner appears:
 
-- overlay slots that accept a pure view and action description, then render through `ctx.tui.prompt` presentation kinds;
-- slash chrome that binds `dsh-commands` metadata and handlers, including argument completions, and does not start a second command registry;
-- reserved composer-adjacent widget slots;
-- theme token overlays that restyle existing slots without shipping a new palette format;
-- transcript entry renderers and Markdown transformers for durable, non-LLM chrome.
+- more `prompt` presentation kinds as a versioned discriminated union (select, confirm, input, list, and action descriptions), so wizards stay data-in / action-out;
+- a reserved `interactive-view` contribution case, then a slim `custom<T>()` that still uses the same exclusive arbitrator as `prompt()`;
+- reserved composer-adjacent widget slots that must not move the composer or footer anchors;
+- theme token overlays that restyle existing slots without shipping a new palette format.
 
-The local Provider still exclusively owns raw mode, key decoding, cursor placement and visibility, viewport paging, differential writes, and the Ctrl-C / Ctrl-D lifecycle.
+omdsh does not clone Pi's host `TUI` object, `extensions/*.ts` loader, or `/reload`. It can later clone the ownership split Pi already uses: the plugin returns a Component, and the local Provider still owns raw mode, focus, cursor, viewport, composition, and atomic writes. That is not the same as shipping a second UI framework today. The three-way veto was against freezing a public contribution API before installable bundles exist.
+
+A future Component contract stays narrow: `render(width)` returns width-safe lines, optional `handleInput` receives decoded key events (never raw terminal bytes), plus `invalidate()` and optional `dispose()`. The host normalizes ANSI, clips width, and places the cursor. `custom<T>()` gives the factory only a semantic theme, `requestRender`, `done(result)`, and an `AbortSignal`. It does not pass the renderer, editor, keybinding manager, or TUI instance. The call pauses `readInput`, saves the composer draft, routes focus to the Component, and restores draft, focus, and cursor on settle, cancel, or fiber dispose. The first overlay is a capturing modal with host-interpreted size and anchor options only.
+
+Minimum bricks, if that seam ships: width-safe `Text`, `Spacer`, `Box`, `VStack`, `SelectList`, and a host-backed `Input` that reuses the composer row so CJK IME is not reimplemented. Do not export Markdown, Editor, Renderer, or a general layout engine. Plugin-drawn text fields are rejected. Card presenters may later return a Component; status stays a declarative projection segment. Message and transcript renderers wait on the durable event contract and must not bypass session schema through Component.
+
+Never clone `setFooter` replacement, `setEditorComponent`, `onTerminalInput`, global shortcut hooks, direct TTY control, a second tool or command bus, or extension-directory hot load.
+
+An internal prototype may exist as an unexported experimental path driven by a product-owned plugin, with fake-TTY tests for nesting, abort, dispose, exceptions, resize, ANSI, CJK, emoji, and composer restore. It must not land in `@agi-fans/dsh-tui` stable exports until Profile install works and one real external bundle has used it.
+
+The local Provider still exclusively owns raw mode, key decoding, cursor placement and visibility, viewport paging, differential writes, and the Ctrl-C / Ctrl-D lifecycle. A modal must keep a host reserved-key set (double Ctrl-C, Ctrl-D, Alt shortcuts) and a forced `done()` if the plugin render throws or loops.
 
 ## Compatibility boundary
 
@@ -134,6 +145,8 @@ Not promised:
 - A second tool-call intercept bus. Permission gates stay in the Harness approval plugin so audit is not bypassed.
 - Custom session event types in the transcript. That boundary does not loosen.
 - Replacing the composer, keybindings, or any other TTY-owned surface.
+- A second slash-command registry, or an unbounded `/settings` row list.
+- Passing the host TUI instance, raw terminal bytes, or a plugin-owned assistant transcript renderer. A slim `custom()` Component seam, if it ever ships, stays experimental until installable bundles exist.
 
 A version mismatch, missing `dsh.bundle` declaration on a listed bundle, or unresolved package name fails at startup through the existing `boot()` / `assertEntriesActivated` path. The largest remaining risk is a user bundle that brings a second copy of Cordis or an incompatible DSH release: service tokens then split, and a plugin can look active while it cannot inject or dispose correctly. Core `@deepseek-ai/*` and `@agi-fans/dsh-tui` packages stay peers of the shipped release; `omdsh plugin` rejects an incompatible range at install time, and boot fails loud if two copies resolve.
 
@@ -155,11 +168,11 @@ After a successful add, restart omdsh. New LLM routes appear in `/model`. New co
 
 ## Implementation sequence
 
-1. Assemble the patch list in memory first: apply `$OMDSH_HOME/cordis.patch.yml`, add `omdsh --dump-config`, and keep fail-loud parse errors. This unblocks hand-written patches for packages that are already resolvable and shows the composed tree before Profile directories exist.
+1. Done. Boot applies `$OMDSH_HOME/cordis.patch.yml` and `omdsh --dump-config` prints the composed tree.
 2. Express the shipped `cordis.yml` as the `@agi-fans/oh-my-dsh` bundle and boot an empty Profile root in product → user bundles → Profile patch → home patch → MCP order.
 3. Run `healProfilesModuleFallback` against the app package and keep `assertEntriesActivated`, so in-box plugins resolve and a broken user layer cannot start a half-mounted tree.
 4. Initialize `$OMDSH_HOME/profiles/omdsh` and add `omdsh plugin add` / `remove`, including the peer-range check against the shipped DSH release.
-5. Open `ctx.tui.contributions` as a versioned discriminated union with card and status variants, including presenter priority and conflict warnings. Overlay and slash cases bind later through existing `prompt` / `dsh-commands` seams and must not change the shipped record shape.
+5. After a real user bundle can mount, ship `ctx.tui.contributions` with frozen `status` and, if needed, `card` cases. Do not add those types to the stable package exports, and do not open the live registry, before the installer exists.
 
 `apps/omdsh` owns the Profile, installer, dump, and composition. `@agi-fans/dsh-tui` owns `ctx.tui` and `ctx.tui.contributions`. A plugin depends on those services and the published types, not on renderer internals.
 

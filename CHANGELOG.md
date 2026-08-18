@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Apply `$OMDSH_HOME/cordis.patch.yml` over the shipped composition at boot, and print the composed plugin tree with `omdsh --dump-config`.
 - Show live descendant subagents above the composer, with each child's label, run state, and current tool, and present `subagent`, `send_message`, `interrupt_agent`, and `list_agents` cards by their task description instead of raw JSON.
 - Open a subagent's own transcript from the Agents roster by clicking a row or pressing Alt+A, and return to the parent with Escape.
 - Steer a continuable subagent from its inspect view: the composer delivers a follow-up to that child, while one-shot runs stay read-only.
