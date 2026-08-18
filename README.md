@@ -38,6 +38,7 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 
 - [Tutorials](docs/tutorials.md) — complete a first task, add precise context, guide queued work, recover long sessions, and customize the environment.
 - [Skills and MCP](docs/skills-and-mcp.md) — extend a project with reusable instructions and external tools.
+- [User plugins](docs/plugins.md) — the planned Profile and bundle model for installing DSH plugins.
 - [Architecture](docs/architecture.md) — understand the plugin boundaries and runtime data flow.
 - [Performance](docs/performance.md) — inspect the benchmarks, methodology, and rendering optimizations.
 

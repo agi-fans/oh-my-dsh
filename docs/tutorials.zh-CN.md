@@ -164,7 +164,7 @@ Agent 处于 idle 时运行 `/compact`，可以使用摘要替换一段有价值
 
 项目 Skills 位于 `.dsh/skills` 或 `.agents/skills`。增加可由用户调用的 Skill 后，输入 `/skill:` 即可像浏览普通命令一样查看并筛选。MCP Server 配置位于 `.dsh/mcp.json`；`/mcp` 用于查看已连接的 Server，`/tools` 则会把 MCP Tools 与原生 Harness Tools 一起展示。
 
-完整的搜索优先级、`SKILL.md` 结构、stdio 与 HTTP 示例、环境变量展开、覆盖规则和当前协议限制，请参阅 [Skills 与 MCP](skills-and-mcp.zh-CN.md)。
+完整的搜索优先级、`SKILL.md` 结构、stdio 与 HTTP 示例、环境变量展开、覆盖规则和当前协议限制，请参阅 [Skills 与 MCP](skills-and-mcp.zh-CN.md)。安装 DSH 命令、工具、提供方或 Auth bundle 是另一条计划中的 Profile 路径，见 [用户插件](plugins.zh-CN.md)。
 
 ## 快速参考
 

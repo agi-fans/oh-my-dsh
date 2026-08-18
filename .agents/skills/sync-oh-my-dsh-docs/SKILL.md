@@ -1,6 +1,6 @@
 ---
 name: sync-oh-my-dsh-docs
-description: Keep oh-my-dsh English and Simplified Chinese documentation accurate and aligned. Use when editing README.md, README.zh-CN.md, docs/performance.md, docs/performance.zh-CN.md, adding a bilingual document, translating documentation, or auditing whether installation, commands, architecture, performance claims, links, and code examples have drifted between languages.
+description: Keep oh-my-dsh English and Simplified Chinese documentation accurate and aligned. Use when editing README.md, README.zh-CN.md, docs/performance.md, docs/performance.zh-CN.md, docs/plugins.md, docs/plugins.zh-CN.md, adding a bilingual document, translating documentation, or auditing whether installation, commands, architecture, performance claims, links, and code examples have drifted between languages.
 ---
 
 # Sync oh-my-dsh Documentation
@@ -15,6 +15,7 @@ The current maintained pairs are:
 - `docs/architecture.md` ↔ `docs/architecture.zh-CN.md`
 - `docs/performance.md` ↔ `docs/performance.zh-CN.md`
 - `docs/skills-and-mcp.md` ↔ `docs/skills-and-mcp.zh-CN.md`
+- `docs/plugins.md` ↔ `docs/plugins.zh-CN.md`
 - `docs/tutorials.md` ↔ `docs/tutorials.zh-CN.md`
 
 Do not assume every file under `docs/` needs a counterpart. Create a new pair only when the user requests bilingual coverage or the document is clearly part of the public bilingual surface.

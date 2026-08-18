@@ -60,7 +60,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；
 - 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
 
-Skills 与 MCP 的部署细节见 [`skills-and-mcp.zh-CN.md`](skills-and-mcp.zh-CN.md)。
+Skills 与 MCP 的部署细节见 [`skills-and-mcp.zh-CN.md`](skills-and-mcp.zh-CN.md)。用户安装的 DSH bundle 计划作为叠加在此 composition 之上的 Profile 层，见 [`plugins.zh-CN.md`](plugins.zh-CN.md)。
 
 ## 数据与交互流
 
