@@ -12,7 +12,7 @@ English · [简体中文](README.zh-CN.md)
 
 </div>
 
-![oh-my-dsh terminal interface](docs/resources/screenshot.png)
+![oh-my-dsh terminal interface](docs/resources/screenshot.webp)
 
 ## Quick start
 

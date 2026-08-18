@@ -14,7 +14,7 @@ English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README
 
 </div>
 
-![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/docs/resources/screenshot.png)
+![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/docs/resources/screenshot.webp)
 
 ## Quick start
 

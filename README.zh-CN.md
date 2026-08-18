@@ -12,7 +12,7 @@
 
 </div>
 
-![oh-my-dsh 终端界面](docs/resources/screenshot.png)
+![oh-my-dsh 终端界面](docs/resources/screenshot.webp)
 
 ## 快速开始
 
