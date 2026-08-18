@@ -4,3 +4,6 @@
 [submodule "refs/oh-my-pi"]
 	path = refs/oh-my-pi
 	url = https://github.com/can1357/oh-my-pi.git
+[submodule "refs/pi"]
+	path = refs/pi
+	url = https://github.com/earendil-works/pi.git

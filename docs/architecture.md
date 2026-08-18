@@ -8,7 +8,7 @@ oh-my-dsh is a terminal coding agent built by composing published DeepSeek Harne
 
 - **Runtime:** `@deepseek-ai/*` packages are installed from npm at pinned versions and consumed through their published exports.
 - **Product:** `apps/omdsh` owns the CLI and runtime composition; `packages/tui/omdsh-tui` owns the reusable terminal plugin suite.
-- **References:** `refs/deepseek-harness` and `refs/oh-my-pi` are read-only sources of architecture and interaction ideas. They never enter dependency resolution, builds, tests, or runtime execution.
+- **References:** `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are read-only sources of architecture and interaction ideas. They never enter dependency resolution, builds, tests, or runtime execution.
 
 The product deliberately avoids a second agent core. It adapts Harness capabilities to a local terminal without reimplementing their domain state.
 
@@ -53,7 +53,7 @@ Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markd
 [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) is the authoritative application profile. It composes:
 
 - Cordis loader and timer infrastructure;
-- the DeepSeek LLM adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
+- the official DeepSeek LLM adapter, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
 - durable JSONL sessions, checkpointing, query, title, statistics, and token projections;
 - local attachment, filesystem, subprocess, bash, sandbox, and permission providers;
 - the Standard, PTC, Minimal, and Cordis Agent-plane compositions, plus Harness commands, compaction, todo, goal, plan, approval, questions, and subagents;

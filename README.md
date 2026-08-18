@@ -4,7 +4,7 @@
 
 **Into the Unknown**
 
-A focused, keyboard-first DeepSeek coding agent built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and inspired by the interaction quality of [oh-my-pi](https://github.com/can1357/oh-my-pi).
+A focused, keyboard-first DeepSeek coding agent built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and inspired by the interaction quality of [oh-my-pi](https://github.com/can1357/oh-my-pi) and the original [Pi](https://github.com/earendil-works/pi) agent harness.
 
 [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -78,7 +78,7 @@ See the reproducible [TUI performance report](docs/performance.md) or run `pnpm 
 
 ## Configuration
 
-Run `/login` to open the DeepSeek API Key dashboard, enter a key in a masked prompt, validate it, and save it through the Harness credential store. An interactively selected key takes priority over an inherited `DEEPSEEK_API_KEY` on subsequent requests and across restarts. `/logout` removes the omdsh-managed choice and falls back to the environment when available.
+Run `/login` to configure a provider API key. DeepSeek still opens the official key dashboard, validates the key, and prefers the stored credential over an inherited `DEEPSEEK_API_KEY`. The same command can also activate a catalog provider such as OpenAI or Anthropic, or add a custom provider with its own id, base URL, protocol, and model ids. `/model` then lists every live route. `/logout` removes an omdsh-managed choice and, for DeepSeek, falls back to the environment when available.
 
 Model settings can also come from `$DSH_HOME/settings.yaml`. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).
 
@@ -96,7 +96,7 @@ pnpm smoke               # interactive PTY smoke test
 pnpm smoke:happy         # mock-LLM happy path
 ```
 
-The checkouts in `refs/deepseek-harness` and `refs/oh-my-pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
+The checkouts in `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
 
 ## Changelog
 
@@ -104,12 +104,13 @@ User-visible changes and release history are tracked in [CHANGELOG.md](CHANGELOG
 
 ## Acknowledgements
 
-oh-my-dsh exists because of two projects:
+oh-my-dsh exists because of these projects:
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) provides the runtime foundation, plugin architecture, and the conviction that agent capabilities should be composable rather than embedded in one application.
-- [oh-my-pi](https://github.com/can1357/oh-my-pi) demonstrates how thoughtful terminal interaction, compact information design, and careful keyboard workflows can make an agent feel fast and approachable.
+- [Pi](https://github.com/earendil-works/pi) is the original open agent harness whose terminal interaction, differential rendering, and compact coding-agent craft still set the standard this community builds on.
+- [oh-my-pi](https://github.com/can1357/oh-my-pi) continues that lineage and shows how thoughtful terminal interaction, compact information design, and careful keyboard workflows can make an agent feel fast and approachable.
 
-Thank you to both projects and their contributors. omdsh is an independent community project: it is built on DeepSeek Harness and learns from OMP, but is not an official distribution of either project.
+Thank you to these projects and their contributors. omdsh is an independent community project: it is built on DeepSeek Harness and learns from Pi and OMP, but is not an official distribution of any of them.
 
 ## License
 

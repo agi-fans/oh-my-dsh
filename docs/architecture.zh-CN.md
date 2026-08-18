@@ -8,7 +8,7 @@ oh-my-dsh 是一个通过组合已发布 DeepSeek Harness 软件包构建的终�
 
 - **运行时：** `@deepseek-ai/*` 软件包以固定版本从 npm 安装，并通过其公开导出使用。
 - **产品：** `apps/omdsh` 负责 CLI 和运行时组合；`packages/tui/omdsh-tui` 负责可复用的终端插件套件。
-- **参考项目：** `refs/deepseek-harness` 和 `refs/oh-my-pi` 是只读的架构与交互设计参考，不参与依赖解析、构建、测试或运行时执行。
+- **参考项目：** `refs/deepseek-harness`、`refs/oh-my-pi` 和 `refs/pi` 是只读的架构与交互设计参考，不参与依赖解析、构建、测试或运行时执行。
 
 本项目刻意避免建立第二套 Agent Core。它将 Harness 能力适配到本地终端，而不重新实现这些能力的领域状态。
 
@@ -53,7 +53,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) 是应用 Profile 的权威来源，其中组合了：
 
 - Cordis Loader 与 Timer 基础设施；
-- DeepSeek LLM Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
+- 官方 DeepSeek LLM Adapter、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
 - 持久化 JSONL 会话、Checkpoint、查询、标题、统计与 Token Projection；
 - 本地附件、文件系统、子进程、Bash、Sandbox 和权限 Provider；
 - Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合，以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；

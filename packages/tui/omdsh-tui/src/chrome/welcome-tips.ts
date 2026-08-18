@@ -18,7 +18,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Ctrl+C ×2', text: 'Exit with a resumable session hint' },
   { key: '/resume', text: 'Continue a durable session' },
   { key: '/model', text: 'Switch model and reasoning effort' },
-  { key: '/login', text: 'Configure and validate your DeepSeek API key' },
+  { key: '/login', text: 'Configure a provider API key' },
   { key: '/agent', text: 'Choose Standard, PTC, Minimal, or Cordis' },
   { key: '/workflow', text: 'Choose Default or Plan workflow' },
   { key: '/tool-mode', text: 'Choose Native, Code, or Both tools' },

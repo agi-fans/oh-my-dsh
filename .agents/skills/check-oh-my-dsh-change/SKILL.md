@@ -35,7 +35,7 @@ Do not use `--passWithNoTests`, lower thresholds, or replace a real-entry smoke 
 
 ## Protect repository boundaries
 
-For dependency, build, export, or composition changes, run all `refs/` and symlink audits from `AGENTS.md`. Require both reference submodules to stay clean. Never repair a failing check by importing or linking reference source.
+For dependency, build, export, or composition changes, run all `refs/` and symlink audits from `AGENTS.md`. Require all reference submodules to stay clean. Never repair a failing check by importing or linking reference source.
 
 ## Handle results
 

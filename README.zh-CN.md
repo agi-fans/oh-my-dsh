@@ -4,7 +4,7 @@
 
 **探索未至之境**
 
-一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验的启发。
+一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
 
 [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -78,7 +78,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 ## 配置
 
-运行 `/login` 可以打开 DeepSeek API Key 管理页，通过遮罩输入框接收和验证 Key，再将其保存到 Harness 凭据存储中。用户主动选择的 Key 会从后续模型请求开始优先于继承的 `DEEPSEEK_API_KEY`，重启后仍然有效。`/logout` 会删除这份由 omdsh 管理的配置，并在环境变量可用时回退到环境变量。
+运行 `/login` 可以配置一家提供方的 API Key。DeepSeek 仍会打开官方 Key 管理页、验证 Key，并让这份存储凭据优先于继承的 `DEEPSEEK_API_KEY`。同一条命令也可以激活 OpenAI、Anthropic 等 catalog 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。之后 `/model` 会列出所有已激活的路由。`/logout` 会删除由 omdsh 管理的选择；对 DeepSeek 而言，环境变量可用时会回退到环境变量。
 
 模型配置也可以来自 `$DSH_HOME/settings.yaml`。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.zh-CN.md)。
 
@@ -96,7 +96,7 @@ pnpm smoke               # 交互式 PTY 冒烟测试
 pnpm smoke:happy         # 使用模拟 LLM 验证正常流程
 ```
 
-`refs/deepseek-harness` 与 `refs/oh-my-pi` 中的代码是只读参考项目。开发 omdsh 时不要将它们用作运行时依赖，也不要修改其内容。
+`refs/deepseek-harness`、`refs/oh-my-pi` 与 `refs/pi` 中的代码是只读参考项目。开发 omdsh 时不要将它们用作运行时依赖，也不要修改其内容。
 
 ## 变更日志
 
@@ -104,12 +104,13 @@ pnpm smoke:happy         # 使用模拟 LLM 验证正常流程
 
 ## 致谢
 
-oh-my-dsh 的诞生离不开两个项目：
+oh-my-dsh 的诞生离不开这些项目：
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供了运行时基础、插件架构，以及 Agent 能力应当通过组合而非内嵌于单一应用中的设计信念。
-- [oh-my-pi](https://github.com/can1357/oh-my-pi) 展示了细致的终端交互、紧凑的信息设计和精心设计的键盘工作流，如何让 Agent 既快速又易于使用。
+- [Pi](https://github.com/earendil-works/pi) 是最初的开放式 Agent Harness，其终端交互、差分渲染和紧凑的 Coding Agent 工艺，至今仍是这个社区继续建设的基准。
+- [oh-my-pi](https://github.com/can1357/oh-my-pi) 延续了这条脉络，并展示了细致的终端交互、紧凑的信息设计和精心设计的键盘工作流，如何让 Agent 既快速又易于使用。
 
-感谢这两个项目及其所有贡献者。omdsh 是一个独立的社区项目：它构建于 DeepSeek Harness 之上并从 OMP 学习，但不是其中任何一个项目的官方发行版本。
+感谢这些项目及其所有贡献者。omdsh 是一个独立的社区项目：它构建于 DeepSeek Harness 之上，并从 Pi 与 OMP 学习，但不是其中任何一个项目的官方发行版本。
 
 ## 许可证
 

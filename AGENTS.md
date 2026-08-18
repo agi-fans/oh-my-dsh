@@ -12,13 +12,13 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 
 ## Reference Repositories Are Read-Only
 
-- Everything under `refs/` is read-only reference material. Never edit, format, patch, generate files into, or commit changes inside either reference submodule.
-- `refs/deepseek-harness` is for API, architecture, and behavior research only. `refs/oh-my-pi` is for UX and TUI design research only.
+- Everything under `refs/` is read-only reference material. Never edit, format, patch, generate files into, or commit changes inside any reference submodule.
+- `refs/deepseek-harness` is for API, architecture, and behavior research only. `refs/oh-my-pi` is for UX and TUI design research only. `refs/pi` is the original Pi agent harness, kept for lineage and interaction research only.
 - Reference projects must never participate in dependency resolution, TypeScript project references, path aliases, workspace membership, builds, tests, runtime execution, package patches, or generated symlinks.
 - Do not import files from `refs/`, execute scripts from `refs/`, or add `link:refs/...`, `file:refs/...`, `paths` mappings, or package-manager overrides that point into `refs/`.
 - When upstream behavior is useful, reimplement or adapt it within an omdsh-owned package. Do not solve a missing API by modifying a reference checkout.
 - Documentation may link to files under `refs/` as supporting references, provided those links do not become runtime or build dependencies.
-- Before handing off dependency or build changes, verify that both reference submodules are clean and that no project-owned dependency symlink resolves into `refs/`.
+- Before handing off dependency or build changes, verify that all reference submodules are clean and that no project-owned dependency symlink resolves into `refs/`.
 
 ## Dependency Policy
 
@@ -96,6 +96,7 @@ rg -n 'refs/deepseek-harness|link:refs' package.json pnpm-workspace.yaml pnpm-lo
 find node_modules apps packages -type l -lname '*refs/deepseek-harness*' -print
 git -C refs/deepseek-harness status --short
 git -C refs/oh-my-pi status --short
+git -C refs/pi status --short
 ```
 
-- The first two audit commands must produce no matches. Both reference submodule status commands must be clean.
+- The first two audit commands must produce no matches. All reference submodule status commands must be clean.

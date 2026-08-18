@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Show live descendant subagents above the composer, with each child's label, run state, and current tool, and present `subagent`, `send_message`, `interrupt_agent`, and `list_agents` cards by their task description instead of raw JSON.
 - Open a subagent's own transcript from the Agents roster by clicking a row or pressing Alt+A, and return to the parent with Escape.
 - Steer a continuable subagent from its inspect view: the composer delivers a follow-up to that child, while one-shot runs stay read-only.
+- Acknowledge [Pi](https://github.com/earendil-works/pi) among the project's design influences.
+- Add catalog and custom model providers through the published Harness pi-ai adapter. `/login` can store a catalog key or add a custom route (id, base URL, protocol, optional key, and model ids), `/logout` can drop that route, and `/model` lists every live provider.
 
 ### Changed
 

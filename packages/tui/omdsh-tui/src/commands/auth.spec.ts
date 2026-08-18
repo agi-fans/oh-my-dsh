@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { CredentialInfo } from '@deepseek-ai/dsh-credentials'
+import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandAuth from './auth.ts'
 import type { TuiPrompt, TuiService } from '../definition.ts'
@@ -23,9 +24,57 @@ interface AuthHarnessOptions {
   fallback?: CredentialInfo
   override?: CredentialInfo
   activeCredentialRef?: string
+  configurable?: readonly LlmConfigurableProvider[]
+  liveProviders?: readonly string[]
+  piAiSettings?: Record<string, unknown>
 }
 
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
+
+const DEEPSEEK_ENTRY: LlmConfigurableProvider = {
+  provider: commandAuth.DEEPSEEK_PROVIDER,
+  displayName: 'DeepSeek',
+  settingsNs: 'llm-deepseek',
+  settingsPath: [],
+}
+
+const OPENAI_ENTRY: LlmConfigurableProvider = {
+  provider: 'openai',
+  displayName: 'openai',
+  settingsNs: 'llm-pi-ai',
+  settingsPath: ['providers', 'openai'],
+  declared: false,
+}
+
+function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown): Record<string, unknown> {
+  if (path.length === 0) return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? { ...value as Record<string, unknown> }
+    : root
+  const [head, ...rest] = path
+  if (head === undefined) return root
+  const next = setPath(
+    typeof root[head] === 'object' && root[head] !== null && !Array.isArray(root[head])
+      ? { ...root[head] as Record<string, unknown> }
+      : {},
+    rest,
+    value,
+  )
+  return { ...root, [head]: next }
+}
+
+function unsetPath(root: Record<string, unknown>, path: readonly string[]): Record<string, unknown> {
+  if (path.length === 0) return {}
+  const [head, ...rest] = path
+  if (head === undefined) return root
+  if (rest.length === 0) {
+    const next = { ...root }
+    delete next[head]
+    return next
+  }
+  const child = root[head]
+  if (typeof child !== 'object' || child === null || Array.isArray(child)) return root
+  return { ...root, [head]: unsetPath({ ...child as Record<string, unknown> }, rest) }
+}
 
 async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarness> {
   const ctx = new Context()
@@ -44,26 +93,37 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   const unset = vi.fn(async (ref: typeof commandAuth.DEEPSEEK_API_KEY) => {
     credentials.set(String(ref), UNCONFIGURED)
   })
-  let settingsValue: Record<string, unknown> = {
-    apiKeyEnv: options.activeCredentialRef ?? String(commandAuth.DEEPSEEK_API_KEY),
-  }
-  const settingsUpdate = vi.fn(async (_namespace: unknown, patch: Record<string, unknown>) => {
-    settingsValue = { ...settingsValue, ...patch }
+  const sections = new Map<string, Record<string, unknown>>([
+    [String(commandAuth.DEEPSEEK_SETTINGS), {
+      apiKeyEnv: options.activeCredentialRef ?? String(commandAuth.DEEPSEEK_API_KEY),
+    }],
+    [String(commandAuth.PI_AI_SETTINGS), options.piAiSettings ?? {}],
+  ])
+  const settingsUpdate = vi.fn(async (namespace: unknown, patch: Record<string, unknown>) => {
+    sections.set(String(namespace), { ...sections.get(String(namespace)), ...patch })
   })
-  const settingsMutate = vi.fn(async (_namespace: unknown, operations: readonly { op: string, path: readonly string[] }[]) => {
+  const settingsMutate = vi.fn(async (
+    namespace: unknown,
+    operations: readonly { op: string, path: readonly string[], value?: unknown }[],
+  ) => {
+    let current = { ...sections.get(String(namespace)) }
     for (const operation of operations) {
-      if (operation.op === 'unset' && operation.path.join('.') === 'apiKeyEnv') {
-        settingsValue = { ...settingsValue }
-        delete settingsValue['apiKeyEnv']
-      }
+      if (operation.op === 'set') current = setPath(current, operation.path, operation.value)
+      if (operation.op === 'unset') current = unsetPath(current, operation.path)
     }
+    sections.set(String(namespace), current)
   })
   ctx.provide('tui', { prompt } as unknown as TuiService)
   ctx.provide('credentials', { describe, set, unset } as never)
   ctx.provide('settings', {
-    get: () => settingsValue,
+    get: (namespace: unknown) => sections.get(String(namespace)),
     update: settingsUpdate,
     mutate: settingsMutate,
+  } as never)
+  ctx.provide('llm', {
+    listConfigurableProviders: () => options.configurable ?? [DEEPSEEK_ENTRY],
+    listProviders: () => (options.liveProviders ?? [commandAuth.DEEPSEEK_PROVIDER])
+      .map(id => ({ id, name: id })),
   } as never)
   await ctx.plugin(commandAuth, { openDashboard: false })
   const session = ctx.sessions.create(SessionId('auth-command-test'))
@@ -84,7 +144,7 @@ describe('DeepSeek auth commands', () => {
   it('collects a masked key, normalizes it, validates it, and stores it through credentials', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    const harness = await authHarness({ answers: ['  Bearer sk-live  '] })
+    const harness = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, '  Bearer sk-live  '] })
 
     const execution = await harness.ctx.commands.execute(
       harness.agent,
@@ -116,7 +176,7 @@ describe('DeepSeek auth commands', () => {
   it('does not store a key rejected by DeepSeek or expose it in the result', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
     const secret = 'sk-do-not-print'
-    const harness = await authHarness({ answers: [secret] })
+    const harness = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, secret] })
 
     const execution = await harness.ctx.commands.execute(
       harness.agent,
@@ -182,7 +242,7 @@ describe('DeepSeek auth commands', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
     const loginHarness = await authHarness({
       fallback: { configured: true, source: 'env', writable: false },
-      answers: ['sk-user-choice'],
+      answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-user-choice'],
     })
     const login = await loginHarness.ctx.commands.execute(
       loginHarness.agent,
@@ -228,5 +288,137 @@ describe('DeepSeek auth commands', () => {
     expect(harness.prompt).not.toHaveBeenCalled()
     expect(harness.set).not.toHaveBeenCalled()
     await harness.ctx.fiber.dispose()
+  })
+})
+
+describe('catalog provider auth', () => {
+  it('stores a catalog key and activates the pi-ai route', async () => {
+    const harness = await authHarness({
+      configurable: [
+        DEEPSEEK_ENTRY,
+        {
+          provider: 'deepseek',
+          displayName: 'deepseek',
+          settingsNs: 'llm-pi-ai',
+          settingsPath: ['providers', 'deepseek'],
+          declared: false,
+        },
+        OPENAI_ENTRY,
+      ],
+      answers: ['openai', '  Bearer sk-openai  '],
+    })
+    const ref = commandAuth.managedProviderCredentialRef('openai')
+
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      new AbortController().signal,
+    )
+
+    expect(harness.prompt).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      title: 'Provider',
+      question: 'Choose a provider to configure',
+      options: [
+        { label: 'deepseek', value: commandAuth.DEEPSEEK_PROVIDER, description: 'configured' },
+        { label: 'openai', value: 'openai', description: 'not configured' },
+        {
+          label: 'custom',
+          value: commandAuth.CUSTOM_PROVIDER_VALUE,
+          description: 'Add a provider that is not in the catalog',
+        },
+      ],
+    }))
+    expect(harness.prompt).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      title: 'Login to openai',
+      secret: true,
+      submitLabel: 'save',
+    }))
+    expect(harness.set).toHaveBeenCalledWith(ref, 'sk-openai')
+    expect(harness.settingsMutate).toHaveBeenCalledWith(commandAuth.PI_AI_SETTINGS, [
+      { op: 'set', path: ['providers', 'openai', 'apiKeyEnv'], value: String(ref) },
+    ])
+    expect(execution?.result).toEqual({
+      kind: 'success',
+      text: 'Logged in to openai. Use /model to choose a model from openai.',
+    })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('drops a catalog route and the managed key on logout', async () => {
+    const ref = commandAuth.managedProviderCredentialRef('openai')
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
+      liveProviders: [commandAuth.DEEPSEEK_PROVIDER, 'openai'],
+      piAiSettings: { providers: { openai: { apiKeyEnv: String(ref) } } },
+      answers: ['openai', 'logout'],
+    })
+    await harness.set(ref, 'sk-openai')
+
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/logout',
+      new AbortController().signal,
+    )
+
+    expect(harness.settingsMutate).toHaveBeenCalledWith(commandAuth.PI_AI_SETTINGS, [
+      { op: 'unset', path: ['providers', 'openai'] },
+    ])
+    expect(harness.unset).toHaveBeenCalledWith(ref)
+    expect(execution?.result).toEqual({ kind: 'success', text: 'Logged out from openai.' })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('writes a custom provider profile from typed id, URL, protocol, and models', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      answers: [
+        'custom',
+        'my-gateway',
+        'http://127.0.0.1:11434/v1/',
+        'openai-completions',
+        'sk-local',
+        'enter',
+        'llama3, qwen2.5',
+      ],
+    })
+    const ref = commandAuth.managedProviderCredentialRef('my-gateway')
+
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      new AbortController().signal,
+    )
+
+    expect(harness.set).toHaveBeenCalledWith(ref, 'sk-local')
+    expect(harness.settingsMutate).toHaveBeenCalledWith(commandAuth.PI_AI_SETTINGS, [{
+      op: 'set',
+      path: ['providers', 'my-gateway'],
+      value: {
+        api: 'openai-completions',
+        baseURL: 'http://127.0.0.1:11434/v1',
+        models: [{ id: 'llama3' }, { id: 'qwen2.5' }],
+        apiKeyEnv: String(ref),
+      },
+    }])
+    expect(execution?.result).toEqual({
+      kind: 'success',
+      text: 'Added my-gateway with 2 models. Use /model to choose it.',
+    })
+    await harness.ctx.fiber.dispose()
+  })
+})
+
+describe('custom provider parsing', () => {
+  it('accepts kebab-case ids, http(s) URLs, and model lists', () => {
+    expect(commandAuth.parseProviderId(' My-Gateway ')).toBe('my-gateway')
+    expect(commandAuth.parseBaseURL('http://127.0.0.1:11434/v1/')).toBe('http://127.0.0.1:11434/v1')
+    expect(commandAuth.parseModelIds('llama3, qwen2.5  llama3')).toEqual(['llama3', 'qwen2.5'])
+  })
+
+  it('rejects reserved or malformed custom fields', () => {
+    expect(() => commandAuth.parseProviderId('custom')).toThrow(/different provider id/u)
+    expect(() => commandAuth.parseProviderId('1gateway')).toThrow(/lowercase/u)
+    expect(() => commandAuth.parseBaseURL('127.0.0.1:11434')).toThrow(/absolute/u)
+    expect(() => commandAuth.parseModelIds('  ,  ')).toThrow(/at least one/u)
   })
 })

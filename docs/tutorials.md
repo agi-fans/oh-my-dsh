@@ -150,7 +150,9 @@ Run `/export` to write the complete transcript as `omdsh-transcript-<session-id>
 
 ### Select model and reasoning effort
 
-Run `/model` to open the model selector. omdsh first resolves the DeepSeek provider, then lets you choose an available model and, when supported, its reasoning effort. The active choice appears on the first status line and is stored in the durable session state.
+Run `/model` to open the model selector. When more than one provider is live, omdsh first asks which provider to use, then lets you choose an available model and, when supported, its reasoning effort. The active choice appears on the first status line and is stored in the durable session state.
+
+To add another catalog provider, run `/login`, choose the provider, and paste its API key. The route becomes live on the next model request. Choose `custom` to add a gateway or local server that is not in the catalog: give it a permanent id, base URL, API protocol, optional key, and one or more model ids. `/logout` can drop that route without touching environment credentials.
 
 ### Customize the interface
 

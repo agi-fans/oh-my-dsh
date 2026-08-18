@@ -39,7 +39,10 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
       ...fixedChoice(providers.length),
       title: 'Model provider',
       question: 'Choose a provider',
-      options: providers.map(entry => ({ label: entry.id, description: entry.name })),
+      options: providers.map(entry => ({
+        label: entry.id === 'deepseek-official' ? 'deepseek' : entry.id,
+        value: entry.id,
+      })),
       initialValue: current.provider,
       signal: invocation.signal,
     })

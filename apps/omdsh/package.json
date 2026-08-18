@@ -55,6 +55,7 @@
     "@deepseek-ai/dsh-launch-environment": "0.1.0-rc.7",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
     "@deepseek-ai/dsh-llm-deepseek": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.1.0-rc.7",
     "@deepseek-ai/dsh-mcp-client": "0.1.0-rc.7",
     "@deepseek-ai/dsh-permission-presets": "0.1.0-rc.7",
     "@deepseek-ai/dsh-persona": "0.1.0-rc.7",

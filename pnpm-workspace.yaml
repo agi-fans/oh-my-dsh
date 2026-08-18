@@ -124,3 +124,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-terminal@0.1.0-rc.7'
   - '@deepseek-ai/dsh-tool-bash-persistent@0.1.0-rc.7'
   - '@deepseek-ai/dsh-tool-cordis@0.1.0-rc.7'
+  - '@deepseek-ai/dsh-llm-pi-ai@0.1.0-rc.7'
