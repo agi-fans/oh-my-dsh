@@ -6,6 +6,7 @@ import {
   BUILTIN_SLASH_COMMANDS,
   findLeadingSlashCommandStart,
   formatHelpText,
+  leadingSlashCommandNameRange,
   parseSlashInput,
   renderAutocomplete,
   hitTestAutocomplete,
@@ -24,6 +25,22 @@ describe('findLeadingSlashCommandStart', () => {
     expect(findLeadingSlashCommandStart('  /help')).toBe(2)
     expect(findLeadingSlashCommandStart('say /help')).toBe(null)
     expect(findLeadingSlashCommandStart('help')).toBe(null)
+  })
+})
+
+describe('leadingSlashCommandNameRange', () => {
+  it('covers the leading /name token the way parseSlashInput splits it', () => {
+    expect(leadingSlashCommandNameRange('/')).toEqual({ start: 0, end: 1 })
+    expect(leadingSlashCommandNameRange('/help')).toEqual({ start: 0, end: 5 })
+    expect(leadingSlashCommandNameRange('  /copy text')).toEqual({ start: 2, end: 7 })
+    expect(leadingSlashCommandNameRange('/foo:bar')).toEqual({ start: 0, end: 4 })
+    expect(leadingSlashCommandNameRange('/skill:code-review focus')).toEqual({ start: 0, end: 18 })
+  })
+
+  it('rejects prose, multiline buffers, and absolute-path lookalikes', () => {
+    expect(leadingSlashCommandNameRange('say /help')).toBe(null)
+    expect(leadingSlashCommandNameRange('/help\nmore')).toBe(null)
+    expect(leadingSlashCommandNameRange('/tmp/foo')).toBe(null)
   })
 })
 
@@ -204,6 +221,21 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(hitTestAutocomplete(8, 6, 0)).toBe(3)
     expect(hitTestAutocomplete(8, 6, 3)).toBe(6)
     expect(hitTestAutocomplete(8, 6, 5)).toBeUndefined()
+  })
+
+  it('paints unselected command names in the accent color', () => {
+    const color = createTheme(true, true)
+    const lines = renderAutocomplete(
+      [
+        { value: 'help', label: 'help', description: 'Show commands' },
+        { value: 'quit', label: 'q', description: 'Quit' },
+      ],
+      0,
+      color,
+      40,
+    )
+    expect(lines.some(line => line.includes(color.bold(color.fg('accent', '/help'))))).toBe(true)
+    expect(lines.some(line => line.includes(color.fg('accent', '/q')) && !line.includes(color.bold(color.fg('accent', '/q'))))).toBe(true)
   })
 
   it('paints argument rows without a leading slash', () => {

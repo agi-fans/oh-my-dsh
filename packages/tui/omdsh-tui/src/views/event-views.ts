@@ -15,7 +15,7 @@ import type { CallId, ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
-import { renderAutocomplete, slashInlineHint } from './autocomplete.ts'
+import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
 import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from '../chrome/box.ts'
 import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
@@ -924,21 +924,57 @@ export function windowTranscript(
 
 const IMAGE_MARKER = /\[Image #\d+(?:, \d+x\d+)?\]/gu
 
-function paintImageMarkerSlice(fullText: string, slice: string, sourceStart: number, theme: Theme): string {
+function imageMarkerRanges(text: string): { start: number; end: number }[] {
+  return [...text.matchAll(IMAGE_MARKER)].map(match => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
+}
+
+function coveringRange(
+  ranges: readonly { start: number; end: number }[],
+  index: number,
+): { start: number; end: number } | undefined {
+  return ranges.find(range => range.start <= index && index < range.end)
+}
+
+function nextRangeStart(ranges: readonly { start: number; end: number }[], index: number): number {
+  let next = Number.POSITIVE_INFINITY
+  for (const range of ranges) {
+    if (range.start > index && range.start < next) next = range.start
+  }
+  return next
+}
+
+/** Paint a wrapped composer slice: leading `/name` plus image markers. */
+function paintComposerInputSlice(fullText: string, slice: string, sourceStart: number, theme: Theme): string {
   const sourceEnd = sourceStart + slice.length
+  const slash = leadingSlashCommandNameRange(fullText)
+  const slashRanges = slash === null ? [] : [slash]
+  const images = imageMarkerRanges(fullText)
+  if (slashRanges.length === 0 && images.length === 0) return slice
+
   let output = ''
   let cursor = sourceStart
-  for (const match of fullText.matchAll(IMAGE_MARKER)) {
-    const markerStart = match.index
-    const markerEnd = markerStart + match[0].length
-    if (markerEnd <= sourceStart || markerStart >= sourceEnd) continue
-    const overlapStart = Math.max(sourceStart, markerStart)
-    const overlapEnd = Math.min(sourceEnd, markerEnd)
-    output += fullText.slice(cursor, overlapStart)
-    output += theme.underline(theme.bold(theme.fg('accent', fullText.slice(overlapStart, overlapEnd))))
-    cursor = overlapEnd
+  while (cursor < sourceEnd) {
+    const image = coveringRange(images, cursor)
+    if (image !== undefined) {
+      const end = Math.min(image.end, sourceEnd)
+      output += theme.underline(theme.bold(theme.fg('accent', fullText.slice(cursor, end))))
+      cursor = end
+      continue
+    }
+    const command = coveringRange(slashRanges, cursor)
+    if (command !== undefined) {
+      const end = Math.min(command.end, sourceEnd, nextRangeStart(images, cursor))
+      output += theme.bold(theme.fg('accent', fullText.slice(cursor, end)))
+      cursor = end
+      continue
+    }
+    const end = Math.min(sourceEnd, nextRangeStart(images, cursor), nextRangeStart(slashRanges, cursor))
+    output += fullText.slice(cursor, end)
+    cursor = end
   }
-  output += fullText.slice(cursor, sourceEnd)
   return output
 }
 
@@ -1276,9 +1312,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       || state.status === 'idle'
       ? 'border'
       : 'accent',
-    ...(options.inputImages === undefined || options.inputImages === 0
-      ? {}
-      : { paintInput: (text: string, start: number) => paintImageMarkerSlice(options.input, text, start, theme) }),
+    ...(theme.colors && (
+      leadingSlashCommandNameRange(options.input) !== null
+      || (options.inputImages !== undefined && options.inputImages !== 0)
+    )
+      ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
+      : {}),
     ...(inlineHint !== null ? { inlineHint } : {}),
   }
   const promptSelector = options.promptSelector === undefined

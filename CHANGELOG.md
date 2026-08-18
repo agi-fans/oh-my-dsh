@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Highlight leading `/command` tokens in the composer, and paint slash-command names in the completion list, so those lines read as commands rather than ordinary prompt text.
 - Use monochrome Unicode marks for pending, warning, todos, and settings instead of emoji-presentation glyphs.
 
 ### Fixed

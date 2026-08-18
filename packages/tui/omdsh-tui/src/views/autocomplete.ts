@@ -63,6 +63,25 @@ export function findLeadingSlashCommandStart(text: string): number | null {
   return text.length - trimmed.length
 }
 
+/**
+ * Source range of a leading `/name` token, matching {@link parseSlashInput}.
+ * Null for prose, multiline input, or an absolute-path lookalike (`/tmp/foo`).
+ */
+export function leadingSlashCommandNameRange(text: string): { start: number; end: number } | null {
+  if (text.includes('\n')) return null
+  const start = findLeadingSlashCommandStart(text)
+  if (start === null) return null
+  const token = text.slice(start)
+  if (token.slice(1).includes('/')) return null
+  const body = token.slice(1)
+  if (body.startsWith('skill:')) {
+    const space = body.search(/\s/u)
+    return { start, end: start + 1 + (space === -1 ? body.length : space) }
+  }
+  const sep = body.search(/[\s:]/u)
+  return { start, end: start + 1 + (sep === -1 ? body.length : sep) }
+}
+
 /** Subsequence match (`wig` hits `skill:wig`). */
 export function fuzzyMatch(query: string, target: string): boolean {
   if (query.length === 0) return true
@@ -367,7 +386,11 @@ export function renderAutocomplete(
     const isSelected = i === index
     const cursor = isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
     const name = item.kind === 'argument' || item.kind === 'path' ? item.label : '/' + item.label
-    const painted = isSelected ? theme.bold(theme.fg('accent', name)) : name
+    const painted = isSelected
+      ? theme.bold(theme.fg('accent', name))
+      : item.kind === 'argument' || item.kind === 'path'
+        ? name
+        : theme.fg('accent', name)
     const desc = item.description !== undefined && item.description !== ''
       ? theme.fg('muted', '  ' + item.description)
       : ''

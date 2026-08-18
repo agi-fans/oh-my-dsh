@@ -1140,6 +1140,38 @@ describe('renderView', () => {
     expect(frame.cursor?.column).toBe(8)
   })
 
+  it('highlights a leading slash command in the editor without restyling its arguments', () => {
+    const color = createTheme(true, true)
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '/copy text',
+      inputCursor: 10,
+      colors: true,
+      trueColor: true,
+    })
+    const body = frame.lines[(frame.editor?.start ?? 0) + 1] ?? ''
+    expect(body).toContain(color.bold(color.fg('accent', '/copy')) + ' text')
+    expect(stripAnsi(body)).toContain('/copy text')
+  })
+
+  it('does not highlight an absolute-path lookalike in the editor', () => {
+    const color = createTheme(true, true)
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '/tmp/foo',
+      inputCursor: 8,
+      colors: true,
+      trueColor: true,
+    })
+    const body = frame.lines[(frame.editor?.start ?? 0) + 1] ?? ''
+    expect(body).not.toContain(color.getFgAnsi('accent'))
+    expect(stripAnsi(body)).toContain('/tmp/foo')
+  })
+
   it('paints the slash-command popup under the editor', () => {
     const frame = renderView(initialTranscript(), {
       width: 60,
