@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Keep ↑/↓ inside the current `/settings` tab instead of crossing into the other section.
 - Hide the blinking composer cursor while a read-only subagent transcript is open.
 - Paint idle subagents with a check instead of the hourglass pending glyph.
 

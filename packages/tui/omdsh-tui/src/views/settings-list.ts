@@ -343,15 +343,17 @@ function toggleSelectedVisibility(state: SettingsState): SettingsState {
   return { selected: state.selected, prefs: { ...state.prefs, statusBar: toggleStatusItem(resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset), item) } }
 }
 
+const GENERAL_SETTING_COUNT = 5
+
 function moveSelected(state: SettingsState, next: number): SettingsState {
   const n = tuiSettingItems(state.prefs).length
   if (n === 0) return state
-  const selected = (next % n + n) % n
+  const start = state.selected < GENERAL_SETTING_COUNT ? 0 : GENERAL_SETTING_COUNT
+  const end = state.selected < GENERAL_SETTING_COUNT ? GENERAL_SETTING_COUNT : n
+  const selected = Math.max(start, Math.min(next, end - 1))
   if (selected === state.selected) return state
   return { ...state, selected }
 }
-
-const GENERAL_SETTING_COUNT = 5
 
 function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
   const inGeneral = state.selected < GENERAL_SETTING_COUNT

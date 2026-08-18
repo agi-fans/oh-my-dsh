@@ -104,6 +104,19 @@ describe('applySettingsEvent', () => {
     expect(applySettingsEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
   })
 
+  it('keeps up and down inside the active settings tab', () => {
+    const lastGeneral = createSettings(prefs, 'startupChangelog')
+    const down = applySettingsEvent(lastGeneral, key('down'))
+    expect(down).toEqual({ kind: 'update', state: lastGeneral })
+    const firstStatus = createSettings(prefs, 'statusEnabled')
+    const up = applySettingsEvent(firstStatus, key('up'))
+    expect(up).toEqual({ kind: 'update', state: firstStatus })
+    const end = applySettingsEvent(firstStatus, key('end'))
+    expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
+    const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
+    expect(home.kind === 'update' && home.state.selected).toBe(5)
+  })
+
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
