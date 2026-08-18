@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-18
+
 ### Fixed
 
 - Resume sessions that recorded the omdsh tool-presentation event instead of refusing the log as an unknown harness type.
@@ -138,7 +140,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.2.0...v0.3.0
