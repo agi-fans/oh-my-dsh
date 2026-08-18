@@ -20,6 +20,11 @@
     "lib/*.d.ts",
     "config"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./config/cordis.yml"
+    }
+  },
   "license": "MIT",
   "publishConfig": {
     "access": "public"

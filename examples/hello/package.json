@@ -1,0 +1,24 @@
+{
+  "name": "@agi-fans/omdsh-plugin-hello",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example omdsh bundle that registers a /hello command through dsh-commands",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-commands": "^0.1.0-rc.7"
+  }
+}

@@ -1,0 +1,6 @@
+# Example omdsh bundle: one insert over the empty Profile root.
+# After `omdsh plugin add`, this layer sits after @agi-fans/oh-my-dsh.
+
+- insert:
+    - id: omdsh-hello
+      name: '@agi-fans/omdsh-plugin-hello'

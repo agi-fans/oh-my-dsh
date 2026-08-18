@@ -30,6 +30,15 @@ describe('omdsh arguments', () => {
     })
   })
 
+  it('parses plugin arguments without treating them as a prompt', () => {
+    expect(parseOmdshArgs(['plugin', 'add', '@scope/dsh-example'], '0.1.0')).toMatchObject({
+      plugin: true,
+      pluginArgs: ['add', '@scope/dsh-example'],
+      prompt: [],
+      dumpConfig: false,
+    })
+  })
+
   it('rejects dump-config combined with a prompt or resume', () => {
     vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error('exit ' + String(code))

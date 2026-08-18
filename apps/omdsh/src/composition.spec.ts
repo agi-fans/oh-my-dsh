@@ -10,10 +10,13 @@ import {
   dumpOmdshConfig,
   homePatchPath,
   loadBootPatches,
-  loadUserPatchLayers,
   prepareLaunchEnvironment,
+  PRODUCT_BUNDLE,
+  PROFILE_PATCH_LABEL,
+  SHIPPED_PRESET_ROOT,
   writeAll,
 } from './composition.ts'
+import { composeLaunch } from './profile.ts'
 
 const appRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -37,11 +40,17 @@ describe('boot patch assembly', () => {
     writeFileSync(join(cwd, '.dsh', 'mcp.json'), JSON.stringify({
       mcpServers: { memory: { command: 'memory-server' } },
     }))
-    const layers = loadUserPatchLayers(cwd, { OMDSH_HOME: home })
-    expect(layers.map(layer => layer.label)).toEqual(['mcp.json'])
-    expect(loadBootPatches(cwd, { OMDSH_HOME: home })).toEqual([
-      expect.objectContaining({ insert: [expect.objectContaining({ id: 'mcp-memory' })] }),
+    const layers = composeLaunch(cwd, { OMDSH_HOME: home }).layers
+    expect(layers.map(layer => layer.label)).toEqual([
+      PRODUCT_BUNDLE,
+      PROFILE_PATCH_LABEL,
+      'mcp.json',
+      'agent-presets',
     ])
+    expect(loadBootPatches(cwd, { OMDSH_HOME: home })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ insert: expect.arrayContaining([expect.objectContaining({ id: 'tui' })]) }),
+      expect.objectContaining({ insert: [expect.objectContaining({ id: 'mcp-memory' })] }),
+    ]))
   })
 
   it('applies a home cordis.patch.yml before MCP inserts', () => {
@@ -52,10 +61,20 @@ describe('boot patch assembly', () => {
     writeFileSync(join(cwd, '.dsh', 'mcp.json'), JSON.stringify({
       mcpServers: { memory: { command: 'memory-server' } },
     }))
-    expect(loadBootPatches(cwd, { OMDSH_HOME: home })).toEqual([
-      { id: 'tui', disabled: true },
-      expect.objectContaining({ insert: [expect.objectContaining({ id: 'mcp-memory' })] }),
+    expect(composeLaunch(cwd, { OMDSH_HOME: home }).layers.map(layer => layer.label)).toEqual([
+      PRODUCT_BUNDLE,
+      PROFILE_PATCH_LABEL,
+      'cordis.patch.yml',
+      'mcp.json',
+      'agent-presets',
     ])
+    const patches = loadBootPatches(cwd, { OMDSH_HOME: home })
+    const homeIndex = patches.findIndex(patch => !('insert' in patch) && (patch as { id?: string }).id === 'tui')
+    const mcpIndex = patches.findIndex(patch => 'insert' in patch
+      && Array.isArray((patch as { insert?: { id?: string }[] }).insert)
+      && (patch as { insert: { id?: string }[] }).insert.some(row => row.id === 'mcp-memory'))
+    expect(homeIndex).toBeGreaterThan(0)
+    expect(mcpIndex).toBeGreaterThan(homeIndex)
   })
 
   it('fails loud when the home patch file is present but not a list', () => {
@@ -93,10 +112,12 @@ describe('boot patch assembly', () => {
     const home = temp('omdsh-compose-dump-')
     writeFileSync(join(home, 'cordis.patch.yml'), '- id: tui\n  disabled: true\n')
     const dump = dumpOmdshConfig(temp('omdsh-compose-dump-cwd-'), { OMDSH_HOME: home })
+    expect(dump).toContain(PRODUCT_BUNDLE)
     expect(dump).toContain('cordis.patch.yml')
     expect(dump).toContain('id: tui')
     expect(dump).toMatch(/disabled:\s*true/u)
     expect(dump).toContain('name: \'@agi-fans/dsh-tui\'')
+    expect(dump).toContain(SHIPPED_PRESET_ROOT)
     expect(dump).not.toContain('mcp.json')
   })
 
@@ -109,6 +130,7 @@ describe('boot patch assembly', () => {
       mcpServers: { memory: { command: 'memory-server' } },
     }))
     const dump = dumpOmdshConfig(cwd, { OMDSH_HOME: home })
+    expect(dump).toContain(PRODUCT_BUNDLE)
     expect(dump).toContain('cordis.patch.yml')
     expect(dump).toContain('mcp.json')
     expect(dump).toContain('mcp-memory')
@@ -133,12 +155,15 @@ describe('boot patch assembly', () => {
       prepareLaunchEnvironment(cwd)
       const patches = loadBootPatches(cwd)
       const dump = dumpOmdshConfig(cwd)
-      expect(patches[0]).toEqual({ id: 'tui', disabled: true })
-      expect(patches[1]).toEqual(expect.objectContaining({
-        insert: [expect.objectContaining({
-          config: expect.objectContaining({ headers: { Authorization: 'Bearer from-env' } }),
-        })],
-      }))
+      expect(patches).toEqual(expect.arrayContaining([
+        { id: 'tui', disabled: true },
+        expect.objectContaining({
+          insert: [expect.objectContaining({
+            config: expect.objectContaining({ headers: { Authorization: 'Bearer from-env' } }),
+          })],
+        }),
+      ]))
+      expect(dump).toContain(PRODUCT_BUNDLE)
       expect(dump).toContain('cordis.patch.yml')
       expect(dump).toContain('mcp.json')
       expect(dump).toMatch(/disabled:\s*true/u)
@@ -173,6 +198,7 @@ describe('boot patch assembly', () => {
       timeout: 30_000,
     })
     expect(result.status).toBe(0)
+    expect(result.stdout).toContain(PRODUCT_BUNDLE)
     expect(result.stdout).toContain('@agi-fans/dsh-tui')
     expect(result.stdout).not.toContain('Into the Unknown')
   })

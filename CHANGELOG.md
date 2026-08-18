@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Add [Write a plugin](docs/tutorials/write-a-plugin.md), a walkthrough for writing, installing, and publishing an omdsh plugin bundle.
+- Ship [`examples/hello`](examples/hello), an installable bundle that registers `/hello` through `dsh-commands`.
+- Install user DSH bundles into `$OMDSH_HOME/profiles/omdsh` with `omdsh plugin add` and `omdsh plugin remove`, and compose them after the shipped `@agi-fans/oh-my-dsh` layer at boot.
 - Apply `$OMDSH_HOME/cordis.patch.yml` over the shipped composition at boot, and print the composed plugin tree with `omdsh --dump-config`.
 - Show live descendant subagents above the composer, with each child's label, run state, and current tool, and present `subagent`, `send_message`, `interrupt_agent`, and `list_agents` cards by their task description instead of raw JSON.
 - Open a subagent's own transcript from the Agents roster by clicking a row or pressing Alt+A, and return to the parent with Escape.
@@ -17,11 +20,13 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Split the tutorials into one page per walkthrough, with [docs/tutorials.md](docs/tutorials.md) as the index.
 - Highlight leading `/command` tokens in the composer, and paint slash-command names in the completion list, so those lines read as commands rather than ordinary prompt text.
 - Use monochrome Unicode marks for pending, warning, todos, and settings instead of emoji-presentation glyphs.
 
 ### Fixed
 
+- Fail loud when `omdsh plugin add` is given a missing filesystem path, instead of installing a broken link, and resolve `./examples/hello` from a subdirectory of a checkout.
 - Keep ↑/↓ inside the current `/settings` tab instead of crossing into the other section.
 - Hide the blinking composer cursor while a read-only subagent transcript is open.
 - Paint idle subagents with a check instead of the hourglass pending glyph.
