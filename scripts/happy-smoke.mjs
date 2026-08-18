@@ -4,7 +4,7 @@
 // Run: node scripts/happy-smoke.mjs
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-happy-smoke-'))
 process.on('exit', () => { rmSync(omdshHome, { recursive: true, force: true }) })
+writeFileSync(join(omdshHome, 'settings.yaml'), 'agent-presets:\n  default: code\n')
 
 const server = await startMockLlmServer({
   port: 8123,

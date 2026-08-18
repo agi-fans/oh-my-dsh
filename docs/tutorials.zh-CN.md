@@ -24,9 +24,22 @@ omdsh
 
 外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 主动选择的 Key 会在后续请求及重启后保持更高优先级；`/logout` 只会删除由 omdsh 管理的选择，并在环境变量可用时回退到环境变量。
 
-### 选择安全的权限
+### 在第一条 Prompt 前配置会话
 
-在可能修改文件的任务前运行 `/permission`。交互式选择器提供三种策略：
+omdsh 将四个概念分别建模，而不是折叠成一个 Mode：
+
+| 概念 | 命令 | 选项 |
+|---|---|---|
+| Agent | `/agent` | Standard 是完整 Coding Agent；PTC 默认使用程序化工具调用；Minimal 只保留持久 Bash 与 `str_replace_editor`；Cordis 增加运行时检查与插件实验能力。 |
+| Workflow | `/workflow` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
+| Tools | `/tool-mode` | Native 暴露函数；Code 通过 `run_code` 暴露生成的 TypeScript SDK；Both 同时暴露两种形式。 |
+| Access | `/access` | Read only、Workspace write 或 Full access；`/permission` 继续作为别名。 |
+
+Agent 与 Tools 会改变模型可见的组合，因此要在第一条 Prompt 前选择；产生模型历史后，它们会被锁定。PTC 默认选择 Code Tools，但仍可在空白会话中通过独立 Tools 选择器覆盖。Workflow 与 Access 是持久化的 Harness 会话状态，之后仍可切换。
+
+### 选择安全的 Access
+
+在可能修改文件的任务前运行 `/access`。交互式选择器提供三种策略：
 
 | 模式 | 适用场景 |
 |---|---|
@@ -34,7 +47,7 @@ omdsh
 | Workspace write | 允许修改当前工作区，但访问更大范围时仍然需要审批。 |
 | Full access | 你信任当前工作区，并明确需要不经审批的完整文件系统访问。 |
 
-Full access 需要二次确认。Permission 才是实际的执行边界；Plan mode 只提供工作流指导，不能代替 Sandbox 或审批策略。
+Full access 需要二次确认。Access 才是实际的执行边界；Plan Workflow 只提供工作流指导，不能代替 Sandbox 或审批策略。
 
 ### 发送具体任务
 
@@ -44,7 +57,7 @@ Full access 需要二次确认。Permission 才是实际的执行边界；Plan m
 找出用户设置无法持久化的原因，只修改负责该行为的最小模块，并运行对应测试。不要修改 refs/ 下的文件。
 ```
 
-Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会分别展示 Input 与 Output；按 `Ctrl+O` 可以展开或折叠最近一次工具输出。两行 Status Line 会持续展示当前模型、推理强度、权限、工作区、Git 状态、上下文压力、Token 用量、延迟、缓存率和活动数据，这些内容不会被写入对话。
+Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会分别展示 Input 与 Output；按 `Ctrl+O` 可以展开或折叠最近一次工具输出。两行 Status Line 会持续展示 Agent、Workflow、Tools、模型、推理强度、工作区、Git 状态、上下文压力、Token 用量、延迟、缓存率和活动数据，Composer 边界则显示 Access；这些内容都不会被写入对话。
 
 ## 教程二：提供精确的项目上下文
 
@@ -53,7 +66,7 @@ Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会�
 输入 `@`，再输入项目路径中的一部分。弹出列表会搜索工作区；使用方向键移动，并按 `Tab` 插入选中的路径。Mention 会在消息中保持高亮，为 Agent 提供明确的文件目标，随后 Agent 可以使用普通工具读取它。
 
 ```text
-对比 @packages/tui/omdsh-tui/src/renderer.ts 与 @packages/tui/omdsh-tui/src/renderer.spec.ts，编辑前先解释缺失的边界场景。
+对比 @packages/tui/omdsh-tui/src/chrome/renderer.ts 与 @packages/tui/omdsh-tui/src/chrome/renderer.spec.ts，编辑前先解释缺失的边界场景。
 ```
 
 输入 `./` 和 `~/` 也会打开路径补全。补全只负责插入路径，不会绕过工具权限，也不会静默上传文件内容。
@@ -141,7 +154,7 @@ Agent 处于 idle 时运行 `/compact`，可以使用摘要替换一段有价值
 
 ### 定制界面
 
-运行 `/settings` 可以配置主题、颜色输出、默认 Tool 展开状态、更新检查、启动时 Release Notes，以及 Status Line 遥测信息的内容与顺序。使用 `Up` 和 `Down` 移动，使用 `Left` 和 `Right` 修改值，使用 `Tab` 在 General 与 Status line 分区之间切换。在 Status Group 上按 `Space` 可以显示或隐藏；按 `Enter` 后再使用 `Up` 或 `Down` 可以移动顺序，再按 `Enter` 或 `Esc` 完成移动。
+运行 `/settings` 可以配置主题、颜色输出、默认 Tool 展开状态、更新检查、启动时 Release Notes，以及 Status Line。Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。使用 `Up` 和 `Down` 移动，使用 `Left` 和 `Right` 修改值，使用 `Tab` 在 General 与 Status line 分区之间切换。在 Status 项上按 `Space` 可以显示或隐藏；按 `Enter` 后再用 `Up`/`Down` 改顺序，或用 `Left`/`Right` 改左右栏，再按 `Enter` 或 `Esc` 完成移动。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
 
 运行 `/help` 可以查看完整的命令与快捷键目录。命令列表由当前启用的 Harness 插件共同组成，因此也会包含 Skills 和其他运行时集成贡献的能力。
 
@@ -159,6 +172,10 @@ Agent 处于 idle 时运行 `/compact`，可以使用摘要替换一段有价值
 | 搜索历史 Prompt | `Ctrl+R` |
 | 滚动 Transcript | `PgUp` / `PgDn`、`Shift+Up` / `Shift+Down` 或鼠标滚轮 |
 | 复制最近的回复、代码块或命令 | `/copy` |
+| 选择 Agent preset | `/agent` |
+| 选择 Default 或 Plan Workflow | `/workflow` |
+| 选择 Native、Code 或 Both Tools | `/tool-mode` |
+| 选择会话 Access | `/access` |
 | 查看会话统计 | `/session` |
 | 查看可用工具 | `/tools` |
 | 每个回合完成后重复工作 | `/loop [次数\|时长] [Prompt]` |

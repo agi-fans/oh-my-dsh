@@ -21,15 +21,14 @@ apps/omdsh/                         @agi-fans/oh-my-dsh
 └── config/cordis.yml               应用组合
 
 packages/tui/omdsh-tui/            @agi-fans/dsh-tui
+├── src/index.ts                    本地 Provider 插件入口
 ├── src/definition.ts               与 Provider 无关的 TUI Service
-├── src/provider-local.ts           终端 Provider 与 TTY 所有者
-├── src/session-runtime.ts          活跃 Agent 与会话生命周期
-├── src/human-interaction.ts        审批与提问适配器
-├── src/tool-presentation.ts        Harness 展示意图适配桥
-├── src/command-*.ts                命令贡献插件
-├── src/startup-notices.ts          版本与更新提示
-├── src/runner.ts                   交互式输入循环
-└── src/index.ts                    本地 Provider 插件入口
+├── src/runtime/                    终端 Provider、会话运行时、Runner、启动提示
+├── src/commands/                   斜杠命令贡献插件
+├── src/chrome/                     主题、Markdown、渲染、Status、工具卡片
+├── src/input/                      按键、编辑器、剪贴板、粘贴
+├── src/views/                      会话记录、浮层、搜索、复制
+└── src/session/                    会话控制器与 TUI 设置
 ```
 
 TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们共享依赖与发布周期。只有当一项能力具备独立复用、所有权、依赖或版本管理需求时，才值得拆成新的 npm 软件包。
@@ -39,7 +38,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 “一切皆插件”描述的是所有权，而不是文件数量。当一项能力拥有独立的生命周期、配置、依赖集合、注册协议、作用域或替换点时，它才应该成为插件。
 
 - 只有本地 Provider 负责 raw mode、按键解码、光标定位、viewport 状态和原子化终端写入。
-- `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、读取 Projection 和清理资源。
+- `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、挂载 Agent preset、设置每个 Agent 的工具展示、读取 Projection 和清理资源。
 - 命令插件通过 `dsh-commands` 注册元数据和处理器；Runner 不维护第二份命令注册表。
 - Loop 命令以独立插件负责进程内调度与 Footer Projection。重复 Prompt 仍通过 `session-runtime` 提交；Loop 状态不会写入持久会话历史，并在活跃 Agent 发生变化时丢弃。
 - 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
@@ -53,10 +52,10 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 [`apps/omdsh/config/cordis.yml`](../apps/omdsh/config/cordis.yml) 是应用 Profile 的权威来源，其中组合了：
 
 - Cordis Loader 与 Timer 基础设施；
-- DeepSeek LLM Adapter、设置、凭据、默认模型和 Agent Runtime；
+- DeepSeek LLM Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
 - 持久化 JSONL 会话、Checkpoint、查询、标题、统计与 Token Projection；
 - 本地附件、文件系统、子进程、Bash、Sandbox 和权限 Provider；
-- Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
+- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合，以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
 - 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；
 - 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
 
@@ -74,7 +73,7 @@ Skills 与 MCP 的部署细节见 [`skills-and-mcp.zh-CN.md`](skills-and-mcp.zh-
   → 差分终端 Renderer
 ```
 
-普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。
+普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 与工具展示会在 Agent 发布前完成组合，并写入日志以供重建；产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。
 
 ## 终端保证
 

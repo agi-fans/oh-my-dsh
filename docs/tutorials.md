@@ -24,9 +24,22 @@ Run `/login`. omdsh opens the DeepSeek API Key page, asks for the key in a maske
 
 An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key selected through `/login` takes priority on later requests and across restarts; `/logout` removes only the omdsh-managed choice and falls back to the environment when available.
 
-### Choose a safe permission
+### Configure the session before the first prompt
 
-Run `/permission` before a task that may change files. The interactive selector offers three policies:
+omdsh keeps four concepts separate instead of collapsing them into one mode:
+
+| Concept | Command | Choices |
+|---|---|---|
+| Agent | `/agent` | Standard is the full coding agent; PTC defaults to programmatic tool calling; Minimal keeps persistent Bash and `str_replace_editor`; Cordis adds live runtime inspection and plugin experimentation. |
+| Workflow | `/workflow` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
+| Tools | `/tool-mode` | Native exposes functions, Code exposes `run_code` with the generated TypeScript SDK, and Both exposes both forms. |
+| Access | `/access` | Read only, Workspace write, or Full access. `/permission` remains an alias. |
+
+Agent and Tools change the model-visible composition, so select them before the first prompt; they are locked once model history exists. PTC starts with Code tools, while the explicit Tools selector can change that blank-session choice independently. Workflow and Access are durable Harness session state and can change later.
+
+### Choose safe Access
+
+Run `/access` before a task that may change files. The interactive selector offers three policies:
 
 | Mode | Use it when |
 |---|---|
@@ -34,7 +47,7 @@ Run `/permission` before a task that may change files. The interactive selector 
 | Workspace write | The task may edit the current workspace, while wider access still requires approval. |
 | Full access | You trust the workspace and intentionally want unrestricted filesystem access without approval prompts. |
 
-Full access requires a second confirmation. Permission is the enforcement boundary; Plan mode is workflow guidance and does not replace sandbox or approval policy.
+Full access requires a second confirmation. Access is the enforcement boundary; Plan workflow is guidance and does not replace sandbox or approval policy.
 
 ### Send a concrete request
 
@@ -44,7 +57,7 @@ Start with an outcome, scope, and verification target. For example:
 Find why the user settings are not persisted, fix the smallest responsible module, and run the focused tests. Do not change files under refs/.
 ```
 
-While the agent is working, `Deep Driving` marks the active turn. Tool cards show separate Input and Output sections; press `Ctrl+O` to expand or collapse the latest tool result. The two-line status area keeps the current model, reasoning effort, permission, workspace, Git state, context pressure, token usage, latency, cache rate, and activity visible without adding them to the conversation.
+While the agent is working, `Deep Driving` marks the active turn. Tool cards show separate Input and Output sections; press `Ctrl+O` to expand or collapse the latest tool result. The two-line status area keeps Agent, Workflow, Tools, model, reasoning effort, workspace, Git state, context pressure, token usage, latency, cache rate, and activity visible, while the composer boundary shows Access. None of this status is added to the conversation.
 
 ## Tutorial 2: Give the agent precise context
 
@@ -53,7 +66,7 @@ While the agent is working, `Deep Driving` marks the active turn. Tool cards sho
 Type `@` followed by part of a project path. The popup searches the workspace; use the arrow keys to move and `Tab` to insert the selected path. Mentions stay highlighted in your message and give the agent an explicit file target that it can inspect with its normal tools.
 
 ```text
-Compare @packages/tui/omdsh-tui/src/renderer.ts with @packages/tui/omdsh-tui/src/renderer.spec.ts and explain the missing edge case before editing.
+Compare @packages/tui/omdsh-tui/src/chrome/renderer.ts with @packages/tui/omdsh-tui/src/chrome/renderer.spec.ts and explain the missing edge case before editing.
 ```
 
 `./` and `~/` also open path completion. The completion inserts a path; it does not bypass tool permissions or silently upload file contents.
@@ -141,7 +154,7 @@ Run `/model` to open the model selector. omdsh first resolves the DeepSeek provi
 
 ### Customize the interface
 
-Run `/settings` to configure the theme, color output, default tool expansion, update checks, startup release notes, and both the content and ordering of status-line telemetry. Use `Up` and `Down` to navigate, `Left` and `Right` to change a value, and `Tab` to switch between General and Status line sections. On a status group, press `Space` to show or hide it, or press `Enter` and then `Up` or `Down` to move it; press `Enter` or `Esc` again to finish moving.
+Run `/settings` to configure the theme, color output, default tool expansion, update checks, startup release notes, and the status line. The Theme row cycles `dark`, `light`, `midnight`, `solarized`, `catppuccin`, `dracula`, `nord`, `gruvbox`, `rose-pine`, and `mono`. Each preview item — Model, Effort, Path, Git, and the telemetry groups — has its own color, left or right column, visibility, and order. Use `Up` and `Down` to navigate, `Left` and `Right` to change a value, and `Tab` to switch between General and Status line sections. On a status item, press `Space` to show or hide it, or press `Enter` and then `Up`/`Down` to reorder or `Left`/`Right` to change column; press `Enter` or `Esc` again to finish moving. The composer top border keeps 🐳 on the left and the current Access level on the right.
 
 Run `/help` for the complete command and keyboard-shortcut catalog. The command list is assembled from the active Harness plugins, so it also includes capabilities contributed by Skills and other runtime integrations.
 
@@ -159,6 +172,10 @@ Follow [Skills and MCP](skills-and-mcp.md) for complete search priority, `SKILL.
 | Search previous prompts | `Ctrl+R` |
 | Scroll the transcript | `PgUp` / `PgDn`, `Shift+Up` / `Shift+Down`, or the mouse wheel |
 | Copy the latest reply, code block, or command | `/copy` |
+| Choose Agent preset | `/agent` |
+| Choose Default or Plan workflow | `/workflow` |
+| Choose Native, Code, or Both tools | `/tool-mode` |
+| Choose session Access | `/access` |
 | Inspect session statistics | `/session` |
 | Inspect available tools | `/tools` |
 | Repeat work after each completed turn | `/loop [count\|duration] [prompt]` |

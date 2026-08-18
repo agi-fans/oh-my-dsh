@@ -56,14 +56,87 @@ if (!(await waitFor(() => hasReasoningEffort(out), 'effective reasoning effort')
   term.kill()
   process.exit(1)
 }
-term.write('/permission\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access your workspace'), 'permission selector'))) {
+let mark = out.length
+term.write('/agent\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Agent selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[B')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Agent: PTC · Tools: Code'), 'PTC preset'))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/tool-mode\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose how tools are exposed to the model'), 'Tools selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[B')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Tools: Both'), 'Both tool presentation'))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/agent\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'PTC Agent selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[B')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Agent: Minimal · Tools: Native'), 'Minimal preset'))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/tools\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Available Tools'), 'Minimal tool catalog'))) {
+  term.kill()
+  process.exit(1)
+}
+const minimalCatalog = cleanOutput(out.slice(mark))
+if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_editor') || minimalCatalog.includes('todo_write')) {
+  console.error('FAIL: Minimal tool catalog is not restricted to its two-tool composition')
+  console.error(minimalCatalog.slice(-2000))
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/agent\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Minimal Agent selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[B')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Agent: Cordis · Tools: Native'), 'Cordis preset'))) {
+  console.error(cleanOutput(out).slice(-2500))
+  term.kill()
+  process.exit(1)
+}
+term.write('/workflow\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Choose how this session approaches the next step'), 'Workflow selector'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[B')
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Workflow: Plan'), 'Plan workflow'))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('/access\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access your workspace'), 'access selector'))) {
   term.kill()
   process.exit(1)
 }
 term.write('\x1b[A')
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Permission: Read only'), 'permission switch'))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'access switch'))) {
   term.kill()
   process.exit(1)
 }
@@ -102,7 +175,12 @@ const ok = exitCode === 0
   && clean.includes('error:')
   && clean.includes('deepseek-v4-flash')
   && hasReasoningEffort(clean)
-  && clean.includes('Permission: Read only')
+  && clean.includes('Agent: PTC · Tools: Code')
+  && clean.includes('Tools: Both')
+  && clean.includes('Agent: Minimal · Tools: Native')
+  && clean.includes('Agent: Cordis · Tools: Native')
+  && clean.includes('Workflow: Plan')
+  && clean.includes('Access: Read only')
   && clean.includes('Rewind Conversation')
   && clean.includes('Rewound to before turn 1.')
   && clean.includes('Resume this session with omdsh --resume session-')

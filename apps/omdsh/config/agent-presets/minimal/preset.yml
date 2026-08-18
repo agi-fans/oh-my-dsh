@@ -1,0 +1,3 @@
+name: Minimal
+description: Focused two-tool coding agent with a persistent Bash session and str_replace_editor.
+order: 3

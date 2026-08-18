@@ -1,0 +1,5 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.

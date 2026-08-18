@@ -6,8 +6,31 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Added four independent, Harness-backed session controls: Agent presets (Standard, PTC, Minimal, and Cordis), Workflow (Default or Plan), tool presentation (Native, Code, or Both), and Access (Read only, Workspace write, or Full access).
+- Added `/settings` Status line items that match the preview: each of Model, Effort, Path, Git, and the telemetry groups has its own color, left/right column, show/hide, and order.
+- Show the session permission mode on the top-right of the composer, opposite the whale label.
+- Add catppuccin, dracula, nord, gruvbox, and rose-pine palettes from the oh-my-pi coding themes.
+
 ### Changed
 
+- Upgraded every direct DeepSeek Harness dependency to the coherent `0.1.0-rc.7` release and adopted its published Agent preset and Code runtime packages.
+- Show Agent, Workflow, and Tools together in the fixed footer, keep Access on the composer boundary, and report all four separately in `/session`.
+- Reset SGR attributes independently so nested color, bold, italic, and underline no longer wipe each other.
+- Paint thinking traces in a quieter gray italic so they stay distinct from assistant body text, including after inline Markdown.
+- Let the terminal own body ink across every palette while keeping thinking traces explicitly muted, so themes respect the user's foreground and background pairing.
+- Paint thinking traces as readable comment-gray italic on dark palettes, including code, links, and headings inside those traces, so they recede from body text without collapsing into the background or being boosted to white.
+- Use a quieter muted border for idle frames, quotes, rules, and tables, and complete the midnight and solarized palettes.
+
+### Fixed
+
+- Restore distinct Header title, body, metadata, and frame tones across every palette, including monochrome and 16-color terminals.
+- Keep the welcome card on the visible dim frame so Tips, Recent sessions, and the slogan do not sit on a near-invisible border.
+- Paint fenced-code keywords with a dedicated syntax color instead of the UI accent.
+- Soften inline Markdown code so codespans use a muted gray instead of accent-like orange or lavender; fenced blocks keep a separate, slightly stronger color.
+- Render transcript Markdown through a GFM lexer so paragraphs reflow, nested emphasis and escapes stay intact, list items keep their continuations, and reference links resolve.
+- Paint file-edit tool cards as aligned diffs: unchanged context stays dim, deletions are red, additions are green, one-line replacements mark the changed tokens, and the header shows `+N/-M`.
 - Generate the CLI package README from the repository overview during packing, with npm-safe GitHub links, so npm documentation stays synchronized with the project homepage.
 - Clarify that `@agi-fans/dsh-tui` is a non-executable integration library, direct end users to `@agi-fans/oh-my-dsh`, and enforce that distinction during package checks.
 

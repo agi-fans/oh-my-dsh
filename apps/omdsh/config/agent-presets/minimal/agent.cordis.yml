@@ -1,0 +1,33 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: You are a helpful software engineer assistant.
+    complete: true
+    includeRuntimeContext: false
+
+- id: profile
+  name: '@agi-fans/dsh-tui/agent-profile'
+  config:
+    tools:
+      allow:
+        - bash
+        - str_replace_editor
+
+- id: persistent-shell
+  name: cordis:group
+  group: true
+  isolate:
+    terminals: true
+  config:
+    - id: terminal
+      name: '@deepseek-ai/dsh-terminal'
+
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      config:
+        timeoutMs: 300000
+
+    - id: persistent-bash
+      name: '@deepseek-ai/dsh-tool-bash-persistent'
+      config:
+        timeoutMs: 300000

@@ -8,4 +8,4 @@
  */
 
 export * from './definition.ts'
-export { apply, name, type Config } from './provider-local.ts'
+export { apply, name, type Config } from './runtime/provider-local.ts'

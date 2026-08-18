@@ -20,64 +20,72 @@
       "default": "./lib/index.js"
     },
     "./runner": {
-      "types": "./lib/runner.d.ts",
-      "default": "./lib/runner.js"
+      "types": "./lib/runtime/runner.d.ts",
+      "default": "./lib/runtime/runner.js"
     },
     "./definition": {
       "types": "./lib/definition.d.ts",
       "default": "./lib/definition.js"
     },
     "./provider-local": {
-      "types": "./lib/provider-local.d.ts",
-      "default": "./lib/provider-local.js"
+      "types": "./lib/runtime/provider-local.d.ts",
+      "default": "./lib/runtime/provider-local.js"
     },
     "./session-runtime": {
-      "types": "./lib/session-runtime.d.ts",
-      "default": "./lib/session-runtime.js"
+      "types": "./lib/runtime/session-runtime.d.ts",
+      "default": "./lib/runtime/session-runtime.js"
     },
     "./human-interaction": {
-      "types": "./lib/human-interaction.d.ts",
-      "default": "./lib/human-interaction.js"
+      "types": "./lib/runtime/human-interaction.d.ts",
+      "default": "./lib/runtime/human-interaction.js"
     },
     "./tool-presentation": {
-      "types": "./lib/tool-presentation.d.ts",
-      "default": "./lib/tool-presentation.js"
+      "types": "./lib/runtime/tool-presentation.d.ts",
+      "default": "./lib/runtime/tool-presentation.js"
+    },
+    "./agent-profile": {
+      "types": "./lib/runtime/agent-profile.d.ts",
+      "default": "./lib/runtime/agent-profile.js"
     },
     "./command-session": {
-      "types": "./lib/command-session.d.ts",
-      "default": "./lib/command-session.js"
+      "types": "./lib/commands/session.d.ts",
+      "default": "./lib/commands/session.js"
+    },
+    "./command-session-configuration": {
+      "types": "./lib/commands/session-configuration.d.ts",
+      "default": "./lib/commands/session-configuration.js"
     },
     "./command-steer": {
-      "types": "./lib/command-steer.d.ts",
-      "default": "./lib/command-steer.js"
+      "types": "./lib/commands/steer.d.ts",
+      "default": "./lib/commands/steer.js"
     },
     "./command-loop": {
-      "types": "./lib/command-loop.d.ts",
-      "default": "./lib/command-loop.js"
+      "types": "./lib/commands/loop.d.ts",
+      "default": "./lib/commands/loop.js"
     },
     "./command-model": {
-      "types": "./lib/command-model.d.ts",
-      "default": "./lib/command-model.js"
+      "types": "./lib/commands/model.d.ts",
+      "default": "./lib/commands/model.js"
     },
     "./command-permission": {
-      "types": "./lib/command-permission.d.ts",
-      "default": "./lib/command-permission.js"
+      "types": "./lib/commands/permission.d.ts",
+      "default": "./lib/commands/permission.js"
     },
     "./command-auth": {
-      "types": "./lib/command-auth.d.ts",
-      "default": "./lib/command-auth.js"
+      "types": "./lib/commands/auth.d.ts",
+      "default": "./lib/commands/auth.js"
     },
     "./command-export": {
-      "types": "./lib/command-export.d.ts",
-      "default": "./lib/command-export.js"
+      "types": "./lib/commands/export.d.ts",
+      "default": "./lib/commands/export.js"
     },
     "./command-integrations": {
-      "types": "./lib/command-integrations.d.ts",
-      "default": "./lib/command-integrations.js"
+      "types": "./lib/commands/integrations.d.ts",
+      "default": "./lib/commands/integrations.js"
     },
     "./startup-notices": {
-      "types": "./lib/startup-notices.d.ts",
-      "default": "./lib/startup-notices.js"
+      "types": "./lib/runtime/startup-notices.d.ts",
+      "default": "./lib/runtime/startup-notices.js"
     },
     "./package.json": "./package.json"
   },
@@ -97,38 +105,40 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-cmdline": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-commands": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-credentials": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-permission-presets": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-plan-mode": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session-projection": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session-query": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session-stats": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session-title": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-skill": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-settings": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-token-meter": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6",
-    "@deepseek-ai/schemastery": "3.18.1"
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-agent-presets": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-cmdline": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-commands": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-permission-presets": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-plan-mode": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-projection": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-query": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-stats": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-title": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-skill": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-token-meter": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-user-questions": "0.1.0-rc.7",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "marked": "15.0.12"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-scope": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-scope": "0.1.0-rc.7",
     "@types/node": "^22.10.0",
-    "typescript": "^5.6.0",
     "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
 }

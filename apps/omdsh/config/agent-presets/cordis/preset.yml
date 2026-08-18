@@ -1,0 +1,3 @@
+name: Cordis
+description: Standard coding agent with live runtime inspection and plugin experimentation for authoring Harness compositions.
+order: 4

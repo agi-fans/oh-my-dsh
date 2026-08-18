@@ -67,6 +67,14 @@
     provider: !!js process.env.OMDSH_PROVIDER || 'deepseek-official'
     model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
 
+- id: agent-presets
+  name: '@deepseek-ai/dsh-agent-presets'
+  config:
+    default: standard
+    roots:
+      - path: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('./agent-presets/', baseUrl))"
+        trust: system
+
 - id: commands
   name: '@deepseek-ai/dsh-commands'
 
@@ -132,6 +140,14 @@
     goals:
       domain: {}
       tool: {}
+    tools:
+      mode: native
+
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+- id: cordis-host-runner
+  name: '@deepseek-ai/dsh-cordis-host-runner'
 
 # Human and model workflow contributions. The TUI discovers human commands
 # from dsh-commands and renders unknown tools through its safe fallback.
@@ -221,6 +237,9 @@
 
 - id: tui-command-session
   name: '@agi-fans/dsh-tui/command-session'
+
+- id: tui-command-session-configuration
+  name: '@agi-fans/dsh-tui/command-session-configuration'
 
 - id: tui-command-steer
   name: '@agi-fans/dsh-tui/command-steer'
