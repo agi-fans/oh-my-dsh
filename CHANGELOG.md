@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-19
+
 ### Added
 
 - Add [Write a plugin](docs/tutorials/write-a-plugin.md), a walkthrough for writing, installing, and publishing an omdsh plugin bundle.
@@ -165,7 +167,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.3.0...v0.4.0
