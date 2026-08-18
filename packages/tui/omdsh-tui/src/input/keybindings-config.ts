@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs'
 
-export type TuiAction = 'external-editor' | 'retry' | 'paste-clipboard' | 'copy-prompt' | 'copy-line'
+export type TuiAction = 'external-editor' | 'retry' | 'paste-clipboard' | 'copy-prompt' | 'copy-line' | 'inspect-subagent'
 
 export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.freeze({
   'ctrl+x': 'external-editor',
@@ -10,9 +10,10 @@ export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.f
   'ctrl+v': 'paste-clipboard',
   'alt+c': 'copy-prompt',
   'ctrl+alt+c': 'copy-line',
+  'alt+a': 'inspect-subagent',
 })
 
-const ACTIONS: readonly TuiAction[] = ['external-editor', 'retry', 'paste-clipboard', 'copy-prompt', 'copy-line']
+const ACTIONS: readonly TuiAction[] = ['external-editor', 'retry', 'paste-clipboard', 'copy-prompt', 'copy-line', 'inspect-subagent']
 
 /** Load `{ "key-id": "action" }`; invalid rows are ignored independently. */
 export function loadKeybindings(path: string | undefined): Record<string, TuiAction> {

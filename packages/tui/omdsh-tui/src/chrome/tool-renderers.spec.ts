@@ -75,6 +75,46 @@ describe('renderTool', () => {
     })
   })
 
+  it('presents delegation tools by description instead of raw JSON', () => {
+    expect(renderTool({
+      name: 'subagent',
+      arguments: '{"description":"Explore auth","prompt":"Find the login path.","run_in_background":true}',
+      output: '',
+      status: 'running',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Explore auth',
+      summary: 'background',
+      input: ['Find the login path.'],
+      output: [],
+    })
+
+    expect(renderTool({
+      name: 'subagent',
+      arguments: '{"description":"Explore auth","prompt":"Find the login path."}',
+      output: 'started subagent session-abc',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Explore auth',
+      summary: 'started subagent session-abc',
+      input: ['Find the login path.'],
+      output: [],
+    })
+
+    expect(renderTool({
+      name: 'send_message',
+      arguments: '{"subagent_id":"session-abc","message":"Also check logout."}',
+      output: 'message queued as the next turn for subagent session-abc',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Message',
+      summary: 'session-abc',
+      input: ['Also check logout.'],
+    })
+  })
+
   it('falls back to durable result text when a generic result omits content', () => {
     expect(renderTool({
       name: 'custom', arguments: '{"query":"needle"}', output: 'durable result', status: 'ok', expanded: false,

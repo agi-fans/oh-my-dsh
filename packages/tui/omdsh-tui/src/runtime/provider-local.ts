@@ -27,7 +27,9 @@ import {
   type TuiSessionStats,
   type TuiStatus,
   type TuiInputImage,
+  type TuiInspectedSubagent,
   type TuiLoopStatus,
+  type TuiSubagentRoster,
   type TuiSubmission,
 } from '../definition.ts'
 import {
@@ -79,6 +81,7 @@ import {
 import {
   applyEvent,
   blockLines,
+  hitTestSubagentRoster,
   initialTranscript,
   replayEvents,
   renderView,
@@ -88,7 +91,7 @@ import {
   type TranscriptState,
 } from '../views/event-views.ts'
 import { flushPending, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, parseKeys, type KeyEvent } from '../input/keys.ts'
-import { LineRenderer, type RenderSink } from '../chrome/renderer.ts'
+import { LineRenderer, type Frame, type RenderSink } from '../chrome/renderer.ts'
 import { hitTestEditor } from '../chrome/box.ts'
 import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
@@ -204,6 +207,9 @@ export class LocalTui implements TuiService {
   #interrupts = new Set<() => void>()
   #queueEdits = new Set<() => void>()
   #rewinds = new Set<() => void>()
+  #inspects = new Set<(id: string) => void>()
+  #inspectCloses = new Set<() => void>()
+  #inspectSubmits = new Set<(submission: TuiSubmission) => void>()
   #disposed = false
   #pendingKeys = ''
   #escapeTimer: ReturnType<typeof setTimeout> | null = null
@@ -247,7 +253,10 @@ export class LocalTui implements TuiService {
   #sessionStats: TuiSessionStats | undefined
   #sessionControls: TuiSessionControls | undefined
   #loopStatus: TuiLoopStatus | undefined
+  #subagents: TuiSubagentRoster | undefined
+  #inspected: TuiInspectedSubagent | undefined
   #editorHit: { start: number; rows: number } | null = null
+  #chromeHit: NonNullable<Frame['chrome']> | null = null
   #overlayHit: {
     kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
     start: number
@@ -378,6 +387,33 @@ export class LocalTui implements TuiService {
   setLoopStatus(status: TuiLoopStatus | undefined): void {
     this.#loopStatus = status === undefined ? undefined : { ...status }
     this.#syncLoopTick()
+    if (this.#tty) this.#render()
+  }
+
+  setSubagents(roster: TuiSubagentRoster | undefined): void {
+    this.#subagents = roster === undefined
+      ? undefined
+      : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
+    const inspected = this.#inspected
+    if (inspected !== undefined) {
+      const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
+      if (current !== undefined) {
+        this.#inspected = {
+          id: current.id,
+          label: current.label,
+          phase: current.phase,
+          ...(current.mode === undefined ? {} : { mode: current.mode }),
+          writable: current.mode === 'continuable',
+        }
+      }
+    }
+    this.#syncTick()
+    if (this.#tty) this.#render()
+  }
+
+  setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
+    this.#inspected = inspected === undefined ? undefined : { ...inspected }
+    this.#syncTick()
     if (this.#tty) this.#render()
   }
 
@@ -583,6 +619,21 @@ export class LocalTui implements TuiService {
     return () => { this.#rewinds.delete(listener) }
   }
 
+  onInspectSubagent(listener: (id: string) => void): () => void {
+    this.#inspects.add(listener)
+    return () => { this.#inspects.delete(listener) }
+  }
+
+  onInspectClose(listener: () => void): () => void {
+    this.#inspectCloses.add(listener)
+    return () => { this.#inspectCloses.delete(listener) }
+  }
+
+  onInspectSubmit(listener: (submission: TuiSubmission) => void): () => void {
+    this.#inspectSubmits.add(listener)
+    return () => { this.#inspectSubmits.delete(listener) }
+  }
+
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -689,7 +740,8 @@ export class LocalTui implements TuiService {
 
   #busy(): boolean {
     if (this.#state.status !== 'idle') return true
-    return this.#state.blocks.some((block) => block.kind === 'tool' && block.status === 'running')
+    if (this.#state.blocks.some((block) => block.kind === 'tool' && block.status === 'running')) return true
+    return this.#subagents?.agents.some(agent => agent.phase === 'running' || agent.phase === 'starting') === true
   }
 
   #syncTick(): void {
@@ -755,6 +807,8 @@ export class LocalTui implements TuiService {
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
         ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
+        ...(this.#subagents === undefined ? {} : { subagents: this.#subagents }),
+        ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
@@ -769,6 +823,7 @@ export class LocalTui implements TuiService {
     this.#focusBlock = undefined
     this.#editorHit = frame.editor ?? null
     this.#overlayHit = frame.overlay ?? null
+    this.#chromeHit = frame.chrome ?? null
     this.#syncScroll(frame.transcript)
     this.#renderer.render(frame)
   }
@@ -1037,6 +1092,10 @@ export class LocalTui implements TuiService {
         return
       }
     }
+    if (this.#inspected !== undefined && this.#inspected.writable !== true && event.type === 'text'
+      && this.#prompt === null && this.#settings === null && this.#copySelector === null && this.#search === null) {
+      return
+    }
     if (event.type === 'key' && event.id === 'ctrl+c') {
       if (this.#prompt !== null) {
         this.#finishPrompt(null)
@@ -1101,6 +1160,17 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'key' && event.id === 'escape') {
+      if (this.#inspected !== undefined) {
+        if (this.#inspected.writable === true && (this.#editor.text !== '' || this.#images.length > 0)) {
+          this.#editor.clear()
+          this.#images = []
+          this.#ac = null
+          this.#render()
+          return
+        }
+        this.#closeInspect()
+        return
+      }
       if (this.#state.status !== 'idle' || this.#pending === null
         || this.#editor.text !== '' || this.#images.length > 0) {
         this.#lastEscapeTime = 0
@@ -1306,6 +1376,7 @@ export class LocalTui implements TuiService {
 
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (event.leftClick) {
+      if (this.#clickChrome(event.row)) return
       if (this.#clickOverlay(event.row)) return
       this.#clickEditor(event.row, event.col)
       return
@@ -1334,6 +1405,62 @@ export class LocalTui implements TuiService {
       return
     }
     this.#scrollBy(dir < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL, true)
+  }
+
+  #clickChrome(row: number): boolean {
+    const hit = this.#chromeHit
+    if (hit === undefined || hit === null) return false
+    const inspect = hit.inspect
+    if (inspect !== undefined && row >= inspect.start && row < inspect.start + inspect.rows) {
+      this.#closeInspect()
+      return true
+    }
+    const roster = hit.subagents
+    if (roster === undefined) return false
+    const localRow = row - roster.start
+    if (localRow < 0 || localRow >= roster.rows) return false
+    if (localRow < roster.headerRows) {
+      void this.#pickSubagent()
+      return true
+    }
+    const id = hitTestSubagentRoster(roster.items, localRow)
+    if (id === undefined) return true
+    if (this.#inspected?.id === id) this.#closeInspect()
+    else this.#openInspect(id)
+    return true
+  }
+
+  #openInspect(id: string): void {
+    for (const listener of this.#inspects) listener(id)
+  }
+
+  #closeInspect(): void {
+    if (this.#inspected === undefined) return
+    for (const listener of this.#inspectCloses) listener()
+  }
+
+  async #pickSubagent(): Promise<void> {
+    const agents = this.#subagents?.agents ?? []
+    if (agents.length === 0) {
+      this.notice('No subagents are available in this session.')
+      return
+    }
+    const initialValue = this.#inspected?.id ?? agents[0]?.id
+    const answer = await this.prompt({
+      title: 'Agents',
+      question: 'Open a subagent transcript',
+      options: agents.map(agent => ({
+        label: agent.label,
+        value: agent.id,
+        description: agent.activity.at(-1)?.text ?? agent.phase,
+      })),
+      ...(initialValue === undefined ? {} : { initialValue }),
+      allowCustom: false,
+      ...(agents.length > 8 ? { presentation: 'fullscreen-list' as const, filterable: true } : {}),
+      submitLabel: 'open',
+    })
+    if (answer === null || answer === '') return
+    this.#openInspect(answer)
   }
 
   #clickOverlay(row: number): boolean {
@@ -1645,6 +1772,10 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'submit') {
+      if (this.#inspected !== undefined) {
+        if (this.#inspected.writable === true) this.#submitInspect(command.text)
+        return
+      }
       this.#submit(command.text)
       return
     }
@@ -1801,6 +1932,36 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
+  #submitInspect(text: string): void {
+    const images = this.#images.map(image => ({ ...image }))
+    const submittedText = images.length > 0 ? text.trim() : text
+    const historyText = images.reduce((value, image, index) => value.replaceAll(imageMarker(index, image), ''), submittedText)
+      .replace(/[ \t]{2,}/gu, ' ')
+      .trim()
+    if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
+      this.#history.push(historyText)
+      this.#historyStore?.add(historyText)
+    }
+    this.#historyIndex = 0
+    this.#draft = ''
+    this.#editor.setText('')
+    this.#images = []
+    this.#ac = null
+    this.#search = null
+    this.#followTail()
+    const slash = images.length === 0 ? parseSlashInput(submittedText) : null
+    if (slash !== null) {
+      this.#runSlash(slash.name, slash.args)
+      return
+    }
+    if (submittedText === '' && images.length === 0) {
+      this.#render()
+      return
+    }
+    for (const listener of this.#inspectSubmits) listener({ text: submittedText, images })
+    this.#render()
+  }
+
   #runSlash(name: string, args = ''): void {
     if (name === '') {
       this.#render()
@@ -1837,6 +1998,11 @@ export class LocalTui implements TuiService {
       return
     }
     if (!BUILTIN_SLASH_COMMANDS.some((entry) => entry.name === command.name)) {
+      if (this.#inspected !== undefined) {
+        this.#notice('Return to the parent session to run /' + command.name + '.')
+        this.#render()
+        return
+      }
       const raw = '/' + name + (args === '' ? '' : ' ' + args)
       const pending = this.#pending
       if (pending !== null) {
@@ -1961,6 +2127,10 @@ export class LocalTui implements TuiService {
 
   #runAction(action: TuiAction): void {
     if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return
+    if (action === 'inspect-subagent') {
+      void this.#pickSubagent()
+      return
+    }
     if (action === 'retry') {
       this.#submit('/retry')
       return

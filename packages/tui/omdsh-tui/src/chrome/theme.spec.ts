@@ -187,6 +187,8 @@ describe('chrome', () => {
     expect(BOX.topLeft).toBe('╭')
     expect(SYMBOL.success).toBe('✔')
     expect(SYMBOL.error).toBe('✘')
+    expect(SYMBOL.pending).toBe('○')
+    expect(SYMBOL.warning).toBe('▲')
   })
 
   it('paints the DeepSeek logo without styling when colors are off', () => {

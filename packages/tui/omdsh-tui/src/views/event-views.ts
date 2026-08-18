@@ -32,7 +32,17 @@ import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from 
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from '../chrome/theme.ts'
 import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
-import type { TuiLoopStatus, TuiRecentSession, TuiSessionControls, TuiSessionStats, TuiSubmission } from '../definition.ts'
+import type {
+  TuiInspectedSubagent,
+  TuiLoopStatus,
+  TuiRecentSession,
+  TuiSessionControls,
+  TuiSessionStats,
+  TuiSubagentPhase,
+  TuiSubagentRoster,
+  TuiSubagentView,
+  TuiSubmission,
+} from '../definition.ts'
 import {
   alignFileDiffs,
   countDiffStats,
@@ -437,6 +447,10 @@ export interface ViewOptions {
   sessionControls?: TuiSessionControls
   /** Process-local repeated-prompt state rendered beside model controls. */
   loopStatus?: TuiLoopStatus
+  /** Live descendant-subagent roster rendered above the composer. */
+  subagents?: TuiSubagentRoster
+  /** Descendant whose transcript is currently filling the viewport. */
+  inspected?: TuiInspectedSubagent
   /** Visible groups, order, and label style for the status line. */
   statusBar?: StatusBarConfig
   /** Legacy status preset accepted while direct render callers migrate. */
@@ -934,6 +948,9 @@ export const QUEUED_SUBMISSION_PREVIEW = 3
 /** Maximum number of Todo items kept visible above the composer. */
 export const TODO_PREVIEW = 5
 
+/** Maximum number of descendant subagents kept visible above the composer. */
+export const SUBAGENT_PREVIEW = 5
+
 function todoPreviewStart(todos: readonly TodoItem[]): number {
   if (todos.length <= TODO_PREVIEW) return 0
   const active = todos.findIndex(todo => todo.status === 'in_progress')
@@ -960,14 +977,120 @@ export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: num
     if (typeof row === 'string') return branch + theme.fg('dim', row)
     const todo = row
     if (todo.status === 'completed') {
-      return branch + theme.fg('success', '☑ ' + theme.strikethrough(todo.content))
+      return branch + theme.fg('success', SYMBOL.success + ' ' + theme.strikethrough(todo.content))
     }
     if (todo.status === 'in_progress') {
-      return branch + theme.fg('accent', '☐ ' + todo.content)
+      return branch + theme.fg('accent', SYMBOL.pending + ' ' + todo.content)
     }
-    return branch + theme.fg('dim', '☐ ' + todo.content)
+    return branch + theme.fg('dim', SYMBOL.pending + ' ' + todo.content)
   })]
   return lines.map(line => truncateToWidth(line, width))
+}
+
+function subagentPreviewStart(agents: readonly TuiSubagentView[]): number {
+  if (agents.length <= SUBAGENT_PREVIEW) return 0
+  const active = agents.findIndex(agent => agent.phase === 'running' || agent.phase === 'starting')
+  if (active >= 0) return Math.max(0, Math.min(active, agents.length - SUBAGENT_PREVIEW))
+  const waiting = agents.findIndex(agent => agent.phase === 'waiting')
+  return waiting >= 0
+    ? Math.max(0, Math.min(waiting, agents.length - SUBAGENT_PREVIEW))
+    : Math.max(0, agents.length - SUBAGENT_PREVIEW)
+}
+
+function subagentPhaseGlyph(phase: TuiSubagentPhase, theme: Theme, spinnerFrame: number): string {
+  if (phase === 'running' || phase === 'starting') {
+    return theme.fg('accent', SPINNER[spinnerFrame % SPINNER.length] ?? SYMBOL.running)
+  }
+  if (phase === 'error') return theme.fg('error', SYMBOL.error)
+  return theme.fg('success', SYMBOL.success)
+}
+
+function subagentRowText(agent: TuiSubagentView): string {
+  const current = agent.activity.at(-1)
+  const detail = current === undefined || current.status === 'ok' || current.text === agent.label
+    ? ''
+    : current.text
+  const indent = agent.depth > 1 ? `${'  '.repeat(agent.depth - 1)}` : ''
+  return detail === '' ? indent + agent.label : `${indent}${agent.label} · ${detail}`
+}
+
+/** Painted roster plus click targets relative to the first roster row. */
+export interface SubagentRosterPaint {
+  lines: string[]
+  items: readonly { id: string; row: number }[]
+}
+
+/** Compact, unframed descendant-subagent tree placed above Todos. */
+export function renderSubagents(
+  roster: TuiSubagentRoster | undefined,
+  theme: Theme,
+  width: number,
+  spinnerFrame = 0,
+  inspectedId?: string,
+): SubagentRosterPaint {
+  const agents = roster?.agents ?? []
+  if (agents.length === 0 || width <= 0) return { lines: [], items: [] }
+  const running = agents.filter(agent => agent.phase === 'running' || agent.phase === 'starting').length
+  const failed = agents.filter(agent => agent.phase === 'error').length
+  const done = agents.filter(agent => agent.phase === 'completed' || agent.phase === 'waiting').length
+  const counts = [
+    running === 0 ? undefined : `${running} running`,
+    done === 0 ? undefined : `${done} done`,
+    failed === 0 ? undefined : `${failed} failed`,
+  ].filter((part): part is string => part !== undefined)
+  const header = '  ' + theme.bold(theme.fg('accent', 'Agents'))
+    + (counts.length === 0 ? '' : theme.fg('dim', ` · ${counts.join(' · ')}`))
+  const start = subagentPreviewStart(agents)
+  const end = Math.min(agents.length, start + SUBAGENT_PREVIEW)
+  const rows: Array<TuiSubagentView | string> = [
+    ...(start === 0 ? [] : [`… ${start} earlier`]),
+    ...agents.slice(start, end),
+    ...(end === agents.length ? [] : [`… ${agents.length - end} more`]),
+  ]
+  const items: { id: string; row: number }[] = []
+  const lines = [header, ...rows.map((row, index) => {
+    const branch = '  ' + theme.fg('dim', index === rows.length - 1 ? '└─' : '├─') + ' '
+    if (typeof row === 'string') return branch + theme.fg('dim', row)
+    items.push({ id: row.id, row: index + 1 })
+    const selected = inspectedId === row.id
+    const paint = row.phase === 'completed'
+      ? (text: string) => theme.fg('dim', theme.strikethrough(text))
+      : row.phase === 'error'
+        ? (text: string) => theme.fg('error', text)
+        : row.phase === 'waiting'
+          ? (text: string) => theme.fg('dim', text)
+          : (text: string) => text
+    const marker = selected ? theme.fg('accent', SYMBOL.cursor) + ' ' : ''
+    const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row))
+    return branch + (selected ? theme.bold(body) : body)
+  })]
+  return {
+    lines: lines.map(line => truncateToWidth(line, width)),
+    items,
+  }
+}
+
+/** Persistent inspect chrome: stays visible while the child transcript scrolls. */
+export function renderInspectBanner(
+  inspected: TuiInspectedSubagent | undefined,
+  theme: Theme,
+  width: number,
+  spinnerFrame = 0,
+): string[] {
+  if (inspected === undefined || width <= 0) return []
+  const guidance = inspected.writable ? 'Enter to steer · Esc to return' : 'read-only · Esc to return'
+  const line = '  ' + theme.fg('accent', '←') + ' ' + subagentPhaseGlyph(inspected.phase, theme, spinnerFrame)
+    + ' ' + theme.bold(inspected.label)
+    + theme.fg('dim', ` · ${guidance}`)
+  return [truncateToWidth(line, width)]
+}
+
+/** Hit a painted roster row, or `undefined` when the click is on overflow chrome. */
+export function hitTestSubagentRoster(
+  items: readonly { id: string; row: number }[],
+  localRow: number,
+): string | undefined {
+  return items.find(item => item.row === localRow)?.id
 }
 
 function queuedSubmissionLabel(submission: TuiSubmission): string {
@@ -1126,7 +1249,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? renderWorking(theme, spinnerFrame, 'Compacting', width)
       : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
-  const inlineHint = slashInlineHint(options.input, options.inputCursor, options.commands)
+  const inlineHint = options.inspected === undefined
+    ? slashInlineHint(options.input, options.inputCursor, options.commands)
+    : options.inspected.writable
+      ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
+      : 'Read-only · Esc to return'
   const statusFooter = renderStatusFooter({
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
@@ -1145,7 +1272,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     inputCursor: options.inputCursor,
     status: ' ' + theme.fg('accent', '🐳') + ' ',
     ...(permissionBadge === '' ? {} : { statusRight: ' ' + permissionBadge + ' ' }),
-    border: state.status === 'idle' ? 'border' : 'accent',
+    border: options.inspected !== undefined && options.inspected.writable !== true
+      || state.status === 'idle'
+      ? 'border'
+      : 'accent',
     ...(options.inputImages === undefined || options.inputImages === 0
       ? {}
       : { paintInput: (text: string, start: number) => paintImageMarkerSlice(options.input, text, start, theme) }),
@@ -1178,10 +1308,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const editor = promptSelector === undefined && settings === undefined && copySelector === undefined && search === undefined
     ? renderEditor(editorOpts, theme)
     : undefined
-  const queuedSubmissions = editor === undefined
+  const queuedSubmissions = editor === undefined || options.inspected !== undefined
     ? []
     : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
-  const todos = editor === undefined ? [] : renderTodos(state.todos, theme, width)
+  const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
+  const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
+  const roster = editor === undefined
+    ? { lines: [] as string[], items: [] as readonly { id: string; row: number }[] }
+    : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id)
+  const subagents = roster.lines
   const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []
@@ -1189,7 +1324,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + todos.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusStart = options.focusBlock === undefined
     ? undefined
@@ -1202,10 +1337,14 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
-  const bottomRows = working.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = working.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
+  const inspectStart = lines.length
+  lines.push(...inspect)
+  const subagentStart = lines.length
+  lines.push(...subagents)
   lines.push(...todos)
   lines.push(...queuedSubmissions)
   const editorStart = lines.length
@@ -1221,6 +1360,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       column: Math.min(caret.column, width),
     },
     cursorVisible: state.status === 'compacting'
+      || (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
       : promptSelector?.cursorVisible ?? (settings === undefined && copySelector === undefined),
     ...(promptSelector?.editor !== undefined
@@ -1242,5 +1382,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       hiddenAbove: windowed.hiddenAbove,
       hiddenBelow: windowed.hiddenBelow,
     },
+    ...(inspect.length === 0 && subagents.length === 0
+      ? {}
+      : {
+        chrome: {
+          ...(inspect.length === 0 ? {} : { inspect: { start: inspectStart, rows: inspect.length } }),
+          ...(subagents.length === 0
+            ? {}
+            : { subagents: { start: subagentStart, headerRows: 1, rows: subagents.length, items: roster.items } }),
+        },
+      }),
   }
 }

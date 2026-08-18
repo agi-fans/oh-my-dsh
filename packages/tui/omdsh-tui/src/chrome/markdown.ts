@@ -5,7 +5,7 @@
  */
 
 import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtension } from 'marked'
-import { BOX, type Theme, type ThemeColor } from './theme.ts'
+import { BOX, SYMBOL, type Theme, type ThemeColor } from './theme.ts'
 import { padToWidth, visibleWidth, wrapText } from './width.ts'
 
 /** Optional surrounding style restored after inline code and emphasis. */
@@ -449,7 +449,7 @@ function renderList(token: Tokens.List, theme: Theme, width: number, level: numb
   for (const item of token.items) {
     const bullet = style?.color === 'thinkingText' ? 'thinkingText' : 'mdListBullet'
     const marker = item.task === true
-      ? theme.fg(bullet, item.checked === true ? '☑ ' : '☐ ')
+      ? theme.fg(bullet, item.checked === true ? `${SYMBOL.success} ` : `${SYMBOL.pending} `)
       : token.ordered
         ? theme.fg(bullet, `${number}. `)
         : theme.fg(bullet, '• ')

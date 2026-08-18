@@ -43,6 +43,7 @@ The TUI package exposes several Cordis entry points from one npm package because
 - The Loop command owns its process-local scheduler and footer projection as a separate plugin. Repeated prompts still pass through `session-runtime`; Loop state is not written into durable session history and is discarded when the active Agent changes.
 - Tool plugins own semantics and provider-neutral presentation intent. The TUI maps `ToolDefinition.presentCall` and `presentResult` into terminal cards and retains a generic fallback.
 - Harness projection plugins own token, context, timing, title, and session statistics. The status line only formats their output.
+- `session-runtime` projects origin-classified descendant sessions into a live roster above the composer and can replace the parent viewport with one child's transcript. Continuable children accept composer follow-ups through `ctx.subagents.followup`; one-shot runs stay read-only. Child logs stay in their own sessions and are not replayed as parent transcript events.
 - The human-interaction adapter connects approval and question services to terminal selectors without moving those domains into the provider.
 
 Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markdown formatting, editor movement, path matching, theme projection, frame diffing, viewport slicing, and overlay state transitions. They should not become runtime plugins until a second independently owned adapter creates a real seam.
@@ -73,7 +74,7 @@ terminal input
   → differential terminal renderer
 ```
 
-Ordinary messages enter the active Agent through `session-runtime`. Slash commands execute through the scoped Harness registry. Agent preset and tool presentation are composed before publication and logged for reconstruction; model-visible composition is locked after the first prompt. Workflow and Access remain independent Harness-owned session state. Session events are the durable source for transcript replay; projection services provide derived status rather than TUI-owned counters. Tool calls and results settle into one card with distinct Input and Output sections.
+Ordinary messages enter the active Agent through `session-runtime`. Slash commands execute through the scoped Harness registry. Agent preset and tool presentation are composed before publication and logged for reconstruction; model-visible composition is locked after the first prompt. Workflow and Access remain independent Harness-owned session state. Session events are the durable source for transcript replay; projection services provide derived status rather than TUI-owned counters. Tool calls and results settle into one card with distinct Input and Output sections. Descendant subagent activity is folded from those child sessions into the composer-adjacent roster.
 
 ## Terminal guarantees
 

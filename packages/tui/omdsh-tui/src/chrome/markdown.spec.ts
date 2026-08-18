@@ -48,8 +48,8 @@ describe('renderMarkdown', () => {
     expect(text).toContain('• parent')
     expect(text).toMatch(/ {2}• child/)
     expect(text).toContain('• plus')
-    expect(text).toContain('☐ open')
-    expect(text).toContain('☑ done')
+    expect(text).toContain('○ open')
+    expect(text).toContain('✔ done')
   })
 
   it('renders a GFM table with rounded chrome', () => {

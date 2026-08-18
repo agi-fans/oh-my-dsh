@@ -20,13 +20,13 @@ export const BOX = {
   cross: '┼',
 } as const
 
-/** Status / list glyphs matching OMP's unicode symbol preset. */
+/** Status / list glyphs: monochrome Unicode, never emoji-presentation. */
 export const SYMBOL = {
   success: '✔',
   error: '✘',
-  warning: '⚠',
+  warning: '▲',
   info: 'ⓘ',
-  pending: '⏳',
+  pending: '○',
   running: '⟳',
   done: '•',
   bullet: '•',

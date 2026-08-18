@@ -34,6 +34,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
   const offInterrupt = tui.onInterrupt(() => {
+    if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
     loop?.pause(controller.agent)
     controller.agent?.cancel({ kind: 'user' })

@@ -5,9 +5,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, initialTranscript, renderQueuedSubmissions, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, blockLines, hitTestSubagentRoster, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { createTheme } from '../chrome/theme.ts'
+import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
 /** Fixture builder: a session event with a sequence number. */
@@ -330,8 +330,8 @@ describe('applyEvent', () => {
     expect(composer).toBeGreaterThan(todo)
     expect(lines.slice(todo - 2, todo + 1)).toEqual([
       '  Todos · 1/2',
-      '  ├─ ☑ Inspect the projection chain',
-      '  └─ ☐ Render todos above the composer',
+      '  ├─ ✔ Inspect the projection chain',
+      '  └─ ○ Render todos above the composer',
     ])
   })
 
@@ -755,10 +755,100 @@ describe('renderView', () => {
     expect(lines.map(stripAnsi)).toEqual([
       '  Todos · 5/7',
       '  ├─ … 5 earlier',
-      '  ├─ ☐ current work',
-      '  └─ ☐ next task with a…',
+      '  ├─ ○ current work',
+      '  └─ ○ next task with a…',
     ])
     expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)
+  })
+
+  it('anchors the live subagent roster above the composer', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'deepseek-v4-flash',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
+      subagents: {
+        agents: [{
+          id: 'child-1',
+          depth: 1,
+          label: 'Explore auth',
+          phase: 'running',
+          activity: [{ text: 'read src/auth.ts', status: 'running' }],
+        }],
+      },
+    })
+    const text = frame.lines.map(stripAnsi).join('\n')
+    expect(text).toContain('Agents · 1 running')
+    expect(text).toContain('Explore auth · read src/auth.ts')
+    expect(text.indexOf('Agents')).toBeLessThan(text.lastIndexOf('🐳'))
+  })
+
+  it('keeps current subagent work visible inside a bounded tree preview', () => {
+    const painted = renderSubagents({
+      agents: [
+        { id: 'a', depth: 1, label: 'done explore', phase: 'completed', activity: [] },
+        { id: 'b', depth: 1, label: 'done review', phase: 'completed', activity: [] },
+        { id: 'c', depth: 1, label: 'Explore auth', phase: 'running', activity: [{ text: 'read src/auth.ts', status: 'running' }] },
+        { id: 'd', depth: 2, label: 'Nested search', phase: 'running', activity: [{ text: 'grep login', status: 'running' }] },
+        { id: 'e', depth: 1, label: 'waiting child', phase: 'waiting', activity: [] },
+        { id: 'f', depth: 1, label: 'later child', phase: 'waiting', activity: [] },
+      ],
+    }, createTheme(false), 48)
+
+    const text = painted.lines.map(stripAnsi)
+    expect(text[0]).toBe('  Agents · 2 running · 4 done')
+    expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · read src/auth.ts`))).toBe(true)
+    expect(text.some(line => line.includes(`${SYMBOL.success} waiting child`))).toBe(true)
+    expect(text.some(line => line.includes(`${SYMBOL.success} done review`))).toBe(true)
+    expect(text.join('\n')).not.toContain(SYMBOL.pending)
+    expect(painted.lines.map(stripAnsi).some(line => line.includes('Nested search · grep login'))).toBe(true)
+    expect(painted.lines.every(line => visibleWidth(line) <= 48)).toBe(true)
+    expect(hitTestSubagentRoster(painted.items, painted.items[0]?.row ?? -1)).toBe(painted.items[0]?.id)
+    expect(hitTestSubagentRoster(painted.items, 0)).toBeUndefined()
+  })
+
+  it('anchors an inspect banner and marks the open subagent', () => {
+    const frame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'deepseek-v4-flash',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
+      subagents: {
+        agents: [{
+          id: 'child-1',
+          depth: 1,
+          label: 'Explore auth',
+          phase: 'running',
+          activity: [{ text: 'read src/auth.ts', status: 'running' }],
+        }],
+      },
+      inspected: { id: 'child-1', label: 'Explore auth', phase: 'running', writable: true },
+    })
+    const text = frame.lines.map(stripAnsi).join('\n')
+    expect(text).toContain(`← ${SPINNER[0]} Explore auth · Enter to steer · Esc to return`)
+    expect(text).toContain('Enter to steer · Esc to return')
+    expect(frame.chrome?.inspect?.rows).toBe(1)
+    expect(frame.chrome?.subagents?.items[0]?.id).toBe('child-1')
+    expect(frame.cursorVisible).not.toBe(false)
+    expect(renderInspectBanner({
+      id: 'child-1', label: 'Explore auth', phase: 'completed', writable: false,
+    }, createTheme(false), 60)[0]).toContain('read-only')
+    const readonlyFrame = renderView(initialTranscript(), {
+      width: 60,
+      height: 24,
+      model: 'deepseek-v4-flash',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      inspected: { id: 'child-1', label: 'Explore auth', phase: 'completed', writable: false },
+    })
+    expect(readonlyFrame.cursorVisible).toBe(false)
   })
 
   it('keeps the frame inside the terminal height with a scroll indicator', () => {

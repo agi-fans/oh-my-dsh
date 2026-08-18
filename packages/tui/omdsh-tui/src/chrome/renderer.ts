@@ -52,6 +52,16 @@ export interface Frame {
     itemRows?: readonly (number | undefined)[]
     document?: { start: number; maxStart: number; pageSize: number }
   }
+  /** Clickable inspect banner and subagent roster rows. */
+  chrome?: {
+    inspect?: { start: number; rows: number }
+    subagents?: {
+      start: number
+      headerRows: number
+      rows: number
+      items: readonly { id: string; row: number }[]
+    }
+  }
 }
 
 /** The write sink a renderer emits into (stdout or a test capture). */

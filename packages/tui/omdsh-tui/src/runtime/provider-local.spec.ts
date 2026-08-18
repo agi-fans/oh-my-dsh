@@ -1506,6 +1506,110 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('opens a subagent transcript when its roster row is clicked', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const opened: string[] = []
+    tui.onInspectSubagent(id => { opened.push(id) })
+    const roster = {
+      agents: [{
+        id: 'child-1',
+        depth: 1,
+        label: 'Explore auth',
+        phase: 'running' as const,
+        activity: [],
+      }],
+    }
+    tui.setSubagents(roster)
+    const layout = renderView(initialTranscript(), {
+      width: term.width(),
+      height: term.height(),
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      subagents: roster,
+    })
+    const start = layout.chrome?.subagents?.start
+    const row = layout.chrome?.subagents?.items[0]?.row
+    expect(start).toBeDefined()
+    expect(row).toBeDefined()
+    press(term, `\x1b[<0;1;${(start ?? 0) + (row ?? 0) + 1}M`)
+    expect(opened).toEqual(['child-1'])
+    tui.dispose()
+  })
+
+  it('steers a writable inspected subagent without resolving parent input', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const steered: string[] = []
+    tui.onInspectSubmit(submission => { steered.push(submission.text) })
+    const pending = tui.readInput()
+    tui.setInspectedSubagent({
+      id: 'child-1', label: 'Explore auth', phase: 'waiting', mode: 'continuable', writable: true,
+    })
+    press(term, 'keep going\r')
+    expect(steered).toEqual(['keep going'])
+    tui.dispose()
+    expect(await pending).toBe(null)
+  })
+
+  it('clears a writable inspect draft on Escape before leaving', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const closed: number[] = []
+    tui.onInspectClose(() => { closed.push(1) })
+    tui.setInspectedSubagent({
+      id: 'child-1', label: 'Explore auth', phase: 'waiting', mode: 'continuable', writable: true,
+    })
+    press(term, 'draft')
+    press(term, '\x1b')
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(closed).toEqual([])
+        press(term, '\x1b')
+        setTimeout(() => {
+          expect(closed).toEqual([1])
+          tui.dispose()
+          resolve()
+        }, 120)
+      }, 120)
+    })
+  })
+
+  it('hides the composer cursor while a read-only inspect is open', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    term.captured = ''
+    tui.setInspectedSubagent({
+      id: 'child-1', label: 'Explore auth', phase: 'running', writable: false,
+    })
+    expect(term.captured).toContain('\x1b[?25l')
+    term.captured = ''
+    tui.setInspectedSubagent({
+      id: 'child-1', label: 'Explore auth', phase: 'waiting', mode: 'continuable', writable: true,
+    })
+    expect(term.captured).toContain('\x1b[?25h')
+    expect(term.captured).not.toContain('\x1b[?25l')
+    tui.dispose()
+  })
+
+  it('returns from an inspected subagent on Escape', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const closed: number[] = []
+    tui.onInspectClose(() => { closed.push(1) })
+    tui.setInspectedSubagent({ id: 'child-1', label: 'Explore auth', phase: 'running', writable: false })
+    press(term, '\x1b')
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(closed).toEqual([1])
+        tui.dispose()
+        resolve()
+      }, 120)
+    })
+  })
+
   it('completes a slash command when its popup row is clicked', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

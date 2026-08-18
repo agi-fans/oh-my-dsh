@@ -95,6 +95,43 @@ export interface TuiLoopStatus {
   limit?: string
 }
 
+/** Lifecycle shown for one descendant subagent in the live roster. */
+export type TuiSubagentPhase = 'starting' | 'running' | 'waiting' | 'completed' | 'error'
+
+/** Latest child work folded from that child's own session log. */
+export interface TuiSubagentActivity {
+  /** Compact tool or thinking label, already shortened for a one-line HUD. */
+  readonly text: string
+  readonly status: 'running' | 'ok' | 'error' | 'thinking'
+}
+
+/** One origin-classified descendant projected into the terminal HUD. */
+export interface TuiSubagentView {
+  readonly id: string
+  readonly parentId?: string
+  /** Edge distance from the active root session; direct children are `1`. */
+  readonly depth: number
+  readonly label: string
+  readonly mode?: 'one-shot' | 'continuable'
+  readonly phase: TuiSubagentPhase
+  readonly activity: readonly TuiSubagentActivity[]
+}
+
+/** Live descendant roster for the active root session. */
+export interface TuiSubagentRoster {
+  readonly agents: readonly TuiSubagentView[]
+}
+
+/** The descendant whose own transcript currently replaces the parent view. */
+export interface TuiInspectedSubagent {
+  readonly id: string
+  readonly label: string
+  readonly phase: TuiSubagentPhase
+  readonly mode?: 'one-shot' | 'continuable'
+  /** Continuable children accept composer follow-ups; one-shot runs stay read-only. */
+  readonly writable: boolean
+}
+
 /** Lightweight durable session row used by the welcome card and resume UI. */
 export interface TuiRecentSession {
   id: string
@@ -160,6 +197,10 @@ export interface TuiService {
   setModel(model: string, reasoningEffort?: string): void
   /** Update the optional process-local Loop indicator in the fixed footer. */
   setLoopStatus(status: TuiLoopStatus | undefined): void
+  /** Replace the live descendant-subagent roster above the composer. */
+  setSubagents(roster: TuiSubagentRoster | undefined): void
+  /** Open or leave a descendant transcript view without changing the active Agent. */
+  setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void
   /** Replace the tool list shown by `/tools`. */
   setTools(tools: readonly { name: string; description: string }[]): void
   /** Replace commands contributed by the active agent's Harness scope. */
@@ -207,6 +248,22 @@ export interface TuiService {
    * @returns disposer removing the listener.
    */
   onRewind(listener: () => void): () => void
+  /**
+   * Subscribe to a request to open one descendant transcript.
+   * @returns disposer removing the listener.
+   */
+  onInspectSubagent(listener: (id: string) => void): () => void
+  /**
+   * Subscribe to a request to return from a descendant transcript to the parent.
+   * @returns disposer removing the listener.
+   */
+  onInspectClose(listener: () => void): () => void
+  /**
+   * Subscribe to a composer submission meant for the inspected continuable child.
+   * The provider does not resolve {@link readInput} for these submissions.
+   * @returns disposer removing the listener.
+   */
+  onInspectSubmit(listener: (submission: TuiSubmission) => void): () => void
   /** Restore terminal state and settle a pending input read with null. */
   dispose(): void
 }

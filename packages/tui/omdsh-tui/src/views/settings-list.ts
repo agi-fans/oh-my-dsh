@@ -455,7 +455,7 @@ function border(theme: Theme, text: string): string {
 
 function topBorder(theme: Theme, width: number): string {
   const inner = Math.max(0, width - 2)
-  const title = truncateToWidth(' ⚙ Settings ', Math.max(0, inner - 2))
+  const title = truncateToWidth(' Settings ', Math.max(0, inner - 2))
   const fill = Math.max(0, inner - 1 - visibleWidth(title))
   return border(theme, BOX.topLeft + BOX.horizontal)
     + theme.bold(theme.fg('accent', title))

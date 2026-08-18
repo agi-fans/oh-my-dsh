@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Show live descendant subagents above the composer, with each child's label, run state, and current tool, and present `subagent`, `send_message`, `interrupt_agent`, and `list_agents` cards by their task description instead of raw JSON.
+- Open a subagent's own transcript from the Agents roster by clicking a row or pressing Alt+A, and return to the parent with Escape.
+- Steer a continuable subagent from its inspect view: the composer delivers a follow-up to that child, while one-shot runs stay read-only.
+
+### Changed
+
+- Use monochrome Unicode marks for pending, warning, todos, and settings instead of emoji-presentation glyphs.
+
+### Fixed
+
+- Hide the blinking composer cursor while a read-only subagent transcript is open.
+- Paint idle subagents with a check instead of the hourglass pending glyph.
+
 ## [0.5.1] - 2026-08-18
 
 ### Fixed

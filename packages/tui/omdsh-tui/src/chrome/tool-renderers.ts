@@ -51,6 +51,65 @@ function fallbackArgumentLines(raw: string): string[] {
   }
 }
 
+function parsedObject(raw: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(raw)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function stringField(value: Record<string, unknown>, key: string): string {
+  const field = value[key]
+  return typeof field === 'string' ? field : ''
+}
+
+function isSubagentToolName(name: string): boolean {
+  return name === 'subagent' || name.startsWith('subagent_')
+}
+
+/** Presentation for Harness delegation tools that do not ship presentCall. */
+function subagentFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
+  const args = parsedObject(raw) ?? {}
+  if (isSubagentToolName(name)) {
+    const description = stringField(args, 'description')
+    const prompt = stringField(args, 'prompt')
+    const background = args.run_in_background === true
+    const trimmed = output.trim()
+    const startNotice = /^(?:started (?:subagent|background subagent task) )\S+$/u.test(trimmed)
+    const summary = startNotice
+      ? trimmed
+      : output === '' ? (background ? 'background' : 'running') : ''
+    return {
+      title: description === '' ? 'Subagent' : description,
+      ...(summary === '' ? {} : { summary }),
+      ...(prompt === '' ? {} : { lines: prompt.split('\n') }),
+      ...(startNotice ? { hideOutput: true } : {}),
+    }
+  }
+  if (name === 'send_message') {
+    const message = stringField(args, 'message')
+    const id = stringField(args, 'subagent_id')
+    return {
+      title: 'Message',
+      ...(id === '' ? {} : { summary: id }),
+      ...(message === '' ? {} : { lines: message.split('\n') }),
+    }
+  }
+  if (name === 'interrupt_agent') {
+    const id = stringField(args, 'agent_id')
+    return {
+      title: 'Interrupt',
+      ...(id === '' ? {} : { summary: id }),
+    }
+  }
+  if (name === 'list_agents') return { title: 'Agents' }
+  return undefined
+}
+
 function contentLines(content: readonly ContentBlock[] | undefined): string[] {
   if (content === undefined) return []
   const lines: string[] = []
@@ -83,6 +142,8 @@ interface PartialToolPresentation {
   summary?: string
   lines?: readonly string[]
   outputPreview?: 'head' | 'tail'
+  /** When set, skip durable output text because the summary already carries it. */
+  hideOutput?: boolean
 }
 
 function callPresentation(view: ToolCallView | undefined, fallbackTitle: string): PartialToolPresentation {
@@ -182,14 +243,19 @@ function resultPresentation(view: ToolResultView | undefined): PartialToolPresen
 
 /** Render a Harness presentation intent, falling back to durable raw arguments/result text. */
 export function renderTool(input: ToolRenderInput): ToolPresentation {
+  const fallback = input.presentation === undefined
+    ? subagentFallback(input.name, input.arguments, input.output)
+    : undefined
   const call = callPresentation(input.presentation?.call, input.name)
   const result = resultPresentation(input.presentation?.result)
-  const callLines = call.lines ?? fallbackArgumentLines(input.arguments)
-  const outputLines = result.lines ?? (input.output === '' ? [] : input.output.split('\n'))
+  const callLines = call.lines ?? fallback?.lines ?? fallbackArgumentLines(input.arguments)
+  const outputLines = result.lines ?? (
+    fallback?.hideOutput === true || input.output === '' ? [] : input.output.split('\n')
+  )
   const duplicateDiff = input.presentation?.call?.card === 'diff' && input.presentation.result?.card === 'diff'
-  const summary = result.summary ?? call.summary
+  const summary = result.summary ?? call.summary ?? fallback?.summary
   return {
-    title: result.title ?? call.title ?? input.name,
+    title: result.title ?? call.title ?? fallback?.title ?? input.name,
     ...(summary === undefined || summary === '' ? {} : { summary }),
     input: duplicateDiff ? [] : callLines,
     output: outputLines,

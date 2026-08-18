@@ -22,6 +22,8 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('PgUp')
     expect(text).toContain('Ctrl+O')
     expect(text).toContain('Mouse wheel')
+    expect(text).toContain('Alt+A')
+    expect(text).toContain('subagent transcript')
     expect(text).not.toContain('thinking')
     expect(text).not.toContain('Speech-to-text')
   })

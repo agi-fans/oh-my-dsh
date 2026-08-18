@@ -31,16 +31,19 @@ import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/type
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type {
   TuiCommand,
+  TuiInspectedSubagent,
   TuiRecentSession,
   TuiService,
   TuiSessionControls,
   TuiSessionStats,
   TuiSubmission,
 } from '../definition.ts'
+import { descendantDepth, isSteerableSubagent, SubagentRoster } from './subagent-roster.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import * as commandPermission from '../commands/permission.ts'
 import {
@@ -428,19 +431,51 @@ export class SessionRuntime {
   readonly #retired: AgentHandle[] = []
   #disposed = false
   readonly #off: Array<() => void> = []
+  readonly #subagents = new SubagentRoster()
+  #subagentEpoch = 0
+  #inspectEpoch = 0
+  #inspectedId: string | undefined
 
   constructor(ctx: Context, tui: TuiService) {
     this.#ctx = ctx
     this.#tui = tui
+    this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
+    this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
+    this.#off.push(tui.onInspectSubmit(submission => { void this.#steerInspected(submission) }))
     this.#off.push(ctx.on('agent/status', (payload) => {
-      if (payload.agent === this.#active?.handle.agent) tui.setStatus(payload.status)
+      if (payload.agent === this.#active?.handle.agent) {
+        if (this.#inspectedId === undefined) tui.setStatus(payload.status)
+        return
+      }
+      if (payload.agent.id === this.#inspectedId) tui.setStatus(payload.status)
+      this.#noteSubagentStatus(payload.agent.session, payload.status)
+    }))
+    this.#off.push(ctx.on('session/created', (session) => {
+      this.#noteSubagentSession(session)
+    }))
+    this.#off.push(ctx.on('session/disposed', (session) => {
+      if (!this.#subagents.owns(session.id)) return
+      this.#subagents.setAgentStatus(session.id, 'gone')
+      this.#pushSubagents()
     }))
     this.#off.push(ctx.on('session/event', (session, event) => {
       const active = this.#active
-      if (active === undefined || session !== active.handle.agent.session) return
-      tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
-      this.#pushSessionInfo()
-      if (event.type === 'session/title') void this.refreshRecent()
+      if (active === undefined) return
+      if (session.id === this.#inspectedId) {
+        const child = ctx.get('agents')?.get(session.id)
+        tui.event(event, child === undefined ? undefined : ctx.get('tuiToolPresentation')?.event(child, event))
+        this.#noteSubagentEvent(session, event)
+        return
+      }
+      if (session === active.handle.agent.session) {
+        if (this.#inspectedId === undefined) {
+          tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
+        }
+        this.#pushSessionInfo()
+        if (event.type === 'session/title') void this.refreshRecent()
+        return
+      }
+      this.#noteSubagentEvent(session, event)
     }))
     if (ctx.get('commands') !== undefined) {
       this.#off.push(ctx.on('commands/change', () => { this.#pushCommands() }))
@@ -452,7 +487,7 @@ export class SessionRuntime {
       this.#off.push(ctx.on('tools/change', () => {
         this.#pushTools()
         const active = this.#active
-        if (active !== undefined) this.#replaceTranscript(active.handle.agent)
+        if (active !== undefined) this.#replaceVisibleTranscript()
       }))
     }
     const projections = ctx.get('sessionProjections')
@@ -467,6 +502,19 @@ export class SessionRuntime {
 
   get agent(): Agent | undefined {
     return this.#active?.handle.agent
+  }
+
+  /**
+   * Interrupt the visible continuable child when one is inspected.
+   * @returns true when this consumed the gesture so the parent turn stays running.
+   */
+  interruptVisible(): boolean {
+    if (this.#inspectedId === undefined) return false
+    const root = this.#active?.handle.agent
+    if (root !== undefined) {
+      this.#ctx.get('subagents')?.interrupt(SessionId(this.#inspectedId), { kind: 'ancestor', agent: root })
+    }
+    return true
   }
 
   async start(): Promise<void> {
@@ -825,6 +873,11 @@ export class SessionRuntime {
   async dispose(): Promise<void> {
     if (this.#disposed) return
     this.#disposed = true
+    this.#subagentEpoch += 1
+    this.#inspectedId = undefined
+    this.#subagents.reset()
+    this.#tui.setInspectedSubagent(undefined)
+    this.#tui.setSubagents(undefined)
     for (const off of this.#off.splice(0).reverse()) off()
     await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
     await this.#active?.handle.dispose()
@@ -873,7 +926,10 @@ export class SessionRuntime {
     const previous = this.#active
     this.#active = next
     const agent = next.handle.agent
+    this.#inspectedId = undefined
+    this.#tui.setInspectedSubagent(undefined)
     this.#tui.setStatus(agent.status)
+    this.#syncSubagents()
     this.#replaceTranscript(agent)
     this.#pushTools()
     const selected = this.selection(agent)
@@ -935,6 +991,98 @@ export class SessionRuntime {
     return list.find(skill => skill.name === name && isUserInvocable(skill))
   }
 
+  #lookupSession = (id: string): Session | undefined => this.#ctx.get('sessions')?.get(SessionId(id))
+
+  #subagentDepth(session: Session): number | undefined {
+    const rootId = this.#active?.handle.agent.id
+    if (rootId === undefined) return undefined
+    return descendantDepth(session, rootId, this.#lookupSession)
+  }
+
+  #noteSubagentSession(session: Session): void {
+    const depth = this.#subagentDepth(session)
+    if (depth === undefined) return
+    const parentId = session.header.parentSession
+    this.#subagents.remember({
+      id: session.id,
+      ...(parentId === undefined ? {} : { parentId }),
+      depth,
+      phase: this.#ctx.get('agents')?.get(session.id)?.status === 'running' ? 'running' : 'starting',
+    })
+    this.#pushSubagents()
+  }
+
+  #noteSubagentEvent(session: Session, event: SessionEvent): void {
+    const depth = this.#subagentDepth(session)
+    if (depth === undefined) return
+    this.#subagents.apply(session, depth, event, this.#ctx.get('agents')?.get(session.id)?.status)
+    this.#pushSubagents()
+  }
+
+  #noteSubagentStatus(session: Session, status: 'idle' | 'running'): void {
+    if (this.#subagents.owns(session.id)) {
+      this.#subagents.setAgentStatus(session.id, status)
+      this.#pushSubagents()
+      return
+    }
+    const depth = this.#subagentDepth(session)
+    if (depth === undefined) return
+    this.#subagents.hydrate(session, depth, this.#ctx.get('agents')?.get(session.id)?.status ?? status)
+    this.#pushSubagents()
+  }
+
+  #syncSubagents(): void {
+    const root = this.#active?.handle.agent
+    const epoch = this.#subagentEpoch + 1
+    this.#subagentEpoch = epoch
+    if (root === undefined) {
+      this.#subagents.reset()
+      this.#tui.setSubagents(undefined)
+      return
+    }
+    this.#subagents.reset(root.id)
+    for (const session of this.#ctx.get('sessions')?.list() ?? []) {
+      const depth = descendantDepth(session, root.id, this.#lookupSession)
+      if (depth === undefined) continue
+      this.#subagents.hydrate(session, depth, this.#ctx.get('agents')?.get(session.id)?.status)
+    }
+    this.#pushSubagents()
+    const listed = this.#ctx.get('subagents')?.listChildren(root.id)
+    if (listed === undefined) return
+    void listed.then((entries) => {
+      if (epoch !== this.#subagentEpoch || this.#active?.handle.agent !== root) return
+      for (const entry of entries) {
+        if (entry.kind !== 'child') continue
+        this.#subagents.remember({
+          id: entry.id,
+          depth: 1,
+          mode: entry.mode,
+          ...(entry.label === undefined ? {} : { label: entry.label }),
+          phase: entry.activity === 'running' ? 'running' : 'waiting',
+        })
+      }
+      this.#pushSubagents()
+    }, () => undefined)
+  }
+
+  #inspectView(id: string, fallbackPhase: TuiInspectedSubagent['phase'] = 'waiting'): TuiInspectedSubagent {
+    const view = this.#subagents.snapshot()?.agents.find(agent => agent.id === id)
+    const mode = view?.mode
+    return {
+      id,
+      label: view?.label ?? id,
+      phase: view?.phase ?? fallbackPhase,
+      ...(mode === undefined ? {} : { mode }),
+      writable: isSteerableSubagent(mode),
+    }
+  }
+
+  #pushSubagents(): void {
+    this.#tui.setSubagents(this.#subagents.snapshot())
+    if (this.#inspectedId === undefined) return
+    this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
+  }
+
   #pushSessionInfo(): void {
     const active = this.#active
     if (active === undefined) return
@@ -982,6 +1130,106 @@ export class SessionRuntime {
   #replaceTranscript(agent: Agent): void {
     const events = agent.session.events
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events))
+  }
+
+  #replaceVisibleTranscript(): void {
+    if (this.#inspectedId !== undefined) {
+      void this.#inspectSubagent(this.#inspectedId)
+      return
+    }
+    const agent = this.#active?.handle.agent
+    if (agent !== undefined) this.#replaceTranscript(agent)
+  }
+
+  #closeInspect(): void {
+    if (this.#inspectedId === undefined) return
+    this.#inspectEpoch += 1
+    this.#inspectedId = undefined
+    this.#tui.setInspectedSubagent(undefined)
+    const agent = this.#active?.handle.agent
+    if (agent === undefined) return
+    this.#replaceTranscript(agent)
+    this.#tui.setStatus(agent.status)
+  }
+
+  async #inspectSubagent(id: string): Promise<void> {
+    const request = this.#inspectEpoch + 1
+    this.#inspectEpoch = request
+    if (!this.#subagents.owns(id)) {
+      this.#tui.notice('That subagent is no longer available.', { level: 'error' })
+      return
+    }
+    const live = this.#ctx.get('sessions')?.get(SessionId(id))
+    let events: readonly SessionEvent[]
+    if (live !== undefined) {
+      events = live.events.slice(live.header.seedLength ?? 0)
+    } else {
+      try {
+        const inspected = await this.#ctx.get('sessionPersistence')?.inspect(SessionId(id))
+        if (inspected === undefined) throw new Error('subagent transcript is unavailable')
+        events = inspected.events.slice(inspected.meta.seedLength ?? 0)
+      } catch {
+        if (request === this.#inspectEpoch) {
+          this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })
+        }
+        return
+      }
+    }
+    if (request !== this.#inspectEpoch) return
+    this.#inspectedId = id
+    const child = this.#ctx.get('agents')?.get(SessionId(id))
+    this.#tui.replaceSession(
+      events,
+      child === undefined ? undefined : this.#ctx.get('tuiToolPresentation')?.session(child, events),
+    )
+    this.#tui.setInspectedSubagent(this.#inspectView(
+      id,
+      child?.status === 'running' ? 'running' : 'waiting',
+    ))
+    this.#tui.setStatus(child?.status ?? 'idle')
+  }
+
+  async #steerInspected(submission: TuiSubmission): Promise<void> {
+    const childId = this.#inspectedId
+    const root = this.#active?.handle.agent
+    if (childId === undefined || root === undefined) {
+      this.#tui.restoreInput(submission)
+      return
+    }
+    const view = this.#inspectView(childId)
+    if (!view.writable) {
+      this.#tui.restoreInput(submission)
+      this.#tui.notice('This subagent is a completed run and cannot take more messages.')
+      return
+    }
+    const live = this.#ctx.get('sessions')?.get(SessionId(childId))
+    const rosterParent = this.#subagents.snapshot()?.agents.find(agent => agent.id === childId)?.parentId
+    const parentId = live?.header.parentSession ?? rosterParent
+    const parent = parentId === undefined || parentId === root.id
+      ? root
+      : this.#ctx.get('agents')?.get(SessionId(parentId))
+    const subagents = this.#ctx.get('subagents')
+    if (parent === undefined || subagents === undefined) {
+      this.#tui.restoreInput(submission)
+      this.#tui.notice(parent === undefined
+        ? 'The parent of this subagent is not live, so it cannot take a follow-up.'
+        : 'Subagent follow-up is unavailable in this composition.')
+      return
+    }
+    try {
+      const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
+      if (this.#inspectedId !== childId || this.#active?.handle.agent !== root) {
+        this.#tui.restoreInput(submission)
+        return
+      }
+      await subagents.followup(parent, SessionId(childId), message.content, {
+        source: { kind: 'user' },
+        signal: new AbortController().signal,
+      })
+    } catch (error: unknown) {
+      this.#tui.restoreInput(submission)
+      this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    }
   }
 
   #sessionControls(active: ActiveSession, projection: TuiStatsProjection | undefined): TuiSessionControls {
