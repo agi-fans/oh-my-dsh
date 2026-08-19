@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-19
+
+### Fixed
+
+- Load user-installed DSH bundles from the omdsh Profile when running the published npm package.
+
 ## [0.6.0] - 2026-08-19
 
 ### Added
@@ -28,7 +34,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
-- Load user-installed DSH bundles from the omdsh Profile when running the published npm package.
 - Fail loud when `omdsh plugin add` is given a missing filesystem path, instead of installing a broken link, and resolve `./examples/hello` from a subdirectory of a checkout.
 - Keep ↑/↓ inside the current `/settings` tab instead of crossing into the other section.
 - Hide the blinking composer cursor while a read-only subagent transcript is open.
@@ -168,7 +173,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.4.0...v0.5.0

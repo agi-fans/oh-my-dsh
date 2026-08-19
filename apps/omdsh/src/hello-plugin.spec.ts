@@ -17,8 +17,19 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const exampleDir = join(repoRoot, 'examples', 'hello')
 const exampleName = '@agi-fans/omdsh-plugin-hello'
 const appDir = fileURLToPath(new URL('..', import.meta.url))
+const tuiDir = join(repoRoot, 'packages', 'tui', 'omdsh-tui')
 const appManifest = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')) as {
   dependencies?: Record<string, string>
+}
+
+function packedArchive(cwd: string, packDir: string): string {
+  const packed = spawnSync('pnpm', ['pack', '--pack-destination', packDir], {
+    cwd,
+    encoding: 'utf8',
+    timeout: 60_000,
+  })
+  expect(packed.status, packed.stderr + packed.stdout).toBe(0)
+  return join(packDir, basename(packed.stdout.trim().split('\n').at(-1) ?? ''))
 }
 
 const roots: string[] = []
@@ -100,14 +111,9 @@ describe('examples/hello bundle', () => {
     const packDir = temp('omdsh-hello-pack-')
     const installDir = temp('omdsh-hello-install-')
     const home = temp('omdsh-hello-packed-home-')
-    const packed = spawnSync('pnpm', ['pack', '--pack-destination', packDir], {
-      cwd: appDir,
-      encoding: 'utf8',
-      timeout: 60_000,
-    })
-    expect(packed.status, packed.stderr + packed.stdout).toBe(0)
-    const archive = join(packDir, basename(packed.stdout.trim().split('\n').at(-1) ?? ''))
-    const installed = spawnSync('npm', ['install', '--prefix', installDir, archive], {
+    const tuiArchive = packedArchive(tuiDir, packDir)
+    const appArchive = packedArchive(appDir, packDir)
+    const installed = spawnSync('npm', ['install', '--prefix', installDir, appArchive, tuiArchive], {
       encoding: 'utf8',
       timeout: 180_000,
     })

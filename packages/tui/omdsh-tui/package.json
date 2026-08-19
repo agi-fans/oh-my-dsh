@@ -1,7 +1,7 @@
 {
   "name": "@agi-fans/dsh-tui",
   "description": "Library-only Cordis plugin suite for DeepSeek Harness terminal presentation and interaction",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
   "repository": {
     "type": "git",
