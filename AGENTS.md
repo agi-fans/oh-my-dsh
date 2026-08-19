@@ -88,6 +88,8 @@ pnpm smoke:happy
 git diff --check
 ```
 
+GitHub Actions runs this set, plus `pnpm check:boundaries`, on pull requests and on pushes to `main`.
+
 - Run `pnpm smoke` when changing raw TTY input, viewport behavior, scrolling, cursor placement, Ctrl-C/Ctrl-D handling, or built-command startup.
 - A change is not complete if configuration, lockfiles, source files, scripts, or dependency symlinks still point into `refs/`.
 - Before finishing dependency-boundary work, audit with commands equivalent to:

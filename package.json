@@ -24,6 +24,7 @@
     "typecheck": "pnpm -r typecheck",
     "format:md": "node scripts/format-markdown.mjs && node scripts/sync-package-readme.mjs",
     "check:md": "node scripts/format-markdown.mjs --check && node scripts/sync-package-readme.mjs --check",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
     "sync:package-readme": "node scripts/sync-package-readme.mjs",
     "omdsh": "pnpm --dir apps/omdsh omdsh",
     "smoke": "node scripts/pty-smoke.mjs",

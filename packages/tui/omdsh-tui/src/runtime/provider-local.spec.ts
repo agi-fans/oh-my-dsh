@@ -4,8 +4,10 @@
  * scroll, Ctrl-O tool expand, submit), double-Escape rewind, double Ctrl-C exit, Ctrl-D quit and the
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
-import { PassThrough } from 'node:stream'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -105,6 +107,15 @@ function emulatedScreenRows(output: string): string[] {
     column += token.length
   }
   return rows
+}
+
+/** Status-line workspace label: home-relative git root, matching LocalTui. */
+function shortenedWorkspaceRoot(): string {
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+  const home = homedir()
+  if (root === home) return '~'
+  if (root.startsWith(`${home}/`)) return `~${root.slice(home.length)}`
+  return root
 }
 
 describe('LocalTui (tty)', () => {
@@ -611,7 +622,7 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
 
     const rows = emulatedScreenRows(term.captured)
-    const statusRow = rows.findIndex(line => line.includes('~/Workspace/dsh-tui'))
+    const statusRow = rows.findIndex(line => line.includes(shortenedWorkspaceRoot()))
     const resumeRow = rows.findIndex(line => line.includes('Resume this session with omdsh --resume'))
     expect(statusRow).toBeGreaterThanOrEqual(0)
     expect(resumeRow).toBeGreaterThan(statusRow)
