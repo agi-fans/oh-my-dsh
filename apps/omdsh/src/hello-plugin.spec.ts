@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -23,9 +23,19 @@ const appManifest = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'
 }
 
 function packedArchive(cwd: string, packDir: string): string {
+  if (!existsSync(join(cwd, 'lib'))) {
+    const built = spawnSync('pnpm', ['run', 'build'], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 60_000,
+    })
+    expect(built.status, built.stderr + built.stdout).toBe(0)
+  }
+  // Skip prepack: it deletes lib/ and races sibling tests that import the workspace build.
   const packed = spawnSync('pnpm', ['pack', '--pack-destination', packDir], {
     cwd,
     encoding: 'utf8',
+    env: { ...process.env, npm_config_ignore_scripts: 'true' },
     timeout: 60_000,
   })
   expect(packed.status, packed.stderr + packed.stdout).toBe(0)
