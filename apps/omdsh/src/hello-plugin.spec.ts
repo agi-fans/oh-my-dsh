@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -31,11 +31,23 @@ function packedArchive(cwd: string, packDir: string): string {
     })
     expect(built.status, built.stderr + built.stdout).toBe(0)
   }
-  // Skip prepack: it deletes lib/ and races sibling tests that import the workspace build.
-  const packed = spawnSync('pnpm', ['pack', '--pack-destination', packDir], {
-    cwd,
+  const manifest = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>
+  }
+  if (manifest.dependencies?.['@agi-fans/dsh-tui'] === 'workspace:^') {
+    const tui = JSON.parse(readFileSync(join(tuiDir, 'package.json'), 'utf8')) as { version: string }
+    manifest.dependencies['@agi-fans/dsh-tui'] = `^${tui.version}`
+  }
+  // Stage a copy so pack cannot run workspace prepack (it deletes lib/).
+  const stage = temp('omdsh-pack-stage-')
+  writeFileSync(join(stage, 'package.json'), JSON.stringify(manifest))
+  for (const name of ['lib', 'config', 'LICENSE', 'README.md']) {
+    const from = join(cwd, name)
+    if (existsSync(from)) cpSync(from, join(stage, name), { recursive: true })
+  }
+  const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
+    cwd: stage,
     encoding: 'utf8',
-    env: { ...process.env, npm_config_ignore_scripts: 'true' },
     timeout: 60_000,
   })
   expect(packed.status, packed.stderr + packed.stdout).toBe(0)
