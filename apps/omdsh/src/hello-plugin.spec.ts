@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -16,6 +16,10 @@ import { PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const exampleDir = join(repoRoot, 'examples', 'hello')
 const exampleName = '@agi-fans/omdsh-plugin-hello'
+const appDir = fileURLToPath(new URL('..', import.meta.url))
+const appManifest = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')) as {
+  dependencies?: Record<string, string>
+}
 
 const roots: string[] = []
 
@@ -87,4 +91,43 @@ describe('examples/hello bundle', () => {
     expect(result.stdout).toContain('id: omdsh-hello')
     expect(result.stdout).not.toContain('Into the Unknown')
   }, 60_000)
+
+  it('ships the Loader runtime required to resolve Profile-installed bundles', () => {
+    expect(appManifest.dependencies?.['node-addon-require-builtin']).toBe('0.1.4')
+  })
+
+  it('boots a Profile-installed command from the packed application', () => {
+    const packDir = temp('omdsh-hello-pack-')
+    const installDir = temp('omdsh-hello-install-')
+    const home = temp('omdsh-hello-packed-home-')
+    const packed = spawnSync('pnpm', ['pack', '--pack-destination', packDir], {
+      cwd: appDir,
+      encoding: 'utf8',
+      timeout: 60_000,
+    })
+    expect(packed.status, packed.stderr + packed.stdout).toBe(0)
+    const archive = join(packDir, basename(packed.stdout.trim().split('\n').at(-1) ?? ''))
+    const installed = spawnSync('npm', ['install', '--prefix', installDir, archive], {
+      encoding: 'utf8',
+      timeout: 180_000,
+    })
+    expect(installed.status, installed.stderr + installed.stdout).toBe(0)
+    const bin = join(installDir, 'node_modules', '.bin', 'omdsh')
+    const added = spawnSync(bin, ['plugin', 'add', exampleDir], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, OMDSH_HOME: home },
+      timeout: 60_000,
+    })
+    expect(added.status, added.stderr + added.stdout).toBe(0)
+    const launched = spawnSync(bin, [], {
+      cwd: repoRoot,
+      input: '/hello\n',
+      encoding: 'utf8',
+      env: { ...process.env, OMDSH_HOME: home },
+      timeout: 60_000,
+    })
+    expect(launched.status, launched.stderr + launched.stdout).toBe(0)
+    expect(launched.stdout).toContain('Hello from @agi-fans/omdsh-plugin-hello.')
+  }, 300_000)
 })

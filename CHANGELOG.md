@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Load user-installed DSH bundles from the omdsh Profile when running the published npm package.
 - Fail loud when `omdsh plugin add` is given a missing filesystem path, instead of installing a broken link, and resolve `./examples/hello` from a subdirectory of a checkout.
 - Keep ↑/↓ inside the current `/settings` tab instead of crossing into the other section.
 - Hide the blinking composer cursor while a read-only subagent transcript is open.
