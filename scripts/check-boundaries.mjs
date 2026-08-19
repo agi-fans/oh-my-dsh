@@ -42,7 +42,7 @@ try {
 const productHits = grep.split('\n').filter((line) => {
   if (line === '') return false
   const path = line.slice(0, line.indexOf(':'))
-  return !path.endsWith('.md')
+  return path !== 'scripts/check-boundaries.mjs' && !path.endsWith('.md')
 })
 if (productHits.length > 0) {
   fail(productHits.join('\n'))
