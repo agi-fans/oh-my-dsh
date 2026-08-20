@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from '../commands/integrations.ts'
 import {
   conversationTurns,
   createSubmissionMessage,
+  encodeComposerImages,
   modelStatus,
   recentSessionContent,
   restoreSubmissionMessage,
@@ -266,5 +268,14 @@ describe('capability catalogs', () => {
       '|---|---|',
       '| `search` | No description provided. |',
     ].join('\n'))
+  })
+})
+
+describe('encodeComposerImages', () => {
+  it('encodes composer drafts as canonical base64 attachments', () => {
+    const data = new Uint8Array([1, 2, 3, 4])
+    expect(encodeComposerImages([{ data, mediaType: 'image/png', name: 'shot.png' }])).toEqual([
+      { data: Buffer.from(data).toString('base64'), mediaType: 'image/png', name: 'shot.png' },
+    ])
   })
 })

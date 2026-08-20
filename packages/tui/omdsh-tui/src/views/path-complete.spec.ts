@@ -135,6 +135,10 @@ describe('pathSuggestions / applyPathCompletion', () => {
       text: 'see @README.md ',
       cursor: 15,
     })
+    expect(applyPathCompletion('@"src/', 6, { value: '@"src/index.ts"', label: 'index.ts', kind: 'path' })).toEqual({
+      text: '@"src/index.ts" ',
+      cursor: 16,
+    })
   })
 
   it('completes ~/ from the home listing', () => {

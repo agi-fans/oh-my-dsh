@@ -3,6 +3,7 @@
 import type { Theme } from './theme.ts'
 import { wrapIndexed } from './width.ts'
 
+const SESSION_MENTION = /@\[(?:\\.|[^\\\]])*\]\(dsh-session:[^\s)]+\)/gu
 const PATH_MENTION = /@(?:"[^"\n]+"|'[^'\n]+'|[^\s@]+)/gu
 const MENTION_BOUNDARY = /[\s([{<"'`，。；：！？（【《]/u
 const TRAILING_PUNCTUATION = /[)\]}>.,;:!?"'`，。；：！？）】》]/u
@@ -14,6 +15,10 @@ interface MentionRange {
 
 function mentionRanges(text: string): MentionRange[] {
   const ranges: MentionRange[] = []
+  for (const match of text.matchAll(SESSION_MENTION)) {
+    if (match.index === undefined) continue
+    ranges.push({ start: match.index, end: match.index + match[0].length })
+  }
   for (const match of text.matchAll(PATH_MENTION)) {
     const start = match.index
     if (start === undefined || (start > 0 && !MENTION_BOUNDARY.test(text[start - 1] ?? ''))) continue
@@ -23,9 +28,11 @@ function mentionRanges(text: string): MentionRange[] {
     if (!quoted) {
       while (end > start + 1 && TRAILING_PUNCTUATION.test(text[end - 1] ?? '')) end -= 1
     }
-    if (end > start + 1) ranges.push({ start, end })
+    if (end <= start + 1) continue
+    if (ranges.some(range => start < range.end && end > range.start)) continue
+    ranges.push({ start, end })
   }
-  return ranges
+  return ranges.sort((left, right) => left.start - right.start)
 }
 
 function paintMentionSlice(

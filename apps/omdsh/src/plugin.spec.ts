@@ -50,10 +50,10 @@ function installFake(
 
 describe('plugin version ranges', () => {
   it('accepts the shipped prerelease against a matching caret', () => {
-    expect(rangeAccepts('^0.1.0-rc.7', '0.1.0-rc.7')).toBe(true)
-    expect(rangeAccepts('0.1.0-rc.7', '0.1.0-rc.7')).toBe(true)
-    expect(rangeAccepts('^0.1.0', '0.1.0-rc.7')).toBe(false)
-    expect(rangeAccepts('^1.0.0', '0.1.0-rc.7')).toBe(false)
+    expect(rangeAccepts('^0.1.0-rc.8', '0.1.0-rc.8')).toBe(true)
+    expect(rangeAccepts('0.1.0-rc.8', '0.1.0-rc.8')).toBe(true)
+    expect(rangeAccepts('^0.1.0', '0.1.0-rc.8')).toBe(false)
+    expect(rangeAccepts('^1.0.0', '0.1.0-rc.8')).toBe(false)
     expect(rangeAccepts('workspace:^', '0.5.1')).toBe(true)
   })
 })
@@ -299,7 +299,7 @@ describe('omdsh plugin', () => {
     const anchor = join(temp('omdsh-plugin-anchor-'), 'package.json')
     writePackage(join(anchor, '..'), {
       name: '@agi-fans/oh-my-dsh',
-      dependencies: { '@deepseek-ai/dsh-agent': '0.1.0-rc.7' },
+      dependencies: { '@deepseek-ai/dsh-agent': '0.1.0-rc.8' },
     })
     writePackage(dir, {
       name: 'dsh-profile-omdsh',

@@ -29,8 +29,8 @@ export interface AutocompleteItem {
   value: string
   label: string
   description?: string
-  /** Argument and path rows paint without a leading `/`. */
-  kind?: 'command' | 'argument' | 'path'
+  /** Argument, path, and session rows paint without a leading `/`. */
+  kind?: 'command' | 'argument' | 'path' | 'session' | 'heading'
 }
 
 const COPY_ARGUMENTS: readonly SlashArgument[] = [
@@ -384,11 +384,16 @@ export function renderAutocomplete(
     const item = items[i]
     if (item === undefined) continue
     const isSelected = i === index
+    if (item.kind === 'heading') {
+      lines.push(truncateToWidth(theme.fg('dim', item.label), width))
+      continue
+    }
     const cursor = isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
-    const name = item.kind === 'argument' || item.kind === 'path' ? item.label : '/' + item.label
+    const bare = item.kind === 'argument' || item.kind === 'path' || item.kind === 'session'
+    const name = bare ? item.label : '/' + item.label
     const painted = isSelected
       ? theme.bold(theme.fg('accent', name))
-      : item.kind === 'argument' || item.kind === 'path'
+      : bare
         ? name
         : theme.fg('accent', name)
     const desc = item.description !== undefined && item.description !== ''
@@ -396,7 +401,7 @@ export function renderAutocomplete(
       : ''
     lines.push(truncateToWidth(cursor + painted + desc, width))
   }
-  const pathMode = items.some(item => item.kind === 'path')
+  const pathMode = items.some(item => item.kind === 'path' || item.kind === 'session')
   if (pathMode) {
     const position = items.length > 1 ? `${index + 1}/${items.length} · ` : ''
     lines.push(theme.fg('dim', truncateToWidth(

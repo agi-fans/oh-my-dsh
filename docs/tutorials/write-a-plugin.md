@@ -37,7 +37,7 @@ The package needs three files: `package.json`, `cordis.patch.yml`, and `index.js
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-commands": "^0.1.0-rc.7"
+    "@deepseek-ai/dsh-commands": "^0.1.0-rc.8"
   }
 }
 ```

@@ -36,7 +36,7 @@ describe('model command', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    await ctx.commands.execute(agent, '/model', new AbortController().signal)
+    await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
     expect(prompt).toHaveBeenCalledTimes(1)
     for (const [request] of prompt.mock.calls) {
@@ -78,7 +78,7 @@ describe('model command', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    await ctx.commands.execute(agent, '/model', new AbortController().signal)
+    await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
       presentation: 'fullscreen-list',

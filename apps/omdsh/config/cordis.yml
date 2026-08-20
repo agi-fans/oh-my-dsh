@@ -40,6 +40,23 @@
   - id: session-stats
     name: '@deepseek-ai/dsh-session-stats'
 
+  # Exact session reads for @session mentions. openAt: never keeps FTS closed so
+  # Node 22 never loads experimental node:sqlite; list/read still work over JSONL.
+  - id: session-query
+    name: '@deepseek-ai/dsh-session-query-sqlite'
+    config:
+      path: ':memory:'
+      openAt: never
+
+  - id: session-reference
+    name: '@deepseek-ai/dsh-session-reference'
+
+  # Workspace @file discovery. The TUI owns mention syntax; this provider
+  # ranks path-only candidates and, when `read` is visible, adds the stable
+  # file-reference instruction. Selecting a row still inserts a path.
+  - id: file-reference
+    name: '@deepseek-ai/dsh-file-reference-local'
+
   - id: attachments
     name: '@deepseek-ai/dsh-attachment-local'
     config:

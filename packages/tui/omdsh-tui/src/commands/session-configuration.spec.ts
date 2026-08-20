@@ -43,11 +43,11 @@ describe('session configuration commands', () => {
     const fiber = await ctx.plugin(commandSessionConfiguration)
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['agent', 'tool-mode', 'workflow'])
 
-    await expect(ctx.commands.execute(agent, '/agent', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/agent', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Agent: PTC · Tools: Code' } })
-    await expect(ctx.commands.execute(agent, '/tool-mode', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/tool-mode', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Tools: Both' } })
-    await expect(ctx.commands.execute(agent, '/workflow', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/workflow', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Workflow: Plan' } })
 
     expect(changeAgentPreset).toHaveBeenCalledWith(agent, 'code')

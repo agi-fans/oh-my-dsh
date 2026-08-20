@@ -10,7 +10,8 @@ import { homedir } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
@@ -906,6 +907,49 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('index.ts')
     press(term, '\t')
     expect(term.captured).toContain('@src/index.ts ')
+    tui.dispose()
+  })
+
+  it('lists session mentions under the @ menu when a session searcher is injected', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      home: '/home/me',
+      listDir: () => [{ name: 'README.md', directory: false }],
+      autocompleteDebounceMs: 0,
+      searchSessions: async () => [{ sessionId: 'session-a', label: 'Research notes' }],
+    })
+    press(term, '@')
+    await new Promise(resolve => { setTimeout(resolve, 10) })
+    expect(stripAnsi(term.captured)).toContain('Files & folders')
+    expect(stripAnsi(term.captured)).toContain('Session conversations')
+    expect(stripAnsi(term.captured)).toContain('Research notes')
+    press(term, '\x1b[B\t')
+    expect(stripAnsi(term.captured)).toContain(formatSessionReferenceMention({
+      sessionId: SessionId('session-a'),
+      label: 'Research notes',
+    }))
+    tui.dispose()
+  })
+
+  it('lists file-reference candidates in the @ menu', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      cwd: '/proj',
+      home: '/home/me',
+      listDir: () => [],
+      autocompleteDebounceMs: 0,
+      searchFileMentions: async () => [
+        { path: 'README.md', kind: 'file' },
+        { path: 'src', kind: 'directory' },
+      ],
+    })
+    press(term, '@')
+    await new Promise(resolve => { setTimeout(resolve, 10) })
+    expect(stripAnsi(term.captured)).toContain('README.md')
+    expect(stripAnsi(term.captured)).toContain('src/')
+    press(term, '\t')
+    expect(stripAnsi(term.captured)).toContain('@README.md')
     tui.dispose()
   })
 

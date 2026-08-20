@@ -39,7 +39,7 @@ describe('startup notices plugin', () => {
 
     await ctx.omdshStartup.afterSessionStart()
     expect(notice).toHaveBeenCalledWith("What's New · v0.3.0\n1 fix · /changelog for details")
-    const result = await ctx.commands.execute(agent, '/changelog', new AbortController().signal)
+    const result = await ctx.commands.execute(agent, '/changelog', [], new AbortController().signal)
     expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('## [0.3.0]') })
 
     await ctx.fiber.dispose()

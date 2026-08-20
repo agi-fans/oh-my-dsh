@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { renderPathMentionRows } from './path-mentions.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi } from './width.ts'
@@ -22,6 +24,16 @@ describe('renderPathMentionRows', () => {
     expect(mentionRows.length).toBeGreaterThan(1)
     expect(mentionRows.every(row => row.includes(mentionOpen))).toBe(true)
     expect(stripAnsi(rows.join(' '))).toContain('@"docs/my file.md"')
+  })
+
+  it('highlights a canonical session mention including spaces in the label', () => {
+    const mention = formatSessionReferenceMention({
+      sessionId: SessionId('session-a'),
+      label: 'Research notes',
+    })
+    const rendered = renderPathMentionRows(`see ${mention} next`, 80, theme).join('\n')
+    expect(rendered).toContain(mentionOpen + mention + mentionClose)
+    expect(stripAnsi(rendered)).toBe(`see ${mention} next`)
   })
 
   it('does not treat email addresses as path mentions', () => {

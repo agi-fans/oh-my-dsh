@@ -55,7 +55,7 @@ Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markd
 
 - Cordis loader and timer infrastructure;
 - the official DeepSeek LLM adapter, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
-- durable JSONL sessions, checkpointing, query, title, statistics, and token projections;
+- durable JSONL sessions, checkpointing, query, file and session references, title, statistics, and token projections;
 - local attachment, filesystem, subprocess, bash, sandbox, and permission providers;
 - the Standard, PTC, Minimal, and Cordis Agent-plane compositions, plus Harness commands, compaction, todo, goal, plan, approval, questions, and subagents;
 - filesystem skill discovery and project/user MCP server adapters;

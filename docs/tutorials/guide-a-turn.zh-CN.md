@@ -22,7 +22,7 @@ Composer 为空时，按 `Up` 可以取回最新的队列消息进行编辑。�
 
 ### 修改文件前先制定计划
 
-对于需要先调查再提出实现方案的任务，运行 `/plan`。Plan mode 会指导模型先进行只读检查，再通过 Harness 审批流程提交可审阅的计划。运行 `/plan off` 可以直接退出；也可以使用 `/plan <message>`，在进入 Plan mode 的同时发送第一条规划要求。
+对于需要先调查再提出实现方案的任务，运行 `/plan`。Plan mode 会指导模型先进行只读检查，再通过 Harness 审批流程提交可审阅的计划。运行 `/plan off` 可以直接退出；也可以使用 `/plan <message>`，在进入 Plan mode 的同时发送第一条规划要求。Composer 中的图片会随 `/plan` 和 `/goal` 一起提交（当这些命令接受附件时）；`/plan off` 以及其他不能使用图片的子命令会把草稿退回 Composer。
 
 ### 跟踪任务进度
 

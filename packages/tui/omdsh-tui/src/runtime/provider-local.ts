@@ -46,6 +46,7 @@ import {
 import {
   applyPathCompletion,
   defaultPathSource,
+  editorLineAt,
   findPathToken,
   parsePathPrefix,
   pathSuggestions,
@@ -53,6 +54,13 @@ import {
   type DirReader,
   type PathSearcher,
 } from '../views/path-complete.ts'
+import { activeAtToken } from '@deepseek-ai/dsh-file-reference/grammar'
+import {
+  nextSelectableAutocompleteIndex,
+  searchAtSuggestions,
+  type FileSearcher,
+  type SessionSearcher,
+} from '../views/at-complete.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from '../input/clipboard.ts'
 import {
   applyCopySelectorEvent,
@@ -277,6 +285,8 @@ export class LocalTui implements TuiService {
   readonly #home: string
   readonly #listDir: DirReader
   readonly #searchFiles: PathSearcher
+  #searchFileMentions: FileSearcher | undefined
+  #searchSessions: SessionSearcher | undefined
   readonly #autocompleteDebounceMs: number
   #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
 
@@ -300,6 +310,8 @@ export class LocalTui implements TuiService {
       home?: string
       listDir?: DirReader
       searchFiles?: PathSearcher
+      searchFileMentions?: FileSearcher
+      searchSessions?: SessionSearcher
       autocompleteDebounceMs?: number
       historyPath?: string
       keybindingsPath?: string
@@ -328,6 +340,8 @@ export class LocalTui implements TuiService {
     this.#home = paths.home ?? fallback.home
     this.#listDir = paths.listDir ?? fallback.listDir
     this.#searchFiles = paths.searchFiles ?? fallback.searchFiles
+    this.#searchFileMentions = paths.searchFileMentions
+    this.#searchSessions = paths.searchSessions
     this.#autocompleteDebounceMs = Math.max(0, paths.autocompleteDebounceMs ?? 100)
     this.#welcomeTips = pickWelcomeTips()
     this.#trueColor = colors && detectTrueColor()
@@ -427,6 +441,18 @@ export class LocalTui implements TuiService {
       description: command.description,
       ...(command.inputHint === undefined ? {} : { inputHint: command.inputHint }),
     }))
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
+
+  setSessionSearch(search?: SessionSearcher): void {
+    this.#searchSessions = search
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
+
+  setFileSearch(search?: FileSearcher): void {
+    this.#searchFileMentions = search
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -1491,7 +1517,7 @@ export class LocalTui implements TuiService {
     }
     if (hit.kind === 'autocomplete' && this.#ac !== null) {
       const index = hitTestAutocomplete(this.#ac.items.length, this.#ac.selected, localRow)
-      if (index === undefined) return true
+      if (index === undefined || this.#ac.items[index]?.kind === 'heading') return true
       this.#ac = { ...this.#ac, selected: index }
       this.#applySelectedCompletion()
       this.#render()
@@ -1700,10 +1726,19 @@ export class LocalTui implements TuiService {
       force: forcePath,
     }
     const token = findPathToken(this.#editor.text, this.#editor.cursor, forcePath)
-    const atPrefix = token?.kind === 'at' ? parsePathPrefix(token.prefix).raw.replaceAll('\\', '/') : ''
-    const fuzzyAt = token?.kind === 'at' && atPrefix !== '' && !atPrefix.endsWith('/')
-    if (fuzzyAt) {
-      this.#ac = null
+    const { line, col } = editorLineAt(this.#editor.text, this.#editor.cursor)
+    const at = forcePath ? undefined : activeAtToken(line, col)
+    const atPrefix = at?.query.replaceAll('\\', '/')
+      ?? (token?.kind === 'at' ? parsePathPrefix(token.prefix).raw.replaceAll('\\', '/') : '')
+    const fuzzyAt = (at !== undefined || token?.kind === 'at') && atPrefix !== '' && !atPrefix.endsWith('/')
+    const harnessAt = at !== undefined
+      && (this.#searchFileMentions !== undefined || this.#searchSessions !== undefined)
+    if (fuzzyAt || harnessAt) {
+      if (harnessAt && !fuzzyAt) {
+        this.#setAutocomplete(pathSuggestions(this.#editor.text, this.#editor.cursor, pathOptions, commands))
+      } else {
+        this.#ac = null
+      }
       const text = this.#editor.text
       const cursor = this.#editor.cursor
       this.#autocompleteTimer = setTimeout(() => {
@@ -1711,11 +1746,20 @@ export class LocalTui implements TuiService {
         if (this.#disposed || requestId !== this.#autocompleteRequestId) return
         const controller = new AbortController()
         this.#autocompleteAbort = controller
-        void searchPathSuggestions(text, cursor, {
-          ...pathOptions,
-          searchFiles: this.#searchFiles,
-          signal: controller.signal,
-        }, commands).then((result) => {
+        const search = this.#searchFileMentions === undefined && this.#searchSessions === undefined
+          ? searchPathSuggestions(text, cursor, {
+            ...pathOptions,
+            searchFiles: this.#searchFiles,
+            signal: controller.signal,
+          }, commands)
+          : searchAtSuggestions(text, cursor, {
+            ...pathOptions,
+            searchFiles: this.#searchFiles,
+            ...(this.#searchFileMentions === undefined ? {} : { searchFileMentions: this.#searchFileMentions }),
+            ...(this.#searchSessions === undefined ? {} : { searchSessions: this.#searchSessions }),
+            signal: controller.signal,
+          }, commands)
+        void search.then((result) => {
           if (this.#disposed || controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
           this.#autocompleteAbort = null
           this.#setAutocomplete(result)
@@ -1739,9 +1783,9 @@ export class LocalTui implements TuiService {
       return
     }
     const prev = this.#ac?.items[this.#ac.selected]?.value
-    let selected = 0
+    let selected = nextSelectableAutocompleteIndex(result.items, 0, 1)
     if (prev !== undefined) {
-      const idx = result.items.findIndex((item) => item.value === prev)
+      const idx = result.items.findIndex((item) => item.value === prev && item.kind !== 'heading')
       if (idx >= 0) selected = idx
     }
     this.#ac = { items: result.items, selected }
@@ -1749,14 +1793,16 @@ export class LocalTui implements TuiService {
 
   #moveAutocomplete(dir: -1 | 1): void {
     if (this.#ac === null || this.#ac.items.length === 0) return
-    const n = this.#ac.items.length
-    this.#ac = { ...this.#ac, selected: (this.#ac.selected + dir + n) % n }
+    this.#ac = {
+      ...this.#ac,
+      selected: nextSelectableAutocompleteIndex(this.#ac.items, this.#ac.selected + dir, dir),
+    }
   }
 
   #applySelectedCompletion(): void {
     const item = this.#ac?.items[this.#ac.selected]
-    if (item === undefined) return
-    const next = item.kind === 'path'
+    if (item === undefined || item.kind === 'heading') return
+    const next = item.kind === 'path' || item.kind === 'session'
       ? applyPathCompletion(this.#editor.text, this.#editor.cursor, item)
       : applySlashCompletion(this.#editor.text, this.#editor.cursor, item)
     this.#editor.setText(next.text, next.cursor)

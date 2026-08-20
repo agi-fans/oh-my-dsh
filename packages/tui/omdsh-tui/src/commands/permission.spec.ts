@@ -65,7 +65,7 @@ describe('permission command', () => {
       description: 'Choose Read only, Workspace write, or Full access',
     })
 
-    const execution = await ctx.commands.execute(agent, '/permission', new AbortController().signal)
+    const execution = await ctx.commands.execute(agent, '/permission', [], new AbortController().signal)
     expect(prompt).toHaveBeenCalledOnce()
     expect(prompt.mock.calls[0]?.[0]).toMatchObject({
       title: 'Access',
@@ -80,7 +80,7 @@ describe('permission command', () => {
     expect(switched).toHaveBeenCalledWith(expect.objectContaining({ rawInput: ' read-only' }))
     expect(execution?.result).toEqual({ kind: 'success', text: 'Access: Read only' })
 
-    const invalid = await ctx.commands.execute(agent, '/permission read-only', new AbortController().signal)
+    const invalid = await ctx.commands.execute(agent, '/permission read-only', [], new AbortController().signal)
     expect(invalid?.result).toEqual({ kind: 'error', text: 'Usage: /access or /permission' })
     expect(prompt).toHaveBeenCalledOnce()
     await scope.dispose()
@@ -89,7 +89,7 @@ describe('permission command', () => {
 
   it('requires a fixed-choice confirmation before full access', async () => {
     const { ctx, scope, agent, prompt, switched } = await permissionHarness(['danger-full-access', 'cancel'])
-    const execution = await ctx.commands.execute(agent, '/permission', new AbortController().signal)
+    const execution = await ctx.commands.execute(agent, '/permission', [], new AbortController().signal)
 
     expect(prompt).toHaveBeenCalledTimes(2)
     expect(prompt.mock.calls[1]?.[0]).toMatchObject({

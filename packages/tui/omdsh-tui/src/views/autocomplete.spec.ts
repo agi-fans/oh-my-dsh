@@ -248,4 +248,22 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('dark'))).toBe(true)
     expect(lines.every((line) => !line.includes('/dark'))).toBe(true)
   })
+
+  it('paints heading rows without a cursor and keeps session labels bare', () => {
+    const lines = renderAutocomplete(
+      [
+        { value: '', label: 'Files & folders', kind: 'heading' },
+        { value: '@README.md', label: 'README.md', kind: 'path' },
+        { value: '', label: 'Session conversations', kind: 'heading' },
+        { value: '@[notes](dsh-session:abc)', label: 'notes', kind: 'session' },
+      ],
+      1,
+      theme,
+      80,
+    )
+    expect(lines.some((line) => line.includes('Files & folders') && !line.includes('❯'))).toBe(true)
+    expect(lines.some((line) => line.includes('❯') && line.includes('README.md'))).toBe(true)
+    expect(lines.some((line) => line.includes('notes') && !line.includes('/notes'))).toBe(true)
+    expect(lines.at(-1)).toContain('↑↓ select')
+  })
 })

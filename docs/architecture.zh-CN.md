@@ -55,7 +55,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 
 - Cordis Loader 与 Timer 基础设施；
 - 官方 DeepSeek LLM Adapter、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
-- 持久化 JSONL 会话、Checkpoint、查询、标题、统计与 Token Projection；
+- 持久化 JSONL 会话、Checkpoint、查询、文件引用与跨会话引用、标题、统计与 Token Projection；
 - 本地附件、文件系统、子进程、Bash、Sandbox 和权限 Provider；
 - Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合，以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
 - 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；

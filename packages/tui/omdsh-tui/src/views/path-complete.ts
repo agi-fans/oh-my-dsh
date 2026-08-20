@@ -8,6 +8,7 @@
 import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { activeAtToken } from '@deepseek-ai/dsh-file-reference/grammar'
 import {
   ProjectFileSearch,
   type PathSearcher,
@@ -57,6 +58,17 @@ function isExplicitPath(token: string): boolean {
     || token.startsWith('/')
     || /^[A-Za-z]:[\\/]/.test(token)
   )
+}
+
+/** Current editor line containing `cursor`. */
+export function editorLineAt(text: string, cursor: number): { line: string; start: number; col: number } {
+  const start = text.lastIndexOf('\n', cursor - 1) + 1
+  const end = text.indexOf('\n', cursor)
+  return {
+    start,
+    line: text.slice(start, end === -1 ? text.length : end),
+    col: Math.max(0, cursor - start),
+  }
 }
 
 /** Path token immediately before `cursor`, or null. */
@@ -249,10 +261,16 @@ export function applyPathCompletion(
   cursor: number,
   item: AutocompleteItem,
 ): { text: string; cursor: number } {
-  const token = findPathToken(text, cursor, true)
-  if (token === null) return { text, cursor }
   const after = text.slice(cursor)
   const insert = item.value.endsWith('/') ? item.value : item.value + ' '
+  const { line, start, col } = editorLineAt(text, cursor)
+  const at = activeAtToken(line, col)
+  if (at !== undefined) {
+    const tokenStart = start + col - at.prefix.length
+    return { text: text.slice(0, tokenStart) + insert + after, cursor: tokenStart + insert.length }
+  }
+  const token = findPathToken(text, cursor, true)
+  if (token === null) return { text, cursor }
   return { text: text.slice(0, token.start) + insert + after, cursor: token.start + insert.length }
 }
 

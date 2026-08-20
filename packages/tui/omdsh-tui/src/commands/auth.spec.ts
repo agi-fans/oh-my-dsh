@@ -149,6 +149,7 @@ describe('DeepSeek auth commands', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/login',
+      [],
       new AbortController().signal,
     )
 
@@ -181,6 +182,7 @@ describe('DeepSeek auth commands', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/login',
+      [],
       new AbortController().signal,
     )
 
@@ -201,6 +203,7 @@ describe('DeepSeek auth commands', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/logout',
+      [],
       new AbortController().signal,
     )
 
@@ -228,6 +231,7 @@ describe('DeepSeek auth commands', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/logout',
+      [],
       new AbortController().signal,
     )
 
@@ -247,6 +251,7 @@ describe('DeepSeek auth commands', () => {
     const login = await loginHarness.ctx.commands.execute(
       loginHarness.agent,
       '/login',
+      [],
       new AbortController().signal,
     )
     expect(login?.result).toEqual(expect.objectContaining({ kind: 'success' }))
@@ -265,6 +270,7 @@ describe('DeepSeek auth commands', () => {
     const logout = await logoutHarness.ctx.commands.execute(
       logoutHarness.agent,
       '/logout',
+      [],
       new AbortController().signal,
     )
     expect(logout?.result).toEqual(expect.objectContaining({ kind: 'success', text: expect.stringContaining('project .env file') }))
@@ -278,6 +284,7 @@ describe('DeepSeek auth commands', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/login sk-must-not-be-accepted',
+      [],
       new AbortController().signal,
     )
 
@@ -312,6 +319,7 @@ describe('catalog provider auth', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/login',
+      [],
       new AbortController().signal,
     )
 
@@ -357,6 +365,7 @@ describe('catalog provider auth', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/logout',
+      [],
       new AbortController().signal,
     )
 
@@ -386,6 +395,7 @@ describe('catalog provider auth', () => {
     const execution = await harness.ctx.commands.execute(
       harness.agent,
       '/login',
+      [],
       new AbortController().signal,
     )
 

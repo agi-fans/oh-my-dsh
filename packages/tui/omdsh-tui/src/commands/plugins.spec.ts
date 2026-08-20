@@ -41,12 +41,12 @@ describe('omdsh command plugins', () => {
     } as unknown as Agent
 
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['steer'])
-    await expect(ctx.commands.execute(agent, '/steer focus on tests', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/steer focus on tests', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success' } })
     expect(steer).toHaveBeenCalledOnce()
 
     agent.status = 'idle'
-    await expect(ctx.commands.execute(agent, '/steer too late', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/steer too late', [], new AbortController().signal))
       .resolves.toMatchObject({
         result: {
           kind: 'error',
@@ -83,7 +83,7 @@ describe('omdsh command plugins', () => {
 
     const fiber = await ctx.plugin(commandLoop)
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['loop'])
-    const execution = await ctx.commands.execute(agent, '/loop 2 inspect tests', new AbortController().signal)
+    const execution = await ctx.commands.execute(agent, '/loop 2 inspect tests', [], new AbortController().signal)
     expect(execution).toMatchObject({ result: { kind: 'success' } })
     expect(execution?.result.text).toBeUndefined()
     expect(send).toHaveBeenCalledWith({ text: 'inspect tests', images: [] }, agent)
@@ -125,13 +125,13 @@ describe('omdsh command plugins', () => {
     } as unknown as Agent
 
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['new', 'resume', 'retry', 'session', 'todo'])
-    await expect(ctx.commands.execute(agent, '/new', new AbortController().signal))
+    await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)
     expect(session.events.filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
       .toEqual(['command/run', 'command/done'])
 
-    const details = await ctx.commands.execute(agent, '/session', new AbortController().signal)
+    const details = await ctx.commands.execute(agent, '/session', [], new AbortController().signal)
     expect(details).toBeDefined()
     if (details === undefined) throw new Error('/session was not resolved')
     expect(details.result).toMatchObject({

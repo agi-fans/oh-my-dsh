@@ -4,9 +4,11 @@
 
 [教程](../tutorials.zh-CN.md) · Previous: [完成第一个任务](first-task.zh-CN.md) · Next: [引导运行中的任务](guide-a-turn.zh-CN.md)
 
-### 提及项目文件
+### 提及文件和会话
 
-输入 `@`，再输入项目路径中的一部分。弹出列表会搜索工作区；使用方向键移动，并按 `Tab` 插入选中的路径。Mention 会在消息中保持高亮，为 Agent 提供明确的文件目标，随后 Agent 可以使用普通工具读取它。
+输入 `@`，再输入项目路径或会话标题中的一部分。弹出列表会先列出工作区文件，再列出其他会话；使用方向键移动，并按 `Tab` 插入选中的行。选中文件会通过 Harness file-reference 发现插入路径，不会上传文件内容；选中会话会插入 mention，omdsh 随后会为模型捕获该会话的只读快照。
+
+Mention 会在消息中保持高亮。文件 mention 为 Agent 提供明确路径，随后 Agent 可以使用普通工具读取它，不会上传文件内容。会话 mention 不会 resume 或 fork 源会话。
 
 ```text
 对比 @packages/tui/omdsh-tui/src/chrome/renderer.ts 与 @packages/tui/omdsh-tui/src/chrome/renderer.spec.ts，编辑前先解释缺失的边界场景。
@@ -16,7 +18,7 @@
 
 ### 添加截图和图片
 
-复制图片后按 `Ctrl+V`。当平台剪贴板读取器可用时，Composer 会插入紧凑的图片标记，而不是临时文件路径；补充说明文字后即可作为一条消息发送。粘贴可读取的图片文件路径时，也会导入对应图片。
+复制图片后按 `Ctrl+V`。当平台剪贴板读取器可用时，Composer 会插入紧凑的图片标记，而不是临时文件路径；补充说明文字后即可作为一条消息发送，也可以随 `/goal` 或 `/plan` 一起提交。粘贴可读取的图片文件路径时，也会导入对应图片。默认 DeepSeek catalog 模型仍是纯文本；若部署需要原生图片请求，须在该模型上声明 `inputModalities: [text, image]`。
 
 在 Linux 上，原生图片粘贴在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`。如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。
 

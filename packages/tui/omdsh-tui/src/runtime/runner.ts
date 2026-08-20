@@ -81,14 +81,16 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
       const submission = await tui.readInput()
       if (submission === null) break
       if (submission.text.trim() === '' && submission.images.length === 0) continue
-      if (submission.images.length === 0 && submission.text.trimStart().startsWith('/')) {
+      if (submission.text.trimStart().startsWith('/')) {
         operation = new AbortController()
         try {
-          const handled = await controller.execute(submission.text, operation.signal)
+          const handled = await controller.execute(submission.text, operation.signal, submission.images)
           if (!handled) {
+            if (submission.images.length > 0) tui.restoreInput(submission)
             tui.notice(`Unknown command: ${submission.text.trim().split(/\s/u, 1)[0] ?? submission.text}`, { level: 'error' })
           }
         } catch (error: unknown) {
+          if (submission.images.length > 0) tui.restoreInput(submission)
           if (!operation.signal.aborted) {
             tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
           }

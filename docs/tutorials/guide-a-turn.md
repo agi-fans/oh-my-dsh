@@ -22,7 +22,7 @@ Run `/loop` again to disable it. Pressing `Ctrl+C` during an iteration interrupt
 
 ### Plan before changing files
 
-Run `/plan` before a task that needs investigation and an implementation proposal. Plan mode asks the model to inspect without mutating and to present a reviewable plan through the Harness approval flow. Run `/plan off` to leave it directly. You can also use `/plan <message>` to enter Plan mode and send the initial planning request together.
+Run `/plan` before a task that needs investigation and an implementation proposal. Plan mode asks the model to inspect without mutating and to present a reviewable plan through the Harness approval flow. Run `/plan off` to leave it directly. You can also use `/plan <message>` to enter Plan mode and send the initial planning request together. Composer images travel with `/plan` and `/goal` when those commands accept them; `/plan off` and other image-less subcommands return the drafts to the composer.
 
 ### Follow task progress
 

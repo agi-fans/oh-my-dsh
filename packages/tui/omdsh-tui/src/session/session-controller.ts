@@ -17,8 +17,13 @@ import {
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import { resolveSessionPreset, type AgentPreset } from '@deepseek-ai/dsh-agent-presets'
-import { createUserMessage, type LlmResolvedModelInfo, type UserMessage } from '@deepseek-ai/dsh-llm'
+import {
+  createUserMessage,
+  type LlmResolvedModelInfo,
+  type UserMessage,
+} from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type {} from '@deepseek-ai/dsh-attachment'
 import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -32,6 +37,8 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-reference'
+import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type {
@@ -42,6 +49,7 @@ import type {
   TuiSessionControls,
   TuiSessionStats,
   TuiSubmission,
+  TuiInputImage,
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent, SubagentRoster } from './subagent-roster.ts'
 import type {} from '../runtime/tool-presentation.ts'
@@ -391,6 +399,15 @@ export async function createSubmissionMessage(
   return createUserMessage({ content, source: { kind: 'user' } })
 }
 
+/** Encode composer drafts for `ctx.commands.execute`. */
+export function encodeComposerImages(images: readonly TuiInputImage[]): EncodedImageAttachment[] {
+  return images.map(image => ({
+    mediaType: image.mediaType,
+    data: Buffer.from(image.data).toString('base64'),
+    ...(image.name === undefined ? {} : { name: image.name }),
+  }))
+}
+
 /** Rehydrate one durable human inbox message into an editable composer draft. */
 export async function restoreSubmissionMessage(
   message: UserMessage,
@@ -442,6 +459,18 @@ export class SessionRuntime {
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
     this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
     this.#off.push(tui.onInspectSubmit(submission => { void this.#steerInspected(submission) }))
+    tui.setSessionSearch(async (query, signal) => {
+      const agent = this.#active?.handle.agent
+      const resolver = this.#ctx.get('sessionReferenceResolver')
+      if (agent === undefined || resolver === undefined) return []
+      return resolver.listCandidates(agent, query, 20, signal)
+    })
+    tui.setFileSearch(async (query, signal) => {
+      const agent = this.#active?.handle.agent
+      const files = this.#ctx.get('fileReferences')
+      if (agent === undefined || files === undefined) return []
+      return files.list(agent, query, signal ?? new AbortController().signal)
+    })
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
         if (this.#inspectedId === undefined) tui.setStatus(payload.status)
@@ -551,13 +580,22 @@ export class SessionRuntime {
   }
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
-  async execute(line: string, signal: AbortSignal): Promise<boolean> {
+  async execute(
+    line: string,
+    signal: AbortSignal,
+    images: readonly TuiInputImage[] = [],
+  ): Promise<boolean> {
     const parsed = parseControl(line)
     if (parsed === undefined) return false
     const commands = this.#ctx.get('commands')
     const execution = await (async () => {
       try {
-        return await commands?.execute(this.#requiredAgent(), line, signal)
+        return await commands?.execute(
+          this.#requiredAgent(),
+          line,
+          encodeComposerImages(images),
+          signal,
+        )
       } finally {
         await this.#disposeRetired()
       }
@@ -565,10 +603,16 @@ export class SessionRuntime {
     if (execution === undefined) {
       const skill = await this.#findUserSkill(skillNameFromCommand(parsed.name), signal)
       if (skill === undefined) return false
+      if (images.length > 0) {
+        this.#tui.restoreInput({ text: line, images })
+        this.#tui.notice(`/${parsed.name} does not accept image attachments`, { level: 'error' })
+        return true
+      }
       await this.send('/' + skill.name + (parsed.input === '' ? '' : ' ' + parsed.input))
       return true
     }
     const result = execution.result
+    if (result.kind === 'error' && images.length > 0) this.#tui.restoreInput({ text: line, images })
     if (result.text !== undefined) {
       if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error' })
       else this.#tui.commandOutput(parsed.name, result.text)
@@ -878,6 +922,8 @@ export class SessionRuntime {
     this.#subagents.reset()
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setSubagents(undefined)
+    this.#tui.setSessionSearch()
+    this.#tui.setFileSearch()
     for (const off of this.#off.splice(0).reverse()) off()
     await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
     await this.#active?.handle.dispose()
