@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-20
+
 ### Changed
 
 - TUI input is now keyboard-only: mouse tracking sequences are no longer emitted and SGR mouse reports are consumed and discarded instead of being typed into the composer or driving state.
@@ -208,7 +210,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.5.1...v0.6.0
