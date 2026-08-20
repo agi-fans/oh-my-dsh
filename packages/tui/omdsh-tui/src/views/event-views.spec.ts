@@ -149,6 +149,31 @@ describe('applyEvent', () => {
     expect(state.status).toBe('idle')
   })
 
+  it('marks a cancelled turn\'s delivered prefix instead of adding a bare notice', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } }, 1))
+    state = applyEvent(state, ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'partial' }] },
+      interrupted: true,
+    }, 2))
+    state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
+    expect(state.blocks).toEqual([
+      { kind: 'assistant', turn: 1, step: 1, text: 'partial', reasoning: '', streaming: false, interrupted: true },
+    ])
+    const text = blockLines(state.blocks[0]!, createTheme(false), 60).map(stripAnsi).join('\n')
+    expect(text).toContain('partial')
+    expect(text).toContain('· interrupted')
+  })
+
+  it('keeps the bare interrupted notice when an aborted turn delivered nothing', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
+    state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 2))
+    expect(state.blocks).toEqual([{ kind: 'notice', level: 'info', text: 'interrupted' }])
+  })
+
   it('tracks tool calls to ok and error results', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"ls"}' }, 1))

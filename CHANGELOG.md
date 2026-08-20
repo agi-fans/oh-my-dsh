@@ -10,10 +10,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Mention other sessions from the composer `@` menu. Unquoted `@` lists project files first, then session titles; `Tab` inserts a session mention, and sending the prompt captures a read-only snapshot for the model. Quoted `@"…` tokens stay file-only. File rows come from Harness `file-reference` discovery and still insert a path without uploading contents.
 - Send composer images with `/goal` and `/plan`. Commands that do not accept attachments return an error and keep the original image draft in the composer.
+- Mark an assistant reply cut off by an interrupt with a dim `· interrupted` suffix instead of presenting it as a complete reply. A turn interrupted before any visible content still prints the plain `interrupted` notice.
 
 ### Changed
 
-- Upgraded every direct DeepSeek Harness dependency to the coherent `0.1.0-rc.8` release.
+- Upgraded every direct DeepSeek Harness dependency to the coherent `0.1.0-rc.8` release. Failed model requests now retry up to five times by default (previously two), and an inapplicable or valueless `compat` switch in a hand-edited `llm-pi-ai` settings section fails startup with an error naming the offending key.
+- Refuse attached images over 3.5 MiB or larger than 2000px per side, matching the new Harness admission defaults. The composer checks admission when an image is pasted: a refused image shows an immediate error notice and stays out of the prompt instead of failing the completed submission on send.
 
 ### Fixed
 

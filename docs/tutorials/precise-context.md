@@ -20,7 +20,7 @@ Compare @packages/tui/omdsh-tui/src/chrome/renderer.ts with @packages/tui/omdsh-
 
 Copy an image and press `Ctrl+V`. When the platform clipboard reader is available, the composer inserts a compact image marker instead of a temporary path; submit it with any explanatory text as one message, or send it with `/goal` or `/plan`. Pasting an image file path also imports that image when it can be read. Default DeepSeek catalog models stay text-only; a deployment that wants native image requests must list `inputModalities: [text, image]` on that model.
 
-On Linux, native image paste uses `wl-paste` under Wayland or `xclip` under X11. If neither command is available, text paste continues to work but direct clipboard-image capture is unavailable.
+On Linux, native image paste uses `wl-paste` under Wayland or `xclip` under X11. If neither command is available, text paste continues to work but direct clipboard-image capture is unavailable. Images are checked against the Harness admission limits as they are pasted — 3.5 MiB and 2000px per side by default; a refused image shows an error notice and stays out of the prompt.
 
 ### Write structured prompts
 

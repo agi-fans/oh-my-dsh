@@ -274,6 +274,8 @@ export interface TuiService {
     query: string,
     signal?: AbortSignal,
   ) => Promise<readonly { path: string; kind: 'file' | 'directory' }[]>): void
+  /** Replace the optional Harness image-admission check applied when a paste drafts an image. */
+  setImageValidator(validate?: (image: TuiInputImage) => Promise<void>): void
   /** Restore terminal state and settle a pending input read with null. */
   dispose(): void
 }

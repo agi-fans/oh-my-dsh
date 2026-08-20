@@ -20,7 +20,7 @@ Mention 会在消息中保持高亮。文件 mention 为 Agent 提供明确路�
 
 复制图片后按 `Ctrl+V`。当平台剪贴板读取器可用时，Composer 会插入紧凑的图片标记，而不是临时文件路径；补充说明文字后即可作为一条消息发送，也可以随 `/goal` 或 `/plan` 一起提交。粘贴可读取的图片文件路径时，也会导入对应图片。默认 DeepSeek catalog 模型仍是纯文本；若部署需要原生图片请求，须在该模型上声明 `inputModalities: [text, image]`。
 
-在 Linux 上，原生图片粘贴在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`。如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。
+在 Linux 上，原生图片粘贴在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`。如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。图片在粘贴时会按 Harness 准入限制检查——默认 3.5 MiB、单边 2000px；被拒绝的图片会显示错误提示，不会进入 Prompt。
 
 ### 编写结构化 Prompt
 

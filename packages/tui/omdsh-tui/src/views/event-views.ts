@@ -64,7 +64,7 @@ export type ToolBlockStatus = 'running' | 'ok' | 'error'
 /** One rendered block of the transcript. */
 export type Block =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean }
+  | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean; interrupted?: boolean }
   | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
@@ -153,14 +153,24 @@ function settleAssistant(
   step: number,
   text: string,
   reasoning: string,
+  interrupted: boolean,
   mutable: boolean,
 ): TranscriptState {
   const blocks = editableBlocks(state, mutable)
   const last = blocks[blocks.length - 1]
+  const settled: Block = {
+    kind: 'assistant',
+    turn,
+    step,
+    text,
+    reasoning,
+    streaming: false,
+    ...(interrupted ? { interrupted: true } : {}),
+  }
   if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
-    blocks[blocks.length - 1] = { kind: 'assistant', turn, step, text, reasoning, streaming: false }
+    blocks[blocks.length - 1] = settled
   } else {
-    blocks.push({ kind: 'assistant', turn, step, text, reasoning, streaming: false })
+    blocks.push(settled)
   }
   return { ...state, blocks }
 }
@@ -221,7 +231,13 @@ function foldEvent(
       if (reason.kind === 'error') {
         blocks.push({ kind: 'notice', level: 'error', text: 'error: ' + reason.error.code + ': ' + reason.error.message })
       } else if (reason.kind === 'aborted') {
-        blocks.push({ kind: 'notice', level: 'info', text: 'interrupted' })
+        // rc.8 finalizes a cancelled turn's delivered prefix as an assistant
+        // block already marked interrupted; the bare notice only covers a
+        // turn that aborted before any visible content.
+        const settledLast = blocks[blocks.length - 1]
+        if (settledLast?.kind !== 'assistant' || settledLast.interrupted !== true) {
+          blocks.push({ kind: 'notice', level: 'info', text: 'interrupted' })
+        }
       }
       return { ...state, blocks, status: 'idle', compactCommandId: undefined }
     }
@@ -288,7 +304,15 @@ function foldEvent(
     }
     case 'assistant/message': {
       const { turn, step, message } = event.data
-      return settleAssistant(state, turn, step, contentToText(message.content), contentToReasoning(message.content), mutable)
+      return settleAssistant(
+        state,
+        turn,
+        step,
+        contentToText(message.content),
+        contentToReasoning(message.content),
+        event.data.interrupted === true,
+        mutable,
+      )
     }
     case 'tool/call': {
       const block: Block = {
@@ -656,6 +680,10 @@ export function blockLines(
       lines.push(...assistantContentLines([theme.fg('dim', '…')], width, paddingX))
     } else if (block.text !== '') {
       lines.push(...assistantMarkdown(block.text, theme, width, hasExplicitTextColor(theme) ? { color: 'text' } : undefined))
+    }
+    if (block.interrupted === true) {
+      const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
+      lines.push(...assistantContentLines([theme.fg('dim', '· interrupted')], width, paddingX))
     }
     return lines
   }

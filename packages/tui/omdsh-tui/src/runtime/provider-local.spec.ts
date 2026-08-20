@@ -778,6 +778,42 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('refuses a pasted image that fails Harness admission, with an error notice', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png', name: 'huge.png' }),
+    })
+    tui.setImageValidator(async () => { throw new Error('image exceeds the 2000px dimension limit') })
+    const pending = tui.readInput()
+
+    press(term, '\x16')
+    await flushAsyncPaste()
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('image exceeds the 2000px dimension limit')
+    expect(stripAnsi(term.captured)).not.toContain('[Image #1')
+
+    press(term, 'just text\r')
+    await expect(pending).resolves.toEqual({ text: 'just text', images: [] })
+    tui.dispose()
+  })
+
+  it('drafts a pasted image that passes Harness admission', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png' }),
+    })
+    tui.setImageValidator(async () => {})
+    const pending = tui.readInput()
+
+    press(term, '\x16')
+    await flushAsyncPaste()
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('[Image #1, 1x1]')
+    press(term, '\r')
+    await expect(pending).resolves.toMatchObject({ text: '[Image #1, 1x1]' })
+    tui.dispose()
+  })
+
   it('queues Enter behind an asynchronous image paste', async () => {
     const term = new FakeTerminal()
     let resolveImage: ((image: { data: Uint8Array; mediaType: 'image/png' }) => void) | undefined

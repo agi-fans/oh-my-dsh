@@ -26,6 +26,7 @@ function stubTui(): TuiService {
     onInspectSubmit: () => () => {},
     setSessionSearch: () => {},
     setFileSearch: () => {},
+    setImageValidator: () => {},
     setInspectedSubagent: () => {},
     setSubagents: () => {},
     restoreInput: vi.fn(),

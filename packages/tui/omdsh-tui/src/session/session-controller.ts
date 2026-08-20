@@ -474,6 +474,14 @@ export class SessionRuntime {
         return fileReferences.list(agent, query, signal ?? new AbortController().signal)
       })
     }
+    const attachments = this.#ctx.get('attachments')
+    if (attachments !== undefined) {
+      tui.setImageValidator(image => attachments.validateImage({
+        data: image.data,
+        mediaType: image.mediaType,
+        ...(image.name === undefined ? {} : { name: image.name }),
+      }))
+    }
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
         if (this.#inspectedId === undefined) tui.setStatus(payload.status)
@@ -928,6 +936,7 @@ export class SessionRuntime {
     this.#tui.setSubagents(undefined)
     this.#tui.setSessionSearch()
     this.#tui.setFileSearch()
+    this.#tui.setImageValidator()
     for (const off of this.#off.splice(0).reverse()) off()
     await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
     await this.#active?.handle.dispose()

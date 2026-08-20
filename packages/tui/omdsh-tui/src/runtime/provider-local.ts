@@ -288,6 +288,7 @@ export class LocalTui implements TuiService {
   readonly #searchFiles: PathSearcher
   #searchFileMentions: FileSearcher | undefined
   #searchSessions: SessionSearcher | undefined
+  #validateImageDraft: ((image: TuiInputImage) => Promise<void>) | undefined
   readonly #autocompleteDebounceMs: number
   #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
 
@@ -456,6 +457,10 @@ export class LocalTui implements TuiService {
     this.#searchFileMentions = search
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
+  }
+
+  setImageValidator(validate?: (image: TuiInputImage) => Promise<void>): void {
+    this.#validateImageDraft = validate
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
@@ -948,9 +953,17 @@ export class LocalTui implements TuiService {
     if (paths.length > 0) {
       const images = await Promise.all(paths.map(path => this.#readImagePath(path)))
       if (images.every((image): image is TuiInputImage => image !== null)) {
-        for (const image of images) this.#insertImageDraft(image)
-        this.#refreshAutocomplete()
-        this.#render()
+        let inserted = false
+        for (const image of images) {
+          if (await this.#admitImage(image)) {
+            this.#insertImageDraft(image)
+            inserted = true
+          }
+        }
+        if (inserted) {
+          this.#refreshAutocomplete()
+          this.#render()
+        }
         return
       }
       // Screenshot tools sometimes paste a transient cache path and remove
@@ -973,9 +986,11 @@ export class LocalTui implements TuiService {
     if (this.#search === null && this.#settings === null && this.#copySelector === null) {
       const image = await this.#readClipboardImage()
       if (image !== null) {
-        this.#insertImageDraft(image)
-        this.#refreshAutocomplete()
-        this.#render()
+        if (await this.#admitImage(image)) {
+          this.#insertImageDraft(image)
+          this.#refreshAutocomplete()
+          this.#render()
+        }
         return
       }
       const files = await this.#readClipboardFiles()
@@ -984,15 +999,39 @@ export class LocalTui implements TuiService {
         const images = (await Promise.all(imagePaths.map(path => this.#readImagePath(path))))
           .filter((candidate): candidate is TuiInputImage => candidate !== null)
         if (images.length > 0) {
-          for (const candidate of images) this.#insertImageDraft(candidate)
-          this.#refreshAutocomplete()
-          this.#render()
+          let inserted = false
+          for (const candidate of images) {
+            if (await this.#admitImage(candidate)) {
+              this.#insertImageDraft(candidate)
+              inserted = true
+            }
+          }
+          if (inserted) {
+            this.#refreshAutocomplete()
+            this.#render()
+          }
           return
         }
       }
     }
     const text = await this.#readClipboard()
     if (text !== '') await this.#acceptPastedText(text)
+  }
+
+  /**
+   * Run the Harness image-admission check for one paste candidate. A refusal
+   * becomes an error notice and skips the draft, instead of failing the whole
+   * submission after the user has typed a prompt around it.
+   */
+  async #admitImage(image: TuiInputImage): Promise<boolean> {
+    if (this.#validateImageDraft === undefined) return true
+    try {
+      await this.#validateImageDraft(image)
+      return true
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      return false
+    }
   }
 
   #insertImageDraft(input: TuiInputImage): void {
