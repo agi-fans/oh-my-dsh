@@ -478,6 +478,8 @@ export interface ViewOptions {
   loopStatus?: TuiLoopStatus
   /** Live descendant-subagent roster rendered above the composer. */
   subagents?: TuiSubagentRoster
+  /** Composer-boundary launcher focus entered with Down on an empty draft. */
+  subagentLauncherFocused?: boolean
   /** Descendant whose transcript is currently filling the viewport. */
   inspected?: TuiInspectedSubagent
   /** Visible groups, order, and label style for the status line. */
@@ -1092,6 +1094,7 @@ export function renderSubagents(
   width: number,
   spinnerFrame = 0,
   inspectedId?: string,
+  launcherFocused = false,
 ): string[] {
   const agents = roster?.agents ?? []
   if (agents.length === 0 || width <= 0) return []
@@ -1103,8 +1106,10 @@ export function renderSubagents(
     done === 0 ? undefined : `${done} done`,
     failed === 0 ? undefined : `${failed} failed`,
   ].filter((part): part is string => part !== undefined)
-  const header = '  ' + theme.bold(theme.fg('accent', 'Agents'))
+  const headerBody = theme.bold(theme.fg('accent', 'Agents'))
     + (counts.length === 0 ? '' : theme.fg('dim', ` · ${counts.join(' · ')}`))
+    + theme.fg('dim', launcherFocused ? ' · Enter open · Esc return' : ' · ↓ select · Alt+A open')
+  const header = '  ' + (launcherFocused ? theme.inverse(headerBody) : headerBody)
   const start = subagentPreviewStart(agents)
   const end = Math.min(agents.length, start + SUBAGENT_PREVIEW)
   const rows: Array<TuiSubagentView | string> = [
@@ -1358,7 +1363,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
   const subagents = editor === undefined
     ? []
-    : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id)
+    : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id, options.subagentLauncherFocused)
   const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []

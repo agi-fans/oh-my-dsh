@@ -814,7 +814,7 @@ describe('renderView', () => {
       },
     })
     const text = frame.lines.map(stripAnsi).join('\n')
-    expect(text).toContain('Agents · 1 running')
+    expect(text).toContain('Agents · 1 running · ↓ select · Alt+A open')
     expect(text).toContain('Explore auth · read src/auth.ts')
     expect(text.indexOf('Agents')).toBeLessThan(text.lastIndexOf('🐳'))
   })
@@ -832,7 +832,7 @@ describe('renderView', () => {
     }, createTheme(false), 48)
 
     const text = painted.map(stripAnsi)
-    expect(text[0]).toBe('  Agents · 2 running · 4 done')
+    expect(text[0]).toContain('Agents · 2 running · 4 done · ↓ select')
     expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · read src/auth.ts`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} waiting child`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} done review`))).toBe(true)

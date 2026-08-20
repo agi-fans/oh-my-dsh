@@ -1731,6 +1731,31 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('focuses the task launcher with down and activates an agent through the hub', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const opened: string[] = []
+    tui.onInspectSubagent(id => { opened.push(id) })
+    tui.setSubagents({
+      agents: [
+        { id: 'child-1', depth: 1, label: 'Explore auth', phase: 'running', activity: [] },
+        { id: 'child-2', depth: 1, label: 'Review tests', phase: 'waiting', activity: [] },
+      ],
+    })
+
+    press(term, '\x1b[B')
+    expect(term.captured).toContain('Enter open · Esc return')
+    press(term, '\r')
+    expect(term.captured).toContain('Agent Hub')
+    expect(term.captured).toContain('type to filter · ↑↓ navigate')
+    press(term, '\x1b[B')
+    press(term, '\r')
+    await flushAsyncPaste()
+
+    expect(opened).toEqual(['child-2'])
+    tui.dispose()
+  })
+
   it('steers a writable inspected subagent without resolving parent input', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

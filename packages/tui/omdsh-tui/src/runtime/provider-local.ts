@@ -266,6 +266,7 @@ export class LocalTui implements TuiService {
   #sessionControls: TuiSessionControls | undefined
   #loopStatus: TuiLoopStatus | undefined
   #subagents: TuiSubagentRoster | undefined
+  #subagentLauncherFocused = false
   #inspected: TuiInspectedSubagent | undefined
   #promptDocument: { start: number; maxStart: number; pageSize: number } | undefined
   readonly #trueColor: boolean
@@ -427,6 +428,7 @@ export class LocalTui implements TuiService {
     this.#subagents = roster === undefined
       ? undefined
       : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
+    if ((this.#subagents?.agents.length ?? 0) === 0) this.#subagentLauncherFocused = false
     const inspected = this.#inspected
     if (inspected !== undefined) {
       const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
@@ -446,6 +448,7 @@ export class LocalTui implements TuiService {
 
   setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
+    if (inspected !== undefined) this.#subagentLauncherFocused = false
     this.#syncTick()
     if (this.#tty) this.#render()
   }
@@ -868,6 +871,7 @@ export class LocalTui implements TuiService {
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
         ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
         ...(this.#subagents === undefined ? {} : { subagents: this.#subagents }),
+        subagentLauncherFocused: this.#subagentLauncherFocused,
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
@@ -1242,6 +1246,7 @@ export class LocalTui implements TuiService {
       if (event.type === 'key' && event.id === 'escape') this.#lastEscapeTime = 0
       return
     }
+    if (this.#handleSubagentLauncher(event)) return
     if (event.type === 'key' && event.id === 'escape') {
       if (this.#inspected !== undefined) {
         if (this.#inspected.writable === true && (this.#editor.text !== '' || this.#images.length > 0)) {
@@ -1461,12 +1466,42 @@ export class LocalTui implements TuiService {
     for (const listener of this.#inspects) listener(id)
   }
 
+  #handleSubagentLauncher(event: KeyEvent): boolean {
+    const hasAgents = (this.#subagents?.agents.length ?? 0) > 0
+    if (this.#subagentLauncherFocused) {
+      if (!hasAgents) {
+        this.#subagentLauncherFocused = false
+        return false
+      }
+      if (event.type === 'key' && event.id === 'enter') {
+        this.#subagentLauncherFocused = false
+        void this.#pickSubagent()
+        return true
+      }
+      if (event.type === 'key' && (event.id === 'escape' || event.id === 'up')) {
+        this.#subagentLauncherFocused = false
+        this.#render()
+        return true
+      }
+      if (event.type === 'key' && event.id === 'down') return true
+      this.#subagentLauncherFocused = false
+      return false
+    }
+    if (!hasAgents || event.type !== 'key' || event.id !== 'down') return false
+    if (this.#editor.text !== '' || this.#images.length > 0 || this.#historyIndex !== 0 || this.#ac !== null) return false
+    if (this.#queuedSubmissions.length > 0 || this.#queueEditNewer !== null || this.#queueEditPending) return false
+    this.#subagentLauncherFocused = true
+    this.#render()
+    return true
+  }
+
   #closeInspect(): void {
     if (this.#inspected === undefined) return
     for (const listener of this.#inspectCloses) listener()
   }
 
   async #pickSubagent(): Promise<void> {
+    this.#subagentLauncherFocused = false
     const agents = this.#subagents?.agents ?? []
     if (agents.length === 0) {
       this.notice('No subagents are available in this session.')
@@ -1474,7 +1509,7 @@ export class LocalTui implements TuiService {
     }
     const initialValue = this.#inspected?.id ?? agents[0]?.id
     const answer = await this.prompt({
-      title: 'Agents',
+      title: 'Agent Hub',
       question: 'Open a subagent transcript',
       options: agents.map(agent => ({
         label: agent.label,
@@ -1483,7 +1518,8 @@ export class LocalTui implements TuiService {
       })),
       ...(initialValue === undefined ? {} : { initialValue }),
       allowCustom: false,
-      ...(agents.length > 8 ? { presentation: 'fullscreen-list' as const, filterable: true } : {}),
+      presentation: 'fullscreen-list',
+      filterable: true,
       submitLabel: 'open',
     })
     if (answer === null || answer === '') return

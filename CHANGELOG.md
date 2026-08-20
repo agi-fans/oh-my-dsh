@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Append-only assistant reasoning and text now scroll naturally with the Header and user messages, while mutable running-tool previews remain pinned to the live viewport.
 - Dense assistant streaming deltas are now coalesced into short render windows, reducing redundant formatting and terminal writes while preserving immediate interaction, tool, and settlement updates.
 
+### Fixed
+
+- The live Agents roster now exposes a Down-to-focus task launcher plus its Alt+A direct shortcut. Enter opens a searchable fullscreen Agent Hub for arrow-key selection and Enter-to-inspect after mouse interaction was removed.
+
 ### Removed
 
 - Removed all mouse-driven interactions, including click-to-caret in the composer, wheel-based transcript and overlay scrolling, and click-to-select in overlays and the subagent roster. Use the existing keyboard shortcuts (arrow keys, PgUp/PgDn, Shift+Up/Down, Tab, Enter, Esc) for the same actions.

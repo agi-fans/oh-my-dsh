@@ -12,7 +12,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Tab', text: 'Complete commands and paths' },
   { key: 'Ctrl+R', text: 'Search and reuse prompt history' },
   { key: 'Ctrl+O', text: 'Expand or collapse tool output' },
-  { key: 'Click / Alt+A', text: 'Open a subagent transcript' },
+  { key: '↓ / Alt+A', text: 'Open the keyboard-driven Agent Hub' },
   { key: 'PgUp/PgDn', text: 'Scroll through the transcript' },
   { key: 'Shift+Enter/Ctrl+J', text: 'Insert a newline in the composer' },
   { key: 'Ctrl+C ×2', text: 'Exit with a resumable session hint' },
