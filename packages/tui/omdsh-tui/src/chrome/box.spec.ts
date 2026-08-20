@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hitTestEditor, renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
+import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
 import { createTheme, THEME_NAMES } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
 
@@ -211,13 +211,6 @@ describe('renderEditor', () => {
     expect(visibleWidth(frame.lines[1] ?? '')).toBe(40)
   })
 
-  it('maps a click on the input row to a buffer index', () => {
-    expect(hitTestEditor('hello', 40, 0, 4)).toBeUndefined()
-    expect(hitTestEditor('hello', 40, 1, 2)).toBe(0)
-    expect(hitTestEditor('hello', 40, 1, 4)).toBe(2)
-    expect(hitTestEditor('hello', 40, 1, 20)).toBe(5)
-    expect(hitTestEditor('hello', 40, 2, 4)).toBeUndefined()
-  })
 })
 
 describe('renderWorking', () => {

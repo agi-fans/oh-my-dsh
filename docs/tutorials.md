@@ -25,7 +25,7 @@ The plugin compatibility contract is in [User plugins](plugins.md).
 |---|---|
 | Browse commands and shortcuts | `/help` |
 | Search previous prompts | `Ctrl+R` |
-| Scroll the transcript | `PgUp` / `PgDn`, `Shift+Up` / `Shift+Down`, or the mouse wheel |
+| Scroll the transcript | `PgUp` / `PgDn`, or `Shift+Up` / `Shift+Down` |
 | Copy the latest reply, code block, or command | `/copy` |
 | Choose Agent preset | `/agent` |
 | Choose Default or Plan workflow | `/workflow` |

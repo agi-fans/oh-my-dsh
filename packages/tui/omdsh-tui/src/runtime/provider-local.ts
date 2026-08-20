@@ -3,7 +3,7 @@
 
  * Owns the tty: raw-mode key input (editing, history, slash/tab
  * autocomplete, /settings overlay, /copy picker, Ctrl-R history search, PgUp/PgDn
- * and mouse-wheel transcript scroll, click-to-caret, Ctrl-O tool
+ * and Shift+Up/Down transcript scroll, Ctrl-O tool
  * expand, bracketed paste, double-Escape conversation rewind, double Ctrl-C exit, Ctrl-D quit),
  * SIGWINCH reflow, and the differential renderer. In non-tty mode
  * (pipes, CI) it degrades to line-based input with plain append-only
@@ -35,7 +35,6 @@ import {
 import {
   applySlashCompletion,
   formatHelpText,
-  hitTestAutocomplete,
   parseSlashInput,
   resolveSlashCommand,
   slashSuggestions,
@@ -65,42 +64,34 @@ import { copyToClipboard, readFromClipboard, type ClipboardReader, type Clipboar
 import {
   applyCopySelectorEvent,
   createCopySelector,
-  hitTestCopySelector,
-  selectCopyTarget,
   type CopySelectorState,
 } from '../views/copy-selector.ts'
 import { buildCopyTargets, extractCopyTarget, parseCopyKind } from '../views/copy-targets.ts'
 import {
   applyHistorySearchEvent,
   createHistorySearch,
-  hitTestHistorySearch,
   type HistorySearchState,
 } from '../views/history-search.ts'
 import { type EditorCommand, InputEditor, lineEnd, lineStart } from '../input/editor.ts'
 import {
   applySettingsEvent,
   createSettings,
-  hitTestSettings,
-  selectSetting,
-  tuiSettingItems,
   type SettingsState,
   type TuiPrefs,
 } from '../views/settings-list.ts'
 import {
   applyEvent,
   blockLines,
-  hitTestSubagentRoster,
   initialTranscript,
   replayEvents,
   renderView,
   TRANSCRIPT_FAST_SCROLL,
-  TRANSCRIPT_WHEEL_SCROLL,
   type Block,
   type TranscriptState,
 } from '../views/event-views.ts'
-import { flushPending, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, parseKeys, type KeyEvent } from '../input/keys.ts'
-import { LineRenderer, type Frame, type RenderSink } from '../chrome/renderer.ts'
-import { hitTestEditor } from '../chrome/box.ts'
+import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
+import { type RenderSink } from '../chrome/renderer.ts'
+import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
@@ -187,14 +178,27 @@ type PendingPrompt = PromptSelectorState & {
 /**
  * Local terminal presentation service.
  */
+function detectTerminalProfile(): 'direct' | 'multiplexer' | 'conpty' {
+  if (process.env.TMUX !== undefined || process.env.STY !== undefined || process.env.ZELLIJ !== undefined) {
+    return 'multiplexer'
+  }
+  return process.platform === 'win32' ? 'conpty' : 'direct'
+}
+
 export class LocalTui implements TuiService {
+  #deferInitialRender = false
+  readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
+  readonly #resizeDebounceMs: number
+  #resizeTimer: ReturnType<typeof setTimeout> | null = null
+  readonly #streamRenderMs: number
+  #streamRenderTimer: ReturnType<typeof setTimeout> | null = null
   readonly #term: TerminalLike
   #model: string
   #reasoningEffort: string | undefined
   #colors: boolean
   #themeName: ThemeName
   readonly #tty: boolean
-  readonly #renderer: LineRenderer
+  readonly #renderer: MainScreenRenderer
   #state: TranscriptState = initialTranscript()
   readonly #editor = new InputEditor()
   #history: string[] = []
@@ -225,7 +229,6 @@ export class LocalTui implements TuiService {
   #autocompleteTimer: ReturnType<typeof setTimeout> | null = null
   #autocompleteAbort: AbortController | null = null
   #autocompleteRequestId = 0
-  #scrollRender: ReturnType<typeof setImmediate> | null = null
   #paste = false
   #pasteBuf = ''
   #pasteInFlight = 0
@@ -264,15 +267,7 @@ export class LocalTui implements TuiService {
   #loopStatus: TuiLoopStatus | undefined
   #subagents: TuiSubagentRoster | undefined
   #inspected: TuiInspectedSubagent | undefined
-  #editorHit: { start: number; rows: number } | null = null
-  #chromeHit: NonNullable<Frame['chrome']> | null = null
-  #overlayHit: {
-    kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
-    start: number
-    resultsRow?: number
-    itemRows?: readonly (number | undefined)[]
-    document?: { start: number; maxStart: number; pageSize: number }
-  } | null = null
+  #promptDocument: { start: number; maxStart: number; pageSize: number } | undefined
   readonly #trueColor: boolean
   readonly #copy: ClipboardWriter
   readonly #readClipboard: ClipboardReader
@@ -321,6 +316,11 @@ export class LocalTui implements TuiService {
       readClipboardImage?: ClipboardImageReader
       readClipboardFiles?: ClipboardFileReader
       readImagePath?: ImagePathReader
+      deferInitialRender?: boolean
+      terminalProfile?: 'direct' | 'multiplexer' | 'conpty'
+      alternateScreenOverlays?: boolean
+      resizeDebounceMs?: number
+      streamRenderMs?: number
     } = {},
   ) {
     this.#term = term
@@ -346,33 +346,46 @@ export class LocalTui implements TuiService {
     this.#searchSessions = paths.searchSessions
     this.#autocompleteDebounceMs = Math.max(0, paths.autocompleteDebounceMs ?? 100)
     this.#welcomeTips = pickWelcomeTips()
+    this.#deferInitialRender = paths.deferInitialRender === true
+    this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
+    this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
+    this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
     this.#trueColor = colors && detectTrueColor()
     this.#tty = term.input.isTTY === true
     this.#pwd = shortenPath(project.root)
     this.#branch = project.gitLabel
-    this.#renderer = new LineRenderer(
+    this.#renderer = new MainScreenRenderer(
       { write: (chunk) => { this.#term.output.write(chunk) } },
-      { synchronized: this.#tty },
+      {
+        width: this.#term.width(),
+        height: this.#term.height(),
+        synchronized: this.#tty,
+        clearScrollback: this.#terminalProfile === 'direct',
+        alternateScreenOverlays: paths.alternateScreenOverlays === true,
+      },
     )
     if (this.#tty) {
+      this.#renderer.startEpoch()
       term.input.setRawMode?.(true)
       const listener = (chunk: Buffer): void => { this.#onData(chunk) }
       term.input.on('data', listener)
       this.#offData = () => { term.input.off('data', listener) }
       this.#offResize = term.onResize?.(() => {
-        // A terminal resize invalidates both the physical cursor position and
-        // the screen-relative frame retained by the differential renderer.
-        this.#renderer.reset()
-        this.#term.output.write('\x1b[2J\x1b[H')
-        this.#render()
+        // A terminal resize changes the committed/live seam; re-anchor the
+        // live window so it stays anchored at the bottom.
+        const repaint = (): void => {
+          this.#resizeTimer = null
+          this.#renderer.resize(this.#term.width(), this.#term.height())
+          this.#render()
+        }
+        if (this.#terminalProfile === 'multiplexer') {
+          if (this.#resizeTimer !== null) clearTimeout(this.#resizeTimer)
+          this.#resizeTimer = setTimeout(repaint, this.#resizeDebounceMs)
+        } else {
+          repaint()
+        }
       }) ?? null
-      // Boot output above us (package-manager warnings, loader logs) has
-      // already scrolled the cursor off row 0; the renderer's screen-relative
-      // frames require a clean origin. Clear the screen and home the cursor
-      // before the first frame. Enable bracketed paste and SGR mouse
-      // tracking (wheel drives the virtual transcript; native scrollback
-      // is already unusable under full-screen diffs).
-      term.output.write('\x1b[2J\x1b[H\x1b[?2004h' + MOUSE_TRACKING_ON)
+      term.output.write('\x1b[?2004h')
     }
     this.#render()
   }
@@ -381,7 +394,11 @@ export class LocalTui implements TuiService {
     this.#state = applyEvent(this.#state, event, presentation)
     this.#syncTick()
     if (this.#tty) {
-      this.#render()
+      if (event.type === 'assistant/chunk' && this.#streamRenderMs > 0) {
+        this.#scheduleStreamRender()
+      } else {
+        this.#render()
+      }
     } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
       this.#printPlain()
     }
@@ -515,11 +532,17 @@ export class LocalTui implements TuiService {
     })
   }
 
-  replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void {
+  replaceSession(
+    events: readonly SessionEvent[],
+    presentations?: ReadonlyMap<number, TuiToolPresentation>,
+    status: TuiStatus = 'idle',
+  ): void {
     const state = replayEvents(events, presentations)
-    this.#state = { ...state, status: 'idle', compactCommandId: undefined }
+    this.#state = { ...state, status, compactCommandId: undefined }
     this.#plainPrinted = 0
     this.#followTail()
+    this.#deferInitialRender = false
+    this.#renderer.startEpoch({ replay: status === 'idle' ? 'full' : 'pinned' })
     if (this.#tty) this.#render()
     else this.#printPlain()
   }
@@ -669,6 +692,14 @@ export class LocalTui implements TuiService {
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
+    if (this.#resizeTimer !== null) {
+      clearTimeout(this.#resizeTimer)
+      this.#resizeTimer = null
+    }
+    if (this.#streamRenderTimer !== null) {
+      clearTimeout(this.#streamRenderTimer)
+      this.#streamRenderTimer = null
+    }
     if (this.#tick !== null) {
       clearInterval(this.#tick)
       this.#tick = null
@@ -677,19 +708,15 @@ export class LocalTui implements TuiService {
       clearInterval(this.#loopTick)
       this.#loopTick = null
     }
-    if (this.#scrollRender !== null) {
-      clearImmediate(this.#scrollRender)
-      this.#scrollRender = null
-    }
     if (this.#tty) {
       this.#offData?.()
       this.#offResize?.()
       this.#term.input.setRawMode?.(false)
       // Leave the cursor on a fresh line below the last frame so the shell
-      // prompt does not overwrite the transcript. Disable mouse tracking
-      // and bracketed paste.
+      // prompt does not overwrite the transcript. Disable bracketed paste
+      // and restore the cursor.
       this.#renderer.finish()
-      this.#term.output.write(MOUSE_TRACKING_OFF + '\x1b[?2004l\x1b[?25h\r\n')
+      this.#term.output.write('\x1b[?2004l\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
       }
@@ -804,10 +831,11 @@ export class LocalTui implements TuiService {
   }
 
   #render(): void {
-    if (this.#scrollRender !== null) {
-      clearImmediate(this.#scrollRender)
-      this.#scrollRender = null
+    if (this.#streamRenderTimer !== null) {
+      clearTimeout(this.#streamRenderTimer)
+      this.#streamRenderTimer = null
     }
+    if (this.#deferInitialRender) return
     const width = this.#term.width()
     const frame = this.#tty
       ? renderView(this.#state, {
@@ -853,11 +881,17 @@ export class LocalTui implements TuiService {
       })
       : { lines: [] }
     this.#focusBlock = undefined
-    this.#editorHit = frame.editor ?? null
-    this.#overlayHit = frame.overlay ?? null
-    this.#chromeHit = frame.chrome ?? null
+    this.#promptDocument = frame.promptDocument
     this.#syncScroll(frame.transcript)
     this.#renderer.render(frame)
+  }
+
+  #scheduleStreamRender(): void {
+    if (this.#streamRenderTimer !== null) return
+    this.#streamRenderTimer = setTimeout(() => {
+      this.#streamRenderTimer = null
+      if (!this.#disposed) this.#render()
+    }, this.#streamRenderMs)
   }
 
   #syncScroll(scroll: { start: number; maxStart: number; budget: number } | undefined): void {
@@ -881,20 +915,12 @@ export class LocalTui implements TuiService {
     return Math.max(1, this.#scrollBudget > 2 ? this.#scrollBudget - 2 : 1)
   }
 
-  #scrollBy(delta: number, coalesce = false): void {
+  #scrollBy(delta: number): void {
     if (delta === 0 && this.#maxStart === 0) return
     this.#follow = false
     this.#scrollStart += delta
     if (this.#scrollStart <= 0) this.#scrollStart = 0
-    if (!coalesce) {
-      this.#render()
-      return
-    }
-    if (this.#scrollRender !== null) return
-    this.#scrollRender = setImmediate(() => {
-      this.#scrollRender = null
-      if (!this.#disposed) this.#render()
-    })
+    this.#render()
   }
 
   #followTail(): void {
@@ -1106,10 +1132,6 @@ export class LocalTui implements TuiService {
 
   #dispatch(event: KeyEvent): void {
     if (this.#state.status === 'compacting') {
-      if (event.type === 'mouse' && event.wheel !== null) {
-        this.#scrollBy(event.wheel < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL, true)
-        return
-      }
       if (event.type === 'key' && event.id === 'pageUp') {
         this.#scrollBy(-this.#pageSize())
         return
@@ -1142,11 +1164,6 @@ export class LocalTui implements TuiService {
     if (event.type === 'paste-start') {
       this.#paste = true
       this.#pasteBuf = ''
-      return
-    }
-    if (event.type === 'mouse') {
-      this.#lastEscapeTime = 0
-      this.#handleMouse(event)
       return
     }
     if (event.type !== 'key' || event.id !== 'escape') this.#lastEscapeTime = 0
@@ -1397,7 +1414,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
-    const scroll = this.#overlayHit?.kind === 'prompt' ? this.#overlayHit.document : undefined
+    const scroll = this.#promptDocument
     let documentScroll: number | undefined
     if (event.id === 'up') documentScroll = (scroll?.start ?? prompt.documentScroll ?? 0) - 1
     else if (event.id === 'down') documentScroll = (scroll?.start ?? prompt.documentScroll ?? 0) + 1
@@ -1440,62 +1457,6 @@ export class LocalTui implements TuiService {
     return true
   }
 
-  #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
-    if (event.leftClick) {
-      if (this.#clickChrome(event.row)) return
-      if (this.#clickOverlay(event.row)) return
-      this.#clickEditor(event.row, event.col)
-      return
-    }
-    if (event.wheel === null) return
-    const dir = event.wheel
-    if (this.#prompt !== null) {
-      this.#handlePrompt({ type: 'key', id: dir < 0 ? 'up' : 'down' })
-      return
-    }
-    if (this.#settings !== null) {
-      this.#applySettings({ type: 'key', id: dir < 0 ? 'up' : 'down' })
-      return
-    }
-    if (this.#copySelector !== null) {
-      this.#applyCopySelector({ type: 'key', id: dir < 0 ? 'up' : 'down' })
-      return
-    }
-    if (this.#search !== null) {
-      this.#applySearch({ type: 'key', id: dir < 0 ? 'up' : 'down' })
-      return
-    }
-    if (this.#ac !== null) {
-      this.#moveAutocomplete(dir)
-      this.#render()
-      return
-    }
-    this.#scrollBy(dir < 0 ? -TRANSCRIPT_WHEEL_SCROLL : TRANSCRIPT_WHEEL_SCROLL, true)
-  }
-
-  #clickChrome(row: number): boolean {
-    const hit = this.#chromeHit
-    if (hit === undefined || hit === null) return false
-    const inspect = hit.inspect
-    if (inspect !== undefined && row >= inspect.start && row < inspect.start + inspect.rows) {
-      this.#closeInspect()
-      return true
-    }
-    const roster = hit.subagents
-    if (roster === undefined) return false
-    const localRow = row - roster.start
-    if (localRow < 0 || localRow >= roster.rows) return false
-    if (localRow < roster.headerRows) {
-      void this.#pickSubagent()
-      return true
-    }
-    const id = hitTestSubagentRoster(roster.items, localRow)
-    if (id === undefined) return true
-    if (this.#inspected?.id === id) this.#closeInspect()
-    else this.#openInspect(id)
-    return true
-  }
-
   #openInspect(id: string): void {
     for (const listener of this.#inspects) listener(id)
   }
@@ -1527,80 +1488,6 @@ export class LocalTui implements TuiService {
     })
     if (answer === null || answer === '') return
     this.#openInspect(answer)
-  }
-
-  #clickOverlay(row: number): boolean {
-    const hit = this.#overlayHit
-    if (hit === null) return false
-    const localRow = row - hit.start
-    if (hit.kind === 'settings' && this.#settings !== null) {
-      const index = hitTestSettings(hit.itemRows ?? tuiSettingItems(this.#settings.prefs).length, localRow)
-      if (index === undefined) return true
-      if (index === this.#settings.selected) {
-        this.#applySettings({ type: 'key', id: 'enter' })
-      } else {
-        this.#settings = selectSetting(this.#settings, index)
-        this.#render()
-      }
-      return true
-    }
-    if (hit.kind === 'copy' && this.#copySelector !== null) {
-      const index = hitTestCopySelector(this.#copySelector.items.length, this.#copySelector.selected, localRow)
-      if (index === undefined) return true
-      if (index === this.#copySelector.selected) {
-        this.#applyCopySelector({ type: 'key', id: 'enter' })
-      } else {
-        this.#copySelector = selectCopyTarget(this.#copySelector, index)
-        this.#render()
-      }
-      return true
-    }
-    if (hit.kind === 'autocomplete' && this.#ac !== null) {
-      const index = hitTestAutocomplete(this.#ac.items.length, this.#ac.selected, localRow)
-      if (index === undefined || this.#ac.items[index]?.kind === 'heading') return true
-      this.#ac = { ...this.#ac, selected: index }
-      this.#applySelectedCompletion()
-      this.#render()
-      return true
-    }
-    if (hit.kind === 'search' && this.#search !== null) {
-      const index = hitTestHistorySearch(
-        this.#search.results.length,
-        this.#search.selected,
-        localRow,
-        hit.resultsRow ?? 0,
-      )
-      if (index === undefined) return true
-      this.#search = { ...this.#search, selected: index }
-      this.#applySearch({ type: 'key', id: 'enter' })
-      return true
-    }
-    if (hit.kind === 'prompt' && this.#prompt !== null) {
-      const index = hit.itemRows?.[localRow]
-      if (index === undefined) return true
-      if (index === this.#prompt.selected) {
-        this.#finishPrompt(selectedFilteredPromptAnswer(this.#prompt, this.#editor.text))
-        this.#editor.setText('')
-      } else {
-        this.#prompt = { ...this.#prompt, selected: index }
-      }
-      this.#render()
-      return true
-    }
-    return false
-  }
-
-  #clickEditor(row: number, col: number): void {
-    if (this.#settings !== null || this.#copySelector !== null || this.#search !== null) return
-    const hit = this.#editorHit
-    if (hit === null) return
-    const localRow = row - hit.start
-    if (localRow < 0 || localRow >= hit.rows) return
-    const index = hitTestEditor(this.#editor.text, this.#term.width(), localRow, col)
-    if (index === undefined) return
-    this.#editor.setCursor(index)
-    this.#refreshAutocomplete()
-    this.#render()
   }
 
   #prefs(): TuiPrefs {
@@ -1903,7 +1790,6 @@ export class LocalTui implements TuiService {
     }
     if (command.kind === 'resetDisplay') {
       this.#renderer.reset()
-      this.#term.output.write('\x1b[2J\x1b[H')
       this.#render()
     }
   }
@@ -2070,6 +1956,7 @@ export class LocalTui implements TuiService {
     if (command.name === 'clear') {
       this.#state = initialTranscript()
       this.#followTail()
+      this.#renderer.startEpoch()
       this.#render()
       return
     }
@@ -2250,7 +2137,6 @@ export class LocalTui implements TuiService {
     } finally {
       this.#term.input.setRawMode?.(true)
       this.#renderer.reset()
-      this.#term.output.write('\x1b[2J\x1b[H')
       this.#refreshAutocomplete()
       this.#render()
     }
@@ -2264,6 +2150,7 @@ export class LocalTui implements TuiService {
  */
 export function apply(ctx: Context, config: Config): void {
   const dshHome = process.env.OMDSH_HOME ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const terminalProfile = detectTerminalProfile()
   const term: TerminalLike = {
     output: process.stdout,
     input: process.stdin,
@@ -2281,6 +2168,9 @@ export function apply(ctx: Context, config: Config): void {
     parseThemeName(config.theme),
     copyToClipboard,
     {
+      deferInitialRender: true,
+      terminalProfile,
+      alternateScreenOverlays: terminalProfile === 'direct',
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
     },

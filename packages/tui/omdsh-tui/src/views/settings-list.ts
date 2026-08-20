@@ -425,27 +425,6 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
 /** First overlay-local row that paints a setting item. */
 export const SETTINGS_ITEM_ROW = 3
 
-/** Item index under an overlay-local row, or undefined on chrome. */
-export function hitTestSettings(
-  itemCountOrRows: number | readonly (number | undefined)[],
-  localRow: number,
-): number | undefined {
-  if (typeof itemCountOrRows !== 'number') return itemCountOrRows[localRow]
-  const itemCount = itemCountOrRows
-  const index = localRow - SETTINGS_ITEM_ROW
-  if (index < 0 || index >= itemCount) return undefined
-  return index
-}
-
-/** Move the highlight to `index` without cycling the value. */
-export function selectSetting(state: SettingsState, index: number): SettingsState {
-  const n = tuiSettingItems(state.prefs).length
-  if (n === 0) return state
-  const selected = Math.max(0, Math.min(index, n - 1))
-  if (selected === state.selected) return state
-  return { ...state, selected }
-}
-
 function fit(text: string, width: number): string {
   if (width <= 0) return ''
   return padToWidth(truncateToWidth(text, width), width)
@@ -534,7 +513,7 @@ export function renderSettings(
   theme: Theme,
   width: number,
   height: number = 24,
-): { lines: string[]; cursor: { row: number; column: number }; itemRows: (number | undefined)[] } {
+): { lines: string[]; cursor: { row: number; column: number } } {
   const items = tuiSettingItems(state.prefs)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
   const active = index < GENERAL_SETTING_COUNT ? 'general' : 'status'
@@ -562,7 +541,6 @@ export function renderSettings(
   if (previewLines.length > 0) {
     lines.push(...previewLines, divider(theme, width))
   }
-  const itemRows: (number | undefined)[] = Array.from({ length: height })
   let cursorRow = SETTINGS_ITEM_ROW
   for (let row = 0; row < viewportHeight; row += 1) {
     const item = visibleItems[row]
@@ -573,7 +551,6 @@ export function renderSettings(
     const itemIndex = sectionStart + start + row
     const selectedRow = itemIndex === index
     if (selectedRow) cursorRow = lines.length
-    itemRows[lines.length] = itemIndex
     const above = start > 0 && row === 0 ? theme.fg('dim', '↑ ') : ''
     const below = start + visibleCount < sectionItems.length && row === viewportHeight - 1 ? theme.fg('dim', '↓ ') : ''
     lines.push(framedRow(theme, renderSettingRow(
@@ -599,7 +576,6 @@ export function renderSettings(
   return {
     lines,
     cursor: { row: cursorRow, column: 2 },
-    itemRows,
   }
 }
 

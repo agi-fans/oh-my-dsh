@@ -5,7 +5,7 @@
  */
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, type Theme, type ThemeColor } from './theme.ts'
-import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped, indexOnWrapped } from './width.ts'
+import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped } from './width.ts'
 import { formatRelativeAge } from './relative-time.ts'
 import { WELCOME_TIPS, type WelcomeTip } from './welcome-tips.ts'
 
@@ -290,25 +290,6 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
     lines,
     cursor: { row: 1 + caret.row, column: 2 + caret.column },
   }
-}
-
-/** Columns of left chrome before input text (`│ `). */
-export const EDITOR_CONTENT_COL = 2
-
-/**
- * Map a click in editor-local coordinates to a buffer index.
- * Row 0 is the status cap (no hit). Undefined when the click is outside.
- */
-export function hitTestEditor(input: string, width: number, localRow: number, col: number): number | undefined {
-  if (localRow < 1) return undefined
-  const contentWidth = Math.max(1, Math.max(4, width) - 2 - 2)
-  const layout = wrapIndexed(input, contentWidth)
-  const rows = layout.length > 0 ? layout : [{ text: '', start: 0, end: 0 }]
-  if (localRow > rows.length) return undefined
-  const row = localRow - 1
-  const line = rows[row]
-  if (line === undefined) return 0
-  return indexOnWrapped(line, col - EDITOR_CONTENT_COL, input)
 }
 
 /** DeepSeek Harness-aligned label shown while the model is driving a turn. */

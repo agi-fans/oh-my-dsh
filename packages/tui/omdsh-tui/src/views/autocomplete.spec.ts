@@ -9,7 +9,6 @@ import {
   leadingSlashCommandNameRange,
   parseSlashInput,
   renderAutocomplete,
-  hitTestAutocomplete,
   resolveSlashCommand,
   scoreCommandTextMatch,
   slashInlineHint,
@@ -218,9 +217,6 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('/c6'))).toBe(true)
     expect(lines.some((line) => line.includes('7/8'))).toBe(true)
     expect(lines.every((line) => !line.includes('/c0'))).toBe(true)
-    expect(hitTestAutocomplete(8, 6, 0)).toBe(3)
-    expect(hitTestAutocomplete(8, 6, 3)).toBe(6)
-    expect(hitTestAutocomplete(8, 6, 5)).toBeUndefined()
   })
 
   it('paints unselected command names in the accent color', () => {

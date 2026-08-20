@@ -3,9 +3,7 @@ import {
   applySettingValue,
   applySettingsEvent,
   createSettings,
-  hitTestSettings,
   renderSettings,
-  selectSetting,
   tuiSettingItems,
   type TuiPrefs,
 } from './settings-list.ts'
@@ -231,14 +229,14 @@ describe('renderSettings', () => {
     expect(selected).toContain('SGR styling')
   })
 
-  it('renders a stable full-height framed panel with hit-testable rows', () => {
+  it('renders a stable full-height framed panel', () => {
     const view = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 60, 18)
     expect(view.lines).toHaveLength(18)
     expect(view.lines.every(line => visibleWidth(line) === 60)).toBe(true)
     expect(view.lines[0]).toMatch(/^╭─ .*Settings.*╮$/)
     expect(view.lines.at(-1)).toMatch(/^╰─+╯$/)
     expect(view.lines.join('\n')).toContain('● Status line')
-    expect(hitTestSettings(view.itemRows, view.cursor.row)).toBe(5)
+    expect(view.cursor.row).toBeGreaterThanOrEqual(3)
     const compact = renderSettings(createSettings(prefs, 'statusItem:counts'), theme, 40, 10)
     expect(compact.lines).toHaveLength(10)
     expect(compact.lines.join('\n')).toContain('Activity')
@@ -248,12 +246,4 @@ describe('renderSettings', () => {
     expect(tiny.lines.join('\n')).toContain('Activity')
   })
 
-  it('hit-tests item rows and selects without cycling', () => {
-    expect(hitTestSettings(2, 3)).toBe(0)
-    expect(hitTestSettings(2, 4)).toBe(1)
-    expect(hitTestSettings(2, 0)).toBeUndefined()
-    const moved = selectSetting(createSettings(prefs), 1)
-    expect(moved.selected).toBe(1)
-    expect(moved.prefs).toEqual(prefs)
-  })
 })

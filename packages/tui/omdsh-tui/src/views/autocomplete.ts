@@ -357,18 +357,6 @@ export function autocompleteVisibleRange(
   return { start, end: Math.min(count, start + max) }
 }
 
-/** Item index under a popup-local row, or undefined on the counter/padding. */
-export function hitTestAutocomplete(
-  count: number,
-  selected: number,
-  localRow: number,
-): number | undefined {
-  const { start, end } = autocompleteVisibleRange(count, selected)
-  const index = start + localRow
-  if (index < start || index >= end) return undefined
-  return index
-}
-
 /** Popup rows: cursor + name + description, windowed around the selection. */
 export function renderAutocomplete(
   items: readonly AutocompleteItem[],

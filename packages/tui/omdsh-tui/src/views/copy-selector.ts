@@ -48,27 +48,6 @@ export function copySelectorVisibleRange(
   return { start, end: Math.min(count, start + max) }
 }
 
-/** Item index under an overlay-local row, or undefined on chrome. */
-export function hitTestCopySelector(
-  count: number,
-  selected: number,
-  localRow: number,
-  maxVisible = COPY_SELECTOR_MAX_VISIBLE,
-): number | undefined {
-  const { start, end } = copySelectorVisibleRange(count, selected, maxVisible)
-  const index = start + (localRow - COPY_SELECTOR_ITEM_ROW)
-  if (index < start || index >= end) return undefined
-  return index
-}
-
-/** Move the highlight to `index` without copying. */
-export function selectCopyTarget(state: CopySelectorState, index: number): CopySelectorState {
-  if (state.items.length === 0) return state
-  const selected = Math.max(0, Math.min(index, state.items.length - 1))
-  if (selected === state.selected) return state
-  return { ...state, selected }
-}
-
 function moveSelected(state: CopySelectorState, next: number): CopySelectorState {
   if (state.items.length === 0) return state
   const n = state.items.length

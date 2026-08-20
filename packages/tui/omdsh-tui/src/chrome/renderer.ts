@@ -42,26 +42,12 @@ export interface Frame {
   cursorVisible?: boolean
   /** Clipped transcript window; omitted when the view has no body budget. */
   transcript?: TranscriptScroll
-  /** Rounded editor hit box (frame rows); omitted when an overlay replaced it. */
-  editor?: { start: number; rows: number }
-  /** Slash popup or settings list hit box (frame rows). */
-  overlay?: {
-    kind: 'autocomplete' | 'settings' | 'search' | 'copy' | 'prompt'
-    start: number
-    resultsRow?: number
-    itemRows?: readonly (number | undefined)[]
-    document?: { start: number; maxStart: number; pageSize: number }
-  }
-  /** Clickable inspect banner and subagent roster rows. */
-  chrome?: {
-    inspect?: { start: number; rows: number }
-    subagents?: {
-      start: number
-      headerRows: number
-      rows: number
-      items: readonly { id: string; row: number }[]
-    }
-  }
+  /** Full-screen prompt review document scroll state, when one is active. */
+  promptDocument?: { start: number; maxStart: number; pageSize: number }
+  /** First line that is still live/mutable for main-screen scrollback; rows before this are committed. */
+  liveStart?: number
+  /** True when the live region must stay in the viewport instead of scrolling as frozen snapshots. */
+  livePinned?: boolean
 }
 
 /** The write sink a renderer emits into (stdout or a test capture). */

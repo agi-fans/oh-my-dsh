@@ -12,11 +12,6 @@ import { truncateToWidth } from '../chrome/width.ts'
 /** Visible result rows (OMP history-search window). */
 export const HISTORY_SEARCH_MAX_VISIBLE = 10
 
-/** Overlay-local row of the first result (empty query editor). */
-export function historySearchResultsRow(editorLineCount: number): number {
-  return 3 + editorLineCount + 1
-}
-
 /** Visible result-index window around `selected`. */
 export function historyVisibleRange(
   count: number,
@@ -27,22 +22,6 @@ export function historyVisibleRange(
   const index = Math.max(0, Math.min(selected, Math.max(0, count - 1)))
   const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, count - max)))
   return { start, end: Math.min(count, start + max) }
-}
-
-/** Result index under an overlay-local row, or undefined on chrome. */
-export function hitTestHistorySearch(
-  count: number,
-  selected: number,
-  localRow: number,
-  resultsRow: number,
-  maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
-): number | undefined {
-  if (count === 0) return undefined
-  const row = localRow - resultsRow
-  const { start, end } = historyVisibleRange(count, selected, maxVisible)
-  const index = start + row
-  if (index < start || index >= end) return undefined
-  return index
 }
 
 /** Result cap matching OMP's overlay. */
@@ -236,7 +215,7 @@ export function renderHistorySearch(
   theme: Theme,
   width: number,
   maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
-): { lines: string[]; cursor: { row: number; column: number }; resultsRow: number } {
+): { lines: string[]; cursor: { row: number; column: number } } {
   const title = ' ' + theme.bold(theme.fg('accent', '↺ Search History'))
   const editor = renderEditor({
     width,
@@ -255,7 +234,6 @@ export function renderHistorySearch(
   return {
     lines,
     cursor: { row: 3 + editor.cursor.row, column: editor.cursor.column },
-    resultsRow: historySearchResultsRow(editor.lines.length),
   }
 }
 

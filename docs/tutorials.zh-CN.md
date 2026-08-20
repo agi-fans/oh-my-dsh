@@ -25,7 +25,7 @@
 |---|---|
 | 浏览命令与快捷键 | `/help` |
 | 搜索历史 Prompt | `Ctrl+R` |
-| 滚动 Transcript | `PgUp` / `PgDn`、`Shift+Up` / `Shift+Down` 或鼠标滚轮 |
+| 滚动 Transcript | `PgUp` / `PgDn` 或 `Shift+Up` / `Shift+Down` |
 | 复制最近的回复、代码块或命令 | `/copy` |
 | 选择 Agent preset | `/agent` |
 | 选择 Default 或 Plan Workflow | `/workflow` |

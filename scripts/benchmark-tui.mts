@@ -1,10 +1,11 @@
 import { performance } from 'node:perf_hooks'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { MainScreenRenderer } from '../packages/tui/omdsh-tui/src/chrome/main-screen-renderer.ts'
 import {
   replayEvents,
   renderView,
-} from '../packages/tui/omdsh-tui/src/event-views.ts'
-import { sessionStats } from '../packages/tui/omdsh-tui/src/session-controller.ts'
+} from '../packages/tui/omdsh-tui/src/views/event-views.ts'
+import { sessionStats } from '../packages/tui/omdsh-tui/src/session/session-controller.ts'
 
 const RUNS = 7
 
@@ -143,3 +144,75 @@ benchmark('Render 200 cached 5,000-turn frames', () => {
     })
   }
 })
+
+benchmark('Render 200 streaming 5,000-turn frames', () => {
+  for (let index = 0; index < 200; index += 1) {
+    const liveBlock = {
+      kind: 'assistant',
+      reasoning: '',
+      text: `streaming ${index}`,
+      streaming: true,
+    } as unknown as (typeof largeTranscript.blocks)[number]
+    renderView({
+      ...largeTranscript,
+      status: 'running',
+      blocks: [...largeTranscript.blocks, liveBlock],
+    }, {
+      width: 160,
+      height: 50,
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      pwd: '~/project',
+    })
+  }
+})
+
+let terminalWrites = 0
+let terminalBytes = 0
+const terminalRenderer = new MainScreenRenderer(
+  {
+    write(chunk) {
+      terminalWrites += 1
+      terminalBytes += Buffer.byteLength(chunk)
+    },
+  },
+  { width: 160, height: 50, synchronized: false },
+)
+terminalRenderer.render(renderView(largeTranscript, {
+  width: 160,
+  height: 50,
+  model: 'deepseek-v4-pro',
+  reasoningEffort: 'max',
+  input: '',
+  inputCursor: 0,
+  colors: false,
+  pwd: '~/project',
+}))
+terminalWrites = 0
+terminalBytes = 0
+for (let index = 0; index < 200; index += 1) {
+  const liveBlock = {
+    kind: 'assistant',
+    reasoning: '',
+    text: `streaming ${index}`,
+    streaming: true,
+  } as unknown as (typeof largeTranscript.blocks)[number]
+  terminalRenderer.render(renderView({
+    ...largeTranscript,
+    status: 'running',
+    blocks: [...largeTranscript.blocks, liveBlock],
+  }, {
+    width: 160,
+    height: 50,
+    model: 'deepseek-v4-pro',
+    reasoningEffort: 'max',
+    input: '',
+    inputCursor: 0,
+    colors: false,
+    pwd: '~/project',
+  }))
+}
+console.log(`${'Terminal output for 200 streaming frames'.padEnd(42)} ${String(terminalWrites).padStart(6)} writes · ${(terminalBytes / 1024).toFixed(2)} KiB`)

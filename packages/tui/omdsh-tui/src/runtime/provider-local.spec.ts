@@ -9,13 +9,12 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
-import { SETTINGS_ITEM_ROW } from '../views/settings-list.ts'
 import { createHistorySearch } from '../views/history-search.ts'
 import type { DirEntry, PathSearcher, ProjectPathEntry } from '../views/path-complete.ts'
 import { stripAnsi } from '../chrome/width.ts'
@@ -107,7 +106,7 @@ function emulatedScreenRows(output: string): string[] {
     rows[row] = current.slice(0, column) + token + current.slice(column + token.length)
     column += token.length
   }
-  return rows
+  return Array.from(rows, value => value ?? '')
 }
 
 /** Status-line workspace label: home-relative git root, matching LocalTui. */
@@ -161,6 +160,91 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('keeps the welcome card when a durable transcript replaces the startup frame', () => {
+    const term = new FakeTerminal()
+    term.rows = 12
+    const tui = new LocalTui(term, 'm', false)
+    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(1)
+
+    const restored = Array.from({ length: 30 }, (_, index) => `restored-${index}`).join('\n')
+    tui.replaceSession([
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'resumed prompt' }] }, 1),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', text: restored },
+      }, 2),
+    ])
+
+    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(2)
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('resumed prompt')
+    expect(screen).toContain('restored-0')
+    expect(screen).toContain('restored-15')
+    expect(screen).toContain('restored-29')
+    expect(screen).toContain('Into the Unknown')
+    tui.dispose()
+  })
+
+  it('defers the production first frame until the initial session is available', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+
+    expect(term.captured).not.toContain('Into the Unknown')
+    expect(term.captured).not.toContain('\x1b[3J')
+    tui.setStatus('running')
+    expect(term.captured).not.toContain('Into the Unknown')
+
+    tui.replaceSession([
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'initial session' }] }, 1),
+    ], undefined, 'idle')
+    expect(term.captured).toContain('Into the Unknown')
+    expect(term.captured).toContain('initial session')
+    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(1)
+    tui.dispose()
+  })
+
+  it('does not request ED3 inside a terminal multiplexer', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { terminalProfile: 'multiplexer' })
+    tui.replaceSession([
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'multiplexed' }] }, 1),
+    ])
+
+    expect(term.captured).not.toContain('\x1b[3J')
+    expect(term.captured).toContain('multiplexed')
+    tui.dispose()
+  })
+
+  it('does not request ED3 through ConPTY', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { terminalProfile: 'conpty' })
+    tui.replaceSession([
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'conpty replay' }] }, 1),
+    ])
+
+    expect(term.captured).not.toContain('\x1b[3J')
+    expect(term.captured).toContain('conpty replay')
+    tui.dispose()
+  })
+
+  it('coalesces multiplexer resize bursts before repainting', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      terminalProfile: 'multiplexer',
+      resizeDebounceMs: 5,
+    })
+    const beforeResize = term.writes
+
+    term.resize(70, 20)
+    term.resize(72, 21)
+    expect(term.writes).toBe(beforeResize)
+
+    await new Promise<void>(resolve => { setTimeout(resolve, 15) })
+    expect(term.writes).toBe(beforeResize + 1)
+    tui.dispose()
+  })
+
   it('renders typed input inside the rounded editor', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', true)
@@ -175,9 +259,20 @@ describe('LocalTui (tty)', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     expect(term.captured).toContain('\x1b[2J\x1b[H')
-    expect(term.captured).toContain('\x1b[?1000h')
-    expect(term.captured).toContain('\x1b[?1006h')
     tui.dispose()
+  })
+
+  it('does not emit any mouse mode sequence from startup through disposal', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.dispose()
+    expect(term.captured).not.toContain('\x1b[?1000h')
+    expect(term.captured).not.toContain('\x1b[?1006h')
+    expect(term.captured).not.toContain('\x1b[?1000l')
+    expect(term.captured).not.toContain('\x1b[?1006l')
+    expect(term.captured).toContain('\x1b[?2004l')
+    expect(term.raw).toBe(false)
+    expect(term.destroyed).toBe(true)
   })
 
   it('clears and fully repaints after the terminal is resized', () => {
@@ -191,15 +286,6 @@ describe('LocalTui (tty)', () => {
     expect(repaint).toContain('\x1b[2J\x1b[H')
     expect(stripAnsi(repaint)).toContain('🐳')
     tui.dispose()
-  })
-
-  it('disables mouse tracking on dispose', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const before = term.captured.length
-    tui.dispose()
-    expect(term.captured.slice(before)).toContain('\x1b[?1000l')
-    expect(term.captured.slice(before)).toContain('\x1b[?1006l')
   })
 
   it('leaves the cursor on a fresh line when disposed', () => {
@@ -655,6 +741,35 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('deepseek-v4-pro')
     expect(term.captured).toContain('max')
     tui.dispose()
+  })
+
+  it('coalesces streamed assistant chunks but flushes settlement immediately', async () => {
+    vi.useFakeTimers()
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { streamRenderMs: 8 })
+      const initialWrites = term.writes
+
+      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } }, 1))
+      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } }, 2))
+      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'c' } }, 3))
+      expect(term.writes).toBe(initialWrites)
+
+      await vi.advanceTimersByTimeAsync(8)
+      expect(term.writes).toBe(initialWrites + 1)
+      expect(term.captured).toContain('abc')
+
+      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'd' } }, 4))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
+      expect(term.writes).toBe(initialWrites + 2)
+      expect(term.captured).toContain('abcd')
+
+      await vi.advanceTimersByTimeAsync(8)
+      expect(term.writes).toBe(initialWrites + 2)
+      tui.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('skips a footer repaint when only non-visible session timing changes', () => {
@@ -1478,33 +1593,6 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('inserts a history match when its result row is clicked', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const first = tui.readline()
-    press(term, 'unique zebra\r')
-    await first
-    const pending = tui.readline()
-    press(term, '\x12')
-    const layout = renderView(initialTranscript(), {
-      width: term.width(),
-      height: term.height(),
-      model: 'm',
-      input: '',
-      inputCursor: 0,
-      colors: false,
-      historySearch: createHistorySearch(['unique zebra']),
-    })
-    const start = layout.overlay?.start
-    const resultsRow = layout.overlay?.resultsRow
-    expect(start).toBeDefined()
-    expect(resultsRow).toBeDefined()
-    press(term, `\x1b[<0;1;${(start ?? 0) + (resultsRow ?? 0) + 1}M`)
-    press(term, '\r')
-    expect(await pending).toBe('unique zebra')
-    tui.dispose()
-  })
-
   it('opens history search on ctrl+r', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -1592,7 +1680,10 @@ describe('LocalTui (tty)', () => {
     for (let i = 0; i < 16; i += 1) {
       tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i))
     }
-    expect(term.captured).toContain('earlier')
+    // Follow mode renders the full transcript and lets the terminal's native
+    // scrollback keep it; no in-frame scroll indicators.
+    expect(term.captured).toContain('mark-15')
+    expect(term.captured).not.toContain('earlier lines')
     expect(term.captured).not.toContain('later line')
     press(term, '\x1b[5~')
     expect(term.captured).toContain('later line')
@@ -1637,84 +1728,6 @@ describe('LocalTui (tty)', () => {
     press(term, '\x0f')
     expect(term.captured.slice(afterExpand)).toContain('Ctrl+O: Expand')
     expect(term.captured.slice(afterExpand)).not.toContain('tool-line-13')
-    tui.dispose()
-  })
-
-  it('scrolls the transcript with the mouse wheel', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    for (let i = 0; i < 16; i += 1) {
-      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i))
-    }
-    expect(term.captured).not.toContain('later line')
-    press(term, '\x1b[<64;10;5M')
-    await new Promise<void>(resolve => { setImmediate(resolve) })
-    expect(term.captured).toContain('later line')
-    const before = term.captured.length
-    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'NEW-TAIL' }] }, 99))
-    expect(term.captured.slice(before)).not.toContain('NEW-TAIL')
-    for (let i = 0; i < 24; i += 1) press(term, '\x1b[<65;10;5M')
-    await new Promise<void>(resolve => { setImmediate(resolve) })
-    expect(term.captured).toContain('NEW-TAIL')
-    tui.dispose()
-  })
-
-  it('coalesces a burst of transcript wheel events into one terminal update', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    for (let i = 0; i < 40; i += 1) {
-      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'wheel-' + i }] }, i))
-    }
-    const before = term.writes
-
-    for (let i = 0; i < 12; i += 1) press(term, '\x1b[<64;10;5M')
-    await new Promise<void>(resolve => { setImmediate(resolve) })
-
-    expect(term.writes - before).toBe(1)
-    expect(term.captured).toContain('later line')
-    tui.dispose()
-  })
-
-  it('moves slash suggestions with the mouse wheel', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    press(term, '/')
-    expect(term.captured).toContain('/help')
-    press(term, '\x1b[<65;4;20M')
-    expect(term.captured).toContain('❯')
-    tui.dispose()
-  })
-
-  it('opens a subagent transcript when its roster row is clicked', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const opened: string[] = []
-    tui.onInspectSubagent(id => { opened.push(id) })
-    const roster = {
-      agents: [{
-        id: 'child-1',
-        depth: 1,
-        label: 'Explore auth',
-        phase: 'running' as const,
-        activity: [],
-      }],
-    }
-    tui.setSubagents(roster)
-    const layout = renderView(initialTranscript(), {
-      width: term.width(),
-      height: term.height(),
-      model: 'm',
-      input: '',
-      inputCursor: 0,
-      colors: false,
-      subagents: roster,
-    })
-    const start = layout.chrome?.subagents?.start
-    const row = layout.chrome?.subagents?.items[0]?.row
-    expect(start).toBeDefined()
-    expect(row).toBeDefined()
-    press(term, `\x1b[<0;1;${(start ?? 0) + (row ?? 0) + 1}M`)
-    expect(opened).toEqual(['child-1'])
     tui.dispose()
   })
 
@@ -1787,77 +1800,6 @@ describe('LocalTui (tty)', () => {
         resolve()
       }, 120)
     })
-  })
-
-  it('completes a slash command when its popup row is clicked', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    press(term, '/')
-    const layout = renderView(initialTranscript(), {
-      width: term.width(),
-      height: term.height(),
-      model: 'm',
-      input: '/',
-      inputCursor: 1,
-      colors: false,
-      autocomplete: {
-        items: [
-          { value: 'help', label: 'help' },
-          { value: 'settings', label: 'settings' },
-        ],
-        selected: 0,
-      },
-    })
-    const start = layout.overlay?.start
-    expect(start).toBeDefined()
-    press(term, `\x1b[<0;1;${(start ?? 0) + 2}M`)
-    expect(term.captured).toContain('/settings ')
-    tui.dispose()
-  })
-
-  it('selects a settings row on click and cycles on a second click', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    void tui.readline()
-    press(term, '/settings\r')
-    const layout = renderView(initialTranscript(), {
-      width: term.width(),
-      height: term.height(),
-      model: 'm',
-      input: '',
-      inputCursor: 0,
-      colors: false,
-      settings: { selected: 0, prefs: { theme: 'dark', colors: false, expandTools: false } },
-    })
-    const start = layout.overlay?.start
-    expect(start).toBeDefined()
-    press(term, `\x1b[<0;1;${(start ?? 0) + SETTINGS_ITEM_ROW + 2}M`)
-    expect(term.captured).toContain('SGR styling')
-    const before = term.captured.length
-    press(term, `\x1b[<0;1;${(start ?? 0) + SETTINGS_ITEM_ROW + 2}M`)
-    expect(term.captured.slice(before)).toContain('on')
-    tui.dispose()
-  })
-
-  it('moves the caret when the input row is clicked', async () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
-    press(term, 'hello')
-    const layout = renderView(initialTranscript(), {
-      width: term.width(),
-      height: term.height(),
-      model: 'm',
-      input: 'hello',
-      inputCursor: 5,
-      colors: false,
-    })
-    const start = layout.editor?.start
-    expect(start).toBeDefined()
-    press(term, `\x1b[<0;3;${(start ?? 0) + 2}M`)
-    press(term, 'X\r')
-    expect(await pending).toBe('Xhello')
-    tui.dispose()
   })
 
   it('does not type SGR mouse reports into the editor', async () => {

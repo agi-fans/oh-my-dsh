@@ -70,6 +70,11 @@ export type Block =
   | { kind: 'commandOutput'; command: string; text: string }
   | { kind: 'notice'; level: 'info' | 'error'; text: string; framed?: boolean }
 
+/** True for blocks whose rendered text may still change. */
+function isBlockPending(block: Block): boolean {
+  return (block.kind === 'assistant' && block.streaming) || (block.kind === 'tool' && block.status === 'running')
+}
+
 /** Live session activity controlling the composer and activity row. */
 export type SessionStatus = 'idle' | 'running' | 'compacting'
 
@@ -710,11 +715,16 @@ export function blockLines(
   }, theme)
 }
 
-function fitFrame(lines: string[], width: number): string[] {
-  return lines.map((line) => {
-    if (visibleWidth(line) <= width) return line
-    return truncateToWidth(line, width)
-  })
+function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
+  let fitted: string[] | undefined
+  const start = Math.max(0, Math.min(lines.length, stablePrefix))
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index]!
+    if (visibleWidth(line) <= width) continue
+    fitted ??= lines.slice()
+    fitted[index] = truncateToWidth(line, width)
+  }
+  return fitted ?? lines
 }
 
 interface TranscriptBodyCache {
@@ -846,9 +856,6 @@ function commandSurfaceName(block: Block | undefined): string | undefined {
 
 /** Rows moved per Shift+Arrow (OMP ScrollView `fastScrollLines`). */
 export const TRANSCRIPT_FAST_SCROLL = 5
-
-/** Rows moved per mouse-wheel notch. */
-export const TRANSCRIPT_WHEEL_SCROLL = 3
 
 function earlierLabel(count: number): string {
   return '… ↑ ' + count + ' earlier line' + (count === 1 ? '' : 's') + ' ⟨Pg↑⟩'
@@ -1078,12 +1085,6 @@ function subagentRowText(agent: TuiSubagentView): string {
   return detail === '' ? indent + agent.label : `${indent}${agent.label} · ${detail}`
 }
 
-/** Painted roster plus click targets relative to the first roster row. */
-export interface SubagentRosterPaint {
-  lines: string[]
-  items: readonly { id: string; row: number }[]
-}
-
 /** Compact, unframed descendant-subagent tree placed above Todos. */
 export function renderSubagents(
   roster: TuiSubagentRoster | undefined,
@@ -1091,9 +1092,9 @@ export function renderSubagents(
   width: number,
   spinnerFrame = 0,
   inspectedId?: string,
-): SubagentRosterPaint {
+): string[] {
   const agents = roster?.agents ?? []
-  if (agents.length === 0 || width <= 0) return { lines: [], items: [] }
+  if (agents.length === 0 || width <= 0) return []
   const running = agents.filter(agent => agent.phase === 'running' || agent.phase === 'starting').length
   const failed = agents.filter(agent => agent.phase === 'error').length
   const done = agents.filter(agent => agent.phase === 'completed' || agent.phase === 'waiting').length
@@ -1111,11 +1112,9 @@ export function renderSubagents(
     ...agents.slice(start, end),
     ...(end === agents.length ? [] : [`… ${agents.length - end} more`]),
   ]
-  const items: { id: string; row: number }[] = []
   const lines = [header, ...rows.map((row, index) => {
     const branch = '  ' + theme.fg('dim', index === rows.length - 1 ? '└─' : '├─') + ' '
     if (typeof row === 'string') return branch + theme.fg('dim', row)
-    items.push({ id: row.id, row: index + 1 })
     const selected = inspectedId === row.id
     const paint = row.phase === 'completed'
       ? (text: string) => theme.fg('dim', theme.strikethrough(text))
@@ -1128,10 +1127,7 @@ export function renderSubagents(
     const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row))
     return branch + (selected ? theme.bold(body) : body)
   })]
-  return {
-    lines: lines.map(line => truncateToWidth(line, width)),
-    items,
-  }
+  return lines.map(line => truncateToWidth(line, width))
 }
 
 /** Persistent inspect chrome: stays visible while the child transcript scrolls. */
@@ -1147,14 +1143,6 @@ export function renderInspectBanner(
     + ' ' + theme.bold(inspected.label)
     + theme.fg('dim', ` · ${guidance}`)
   return [truncateToWidth(line, width)]
-}
-
-/** Hit a painted roster row, or `undefined` when the click is on overflow chrome. */
-export function hitTestSubagentRoster(
-  items: readonly { id: string; row: number }[],
-  localRow: number,
-): string | undefined {
-  return items.find(item => item.row === localRow)?.id
 }
 
 function queuedSubmissionLabel(submission: TuiSubmission): string {
@@ -1241,7 +1229,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       lines: fitFrame(settings.lines, width),
       cursor: settings.cursor,
       cursorVisible: false,
-      overlay: { kind: 'settings', start: 0, itemRows: settings.itemRows },
     }
   }
   if (options.promptSelector?.request.presentation === 'fullscreen-list') {
@@ -1258,12 +1245,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       lines: fitFrame(selector.lines, width),
       cursor: selector.cursor,
       cursorVisible: true,
-      ...(selector.editor === undefined ? {} : { editor: selector.editor }),
-      overlay: {
-        kind: 'prompt',
-        start: 0,
-        ...(selector.itemRows === undefined ? {} : { itemRows: selector.itemRows }),
-      },
     }
   }
   if (options.promptSelector?.request.presentation === 'plan-review') {
@@ -1280,12 +1261,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       lines: fitFrame(review.lines, width),
       cursor: review.cursor,
       cursorVisible: review.cursorVisible === true,
-      ...(review.editor === undefined ? {} : { editor: review.editor }),
-      overlay: {
-        kind: 'prompt',
-        start: 0,
-        ...(review.document === undefined ? {} : { document: review.document }),
-      },
+      ...(review.document === undefined ? {} : { promptDocument: review.document }),
     }
   }
   const welcome = renderWelcome({
@@ -1380,10 +1356,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
   const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
-  const roster = editor === undefined
-    ? { lines: [] as string[], items: [] as readonly { id: string; row: number }[] }
+  const subagents = editor === undefined
+    ? []
     : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id)
-  const subagents = roster.lines
   const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []
@@ -1399,8 +1374,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const requestedStart = focusStart === undefined
     ? (options.scrollStart ?? Number.POSITIVE_INFINITY)
     : transcriptStart + focusStart
-  const windowed = windowTranscript(body, budget, requestedStart, theme)
-  const visible = windowed.lines
+  const hasOverlay = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
+  const isFollowing = requestedStart === Number.POSITIVE_INFINITY && !hasOverlay
+  const livePinned = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
+  const windowed = isFollowing
+    ? undefined
+    : windowTranscript(body, budget, requestedStart, theme)
+  const visible = windowed?.lines ?? body
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
@@ -1408,9 +1388,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
-  const inspectStart = lines.length
   lines.push(...inspect)
-  const subagentStart = lines.length
   lines.push(...subagents)
   lines.push(...todos)
   lines.push(...queuedSubmissions)
@@ -1418,7 +1396,27 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   lines.push(...inputLines)
   lines.push(...autocomplete)
   lines.push(...statusFooter)
-  const trimmed = fitFrame(lines, width)
+
+  let liveStart: number
+  if (isFollowing) {
+    const firstPending = state.blocks.findIndex(isBlockPending)
+    if (firstPending >= 0) {
+      liveStart = transcriptStart + transcript.blockStarts[firstPending]!
+    } else {
+      liveStart = lines.length - bottomRows
+    }
+    // liveStart marks the first row that is still live/mutable. Rows above it
+    // are committed. Off-screen live rows are bounded by the renderer: it only
+    // ever writes the live viewport, so pending rows above the visible window
+    // are not pushed into native scrollback until they become committed.
+  } else {
+    liveStart = 0
+  }
+
+  // Every settled block was already rendered against this width. Mirroring
+  // OMP's stable-prefix preparation, only validate the mutable suffix instead
+  // of measuring the complete native-scrollback history on every frame.
+  const trimmed = fitFrame(lines, width, isFollowing ? liveStart : 0)
   const caret = promptSelector?.cursor ?? settings?.cursor ?? copySelector?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   return {
     lines: trimmed,
@@ -1430,34 +1428,14 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       || (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
       : promptSelector?.cursorVisible ?? (settings === undefined && copySelector === undefined),
-    ...(promptSelector?.editor !== undefined
-      ? { editor: { start: editorStart + promptSelector.editor.start, rows: promptSelector.editor.rows } }
-      : editor === undefined ? {} : { editor: { start: editorStart, rows: editor.lines.length } }),
-    ...(settings !== undefined
-      ? { overlay: { kind: 'settings' as const, start: editorStart } }
-      : copySelector !== undefined
-        ? { overlay: { kind: 'copy' as const, start: editorStart } }
-        : search !== undefined
-          ? { overlay: { kind: 'search' as const, start: editorStart, resultsRow: search.resultsRow } }
-          : autocomplete.length > 0
-            ? { overlay: { kind: 'autocomplete' as const, start: editorStart + (editor?.lines.length ?? 0) } }
-            : {}),
-    transcript: {
-      start: windowed.start,
-      maxStart: windowed.maxStart,
-      budget: windowed.budget,
-      hiddenAbove: windowed.hiddenAbove,
-      hiddenBelow: windowed.hiddenBelow,
+    liveStart,
+    livePinned,
+    transcript: windowed ?? {
+      start: 0,
+      maxStart: 0,
+      budget,
+      hiddenAbove: 0,
+      hiddenBelow: 0,
     },
-    ...(inspect.length === 0 && subagents.length === 0
-      ? {}
-      : {
-        chrome: {
-          ...(inspect.length === 0 ? {} : { inspect: { start: inspectStart, rows: inspect.length } }),
-          ...(subagents.length === 0
-            ? {}
-            : { subagents: { start: subagentStart, headerRows: 1, rows: subagents.length, items: roster.items } }),
-        },
-      }),
   }
 }

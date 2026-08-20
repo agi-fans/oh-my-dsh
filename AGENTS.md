@@ -43,7 +43,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - Assistant replies and tool output must have deliberate horizontal padding and must not touch transcript borders.
 - Treat terminal layout in display cells, not JavaScript string length. ANSI sequences, CJK text, emoji, combining characters, and long unbroken commands must not collapse right padding or borders.
 - Keep the composer and two-line status footer anchored at the bottom. Scrolling moves through transcript history without causing stale lines, mismatched borders, or full-screen jitter.
-- Prefer incremental rendering, cached formatted rows, and coalesced wheel updates. Avoid reformatting the entire transcript for every scroll event or streaming token.
+- Prefer incremental rendering and cached formatted rows. Avoid reformatting the entire transcript for every scroll event or streaming token.
 - Preserve the established exit behavior: the first Ctrl-C clears or interrupts, a second Ctrl-C exits, and exit output includes an `omdsh --resume <session-id>` hint when a session can be resumed.
 - Interactive lists must support keyboard selection when they require a choice. Do not render a numbered menu and then leave the normal composer active as the only interaction path.
 

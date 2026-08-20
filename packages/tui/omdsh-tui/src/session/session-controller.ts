@@ -1188,7 +1188,7 @@ export class SessionRuntime {
 
   #replaceTranscript(agent: Agent): void {
     const events = agent.session.events
-    this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events))
+    this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
   }
 
   #replaceVisibleTranscript(): void {
@@ -1240,6 +1240,7 @@ export class SessionRuntime {
     this.#tui.replaceSession(
       events,
       child === undefined ? undefined : this.#ctx.get('tuiToolPresentation')?.session(child, events),
+      child?.status ?? 'idle',
     )
     this.#tui.setInspectedSubagent(this.#inspectView(
       id,

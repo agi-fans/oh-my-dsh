@@ -5,8 +5,6 @@ import {
   highlightTokens,
   queryTokens,
   renderHistorySearch,
-  hitTestHistorySearch,
-  historySearchResultsRow,
   searchHistory,
 } from './history-search.ts'
 import type { KeyEvent } from '../input/keys.ts'
@@ -106,12 +104,4 @@ describe('renderHistorySearch / highlightTokens', () => {
     expect(painted).not.toBe('git commit')
   })
 
-  it('hit-tests result rows under the query editor', () => {
-    const resultsRow = historySearchResultsRow(2)
-    expect(resultsRow).toBe(6)
-    expect(hitTestHistorySearch(3, 0, resultsRow, resultsRow)).toBe(0)
-    expect(hitTestHistorySearch(3, 0, resultsRow + 1, resultsRow)).toBe(1)
-    expect(hitTestHistorySearch(3, 0, 0, resultsRow)).toBeUndefined()
-    expect(hitTestHistorySearch(0, 0, resultsRow, resultsRow)).toBeUndefined()
-  })
 })

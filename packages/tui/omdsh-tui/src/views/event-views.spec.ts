@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, hitTestSubagentRoster, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -25,6 +25,13 @@ const view = (state: ReturnType<typeof initialTranscript>, input = '') =>
     colors: false,
     welcomeTips: [{ key: '/', text: 'Browse available commands' }],
   })
+
+const composerStart = (lines: readonly string[]): number => lines.findIndex(line => line.includes('🐳'))
+const composerRows = (lines: readonly string[], start: number): number => {
+  if (start < 0) return 0
+  const end = lines.slice(start).findIndex(line => stripAnsi(line).startsWith('╰'))
+  return end === -1 ? 0 : end + 1
+}
 
 describe('applyEvent', () => {
   it('replays a complete log with the same state as immutable live folding', () => {
@@ -715,11 +722,12 @@ describe('renderView', () => {
   it('places the cursor on the editor input row', () => {
     const state = initialTranscript()
     const frame = renderView(state, { width: 60, height: 24, model: 'm', input: 'abc', inputCursor: 2, colors: false })
-    const editorStart = frame.editor?.start ?? -1
+    const editorStart = composerStart(frame.lines)
+    const editorRows = composerRows(frame.lines, editorStart)
     expect(frame.cursor).toEqual({ row: editorStart + 1, column: 4 })
     expect(frame.lines[editorStart + 1]).toMatch(/^│ /)
     expect(frame.lines[editorStart + 1]).toContain('abc')
-    expect(frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
     expect(frame.lines.at(-2)).toContain('m')
   })
 
@@ -737,7 +745,7 @@ describe('renderView', () => {
       ],
       colors: false,
     })
-    const editorStart = frame.editor?.start ?? -1
+    const editorStart = composerStart(frame.lines)
     const queue = frame.lines.slice(editorStart - 3, editorStart)
     expect(queue[0]).toMatch(/^  │ Queued · 2\s+↑ edit latest$/u)
     expect(queue.slice(1)).toEqual([
@@ -823,16 +831,14 @@ describe('renderView', () => {
       ],
     }, createTheme(false), 48)
 
-    const text = painted.lines.map(stripAnsi)
+    const text = painted.map(stripAnsi)
     expect(text[0]).toBe('  Agents · 2 running · 4 done')
     expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · read src/auth.ts`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} waiting child`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} done review`))).toBe(true)
     expect(text.join('\n')).not.toContain(SYMBOL.pending)
-    expect(painted.lines.map(stripAnsi).some(line => line.includes('Nested search · grep login'))).toBe(true)
-    expect(painted.lines.every(line => visibleWidth(line) <= 48)).toBe(true)
-    expect(hitTestSubagentRoster(painted.items, painted.items[0]?.row ?? -1)).toBe(painted.items[0]?.id)
-    expect(hitTestSubagentRoster(painted.items, 0)).toBeUndefined()
+    expect(text.some(line => line.includes('Nested search · grep login'))).toBe(true)
+    expect(painted.every(line => visibleWidth(line) <= 48)).toBe(true)
   })
 
   it('anchors an inspect banner and marks the open subagent', () => {
@@ -858,8 +864,7 @@ describe('renderView', () => {
     const text = frame.lines.map(stripAnsi).join('\n')
     expect(text).toContain(`← ${SPINNER[0]} Explore auth · Enter to steer · Esc to return`)
     expect(text).toContain('Enter to steer · Esc to return')
-    expect(frame.chrome?.inspect?.rows).toBe(1)
-    expect(frame.chrome?.subagents?.items[0]?.id).toBe('child-1')
+    expect(text).toContain('Explore auth')
     expect(frame.cursorVisible).not.toBe(false)
     expect(renderInspectBanner({
       id: 'child-1', label: 'Explore auth', phase: 'completed', writable: false,
@@ -876,16 +881,54 @@ describe('renderView', () => {
     expect(readonlyFrame.cursorVisible).toBe(false)
   })
 
-  it('keeps the frame inside the terminal height with a scroll indicator', () => {
+  it('exposes the full transcript in follow mode for main-screen scrollback', () => {
     let state = initialTranscript()
     for (let i = 0; i < 20; i += 1) {
       state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'line ' + i }] }, i))
     }
     const frame = view(state)
+    expect(frame.lines.length).toBeGreaterThan(24)
+    expect(frame.liveStart).toBeGreaterThan(0)
+    expect(frame.lines[0]).not.toContain('earlier line')
+    expect(frame.transcript?.hiddenAbove).toBe(0)
+    expect(frame.transcript?.hiddenBelow).toBe(0)
+  })
+
+  it('pins running tools but lets an append-only assistant stream scroll naturally', () => {
+    const assistant = applyEvent(
+      initialTranscript(),
+      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } }, 1),
+    )
+    expect(view(assistant).livePinned).toBe(false)
+
+    const tool = applyEvent(
+      initialTranscript(),
+      ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1),
+    )
+    expect(view(tool).livePinned).toBe(true)
+  })
+
+  it('keeps a windowed transcript inside the terminal height with a scroll indicator', () => {
+    let state = initialTranscript()
+    for (let i = 0; i < 20; i += 1) {
+      state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'line ' + i }] }, i))
+    }
+    const frame = renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'deepseek-v4-flash',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
+      scrollStart: 1000,
+    })
     expect(frame.lines.length).toBeLessThanOrEqual(24)
     expect(frame.lines[0]).toContain('earlier lines')
     expect(frame.lines[0]).toContain('Pg↑')
-    expect(frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
+    const editorStart = composerStart(frame.lines)
+    const editorRows = composerRows(frame.lines, editorStart)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
     expect(frame.transcript?.hiddenBelow).toBe(0)
     expect(frame.transcript?.hiddenAbove).toBeGreaterThan(0)
   })
@@ -896,7 +939,7 @@ describe('renderView', () => {
       state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i))
     }
     const tail = view(state)
-    const start = Math.max(0, (tail.transcript?.start ?? 1) - 1)
+    // Move the viewport up by a page to exercise windowing.
     const scrolled = renderView(state, {
       width: 60,
       height: 24,
@@ -904,13 +947,14 @@ describe('renderView', () => {
       input: '',
       inputCursor: 0,
       colors: false,
-      scrollStart: start,
+      scrollStart: 10,
     })
     const text = scrolled.lines.join('\n')
     expect(scrolled.lines.length).toBeLessThanOrEqual(24)
     expect(text).toContain('later line')
     expect(scrolled.transcript?.hiddenBelow).toBeGreaterThan(0)
-    expect(scrolled.transcript?.start).toBeLessThan(tail.transcript?.start ?? 0)
+    expect(scrolled.transcript?.start).toBeGreaterThan(tail.transcript?.start ?? 0)
+    expect(scrolled.transcript?.start).toBeGreaterThanOrEqual(10)
   })
 
   it('reuses rendered transcript blocks when only the viewport moves', () => {
@@ -960,7 +1004,9 @@ describe('renderView', () => {
     expect(text).toContain('Tips')
     expect(text).not.toMatch(/(^|\n)> /)
     expect(frame.lines[0]).toMatch(/^╭/)
-    expect(frame.lines[(frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─/)
+    const editorStart = composerStart(frame.lines)
+    const editorRows = composerRows(frame.lines, editorStart)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
     expect(text).toContain('/  Browse available commands')
   })
 
@@ -988,7 +1034,8 @@ describe('renderView', () => {
         cacheWriteTokens: 0,
       },
     })
-    const editorStart = frame.editor?.start ?? -1
+    const editorStart = composerStart(frame.lines)
+    const editorRows = composerRows(frame.lines, editorStart)
     expect(frame.lines[editorStart]).toContain('🐳')
     expect(frame.lines[editorStart]).not.toContain('deepseek-v4-pro')
     expect(frame.lines[editorStart]).not.toContain('omdsh')
@@ -999,7 +1046,7 @@ describe('renderView', () => {
     expect(plain[modelRow]).not.toContain('omdsh')
     expect(plain.at(-1)).toContain('1 turn · 74 steps')
     expect(plain.at(-1)).toContain('5.9M in · 73.8K out')
-    expect(frame.lines[editorStart + (frame.editor?.rows ?? 0) - 1]).toMatch(/^╰─+╯$/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─+╯$/)
     expect(frame.lines).toHaveLength(24)
   })
 
@@ -1013,7 +1060,7 @@ describe('renderView', () => {
       colors: false,
       sessionControls: { permission: 'danger-full-access' },
     })
-    const editorStart = frame.editor?.start ?? -1
+    const editorStart = composerStart(frame.lines)
     expect(frame.lines[editorStart]).toContain('🐳')
     expect(frame.lines[editorStart]).toContain('full access')
     expect(frame.lines[editorStart]?.indexOf('🐳') ?? 0).toBeLessThan(frame.lines[editorStart]?.indexOf('full access') ?? 0)
@@ -1067,8 +1114,6 @@ describe('renderView', () => {
     const text = frame.lines.join('\n')
     expect(text).toContain('Search History')
     expect(text).toContain('git commit')
-    expect(frame.overlay?.kind).toBe('search')
-    expect(frame.overlay?.resultsRow).toBeGreaterThan(0)
     expect(text).toContain('enter select')
     expect(text).not.toContain('draft')
     expect(frame.cursor?.row).toBeGreaterThan(0)
@@ -1103,7 +1148,7 @@ describe('renderView', () => {
     expect(text).toContain('13/24 · scroll for more')
     expect(text).toContain('enter run')
     expect(text).not.toContain('skill-1 —')
-    expect(frame.editor).toBeUndefined()
+    expect(composerStart(frame.lines)).toBe(-1)
     expect(frame.cursorVisible).toBe(false)
     expect(frame.lines.length).toBeLessThanOrEqual(24)
   })
@@ -1148,7 +1193,6 @@ describe('renderView', () => {
     expect(text).toContain('2m ago · 42 events · ✔ done')
     expect(text).not.toContain('Choose a session')
     expect(text).not.toContain('answer')
-    expect(frame.overlay?.kind).toBe('prompt')
     expect(frame.cursor?.row).toBe(5)
   })
 
@@ -1176,7 +1220,8 @@ describe('renderView', () => {
       colors: true,
       trueColor: true,
     })
-    const body = frame.lines[(frame.editor?.start ?? 0) + 1] ?? ''
+    const editorStart = composerStart(frame.lines)
+    const body = frame.lines[editorStart + 1] ?? ''
     expect(body).toContain(color.bold(color.fg('accent', '/copy')) + ' text')
     expect(stripAnsi(body)).toContain('/copy text')
   })
@@ -1192,7 +1237,8 @@ describe('renderView', () => {
       colors: true,
       trueColor: true,
     })
-    const body = frame.lines[(frame.editor?.start ?? 0) + 1] ?? ''
+    const editorStart = composerStart(frame.lines)
+    const body = frame.lines[editorStart + 1] ?? ''
     expect(body).not.toContain(color.getFgAnsi('accent'))
     expect(stripAnsi(body)).toContain('/tmp/foo')
   })
@@ -1217,11 +1263,12 @@ describe('renderView', () => {
     expect(text).toContain('/help')
     expect(text).toContain('/q')
     expect(text).toContain('❯')
-    const popupStart = (frame.editor?.start ?? 0) + (frame.editor?.rows ?? 0)
+    const editorStart = composerStart(frame.lines)
+    const editorRows = composerRows(frame.lines, editorStart)
+    const popupStart = editorStart + editorRows
     expect(frame.lines.slice(popupStart, -2).join('\n')).toContain('/q')
     expect(frame.cursor?.row).toBeLessThan(frame.lines.length - 1)
-    expect(frame.editor?.rows).toBeGreaterThan(0)
-    expect(frame.overlay?.kind).toBe('autocomplete')
+    expect(editorRows).toBeGreaterThan(0)
   })
 
   it('replaces the editor with the copy picker overlay', () => {
@@ -1244,8 +1291,7 @@ describe('renderView', () => {
     expect(text).toContain('hello from the model')
     expect(text).toContain('enter copy')
     expect(text).not.toContain('draft')
-    expect(frame.editor).toBeUndefined()
-    expect(frame.overlay?.kind).toBe('copy')
+    expect(composerStart(frame.lines)).toBe(-1)
     expect(frame.cursorVisible).toBe(false)
   })
 
@@ -1259,8 +1305,7 @@ describe('renderView', () => {
       colors: false,
       settings: { selected: 0, prefs: { theme: 'dark', colors: true, expandTools: false } },
     })
-    expect(frame.editor).toBeUndefined()
-    expect(frame.overlay?.kind).toBe('settings')
+    expect(composerStart(frame.lines)).toBe(-1)
   })
 
   it('replaces the editor with the settings overlay', () => {

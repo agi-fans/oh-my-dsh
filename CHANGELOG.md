@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- TUI input is now keyboard-only: mouse tracking sequences are no longer emitted and SGR mouse reports are consumed and discarded instead of being typed into the composer or driving state.
+- Finalized transcript rows now flow into native terminal scrollback while the live viewport remains keyboard-driven and mouse tracking stays disabled. Production startup waits for the initial session projection, idle replacement replays the complete Header, transcript, and composer, and running replacement pins its mutable tail until settlement. Direct terminals can clear stale scrollback and borrow the alternate screen for transient full-screen surfaces; multiplexers and ConPTY preserve host scrollback, and multiplexer resize bursts are coalesced. Large resumed transcripts replay completely rather than being truncated, while ordinary paints remain one DEC 2026 synchronized write.
+- Long sessions now reuse the settled transcript as a stable render prefix, avoiding full-history display-width measurement on every streaming, status, or composer frame.
+- Append-only assistant reasoning and text now scroll naturally with the Header and user messages, while mutable running-tool previews remain pinned to the live viewport.
+- Dense assistant streaming deltas are now coalesced into short render windows, reducing redundant formatting and terminal writes while preserving immediate interaction, tool, and settlement updates.
+
+### Removed
+
+- Removed all mouse-driven interactions, including click-to-caret in the composer, wheel-based transcript and overlay scrolling, and click-to-select in overlays and the subagent roster. Use the existing keyboard shortcuts (arrow keys, PgUp/PgDn, Shift+Up/Down, Tab, Enter, Esc) for the same actions.
+- Removed `Mouse wheel` from the help/hotkeys surface.
+
 ## [0.7.0] - 2026-08-20
 
 ### Added

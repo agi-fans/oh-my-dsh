@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyCopySelectorEvent,
-  COPY_SELECTOR_ITEM_ROW,
   createCopySelector,
-  hitTestCopySelector,
   renderCopySelector,
-  selectCopyTarget,
 } from './copy-selector.ts'
 import type { CopyPick } from './copy-targets.ts'
 import { createTheme } from '../chrome/theme.ts'
@@ -57,11 +54,4 @@ describe('renderCopySelector', () => {
     expect(lines).toContain('enter copy')
   })
 
-  it('hit-tests item rows and selects without copying', () => {
-    expect(hitTestCopySelector(3, 0, COPY_SELECTOR_ITEM_ROW)).toBe(0)
-    expect(hitTestCopySelector(3, 0, COPY_SELECTOR_ITEM_ROW + 1)).toBe(1)
-    expect(hitTestCopySelector(3, 0, 0)).toBeUndefined()
-    const moved = selectCopyTarget(createCopySelector(items), 2)
-    expect(moved.selected).toBe(2)
-  })
 })

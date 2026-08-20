@@ -5,38 +5,12 @@
  * @module @agi-fans/dsh-tui
  */
 
-/** One decoded SGR mouse report (`\x1b[<button;col;rowM`). */
-export interface MouseEvent {
-  type: 'mouse'
-  /** Raw button code (bit 32 = motion, bit 64 = wheel). */
-  button: number
-  /** 0-based column. */
-  col: number
-  /** 0-based row. */
-  row: number
-  /** True for a release report (`m` suffix). */
-  release: boolean
-  /** Wheel direction: -1 up, 1 down, null when not a wheel event. */
-  wheel: -1 | 1 | null
-  /** Pointer moved (hover or drag). */
-  motion: boolean
-  /** Left-button press (not motion, release, or wheel). */
-  leftClick: boolean
-}
-
 /** One decoded input event. */
 export type KeyEvent =
   | { type: 'key'; id: string }
   | { type: 'text'; value: string }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
-  | MouseEvent
-
-/** Enable SGR button tracking (wheel + clicks; no motion flood). */
-export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1006h'
-
-/** Disable the modes enabled by {@link MOUSE_TRACKING_ON}. */
-export const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1000l'
 
 const CTRL: Record<number, string> = {
   0x01: 'ctrl+a',
@@ -129,40 +103,25 @@ function kittyEvent(code: number, modifier: number): KeyEvent {
   return { type: 'key', id: withMods(`code${code}`, modifier) }
 }
 
-/**
- * Decode one SGR mouse report. `data` is the full CSI including ESC
- * (`\x1b[<64;10;5M`); returns null when the string is not a complete report.
- */
-export function parseSgrMouse(data: string): MouseEvent | null {
-  const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(data)
-  if (match === null) return null
-  const button = Number(match[1])
-  const col = Number(match[2]) - 1
-  const row = Number(match[3]) - 1
-  const release = match[4] === 'm'
-  const wheel = (button & 64) !== 0 ? ((button & 1) !== 0 ? 1 : -1) as 1 | -1 : null
-  const motion = (button & 32) !== 0 && wheel === null
-  const leftClick = !release && wheel === null && !motion && (button & 3) === 0
-  return { type: 'mouse', button, col, row, release, wheel, motion, leftClick }
-}
-
-function parseSgr(body: string): { event: KeyEvent; used: number } | 'partial' | null {
+/** Consume a complete SGR mouse report (`\x1b[<button;col;rowM`) without emitting an event. */
+function parseSgr(body: string): { used: number } | 'partial' | null {
   // body is the CSI payload after '['
   const match = /^<(\d+);(\d+);(\d+)([Mm])/.exec(body)
-  if (match !== null) {
-    const event = parseSgrMouse('\x1b[' + match[0])
-    if (event === null) return null
-    return { event, used: 1 + match[0].length }
-  }
+  if (match !== null) return { used: 1 + match[0].length }
   if (body.length < 32 && /^<\d*(?:;\d*){0,2}$/.test(body)) return 'partial'
   return null
 }
 
-function parseCsi(seq: string): { event: KeyEvent; used: number } | 'partial' | null {
+function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 'partial' | null {
   // seq starts after ESC; first char is '['
   const body = seq.slice(1)
   if (body === '') return 'partial'
-  if (body[0] === '<') return parseSgr(body)
+  if (body[0] === '<') {
+    const parsed = parseSgr(body)
+    if (parsed === 'partial') return 'partial'
+    if (parsed === null) return null
+    return { event: undefined, used: parsed.used }
+  }
   const match = /^(?:(\d+)?(?:;(\d+))?(?:;(\d+))?)?([A-Za-z~u])/.exec(body)
   if (match === null) {
     if (/^[\d;]*$/.test(body) && body.length < 32) return 'partial'
@@ -189,7 +148,7 @@ function parseCsi(seq: string): { event: KeyEvent; used: number } | 'partial' | 
   return { event: asEvent(withMods(letter, p2 === 1 && p1 > 1 ? p1 : p2)), used }
 }
 
-function parseSs3(seq: string): { event: KeyEvent; used: number } | 'partial' | null {
+function parseSs3(seq: string): { event: KeyEvent | undefined; used: number } | 'partial' | null {
   const next = seq[1]
   if (next === undefined) return 'partial'
   const letter = CSI_LETTER[next]
@@ -216,7 +175,7 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
           i += 1
           continue
         }
-        events.push(parsed.event)
+        if (parsed.event !== undefined) events.push(parsed.event)
         i += 1 + parsed.used
         continue
       }
@@ -227,7 +186,7 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
           i += 1
           continue
         }
-        events.push(parsed.event)
+        if (parsed.event !== undefined) events.push(parsed.event)
         i += 1 + parsed.used
         continue
       }

@@ -75,7 +75,6 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
       rows: [
         { keys: 'PgUp / PgDn', action: 'Scroll one page' },
         { keys: 'Shift+Up / Shift+Down', action: 'Scroll quickly' },
-        { keys: 'Mouse wheel', action: 'Scroll the transcript' },
         { keys: 'Ctrl+O', action: 'Expand tool output or catalog descriptions' },
         { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],

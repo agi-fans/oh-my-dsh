@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flushPending, parseKeys, parseSgrMouse, withMods } from './keys.ts'
+import { flushPending, parseKeys, withMods } from './keys.ts'
 
 describe('parseKeys', () => {
   it('decodes printable text and emacs control keys', () => {
@@ -53,25 +53,16 @@ describe('parseKeys', () => {
     ])
   })
 
-  it('decodes SGR mouse wheel and holds a partial report', () => {
-    expect(parseKeys('\x1b[<64;10;5M').events).toEqual([
-      {
-        type: 'mouse',
-        button: 64,
-        col: 9,
-        row: 4,
-        release: false,
-        wheel: -1,
-        motion: false,
-        leftClick: false,
-      },
-    ])
-    expect(parseKeys('\x1b[<65;1;1M').events[0]).toMatchObject({ type: 'mouse', wheel: 1 })
-    expect(parseKeys('\x1b[<0;4;8M').events[0]).toMatchObject({ type: 'mouse', wheel: null, leftClick: true })
-    expect(parseKeys('\x1b[<0;4;8m').events[0]).toMatchObject({ type: 'mouse', release: true, leftClick: false })
+  it('swallows complete SGR mouse reports and holds partial reports', () => {
+    expect(parseKeys('\x1b[<64;10;5M').events).toEqual([])
+    expect(parseKeys('\x1b[<65;1;1M').events).toEqual([])
+    expect(parseKeys('\x1b[<0;4;8M').events).toEqual([])
+    expect(parseKeys('\x1b[<0;4;8m').events).toEqual([])
     expect(parseKeys('\x1b[<64;10')).toEqual({ events: [], rest: '\x1b[<64;10' })
-    expect(parseSgrMouse('\x1b[<64;10;5M')?.wheel).toBe(-1)
-    expect(parseSgrMouse('x')).toBe(null)
+    expect(parseKeys('before\x1b[<0;4;8Mafter').events).toEqual([
+      { type: 'text', value: 'before' },
+      { type: 'text', value: 'after' },
+    ])
   })
 
   it('holds a lone ESC as rest and flushes it as escape', () => {

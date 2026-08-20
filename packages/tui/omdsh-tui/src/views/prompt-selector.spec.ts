@@ -38,7 +38,7 @@ describe('plan review page', () => {
     expect(frame.cursorVisible).toBe(false)
   })
 
-  it('scrolls the document independently and reserves an in-frame feedback editor', () => {
+  it('scrolls the document independently and reserves an in-frame feedback field', () => {
     const scrolled = renderPlanReviewPage(
       reviewState({ documentScroll: 10_000 }),
       createTheme(false),
@@ -64,7 +64,6 @@ describe('plan review page', () => {
     expect(feedback.lines).toHaveLength(24)
     expect(text).toContain('Revision feedback · optional')
     expect(text).toContain('Cover the failure path')
-    expect(feedback.editor).toEqual({ start: 21, rows: 1 })
     expect(feedback.cursorVisible).toBe(true)
   })
 })
@@ -118,6 +117,5 @@ describe('full-screen selector density', () => {
     expect(frame.lines).toHaveLength(24)
     expect(rows.some(row => row.includes('deepseek-v4-flash — DeepSeek-V4-Flash'))).toBe(true)
     expect(rows.some(row => row.includes('deepseek-v4-pro — DeepSeek-V4-Pro'))).toBe(true)
-    expect(frame.itemRows?.filter(index => index !== undefined)).toHaveLength(2)
   })
 })

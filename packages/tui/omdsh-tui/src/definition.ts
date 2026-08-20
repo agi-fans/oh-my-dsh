@@ -212,7 +212,11 @@ export interface TuiService {
   /** Temporarily own the composer and collect one human answer. */
   prompt(request: TuiPrompt): Promise<string | null>
   /** Replace the transcript when a new or resumed session becomes active. */
-  replaceSession(events: readonly SessionEvent[], presentations?: ReadonlyMap<number, TuiToolPresentation>): void
+  replaceSession(
+    events: readonly SessionEvent[],
+    presentations?: ReadonlyMap<number, TuiToolPresentation>,
+    status?: TuiStatus,
+  ): void
   /** Update session identity, recent rows, projected controls, and aggregate figures. */
   setSession(info: {
     id: string

@@ -20,8 +20,6 @@ export interface PromptSelectorState {
 export interface PromptSelectorFrame {
   lines: string[]
   cursor: { row: number; column: number }
-  editor?: { start: number; rows: number }
-  itemRows?: readonly (number | undefined)[]
   document?: { start: number; maxStart: number; pageSize: number }
   cursorVisible?: boolean
 }
@@ -140,7 +138,6 @@ export function renderPromptSelectorPage(
     ? Math.max(1, pageHeight - fixedRows)
     : Math.max(1, Math.floor((pageHeight - fixedRows) / 4))
   const { start, end } = promptSelectorVisibleRange(options.length, selected, visibleCount)
-  const itemRows: (number | undefined)[] = Array.from({ length: pageHeight })
   const detail = state.request.detail === undefined || state.request.detail === ''
     ? ''
     : ' ' + theme.fg('muted', `(${state.request.detail})`)
@@ -171,18 +168,12 @@ export function renderPromptSelectorPage(
       const option = options[index]
       if (option === undefined) continue
       if (compact) {
-        const row = lines.length
-        itemRows[row] = index
         lines.push(pageRow(theme, optionRow(option, index, { ...state, selected }, theme, Math.max(1, width - 6)), width))
         continue
       }
       const active = index === selected
       const marker = active ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
       const label = active ? theme.bold(option.label) : option.label
-      const row = lines.length
-      itemRows[row] = index
-      itemRows[row + 1] = index
-      itemRows[row + 2] = index
       lines.push(pageRow(theme, marker + label, width))
       lines.push(pageRow(theme, '  ' + theme.fg('dim', option.preview ?? ''), width))
       const badge = optionBadge(option, theme)
@@ -203,8 +194,6 @@ export function renderPromptSelectorPage(
   return {
     lines,
     cursor: { row: searchRow, column: cursorColumn },
-    editor: { start: searchRow, rows: 1 },
-    itemRows,
   }
 }
 
@@ -247,7 +236,6 @@ export function renderPlanReviewPage(
   ]
 
   let cursor = { row: Math.max(0, lines.length - 1), column: 1 }
-  let editor: PromptSelectorFrame['editor']
   if (feedback) {
     lines.push(pageRow(theme, ' ' + theme.bold('Revision feedback') + theme.fg('dim', ' · optional'), width))
     const prefix = theme.fg('accent', '> ')
@@ -263,7 +251,6 @@ export function renderPlanReviewPage(
       row: inputRow,
       column: Math.min(Math.max(1, width - 3), 5 + visibleWidth(displayBeforeCursor)),
     }
-    editor = { start: inputRow, rows: 1 }
   } else {
     const options = state.request.options ?? []
     const actions = options.map((option, index) => {
@@ -280,7 +267,6 @@ export function renderPlanReviewPage(
   return {
     lines,
     cursor,
-    ...(editor === undefined ? {} : { editor }),
     document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1) },
     cursorVisible: feedback,
   }
@@ -345,7 +331,6 @@ export function renderPromptSelector(
   return {
     lines: [...card, '', ...editor.lines],
     cursor: { row: editorStart + editor.cursor.row, column: editor.cursor.column },
-    editor: { start: editorStart, rows: editor.lines.length },
     cursorVisible: true,
   }
 }
