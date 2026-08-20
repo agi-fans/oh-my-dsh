@@ -87,6 +87,64 @@ describe('searchAtSuggestions', () => {
     ])
   })
 
+  it('does not fall back to local path listing when file-reference returns nothing', async () => {
+    let listed = false
+    const result = await searchAtSuggestions('@missing', 8, {
+      ...opts,
+      listDir: () => {
+        listed = true
+        return listing
+      },
+      searchFileMentions: async () => [],
+      searchSessions: async () => [
+        { sessionId: 'session-a', label: 'Research notes' },
+      ],
+    })
+    expect(listed).toBe(false)
+    expect(result?.items.some(item => item.kind === 'path') ?? false).toBe(false)
+    expect(result?.items.map(item => [item.kind, item.label])).toEqual([
+      ['heading', 'Session conversations'],
+      ['session', 'Research notes'],
+    ])
+  })
+
+  it('does not fall back to local path listing when file-reference fails', async () => {
+    let listed = false
+    const result = await searchAtSuggestions('@read', 5, {
+      ...opts,
+      listDir: () => {
+        listed = true
+        return listing
+      },
+      searchFileMentions: async () => { throw new Error('index unavailable') },
+      searchSessions: async () => [
+        { sessionId: 'session-a', label: 'Research notes' },
+      ],
+    })
+    expect(listed).toBe(false)
+    expect(result?.items.some(item => item.kind === 'path') ?? false).toBe(false)
+    expect(result?.items.some(item => item.kind === 'session')).toBe(true)
+  })
+
+  it('cancels @ suggestions without a local path fallback', async () => {
+    let listed = false
+    const error = new Error('aborted')
+    error.name = 'AbortError'
+    const result = await searchAtSuggestions('@read', 5, {
+      ...opts,
+      listDir: () => {
+        listed = true
+        return listing
+      },
+      searchFileMentions: async () => { throw error },
+      searchSessions: async () => [
+        { sessionId: 'session-a', label: 'Research notes' },
+      ],
+    })
+    expect(listed).toBe(false)
+    expect(result).toBeNull()
+  })
+
   it('does not treat an email address as an @ mention token', async () => {
     let files = false
     let sessions = false

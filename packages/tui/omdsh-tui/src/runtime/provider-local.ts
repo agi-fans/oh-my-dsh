@@ -126,6 +126,7 @@ import {
   imageMarker,
   imagePathCandidates,
   probeImageDimensions,
+  stripComposerImageMarkers,
   readImageFile,
   readImageFromClipboard,
   readMacClipboardFiles,
@@ -1940,7 +1941,7 @@ export class LocalTui implements TuiService {
     const images = this.#images.map(image => ({ ...image }))
     const submittedText = images.length > 0 ? text.trim() : text
     const queueEditNewer = this.#queueEditNewer
-    const historyText = images.reduce((value, image, index) => value.replaceAll(imageMarker(index, image), ''), submittedText)
+    const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
       .trim()
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
@@ -1958,6 +1959,9 @@ export class LocalTui implements TuiService {
     this.#settings = null
     this.#copySelector = null
     this.#followTail()
+    // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
+    // submission so restore can keep the original markers; the runner strips
+    // them only to detect and execute Harness commands.
     const slash = images.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
@@ -1981,7 +1985,7 @@ export class LocalTui implements TuiService {
   #submitInspect(text: string): void {
     const images = this.#images.map(image => ({ ...image }))
     const submittedText = images.length > 0 ? text.trim() : text
-    const historyText = images.reduce((value, image, index) => value.replaceAll(imageMarker(index, image), ''), submittedText)
+    const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
       .trim()
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {

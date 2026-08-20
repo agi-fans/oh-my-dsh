@@ -9,11 +9,16 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Added
 
 - Mention other sessions from the composer `@` menu. Unquoted `@` lists project files first, then session titles; `Tab` inserts a session mention, and sending the prompt captures a read-only snapshot for the model. Quoted `@"…` tokens stay file-only. File rows come from Harness `file-reference` discovery and still insert a path without uploading contents.
-- Send composer images with `/goal` and `/plan`. Commands that do not accept attachments return an error and keep the images in the composer.
+- Send composer images with `/goal` and `/plan`. Commands that do not accept attachments return an error and keep the original image draft in the composer.
 
 ### Changed
 
 - Upgraded every direct DeepSeek Harness dependency to the coherent `0.1.0-rc.8` release.
+
+### Fixed
+
+- Route `/goal` and `/plan` after dropping TUI image placeholders that match attached drafts, leave handwritten `[Image #N]` text unchanged when nothing is attached, pass command whitespace through to Harness, and keep the original image draft when those commands fail.
+- Keep `@` file rows on Harness `file-reference` results when that service is composed, including empty matches; local path search remains only when it is not.
 
 ## [0.6.1] - 2026-08-19
 

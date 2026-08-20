@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { TuiService } from '../definition.ts'
+import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image-paste.ts'
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
 import type {} from '../commands/loop.ts'
@@ -81,13 +82,14 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
       const submission = await tui.readInput()
       if (submission === null) break
       if (submission.text.trim() === '' && submission.images.length === 0) continue
-      if (submission.text.trimStart().startsWith('/')) {
+      if (looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
         try {
           const handled = await controller.execute(submission.text, operation.signal, submission.images)
           if (!handled) {
             if (submission.images.length > 0) tui.restoreInput(submission)
-            tui.notice(`Unknown command: ${submission.text.trim().split(/\s/u, 1)[0] ?? submission.text}`, { level: 'error' })
+            const command = stripComposerImageMarkers(submission.text, submission.images).trim()
+            tui.notice(`Unknown command: ${command.split(/\s/u, 1)[0] ?? command}`, { level: 'error' })
           }
         } catch (error: unknown) {
           if (submission.images.length > 0) tui.restoreInput(submission)

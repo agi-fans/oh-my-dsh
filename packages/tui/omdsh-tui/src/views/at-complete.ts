@@ -86,6 +86,10 @@ function mergeAtItems(
   return items
 }
 
+function isAbortError(error: unknown): boolean {
+  return (error as { name?: unknown }).name === 'AbortError'
+}
+
 /** `@` suggestions: files first, then sessions, with non-selectable headings. */
 export async function searchAtSuggestions(
   text: string,
@@ -104,22 +108,24 @@ export async function searchAtSuggestions(
 ): Promise<{ items: AutocompleteItem[]; prefix: string } | null> {
   const { line, col } = editorLineAt(text, cursor)
   const at = activeAtToken(line, col)
-  const fallback = await searchPathSuggestions(text, cursor, opts, commands)
-  if (at === undefined) return fallback
+  if (at === undefined) return searchPathSuggestions(text, cursor, opts, commands)
   let files: AutocompleteItem[] = []
   if (opts.searchFileMentions !== undefined) {
     try {
       files = fileMentionItems(await opts.searchFileMentions(at.query, opts.signal), at.quoted)
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return null
       files = []
     }
+  } else {
+    files = (await searchPathSuggestions(text, cursor, opts, commands))?.items ?? []
   }
-  if (files.length === 0) files = fallback?.items ?? []
   let sessions: AutocompleteItem[] = []
   if (opts.searchSessions !== undefined && !filesOnlyAtQuery(at.query, at.quoted)) {
     try {
       sessions = sessionItems(await opts.searchSessions(at.query, opts.signal))
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return null
       sessions = []
     }
   }

@@ -819,6 +819,94 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('keeps the original image draft when a slash command is typed after a paste', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png' }),
+    })
+    const pending = tui.readInput()
+    press(term, '\x16')
+    await flushAsyncPaste()
+    press(term, '/goal implement auth\r')
+    const submitted = await pending
+    expect(submitted).toMatchObject({
+      text: '[Image #1, 1x1] /goal implement auth',
+      images: [{ mediaType: 'image/png' }],
+    })
+    tui.restoreInput(submitted as NonNullable<typeof submitted>)
+    const restored = tui.readInput()
+    press(term, '\r')
+    await expect(restored).resolves.toMatchObject({
+      text: '[Image #1, 1x1] /goal implement auth',
+      images: [{ mediaType: 'image/png' }],
+    })
+    tui.dispose()
+  })
+
+  it('keeps the original image draft when a slash command is typed before a paste', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png' }),
+    })
+    const pending = tui.readInput()
+    press(term, '/plan the migration')
+    press(term, '\x16')
+    await flushAsyncPaste()
+    press(term, '\r')
+    await expect(pending).resolves.toMatchObject({
+      text: '/plan the migration [Image #1, 1x1]',
+      images: [{ mediaType: 'image/png' }],
+    })
+    tui.dispose()
+  })
+
+  it('keeps the original image draft when a paste lands inside a slash command', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png' }),
+    })
+    const pending = tui.readInput()
+    press(term, '/goal ')
+    press(term, '\x16')
+    await flushAsyncPaste()
+    press(term, 'implement auth\r')
+    await expect(pending).resolves.toMatchObject({
+      text: '/goal [Image #1, 1x1] implement auth',
+      images: [{ mediaType: 'image/png' }],
+    })
+    tui.dispose()
+  })
+
+  it('recalls handwritten image placeholders from history when nothing is attached', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const first = tui.readline()
+    press(term, '[Image #1] /goal literal\r')
+    await first
+    void tui.readline()
+    press(term, '\x1b[A')
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('[Image #1] /goal literal')
+    tui.dispose()
+  })
+
+  it('drops attached image markers from history but keeps handwritten ones', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      readClipboardImage: async () => ({ data: PNG_1X1, mediaType: 'image/png' }),
+    })
+    const pending = tui.readInput()
+    press(term, '\x16')
+    await flushAsyncPaste()
+    press(term, 'see [Image #2] notes\r')
+    await pending
+    void tui.readInput()
+    press(term, '\x1b[A')
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('[Image #2] notes')
+    expect(screen).not.toContain('[Image #1, 1x1]')
+    tui.dispose()
+  })
+
   it('interrupts a running turn on Escape', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

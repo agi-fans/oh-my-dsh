@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from '../commands/integrations.ts'
+import type { TuiService } from '../definition.ts'
 import {
   conversationTurns,
   createSubmissionMessage,
@@ -11,10 +13,26 @@ import {
   modelStatus,
   recentSessionContent,
   restoreSubmissionMessage,
+  SessionRuntime,
   sessionControls,
   sessionStats,
   userSkillCommands,
 } from './session-controller.ts'
+
+function stubTui(): TuiService {
+  return {
+    onInspectSubagent: () => () => {},
+    onInspectClose: () => () => {},
+    onInspectSubmit: () => () => {},
+    setSessionSearch: () => {},
+    setFileSearch: () => {},
+    setInspectedSubagent: () => {},
+    setSubagents: () => {},
+    restoreInput: vi.fn(),
+    notice: vi.fn(),
+    commandOutput: vi.fn(),
+  } as unknown as TuiService
+}
 
 const PNG_1X1 = new Uint8Array(Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zk5sAAAAASUVORK5CYII=',
@@ -277,5 +295,16 @@ describe('encodeComposerImages', () => {
     expect(encodeComposerImages([{ data, mediaType: 'image/png', name: 'shot.png' }])).toEqual([
       { data: Buffer.from(data).toString('base64'), mediaType: 'image/png', name: 'shot.png' },
     ])
+  })
+})
+
+describe('SessionRuntime.execute', () => {
+  it('does not treat a handwritten image placeholder as a slash command', async () => {
+    const ctx = new Context()
+    const runtime = new SessionRuntime(ctx, stubTui())
+    await expect(runtime.execute('[Image #1] /goal literal', new AbortController().signal, []))
+      .resolves.toBe(false)
+    await runtime.dispose()
+    await ctx.fiber.dispose()
   })
 })

@@ -60,6 +60,7 @@ import {
   resolveToolPresentation,
   type SessionConfiguration,
 } from './session-configuration.ts'
+import { stripComposerImageMarkers } from '../input/image-paste.ts'
 
 interface ActiveSession {
   handle: AgentHandle
@@ -465,12 +466,14 @@ export class SessionRuntime {
       if (agent === undefined || resolver === undefined) return []
       return resolver.listCandidates(agent, query, 20, signal)
     })
-    tui.setFileSearch(async (query, signal) => {
-      const agent = this.#active?.handle.agent
-      const files = this.#ctx.get('fileReferences')
-      if (agent === undefined || files === undefined) return []
-      return files.list(agent, query, signal ?? new AbortController().signal)
-    })
+    const fileReferences = this.#ctx.get('fileReferences')
+    if (fileReferences !== undefined) {
+      tui.setFileSearch(async (query, signal) => {
+        const agent = this.#active?.handle.agent
+        if (agent === undefined) return []
+        return fileReferences.list(agent, query, signal ?? new AbortController().signal)
+      })
+    }
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
         if (this.#inspectedId === undefined) tui.setStatus(payload.status)
@@ -585,14 +588,15 @@ export class SessionRuntime {
     signal: AbortSignal,
     images: readonly TuiInputImage[] = [],
   ): Promise<boolean> {
-    const parsed = parseControl(line)
+    const commandLine = stripComposerImageMarkers(line, images)
+    const parsed = parseControl(commandLine)
     if (parsed === undefined) return false
     const commands = this.#ctx.get('commands')
     const execution = await (async () => {
       try {
         return await commands?.execute(
           this.#requiredAgent(),
-          line,
+          commandLine,
           encodeComposerImages(images),
           signal,
         )

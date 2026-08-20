@@ -126,6 +126,45 @@ export function imageMarker(index: number, image: TuiInputImage): string {
   return `[Image #${index + 1}${dimensions}]`
 }
 
+/**
+ * Drop one TUI-owned image marker and the single adjacent separator space the
+ * composer inserts around it. Other user whitespace stays intact.
+ */
+function removeComposerImageMarker(text: string, marker: string): string {
+  const start = text.indexOf(marker)
+  if (start < 0) return text
+  let from = start
+  let to = start + marker.length
+  if (text[to] === ' ') to += 1
+  else if (from > 0 && text[from - 1] === ' ') from -= 1
+  return text.slice(0, from) + text.slice(to)
+}
+
+/**
+ * Remove composer placeholders that match attached drafts.
+ *
+ * Without images the text is returned unchanged, including a handwritten
+ * `[Image #1]` that is not backed by an attachment. With images, each draft
+ * removes one matching {@link imageMarker} and its TUI-inserted neighboring
+ * space. A handwritten copy of the same token is left in place, and remaining
+ * user spacing is not collapsed or trimmed.
+ */
+export function stripComposerImageMarkers(text: string, images: readonly TuiInputImage[]): string {
+  if (images.length === 0) return text
+  let result = text
+  for (let index = 0; index < images.length; index += 1) {
+    const image = images[index]
+    if (image === undefined) continue
+    result = removeComposerImageMarker(result, imageMarker(index, image))
+  }
+  return result
+}
+
+/** True when composer text is a slash command after dropping attached image markers. */
+export function looksLikeSlashCommand(text: string, images: readonly TuiInputImage[]): boolean {
+  return stripComposerImageMarkers(text, images).trimStart().startsWith('/')
+}
+
 /** Load a supported local image without exposing its path beyond the TUI boundary. */
 export async function readImageFile(path: string, cwd = process.cwd()): Promise<TuiInputImage | null> {
   const expanded = path.startsWith('~/') ? homedir() + path.slice(1) : path
