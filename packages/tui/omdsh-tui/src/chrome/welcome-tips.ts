@@ -23,7 +23,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/workflow', text: 'Choose Default or Plan workflow' },
   { key: '/tool-mode', text: 'Choose Native, Code, or Both tools' },
   { key: '/loop', text: 'Repeat a prompt after each completed turn' },
-  { key: '/access', text: 'Choose the session access level' },
+  { key: '/permission', text: 'Choose the session access level' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
   { key: 'Esc Esc', text: 'Rewind to an earlier conversation turn' },

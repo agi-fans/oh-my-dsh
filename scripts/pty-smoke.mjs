@@ -135,14 +135,14 @@ if (!(await waitFor(() => cleanOutput(out).includes('Workflow: Plan'), 'Plan wor
   term.kill()
   process.exit(1)
 }
-term.write('/access\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access your workspace'), 'access selector'))) {
+term.write('/permission\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access your workspace'), 'permission selector'))) {
   term.kill()
   process.exit(1)
 }
 term.write('\x1b[A')
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'access switch'))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'permission switch'))) {
   term.kill()
   process.exit(1)
 }

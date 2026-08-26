@@ -18,7 +18,7 @@ Use `npx @agi-fans/oh-my-dsh` instead when you want to try the current package w
 
 ### Sign in securely
 
-Run `/login`. omdsh opens the DeepSeek API Key page, asks for the key in a masked prompt, validates it, and saves it through the Harness credential store. Never append a key to the command: `/login <key>` is deliberately rejected so the secret does not enter command history or the transcript.
+Run `/login`. For DeepSeek, omdsh opens the API Key page, asks for the key in a masked prompt, validates it, and saves it through the Harness credential store. When a mounted provider registers a Harness authorization flow, `/login` lists that flow and its methods — for example a browser sign-in — and the terminal only renders the notices and prompts the flow asks for. Never append a key to the command: `/login <key>` is deliberately rejected so the secret does not enter command history or the transcript.
 
 An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key selected through `/login` takes priority on later requests and across restarts; `/logout` removes only the omdsh-managed choice and falls back to the environment when available.
 
@@ -31,13 +31,13 @@ omdsh keeps four concepts separate instead of collapsing them into one mode:
 | Agent | `/agent` | Standard is the full coding agent; PTC defaults to programmatic tool calling; Minimal keeps persistent Bash and `str_replace_editor`; Cordis adds live runtime inspection and plugin experimentation. |
 | Workflow | `/workflow` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
 | Tools | `/tool-mode` | Native exposes functions, Code exposes `run_code` with the generated TypeScript SDK, and Both exposes both forms. |
-| Access | `/access` | Read only, Workspace write, or Full access. `/permission` remains an alias. |
+| Access | `/permission` | Read only, Workspace write, or Full access. `/permission` remains an alias. |
 
 Agent and Tools change the model-visible composition, so select them before the first prompt; they are locked once model history exists. PTC starts with Code tools, while the explicit Tools selector can change that blank-session choice independently. Workflow and Access are durable Harness session state and can change later.
 
 ### Choose safe Access
 
-Run `/access` before a task that may change files. The interactive selector offers three policies:
+Run `/permission` before a task that may change files. The interactive selector offers three policies:
 
 | Mode | Use it when |
 |---|---|

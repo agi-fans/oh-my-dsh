@@ -125,7 +125,12 @@ export function modelStatus(
   }
 }
 
-/** Fold a complete log as the capability-absence fallback for projections. */
+/**
+ * Fold a complete log as the capability-absence fallback for projections.
+ * Remaining fallbacks: elapsed time from first/last event timestamps, and the
+ * whole stats/token fold when `sessionStats`, `tokenUsage`, or context pressure
+ * is missing from the client-visible snapshot.
+ */
 export function sessionStats(
   events: readonly SessionEvent[],
   contextWindow?: number,
@@ -368,15 +373,14 @@ function compactDescription(value: string, maxLength: number = 140): string {
 }
 
 interface SubmissionAttachmentStore {
-  validateImage(input: SaveImageAttachment): Promise<void>
-  saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
+  saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]>
 }
 
 interface RestoreAttachmentStore {
   readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
 }
 
-/** Validate all drafts, persist them, then build one atomic mixed user message. */
+/** Admit one ordered image batch, then build one atomic mixed user message. */
 export async function createSubmissionMessage(
   submission: TuiSubmission,
   attachments?: SubmissionAttachmentStore,
@@ -387,11 +391,9 @@ export async function createSubmissionMessage(
     ...(image.name === undefined ? {} : { name: image.name }),
   }))
   if (inputs.length > 0 && attachments === undefined) throw new Error('Attachment storage is not configured.')
-  const refs: ImageAttachmentRef[] = []
-  if (attachments !== undefined) {
-    for (const input of inputs) await attachments.validateImage(input)
-    for (const input of inputs) refs.push(await attachments.saveImage(input))
-  }
+  const refs: ImageAttachmentRef[] = inputs.length === 0 || attachments === undefined
+    ? []
+    : [...await attachments.saveImages(inputs)]
   const content = [
     ...(submission.text === '' ? [] : [{ type: 'text' as const, text: submission.text }]),
     ...refs.map(attachment => ({ type: 'image' as const, attachment })),
@@ -1305,7 +1307,7 @@ export class SessionRuntime {
     }
   }
 
-  /** Read one consistent projection cut, with the complete-log fold as fallback. */
+  /** Read one client-visible snapshot. Host-only projection state is never consulted. */
   #projection(active: ActiveSession): TuiStatsProjection | undefined {
     return this.#ctx.get('sessionProjections')?.snapshot(active.handle.agent.session).values
   }

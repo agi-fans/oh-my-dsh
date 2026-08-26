@@ -16,7 +16,7 @@ The TUI does not keep a second command, tool, or model registry. After a plugin 
 |---|---|---|
 | Slash command | `dsh-commands` metadata and handler | Appears in `/help`, autocomplete, and the runner |
 | Tool | `ToolDefinition`, including `presentCall` / `presentResult` | Renders a card, or the generic fallback |
-| Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key or a custom profile |
+| Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key, run a registered authorization flow, or add a custom profile |
 | Credentials and settings | `ctx.credentials` and `ctx.settings` | Shared with `$DSH_HOME` documents the rest of the tree already reads |
 | Human prompt | `ctx.tui.prompt`, approval, and questions | Terminal selectors own the answer |
 | Skill | Harness skill registry | Appears under `/skill:` |
@@ -30,7 +30,7 @@ A plugin that only needs those seams does not require a TUI presentation adapter
 
 A package listed in `dsh.profile.bundles` must declare `dsh.bundle.patch` and resolve from the omdsh installation or the Profile `node_modules`. Writing a provider profile in `settings.yaml` still cannot activate an adapter that the composition never mounted.
 
-`/login` already covers catalog providers and a hand-declared custom route through the shipped, dormant `@deepseek-ai/dsh-llm-pi-ai` adapter. OAuth, refresh-token ownership, and any provider whose adapter is not in the shipped tree still need a user-mounted plugin.
+`/login` already covers catalog providers and a hand-declared custom route through the shipped, dormant `@deepseek-ai/dsh-llm-pi-ai` adapter. When that adapter or another mounted plugin registers a Harness authorization flow, `/login` lists the flow and methods and the TUI renders only the generic notices and prompts. A provider whose adapter is not in the shipped tree still needs a user-mounted plugin.
 
 ## Composition
 
@@ -79,7 +79,7 @@ Pi's ecosystem is rich because one extension can register tools, commands, provi
 | `setWidget` above or below the editor | Persistent light panels | Later. Needs a reserved layout slot the composer does not yet expose |
 | `ctx.ui.custom` / overlay | Modal or full-screen plugin UI | Later. Pure view/action descriptions through `ctx.tui.prompt` only |
 | Theme JSON + `setTheme` | Lowest-cost visual packs | Later token overlay. Built-in palettes stay product-owned; no Pi/oh-my-pi branding |
-| `registerProvider` + OAuth forms | Extra model routes and login | User-mounted LLM / auth bundles on `ctx.llm` and `ctx.tui.prompt` |
+| `registerProvider` + OAuth forms | Extra model routes and login | User-mounted LLM bundles on `ctx.llm` plus `ctx.authorization` flows; the TUI supplies `AuthorizationInteraction` |
 | `setEditorComponent` / `addAutocompleteProvider` | Vim mode, custom completions | Closed. Composer ownership stays in the local Provider |
 | `onTerminalInput` / full-screen TTY takeover | Games and raw terminal listeners | Never. The local Provider is the only TTY owner |
 | `~/.pi/agent/extensions/*.ts` and the `pi` package manifest | Auto-loaded source and a second installer | Never. Install is `omdsh plugin add` of a `dsh.bundle` package |

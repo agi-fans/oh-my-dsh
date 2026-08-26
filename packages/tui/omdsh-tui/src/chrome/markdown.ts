@@ -5,14 +5,12 @@
  */
 
 import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtension } from 'marked'
-import { BOX, SYMBOL, type Theme, type ThemeColor } from './theme.ts'
+import { BOX, SYMBOL, type Theme } from './theme.ts'
+import { highlightCodeLines } from './code-highlight.ts'
+import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
 import { padToWidth, visibleWidth, wrapText } from './width.ts'
 
-/** Optional surrounding style restored after inline code and emphasis. */
-export interface MarkdownStyle {
-  color?: ThemeColor
-  italic?: boolean
-}
+export type { MarkdownStyle } from './md-style.ts'
 
 const MATH_SYMBOLS: Readonly<Record<string, string>> = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', theta: 'θ', lambda: 'λ', mu: 'μ',
@@ -132,46 +130,6 @@ function prepare(source: string): string {
   return normalizeHtml(source).replaceAll('\r\n', '\n').replaceAll('\r', '\n')
 }
 
-function openBase(theme: Theme, style: MarkdownStyle | undefined): string {
-  if (!theme.colors || style === undefined) return ''
-  return (style.italic === true ? '\x1b[3m' : '')
-    + (style.color === undefined ? '' : theme.getFgAnsi(style.color))
-}
-
-/** Keep thinking traces on one dark ink so headings, code, and links do not light up. */
-function ink(style: MarkdownStyle | undefined, color: ThemeColor): ThemeColor {
-  return style?.color === 'thinkingText' ? 'thinkingText' : color
-}
-
-/** Paint one unstyled run so a later 39m cannot leak default ink. */
-function paintBase(theme: Theme, text: string, style?: MarkdownStyle): string {
-  if (text === '' || style === undefined || !theme.colors) return text
-  let out = text
-  if (style.color !== undefined) out = theme.fg(style.color, out)
-  if (style.italic === true) out = theme.italic(out)
-  return out
-}
-
-function paintFg(theme: Theme, color: ThemeColor, text: string, style?: MarkdownStyle): string {
-  if (!theme.colors) return text
-  return theme.getFgAnsi(color) + text + '\x1b[39m' + openBase(theme, style)
-}
-
-function paintBold(theme: Theme, text: string, style?: MarkdownStyle): string {
-  if (!theme.colors) return text
-  return `\x1b[1m${text}\x1b[22m` + openBase(theme, style)
-}
-
-function paintItalic(theme: Theme, text: string, style?: MarkdownStyle): string {
-  if (!theme.colors) return text
-  return `\x1b[3m${text}\x1b[23m` + openBase(theme, style)
-}
-
-function paintStrike(theme: Theme, text: string, style?: MarkdownStyle): string {
-  if (!theme.colors) return text
-  return `\x1b[9m${text}\x1b[29m` + openBase(theme, style)
-}
-
 function isProseCodespan(text: string): boolean {
   const words = text.trim().split(/\s+/u).filter(Boolean)
   return words.length >= 4 || (words.length >= 2 && /[,;]/.test(text))
@@ -184,21 +142,6 @@ function renderMath(value: string, theme: Theme, style?: MarkdownStyle): string 
       [...body].map(char => SUPERSCRIPT[char] ?? char).join(''))
     .replace(/_\{([^}]+)\}/gu, '₍$1₎')
   return paintFg(theme, ink(style, 'mdCode'), normalized, style)
-}
-
-function highlightCode(row: string, language: string, theme: Theme, style?: MarkdownStyle): string {
-  if (!theme.colors || language === '') return paintFg(theme, ink(style, 'mdCodeBlock'), row, style)
-  const supported = /^(?:js|jsx|ts|tsx|javascript|typescript|json|python|py|bash|sh|shell|rust|go|java|css|html)$/u.test(language)
-  if (!supported) return paintFg(theme, ink(style, 'mdCodeBlock'), row, style)
-  return row.split(/(\s+|\b)/u).map(token => {
-    if (/^(?:const|let|var|function|class|interface|type|return|if|else|for|while|async|await|import|export|from|def|fn|struct|package|func|true|false|null|undefined)$/u.test(token)) {
-      return paintFg(theme, ink(style, 'mdKeyword'), token, style)
-    }
-    if (/^(?:\d+(?:\.\d+)?|"[^"]*"|'[^']*')$/u.test(token)) {
-      return paintFg(theme, ink(style, 'mdCodeBlock'), token, style)
-    }
-    return paintBase(theme, token, style)
-  }).join('')
 }
 
 function mermaidEndpoint(raw: string): string {
@@ -434,8 +377,9 @@ function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: Mar
   if (lang.toLowerCase() === 'mermaid') {
     lines.push(...renderMermaid(rows, theme, width, style))
   } else {
-    for (const row of rows) {
-      const body = row === '' ? '' : highlightCode(row, lang.toLowerCase(), theme, style)
+    const highlighted = highlightCodeLines(rows, lang, theme, style)
+    for (let i = 0; i < rows.length; i += 1) {
+      const body = highlighted[i] ?? ''
       lines.push(...wrapStyled(body === '' ? '  ' : '  ' + body, width))
     }
   }

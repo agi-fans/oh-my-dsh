@@ -5,8 +5,9 @@
  */
 
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
+import { highlightCodeLines, languageFromPath } from './code-highlight.ts'
 import type { Theme } from './theme.ts'
-import { expandTabs, wrapText } from './width.ts'
+import { expandTabs, wrapTextStable } from './width.ts'
 
 /** One painted role inside an aligned diff. */
 export type DiffKind = 'path' | 'gap' | 'ctx' | 'del' | 'add'
@@ -21,6 +22,8 @@ export interface DiffToken {
 export interface DiffRow {
   readonly kind: DiffKind
   readonly tokens: readonly DiffToken[]
+  /** Resolved language id carried on `ctx` rows for syntax highlighting. */
+  readonly language?: string
 }
 
 export interface DiffStats {
@@ -34,8 +37,17 @@ const ALIGN_LINE_LIMIT = 200
 /** Inverse-off after each wrapped visual row so frame padding cannot inherit it. */
 const INVERSE_OFF = '\x1b[27m'
 
+/** Foreground-off after each wrapped visual row so syntax colors cannot leak into borders. */
+const FG_RESET = '\x1b[39m'
+
 function plainRow(kind: DiffKind, text: string): DiffRow {
   return { kind, tokens: [{ text }] }
+}
+
+/** A context row carrying the file's resolved language for syntax highlighting. */
+function ctxRow(text: string, language: string | undefined): DiffRow {
+  if (language === undefined) return { kind: 'ctx', tokens: [{ text }] }
+  return { kind: 'ctx', tokens: [{ text }], language }
 }
 
 /** Split a side's text into content lines. A trailing newline is a terminator. */
@@ -160,7 +172,7 @@ function applyIntraLine(rows: readonly DiffRow[]): DiffRow[] {
   return out
 }
 
-function alignHunk(oldText: string | null, newText: string): DiffRow[] {
+function alignHunk(oldText: string | null, newText: string, language: string | undefined): DiffRow[] {
   if (oldText === null) return contentLines(newText).map(line => plainRow('add', line))
   const oldLines = contentLines(oldText)
   const newLines = contentLines(newText)
@@ -170,7 +182,9 @@ function alignHunk(oldText: string | null, newText: string): DiffRow[] {
       ...newLines.map(line => plainRow('add', line)),
     ]
   }
-  const aligned = alignSequences(oldLines, newLines).map(part => plainRow(part.kind, part.text))
+  const aligned = alignSequences(oldLines, newLines).map(part =>
+    part.kind === 'ctx' ? ctxRow(part.text, language) : plainRow(part.kind, part.text),
+  )
   return applyIntraLine(aligned)
 }
 
@@ -182,7 +196,8 @@ export function alignFileDiffs(diffs: readonly FileDiff[]): DiffRow[] {
     if (diff.path !== previousPath) rows.push(plainRow('path', diff.path))
     else rows.push(plainRow('gap', '⋯'))
     previousPath = diff.path
-    rows.push(...alignHunk(diff.oldText, diff.newText))
+    const language = languageFromPath(diff.path)
+    rows.push(...alignHunk(diff.oldText, diff.newText, language))
   }
   return rows
 }
@@ -270,6 +285,52 @@ export function paintDiffRow(row: DiffRow, theme: Theme): string {
   }
 }
 
+/**
+ * Highlight consecutive context rows that share a resolved language as one
+ * block, returning a map from row index to its syntax-painted body. Rows
+ * without a language (path, gap, add, delete, or unknown-file context) are
+ * absent and fall back to {@link paintDiffRow}. The context style keeps the
+ * unchanged-line ink dim while keywords and literals light up, so added and
+ * deleted rows keep unambiguous green and red semantics.
+ */
+function highlightContextBodies(rows: readonly DiffRow[], theme: Theme): Map<number, string> {
+  const map = new Map<number, string>()
+  if (!theme.colors) return map
+  let runStart = -1
+  let runLang = ''
+  const flush = (end: number): void => {
+    if (runStart === -1) return
+    const texts: string[] = []
+    for (let i = runStart; i < end; i += 1) texts.push(rowText(rows[i]!))
+    const highlighted = highlightCodeLines(texts, runLang, theme, { color: 'toolDiffContext' })
+    for (let i = 0; i < highlighted.length; i += 1) map.set(runStart + i, highlighted[i] ?? '')
+    runStart = -1
+    runLang = ''
+  }
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]!
+    if (row.kind === 'ctx' && row.language !== undefined) {
+      if (runStart === -1) {
+        runStart = i
+        runLang = row.language
+      } else if (row.language !== runLang) {
+        flush(i)
+        runStart = i
+        runLang = row.language
+      }
+    } else {
+      flush(i)
+    }
+  }
+  flush(rows.length)
+  return map
+}
+
+/** Paint a syntax-highlighted context row: dim gutter, highlighted body. */
+function paintContextRow(highlightedBody: string, theme: Theme): string {
+  return theme.fg('toolDiffContext', '  ') + highlightedBody
+}
+
 export function paintDiffStats(added: number, removed: number, theme: Theme): string {
   const label = formatDiffStats(added, removed)
   if (label === undefined) return ''
@@ -279,14 +340,18 @@ export function paintDiffStats(added: number, removed: number, theme: Theme): st
   return parts.join(theme.fg('dim', '/'))
 }
 
-/** Paint, expand tabs, wrap to the framed-body width, and close inverse per row. */
+/** Paint, expand tabs, wrap to the framed-body width, and close inverse and foreground per row. */
 export function wrapPaintedDiffRows(rows: readonly DiffRow[], theme: Theme, width: number): string[] {
   const inner = Math.max(1, width - 4)
   const lines: string[] = []
-  for (const row of rows) {
-    const painted = expandTabs(paintDiffRow(row, theme), 8, 2)
-    for (const segment of wrapText(painted, inner)) {
-      lines.push(theme.colors ? segment + INVERSE_OFF : segment)
+  const ctxBodies = highlightContextBodies(rows, theme)
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]!
+    const ctxBody = ctxBodies.get(i)
+    const painted = ctxBody === undefined ? paintDiffRow(row, theme) : paintContextRow(ctxBody, theme)
+    const expanded = expandTabs(painted, 8, 2)
+    for (const segment of wrapTextStable(expanded, inner)) {
+      lines.push(theme.colors ? segment + INVERSE_OFF + FG_RESET : segment)
     }
   }
   return lines

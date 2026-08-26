@@ -16,7 +16,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 |---|---|---|
 | 斜杠命令 | `dsh-commands` 的元数据与处理器 | 出现在 `/help`、自动补全和 Runner 中 |
 | 工具 | `ToolDefinition`，包括 `presentCall` / `presentResult` | 渲染为卡片，否则使用通用回退 |
-| 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥或自定义 profile |
+| 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥、运行已注册的授权流程，或添加自定义 profile |
 | 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 与树中其余部分已经读取的 `$DSH_HOME` 文档共用 |
 | 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
 | Skill | Harness Skill Registry | 出现在 `/skill:` 下 |
@@ -30,7 +30,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 
 列入 `dsh.profile.bundles` 的软件包必须声明 `dsh.bundle.patch`，并能从 omdsh 安装位置或 Profile 的 `node_modules` 解析。只在 `settings.yaml` 里写入提供方 profile，仍然无法激活 composition 从未挂载的 adapter。
 
-`/login` 已经能通过随包、默认休眠的 `@deepseek-ai/dsh-llm-pi-ai` adapter 接入目录提供方和手写自定义路由。OAuth、refresh token 的所有权，以及 adapter 不在随包树中的提供方，仍然需要用户挂载插件。
+`/login` 已经能通过随包、默认休眠的 `@deepseek-ai/dsh-llm-pi-ai` adapter 接入目录提供方和手写自定义路由。当该 adapter 或其他已挂载插件注册了 Harness 授权流程时，`/login` 会列出流程和方法，TUI 只渲染通用通知和提问。adapter 不在随包树中的提供方，仍然需要用户挂载插件。
 
 ## 组合
 
@@ -79,7 +79,7 @@ Pi 的生态之所以丰富，是因为一个 extension 就能从同一个 TypeS
 | 编辑器上下的 `setWidget` | 常驻轻量面板 | 后置。需要 Composer 尚未露出的预留布局槽 |
 | `ctx.ui.custom` / overlay | 模态或全屏插件 UI | 后置。只通过 `ctx.tui.prompt` 注册纯 view/action 描述 |
 | 主题 JSON + `setTheme` | 门槛最低的视觉包 | 后置的 token 覆盖。内置调色板仍由产品拥有；不采用 Pi/oh-my-pi 品牌 |
-| `registerProvider` + OAuth 表单 | 额外的模型路由与登录 | 用户挂载的 LLM / Auth bundle，走 `ctx.llm` 和 `ctx.tui.prompt` |
+| `registerProvider` + OAuth 表单 | 额外的模型路由与登录 | 用户挂载的 LLM bundle，走 `ctx.llm` 和 `ctx.authorization` 流程；TUI 提供 `AuthorizationInteraction` |
 | `setEditorComponent` / `addAutocompleteProvider` | vim 模式、自定义补全 | 关闭。Composer 所有权留在本地 Provider |
 | `onTerminalInput` / 全屏抢 TTY | 游戏和原始终端监听 | 永不采用。TTY 只有本地 Provider 一个所有者 |
 | `~/.pi/agent/extensions/*.ts` 和 `pi` 包清单 | 自动加载源文件和第二套安装器 | 永不采用。安装方式是 `omdsh plugin add` 一个 `dsh.bundle` 包 |

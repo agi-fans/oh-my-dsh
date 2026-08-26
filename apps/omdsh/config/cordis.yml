@@ -76,6 +76,12 @@
     config:
       dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
 
+  - id: authorization
+    name: '@deepseek-ai/dsh-authorization'
+
+  - id: authorization-invariant
+    name: '@deepseek-ai/dsh-authorization/invariant'
+
   # Dormant multi-provider twin: zero extra picker routes until a `llm-pi-ai:`
   # settings section supplies profiles. /login writes those profiles; /model
   # lists whatever routes become live. Keep llm-deepseek as the official

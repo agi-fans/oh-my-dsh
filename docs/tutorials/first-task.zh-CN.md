@@ -18,7 +18,7 @@ omdsh
 
 ### 安全登录
 
-运行 `/login`。omdsh 会打开 DeepSeek API Key 页面，通过遮罩输入框接收 Key，验证后将其保存到 Harness 凭据存储中。不要把 Key 追加到命令后：程序会主动拒绝 `/login <key>`，避免密钥进入命令历史或 Transcript。
+运行 `/login`。对于 DeepSeek，omdsh 会打开 API Key 页面，通过遮罩输入框接收 Key，验证后将其保存到 Harness 凭据存储中。若已挂载的提供方注册了 Harness 授权流程，`/login` 会列出该流程及其方法（例如浏览器登录），终端只渲染流程要求的通知和提问。不要把 Key 追加到命令后：程序会主动拒绝 `/login <key>`，避免密钥进入命令历史或 Transcript。
 
 外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 主动选择的 Key 会在后续请求及重启后保持更高优先级；`/logout` 只会删除由 omdsh 管理的选择，并在环境变量可用时回退到环境变量。
 
@@ -31,13 +31,13 @@ omdsh 将四个概念分别建模，而不是折叠成一个 Mode：
 | Agent | `/agent` | Standard 是完整 Coding Agent；PTC 默认使用程序化工具调用；Minimal 只保留持久 Bash 与 `str_replace_editor`；Cordis 增加运行时检查与插件实验能力。 |
 | Workflow | `/workflow` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
 | Tools | `/tool-mode` | Native 暴露函数；Code 通过 `run_code` 暴露生成的 TypeScript SDK；Both 同时暴露两种形式。 |
-| Access | `/access` | Read only、Workspace write 或 Full access；`/permission` 继续作为别名。 |
+| Access | `/permission` | Read only、Workspace write 或 Full access；`/permission` 继续作为别名。 |
 
 Agent 与 Tools 会改变模型可见的组合，因此要在第一条 Prompt 前选择；产生模型历史后，它们会被锁定。PTC 默认选择 Code Tools，但仍可在空白会话中通过独立 Tools 选择器覆盖。Workflow 与 Access 是持久化的 Harness 会话状态，之后仍可切换。
 
 ### 选择安全的 Access
 
-在可能修改文件的任务前运行 `/access`。交互式选择器提供三种策略：
+在可能修改文件的任务前运行 `/permission`。交互式选择器提供三种策略：
 
 | 模式 | 适用场景 |
 |---|---|

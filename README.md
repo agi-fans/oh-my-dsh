@@ -79,7 +79,7 @@ See the reproducible [TUI performance report](docs/performance.md) or run `pnpm 
 
 ## Configuration
 
-Run `/login` to configure a provider API key. DeepSeek still opens the official key dashboard, validates the key, and prefers the stored credential over an inherited `DEEPSEEK_API_KEY`. The same command can also activate a catalog provider such as OpenAI or Anthropic, or add a custom provider with its own id, base URL, protocol, and model ids. `/model` then lists every live route. `/logout` removes an omdsh-managed choice and, for DeepSeek, falls back to the environment when available.
+Run `/login` to configure a provider. DeepSeek still opens the official key dashboard, validates the key, and prefers the stored credential over an inherited `DEEPSEEK_API_KEY`. When a mounted provider registers a Harness authorization flow, `/login` lists that flow and its methods and the terminal only renders the notices and prompts the flow asks for. The same command can also activate a catalog API-key provider or add a custom provider with its own id, base URL, protocol, and model ids. `/model` then lists every live route. `/logout` removes an omdsh-managed choice and, for DeepSeek, falls back to the environment when available.
 
 Model settings can also come from `$DSH_HOME/settings.yaml`. Skills and MCP configuration are documented in [Skills and MCP](docs/skills-and-mcp.md).
 

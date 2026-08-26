@@ -222,6 +222,89 @@ export function wrapText(text: string, width: number): string[] {
   return out.length > 0 ? out : ['']
 }
 
+/** Tracked SGR attributes carried across wrapped visual rows. */
+interface SgrState {
+  /** Last opened foreground escape (e.g. `\x1b[31m`, `\x1b[38;2;...m`) or '' when reset to default. */
+  fg: string
+  inverse: boolean
+  bold: boolean
+  italic: boolean
+}
+
+const SGR_PARAM_RE = /\x1b\[([0-9;]*)m/g
+
+/** Apply one SGR escape to `state`, returning the new state. */
+function applySgr(state: SgrState, params: string): SgrState {
+  if (params === '') return { fg: '', inverse: false, bold: false, italic: false }
+  const codes = params.split(';').map(Number)
+  for (let i = 0; i < codes.length; i += 1) {
+    const code = codes[i] ?? 0
+    if (code === 0) return { fg: '', inverse: false, bold: false, italic: false }
+    if (code === 39) return { ...state, fg: '' }
+    if (code === 7) state = { ...state, inverse: true }
+    else if (code === 27) state = { ...state, inverse: false }
+    else if (code === 1) state = { ...state, bold: true }
+    else if (code === 22) state = { ...state, bold: false }
+    else if (code === 3) state = { ...state, italic: true }
+    else if (code === 23) state = { ...state, italic: false }
+    else if (code === 38) {
+      // 38;...m foreground sequence (256-color or truecolor): consume the rest.
+      state = { ...state, fg: `\x1b[${params}m` }
+      break
+    } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+      state = { ...state, fg: `\x1b[${code}m` }
+    }
+  }
+  return state
+}
+
+/** Build the reopen sequence that restores `state` at a continuation start. */
+function reopenSgr(state: SgrState): string {
+  let out = state.fg
+  if (state.bold) out += '\x1b[1m'
+  if (state.italic) out += '\x1b[3m'
+  if (state.inverse) out += '\x1b[7m'
+  return out
+}
+
+/**
+ * Reopen active SGR (foreground, inverse, bold, italic) at the start of each
+ * continuation row. `wrapText` keeps ANSI attached to the following glyph but
+ * does not synthesize a reopening sequence when a row closes an attribute and
+ * the next row begins with plain text — so narrow wrapped styled rows lose
+ * their semantic color or inverse at line breaks. This restabilizes each row
+ * by tracking the SGR state accumulated from all preceding rows and prepending
+ * the reopen sequence. No-op for unstyled or single-row output.
+ */
+export function restabilizeWrapSegments(segments: readonly string[]): string[] {
+  if (segments.length <= 1) return [...segments]
+  const out: string[] = [segments[0] ?? '']
+  let state: SgrState = { fg: '', inverse: false, bold: false, italic: false }
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i] ?? ''
+    // Reopen the state accumulated from *prior* rows before this row's own
+    // escapes run, so the continuation inherits the active style rather than
+    // re-applying escapes that already occur in this row.
+    if (i > 0) {
+      const reopen = reopenSgr(state)
+      out.push(reopen === '' ? seg : reopen + seg)
+    }
+    SGR_PARAM_RE.lastIndex = 0
+    for (const match of seg.matchAll(SGR_PARAM_RE)) {
+      state = applySgr(state, match[1] ?? '')
+    }
+  }
+  return out
+}
+
+/**
+ * Word-wrap styled `text` to `width` and restabilize SGR at every continuation
+ * row so foreground, inverse, bold, and italic attributes survive line breaks.
+ */
+export function wrapTextStable(text: string, width: number): string[] {
+  return restabilizeWrapSegments(wrapText(text, width))
+}
+
 /** One wrapped row with its source-index span in the original (unstyled) string. */
 export interface IndexedLine {
   text: string

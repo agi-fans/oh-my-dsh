@@ -131,4 +131,61 @@ describe('SubagentRoster', () => {
       phase: 'running',
     })
   })
+
+  it('marks startup failure and interrupted completion as error instead of running', () => {
+    const failed = applySubagentEvent(view({ phase: 'starting' }), ev('turn/end', {
+      turn: 1, reason: { kind: 'error', error: { code: 'START', message: 'spawn failed' } },
+    }))
+    expect(failed.phase).toBe('error')
+    const interrupted = applySubagentEvent(view({ phase: 'running', mode: 'continuable' }), ev('turn/end', {
+      turn: 1, reason: { kind: 'aborted' },
+    }))
+    expect(interrupted.phase).toBe('error')
+  })
+
+  it('completes one-shot children and returns continuable children to waiting', () => {
+    const oneShot = applySubagentEvent(view({ phase: 'running', mode: 'one-shot' }), ev('turn/end', {
+      turn: 1, reason: { kind: 'completed' },
+    }))
+    expect(oneShot.phase).toBe('completed')
+    const continued = applySubagentEvent(view({ phase: 'running', mode: 'continuable' }), ev('turn/end', {
+      turn: 1, reason: { kind: 'completed' },
+    }))
+    expect(continued.phase).toBe('waiting')
+  })
+
+  it('hydrates a resumed completed child without leaving it running', () => {
+    const roster = new SubagentRoster()
+    roster.reset('root')
+    const session = {
+      id: SessionId('child-done'),
+      header: {
+        id: SessionId('child-done'),
+        parentSession: SessionId('root'),
+        origin: 'subagent' as const,
+        seedLength: 0,
+      },
+      events: [
+        ev('subagent/descriptor', { version: 2, mode: 'one-shot', provider: 'spawn', label: 'Done task' }, 1),
+        ev('turn/start', { turn: 1 }, 2),
+        ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3),
+      ],
+    } as unknown as Session
+    expect(roster.hydrate(session, 1, 'idle')).toMatchObject({
+      label: 'Done task',
+      mode: 'one-shot',
+      phase: 'completed',
+    })
+    expect(roster.hasRunning()).toBe(false)
+  })
+
+  it('clears a stale running row when the child is gone', () => {
+    const roster = new SubagentRoster()
+    roster.reset('root')
+    roster.remember({ id: 'child-1', depth: 1, mode: 'one-shot', phase: 'running' })
+    expect(roster.setAgentStatus('child-1', 'gone')?.phase).toBe('completed')
+    expect(roster.hasRunning()).toBe(false)
+    roster.remember({ id: 'child-2', depth: 1, mode: 'one-shot', phase: 'running' })
+    expect(roster.setAgentStatus('child-2', 'gone', true)?.phase).toBe('error')
+  })
 })

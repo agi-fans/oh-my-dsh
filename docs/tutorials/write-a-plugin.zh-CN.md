@@ -37,7 +37,7 @@ cd greet-plugin
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-commands": "^0.1.0-rc.8"
+    "@deepseek-ai/dsh-commands": "^0.1.1-rc.2"
   }
 }
 ```

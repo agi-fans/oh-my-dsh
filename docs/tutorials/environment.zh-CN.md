@@ -8,7 +8,7 @@
 
 运行 `/model` 打开模型选择器。当有多家提供方处于活动状态时，omdsh 会先询问使用哪一家，再让你选择可用模型；模型支持时还可以继续选择 Reasoning Effort。当前选择会显示在第一行 Status Line 中，并写入持久化会话状态。
 
-若要添加另一家 catalog 提供方，运行 `/login`，选择提供方并粘贴 API Key。该路由会在下一次模型请求时生效。选择 `custom` 可以添加 catalog 里没有的网关或本地服务：填写永久 id、Base URL、API 协议、可选 Key，以及一个或多个模型 id。`/logout` 可以停用这条路由，而不会改动环境变量中的凭据。
+若要添加另一家 catalog 提供方，运行 `/login` 并从列表中选择。已注册 Harness 授权流程的提供方会给出该流程的方法，而不是通用的 API Key 提问；否则粘贴其 API Key。该路由会在下一次模型请求时生效。选择 `custom` 可以添加 catalog 里没有的网关或本地服务：填写永久 id、Base URL、API 协议、可选 Key，以及一个或多个模型 id。`/logout` 可以停用这条路由，而不会改动环境变量中的凭据。
 
 ### 定制界面
 

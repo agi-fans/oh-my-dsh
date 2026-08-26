@@ -3,12 +3,28 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import type { Context } from '@deepseek-ai/cordis'
+import {
+  AuthorizationError,
+  type AuthorizationEntry,
+} from '@deepseek-ai/dsh-authorization'
+import type {} from '@deepseek-ai/dsh-authorization'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { credentialRef, type CredentialInfo, type CredentialRef } from '@deepseek-ai/dsh-credentials'
+import {
+  credentialKey,
+  credentialKeyId,
+  credentialKeyScope,
+  credentialRef,
+  isCredentialKeySegment,
+  parseCredentialKey,
+  type CredentialInfo,
+  type CredentialKey,
+  type CredentialRef,
+} from '@deepseek-ai/dsh-credentials'
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '../definition.ts'
+import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-auth'
@@ -27,6 +43,8 @@ export const PI_AI_SETTINGS = settingsNamespace('llm-pi-ai')
 export const DEEPSEEK_API_KEYS_URL = 'https://platform.deepseek.com/api_keys'
 export const DEEPSEEK_MODELS_URL = 'https://api.deepseek.com/v1/models'
 export const CUSTOM_PROVIDER_VALUE = '__omdsh_custom__'
+export const FLOW_VALUE_PREFIX = '__omdsh_flow__:'
+const PI_AI_RECORD_SCOPE = 'llm-pi-ai'
 
 const FULLSCREEN_CHOICE_THRESHOLD = 8
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
@@ -142,9 +160,9 @@ function isPiAiLoginable(entry: LlmConfigurableProvider): boolean {
   return entry.settingsNs === 'llm-pi-ai' && entry.provider !== 'deepseek'
 }
 
-/** Picker labels are route ids; the official adapter is shown as `deepseek`. */
+/** Picker labels are route ids; the official adapter keeps the DeepSeek product name. */
 export function providerListId(entry: LlmConfigurableProvider): string {
-  return isDeepSeek(entry) ? 'deepseek' : entry.provider
+  return isDeepSeek(entry) ? 'DeepSeek' : entry.provider
 }
 
 function fallbackDeepSeekEntry(): LlmConfigurableProvider {
@@ -160,6 +178,72 @@ function loginableProviders(ctx: Context): LlmConfigurableProvider[] {
   const listed = ctx.llm.listConfigurableProviders()
   const loginable = listed.filter(entry => isDeepSeek(entry) || isPiAiLoginable(entry))
   return loginable.length > 0 ? loginable : [fallbackDeepSeekEntry()]
+}
+
+function authorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
+  return ctx.get('authorization')?.list() ?? []
+}
+
+function isPiAiDeepSeekFlow(flow: AuthorizationEntry): boolean {
+  return credentialKeyScope(flow.key) === PI_AI_RECORD_SCOPE && credentialKeyId(flow.key) === 'deepseek'
+}
+
+function loginAuthorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
+  return authorizationFlows(ctx).flatMap(flow => {
+    if (!isPiAiDeepSeekFlow(flow)) return [flow]
+
+    const profile = walkPath(ctx.settings.get(PI_AI_SETTINGS), ['providers', 'deepseek'])
+    if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return []
+    return [{ ...flow, label: 'DeepSeek (pi-ai compatibility)' }]
+  })
+}
+
+function catalogAuthorizationFlow(ctx: Context, provider: string): AuthorizationEntry | undefined {
+  const authorization = ctx.get('authorization')
+  if (authorization === undefined || !isCredentialKeySegment(provider)) return undefined
+  return authorization.describe(credentialKey(PI_AI_RECORD_SCOPE, provider))
+}
+
+function catalogProvidersWithoutFlows(ctx: Context): LlmConfigurableProvider[] {
+  return loginableProviders(ctx).filter(entry => isDeepSeek(entry) || catalogAuthorizationFlow(ctx, entry.provider) === undefined)
+}
+
+function flowChoiceValue(key: CredentialKey): string {
+  return FLOW_VALUE_PREFIX + key
+}
+
+function parseFlowChoice(raw: string): CredentialKey | undefined {
+  if (!raw.startsWith(FLOW_VALUE_PREFIX)) return undefined
+  try {
+    return parseCredentialKey(raw.slice(FLOW_VALUE_PREFIX.length))
+  } catch {
+    return undefined
+  }
+}
+
+type LoginChoice =
+  | LlmConfigurableProvider
+  | typeof CUSTOM_PROVIDER_VALUE
+  | AuthorizationEntry
+
+interface FlowRecordLogout {
+  key: CredentialKey
+  label: string
+  writable: boolean
+}
+
+type LogoutChoice = LlmConfigurableProvider | FlowRecordLogout
+
+function loginChoiceValues(
+  entries: readonly LlmConfigurableProvider[],
+  flows: readonly AuthorizationEntry[],
+  includeCustom: boolean,
+): string[] {
+  return [
+    ...entries.map(entry => entry.provider),
+    ...flows.map(flow => flowChoiceValue(flow.key)),
+    ...(includeCustom ? [CUSTOM_PROVIDER_VALUE] : []),
+  ]
 }
 
 function sectionValue(ctx: Context, namespace: string): unknown {
@@ -197,47 +281,138 @@ function logoutableProviders(ctx: Context): LlmConfigurableProvider[] {
   return loginableProviders(ctx).filter(entry => isDeepSeek(entry) || hasStoredProfile(ctx, entry))
 }
 
+function catalogForRecord(ctx: Context, key: CredentialKey): LlmConfigurableProvider | undefined {
+  const id = credentialKeyId(key)
+  const scope = credentialKeyScope(key)
+  return loginableProviders(ctx).find(entry => entry.provider === id && entry.settingsNs === scope)
+}
+
+function isFlowRecordLogout(choice: LogoutChoice): choice is FlowRecordLogout {
+  return 'key' in choice && 'writable' in choice && !('provider' in choice)
+}
+
+async function configuredFlowRecords(ctx: Context): Promise<FlowRecordLogout[]> {
+  const credentials = ctx.credentials
+  const rows: FlowRecordLogout[] = []
+  const claimed = new Set<CredentialKey>()
+  for (const flow of authorizationFlows(ctx)) {
+    const info = await credentials.describeRecord(flow.key)
+    if (!info.configured) continue
+    claimed.add(flow.key)
+    rows.push({
+      key: flow.key,
+      label: isPiAiDeepSeekFlow(flow) ? 'DeepSeek (pi-ai compatibility)' : flow.label,
+      writable: info.writable,
+    })
+  }
+  for (const entry of await credentials.listRecords()) {
+    if (claimed.has(entry.key)) continue
+    const catalog = catalogForRecord(ctx, entry.key)
+    if (catalog === undefined) continue
+    const info = await credentials.describeRecord(entry.key)
+    if (!info.configured) continue
+    rows.push({ key: entry.key, label: catalog.displayName, writable: info.writable })
+  }
+  return rows
+}
+
+async function logoutableChoices(ctx: Context): Promise<LogoutChoice[]> {
+  const providers = logoutableProviders(ctx)
+  const records = await configuredFlowRecords(ctx)
+  const actionable: LlmConfigurableProvider[] = []
+  let inactiveDeepSeek: LlmConfigurableProvider | undefined
+
+  for (const entry of providers) {
+    if (!isDeepSeek(entry)) {
+      actionable.push(entry)
+      continue
+    }
+
+    const activeRef = profileApiKeyEnv(ctx, entry) ?? String(DEEPSEEK_API_KEY)
+    const managed = activeRef === String(OMDSH_DEEPSEEK_API_KEY)
+    const current = await ctx.credentials.describe(managed ? OMDSH_DEEPSEEK_API_KEY : DEEPSEEK_API_KEY)
+    if (managed || (activeRef === String(DEEPSEEK_API_KEY) && current.source === 'file')) {
+      actionable.push(entry)
+    } else {
+      inactiveDeepSeek = entry
+    }
+  }
+
+  const choices: LogoutChoice[] = [...actionable, ...records]
+  // Preserve the direct explanatory response when the environment-owned or
+  // already-logged-out official route is the only thing the command can see.
+  return choices.length === 0 && inactiveDeepSeek !== undefined ? [inactiveDeepSeek] : choices
+}
+
 function selected(raw: string, values: readonly string[]): string | undefined {
   const index = /^\d+$/u.test(raw) ? Number(raw) - 1 : -1
   return index >= 0 ? values[index] : raw
 }
 
-async function pickProvider(
+type ProviderBadge = { label: string, tone: 'success' | 'warning' | 'muted' }
+
+function credentialOwnershipBadge(info: { configured: boolean, source?: string }): ProviderBadge | undefined {
+  if (!info.configured) return undefined
+  if (info.source === 'file') return { label: 'stored locally', tone: 'success' }
+  if (info.source === 'project-env') return { label: 'project .env', tone: 'muted' }
+  if (info.source === 'user-env') return { label: 'user .env', tone: 'muted' }
+  if (info.source === 'env') return { label: 'environment', tone: 'muted' }
+  return { label: 'configured externally', tone: 'muted' }
+}
+
+async function pickLoginChoice(
   ctx: Context,
   invocation: CommandInvocation,
-  entries: readonly LlmConfigurableProvider[],
-  title: string,
-  question: string,
-  includeCustom = false,
-): Promise<LlmConfigurableProvider | typeof CUSTOM_PROVIDER_VALUE | undefined> {
-  if (entries.length === 0 && !includeCustom) return undefined
-  if (entries.length === 1 && !includeCustom) return entries[0]
-  const live = new Set(ctx.llm.listProviders().map(provider => provider.id))
-  const values = [
-    ...entries.map(entry => entry.provider),
-    ...(includeCustom ? [CUSTOM_PROVIDER_VALUE] : []),
-  ]
-  const optionCount = values.length
-  const fullscreen = optionCount > FULLSCREEN_CHOICE_THRESHOLD
+): Promise<LoginChoice | undefined> {
+  const entries = catalogProvidersWithoutFlows(ctx)
+  const flows = loginAuthorizationFlows(ctx)
+  if (entries.length === 0 && flows.length === 0) return CUSTOM_PROVIDER_VALUE
+  const entryRows = await Promise.all(entries.map(async (entry) => {
+    const ref = profileApiKeyEnv(ctx, entry)
+    const info = ref === undefined ? UNCONFIGURED : await ctx.credentials.describe(credentialRef(ref))
+    return { entry, badge: credentialOwnershipBadge(info) }
+  }))
+  const flowRows = await Promise.all(flows.map(async flow => ({
+    flow,
+    info: await ctx.credentials.describeRecord(flow.key),
+  })))
+  flowRows.sort((left, right) => {
+    const configured = Number(right.info.configured) - Number(left.info.configured)
+    return configured !== 0 ? configured : left.flow.label.localeCompare(right.flow.label)
+  })
+  const orderedFlows = flowRows.map(row => row.flow)
+  const values = loginChoiceValues(entries, orderedFlows, true)
+  const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
     optionLayout: 'compact',
     filterable: fullscreen,
-    title,
-    question,
+    title: 'Provider',
+    question: 'Choose a provider to sign in or update',
     options: [
-      ...entries.map(entry => ({
+      ...entryRows.map(({ entry, badge }) => ({
         label: providerListId(entry),
         value: entry.provider,
-        description: live.has(entry.provider) ? 'configured' : 'not configured',
+        description: isDeepSeek(entry) ? 'DeepSeek API key' : `${entry.displayName} API key`,
+        ...(badge === undefined ? {} : { badge }),
       })),
-      ...(includeCustom
-        ? [{
-          label: 'custom',
-          value: CUSTOM_PROVIDER_VALUE,
-          description: 'Add a provider that is not in the catalog',
-        }]
-        : []),
+      ...flowRows.map(({ flow, info }) => ({
+        label: flow.label,
+        value: flowChoiceValue(flow.key),
+        description: flow.inFlight
+          ? 'login in progress'
+          : flow.methods.map(method => method.label).join(' · '),
+        ...(flow.inFlight
+          ? { badge: { label: 'login in progress', tone: 'warning' as const } }
+          : info.configured
+            ? { badge: { label: 'signed in', tone: 'success' as const } }
+            : {}),
+      })),
+      {
+        label: 'Custom',
+        value: CUSTOM_PROVIDER_VALUE,
+        description: 'Add a provider that is not in the catalog',
+      },
     ],
     allowCustom: false,
     signal: invocation.signal,
@@ -246,8 +421,71 @@ async function pickProvider(
   if (raw.trim().toLowerCase() === 'custom' || selected(raw, values) === CUSTOM_PROVIDER_VALUE) {
     return CUSTOM_PROVIDER_VALUE
   }
-  const provider = selected(raw, values)
-  return entries.find(entry => entry.provider === provider)
+  const chosen = selected(raw, values)
+  if (chosen === undefined) return undefined
+  const flowKey = parseFlowChoice(chosen)
+  if (flowKey !== undefined) return orderedFlows.find(flow => flow.key === flowKey)
+  return entries.find(entry => entry.provider === chosen)
+}
+
+function isAuthorizationFlow(choice: LoginChoice): choice is AuthorizationEntry {
+  return typeof choice !== 'string' && 'key' in choice && 'methods' in choice
+}
+
+async function pickAuthorizationMethod(
+  ctx: Context,
+  invocation: CommandInvocation,
+  flow: AuthorizationEntry,
+): Promise<string | undefined> {
+  if (flow.methods.length === 1) return flow.methods[0]?.id
+  const values = flow.methods.map(method => method.id)
+  const raw = await ctx.tui.prompt({
+    title: `Login to ${flow.label}`,
+    question: 'Choose a sign-in method',
+    options: flow.methods.map(method => ({
+      label: method.label,
+      value: method.id,
+    })),
+    allowCustom: false,
+    signal: invocation.signal,
+  })
+  if (raw === null) return undefined
+  return selected(raw, values)
+}
+
+async function loginAuthorization(
+  ctx: Context,
+  invocation: CommandInvocation,
+  flow: AuthorizationEntry,
+): Promise<CommandResult> {
+  const authorization = ctx.get('authorization')
+  if (authorization === undefined) {
+    return { kind: 'error', text: 'Authorization is not available in this session.' }
+  }
+  if (flow.inFlight) {
+    return { kind: 'error', text: `${flow.label} already has a login in progress.` }
+  }
+  const method = await pickAuthorizationMethod(ctx, invocation, flow)
+  if (method === undefined) return { kind: 'success' }
+  try {
+    const outcome = await authorization.begin({
+      key: flow.key,
+      method,
+      interaction: createAuthorizationInteraction(ctx.tui, `Login to ${flow.label}`),
+      signal: invocation.signal,
+    })
+    if (outcome.status === 'cancelled') return { kind: 'success' }
+    return { kind: 'success', text: `Logged in to ${flow.label}.` }
+  } catch (error: unknown) {
+    if (invocation.signal.aborted) return { kind: 'success' }
+    if (error instanceof AuthorizationError && error.code === 'ALREADY_IN_FLIGHT') {
+      return { kind: 'error', text: `${flow.label} already has a login in progress.` }
+    }
+    return {
+      kind: 'error',
+      text: error instanceof Error ? error.message : `${flow.label} login failed.`,
+    }
+  }
 }
 
 async function resetDeepSeekCredentialRoute(ctx: Context): Promise<void> {
@@ -626,6 +864,81 @@ async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Prom
   return logoutSuccess(ctx, usesOmdshCredential)
 }
 
+async function pickLogoutChoice(
+  ctx: Context,
+  invocation: CommandInvocation,
+): Promise<LogoutChoice | undefined> {
+  const choices = await logoutableChoices(ctx)
+  if (choices.length === 0) return undefined
+  if (choices.length === 1) return choices[0]
+  const values = choices.map(choice => isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
+  const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
+  const raw = await ctx.tui.prompt({
+    ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
+    optionLayout: 'compact',
+    filterable: fullscreen,
+    title: 'Provider',
+    question: 'Choose a provider to log out from',
+    options: choices.map(choice => isFlowRecordLogout(choice)
+      ? {
+        label: choice.label,
+        value: flowChoiceValue(choice.key),
+        description: choice.writable ? 'signed in' : 'not removable here',
+      }
+            : {
+              label: providerListId(choice),
+              value: choice.provider,
+              description: 'signed in',
+            }),
+    allowCustom: false,
+    signal: invocation.signal,
+  })
+  if (raw === null) return undefined
+  const chosen = selected(raw, values)
+  if (chosen === undefined) return undefined
+  const flowKey = parseFlowChoice(chosen)
+  if (flowKey !== undefined) return choices.find(choice => isFlowRecordLogout(choice) && choice.key === flowKey)
+  return choices.find(choice => !isFlowRecordLogout(choice) && choice.provider === chosen)
+}
+
+async function logoutRecord(
+  ctx: Context,
+  invocation: CommandInvocation,
+  record: FlowRecordLogout,
+): Promise<CommandResult> {
+  if (!record.writable) {
+    return {
+      kind: 'error',
+      text: `The stored ${record.label} sign-in is not removable from this session. Update that credential source directly and restart omdsh.`,
+    }
+  }
+  const answer = await ctx.tui.prompt({
+    title: `Logout from ${record.label}`,
+    question: `Remove the stored ${record.label} sign-in?`,
+    detail: 'The local credential record is deleted. Settings profiles and environment credentials stay in place. The issuer is not notified.',
+    options: [
+      { label: 'Cancel', value: 'cancel', description: 'Keep the current credential.' },
+      {
+        label: 'Log out',
+        value: 'logout',
+        description: 'Delete the stored sign-in.',
+        badge: { label: 'removes credential', tone: 'warning' },
+      },
+    ],
+    initialValue: 'cancel',
+    allowCustom: false,
+    submitLabel: 'apply',
+    signal: invocation.signal,
+  })
+  if (answer !== 'logout') return { kind: 'success' }
+  try {
+    await ctx.credentials.deleteRecord(record.key)
+  } catch {
+    return { kind: 'error', text: `Could not remove the ${record.label} sign-in.` }
+  }
+  return { kind: 'success', text: `Logged out from ${record.label}.` }
+}
+
 async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry: LlmConfigurableProvider): Promise<CommandResult> {
   const label = entry.displayName
   const storedRef = profileApiKeyEnv(ctx, entry)
@@ -676,39 +989,28 @@ async function login(ctx: Context, invocation: CommandInvocation, config: Config
   if (invocation.rawInput.trim() !== '') {
     return { kind: 'error', text: 'Usage: /login (paste the key only into the protected prompt)' }
   }
-  const entry = await pickProvider(
-    ctx,
-    invocation,
-    loginableProviders(ctx),
-    'Provider',
-    'Choose a provider to configure',
-    true,
-  )
-  if (entry === undefined) return { kind: 'success' }
-  if (entry === CUSTOM_PROVIDER_VALUE) return loginCustom(ctx, invocation)
-  return isDeepSeek(entry)
+  const choice = await pickLoginChoice(ctx, invocation)
+  if (choice === undefined) return { kind: 'success' }
+  if (choice === CUSTOM_PROVIDER_VALUE) return loginCustom(ctx, invocation)
+  if (isAuthorizationFlow(choice)) return loginAuthorization(ctx, invocation, choice)
+  return isDeepSeek(choice)
     ? loginDeepSeek(ctx, invocation, config)
-    : loginCatalog(ctx, invocation, entry)
+    : loginCatalog(ctx, invocation, choice)
 }
 
 async function logout(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /logout' }
-  const entry = await pickProvider(
-    ctx,
-    invocation,
-    logoutableProviders(ctx),
-    'Provider',
-    'Choose a provider to log out from',
-  )
-  if (entry === undefined || entry === CUSTOM_PROVIDER_VALUE) return { kind: 'success' }
-  return isDeepSeek(entry)
+  const choice = await pickLogoutChoice(ctx, invocation)
+  if (choice === undefined) return { kind: 'success' }
+  if (isFlowRecordLogout(choice)) return logoutRecord(ctx, invocation, choice)
+  return isDeepSeek(choice)
     ? logoutDeepSeek(ctx, invocation)
-    : logoutCatalog(ctx, invocation, entry)
+    : logoutCatalog(ctx, invocation, choice)
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
   registerCommands(ctx, [
-    { name: 'login', description: 'Configure a provider API key', handler: invocation => login(ctx, invocation, config) },
-    { name: 'logout', description: 'Remove a stored provider API key', handler: invocation => logout(ctx, invocation) },
+    { name: 'login', description: 'Sign in to a provider', handler: invocation => login(ctx, invocation, config) },
+    { name: 'logout', description: 'Sign out of a stored provider', handler: invocation => logout(ctx, invocation) },
   ], 'omdsh authentication commands')
 }

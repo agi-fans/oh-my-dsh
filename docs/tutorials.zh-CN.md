@@ -31,7 +31,7 @@
 | 选择 Agent preset | `/agent` |
 | 选择 Default 或 Plan Workflow | `/workflow` |
 | 选择 Native、Code 或 Both Tools | `/tool-mode` |
-| 选择会话 Access | `/access` |
+| 选择会话 Access | `/permission` |
 | 查看会话统计 | `/session` |
 | 查看可用工具 | `/tools` |
 | 每个回合完成后重复工作 | `/loop [次数\|时长] [Prompt]` |

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AuthorizationError, type AuthorizationEntry } from '@deepseek-ai/dsh-authorization'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import type { CredentialInfo } from '@deepseek-ai/dsh-credentials'
+import { credentialKey, type CredentialInfo, type CredentialKey } from '@deepseek-ai/dsh-credentials'
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandAuth from './auth.ts'
@@ -12,11 +13,16 @@ interface AuthHarness {
   ctx: Context
   agent: Agent
   prompt: ReturnType<typeof vi.fn<(request: TuiPrompt) => Promise<string | null>>>
+  notice: ReturnType<typeof vi.fn>
   describe: ReturnType<typeof vi.fn<(ref: typeof commandAuth.DEEPSEEK_API_KEY) => Promise<CredentialInfo>>>
   set: ReturnType<typeof vi.fn<(ref: typeof commandAuth.DEEPSEEK_API_KEY, value: string) => Promise<void>>>
   unset: ReturnType<typeof vi.fn<(ref: typeof commandAuth.DEEPSEEK_API_KEY) => Promise<void>>>
   settingsUpdate: ReturnType<typeof vi.fn>
   settingsMutate: ReturnType<typeof vi.fn>
+  beginAuthorization: ReturnType<typeof vi.fn>
+  describeRecord: ReturnType<typeof vi.fn>
+  listRecords: ReturnType<typeof vi.fn>
+  deleteRecord: ReturnType<typeof vi.fn>
 }
 
 interface AuthHarnessOptions {
@@ -27,6 +33,9 @@ interface AuthHarnessOptions {
   configurable?: readonly LlmConfigurableProvider[]
   liveProviders?: readonly string[]
   piAiSettings?: Record<string, unknown>
+  authorizationFlows?: readonly AuthorizationEntry[]
+  beginAuthorization?: ReturnType<typeof vi.fn>
+  records?: ReadonlyMap<CredentialKey, { kind: 'grant' | 'api-key'; writable?: boolean }>
 }
 
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
@@ -81,6 +90,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
   const prompt = vi.fn<(request: TuiPrompt) => Promise<string | null>>()
+  const notice = vi.fn()
   for (const answer of options.answers ?? []) prompt.mockResolvedValueOnce(answer)
   const credentials = new Map<string, CredentialInfo>([
     [String(commandAuth.DEEPSEEK_API_KEY), options.fallback ?? UNCONFIGURED],
@@ -113,8 +123,35 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     }
     sections.set(String(namespace), current)
   })
-  ctx.provide('tui', { prompt } as unknown as TuiService)
-  ctx.provide('credentials', { describe, set, unset } as never)
+  ctx.provide('tui', { prompt, notice } as unknown as TuiService)
+  const records = new Map<string, { kind: 'grant' | 'api-key'; writable: boolean }>(
+    [...(options.records ?? [])].map(([key, record]) => [key, { kind: record.kind, writable: record.writable !== false }]),
+  )
+  const describeRecord = vi.fn(async (key: CredentialKey) => {
+    const record = records.get(key)
+    return record === undefined
+      ? { configured: false, writable: true }
+      : { configured: true, kind: record.kind, writable: record.writable }
+  })
+  const listRecords = vi.fn(async () => [...records.entries()].map(([key, record]) => ({
+    key: key as CredentialKey,
+    kind: record.kind,
+  })))
+  const deleteRecord = vi.fn(async (key: CredentialKey) => { records.delete(key) })
+  const beginAuthorization = options.beginAuthorization ?? vi.fn(async (request?: { key: CredentialKey }) => {
+    if (request?.key !== undefined) records.set(request.key, { kind: 'grant', writable: true })
+    return { status: 'authorized' as const }
+  })
+  if (options.authorizationFlows !== undefined) {
+    const flows = [...options.authorizationFlows]
+    ctx.provide('authorization', {
+      list: () => flows,
+      describe: (key: CredentialKey) => flows.find(flow => flow.key === key),
+      begin: beginAuthorization,
+      cancel: vi.fn(),
+    } as never)
+  }
+  ctx.provide('credentials', { describe, set, unset, describeRecord, listRecords, deleteRecord } as never)
   ctx.provide('settings', {
     get: (namespace: unknown) => sections.get(String(namespace)),
     update: settingsUpdate,
@@ -133,7 +170,10 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     status: 'idle',
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
-  return { ctx, agent, prompt, describe, set, unset, settingsUpdate, settingsMutate }
+  return {
+    ctx, agent, prompt, notice, describe, set, unset, settingsUpdate, settingsMutate,
+    beginAuthorization, describeRecord, listRecords, deleteRecord,
+  }
 }
 
 afterEach(() => {
@@ -141,6 +181,15 @@ afterEach(() => {
 })
 
 describe('DeepSeek auth commands', () => {
+  it('describes /login and /logout as provider sign-in and sign-out', async () => {
+    const harness = await authHarness()
+    expect(harness.ctx.commands.list(harness.agent)).toEqual(expect.arrayContaining([
+      { name: 'login', description: 'Sign in to a provider' },
+      { name: 'logout', description: 'Sign out of a stored provider' },
+    ]))
+    await harness.ctx.fiber.dispose()
+  })
+
   it('collects a masked key, normalizes it, validates it, and stores it through credentials', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -325,12 +374,12 @@ describe('catalog provider auth', () => {
 
     expect(harness.prompt).toHaveBeenNthCalledWith(1, expect.objectContaining({
       title: 'Provider',
-      question: 'Choose a provider to configure',
+      question: 'Choose a provider to sign in or update',
       options: [
-        { label: 'deepseek', value: commandAuth.DEEPSEEK_PROVIDER, description: 'configured' },
-        { label: 'openai', value: 'openai', description: 'not configured' },
+        { label: 'DeepSeek', value: commandAuth.DEEPSEEK_PROVIDER, description: 'DeepSeek API key' },
+        { label: 'openai', value: 'openai', description: 'openai API key' },
         {
-          label: 'custom',
+          label: 'Custom',
           value: commandAuth.CUSTOM_PROVIDER_VALUE,
           description: 'Add a provider that is not in the catalog',
         },
@@ -358,7 +407,7 @@ describe('catalog provider auth', () => {
       configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
       liveProviders: [commandAuth.DEEPSEEK_PROVIDER, 'openai'],
       piAiSettings: { providers: { openai: { apiKeyEnv: String(ref) } } },
-      answers: ['openai', 'logout'],
+      answers: ['logout'],
     })
     await harness.set(ref, 'sk-openai')
 
@@ -430,5 +479,356 @@ describe('custom provider parsing', () => {
     expect(() => commandAuth.parseProviderId('1gateway')).toThrow(/lowercase/u)
     expect(() => commandAuth.parseBaseURL('127.0.0.1:11434')).toThrow(/absolute/u)
     expect(() => commandAuth.parseModelIds('  ,  ')).toThrow(/at least one/u)
+  })
+})
+
+describe('authorization service login', () => {
+  const FLOW_KEY = credentialKey('llm-pi-ai', 'openai')
+  const FLOW: AuthorizationEntry = {
+    key: FLOW_KEY,
+    label: 'OpenAI',
+    methods: [
+      { id: 'oauth', label: 'Sign in with ChatGPT' },
+      { id: 'api-key', label: 'API key' },
+    ],
+    inFlight: false,
+  }
+
+  it('lists registered flows and their methods beside the DeepSeek fallback', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
+      authorizationFlows: [FLOW],
+      answers: [null],
+    })
+    await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Provider',
+      options: expect.arrayContaining([
+        { label: 'DeepSeek', value: commandAuth.DEEPSEEK_PROVIDER, description: 'DeepSeek API key' },
+        {
+          label: 'OpenAI',
+          value: commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY,
+          description: 'Sign in with ChatGPT · API key',
+        },
+        {
+          label: 'Custom',
+          value: commandAuth.CUSTOM_PROVIDER_VALUE,
+          description: 'Add a provider that is not in the catalog',
+        },
+      ]),
+    }))
+    const options = harness.prompt.mock.calls[0]?.[0]?.options ?? []
+    expect(options.some(option => option.value === 'openai')).toBe(false)
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('runs the selected flow method and reports authorized', async () => {
+    const beginAuthorization = vi.fn(async (request: {
+      key: CredentialKey
+      method?: string
+      interaction: { notify: (notice: { message: string }) => void; prompt: (prompt: { kind: string; message: string }) => Promise<string> }
+    }) => {
+      request.interaction.notify({ message: 'Continue in your browser' })
+      await request.interaction.prompt({ kind: 'text', message: 'Paste the code' })
+      return { status: 'authorized' as const }
+    })
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      authorizationFlows: [FLOW],
+      beginAuthorization,
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY, 'oauth', 'ABCD'],
+    })
+
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Login to OpenAI',
+      question: 'Choose a sign-in method',
+      options: [
+        { label: 'Sign in with ChatGPT', value: 'oauth' },
+        { label: 'API key', value: 'api-key' },
+      ],
+      allowCustom: false,
+    }))
+    expect(beginAuthorization).toHaveBeenCalledWith(expect.objectContaining({
+      key: FLOW_KEY,
+      method: 'oauth',
+    }))
+    expect(harness.notice).toHaveBeenCalledWith('Continue in your browser')
+    expect(harness.set).not.toHaveBeenCalled()
+    expect(execution?.result).toEqual({ kind: 'success', text: 'Logged in to OpenAI.' })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('reports cancellation without treating it as a login failure', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      beginAuthorization: vi.fn(async () => ({ status: 'cancelled' as const })),
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY],
+    })
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(execution?.result).toEqual({ kind: 'success' })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('reports a failed authorization without printing a secret', async () => {
+    const secret = 'sk-do-not-print'
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      beginAuthorization: vi.fn(async () => {
+        throw new Error('provider rejected the grant')
+      }),
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY],
+    })
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(execution?.result.kind).toBe('error')
+    expect(execution?.result.text).toContain('provider rejected the grant')
+    expect(execution?.result.text).not.toContain(secret)
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('refuses a duplicate in-flight attempt', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      authorizationFlows: [{
+        ...FLOW,
+        methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }],
+        inFlight: true,
+      }],
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY],
+    })
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(harness.beginAuthorization).not.toHaveBeenCalled()
+    expect(execution?.result).toEqual({
+      kind: 'error',
+      text: 'OpenAI already has a login in progress.',
+    })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('maps ALREADY_IN_FLIGHT from begin onto the same duplicate error', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      beginAuthorization: vi.fn(async () => {
+        throw new AuthorizationError('busy', 'ALREADY_IN_FLIGHT')
+      }),
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY],
+    })
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(execution?.result).toEqual({
+      kind: 'error',
+      text: 'OpenAI already has a login in progress.',
+    })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('keeps the DeepSeek API-key fallback when no flow claims that route', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
+    const harness = await authHarness({
+      authorizationFlows: [FLOW],
+      answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-fallback'],
+    })
+    const execution = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(harness.beginAuthorization).not.toHaveBeenCalled()
+    expect(harness.set).toHaveBeenCalledWith(commandAuth.OMDSH_DEEPSEEK_API_KEY, 'sk-fallback')
+    expect(execution?.result.kind).toBe('success')
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('logs out a flow record written by login even without a settings profile', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      fallback: { configured: true, source: 'env', writable: false },
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY, 'logout'],
+    })
+    const login = await harness.ctx.commands.execute(
+      harness.agent,
+      '/login',
+      [],
+      new AbortController().signal,
+    )
+    expect(login?.result).toEqual({ kind: 'success', text: 'Logged in to OpenAI.' })
+    expect(harness.listRecords).toBeDefined()
+    await expect(harness.describeRecord(FLOW_KEY)).resolves.toEqual({
+      configured: true, kind: 'grant', writable: true,
+    })
+    harness.prompt.mockClear()
+
+    const logout = await harness.ctx.commands.execute(
+      harness.agent,
+      '/logout',
+      [],
+      new AbortController().signal,
+    )
+    expect(harness.prompt).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Provider' }))
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Logout from OpenAI',
+      question: 'Remove the stored OpenAI sign-in?',
+    }))
+    expect(harness.deleteRecord).toHaveBeenCalledWith(FLOW_KEY)
+    expect(harness.settingsMutate).not.toHaveBeenCalled()
+    expect(logout?.result).toEqual({ kind: 'success', text: 'Logged out from OpenAI.' })
+    await expect(harness.describeRecord(FLOW_KEY)).resolves.toEqual({ configured: false, writable: true })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('deletes a flow record without unsetting an independent catalog profile', async () => {
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      records: new Map([[FLOW_KEY, { kind: 'grant' as const }]]),
+      piAiSettings: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } },
+      answers: [commandAuth.FLOW_VALUE_PREFIX + FLOW_KEY, 'logout'],
+    })
+    const logout = await harness.ctx.commands.execute(
+      harness.agent,
+      '/logout',
+      [],
+      new AbortController().signal,
+    )
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Logout from OpenAI',
+      question: 'Remove the stored OpenAI sign-in?',
+    }))
+    expect(harness.deleteRecord).toHaveBeenCalledWith(FLOW_KEY)
+    expect(harness.settingsMutate).not.toHaveBeenCalled()
+    expect(harness.unset).not.toHaveBeenCalled()
+    expect(harness.ctx.settings.get(commandAuth.PI_AI_SETTINGS)).toEqual({
+      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } },
+    })
+    expect(logout?.result).toEqual({ kind: 'success', text: 'Logged out from OpenAI.' })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('does not list or delete an unclaimed non-provider credential record', async () => {
+    const otherKey = credentialKey('dsh-mcp-client', 'github')
+    const harness = await authHarness({
+      configurable: [DEEPSEEK_ENTRY, OPENAI_ENTRY],
+      authorizationFlows: [{ ...FLOW, methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }] }],
+      records: new Map([
+        [FLOW_KEY, { kind: 'grant' as const }],
+        [otherKey, { kind: 'grant' as const }],
+      ]),
+      answers: ['logout'],
+    })
+    const logout = await harness.ctx.commands.execute(
+      harness.agent,
+      '/logout',
+      [],
+      new AbortController().signal,
+    )
+    const listed = harness.prompt.mock.calls.flatMap(call => call[0]?.options ?? [])
+    expect(listed.some(option => option.value === commandAuth.FLOW_VALUE_PREFIX + otherKey)).toBe(false)
+    expect(listed.some(option => option.value === otherKey)).toBe(false)
+    expect(listed.some(option => option.label === 'github')).toBe(false)
+    expect(harness.deleteRecord).toHaveBeenCalledWith(FLOW_KEY)
+    expect(harness.deleteRecord).not.toHaveBeenCalledWith(otherKey)
+    await expect(harness.describeRecord(otherKey)).resolves.toEqual({
+      configured: true, kind: 'grant', writable: true,
+    })
+    expect(logout?.result).toEqual({ kind: 'success', text: 'Logged out from OpenAI.' })
+    await harness.ctx.fiber.dispose()
+  })
+})
+
+describe('provider picker labeling', () => {
+  const PI_AI_DEEPSEEK_FLOW: AuthorizationEntry = {
+    key: credentialKey('llm-pi-ai', 'deepseek'),
+    label: 'DeepSeek',
+    methods: [{ id: 'api-key', label: 'DeepSeek API key' }],
+    inFlight: false,
+  }
+
+  it('keeps the official DeepSeek route and hides the dormant pi-ai DeepSeek flow', async () => {
+    const harness = await authHarness({
+      authorizationFlows: [PI_AI_DEEPSEEK_FLOW],
+      fallback: { configured: true, source: 'env', writable: false },
+      records: new Map([[PI_AI_DEEPSEEK_FLOW.key, { kind: 'api-key' as const }]]),
+      answers: [null, 'logout'],
+    })
+
+    await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.arrayContaining([
+        expect.objectContaining({
+          label: 'DeepSeek',
+          value: commandAuth.DEEPSEEK_PROVIDER,
+          description: 'DeepSeek API key',
+          badge: { label: 'environment', tone: 'muted' },
+        }),
+        expect.objectContaining({ label: 'Custom', value: commandAuth.CUSTOM_PROVIDER_VALUE }),
+      ]),
+    }))
+    const request = harness.prompt.mock.calls[0]?.[0] as { options?: readonly { value: string }[] }
+    expect(request.options?.some(option => option.value.startsWith(commandAuth.FLOW_VALUE_PREFIX))).toBe(false)
+
+    const logout = await harness.ctx.commands.execute(harness.agent, '/logout', [], new AbortController().signal)
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Logout from DeepSeek (pi-ai compatibility)',
+      question: 'Remove the stored DeepSeek (pi-ai compatibility) sign-in?',
+    }))
+    expect(harness.deleteRecord).toHaveBeenCalledWith(PI_AI_DEEPSEEK_FLOW.key)
+    expect(logout?.result).toEqual({
+      kind: 'success',
+      text: 'Logged out from DeepSeek (pi-ai compatibility).',
+    })
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('labels an explicitly configured pi-ai DeepSeek flow as a compatibility route', async () => {
+    const harness = await authHarness({
+      authorizationFlows: [PI_AI_DEEPSEEK_FLOW],
+      piAiSettings: { providers: { deepseek: { apiKeyEnv: 'DEEPSEEK_API_KEY' } } },
+      records: new Map([[PI_AI_DEEPSEEK_FLOW.key, { kind: 'api-key' as const }]]),
+      answers: [null],
+    })
+
+    await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.arrayContaining([
+        expect.objectContaining({
+          label: 'DeepSeek (pi-ai compatibility)',
+          value: commandAuth.FLOW_VALUE_PREFIX + PI_AI_DEEPSEEK_FLOW.key,
+          badge: { label: 'signed in', tone: 'success' },
+        }),
+      ]),
+    }))
+    await harness.ctx.fiber.dispose()
   })
 })

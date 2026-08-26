@@ -1448,17 +1448,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('exposes the interactive /access command without a raw input hint', async () => {
+  it('exposes the interactive /permission command without a raw input hint', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.setCommands([
-      { name: 'access', description: 'Choose the session access level' },
+      { name: 'permission', description: 'Choose the session access level' },
     ])
     const pending = tui.readline()
     press(term, '/mode\r')
     expect(stripAnsi(term.captured)).toContain('unknown command: /mode')
-    press(term, '/access\r')
-    expect(await pending).toBe('/access')
+    press(term, '/permission\r')
+    expect(await pending).toBe('/permission')
     tui.dispose()
   })
 

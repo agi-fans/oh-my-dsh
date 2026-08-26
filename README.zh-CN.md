@@ -79,7 +79,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 ## 配置
 
-运行 `/login` 可以配置一家提供方的 API Key。DeepSeek 仍会打开官方 Key 管理页、验证 Key，并让这份存储凭据优先于继承的 `DEEPSEEK_API_KEY`。同一条命令也可以激活 OpenAI、Anthropic 等 catalog 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。之后 `/model` 会列出所有已激活的路由。`/logout` 会删除由 omdsh 管理的选择；对 DeepSeek 而言，环境变量可用时会回退到环境变量。
+运行 `/login` 可以配置一家提供方。DeepSeek 仍会打开官方 Key 管理页、验证 Key，并让这份存储凭据优先于继承的 `DEEPSEEK_API_KEY`。当已挂载的提供方注册了 Harness 授权流程时，`/login` 会列出该流程及其方法，终端只渲染流程要求的通知和提问。同一条命令也可以激活 catalog API Key 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。之后 `/model` 会列出所有已激活的路由。`/logout` 会删除由 omdsh 管理的选择；对 DeepSeek 而言，环境变量可用时会回退到环境变量。
 
 模型配置也可以来自 `$DSH_HOME/settings.yaml`。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](docs/skills-and-mcp.zh-CN.md)。
 

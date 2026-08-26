@@ -131,7 +131,8 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const dualContentWidth = boxWidth - 3
   const minLeft = visibleWidth(DEEPSEEK_LOGO[0]) + 2
   const minRight = 20
-  const desiredLeft = Math.min(26, Math.max(minLeft, Math.floor(dualContentWidth * 0.35)))
+  const baselineLeft = Math.min(26, Math.max(minLeft, Math.floor(dualContentWidth * 0.35)))
+  const desiredLeft = Math.max(baselineLeft, visibleWidth(options.model) + 2)
   const showRight = dualContentWidth >= minRight + minLeft
   const leftCol = showRight ? Math.min(desiredLeft, dualContentWidth - minRight) : boxWidth - 2
   const rightCol = showRight ? Math.max(1, dualContentWidth - leftCol) : 0

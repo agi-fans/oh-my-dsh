@@ -31,7 +31,7 @@ The plugin compatibility contract is in [User plugins](plugins.md).
 | Choose Agent preset | `/agent` |
 | Choose Default or Plan workflow | `/workflow` |
 | Choose Native, Code, or Both tools | `/tool-mode` |
-| Choose session Access | `/access` |
+| Choose session Access | `/permission` |
 | Inspect session statistics | `/session` |
 | Inspect available tools | `/tools` |
 | Repeat work after each completed turn | `/loop [count\|duration] [prompt]` |

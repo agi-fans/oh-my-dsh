@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-26
+
+### Added
+
+- Edit-card context lines are now syntax-highlighted from the changed file's language, while added and deleted lines keep their green and red colors with inverse intra-line highlighting. Unknown file types keep the previous dim context.
+- `/login` lists registered Harness authorization flows and their methods when a mounted provider offers them. The terminal renders notices and keyboard-selectable prompts; the provider plugin owns the protocol. DeepSeek API-key login remains available when no flow claims that route.
+
+### Changed
+
+- Composer image submissions now admit every attached image in one ordered batch. A failed member keeps the composer text and image drafts instead of saving a partial set.
+
+### Removed
+
+- Removed the duplicate `/access` alias. Use `/permission` to choose Read only, Workspace write, or Full access through the same keyboard selector and Full access confirmation.
+
+### Fixed
+
+- The startup Header now moves its column divider to fit longer model names when terminal space is available, while preserving the Tips and recent-session column at narrower widths.
+- `/login` now keeps the official DeepSeek route first, orders signed-in authorization flows before unconfigured providers, and distinguishes environment, local-store, external, in-progress, and signed-in credential ownership with badges. It hides the dormant pi-ai DeepSeek flow, retains an explicitly configured compatibility route, and capitalizes the custom-provider option. `/logout` omits an environment-owned or already-inactive official route when a removable stored sign-in is available and consistently labels every removable provider as signed in.
+- A retried model request replaces the live retry notice, drops stale live mutable assistant and partial-tool rows from the failed attempt, and keeps one final terminal error after retries are exhausted. Output that already reached native terminal scrollback is not rewritten.
+- `/logout` of a provider authorization record deletes only that credential record. Independent settings profiles, environment credentials, and credential records owned by other plugins stay in place, while a stored pi-ai DeepSeek compatibility credential remains removable even when its login flow is hidden by default.
+
 ## [0.8.0] - 2026-08-20
 
 ### Changed
@@ -210,7 +232,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.6.0...v0.6.1

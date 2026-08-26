@@ -37,7 +37,7 @@ async function selectAccess(
   invocation: CommandInvocation,
   switchPreset: CommandDefinition['handler'],
 ): Promise<CommandResult> {
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /access or /permission' }
+  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /permission' }
   const current = ctx.permissionPresets.current(invocation.agent.session.events)
   const options = ctx.permissionPresets.names.map((value) => {
     const option = ctx.permissionPresets.optionOf(value)
@@ -82,11 +82,6 @@ export function apply(ctx: Context): void {
     {
       name: 'permission',
       description: 'Choose the session access level',
-      handler: invocation => selectAccess(ctx, invocation, upstream.handler),
-    },
-    {
-      name: 'access',
-      description: 'Choose Read only, Workspace write, or Full access',
       handler: invocation => selectAccess(ctx, invocation, upstream.handler),
     },
   ], 'omdsh permission command')

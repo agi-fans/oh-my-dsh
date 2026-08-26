@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { CallId, ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
@@ -140,11 +141,50 @@ function prettyArgs(raw: string): string {
   }
 }
 
-/** The streaming assistant block if it is the last block, else undefined. */
-function streamingBlock(state: TranscriptState, turn: number, step: number): Block | undefined {
-  const last = state.blocks[state.blocks.length - 1]
-  if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) return last
-  return undefined
+function isRetryNotice(block: Block | undefined): boolean {
+  return block?.kind === 'notice' && block.level === 'info' && block.text.startsWith('retrying ')
+}
+
+function formatRetryNotice(event: Extract<SessionEvent, { type: 'llm/retry' }>): string {
+  const budget = event.data.mode === 'always'
+    ? `${event.data.retry}`
+    : `${event.data.retry}/${event.data.maxRetries}`
+  return `retrying ${event.data.failure.code} (${budget})`
+}
+
+function dropRetryNotice(blocks: Block[]): void {
+  if (isRetryNotice(blocks[blocks.length - 1])) blocks.pop()
+}
+
+interface ReplayIndexes {
+  readonly toolByCallId: Map<string, number>
+}
+
+function isMutableAttemptBlock(block: Block, turn: number, step?: number): boolean {
+  if (block.kind === 'assistant') {
+    return block.streaming && block.turn === turn && (step === undefined || block.step === step)
+  }
+  return block.kind === 'tool' && (block.status === 'running' || block.partial === true)
+}
+
+/** Drop trailing live mutable rows from a failed attempt and keep replay indexes aligned. */
+function hideFailedAttempt(
+  blocks: Block[],
+  turn: number,
+  step: number | undefined,
+  indexes?: ReplayIndexes,
+): void {
+  while (blocks.length > 0) {
+    const last = blocks[blocks.length - 1]
+    if (last === undefined) break
+    if (isRetryNotice(last)) {
+      blocks.pop()
+      continue
+    }
+    if (!isMutableAttemptBlock(last, turn, step)) break
+    blocks.pop()
+    if (last.kind === 'tool') indexes?.toolByCallId.delete(last.callId)
+  }
 }
 
 /** Replace the trailing streaming block with a settled one, or append. */
@@ -162,6 +202,7 @@ function settleAssistant(
   mutable: boolean,
 ): TranscriptState {
   const blocks = editableBlocks(state, mutable)
+  dropRetryNotice(blocks)
   const last = blocks[blocks.length - 1]
   const settled: Block = {
     kind: 'assistant',
@@ -209,10 +250,6 @@ export function replayEvents(
   return state
 }
 
-interface ReplayIndexes {
-  readonly toolByCallId: Map<string, number>
-}
-
 function foldEvent(
   state: TranscriptState,
   event: SessionEvent,
@@ -223,21 +260,34 @@ function foldEvent(
   switch (event.type) {
     case 'turn/start':
       return { ...state, status: 'running', turn: event.data.turn, todos: [], compactCommandId: undefined }
+    case 'llm/retry': {
+      const blocks = editableBlocks(state, mutable)
+      hideFailedAttempt(blocks, event.data.turn, event.data.step, indexes)
+      const notice: Block = { kind: 'notice', level: 'info', text: formatRetryNotice(event) }
+      if (isRetryNotice(blocks[blocks.length - 1])) blocks[blocks.length - 1] = notice
+      else blocks.push(notice)
+      return { ...state, blocks, status: 'running', turn: event.data.turn }
+    }
     case 'turn/end': {
       const last = state.blocks[state.blocks.length - 1]
       const reason = event.data.reason
       const changesBlocks = (last?.kind === 'assistant' && last.streaming)
+        || (last?.kind === 'tool' && (last.status === 'running' || last.partial === true))
+        || isRetryNotice(last)
         || reason.kind === 'error'
         || reason.kind === 'aborted'
       const blocks = changesBlocks ? editableBlocks(state, mutable) : state.blocks
-      if (last?.kind === 'assistant' && last.streaming) {
-        blocks[blocks.length - 1] = { ...last, streaming: false }
+      if (reason.kind === 'error') hideFailedAttempt(blocks, event.data.turn, undefined, indexes)
+      dropRetryNotice(blocks)
+      const settledLast = blocks[blocks.length - 1]
+      if (settledLast?.kind === 'assistant' && settledLast.streaming) {
+        blocks[blocks.length - 1] = { ...settledLast, streaming: false }
       }
       if (reason.kind === 'error') {
         blocks.push({ kind: 'notice', level: 'error', text: 'error: ' + reason.error.code + ': ' + reason.error.message })
       } else if (reason.kind === 'aborted') {
-        // rc.8 finalizes a cancelled turn's delivered prefix as an assistant
-        // block already marked interrupted; the bare notice only covers a
+        // A cancelled turn that already delivered a prefix finalizes it as an
+        // assistant block marked interrupted; the bare notice only covers a
         // turn that aborted before any visible content.
         const settledLast = blocks[blocks.length - 1]
         if (settledLast?.kind !== 'assistant' || settledLast.interrupted !== true) {
@@ -261,11 +311,10 @@ function foldEvent(
       const { turn, step, chunk } = event.data
       if (chunk.type === 'text-delta') {
         const blocks = editableBlocks(state, mutable)
-        const last = streamingBlock(state, turn, step)
-        if (last !== undefined) {
-          const idx = blocks.length - 1
-          const found = blocks[idx]
-          if (found?.kind === 'assistant') blocks[idx] = { ...found, text: found.text + chunk.text }
+        dropRetryNotice(blocks)
+        const last = blocks[blocks.length - 1]
+        if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
+          blocks[blocks.length - 1] = { ...last, text: last.text + chunk.text }
         } else {
           blocks.push({ kind: 'assistant', turn, step, text: chunk.text, reasoning: '', streaming: true })
         }
@@ -273,11 +322,10 @@ function foldEvent(
       }
       if (chunk.type === 'reasoning-delta') {
         const blocks = editableBlocks(state, mutable)
-        const last = streamingBlock(state, turn, step)
-        if (last !== undefined) {
-          const idx = blocks.length - 1
-          const found = blocks[idx]
-          if (found?.kind === 'assistant') blocks[idx] = { ...found, reasoning: found.reasoning + chunk.text }
+        dropRetryNotice(blocks)
+        const last = blocks[blocks.length - 1]
+        if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
+          blocks[blocks.length - 1] = { ...last, reasoning: last.reasoning + chunk.text }
         } else {
           blocks.push({ kind: 'assistant', turn, step, text: '', reasoning: chunk.text, streaming: true })
         }
@@ -285,6 +333,7 @@ function foldEvent(
       }
       if (chunk.type === 'tool-call-delta') {
         const blocks = editableBlocks(state, mutable)
+        dropRetryNotice(blocks)
         const index = indexes === undefined
           ? blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
           : indexes.toolByCallId.get(chunk.id) ?? -1
@@ -330,6 +379,7 @@ function foldEvent(
         ...(presentation === undefined ? {} : { presentation }),
       }
       const blocks = editableBlocks(state, mutable)
+      dropRetryNotice(blocks)
       const partial = indexes === undefined
         ? blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
         : indexes.toolByCallId.get(event.data.callId) ?? -1

@@ -66,33 +66,87 @@ describe('sessionControls', () => {
       permission: 'workspace-write',
     })
   })
+
+  it('reads only client-visible snapshot values for footer inputs', () => {
+    const snapshot = {
+      sessionStats: { turns: 4, steps: 9, llmMs: 11, toolMs: 22, ttftMs: 5, ttftSteps: 3, decodeMs: 6, decodeTokens: 7 },
+      tokenUsage: { uncachedInputTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 3, outputTokens: 8 },
+      contextPressure: { projectedTokens: 40, contextWindow: 128_000 },
+      plan: { active: false, pending: true },
+      permissions: { currentValue: 'read-only', options: [] },
+    }
+    expect(sessionControls(snapshot)).toEqual({
+      plan: { active: false, pending: true },
+      permission: 'read-only',
+    })
+    expect(sessionStats([], undefined, snapshot)).toMatchObject({
+      turns: 4,
+      steps: 9,
+      inputTokens: 6,
+      outputTokens: 8,
+      contextTokens: 40,
+      contextWindow: 128_000,
+    })
+  })
 })
 
 describe('createSubmissionMessage', () => {
-  it('validates every draft image before saving and emits one mixed user message', async () => {
-    const calls: string[] = []
-    const ref = {
-      attachmentId: AttachmentId('attachment:test'),
-      mediaType: 'image/png' as const,
-      bytes: PNG_1X1.byteLength,
-      width: 1,
-      height: 1,
-      name: 'clipboard.png',
-    }
+  const pngRef = {
+    attachmentId: AttachmentId('attachment:test'),
+    mediaType: 'image/png' as const,
+    bytes: PNG_1X1.byteLength,
+    width: 1,
+    height: 1,
+    name: 'clipboard.png',
+  }
+
+  it('admits one ordered image batch and emits one mixed user message', async () => {
+    const first = { ...pngRef, attachmentId: AttachmentId('attachment:one'), name: 'one.png' }
+    const second = { ...pngRef, attachmentId: AttachmentId('attachment:two'), name: 'two.webp', mediaType: 'image/webp' as const }
     const attachments = {
-      validateImage: async () => { calls.push('validate') },
-      saveImage: async () => { calls.push('save'); return ref },
+      saveImages: vi.fn(async (inputs: readonly { name?: string }[]) => {
+        expect(inputs.map(input => input.name)).toEqual(['one.png', 'two.webp'])
+        return [first, second]
+      }),
     }
 
     const message = await createSubmissionMessage({
-      text: '[Image #1, 1x1] describe this',
-      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+      text: 'describe these',
+      images: [
+        { data: PNG_1X1, mediaType: 'image/png', name: 'one.png', width: 1, height: 1 },
+        { data: PNG_1X1, mediaType: 'image/webp', name: 'two.webp', width: 1, height: 1 },
+      ],
     }, attachments)
 
-    expect(calls).toEqual(['validate', 'save'])
+    expect(attachments.saveImages).toHaveBeenCalledOnce()
     expect(message.content).toEqual([
-      { type: 'text', text: '[Image #1, 1x1] describe this' },
-      { type: 'image', attachment: ref },
+      { type: 'text', text: 'describe these' },
+      { type: 'image', attachment: first },
+      { type: 'image', attachment: second },
+    ])
+  })
+
+  it('commits no user event when batch admission fails', async () => {
+    await expect(createSubmissionMessage({
+      text: 'keep this draft',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'bad.png' }],
+    }, {
+      saveImages: async () => { throw new Error('Image batch exceeds the configured image-count limit.') },
+    })).rejects.toThrow(/image-count limit/u)
+  })
+
+  it('still admits images when the selected model cannot accept them', async () => {
+    const attachments = {
+      saveImages: vi.fn(async () => [pngRef]),
+    }
+    const message = await createSubmissionMessage({
+      text: 'text-only model',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png' }],
+    }, attachments)
+    expect(attachments.saveImages).toHaveBeenCalledOnce()
+    expect(message.content).toEqual([
+      { type: 'text', text: 'text-only model' },
+      { type: 'image', attachment: pngRef },
     ])
   })
 
@@ -104,6 +158,7 @@ describe('createSubmissionMessage', () => {
       width: 1,
       height: 1,
       name: 'queued.png',
+      originalDimensions: { width: 2000, height: 1000 },
     }
     const message = createUserMessage({
       source: { kind: 'user' },

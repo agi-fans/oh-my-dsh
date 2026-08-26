@@ -60,10 +60,7 @@ describe('permission command', () => {
     const { ctx, scope, agent, prompt, switched } = await permissionHarness(['read-only'])
     const listed = ctx.commands.list(agent).find(command => command.name === 'permission')
     expect(listed).toEqual({ name: 'permission', description: 'Choose the session access level' })
-    expect(ctx.commands.list(agent)).toContainEqual({
-      name: 'access',
-      description: 'Choose Read only, Workspace write, or Full access',
-    })
+    expect(ctx.commands.list(agent).some(command => command.name === 'access')).toBe(false)
 
     const execution = await ctx.commands.execute(agent, '/permission', [], new AbortController().signal)
     expect(prompt).toHaveBeenCalledOnce()
@@ -81,7 +78,7 @@ describe('permission command', () => {
     expect(execution?.result).toEqual({ kind: 'success', text: 'Access: Read only' })
 
     const invalid = await ctx.commands.execute(agent, '/permission read-only', [], new AbortController().signal)
-    expect(invalid?.result).toEqual({ kind: 'error', text: 'Usage: /access or /permission' })
+    expect(invalid?.result).toEqual({ kind: 'error', text: 'Usage: /permission' })
     expect(prompt).toHaveBeenCalledOnce()
     await scope.dispose()
     await ctx.fiber.dispose()

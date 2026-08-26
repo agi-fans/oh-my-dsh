@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapIndexed, wrapText } from './width.ts'
+import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, stripAnsi, truncateToWidth, visibleWidth, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
 
 describe('visibleWidth', () => {
   it('ignores SGR sequences', () => {
@@ -50,5 +50,49 @@ describe('padToWidth', () => {
   it('pads a short line and truncates a long one', () => {
     expect(padToWidth('ab', 4)).toBe('ab  ')
     expect(visibleWidth(padToWidth('abcdef', 4))).toBe(4)
+  })
+})
+
+describe('restabilizeWrapSegments', () => {
+  it('reopens the active foreground at each continuation', () => {
+    const segments = wrapText('\x1b[31m- const alphabetfoo = 1\x1b[39m', 10)
+    const stable = restabilizeWrapSegments(segments)
+    expect(stable.length).toBeGreaterThan(1)
+    for (const line of stable) expect(line).toContain('\x1b[31m')
+    expect(stable[0]).toBe(segments[0])
+  })
+
+  it('reopens 256-color and truecolor foregrounds', () => {
+    const seg256 = wrapText('\x1b[90m  context alphabetfoo = 1\x1b[39m', 12)
+    for (const line of restabilizeWrapSegments(seg256)) expect(line).toContain('\x1b[90m')
+    const segTc = wrapText('\x1b[38;2;1;2;3m  context alphabetfoo = 1\x1b[39m', 12)
+    for (const line of restabilizeWrapSegments(segTc)) expect(line).toContain('\x1b[38;2;1;2;3m')
+  })
+
+  it('reopens inverse when it spans the break', () => {
+    const painted = '\x1b[31m- const \x1b[39m\x1b[7malphabetfoobig\x1b[27m\x1b[31m = 1\x1b[39m'
+    const stable = restabilizeWrapSegments(wrapText(painted, 12))
+    // a continuation that is mid-inverse reopens 7m
+    expect(stable.some(line => line.startsWith('\x1b[7m'))).toBe(true)
+  })
+
+  it('reopens bold and italic at continuations', () => {
+    const painted = '\x1b[1mbold longword here\x1b[22m and \x1b[3mitalic longword here\x1b[23m'
+    const stable = restabilizeWrapSegments(wrapText(painted, 8))
+    expect(stable.some(line => line.startsWith('\x1b[1m'))).toBe(true)
+    expect(stable.some(line => line.startsWith('\x1b[3m'))).toBe(true)
+  })
+
+  it('is a no-op for unstyled or single-row output', () => {
+    expect(restabilizeWrapSegments(['only one'])).toEqual(['only one'])
+    expect(restabilizeWrapSegments(['plain', 'plain two'])).toEqual(['plain', 'plain two'])
+  })
+})
+
+describe('wrapTextStable', () => {
+  it('wraps and restabilizes in one call', () => {
+    const lines = wrapTextStable('\x1b[32m+ const alphabetfoo = 1\x1b[39m', 10)
+    expect(lines.length).toBeGreaterThan(1)
+    for (const line of lines) expect(line).toContain('\x1b[32m')
   })
 })
