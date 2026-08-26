@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { formatTranscriptMarkdown } from './transcript-export.ts'
+import { formatTranscriptHtml, formatTranscriptMarkdown } from './transcript-export.ts'
 
 describe('formatTranscriptMarkdown', () => {
   it('exports semantic events in order and omits structural boundaries', () => {
@@ -19,5 +19,18 @@ describe('formatTranscriptMarkdown', () => {
     expect(text).toContain('[image 20×10 · image/png]')
     expect(text).toContain('## Assistant\n\ndone')
     expect(text).not.toContain('turn/start')
+  })
+
+  it('exports a standalone CSP-locked HTML document without activating transcript HTML', () => {
+    const events = [{
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '<script>alert(1)</script> **safe**' }] },
+    }] as unknown as SessionEvent[]
+    const html = formatTranscriptHtml('session-1', 'Work <log>', events)
+    expect(html).toContain('<!doctype html>')
+    expect(html).toContain('Content-Security-Policy')
+    expect(html).toContain('<strong>safe</strong>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).not.toContain('<script>alert(1)</script>')
   })
 })

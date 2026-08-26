@@ -79,6 +79,10 @@
       "types": "./lib/commands/export.d.ts",
       "default": "./lib/commands/export.js"
     },
+    "./command-trajectory": {
+      "types": "./lib/commands/trajectory.d.ts",
+      "default": "./lib/commands/trajectory.js"
+    },
     "./command-integrations": {
       "types": "./lib/commands/integrations.d.ts",
       "default": "./lib/commands/integrations.js"

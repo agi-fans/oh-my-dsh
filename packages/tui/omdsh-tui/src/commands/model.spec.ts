@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -6,6 +9,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandModel from './model.ts'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
+import { writeModelFavorites } from '../session/model-favorites.ts'
 
 describe('model command', () => {
   it('skips a sole provider and uses a compact model card for a short list', async () => {
@@ -86,5 +90,52 @@ describe('model command', () => {
       optionLayout: 'compact',
     }))
     await ctx.fiber.dispose()
+  })
+
+  it('cycles persisted favorites and the selected model reasoning effort', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'omdsh-model-command-'))
+    const previousHome = process.env.OMDSH_HOME
+    process.env.OMDSH_HOME = home
+    writeModelFavorites(join(home, 'omdsh', 'model-favorites.json'), [
+      { provider: 'provider-a', model: 'model-a' },
+      { provider: 'provider-b', model: 'model-b' },
+    ])
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(CommandRuntime)
+      let current = { provider: 'provider-a', model: 'model-a', reasoningEffort: undefined as string | undefined }
+      const changeSelection = vi.fn(async (_agent: Agent, selection: typeof current) => { current = selection })
+      ctx.provide('tui', { prompt: vi.fn() } as unknown as TuiService)
+      ctx.provide('omdshSession', {
+        selection: () => current,
+        changeSelection,
+      } as unknown as SessionRuntime)
+      ctx.provide('llm', {
+        listProviders: () => [{ id: 'provider-a' }, { id: 'provider-b' }],
+        listModels: async (provider: string) => [{ id: provider === 'provider-a' ? 'model-a' : 'model-b' }],
+        resolveModelInfo: async (_provider: string, model: string) => model === 'model-b'
+          ? { reasoning: { defaultEffort: 'low', efforts: [{ id: 'low' }, { id: 'high' }] } }
+          : {},
+      } as never)
+      await ctx.plugin(commandModel)
+      const session = ctx.sessions.create(SessionId('model-cycle-test'))
+      const agent = {
+        id: session.id,
+        session,
+        status: 'idle',
+        inbox: { nextTurn: [], nextStep: [] },
+      } as unknown as Agent
+
+      await ctx.commands.execute(agent, '/model next', [], new AbortController().signal)
+      expect(current).toMatchObject({ provider: 'provider-b', model: 'model-b' })
+      await ctx.commands.execute(agent, '/model reasoning', [], new AbortController().signal)
+      expect(current).toMatchObject({ provider: 'provider-b', model: 'model-b', reasoningEffort: 'high' })
+      expect(changeSelection).toHaveBeenCalledTimes(2)
+    } finally {
+      await ctx.fiber.dispose()
+      if (previousHome === undefined) delete process.env.OMDSH_HOME
+      else process.env.OMDSH_HOME = previousHome
+    }
   })
 })

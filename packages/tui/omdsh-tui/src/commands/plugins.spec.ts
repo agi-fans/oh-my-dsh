@@ -7,6 +7,7 @@ import * as commandSession from './session.ts'
 import * as commandSteer from './steer.ts'
 import * as commandLoop from './loop.ts'
 import * as commandExport from './export.ts'
+import * as commandTrajectory from './trajectory.ts'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
 
@@ -20,6 +21,26 @@ describe('omdsh command plugins', () => {
     const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
 
     expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['export'])
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('opens the current session trajectory through the TUI service', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const openTrajectory = vi.fn(() => true)
+    ctx.provide('tui', { openTrajectory } as unknown as TuiService)
+    const fiber = await ctx.plugin(commandTrajectory)
+    const session = ctx.sessions.create(SessionId('command-trajectory-test'))
+    const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
+
+    await expect(ctx.commands.execute(agent, '/trajectory', [], new AbortController().signal))
+      .resolves.toMatchObject({ result: { kind: 'success' } })
+    expect(openTrajectory).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ type: 'command/run' }),
+    ]))
 
     await fiber.dispose()
     await ctx.fiber.dispose()
@@ -110,6 +131,9 @@ describe('omdsh command plugins', () => {
         plan: { active: true, pending: false },
         permission: 'workspace-write',
       }),
+      contextDiagnostics: () => ({
+        pressure: { contextWindow: 100_000, projectedTokens: 25_000, pressureTokens: 20_000 },
+      }),
       send: vi.fn(),
     } as unknown as SessionRuntime
     const tui = { prompt: vi.fn() } as unknown as TuiService
@@ -124,7 +148,7 @@ describe('omdsh command plugins', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['new', 'resume', 'retry', 'session', 'todo'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'new', 'resume', 'retry', 'session', 'sessions', 'todo'])
     await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)
@@ -142,6 +166,16 @@ describe('omdsh command plugins', () => {
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Tools | Native |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Access | Workspace write |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Reasoning | `high` |') })
+
+    const context = await ctx.commands.execute(agent, '/context', [], new AbortController().signal)
+    expect(context).toBeDefined()
+    if (context === undefined) throw new Error('/context was not resolved')
+    expect(context.result).toMatchObject({
+      kind: 'success',
+      text: expect.stringContaining('Context Details\n\n## Occupancy'),
+    })
+    expect(context.result).toMatchObject({ text: expect.stringContaining('| Pressure | 25.0% |') })
+    expect(tui.prompt).not.toHaveBeenCalled()
 
     await fiber.dispose()
     expect(ctx.commands.list(agent)).toEqual([])

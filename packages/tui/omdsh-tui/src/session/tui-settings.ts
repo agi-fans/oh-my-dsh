@@ -28,6 +28,8 @@ export interface TuiSettings {
   expandTools: boolean
   checkUpdates: boolean
   startupChangelog: StartupChangelogMode
+  notifications: 'off' | 'long-running' | 'always'
+  notificationThreshold: '15s' | '30s' | '1m' | '2m'
   statusBar?: StatusBarConfig
   /** Legacy input retained so older settings documents can be migrated. */
   statusPreset?: StatusPreset
@@ -40,6 +42,8 @@ export const TuiSettingsSchema: z<TuiSettings> = z.object({
   expandTools: z.boolean().default(false),
   checkUpdates: z.boolean().default(true),
   startupChangelog: z.union([...STARTUP_CHANGELOG_MODES]).default('summary'),
+  notifications: z.union(['off', 'long-running', 'always'] as const).default('off'),
+  notificationThreshold: z.union(['15s', '30s', '1m', '2m'] as const).default('30s'),
   statusBar: z.union([z.object({
     enabled: z.boolean().default(true),
     labels: z.union([...STATUS_LABEL_STYLES]).default('compact'),

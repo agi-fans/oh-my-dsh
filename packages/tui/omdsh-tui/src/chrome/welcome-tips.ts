@@ -24,6 +24,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/tool-mode', text: 'Choose Native, Code, or Both tools' },
   { key: '/loop', text: 'Repeat a prompt after each completed turn' },
   { key: '/permission', text: 'Choose the session access level' },
+  { key: '/trajectory', text: 'Inspect the session event trajectory' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
   { key: 'Esc Esc', text: 'Rewind to an earlier conversation turn' },

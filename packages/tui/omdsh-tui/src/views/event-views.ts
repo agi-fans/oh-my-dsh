@@ -23,6 +23,8 @@ import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { Frame, TranscriptScroll } from '../chrome/renderer.ts'
 import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
+import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
+import { renderAgentHub, type AgentHubState } from './agent-hub.ts'
 import {
   renderPlanReviewPage,
   renderPromptSelector,
@@ -512,6 +514,10 @@ export interface ViewOptions {
   settings?: SettingsState
   /** `/copy` picker overlay; replaces the editor while open. */
   copySelector?: CopySelectorState
+  /** `/trajectory` full-screen event ledger. */
+  trajectory?: TrajectoryState
+  /** Keyboard-first full-screen descendant roster and inspector. */
+  agentHub?: AgentHubState
   /** Human-interaction selector; replaces the normal editor while active. */
   promptSelector?: PromptSelectorState
   /** Effective local + agent-scoped slash command catalog. */
@@ -1278,6 +1284,22 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const version = options.version ?? '0.1.0'
   const pwd = options.pwd ?? ''
   const spinnerFrame = options.spinnerFrame ?? 0
+  if (options.agentHub !== undefined) {
+    const hub = renderAgentHub(options.agentHub, theme, width, height)
+    return {
+      lines: fitFrame(hub.lines, width),
+      cursor: hub.cursor,
+      cursorVisible: hub.cursorVisible,
+    }
+  }
+  if (options.trajectory !== undefined) {
+    const trajectory = renderTrajectory(options.trajectory, theme, width, height)
+    return {
+      lines: fitFrame(trajectory.lines, width),
+      cursor: trajectory.cursor,
+      cursorVisible: trajectory.cursorVisible,
+    }
+  }
   if (options.settings !== undefined && options.promptSelector === undefined) {
     const settings = renderSettings(options.settings, theme, width, height)
     return {

@@ -33,6 +33,7 @@ The plugin compatibility contract is in [User plugins](plugins.md).
 | Choose Native, Code, or Both tools | `/tool-mode` |
 | Choose session Access | `/permission` |
 | Inspect session statistics | `/session` |
+| Inspect the session event trajectory | `/trajectory` |
 | Inspect available tools | `/tools` |
 | Repeat work after each completed turn | `/loop [count\|duration] [prompt]` |
 | Read release notes | `/changelog` |

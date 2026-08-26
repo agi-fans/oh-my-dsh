@@ -4,6 +4,22 @@
  * @module @agi-fans/oh-my-dsh
  */
 
+export type CompletionShell = 'bash' | 'zsh' | 'fish'
+
+export const OMDSH_CLI_COMMANDS = [
+  { name: 'plugin', description: 'Manage profile plugins' },
+  { name: 'completions', description: 'Generate shell completion scripts' },
+] as const
+
+export const OMDSH_CLI_OPTIONS = [
+  { names: ['--model'], description: 'Model route', takesValue: true },
+  { names: ['--provider'], description: 'Provider route', takesValue: true },
+  { names: ['-r', '--resume'], description: 'Resume a durable session', takesValue: true },
+  { names: ['--dump-config'], description: 'Print the composed plugin tree', takesValue: false },
+  { names: ['-h', '--help'], description: 'Show help', takesValue: false },
+  { names: ['--version'], description: 'Show version', takesValue: false },
+] as const
+
 export interface OmdshInvocation {
   /** Positional prompt words, joined by spaces (empty when interactive only). */
   prompt: string[]
@@ -19,6 +35,8 @@ export interface OmdshInvocation {
   plugin: boolean
   /** pnpm arguments after `omdsh plugin`. */
   pluginArgs: string[]
+  /** Requested completion script, without booting the application. */
+  completions: CompletionShell | undefined
   /** --help requested. */
   help: boolean
 }
@@ -31,6 +49,7 @@ Usage:
   omdsh plugin add <package>
   omdsh plugin remove <package>
   omdsh plugin <pnpm-args...>
+  omdsh completions bash|zsh|fish
 
 Options:
   --model <name>      model route (default deepseek-v4-flash)
@@ -60,7 +79,17 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
       dumpConfig: false,
       plugin: true,
       pluginArgs: argv.slice(1).map(String),
+      completions: undefined,
       help: false,
+    }
+  }
+  if (argv[0] === 'completions') {
+    const shell = argv[1]
+    if (shell !== 'bash' && shell !== 'zsh' && shell !== 'fish') usageError('completions requires bash, zsh, or fish')
+    if (argv.length !== 2) usageError('completions accepts exactly one shell')
+    return {
+      prompt: [], model: undefined, provider: undefined, resume: undefined, dumpConfig: false,
+      plugin: false, pluginArgs: [], completions: shell, help: false,
     }
   }
   const prompt: string[] = []
@@ -104,7 +133,7 @@ export function parseOmdshArgs(argv: readonly string[], version: string): OmdshI
   if (dumpConfig && (resume !== undefined || prompt.length > 0)) {
     usageError('--dump-config cannot be combined with a prompt or --resume')
   }
-  return { prompt, model, provider, resume, dumpConfig, plugin: false, pluginArgs: [], help }
+  return { prompt, model, provider, resume, dumpConfig, plugin: false, pluginArgs: [], completions: undefined, help }
 }
 
 function usageError(message: string): never {

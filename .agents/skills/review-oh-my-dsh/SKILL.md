@@ -9,7 +9,7 @@ Report substantiated defects before suggestions. Review requests are read-only u
 
 ## Orient to the repository
 
-1. Read [`AGENTS.md`](../../../AGENTS.md), [`docs/architecture.md`](../../../docs/architecture.md), and [`docs/plugin-architecture-review.md`](../../../docs/plugin-architecture-review.md).
+1. Read [`AGENTS.md`](../../../AGENTS.md), [`docs/architecture.md`](../../../docs/architecture.md), and [`docs/plugins.md`](../../../docs/plugins.md).
 2. Establish the exact review scope from the user-specified base, commit, branch, or dirty worktree. Include surrounding code and both sides of changed interfaces.
 3. Treat `refs/deepseek-harness` as API and architecture evidence and `refs/oh-my-pi` as UX evidence only. Never modify or depend on them.
 4. Read the originating request or specification. Separate compliance with repository standards from compliance with the requested behavior.

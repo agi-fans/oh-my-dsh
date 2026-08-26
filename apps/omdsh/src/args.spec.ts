@@ -39,6 +39,14 @@ describe('omdsh arguments', () => {
     })
   })
 
+  it('parses shell completion generation without starting the application', () => {
+    expect(parseOmdshArgs(['completions', 'zsh'], '0.1.0')).toMatchObject({
+      completions: 'zsh',
+      prompt: [],
+      plugin: false,
+    })
+  })
+
   it('rejects dump-config combined with a prompt or resume', () => {
     vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error('exit ' + String(code))

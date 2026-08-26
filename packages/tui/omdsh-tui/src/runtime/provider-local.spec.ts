@@ -1529,6 +1529,8 @@ describe('LocalTui (tty)', () => {
       expandTools: false,
       checkUpdates: true,
       startupChangelog: 'summary',
+      notifications: 'off',
+      notificationThreshold: '30s',
       statusBar: {
         enabled: true,
         labels: 'compact',
@@ -1747,7 +1749,7 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('Enter open · Esc return')
     press(term, '\r')
     expect(term.captured).toContain('Agent Hub')
-    expect(term.captured).toContain('type to filter · ↑↓ navigate')
+    expect(term.captured).toContain('Enter transcript · Tab inspector')
     press(term, '\x1b[B')
     press(term, '\r')
     await flushAsyncPaste()

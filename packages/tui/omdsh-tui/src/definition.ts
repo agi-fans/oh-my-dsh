@@ -51,6 +51,13 @@ export interface TuiPrompt {
     /** Optional semantic badge painted after the description. */
     badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
   }[]
+  /** Optional single-key actions applied to the active option while the filter is empty. */
+  actions?: readonly {
+    key: string
+    label: string
+    /** Prefix returned before the selected option value. */
+    valuePrefix: string
+  }[]
   multiSelect?: boolean
   allowCustom?: boolean
   /** Mask custom input while retaining the real value only in the prompt editor. */
@@ -115,6 +122,9 @@ export interface TuiSubagentView {
   readonly mode?: 'one-shot' | 'continuable'
   readonly phase: TuiSubagentPhase
   readonly activity: readonly TuiSubagentActivity[]
+  /** First and latest durable event timestamps for elapsed-time presentation. */
+  readonly startedAt?: number
+  readonly updatedAt?: number
 }
 
 /** Live descendant roster for the active root session. */
@@ -205,6 +215,8 @@ export interface TuiService {
   setTools(tools: readonly { name: string; description: string }[]): void
   /** Replace commands contributed by the active agent's Harness scope. */
   setCommands(commands: readonly TuiCommand[]): void
+  /** Open a keyboard-driven event ledger for the active session. */
+  openTrajectory(events: readonly SessionEvent[]): boolean
   /** Append a direct UI/command result without fabricating a session event. */
   notice(text: string, options?: TuiNoticeOptions): void
   /** Append one successful plugin command result using the command-output surface. */

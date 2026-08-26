@@ -9,6 +9,11 @@ describe('visibleWidth', () => {
   it('counts CJK as two cells', () => {
     expect(visibleWidth('你好')).toBe(4)
   })
+
+  it('counts terminal-wide emoji symbols as two cells', () => {
+    expect(visibleWidth('✅⚡⭐')).toBe(6)
+    expect(visibleWidth(padToWidth('ok ✅', 8))).toBe(8)
+  })
 })
 
 describe('truncateToWidth', () => {

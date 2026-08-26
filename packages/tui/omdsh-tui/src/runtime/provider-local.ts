@@ -11,6 +11,8 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { TerminalNotificationController, terminalNotificationSequence } from './terminal-notifications.ts'
+
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
@@ -79,6 +81,18 @@ import {
   type SettingsState,
   type TuiPrefs,
 } from '../views/settings-list.ts'
+import {
+  appendTrajectoryEvent,
+  applyTrajectoryEvent,
+  createTrajectory,
+  type TrajectoryState,
+} from '../views/trajectory.ts'
+import {
+  applyAgentHubEvent,
+  createAgentHub,
+  updateAgentHub,
+  type AgentHubState,
+} from '../views/agent-hub.ts'
 import {
   applyEvent,
   blockLines,
@@ -208,6 +222,8 @@ export class LocalTui implements TuiService {
   #search: HistorySearchState | null = null
   #settings: SettingsState | null = null
   #copySelector: CopySelectorState | null = null
+  #trajectory: TrajectoryState | null = null
+  #agentHub: AgentHubState | null = null
   #pending: PendingRead | null = null
   #queuedSubmissions: TuiSubmission[] = []
   /** Newer queue entries temporarily detached while Up browses backward. */
@@ -253,6 +269,9 @@ export class LocalTui implements TuiService {
   #expandTools = false
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
+  #notifications = new TerminalNotificationController()
+  #notificationPolicy: 'off' | 'long-running' | 'always' = 'off'
+  #notificationThreshold: '15s' | '30s' | '1m' | '2m' = '30s'
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
   #expandedToolCalls = new Set<string>()
@@ -393,6 +412,8 @@ export class LocalTui implements TuiService {
 
   event(event: SessionEvent, presentation?: TuiToolPresentation): void {
     this.#state = applyEvent(this.#state, event, presentation)
+    this.#emitNotification(this.#notifications.event({ type: event.type, ...('reason' in event && typeof event.reason === 'string' ? { reason: event.reason } : {}) }))
+    if (this.#trajectory !== null) this.#trajectory = appendTrajectoryEvent(this.#trajectory, event)
     this.#syncTick()
     if (this.#tty) {
       if (event.type === 'assistant/chunk' && this.#streamRenderMs > 0) {
@@ -429,6 +450,10 @@ export class LocalTui implements TuiService {
       ? undefined
       : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
     if ((this.#subagents?.agents.length ?? 0) === 0) this.#subagentLauncherFocused = false
+    if (this.#agentHub !== null) {
+      if (this.#subagents === undefined) this.#agentHub = null
+      else this.#agentHub = updateAgentHub(this.#agentHub, this.#subagents)
+    }
     const inspected = this.#inspected
     if (inspected !== undefined) {
       const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
@@ -465,6 +490,19 @@ export class LocalTui implements TuiService {
     }))
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
+  }
+
+  openTrajectory(events: readonly SessionEvent[]): boolean {
+    if (!this.#tty) return false
+    this.#trajectory = createTrajectory(events)
+    this.#agentHub = null
+    this.#prompt = null
+    this.#settings = null
+    this.#copySelector = null
+    this.#search = null
+    this.#ac = null
+    this.#render()
+    return true
   }
 
   setSessionSearch(search?: SessionSearcher): void {
@@ -504,6 +542,7 @@ export class LocalTui implements TuiService {
   prompt(request: TuiPrompt): Promise<string | null> {
     if (this.#prompt !== null) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
+    this.#emitNotification(this.#notifications.humanPrompt())
     this.#editor.setText('')
     this.#ac = null
     return new Promise((resolve) => {
@@ -540,6 +579,7 @@ export class LocalTui implements TuiService {
     presentations?: ReadonlyMap<number, TuiToolPresentation>,
     status: TuiStatus = 'idle',
   ): void {
+    this.#trajectory = null
     const state = replayEvents(events, presentations)
     this.#state = { ...state, status, compactCommandId: undefined }
     this.#plainPrinted = 0
@@ -575,6 +615,9 @@ export class LocalTui implements TuiService {
     this.#expandTools = prefs.expandTools
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
+    this.#notificationPolicy = prefs.notifications ?? 'off'
+    this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
+    this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     this.#toolsExpanded = prefs.expandTools
     if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
@@ -873,6 +916,8 @@ export class LocalTui implements TuiService {
         ...(this.#subagents === undefined ? {} : { subagents: this.#subagents }),
         subagentLauncherFocused: this.#subagentLauncherFocused,
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
+        ...(this.#trajectory === null ? {} : { trajectory: this.#trajectory }),
+        ...(this.#agentHub === null ? {} : { agentHub: this.#agentHub }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
@@ -1172,6 +1217,23 @@ export class LocalTui implements TuiService {
     }
     if (event.type !== 'key' || event.id !== 'escape') this.#lastEscapeTime = 0
     if (this.#handlePrompt(event)) return
+    if (this.#trajectory !== null) {
+      const command = applyTrajectoryEvent(this.#trajectory, event)
+      if ('close' in command) this.#trajectory = null
+      else this.#trajectory = command.state
+      this.#render()
+      return
+    }
+    if (this.#agentHub !== null) {
+      const command = applyAgentHubEvent(this.#agentHub, event)
+      if ('close' in command) this.#agentHub = null
+      else if ('open' in command) {
+        this.#agentHub = null
+        this.#openInspect(command.open)
+      } else this.#agentHub = command.state
+      this.#render()
+      return
+    }
     if (event.type === 'key') {
       const action = this.#keybindings[event.id]
       if (action !== undefined) {
@@ -1316,6 +1378,15 @@ export class LocalTui implements TuiService {
     const prompt = this.#prompt
     if (prompt === null) return false
     if (prompt.request.presentation === 'plan-review') return this.#handlePlanReview(event, prompt)
+    if (event.type === 'text' && this.#editor.text === '') {
+      const action = prompt.request.actions?.find(item => item.key === event.value)
+      const selected = filteredPromptOptions(prompt.request, '')[prompt.selected]
+      if (action !== undefined && selected !== undefined) {
+        this.#finishPrompt(action.valuePrefix + (selected.value ?? selected.label))
+        this.#render()
+        return true
+      }
+    }
     if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true && this.#editor.text === '') {
       this.#prompt = togglePromptSelection(prompt) as PendingPrompt
       this.#render()
@@ -1500,30 +1571,21 @@ export class LocalTui implements TuiService {
     for (const listener of this.#inspectCloses) listener()
   }
 
-  async #pickSubagent(): Promise<void> {
+  #pickSubagent(): void {
     this.#subagentLauncherFocused = false
     const agents = this.#subagents?.agents ?? []
     if (agents.length === 0) {
       this.notice('No subagents are available in this session.')
       return
     }
-    const initialValue = this.#inspected?.id ?? agents[0]?.id
-    const answer = await this.prompt({
-      title: 'Agent Hub',
-      question: 'Open a subagent transcript',
-      options: agents.map(agent => ({
-        label: agent.label,
-        value: agent.id,
-        description: agent.activity.at(-1)?.text ?? agent.phase,
-      })),
-      ...(initialValue === undefined ? {} : { initialValue }),
-      allowCustom: false,
-      presentation: 'fullscreen-list',
-      filterable: true,
-      submitLabel: 'open',
-    })
-    if (answer === null || answer === '') return
-    this.#openInspect(answer)
+    this.#prompt = null
+    this.#settings = null
+    this.#copySelector = null
+    this.#search = null
+    this.#trajectory = null
+    this.#ac = null
+    this.#agentHub = createAgentHub({ agents })
+    this.#render()
   }
 
   #prefs(): TuiPrefs {
@@ -1533,6 +1595,8 @@ export class LocalTui implements TuiService {
       expandTools: this.#expandTools,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
+      notifications: this.#notificationPolicy,
+      notificationThreshold: this.#notificationThreshold,
       statusBar: {
         ...this.#statusBar,
         groups: [...this.#statusBar.groups],
@@ -1552,6 +1616,9 @@ export class LocalTui implements TuiService {
     this.#expandTools = prefs.expandTools
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
+    this.#notificationPolicy = prefs.notifications ?? 'off'
+    this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
+    this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     if (expandChanged) this.#toolsExpanded = prefs.expandTools
     this.#persistPrefs?.(prefs)
@@ -1919,6 +1986,8 @@ export class LocalTui implements TuiService {
     this.#search = null
     this.#settings = null
     this.#copySelector = null
+    this.#trajectory = null
+    this.#agentHub = null
     this.#followTail()
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
@@ -2124,6 +2193,20 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #configureNotifications(): void {
+    const thresholds = { '15s': 15_000, '30s': 30_000, '1m': 60_000, '2m': 120_000 } as const
+    this.#notifications.configure({
+      policy: this.#notificationPolicy,
+      thresholdMs: thresholds[this.#notificationThreshold],
+    })
+  }
+
+  #emitNotification(notification: ReturnType<TerminalNotificationController['humanPrompt']>): void {
+    if (notification === undefined || !this.#tty) return
+    const sequence = terminalNotificationSequence(notification)
+    if (sequence !== '') this.#term.output.write(sequence)
+  }
+
   #toolCatalog(): void {
     this.#state = {
       ...this.#state,
@@ -2145,6 +2228,18 @@ export class LocalTui implements TuiService {
     }
     if (action === 'retry') {
       this.#submit('/retry')
+      return
+    }
+    if (action === 'cycle-model-forward') {
+      this.#submit('/model next')
+      return
+    }
+    if (action === 'cycle-model-backward') {
+      this.#submit('/model previous')
+      return
+    }
+    if (action === 'cycle-reasoning') {
+      this.#submit('/model reasoning')
       return
     }
     if (action === 'copy-prompt') {

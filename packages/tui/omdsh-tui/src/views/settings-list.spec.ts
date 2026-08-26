@@ -25,6 +25,8 @@ describe('tuiSettingItems / applySettingValue', () => {
       'expandTools',
       'checkUpdates',
       'startupChangelog',
+      'notifications',
+      'notificationThreshold',
       'statusEnabled',
       'statusLabels',
       'statusItem:model',
@@ -43,11 +45,11 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[2]).toMatchObject({ label: 'Tool details', value: 'compact' })
     expect(items[3]).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items[4]).toMatchObject({ label: 'Release notes', value: 'summary' })
-    expect(items[5]?.value).toBe('on')
-    expect(items[5]?.label).toBe('Status line')
-    expect(items[6]?.value).toBe('compact')
-    expect(items[7]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
-    expect(items[11]).toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6%' })
+    expect(items[7]?.value).toBe('on')
+    expect(items[7]?.label).toBe('Status line')
+    expect(items[8]?.value).toBe('compact')
+    expect(items[9]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
+    expect(items[13]).toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6%' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual({ theme: 'dark', colors: true, expandTools: true })
@@ -73,6 +75,14 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ value: 'summary' })
     expect(applySettingValue(prefs, 'checkUpdates', 'off').checkUpdates).toBe(false)
     expect(applySettingValue(prefs, 'startupChangelog', 'expanded').startupChangelog).toBe('expanded')
+  })
+
+  it('exposes opt-in terminal notification controls', () => {
+    const items = tuiSettingItems(prefs)
+    expect(items.find(item => item.id === 'notifications')).toMatchObject({ value: 'off' })
+    expect(items.find(item => item.id === 'notificationThreshold')).toMatchObject({ value: '30s' })
+    expect(applySettingValue(prefs, 'notifications', 'long-running').notifications).toBe('long-running')
+    expect(applySettingValue(prefs, 'notificationThreshold', '1m').notificationThreshold).toBe('1m')
   })
 })
 
@@ -103,7 +113,7 @@ describe('applySettingsEvent', () => {
   })
 
   it('keeps up and down inside the active settings tab', () => {
-    const lastGeneral = createSettings(prefs, 'startupChangelog')
+    const lastGeneral = createSettings(prefs, 'notificationThreshold')
     const down = applySettingsEvent(lastGeneral, key('down'))
     expect(down).toEqual({ kind: 'update', state: lastGeneral })
     const firstStatus = createSettings(prefs, 'statusEnabled')
@@ -112,13 +122,13 @@ describe('applySettingsEvent', () => {
     const end = applySettingsEvent(firstStatus, key('end'))
     expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
     const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
-    expect(home.kind === 'update' && home.state.selected).toBe(5)
+    expect(home.kind === 'update' && home.state.selected).toBe(7)
   })
 
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(5)
+    expect(status.kind === 'update' && status.state.selected).toBe(7)
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
   })
@@ -159,12 +169,12 @@ describe('applySettingsEvent', () => {
     expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
       'context', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[12]?.id).toBe('statusItem:cache')
+    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[14]?.id).toBe('statusItem:cache')
     const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
     expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
       'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(shown.kind === 'apply' && shown.state.selected).toBe(12)
+    expect(shown.kind === 'apply' && shown.state.selected).toBe(14)
   })
 
   it('ignores unrelated keys and non-space text', () => {

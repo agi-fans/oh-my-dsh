@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- `omdsh completions bash|zsh|fish` prints an instant, network-free completion script generated from the canonical CLI metadata.
+
+- `/export html [path]` creates a standalone, CSP-locked HTML transcript alongside the existing complete Markdown export.
+
+- `/context` prints a projection-backed context diagnostics report into the transcript with occupancy, provider usage, and heuristic prompt composition.
+
+- `/sessions` opens a searchable Session Library where durable sessions can be pinned or renamed with the keyboard before resuming.
+
+- Optional terminal notifications can report completed long-running turns and prompts that need human input; they are disabled by default and configurable in `/settings`.
+
+- Added `/trajectory`, a keyboard-driven full-screen session event ledger with Turn/Step grouping, live following, search, folding, timing and token details, and tool payload, result, and schema inspection.
+- Models can now be favorited through `/model favorite` and cycled with `Ctrl+P` or `Alt+P`; `Ctrl+T` cycles the active model's supported reasoning efforts.
+- Agent Hub now opens as a keyboard-driven roster and inspector with responsive split-pane details, hierarchy, elapsed time, recent activity, and direct transcript access.
+
+### Fixed
+
+- The first startup header now includes durable recent sessions instead of rendering before persistence discovery completes.
+
+- Terminal layouts now count common emoji symbols such as `✅` at their actual two-cell width, preventing Trajectory and other vertical dividers from shifting on emoji-containing rows.
+- Long Trajectory payload, result, schema, timing, and summary details can now be paged with `PgUp` and `PgDn` instead of being clipped to the visible pane.
+
 ## [0.9.0] - 2026-08-26
 
 ### Added

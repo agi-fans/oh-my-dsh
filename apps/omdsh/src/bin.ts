@@ -25,7 +25,10 @@ const invocation = parseOmdshArgs(process.argv.slice(2), readVersion())
 if (invocation.model !== undefined) process.env.OMDSH_MODEL = invocation.model
 if (invocation.provider !== undefined) process.env.OMDSH_PROVIDER = invocation.provider
 
-if (invocation.plugin) {
+if (invocation.completions !== undefined) {
+  const { generateCompletions } = await import('./completions.ts')
+  process.stdout.write(generateCompletions(invocation.completions))
+} else if (invocation.plugin) {
   const { dumpErrorMessage, prepareLaunchEnvironment } = await import('./composition.ts')
   const { runPlugin } = await import('./plugin.ts')
   try {

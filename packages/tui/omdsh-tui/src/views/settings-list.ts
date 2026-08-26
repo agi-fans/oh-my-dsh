@@ -47,6 +47,8 @@ export interface TuiPrefs {
   expandTools: boolean
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
+  notifications?: 'off' | 'long-running' | 'always'
+  notificationThreshold?: '15s' | '30s' | '1m' | '2m'
   statusBar?: StatusBarConfig
   /** Read-only migration input for settings written before status-line customization. */
   statusPreset?: StatusPreset
@@ -151,6 +153,20 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
       values: STARTUP_CHANGELOG_VALUES,
     },
     {
+      id: 'notifications',
+      label: 'Notifications',
+      description: 'Notify when a turn finishes or input is required',
+      value: prefs.notifications ?? 'off',
+      values: ['off', 'long-running', 'always'],
+    },
+    {
+      id: 'notificationThreshold',
+      label: 'Long turn',
+      description: 'Minimum duration for long-running notifications',
+      value: prefs.notificationThreshold ?? '30s',
+      values: ['15s', '30s', '1m', '2m'],
+    },
+    {
       id: 'statusEnabled',
       label: 'Status line',
       description: 'Show the fixed two-line footer below the composer',
@@ -229,6 +245,12 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
     return { ...prefs, startupChangelog: value as StartupChangelogMode }
+  }
+  if (id === 'notifications' && ['off', 'long-running', 'always'].includes(value)) {
+    return { ...prefs, notifications: value as NonNullable<TuiPrefs['notifications']> }
+  }
+  if (id === 'notificationThreshold' && ['15s', '30s', '1m', '2m'].includes(value)) {
+    return { ...prefs, notificationThreshold: value as NonNullable<TuiPrefs['notificationThreshold']> }
   }
   const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
   if (id === 'statusEnabled') return { ...prefs, statusBar: { ...statusBar, enabled: value === 'on' } }
@@ -343,7 +365,7 @@ function toggleSelectedVisibility(state: SettingsState): SettingsState {
   return { selected: state.selected, prefs: { ...state.prefs, statusBar: toggleStatusItem(resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset), item) } }
 }
 
-const GENERAL_SETTING_COUNT = 5
+const GENERAL_SETTING_COUNT = 7
 
 function moveSelected(state: SettingsState, next: number): SettingsState {
   const n = tuiSettingItems(state.prefs).length

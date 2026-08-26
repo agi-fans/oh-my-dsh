@@ -16,6 +16,8 @@ describe('TuiSettingsSchema', () => {
       expandTools: false,
       checkUpdates: true,
       startupChangelog: 'summary',
+      notifications: 'off',
+      notificationThreshold: '30s',
     })
     expect(validate({ theme: 'light', colors: false, expandTools: true })).toEqual({
       theme: 'light',
@@ -23,6 +25,8 @@ describe('TuiSettingsSchema', () => {
       expandTools: true,
       checkUpdates: true,
       startupChangelog: 'summary',
+      notifications: 'off',
+      notificationThreshold: '30s',
     })
     expect(validate({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
       statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] },

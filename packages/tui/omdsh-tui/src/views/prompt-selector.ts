@@ -188,7 +188,8 @@ export function renderPromptSelectorPage(
   if (lines.length > targetBeforeFooter) lines.length = targetBeforeFooter
   while (lines.length < targetBeforeFooter) lines.push(pageRow(theme, '', width))
   const position = options.length === 0 ? '' : ` · ${selected + 1}/${options.length}`
-  const hint = `[type to filter · ↑↓ navigate · Enter select · Esc cancel${position}]`
+  const actions = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
+  const hint = `[type to filter · ↑↓ navigate · Enter select${actions === '' ? '' : ' · ' + actions} · Esc cancel${position}]`
   lines.push(pageRow(theme, '', width), pageRow(theme, theme.fg('dim', hint), width), pageRow(theme, '', width), pageBottom(theme, width))
   const cursorColumn = Math.min(Math.max(1, width - 3), 4 + visibleWidth(input.slice(0, inputCursor)))
   return {

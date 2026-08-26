@@ -4,7 +4,7 @@
 // quits with double Ctrl-C and asserts the resume hint.
 // Run: node scripts/pty-smoke.mjs
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -27,12 +27,31 @@ const spawnCmd = process.env.OMDSH_RUN_MODE === 'built'
   ? [process.execPath, ['apps/omdsh/lib/bin.js']]
   : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
 
+const smokeEnv = {
+  ...process.env,
+  OMDSH_HOME: omdshHome,
+  DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke',
+  NO_COLOR: '1',
+}
+const seeded = spawnSync(spawnCmd[0], spawnCmd[1], {
+  cwd: root,
+  input: 'Recent header seed\n',
+  encoding: 'utf8',
+  timeout: 120_000,
+  env: smokeEnv,
+})
+if (seeded.status !== 0) {
+  console.error('FAIL: could not seed a durable recent session')
+  console.error((seeded.stdout ?? '') + (seeded.stderr ?? ''))
+  process.exit(1)
+}
+
 const term = pty.spawn(spawnCmd[0], spawnCmd[1], {
   name: 'xterm-256color',
   cols: 80,
   rows: 30,
   cwd: root,
-  env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke', NO_COLOR: '1' },
+  env: smokeEnv,
 })
 
 let out = ''
@@ -177,6 +196,8 @@ term.kill()
 
 const clean = cleanOutput(out)
 const ok = exitCode === 0
+  && clean.includes('Recent sessions')
+  && clean.includes('Recent header seed')
   && clean.includes('hi')
   && clean.includes('error:')
   && clean.includes('deepseek-v4-flash')

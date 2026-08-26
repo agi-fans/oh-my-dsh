@@ -12,5 +12,8 @@ describe('loadKeybindings', () => {
     expect(bindings['ctrl+e']).toBe('external-editor')
     expect(bindings.bad).toBeUndefined()
     expect(bindings['alt+r']).toBe('retry')
+    expect(bindings['ctrl+p']).toBe('cycle-model-forward')
+    expect(bindings['alt+p']).toBe('cycle-model-backward')
+    expect(bindings['ctrl+t']).toBe('cycle-reasoning')
   })
 })

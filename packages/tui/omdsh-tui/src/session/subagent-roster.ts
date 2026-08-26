@@ -309,7 +309,17 @@ export class SubagentRoster {
       phase: agentStatus === 'running' ? 'running' : 'starting',
     })
     const seedLength = session.header.seedLength ?? 0
-    for (const event of session.events.slice(seedLength)) view = applySubagentEvent(view, event)
+    const events = session.events.slice(seedLength)
+    for (const event of events) view = applySubagentEvent(view, event)
+    const startedAt = events[0]?.time
+    const updatedAt = events.at(-1)?.time
+    if (startedAt !== undefined || updatedAt !== undefined) {
+      view = {
+        ...view,
+        ...(startedAt === undefined ? {} : { startedAt }),
+        ...(updatedAt === undefined ? {} : { updatedAt }),
+      }
+    }
     if (agentStatus === 'running' && view.phase !== 'error') view = { ...view, phase: 'running' }
     else if (agentStatus === 'idle' && view.phase === 'starting') view = { ...view, phase: 'waiting' }
     this.#agents.set(id, view)
