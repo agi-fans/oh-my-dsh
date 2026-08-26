@@ -36,6 +36,8 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 
 ## Learn
 
+The full documentation is also published on the [official site](https://agi-fans.github.io/oh-my-dsh/).
+
 - [Tutorials](docs/tutorials.md) — complete a first task, add precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
 - [Skills and MCP](docs/skills-and-mcp.md) — extend a project with reusable instructions and external tools.
 - [User plugins](docs/plugins.md) — install DSH bundles into the omdsh Profile with `omdsh plugin`.

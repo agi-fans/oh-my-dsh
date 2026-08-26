@@ -9,6 +9,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - Keep product-owned implementation inside `apps/`, `packages/`, `scripts/`, and `docs/`. Do not place omdsh implementation in a reference project.
 - Authoring fixtures under `examples/` are not workspace members. Do not add them to `pnpm-workspace.yaml`, do not give them `workspace:` dependencies, and do not import them from product packages.
 - `apps/omdsh` owns the `@agi-fans/oh-my-dsh` package, command startup, and runtime composition. `packages/tui/omdsh-tui` owns the `@agi-fans/dsh-tui` package, terminal presentation, input, session interaction, and reusable TUI behavior.
+- `apps/site` owns the public VitePress site deployed to GitHub Pages. Its content is synced from `docs/` and `CHANGELOG.md` at build time; those sources remain the documentation source of truth and the generated site tree is never committed.
 - Prefer deep, explicit package seams over copying upstream internals. If a second provider or consumer creates a real independent lifecycle, split the seam then rather than pre-emptively.
 
 ## Reference Repositories Are Read-Only

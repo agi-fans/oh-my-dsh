@@ -4,12 +4,21 @@ import { relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const check = process.argv.includes('--check')
 const skippedDirectories = new Set(['.git', 'lib', 'node_modules', 'refs'])
+// Generated VitePress content under apps/site/src is synced from docs/ and
+// CHANGELOG.md; formatting (and checking) those copies would fight the sync.
+const skippedPaths = new Set([
+  'apps/site/src/docs',
+  'apps/site/src/zh/docs',
+  'apps/site/src/changelog.md',
+  'apps/site/src/zh/changelog.md',
+])
 
 async function markdownFiles(directory) {
   const files = []
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory() && skippedDirectories.has(entry.name)) continue
     const path = resolve(directory, entry.name)
+    if (skippedPaths.has(relative(root, path))) continue
     if (entry.isDirectory()) files.push(...await markdownFiles(path))
     else if (entry.isFile() && entry.name.endsWith('.md')) files.push(path)
   }

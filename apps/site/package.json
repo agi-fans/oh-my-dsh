@@ -1,0 +1,14 @@
+{
+  "name": "@agi-fans/oh-my-dsh-site",
+  "private": true,
+  "description": "Public VitePress site for oh-my-dsh, synced from docs/ and CHANGELOG.md.",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-content.mjs",
+    "dev": "pnpm sync && vitepress dev",
+    "build": "pnpm sync && vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

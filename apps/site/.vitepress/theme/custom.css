@@ -1,0 +1,71 @@
+:root {
+  --vp-c-brand-1: #4d6bfe;
+  --vp-c-brand-2: #5b78ff;
+  --vp-c-brand-3: #7c93ff;
+  --vp-c-brand-soft: rgb(77 107 254 / 14%);
+  --vp-c-brand: #4d6bfe;
+
+  /* Gradient hero name and the glow behind the animated terminal. */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #4d6bfe 25%, #35c8de 90%);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #4d6bfe 30%, #35c8de 70%);
+  --vp-home-hero-image-filter: blur(72px);
+}
+
+.dark {
+  --vp-c-brand-1: #7c93ff;
+  --vp-c-brand-2: #5b78ff;
+  --vp-c-brand-3: #4d6bfe;
+  --vp-c-brand: #7c93ff;
+}
+
+.VPHero .image-bg {
+  opacity: 0.28;
+}
+
+.VPHero .image-container {
+  width: 100%;
+  max-width: 780px;
+}
+
+.VPHero .image {
+  width: 100%;
+}
+
+@media (min-width: 960px) {
+  .VPNavBar .container,
+  .VPHero .container,
+  .VPFeatures .container,
+  .VPHome .vp-doc.container {
+    max-width: calc(var(--vp-layout-max-width) - 64px);
+  }
+
+  .VPHero.has-image .main {
+    flex: 1 1 592px;
+    max-width: none;
+  }
+
+  .VPHero.has-image .name,
+  .VPHero.has-image .text,
+  .VPHero.has-image .tagline {
+    max-width: 100%;
+  }
+
+  .VPHero .image {
+    flex: 0 1 784px;
+    min-width: 0;
+    width: auto;
+    padding-left: 24px;
+  }
+
+  .VPHero .image-container {
+    justify-content: flex-end;
+    max-width: none;
+    transform: none;
+  }
+
+  .VPHero .terminal-demo {
+    width: min(760px, 100%) !important;
+    max-width: 760px;
+  }
+}

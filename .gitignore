@@ -6,3 +6,11 @@ dist/
 .DS_Store
 coverage/
 *.tsbuildinfo
+
+# apps/site generated content and build output
+apps/site/src/docs/
+apps/site/src/zh/docs/
+apps/site/src/changelog.md
+apps/site/src/zh/changelog.md
+apps/site/.vitepress/dist
+apps/site/.vitepress/cache
