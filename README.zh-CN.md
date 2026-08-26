@@ -36,7 +36,7 @@ omdsh
 
 ## 学习指南
 
-完整文档同时发布在[官方站点](https://agi-fans.github.io/oh-my-dsh/)。
+完整文档同时发布在[官方站点](https://omdsh.agi.fans/)。
 
 - [教程](docs/tutorials.zh-CN.md) — 完成第一个任务、提供精确上下文、引导队列任务、恢复长会话、定制工作环境，并编写可安装插件。
 - [Skills 与 MCP](docs/skills-and-mcp.zh-CN.md) — 使用可复用指令和外部工具扩展项目。

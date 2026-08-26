@@ -30,10 +30,10 @@ const guideSidebar = (prefix: string, zh: boolean) => [
 ]
 
 export default defineConfig({
-  base: '/oh-my-dsh/',
+  base: '/',
   srcDir: 'src',
   cleanUrls: true,
-  title: 'oh-my-dsh',
+  title: 'Oh My DSH',
   description: 'A focused, keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.',
   locales: {
     root: { label: 'English', lang: 'en-US' },
