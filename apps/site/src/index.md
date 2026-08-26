@@ -1,5 +1,7 @@
 ---
 layout: home
+title: Keyboard-first DeepSeek coding agent
+description: Oh My DSH is a focused, keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.
 
 hero:
   name: Oh My DSH

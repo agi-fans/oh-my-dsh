@@ -1,6 +1,85 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig, type HeadConfig } from 'vitepress'
 
 const repoUrl = 'https://github.com/agi-fans/oh-my-dsh'
+const npmUrl = 'https://www.npmjs.com/package/@agi-fans/oh-my-dsh'
+const siteUrl = 'https://omdsh.agi.fans'
+const descriptions = {
+  en: 'A focused, keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.',
+  zh: '一个专注、键盘优先的 DeepSeek 终端编程智能体，构建于 DeepSeek Harness 插件运行时之上。',
+} as const
+
+function routeFromRelativePath(relativePath: string): string {
+  const route = relativePath.replace(/\.md$/, '').replace(/(^|\/)index$/, '$1')
+  return route ? `/${route}` : '/'
+}
+
+function alternateRoute(route: string, chinese: boolean): string {
+  if (chinese) return route.slice('/zh'.length) || '/'
+  return route === '/' ? '/zh/' : `/zh${route}`
+}
+
+function pageHead(relativePath: string, pageTitle: string, pageDescription: string): HeadConfig[] {
+  const route = routeFromRelativePath(relativePath)
+  const chinese = route === '/zh/' || route.startsWith('/zh/')
+  const canonical = `${siteUrl}${route}`
+  const alternate = `${siteUrl}${alternateRoute(route, chinese)}`
+  const title = pageTitle ? `${pageTitle} | Oh My DSH` : 'Oh My DSH | Into the Unknown'
+  const description = pageDescription || descriptions[chinese ? 'zh' : 'en']
+  const locale = chinese ? 'zh_CN' : 'en_US'
+  const alternateLocale = chinese ? 'en_US' : 'zh_CN'
+  const graph = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebSite',
+        '@id': `${siteUrl}/#website`,
+        url: `${siteUrl}/`,
+        name: 'Oh My DSH',
+        inLanguage: ['en-US', 'zh-CN'],
+      },
+      {
+        '@type': 'SoftwareApplication',
+        '@id': `${siteUrl}/#software`,
+        name: 'Oh My DSH',
+        alternateName: 'omdsh',
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'Linux, macOS, Windows',
+        description: descriptions.en,
+        url: `${siteUrl}/`,
+        codeRepository: repoUrl,
+        downloadUrl: npmUrl,
+      },
+      {
+        '@type': 'WebPage',
+        '@id': canonical,
+        url: canonical,
+        name: title,
+        description,
+        inLanguage: chinese ? 'zh-CN' : 'en-US',
+        isPartOf: { '@id': `${siteUrl}/#website` },
+        about: { '@id': `${siteUrl}/#software` },
+      },
+    ],
+  }
+
+  return [
+    ['link', { rel: 'canonical', href: canonical }],
+    ['link', { rel: 'alternate', hreflang: chinese ? 'zh-CN' : 'en', href: canonical }],
+    ['link', { rel: 'alternate', hreflang: chinese ? 'en' : 'zh-CN', href: alternate }],
+    ['link', { rel: 'alternate', hreflang: 'x-default', href: chinese ? alternate : canonical }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:site_name', content: 'Oh My DSH' }],
+    ['meta', { property: 'og:title', content: title }],
+    ['meta', { property: 'og:description', content: description }],
+    ['meta', { property: 'og:url', content: canonical }],
+    ['meta', { property: 'og:locale', content: locale }],
+    ['meta', { property: 'og:locale:alternate', content: alternateLocale }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:title', content: title }],
+    ['meta', { name: 'twitter:description', content: description }],
+    ['script', { type: 'application/ld+json' }, JSON.stringify(graph)],
+  ]
+}
 
 const guideSidebar = (prefix: string, zh: boolean) => [
   {
@@ -34,7 +113,9 @@ export default defineConfig({
   srcDir: 'src',
   cleanUrls: true,
   title: 'Oh My DSH',
-  description: 'A focused, keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.',
+  description: descriptions.en,
+  sitemap: { hostname: siteUrl },
+  transformHead: ({ pageData }) => pageHead(pageData.relativePath, pageData.title, pageData.description),
   locales: {
     root: { label: 'English', lang: 'en-US' },
     zh: {

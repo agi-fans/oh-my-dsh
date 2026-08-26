@@ -1,5 +1,7 @@
 ---
 layout: home
+title: 键盘优先的 DeepSeek 终端编程智能体
+description: Oh My DSH 是一个专注、键盘优先的 DeepSeek 终端编程智能体，构建于 DeepSeek Harness 插件运行时之上。
 
 hero:
   name: Oh My DSH

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual VitePress build synced from `docs/` and deployed to GitHub Pages.
+- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual VitePress build synced from `docs/` and deployed to GitHub Pages with canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
 
 ## [0.10.0] - 2026-08-26
 
