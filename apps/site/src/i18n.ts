@@ -14,6 +14,11 @@ export const changelogDescriptions = {
   zh: 'omdsh 的版本记录：基于 DeepSeek Harness 的键盘优先终端编程智能体。',
 } as const
 
+export const keywords = {
+  en: 'omdsh, oh-my-dsh, Oh My DSH, dsh, plugin, dsh-plugin, DeepSeek, DeepSeek Harness, TUI, coding agent',
+  zh: 'omdsh, oh-my-dsh, Oh My DSH, dsh, plugin, dsh-plugin, DeepSeek, DeepSeek Harness, 终端编程智能体',
+} as const
+
 /** Directory-style site path with a trailing slash, matching GitHub Pages. */
 export function pagePath(path: string): string {
   const value = path.startsWith('/') ? path : `/${path}`

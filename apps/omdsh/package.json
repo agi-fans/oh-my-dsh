@@ -9,6 +9,8 @@
     "deepseek",
     "deepseek-harness",
     "dsh",
+    "plugin",
+    "dsh-plugin",
     "tui",
     "coding-agent",
     "cli"

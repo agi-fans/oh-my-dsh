@@ -1,4 +1,4 @@
-import { alternatePath, descriptions, npmUrl, pagePath, repoUrl, siteUrl, type Locale } from './i18n'
+import { alternatePath, descriptions, keywords, npmUrl, pagePath, repoUrl, siteUrl, type Locale } from './i18n'
 
 export type SeoOptions = {
   index?: boolean
@@ -43,6 +43,7 @@ export function seoFor(path: string, locale: Locale, pageTitle: string, pageDesc
         url: `${siteUrl}/`,
         name: 'Oh My DSH',
         alternateName: ['omdsh', 'oh-my-dsh'],
+        keywords: keywords[locale],
         inLanguage: ['en-US', 'zh-CN'],
         publisher: { '@id': `${siteUrl}/#organization` },
       },
@@ -51,6 +52,7 @@ export function seoFor(path: string, locale: Locale, pageTitle: string, pageDesc
         '@id': `${siteUrl}/#software`,
         name: 'Oh My DSH',
         alternateName: ['omdsh', 'oh-my-dsh'],
+        keywords: keywords[locale],
         applicationCategory: 'DeveloperApplication',
         operatingSystem: 'Linux, macOS, Windows',
         description: descriptions[locale],
@@ -97,5 +99,6 @@ export function seoFor(path: string, locale: Locale, pageTitle: string, pageDesc
     graph,
     index,
     inLanguage,
+    keywords: keywords[locale],
   }
 }

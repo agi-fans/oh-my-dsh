@@ -5,8 +5,11 @@
   "homepage": "https://omdsh.agi.fans/",
   "keywords": [
     "omdsh",
+    "oh-my-dsh",
     "deepseek-harness",
     "dsh",
+    "plugin",
+    "dsh-plugin",
     "tui",
     "cordis",
     "terminal"

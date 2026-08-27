@@ -44,4 +44,9 @@ describe('seoFor', () => {
     expect(seo.imageWidth).toBe(1200)
     expect(seo.imageHeight).toBe(630)
   })
+
+  it('includes oh-my-dsh in page keywords', () => {
+    const tags = seoFor('/', 'en', 'Keyboard-first DeepSeek coding agent').keywords.split(', ')
+    expect(tags).toEqual(expect.arrayContaining(['omdsh', 'oh-my-dsh', 'dsh', 'plugin', 'dsh-plugin']))
+  })
 })
