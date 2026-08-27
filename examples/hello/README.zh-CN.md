@@ -21,4 +21,4 @@ omdsh --dump-config
 omdsh plugin remove @agi-fans/omdsh-plugin-hello
 ```
 
-复制这个目录即可开始写新的 bundle，或按 [编写插件](../../docs/tutorials/write-a-plugin.zh-CN.md) 从零编写。把 `@deepseek-ai/*`，以及用到 TUI 服务时的 `@agi-fans/dsh-tui`，固定为 omdsh 随包发布的同一版本的 peer。不要把这些包放进 `dependencies`。见 [用户插件](../../docs/plugins.zh-CN.md)。
+复制这个目录即可开始写新的 bundle，或按 [编写插件](https://omdsh.agi.fans/zh/docs/tutorials/write-a-plugin) 从零编写。把 `@deepseek-ai/*`，以及用到 TUI 服务时的 `@agi-fans/dsh-tui`，固定为 omdsh 随包发布的同一版本的 peer。不要把这些包放进 `dependencies`。见 [用户插件](https://omdsh.agi.fans/zh/docs/plugins)。

@@ -22,6 +22,7 @@ allowBuilds:
   node-addon-require-builtin: false
   koffi: true
   '@deepseek-ai/dsh-subprocess-local': true
+  sharp: false
 
 minimumReleaseAgeExclude:
   - '@earendil-works/pi-ai@0.82.1'

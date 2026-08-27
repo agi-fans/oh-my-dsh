@@ -1,0 +1,165 @@
+---
+import { ui, type Locale } from '../i18n'
+
+interface Props {
+  locale: Locale
+}
+
+const { locale } = Astro.props
+const t = ui[locale]
+---
+
+<div class="palette-overlay" id="palette-overlay" data-pagefind-ignore>
+  <div class="palette" role="dialog" aria-modal="true" aria-label={t.search}>
+    <div class="palette-input-row">
+      <span class="whale-label">🐳</span>
+      <input class="palette-input" type="text" placeholder={t.searchPlaceholder} aria-label={t.search} />
+      <span class="palette-hint">esc</span>
+    </div>
+    <div class="palette-results"></div>
+  </div>
+</div>
+
+<script
+  is:inline
+  define:vars={{
+    locale,
+    emptyLabel: t.searchEmpty,
+    unavailableLabel: t.searchUnavailable,
+  }}
+>
+  const overlay = document.getElementById('palette-overlay')
+  if (overlay) {
+    const input = overlay.querySelector('.palette-input')
+    const results = overlay.querySelector('.palette-results')
+    let pagefind = null
+    let pagefindFailed = false
+    let selectedIndex = 0
+
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+    }
+
+    async function ensurePagefind() {
+      if (pagefind || pagefindFailed) return pagefind
+      try {
+        pagefind = await import('/pagefind/pagefind.js')
+      } catch {
+        pagefindFailed = true
+      }
+      return pagefind
+    }
+
+    function renderItems(items) {
+      if (items.length === 0) {
+        results.innerHTML = `<div class="palette-note">${esc(emptyLabel)}</div>`
+        return
+      }
+      results.innerHTML = items
+        .map(
+          (data, i) => `<a class="palette-result${i === selectedIndex ? ' selected' : ''}" href="${esc(data.url)}">
+            <div class="pr-title">${esc((data.meta && data.meta.title) || data.url)}</div>
+            <div class="pr-url">${esc(data.url)}</div>
+            <div class="pr-excerpt">${data.excerpt}</div>
+          </a>`,
+        )
+        .join('')
+    }
+
+    let searchToken = 0
+    async function runSearch() {
+      const query = input.value.trim()
+      selectedIndex = 0
+      if (!query) {
+        results.innerHTML = ''
+        return
+      }
+      const pf = await ensurePagefind()
+      if (!pf) {
+        results.innerHTML = `<div class="palette-note">${esc(unavailableLabel)}</div>`
+        return
+      }
+      const token = ++searchToken
+      const search = await pf.search(query)
+      const items = []
+      for (const result of search.results) {
+        const data = await result.data()
+        if (token !== searchToken) return
+        const isZh = data.url.startsWith('/zh/')
+        if ((locale === 'zh') === isZh) items.push(data)
+        if (items.length >= 8) break
+      }
+      if (token !== searchToken) return
+      renderItems(items)
+    }
+
+    function moveSelection(delta) {
+      const links = results.querySelectorAll('.palette-result')
+      if (links.length === 0) return
+      selectedIndex = (selectedIndex + delta + links.length) % links.length
+      links.forEach((link, i) => link.classList.toggle('selected', i === selectedIndex))
+      links[selectedIndex].scrollIntoView({ block: 'nearest' })
+    }
+
+    function openPalette() {
+      overlay.classList.add('open')
+      input.focus()
+      input.select()
+    }
+
+    function closePalette() {
+      overlay.classList.remove('open')
+      input.value = ''
+      results.innerHTML = ''
+      selectedIndex = 0
+    }
+
+    let debounce = 0
+    input.addEventListener('input', () => {
+      clearTimeout(debounce)
+      debounce = setTimeout(runSearch, 120)
+    })
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        moveSelection(1)
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        moveSelection(-1)
+      } else if (event.key === 'Enter') {
+        const link = results.querySelectorAll('.palette-result')[selectedIndex]
+        if (link) window.location.href = link.getAttribute('href')
+      }
+    })
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closePalette()
+    })
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && overlay.classList.contains('open')) {
+        closePalette()
+        return
+      }
+      const target = event.target
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      if (typing) return
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        overlay.classList.contains('open') ? closePalette() : openPalette()
+      } else if (event.key === '/') {
+        event.preventDefault()
+        openPalette()
+      }
+    })
+
+    document.querySelectorAll('[data-open-search]').forEach((btn) => {
+      btn.addEventListener('click', openPalette)
+    })
+  }
+</script>

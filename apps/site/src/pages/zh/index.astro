@@ -1,0 +1,9 @@
+---
+import Site from '../../layouts/Site.astro'
+import Home from '../../components/Home.astro'
+import { homeCopy } from '../../home'
+---
+
+<Site locale="zh" path="/zh/" title="" description={homeCopy.zh.tagline}>
+  <Home locale="zh" />
+</Site>

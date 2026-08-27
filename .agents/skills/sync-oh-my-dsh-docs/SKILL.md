@@ -1,6 +1,6 @@
 ---
 name: sync-oh-my-dsh-docs
-description: Keep oh-my-dsh English and Simplified Chinese documentation accurate and aligned. Use when editing README.md, README.zh-CN.md, docs/performance.md, docs/performance.zh-CN.md, docs/plugins.md, docs/plugins.zh-CN.md, adding a bilingual document, translating documentation, or auditing whether installation, commands, architecture, performance claims, links, and code examples have drifted between languages.
+description: Keep oh-my-dsh English and Simplified Chinese documentation accurate and aligned. Use when editing README.md, README.zh-CN.md, anything under apps/site/content/, adding a bilingual document, translating documentation, or auditing whether installation, commands, architecture, performance claims, links, and code examples have drifted between languages.
 ---
 
 # Sync oh-my-dsh Documentation
@@ -12,22 +12,22 @@ Treat both languages as maintained product documentation. Synchronize meaning an
 The current maintained pairs are:
 
 - `README.md` ↔ `README.zh-CN.md`
-- `docs/architecture.md` ↔ `docs/architecture.zh-CN.md`
-- `docs/performance.md` ↔ `docs/performance.zh-CN.md`
-- `docs/skills-and-mcp.md` ↔ `docs/skills-and-mcp.zh-CN.md`
-- `docs/plugins.md` ↔ `docs/plugins.zh-CN.md`
-- `docs/tutorials.md` ↔ `docs/tutorials.zh-CN.md`
-- `docs/tutorials/first-task.md` ↔ `docs/tutorials/first-task.zh-CN.md`
-- `docs/tutorials/precise-context.md` ↔ `docs/tutorials/precise-context.zh-CN.md`
-- `docs/tutorials/guide-a-turn.md` ↔ `docs/tutorials/guide-a-turn.zh-CN.md`
-- `docs/tutorials/long-session.md` ↔ `docs/tutorials/long-session.zh-CN.md`
-- `docs/tutorials/environment.md` ↔ `docs/tutorials/environment.zh-CN.md`
-- `docs/tutorials/skills-and-mcp.md` ↔ `docs/tutorials/skills-and-mcp.zh-CN.md`
-- `docs/tutorials/install-plugin.md` ↔ `docs/tutorials/install-plugin.zh-CN.md`
-- `docs/tutorials/write-a-plugin.md` ↔ `docs/tutorials/write-a-plugin.zh-CN.md`
+- `apps/site/content/en/architecture.md` ↔ `apps/site/content/zh/architecture.md`
+- `apps/site/content/en/performance.md` ↔ `apps/site/content/zh/performance.md`
+- `apps/site/content/en/skills-and-mcp.md` ↔ `apps/site/content/zh/skills-and-mcp.md`
+- `apps/site/content/en/plugins.md` ↔ `apps/site/content/zh/plugins.md`
+- `apps/site/content/en/tutorials.md` ↔ `apps/site/content/zh/tutorials.md`
+- `apps/site/content/en/tutorials/first-task.md` ↔ `apps/site/content/zh/tutorials/first-task.md`
+- `apps/site/content/en/tutorials/precise-context.md` ↔ `apps/site/content/zh/tutorials/precise-context.md`
+- `apps/site/content/en/tutorials/guide-a-turn.md` ↔ `apps/site/content/zh/tutorials/guide-a-turn.md`
+- `apps/site/content/en/tutorials/long-session.md` ↔ `apps/site/content/zh/tutorials/long-session.md`
+- `apps/site/content/en/tutorials/environment.md` ↔ `apps/site/content/zh/tutorials/environment.md`
+- `apps/site/content/en/tutorials/skills-and-mcp.md` ↔ `apps/site/content/zh/tutorials/skills-and-mcp.md`
+- `apps/site/content/en/tutorials/install-plugin.md` ↔ `apps/site/content/zh/tutorials/install-plugin.md`
+- `apps/site/content/en/tutorials/write-a-plugin.md` ↔ `apps/site/content/zh/tutorials/write-a-plugin.md`
 - `examples/hello/README.md` ↔ `examples/hello/README.zh-CN.md`
 
-Do not assume every file under `docs/` needs a counterpart. Create a new pair only when the user requests bilingual coverage or the document is clearly part of the public bilingual surface.
+Do not assume every file under `apps/site/content/` needs a counterpart. Create a new pair only when the user requests bilingual coverage or the document is clearly part of the public bilingual surface.
 
 ## Verify the source claim
 
@@ -47,7 +47,7 @@ Lock the section structure first, translate one semantic section at a time, pres
 
 ## Protect document form
 
-Apply [`write-oh-my-dsh-prose`](../write-oh-my-dsh-prose/SKILL.md): keep prose paragraphs on one physical source line, use blank lines around CommonMark blocks, and avoid duplicated explanations. Keep language-switch links and relative asset links correct when present.
+Apply [`write-oh-my-dsh-prose`](../write-oh-my-dsh-prose/SKILL.md): keep prose paragraphs on one physical source line, use blank lines around CommonMark blocks, and avoid duplicated explanations. In site content sources, link sibling pages with relative `*.md` paths that stay inside the same locale tree (the build rewrites them to routes), and write full GitHub URLs for anything outside the documentation set.
 
 ## Validate and report
 

@@ -9,7 +9,7 @@ Prefer a few proven reductions over a long list of guesses. A simplification mus
 
 ## Establish intent and constraints
 
-1. Read [`AGENTS.md`](../../../AGENTS.md), [`docs/architecture.md`](../../../docs/architecture.md), and [`docs/plugin-architecture-review.md`](../../../docs/plugin-architecture-review.md).
+1. Read [`AGENTS.md`](../../../AGENTS.md), [`apps/site/content/en/architecture.md`](../../../apps/site/content/en/architecture.md), and [`apps/site/content/en/plugins.md`](../../../apps/site/content/en/plugins.md).
 2. Identify whether the user requested a report, a proposal, or implementation. Do not edit during a review-only audit.
 3. Preserve the single terminal owner, published DSH dependency boundary, durable session semantics, and real plugin ownership seams.
 

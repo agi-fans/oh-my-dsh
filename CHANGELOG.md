@@ -8,10 +8,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual VitePress build synced from `docs/` and deployed to GitHub Pages with canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
+- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual Astro build deployed to GitHub Pages. The site wears the product's terminal aesthetic: a two-line TUI status footer with a live `Ctx` readout, a keyboard-first Ctrl+K command palette for search, and a homepage that plays a real agent turn, alongside canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
 
 ### Changed
 
+- Moved the documentation sources from `docs/` into `apps/site/content/`, so the site content tree is the single source of truth with no build-time sync step; in-source links between pages stay relative Markdown paths, and references beyond the documentation set are full GitHub URLs.
 - Rewrote the bilingual tutorials for clarity: each walkthrough now opens with the goal it delivers, dense reference-style paragraphs are split into steps and lists, the Skills and MCP page walks through adding one Skill and one MCP server, and the stale `/permission` alias note is gone.
 
 ## [0.10.0] - 2026-08-26
@@ -102,8 +103,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- Add [Write a plugin](docs/tutorials/write-a-plugin.md), a walkthrough for writing, installing, and publishing an omdsh plugin bundle.
-- Ship [`examples/hello`](examples/hello), an installable bundle that registers `/hello` through `dsh-commands`.
+- Add [Write a plugin](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/content/en/tutorials/write-a-plugin.md), a walkthrough for writing, installing, and publishing an omdsh plugin bundle.
+- Ship [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello), an installable bundle that registers `/hello` through `dsh-commands`.
 - Install user DSH bundles into `$OMDSH_HOME/profiles/omdsh` with `omdsh plugin add` and `omdsh plugin remove`, and compose them after the shipped `@agi-fans/oh-my-dsh` layer at boot.
 - Apply `$OMDSH_HOME/cordis.patch.yml` over the shipped composition at boot, and print the composed plugin tree with `omdsh --dump-config`.
 - Show live descendant subagents above the composer, with each child's label, run state, and current tool, and present `subagent`, `send_message`, `interrupt_agent`, and `list_agents` cards by their task description instead of raw JSON.
@@ -114,7 +115,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
-- Split the tutorials into one page per walkthrough, with [docs/tutorials.md](docs/tutorials.md) as the index.
+- Split the tutorials into one page per walkthrough, with [the tutorials index](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/content/en/tutorials.md) as the index.
 - Highlight leading `/command` tokens in the composer, and paint slash-command names in the completion list, so those lines read as commands rather than ordinary prompt text.
 - Use monochrome Unicode marks for pending, warning, todos, and settings instead of emoji-presentation glyphs.
 

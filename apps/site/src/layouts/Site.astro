@@ -1,0 +1,97 @@
+---
+import '@fontsource-variable/space-grotesk'
+import '@fontsource-variable/jetbrains-mono'
+import '../styles/tokens.css'
+import '../styles/base.css'
+import { alternatePath, localizedPath, repoUrl, ui, type Locale } from '../i18n'
+import { seoFor } from '../seo'
+import StatusFooter from '../components/StatusFooter.astro'
+import SearchPalette from '../components/SearchPalette.astro'
+
+interface Props {
+  locale: Locale
+  path: string
+  title: string
+  description?: string
+  words?: number
+}
+
+const { locale, path, title, description = '', words = 0 } = Astro.props
+const seo = seoFor(path, locale, title, description)
+const t = ui[locale]
+const docsHref = localizedPath('/docs/tutorials', locale)
+const changelogHref = localizedPath('/changelog', locale)
+const onDocs = path.includes('/docs')
+const onChangelog = path.endsWith('/changelog')
+---
+
+<!doctype html>
+<html lang={locale === 'zh' ? 'zh-CN' : 'en'}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{seo.title}</title>
+    <meta name="description" content={seo.description} />
+    <link rel="canonical" href={seo.canonical} />
+    <link rel="alternate" hreflang="en" href={locale === 'zh' ? seo.alternate : seo.canonical} />
+    <link rel="alternate" hreflang="zh-CN" href={locale === 'zh' ? seo.canonical : seo.alternate} />
+    <link rel="alternate" hreflang="x-default" href={locale === 'zh' ? seo.alternate : seo.canonical} />
+    <meta property="og:site_name" content="Oh My DSH" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={seo.title} />
+    <meta property="og:description" content={seo.description} />
+    <meta property="og:url" content={seo.canonical} />
+    <meta property="og:locale" content={seo.ogLocale} />
+    <meta property="og:locale:alternate" content={seo.ogLocaleAlternate} />
+    <meta property="og:image" content={seo.image} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={seo.title} />
+    <meta name="twitter:description" content={seo.description} />
+    <meta name="twitter:image" content={seo.image} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(seo.graph)} />
+    <script is:inline>
+      try {
+        const saved = localStorage.getItem('omdsh-theme')
+        if (saved === 'light') document.documentElement.dataset.theme = 'light'
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href={localizedPath('/', locale)}>
+          <span class="whale">🐳</span>
+          <span>Oh My <span class="wordmark-dsh">DSH</span></span>
+        </a>
+        <nav class="nav-links">
+          <a href={docsHref} class:list={[{ active: onDocs }]}>{t.docs}</a>
+          <a href={changelogHref} class:list={[{ active: onChangelog }]}>{t.changelog}</a>
+        </nav>
+        <div class="nav-end">
+          <button class="nav-btn" type="button" data-open-search aria-label={t.search}>
+            <span>{t.search}</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <button class="nav-btn" type="button" data-theme-toggle aria-label={t.theme}>◐</button>
+          <a class="nav-btn" href={alternatePath(path, locale)}>{locale === 'zh' ? 'EN' : '中文'}</a>
+          <a class="nav-btn nav-github" href={repoUrl}>GitHub</a>
+        </div>
+      </div>
+    </header>
+    <slot />
+    <StatusFooter locale={locale} path={path} words={words} />
+    <SearchPalette locale={locale} />
+    <script>
+      document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
+          document.documentElement.dataset.theme = next
+          try {
+            localStorage.setItem('omdsh-theme', next)
+          } catch {}
+        })
+      })
+    </script>
+  </body>
+</html>

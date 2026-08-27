@@ -39,10 +39,10 @@ Mount the exports you need as ordinary Cordis plugins. The working application c
 
 ## Documentation
 
-- [Architecture](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/architecture.md)
-- [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md)
-- [User plugins](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/plugins.md)
-- [Performance](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md)
+- [Architecture](https://omdsh.agi.fans/docs/architecture)
+- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp)
+- [User plugins](https://omdsh.agi.fans/docs/plugins)
+- [Performance](https://omdsh.agi.fans/docs/performance)
 - [Changelog](https://github.com/agi-fans/oh-my-dsh/blob/main/CHANGELOG.md)
 
 ## License

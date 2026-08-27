@@ -6,10 +6,10 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 
 - `omdsh` is a TUI coding agent built on the published DeepSeek Harness packages and inspired by the interaction quality of oh-my-pi.
 - Preserve the DeepSeek Harness “everything is a plugin” architecture. New capabilities should be Cordis plugins, services, providers, consumers, or app composition whenever that model fits.
-- Keep product-owned implementation inside `apps/`, `packages/`, `scripts/`, and `docs/`. Do not place omdsh implementation in a reference project.
+- Keep product-owned implementation inside `apps/`, `packages/`, and `scripts/`. Do not place omdsh implementation in a reference project.
 - Authoring fixtures under `examples/` are not workspace members. Do not add them to `pnpm-workspace.yaml`, do not give them `workspace:` dependencies, and do not import them from product packages.
 - `apps/omdsh` owns the `@agi-fans/oh-my-dsh` package, command startup, and runtime composition. `packages/tui/omdsh-tui` owns the `@agi-fans/dsh-tui` package, terminal presentation, input, session interaction, and reusable TUI behavior.
-- `apps/site` owns the public VitePress site deployed to GitHub Pages. Its content is synced from `docs/` and `CHANGELOG.md` at build time; those sources remain the documentation source of truth and the generated site tree is never committed.
+- `apps/site` owns the public Astro site deployed to GitHub Pages. The bilingual Markdown under `apps/site/content/` is the documentation source of truth, and the site reads the repository-root `CHANGELOG.md` in place. In content sources, link sibling pages with relative `*.md` paths that stay inside the same locale tree — the build rewrites them to routes — and reference anything outside the documentation set with a full GitHub URL.
 - Prefer deep, explicit package seams over copying upstream internals. If a second provider or consumer creates a real independent lifecycle, split the seam then rather than pre-emptively.
 
 ## Reference Repositories Are Read-Only

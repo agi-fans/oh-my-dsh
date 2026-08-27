@@ -1,0 +1,21 @@
+---
+import { getCollection, render } from 'astro:content'
+import Docs from '../../layouts/Docs.astro'
+
+export async function getStaticPaths() {
+  const entries = await getCollection('en')
+  return entries.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }))
+}
+
+const { entry } = Astro.props
+const { Content, headings } = await render(entry)
+const title = headings.find((h) => h.depth === 1)?.text ?? entry.id
+const words = (entry.body ?? '').match(/[A-Za-z0-9_'-]+/g)?.length ?? 0
+---
+
+<Docs locale="en" path={`/docs/${entry.id}`} slug={entry.id} title={title} words={words} headings={headings}>
+  <Content />
+</Docs>

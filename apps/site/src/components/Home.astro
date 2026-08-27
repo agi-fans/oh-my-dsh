@@ -1,0 +1,82 @@
+---
+import TerminalDemo from './TerminalDemo.vue'
+import { homeCopy } from '../home'
+import { repoUrl, type Locale } from '../i18n'
+import { docsHref } from '../nav'
+import '../styles/home.css'
+
+interface Props {
+  locale: Locale
+}
+
+const { locale } = Astro.props
+const copy = homeCopy[locale]
+const installCommand = 'npm install --global @agi-fans/oh-my-dsh'
+---
+
+<section class="hero">
+  <div>
+    <h1 class="hero-name">Oh My <span class="grad">DSH</span></h1>
+    <p class="hero-slogan">{copy.heroText}</p>
+    <p class="hero-tagline">{copy.tagline}</p>
+    <div class="btn-row">
+      <a class="btn primary" href={docsHref('tutorials', locale)}>{copy.actionPrimary}</a>
+      <a class="btn" href={repoUrl}>{copy.actionAlt}</a>
+    </div>
+  </div>
+  <div class="hero-demo">
+    <TerminalDemo client:idle />
+  </div>
+</section>
+
+<section class="features">
+  <h2 class="section-heading">{copy.featuresHeading}</h2>
+  <div class="features-grid">
+    {
+      copy.features.map((feature) => (
+        <div class="tool-card">
+          <div class="tc-head">
+            <span class="tc-dot" />
+            <span class="tc-handle">{feature.handle}</span>
+          </div>
+          <div class="tc-body">
+            <h3 class="tc-title">{feature.title}</h3>
+            <p class="tc-details">{feature.details}</p>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+</section>
+
+<section class="install">
+  <h2 class="section-heading">{copy.installHeading}</h2>
+  <div class="composer-box">
+    <span class="cb-label">🐳</span>
+    <span class="cb-access">full access</span>
+    <div class="composer-command">
+      <span class="prompt-sign">$</span>
+      <code>{installCommand}</code>
+      <button class="copy-btn" type="button" data-copy={installCommand}>copy</button>
+    </div>
+  </div>
+  <p class="install-note">{copy.installNote}</p>
+  <p class="keyboard-hint">{copy.keyboardHint}</p>
+</section>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const text = btn.getAttribute('data-copy') ?? ''
+      try {
+        await navigator.clipboard.writeText(text)
+        btn.textContent = 'copied'
+        setTimeout(() => {
+          btn.textContent = 'copy'
+        }, 1600)
+      } catch {
+        btn.textContent = text
+      }
+    })
+  })
+</script>

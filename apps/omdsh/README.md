@@ -14,7 +14,7 @@ English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README
 
 </div>
 
-![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/docs/resources/screenshot.webp)
+![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/screenshot.webp)
 
 ## Quick start
 
@@ -40,11 +40,11 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 
 The full documentation is also published on the [official site](https://omdsh.agi.fans/).
 
-- [Tutorials](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/tutorials.md) — complete a first task, add precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
-- [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md) — extend a project with reusable instructions and external tools.
-- [User plugins](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/plugins.md) — install DSH bundles into the omdsh Profile with `omdsh plugin`.
-- [Architecture](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/architecture.md) — understand the plugin boundaries and runtime data flow.
-- [Performance](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md) — inspect the benchmarks, methodology, and rendering optimizations.
+- [Tutorials](https://omdsh.agi.fans/docs/tutorials) — complete a first task, add precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
+- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp) — extend a project with reusable instructions and external tools.
+- [User plugins](https://omdsh.agi.fans/docs/plugins) — install DSH bundles into the omdsh Profile with `omdsh plugin`.
+- [Architecture](https://omdsh.agi.fans/docs/architecture) — understand the plugin boundaries and runtime data flow.
+- [Performance](https://omdsh.agi.fans/docs/performance) — inspect the benchmarks, methodology, and rendering optimizations.
 
 ## Why oh-my-dsh
 
@@ -73,19 +73,19 @@ DeepSeek Harness plugins and services
   @agi-fans/oh-my-dsh — boot and plugin composition
 ```
 
-The TUI package is split into a service definition, local terminal Provider, session and interaction adapters, tool-presentation bridge, command contributions, and interactive Runner. This isolates terminal ownership from Harness domain state and exposes plugin seams only where a capability has an independent lifecycle or owner. See the [architecture overview](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/architecture.md) for the current boundaries and data flow.
+The TUI package is split into a service definition, local terminal Provider, session and interaction adapters, tool-presentation bridge, command contributions, and interactive Runner. This isolates terminal ownership from Harness domain state and exposes plugin seams only where a capability has an independent lifecycle or owner. See the [architecture overview](https://omdsh.agi.fans/docs/architecture) for the current boundaries and data flow.
 
 ## Performance
 
 Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.62 ms, 10,000 tool calls take 22.71 ms, and rendering cached frames over a 5,000-turn surface averages 0.35 ms per frame.
 
-See the reproducible [TUI performance report](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md) or run `pnpm benchmark:tui` locally.
+See the reproducible [TUI performance report](https://omdsh.agi.fans/docs/performance) or run `pnpm benchmark:tui` locally.
 
 ## Configuration
 
 Run `/login` to configure a provider. DeepSeek still opens the official key dashboard, validates the key, and prefers the stored credential over an inherited `DEEPSEEK_API_KEY`. When a mounted provider registers a Harness authorization flow, `/login` lists that flow and its methods and the terminal only renders the notices and prompts the flow asks for. The same command can also activate a catalog API-key provider or add a custom provider with its own id, base URL, protocol, and model ids. `/model` then lists every live route. `/logout` removes an omdsh-managed choice and, for DeepSeek, falls back to the environment when available.
 
-Model settings can also come from `$DSH_HOME/settings.yaml`. Use `/model favorite` and `/model unfavorite` to maintain a small local cycle list, then use `Ctrl+P`/`Alt+P` to move through it and `Ctrl+T` to change reasoning effort. Skills and MCP configuration are documented in [Skills and MCP](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/skills-and-mcp.md).
+Model settings can also come from `$DSH_HOME/settings.yaml`. Use `/model favorite` and `/model unfavorite` to maintain a small local cycle list, then use `Ctrl+P`/`Alt+P` to move through it and `Ctrl+T` to change reasoning effort. Skills and MCP configuration are documented in [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp).
 
 After an upgrade, omdsh can show release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A cached daily npm check reports newer versions without installing anything automatically; both behaviors can be customized in `/settings`. Terminal notifications for completed long turns and human prompts are also configured there and remain off by default.
 

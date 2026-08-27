@@ -1,0 +1,40 @@
+---
+import { docsHref, label, referenceEntries, tutorialEntries, tutorialsIndex } from '../nav'
+import type { Locale } from '../i18n'
+
+interface Props {
+  locale: Locale
+  current: string
+}
+
+const { locale, current } = Astro.props
+const guideLabel = locale === 'zh' ? '指南' : 'Guide'
+const referenceLabel = locale === 'zh' ? '参考' : 'Reference'
+const navLabel = locale === 'zh' ? '文档导航' : 'Docs navigation'
+---
+
+<nav aria-label={navLabel}>
+  <div class="sidebar-group">
+    <h2 class="sidebar-heading">{guideLabel}</h2>
+    <a href={docsHref(tutorialsIndex.slug, locale)} class:list={[{ active: current === tutorialsIndex.slug }]}>
+      {label(tutorialsIndex, locale)}
+    </a>
+    {
+      tutorialEntries.map((entry) => (
+        <a href={docsHref(entry.slug, locale)} class:list={['child', { active: current === entry.slug }]}>
+          {label(entry, locale)}
+        </a>
+      ))
+    }
+  </div>
+  <div class="sidebar-group">
+    <h2 class="sidebar-heading">{referenceLabel}</h2>
+    {
+      referenceEntries.map((entry) => (
+        <a href={docsHref(entry.slug, locale)} class:list={[{ active: current === entry.slug }]}>
+          {label(entry, locale)}
+        </a>
+      ))
+    }
+  </div>
+</nav>

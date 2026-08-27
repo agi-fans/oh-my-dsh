@@ -1,0 +1,41 @@
+---
+import type { MarkdownHeading } from 'astro'
+import Site from './Site.astro'
+import Sidebar from '../components/Sidebar.astro'
+import Outline from '../components/Outline.astro'
+import PrevNext from '../components/PrevNext.astro'
+import '../styles/docs.css'
+import type { Locale } from '../i18n'
+
+interface Props {
+  locale: Locale
+  path: string
+  slug: string
+  title: string
+  description?: string
+  words: number
+  headings: MarkdownHeading[]
+}
+
+const { locale, path, slug, title, description = '', words, headings } = Astro.props
+const menuLabel = locale === 'zh' ? '菜单' : 'Menu'
+---
+
+<Site locale={locale} path={path} title={title} description={description} words={words}>
+  <div class="docs-shell">
+    <aside class="sidebar" data-pagefind-ignore>
+      <Sidebar locale={locale} current={slug} />
+    </aside>
+    <details class="sidebar-mobile" data-pagefind-ignore>
+      <summary>{menuLabel}</summary>
+      <Sidebar locale={locale} current={slug} />
+    </details>
+    <div class="doc-main">
+      <article class="doc-body" data-pagefind-body>
+        <slot />
+      </article>
+      <PrevNext locale={locale} current={slug} />
+    </div>
+    <Outline locale={locale} headings={headings} />
+  </div>
+</Site>
