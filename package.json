@@ -28,6 +28,7 @@
     "sync:package-readme": "node scripts/sync-package-readme.mjs",
     "omdsh": "pnpm -r build && pnpm --dir apps/omdsh omdsh",
     "smoke": "node scripts/pty-smoke.mjs",
+    "smoke:interrupt": "node scripts/stream-interrupt-smoke.mjs",
     "smoke:happy": "node scripts/happy-smoke.mjs"
   },
   "devDependencies": {

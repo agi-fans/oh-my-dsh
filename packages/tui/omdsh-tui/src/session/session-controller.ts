@@ -264,6 +264,15 @@ export function sessionStats(
   }
 }
 
+/**
+ * Streaming deltas do not change footer-visible totals. Projection change
+ * notifications own first-token and usage updates; settlement refreshes the
+ * fallback fold when projections are absent.
+ */
+export function shouldRefreshSessionInfoAfter(event: SessionEvent): boolean {
+  return event.type !== 'assistant/chunk'
+}
+
 function explicitSessionTitle(events: readonly SessionEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
@@ -515,7 +524,7 @@ export class SessionRuntime {
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
         }
-        this.#pushSessionInfo()
+        if (shouldRefreshSessionInfoAfter(event)) this.#pushSessionInfo()
         if (event.type === 'session/title') void this.refreshRecent()
         return
       }

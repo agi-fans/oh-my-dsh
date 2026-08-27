@@ -15,6 +15,7 @@ import {
   restoreSubmissionMessage,
   SessionRuntime,
   sessionControls,
+  shouldRefreshSessionInfoAfter,
   sessionStats,
   userSkillCommands,
 } from './session-controller.ts'
@@ -274,6 +275,23 @@ describe('sessionStats', () => {
       elapsedMs: 20,
     })
     expect(reads).toBe(2)
+  })
+})
+
+describe('shouldRefreshSessionInfoAfter', () => {
+  it('leaves streaming deltas to projection notifications and refreshes settled events', () => {
+    expect(shouldRefreshSessionInfoAfter({
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' } },
+    } as SessionEvent)).toBe(false)
+    expect(shouldRefreshSessionInfoAfter({
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { content: [] } },
+    } as SessionEvent)).toBe(true)
+    expect(shouldRefreshSessionInfoAfter({
+      type: 'turn/end',
+      data: { turn: 1, reason: { kind: 'completed' } },
+    } as SessionEvent)).toBe(true)
   })
 })
 

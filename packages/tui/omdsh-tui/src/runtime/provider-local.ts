@@ -605,7 +605,9 @@ export class LocalTui implements TuiService {
           ...info.controls,
           ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
         }
-    if (this.#tty) this.#render()
+    if (!this.#tty) return
+    if (this.#streamRenderMs > 0 && this.#busy()) this.#scheduleStreamRender()
+    else this.#render()
   }
 
   /** Apply prefs loaded from the settings document (does not persist). */

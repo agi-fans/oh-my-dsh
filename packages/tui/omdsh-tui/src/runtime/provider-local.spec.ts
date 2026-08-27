@@ -748,11 +748,30 @@ describe('LocalTui (tty)', () => {
     try {
       const term = new FakeTerminal()
       const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { streamRenderMs: 8 })
+      const stats = {
+        turns: 0,
+        steps: 0,
+        llmMs: 0,
+        toolMs: 0,
+        ttftMs: 0,
+        ttftSteps: 0,
+        decodeMs: 0,
+        decodeTokens: 0,
+        inputTokens: 10,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      }
+      tui.setSession({ id: 'streaming', recent: [], stats })
+      tui.setStatus('running')
       const initialWrites = term.writes
 
       tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } }, 1))
+      tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 1 } })
       tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } }, 2))
+      tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 2 } })
       tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'c' } }, 3))
+      tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 3 } })
       expect(term.writes).toBe(initialWrites)
 
       await vi.advanceTimersByTimeAsync(8)
