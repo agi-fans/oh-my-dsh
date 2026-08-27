@@ -4,6 +4,7 @@ import Site from './Site.astro'
 import Sidebar from '../components/Sidebar.astro'
 import Outline from '../components/Outline.astro'
 import PrevNext from '../components/PrevNext.astro'
+import CodeCopy from '../components/CodeCopy.astro'
 import '../styles/docs.css'
 import type { Locale } from '../i18n'
 
@@ -38,4 +39,5 @@ const menuLabel = locale === 'zh' ? '菜单' : 'Menu'
     </div>
     <Outline locale={locale} headings={headings} />
   </div>
+  <CodeCopy />
 </Site>

@@ -1,5 +1,5 @@
 ---
-import TerminalDemo from './TerminalDemo.vue'
+import TerminalDemo from './TerminalDemo.astro'
 import { homeCopy } from '../home'
 import { repoUrl, type Locale } from '../i18n'
 import { docsHref } from '../nav'
@@ -25,7 +25,7 @@ const installCommand = 'npm install --global @agi-fans/oh-my-dsh'
     </div>
   </div>
   <div class="hero-demo">
-    <TerminalDemo client:idle />
+    <TerminalDemo />
   </div>
 </section>
 

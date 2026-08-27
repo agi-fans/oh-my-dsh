@@ -1,5 +1,4 @@
 import { defineConfig } from 'astro/config'
-import vue from '@astrojs/vue'
 import sitemap from '@astrojs/sitemap'
 import rehypeSlug from 'rehype-slug'
 import rehypeDocLinks from './plugins/rehype-doc-links.mjs'
@@ -7,8 +6,10 @@ import rehypeDocLinks from './plugins/rehype-doc-links.mjs'
 export default defineConfig({
   site: 'https://omdsh.agi.fans',
   trailingSlash: 'always',
+  build: {
+    inlineStylesheets: 'always',
+  },
   integrations: [
-    vue(),
     sitemap({
       i18n: {
         defaultLocale: 'en',

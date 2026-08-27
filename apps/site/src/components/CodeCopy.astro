@@ -1,0 +1,29 @@
+<script is:inline>
+  document.querySelectorAll('.doc-body pre[data-language]').forEach((pre) => {
+    const meta = document.createElement('div')
+    meta.className = 'code-meta'
+    const lang = pre.getAttribute('data-language')
+    if (lang && lang !== 'text') {
+      const tag = document.createElement('span')
+      tag.className = 'code-lang'
+      tag.textContent = lang
+      meta.append(tag)
+    }
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'code-copy'
+    btn.textContent = 'copy'
+    btn.addEventListener('click', async () => {
+      const code = pre.querySelector('code')?.textContent ?? ''
+      try {
+        await navigator.clipboard.writeText(code)
+        btn.textContent = 'copied'
+        setTimeout(() => {
+          btn.textContent = 'copy'
+        }, 1600)
+      } catch {}
+    })
+    meta.append(btn)
+    pre.append(meta)
+  })
+</script>

@@ -1,12 +1,13 @@
 ---
-import '@fontsource-variable/space-grotesk'
-import '@fontsource-variable/jetbrains-mono'
+import '../styles/fonts.css'
 import '../styles/tokens.css'
 import '../styles/base.css'
 import { alternatePath, localizedPath, repoUrl, ui, type Locale } from '../i18n'
 import { seoFor } from '../seo'
 import StatusFooter from '../components/StatusFooter.astro'
 import SearchPalette from '../components/SearchPalette.astro'
+import spaceGroteskWoff2 from '@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2?url'
+import jetbrainsMonoWoff2 from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url'
 
 interface Props {
   locale: Locale
@@ -62,7 +63,8 @@ const onChangelog = path.includes('/changelog')
     <meta name="twitter:image" content={seo.image} />
     <meta name="twitter:image:alt" content={seo.imageAlt} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-LH52J2VJMC"></script>
+    <link rel="preload" href={spaceGroteskWoff2} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={jetbrainsMonoWoff2} as="font" type="font/woff2" crossorigin />
     <script is:inline>
       window.dataLayer = window.dataLayer || []
       function gtag() {
@@ -70,6 +72,24 @@ const onChangelog = path.includes('/changelog')
       }
       gtag('js', new Date())
       gtag('config', 'G-LH52J2VJMC')
+      let loaded = false
+      const loadAnalytics = () => {
+        if (loaded) return
+        loaded = true
+        const script = document.createElement('script')
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=G-LH52J2VJMC'
+        script.async = true
+        document.head.appendChild(script)
+      }
+      const scheduleAnalytics = () => {
+        if ('requestIdleCallback' in window) requestIdleCallback(loadAnalytics, { timeout: 5000 })
+        else setTimeout(loadAnalytics, 1)
+      }
+      ;['pointerdown', 'keydown', 'scroll'].forEach((type) => {
+        window.addEventListener(type, loadAnalytics, { once: true, passive: true })
+      })
+      if (document.readyState === 'complete') scheduleAnalytics()
+      else window.addEventListener('load', scheduleAnalytics)
     </script>
     <script is:inline type="application/ld+json" set:html={JSON.stringify(seo.graph)} />
     <script is:inline>
@@ -104,7 +124,7 @@ const onChangelog = path.includes('/changelog')
     <slot />
     <StatusFooter locale={locale} path={seo.canonicalPath} words={words} />
     <SearchPalette locale={locale} />
-    <script>
+    <script is:inline>
       document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
@@ -113,35 +133,6 @@ const onChangelog = path.includes('/changelog')
             localStorage.setItem('omdsh-theme', next)
           } catch {}
         })
-      })
-    </script>
-    <script>
-      document.querySelectorAll('.doc-body pre[data-language]').forEach((pre) => {
-        const meta = document.createElement('div')
-        meta.className = 'code-meta'
-        const lang = pre.getAttribute('data-language')
-        if (lang && lang !== 'text') {
-          const tag = document.createElement('span')
-          tag.className = 'code-lang'
-          tag.textContent = lang
-          meta.append(tag)
-        }
-        const btn = document.createElement('button')
-        btn.type = 'button'
-        btn.className = 'code-copy'
-        btn.textContent = 'copy'
-        btn.addEventListener('click', async () => {
-          const code = pre.querySelector('code')?.textContent ?? ''
-          try {
-            await navigator.clipboard.writeText(code)
-            btn.textContent = 'copied'
-            setTimeout(() => {
-              btn.textContent = 'copy'
-            }, 1600)
-          } catch {}
-        })
-        meta.append(btn)
-        pre.append(meta)
       })
     </script>
   </body>

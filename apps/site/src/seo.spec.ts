@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { changelogDescriptions } from './i18n'
 import { seoFor } from './seo'
@@ -48,5 +49,19 @@ describe('seoFor', () => {
   it('includes oh-my-dsh in page keywords', () => {
     const tags = seoFor('/', 'en', 'Keyboard-first DeepSeek coding agent').keywords.split(', ')
     expect(tags).toEqual(expect.arrayContaining(['omdsh', 'oh-my-dsh', 'dsh', 'plugin', 'dsh-plugin']))
+  })
+})
+
+describe('homepage payload', () => {
+  it('does not hydrate a Vue island for the terminal demo', () => {
+    const home = readFileSync(new URL('./components/Home.astro', import.meta.url), 'utf8')
+    expect(home).toContain("from './TerminalDemo.astro'")
+    expect(home).not.toMatch(/client:/)
+  })
+
+  it('loads only Latin variable font files', () => {
+    const css = readFileSync(new URL('./styles/fonts.css', import.meta.url), 'utf8')
+    expect(css.match(/latin-wght-normal\.woff2/g)).toHaveLength(2)
+    expect(css).not.toMatch(/latin-ext|cyrillic|greek|vietnamese|cyrillic-ext/)
   })
 })

@@ -2,6 +2,7 @@
 import { getEntry, render } from 'astro:content'
 import Site from '../../layouts/Site.astro'
 import { changelogDescriptions } from '../../i18n'
+import CodeCopy from '../../components/CodeCopy.astro'
 import '../../styles/docs.css'
 
 // The changelog is English-only; both locales render the same source.
@@ -15,4 +16,5 @@ const words = (entry.body ?? '').match(/[A-Za-z0-9_'-]+/g)?.length ?? 0
   <article class="doc-plain doc-body" data-pagefind-body>
     <Content />
   </article>
+  <CodeCopy />
 </Site>
