@@ -49,6 +49,15 @@ const onChangelog = path.endsWith('/changelog')
     <meta name="twitter:description" content={seo.description} />
     <meta name="twitter:image" content={seo.image} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-LH52J2VJMC"></script>
+    <script is:inline>
+      window.dataLayer = window.dataLayer || []
+      function gtag() {
+        dataLayer.push(arguments)
+      }
+      gtag('js', new Date())
+      gtag('config', 'G-LH52J2VJMC')
+    </script>
     <script is:inline type="application/ld+json" set:html={JSON.stringify(seo.graph)} />
     <script is:inline>
       try {
