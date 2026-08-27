@@ -23,3 +23,43 @@ const items = headings.filter((h) => h.depth === 2 || h.depth === 3)
     </nav>
   )
 }
+
+<script>
+  const outlineLinks = [...document.querySelectorAll<HTMLAnchorElement>('.outline a[href^="#"]')]
+  if (outlineLinks.length > 0) {
+    const byId = new Map<string, HTMLAnchorElement>()
+    for (const link of outlineLinks) {
+      byId.set(decodeURIComponent(link.hash.slice(1)), link)
+    }
+    const headings = [...document.querySelectorAll<HTMLElement>('.doc-body h2[id], .doc-body h3[id]')]
+    let activeLink: HTMLAnchorElement | null = null
+    const setActive = (id: string) => {
+      const next = byId.get(id) ?? null
+      if (next === activeLink) return
+      activeLink?.classList.remove('active')
+      next?.classList.add('active')
+      activeLink = next
+    }
+    let ticking = false
+    const update = () => {
+      ticking = false
+      const y = window.scrollY + 96
+      let current: HTMLElement | undefined = headings[0]
+      for (const h of headings) {
+        if (h.offsetTop <= y) current = h
+      }
+      if (current) setActive(current.id)
+    }
+    window.addEventListener(
+      'scroll',
+      () => {
+        if (!ticking) {
+          ticking = true
+          requestAnimationFrame(update)
+        }
+      },
+      { passive: true },
+    )
+    update()
+  }
+</script>

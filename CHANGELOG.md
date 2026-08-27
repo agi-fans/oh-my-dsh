@@ -8,12 +8,16 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual Astro build deployed to GitHub Pages. The site wears the product's terminal aesthetic: a two-line TUI status footer with a live `Ctx` readout, a keyboard-first Ctrl+K command palette for search, and a homepage that plays a real agent turn, alongside canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
+- Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual Astro build deployed to GitHub Pages. The site wears the product's terminal aesthetic: a two-line TUI status footer with a live `Ctx` readout, a keyboard-first Ctrl+K command palette for search, and a homepage that replays a terminal session, alongside canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
 
 ### Changed
 
 - Moved the documentation sources from `docs/` into `apps/site/content/`, so the site content tree is the single source of truth with no build-time sync step; in-source links between pages stay relative Markdown paths, and references beyond the documentation set are full GitHub URLs.
 - Rewrote the bilingual tutorials for clarity: each walkthrough now opens with the goal it delivers, dense reference-style paragraphs are split into steps and lists, the Skills and MCP page walks through adding one Skill and one MCP server, and the stale `/permission` alias note is gone.
+
+### Fixed
+
+- Kept composer input and Ctrl-C responsive during long thinking streams by coalescing footer updates with streamed transcript rendering.
 
 ## [0.10.0] - 2026-08-26
 

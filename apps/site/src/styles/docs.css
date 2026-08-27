@@ -196,6 +196,43 @@
   font-size: inherit;
 }
 
+.code-meta {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.doc-body pre:hover .code-meta,
+.doc-body pre:focus-within .code-meta {
+  opacity: 1;
+}
+
+.code-lang {
+  color: var(--ink-faint);
+}
+
+.code-copy {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  background: var(--panel);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-copy:hover {
+  border-color: var(--brand);
+  color: var(--ink);
+}
+
 .doc-body table {
   width: 100%;
   margin: 16px 0;
@@ -273,6 +310,11 @@
 .outline a:hover {
   color: var(--ink);
   text-decoration: none;
+}
+
+.outline a.active {
+  color: var(--ink);
+  border-left-color: var(--brand-bright);
 }
 
 /* ---------- prev / next ---------- */
