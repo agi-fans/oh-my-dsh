@@ -6,6 +6,7 @@ import rehypeDocLinks from './plugins/rehype-doc-links.mjs'
 
 export default defineConfig({
   site: 'https://omdsh.agi.fans',
+  trailingSlash: 'always',
   integrations: [
     vue(),
     sitemap({

@@ -19,6 +19,14 @@ const cjk = body.match(/[一-鿿]/g)?.length ?? 0
 const words = latin + cjk
 ---
 
-<Docs locale="zh" path={`/zh/docs/${entry.id}`} slug={entry.id} title={title} words={words} headings={headings}>
+<Docs
+  locale="zh"
+  path={`/zh/docs/${entry.id}`}
+  slug={entry.id}
+  title={title}
+  description={entry.data.description}
+  words={words}
+  headings={headings}
+>
   <Content />
 </Docs>

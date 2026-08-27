@@ -1,3 +1,7 @@
+---
+description: Install the shipped examples/hello bundle into the omdsh Profile with omdsh plugin add and confirm it in --dump-config.
+---
+
 # Install the example plugin
 
 This walkthrough installs the shipped example bundle into the omdsh Profile and confirms it works. You need an omdsh checkout and `pnpm` on `PATH`.

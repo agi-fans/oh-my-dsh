@@ -1,3 +1,7 @@
+---
+description: Add one project Skill and one MCP server to an omdsh workspace, then verify both from the terminal.
+---
+
 # Extend a project with Skills and MCP
 
 By the end of this walkthrough the project has one invocable Skill and one connected MCP server, and you know where to verify both.

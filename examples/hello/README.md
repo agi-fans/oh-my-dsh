@@ -21,4 +21,4 @@ Restart omdsh, then run `/hello`. Remove the bundle with:
 omdsh plugin remove @agi-fans/omdsh-plugin-hello
 ```
 
-Copy this directory to start a new bundle, or follow [Write a plugin](https://omdsh.agi.fans/docs/tutorials/write-a-plugin). Keep `@deepseek-ai/*` and, if you use the TUI service, `@agi-fans/dsh-tui` as peers of the same release omdsh ships. Do not nest those packages under `dependencies`. See [User plugins](https://omdsh.agi.fans/docs/plugins).
+Copy this directory to start a new bundle, or follow [Write a plugin](https://omdsh.agi.fans/docs/tutorials/write-a-plugin/). Keep `@deepseek-ai/*` and, if you use the TUI service, `@agi-fans/dsh-tui` as peers of the same release omdsh ships. Do not nest those packages under `dependencies`. See [User plugins](https://omdsh.agi.fans/docs/plugins/).

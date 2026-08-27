@@ -1,3 +1,7 @@
+---
+description: Task-based omdsh tutorials from install and first task through Skills, MCP, and writing an installable DeepSeek Harness plugin.
+---
+
 # Tutorials
 
 These task-based walkthroughs cover the path from a fresh installation to reliable day-to-day use, then to writing an installable plugin. Read them in order the first time: each page opens with what you will finish and links to the next step. They assume Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, a terminal with TTY support, and a DeepSeek API key for live model turns. Writing a plugin also requires `pnpm` on `PATH`.

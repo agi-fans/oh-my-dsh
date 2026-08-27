@@ -1,3 +1,7 @@
+---
+description: 通过 DeepSeek Harness 的发现路径、SKILL.md 和按服务器拆分的 MCP 客户端，配置 omdsh 的 Skills 与 MCP。
+---
+
 # Skills 与 MCP
 
 omdsh 将这两类能力都保留在 DeepSeek Harness 接口之后。Skills 由 Harness Skill Registry 和文件系统 Provider 发现；每个 MCP Server 会被适配为一个 `@deepseek-ai/dsh-mcp-client` 插件实例。TUI 不实现这两种协议。

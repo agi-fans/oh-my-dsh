@@ -13,7 +13,7 @@ npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-See the [oh-my-dsh project overview](https://github.com/agi-fans/oh-my-dsh#readme) for screenshots, tutorials, configuration, and end-user features.
+See the [oh-my-dsh project overview](https://omdsh.agi.fans/) for screenshots, tutorials, configuration, and end-user features.
 
 ## Library purpose
 
@@ -39,10 +39,10 @@ Mount the exports you need as ordinary Cordis plugins. The working application c
 
 ## Documentation
 
-- [Architecture](https://omdsh.agi.fans/docs/architecture)
-- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp)
-- [User plugins](https://omdsh.agi.fans/docs/plugins)
-- [Performance](https://omdsh.agi.fans/docs/performance)
+- [Architecture](https://omdsh.agi.fans/docs/architecture/)
+- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/)
+- [User plugins](https://omdsh.agi.fans/docs/plugins/)
+- [Performance](https://omdsh.agi.fans/docs/performance/)
 - [Changelog](https://github.com/agi-fans/oh-my-dsh/blob/main/CHANGELOG.md)
 
 ## License

@@ -1,6 +1,7 @@
 ---
 import { getEntry, render } from 'astro:content'
 import Site from '../layouts/Site.astro'
+import { changelogDescriptions } from '../i18n'
 import '../styles/docs.css'
 
 const entry = await getEntry('changelog', 'changelog')
@@ -9,7 +10,7 @@ const { Content } = await render(entry)
 const words = (entry.body ?? '').match(/[A-Za-z0-9_'-]+/g)?.length ?? 0
 ---
 
-<Site locale="en" path="/changelog" title="Changelog" words={words}>
+<Site locale="en" path="/changelog" title="Changelog" description={changelogDescriptions.en} words={words}>
   <article class="doc-plain doc-body" data-pagefind-body>
     <Content />
   </article>

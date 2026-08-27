@@ -1,3 +1,7 @@
+---
+description: 为 omdsh 工作区添加一个项目 Skill 和一个 MCP Server，并在终端中验证二者。
+---
+
 # 使用 Skills 与 MCP 扩展项目
 
 读完本教程，项目将拥有一个可调用的 Skill 和一个已连接的 MCP Server，并知道在哪里验证它们。

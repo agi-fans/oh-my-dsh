@@ -1,6 +1,7 @@
 ---
 import { getEntry, render } from 'astro:content'
 import Site from '../../layouts/Site.astro'
+import { changelogDescriptions } from '../../i18n'
 import '../../styles/docs.css'
 
 // The changelog is English-only; both locales render the same source.
@@ -10,7 +11,7 @@ const { Content } = await render(entry)
 const words = (entry.body ?? '').match(/[A-Za-z0-9_'-]+/g)?.length ?? 0
 ---
 
-<Site locale="zh" path="/zh/changelog" title="Changelog" words={words}>
+<Site locale="zh" path="/zh/changelog" title="更新日志" description={changelogDescriptions.zh} words={words}>
   <article class="doc-plain doc-body" data-pagefind-body>
     <Content />
   </article>

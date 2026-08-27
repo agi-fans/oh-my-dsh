@@ -1,3 +1,7 @@
+---
+description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflow、Tools 和 Access，并完成第一个 DeepSeek 编程任务。
+---
+
 # 完成第一个任务
 
 读完本教程，你将完成 omdsh 的安装和登录，并跑完第一个 Agent 任务。

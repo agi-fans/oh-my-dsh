@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- npm package pages for `@agi-fans/oh-my-dsh` and `@agi-fans/dsh-tui` now treat <https://omdsh.agi.fans/> as the homepage, with keywords that name the `omdsh` CLI and DeepSeek Harness lineage.
+
+### Fixed
+
+- Documentation pages now publish unique titles and descriptions, canonical URLs match GitHub Pages trailing slashes, crawlers receive a reachable sitemap at `/sitemap.xml`, and the 404 page is marked `noindex`.
+
 ## [0.11.0] - 2026-08-27
 
 ### Added

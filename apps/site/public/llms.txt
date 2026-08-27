@@ -1,0 +1,16 @@
+# Oh My DSH
+
+> omdsh is a keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.
+
+The CLI package is [@agi-fans/oh-my-dsh](https://www.npmjs.com/package/@agi-fans/oh-my-dsh). Source is [agi-fans/oh-my-dsh](https://github.com/agi-fans/oh-my-dsh). This site is the documentation source of truth.
+
+## Docs
+
+- [Tutorials](https://omdsh.agi.fans/docs/tutorials/): install, first task, context, queued turns, long sessions, environment, Skills, MCP, and plugins
+- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/): reusable instructions and external tools
+- [User plugins](https://omdsh.agi.fans/docs/plugins/): install DSH bundles with `omdsh plugin`
+- [Architecture](https://omdsh.agi.fans/docs/architecture/): plugin boundaries and runtime data flow
+- [Performance](https://omdsh.agi.fans/docs/performance/): TUI benchmarks and rendering methodology
+- [Changelog](https://omdsh.agi.fans/changelog/): user-visible releases
+
+Simplified Chinese lives under `/zh/`, for example [教程](https://omdsh.agi.fans/zh/docs/tutorials/).

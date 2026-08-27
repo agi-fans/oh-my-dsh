@@ -14,28 +14,35 @@ interface Props {
   title: string
   description?: string
   words?: number
+  index?: boolean
 }
 
-const { locale, path, title, description = '', words = 0 } = Astro.props
-const seo = seoFor(path, locale, title, description)
+const { locale, path, title, description = '', words = 0, index = true } = Astro.props
+const seo = seoFor(path, locale, title, description, { index })
 const t = ui[locale]
 const docsHref = localizedPath('/docs/tutorials', locale)
 const changelogHref = localizedPath('/changelog', locale)
 const onDocs = path.includes('/docs')
-const onChangelog = path.endsWith('/changelog')
+const onChangelog = path.includes('/changelog')
 ---
 
 <!doctype html>
-<html lang={locale === 'zh' ? 'zh-CN' : 'en'}>
+<html lang={seo.inLanguage}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{seo.title}</title>
     <meta name="description" content={seo.description} />
-    <link rel="canonical" href={seo.canonical} />
-    <link rel="alternate" hreflang="en" href={locale === 'zh' ? seo.alternate : seo.canonical} />
-    <link rel="alternate" hreflang="zh-CN" href={locale === 'zh' ? seo.canonical : seo.alternate} />
-    <link rel="alternate" hreflang="x-default" href={locale === 'zh' ? seo.alternate : seo.canonical} />
+    {seo.index ? <link rel="canonical" href={seo.canonical} /> : <meta name="robots" content="noindex, follow" />}
+    {
+      seo.index && (
+        <>
+          <link rel="alternate" hreflang="en-US" href={locale === 'zh' ? seo.alternate : seo.canonical} />
+          <link rel="alternate" hreflang="zh-CN" href={locale === 'zh' ? seo.canonical : seo.alternate} />
+          <link rel="alternate" hreflang="x-default" href={locale === 'zh' ? seo.alternate : seo.canonical} />
+        </>
+      )
+    }
     <meta property="og:site_name" content="Oh My DSH" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={seo.title} />
@@ -44,10 +51,15 @@ const onChangelog = path.endsWith('/changelog')
     <meta property="og:locale" content={seo.ogLocale} />
     <meta property="og:locale:alternate" content={seo.ogLocaleAlternate} />
     <meta property="og:image" content={seo.image} />
+    <meta property="og:image:type" content={seo.imageType} />
+    <meta property="og:image:width" content={String(seo.imageWidth)} />
+    <meta property="og:image:height" content={String(seo.imageHeight)} />
+    <meta property="og:image:alt" content={seo.imageAlt} />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={seo.title} />
     <meta name="twitter:description" content={seo.description} />
     <meta name="twitter:image" content={seo.image} />
+    <meta name="twitter:image:alt" content={seo.imageAlt} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-LH52J2VJMC"></script>
     <script is:inline>
@@ -83,13 +95,13 @@ const onChangelog = path.endsWith('/changelog')
             <kbd>Ctrl K</kbd>
           </button>
           <button class="nav-btn" type="button" data-theme-toggle aria-label={t.theme}>◐</button>
-          <a class="nav-btn" href={alternatePath(path, locale)}>{locale === 'zh' ? 'EN' : '中文'}</a>
+          <a class="nav-btn" href={alternatePath(seo.canonicalPath, locale)}>{locale === 'zh' ? 'EN' : '中文'}</a>
           <a class="nav-btn nav-github" href={repoUrl}>GitHub</a>
         </div>
       </div>
     </header>
     <slot />
-    <StatusFooter locale={locale} path={path} words={words} />
+    <StatusFooter locale={locale} path={seo.canonicalPath} words={words} />
     <SearchPalette locale={locale} />
     <script>
       document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {

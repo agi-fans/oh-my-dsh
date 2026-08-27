@@ -1,3 +1,7 @@
+---
+description: How omdsh composes published DeepSeek Harness plugins into a terminal coding agent, including package boundaries and TUI ownership.
+---
+
 # oh-my-dsh Architecture
 
 oh-my-dsh is a terminal coding agent built by composing published DeepSeek Harness packages. The TUI owns terminal presentation and human interaction; Harness plugins continue to own sessions, models, tools, commands, permissions, skills, MCP integrations, and projections.

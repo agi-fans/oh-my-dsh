@@ -1,3 +1,7 @@
+---
+description: 使用 omdsh plugin、Profile 层和 dsh.bundle.patch 约定，为 omdsh 安装并编写 DeepSeek Harness 插件。
+---
+
 # 用户插件
 
 omdsh 通过 DeepSeek Harness 插件扩展，这些插件与产品自带的 composition 挂在同一棵 Cordis 树上。用户安装的能力是一个声明了 `dsh.bundle.patch` 的 npm 软件包，它加入 omdsh 的 Profile 层列表，并随其余插件一同启动。

@@ -4,6 +4,6 @@ import Home from '../../components/Home.astro'
 import { homeCopy } from '../../home'
 ---
 
-<Site locale="zh" path="/zh/" title="" description={homeCopy.zh.tagline}>
+<Site locale="zh" path="/zh/" title={homeCopy.zh.pageTitle} description={homeCopy.zh.tagline}>
   <Home locale="zh" />
 </Site>

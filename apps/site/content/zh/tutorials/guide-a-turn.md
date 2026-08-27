@@ -1,3 +1,7 @@
+---
+description: 在任务运行时用 next-turn 队列、Loop、Plan mode、待办和 /goal 引导 omdsh。
+---
+
 # 引导运行中的任务
 
 读完本教程，你可以排队后续消息、用 Loop 重复任务、进入 Plan mode，并查看任务进度。

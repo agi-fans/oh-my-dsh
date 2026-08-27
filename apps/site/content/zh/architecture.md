@@ -1,3 +1,7 @@
+---
+description: omdsh 如何用已发布的 DeepSeek Harness 插件组成终端编程智能体，包括软件包边界与 TUI 所有权。
+---
+
 # oh-my-dsh 架构
 
 oh-my-dsh 是一个通过组合已发布 DeepSeek Harness 软件包构建的终端 Coding Agent。TUI 负责终端表现和人机交互；会话、模型、工具、命令、权限、Skills、MCP 集成和 Projection 仍由 Harness 插件负责。

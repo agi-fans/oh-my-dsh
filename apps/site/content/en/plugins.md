@@ -1,3 +1,7 @@
+---
+description: Install and author DeepSeek Harness plugins for omdsh with omdsh plugin, Profile layers, and the dsh.bundle.patch contract.
+---
+
 # User plugins
 
 omdsh extends through DeepSeek Harness plugins that mount in the same Cordis tree as the shipped composition. A user-installed capability is an npm package that declares `dsh.bundle.patch`, joins the omdsh Profile layer list, and starts with the rest of the tree.

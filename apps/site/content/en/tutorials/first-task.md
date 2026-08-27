@@ -1,3 +1,7 @@
+---
+description: Install @agi-fans/oh-my-dsh, run /login, set Agent, Workflow, Tools, and Access, then finish a first DeepSeek coding task.
+---
+
 # Complete your first task
 
 By the end of this walkthrough you will have omdsh installed, signed in, and one finished agent task.

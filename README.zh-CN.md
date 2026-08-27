@@ -4,7 +4,7 @@
 
 **探索未至之境**
 
-一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
+omdsh 是一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -38,11 +38,11 @@ omdsh
 
 完整文档同时发布在[官方站点](https://omdsh.agi.fans/)。
 
-- [教程](https://omdsh.agi.fans/zh/docs/tutorials) — 完成第一个任务、提供精确上下文、引导队列任务、恢复长会话、定制工作环境，并编写可安装插件。
-- [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp) — 使用可复用指令和外部工具扩展项目。
-- [用户插件](https://omdsh.agi.fans/zh/docs/plugins) — 用 `omdsh plugin` 把 DSH bundle 装进 omdsh Profile。
-- [架构](https://omdsh.agi.fans/zh/docs/architecture) — 了解插件边界与运行时数据流。
-- [性能](https://omdsh.agi.fans/zh/docs/performance) — 查看 Benchmark、测试方法与渲染优化。
+- [教程](https://omdsh.agi.fans/zh/docs/tutorials/) — 完成第一个任务、提供精确上下文、引导队列任务、恢复长会话、定制工作环境，并编写可安装插件。
+- [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/) — 使用可复用指令和外部工具扩展项目。
+- [用户插件](https://omdsh.agi.fans/zh/docs/plugins/) — 用 `omdsh plugin` 把 DSH bundle 装进 omdsh Profile。
+- [架构](https://omdsh.agi.fans/zh/docs/architecture/) — 了解插件边界与运行时数据流。
+- [性能](https://omdsh.agi.fans/zh/docs/performance/) — 查看 Benchmark、测试方法与渲染优化。
 
 ## 为什么做 oh-my-dsh
 
@@ -71,19 +71,19 @@ DeepSeek Harness 插件与服务
  @agi-fans/oh-my-dsh — 启动与插件组合
 ```
 
-TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交互适配器、工具展示适配桥、命令贡献插件和交互式 Runner。这让终端所有权与 Harness 领域状态相互隔离，也只在能力拥有独立生命周期或所有者时公开插件边界。当前边界与数据流请参阅[架构概览](https://omdsh.agi.fans/zh/docs/architecture)。
+TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交互适配器、工具展示适配桥、命令贡献插件和交互式 Runner。这让终端所有权与 Harness 领域状态相互隔离，也只在能力拥有独立生命周期或所有者时公开插件边界。当前边界与数据流请参阅[架构概览](https://omdsh.agi.fans/zh/docs/architecture/)。
 
 ## 性能
 
 性能是 TUI 架构本身的一部分：持久化会话按线性时间回放，Harness Projection 避免重复扫描历史，已完成的 Transcript 区块会保留格式化布局，终端写入器则只输出发生变化的行。在报告所用的 Apple M5 Pro 环境中，恢复 10,000 轮对话的中位耗时为 2.62 ms，恢复 10,000 次工具调用为 22.71 ms，在 5,000 轮对话界面上渲染缓存帧的平均耗时为每帧 0.35 ms。
 
-完整方法与限制请参阅可复现的 [TUI 性能报告](https://omdsh.agi.fans/zh/docs/performance)，也可以在本地运行 `pnpm benchmark:tui`。
+完整方法与限制请参阅可复现的 [TUI 性能报告](https://omdsh.agi.fans/zh/docs/performance/)，也可以在本地运行 `pnpm benchmark:tui`。
 
 ## 配置
 
 运行 `/login` 可以配置一家提供方。DeepSeek 仍会打开官方 Key 管理页、验证 Key，并让这份存储凭据优先于继承的 `DEEPSEEK_API_KEY`。当已挂载的提供方注册了 Harness 授权流程时，`/login` 会列出该流程及其方法，终端只渲染流程要求的通知和提问。同一条命令也可以激活 catalog API Key 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。之后 `/model` 会列出所有已激活的路由。`/logout` 会删除由 omdsh 管理的选择；对 DeepSeek 而言，环境变量可用时会回退到环境变量。
 
-模型配置也可以来自 `$DSH_HOME/settings.yaml`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp)。
+模型配置也可以来自 `$DSH_HOME/settings.yaml`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
 
 升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。长任务完成和等待人工输入的终端通知也在这里配置，并且默认关闭。
 

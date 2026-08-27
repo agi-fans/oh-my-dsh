@@ -4,7 +4,7 @@
   "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
   "version": "0.11.0",
   "license": "MIT",
-  "homepage": "https://github.com/agi-fans/oh-my-dsh#readme",
+  "homepage": "https://omdsh.agi.fans/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agi-fans/oh-my-dsh.git"

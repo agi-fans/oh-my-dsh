@@ -1,3 +1,7 @@
+---
+description: Author, install, inspect, and publish a dsh.bundle plugin that adds an omdsh slash command.
+---
+
 # Write a plugin
 
 By the end of this walkthrough you will have built, installed, and verified a small plugin that adds a `/greet` command, and you will know how to change and publish it. You need `pnpm` on `PATH`.

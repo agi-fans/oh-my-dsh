@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://omdsh.agi.fans/sitemap.xml
+Sitemap: https://omdsh.agi.fans/sitemap-index.xml

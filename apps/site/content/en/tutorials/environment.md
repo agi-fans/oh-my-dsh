@@ -1,3 +1,7 @@
+---
+description: Switch omdsh models and reasoning effort, add extra providers with /login, and reshape the TUI in /settings.
+---
+
 # Tune the working environment
 
 By the end of this walkthrough you can switch models and reasoning effort, sign in extra providers, and reshape the interface through `/settings`.

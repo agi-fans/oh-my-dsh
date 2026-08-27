@@ -1,3 +1,7 @@
+---
+description: Resume, rewind, compact, and export long omdsh sessions, including omdsh --resume after a two-step Ctrl-C exit.
+---
+
 # Recover and manage a long session
 
 By the end of this walkthrough you can resume a session after leaving, rewind to an earlier turn, compact old history, and export a transcript.

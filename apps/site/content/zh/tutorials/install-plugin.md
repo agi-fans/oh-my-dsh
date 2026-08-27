@@ -1,3 +1,7 @@
+---
+description: 用 omdsh plugin add 把随仓库提供的 examples/hello bundle 装进 omdsh Profile，并在 --dump-config 中确认。
+---
+
 # 安装示例插件
 
 本教程把随仓库提供的示例 bundle 安装到 omdsh Profile 并验证它生效。你需要一份 omdsh 仓库 checkout，并且 `PATH` 上有 `pnpm`。

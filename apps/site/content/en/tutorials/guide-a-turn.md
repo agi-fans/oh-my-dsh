@@ -1,3 +1,7 @@
+---
+description: Steer a running omdsh turn with the next-turn queue, Loop, Plan mode, todos, and /goal.
+---
+
 # Guide an active turn
 
 By the end of this walkthrough you can queue follow-up messages, repeat a prompt with Loop, enter Plan mode, and read task progress.

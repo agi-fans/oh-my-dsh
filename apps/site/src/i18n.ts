@@ -5,20 +5,35 @@ export const repoUrl = 'https://github.com/agi-fans/oh-my-dsh'
 export const npmUrl = 'https://www.npmjs.com/package/@agi-fans/oh-my-dsh'
 
 export const descriptions = {
-  en: 'A focused, keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime.',
-  zh: '一个专注、键盘优先的 DeepSeek 终端编程智能体，构建于 DeepSeek Harness 插件运行时之上。',
+  en: 'omdsh is a keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime. The CLI is @agi-fans/oh-my-dsh.',
+  zh: 'omdsh 是一个键盘优先的 DeepSeek 终端编程智能体，构建于 DeepSeek Harness 插件运行时之上。命令行包名为 @agi-fans/oh-my-dsh。',
 } as const
+
+export const changelogDescriptions = {
+  en: 'Release history for omdsh, the keyboard-first DeepSeek coding agent built on DeepSeek Harness.',
+  zh: 'omdsh 的版本记录：基于 DeepSeek Harness 的键盘优先终端编程智能体。',
+} as const
+
+/** Directory-style site path with a trailing slash, matching GitHub Pages. */
+export function pagePath(path: string): string {
+  const value = path.startsWith('/') ? path : `/${path}`
+  if (value === '/') return '/'
+  return value.endsWith('/') ? value : `${value}/`
+}
 
 /** Path of the same page in the other locale. */
 export function alternatePath(path: string, locale: Locale): string {
-  if (locale === 'en') return path === '/' ? '/zh/' : `/zh${path}`
-  const stripped = path.replace(/^\/zh(?=\/|$)/u, '')
-  return stripped === '' ? '/' : stripped
+  const normalized = pagePath(path)
+  if (locale === 'en') return normalized === '/' ? '/zh/' : `/zh${normalized}`
+  const stripped = normalized.replace(/^\/zh(?=\/|$)/u, '')
+  return stripped === '' || stripped === '/' ? '/' : pagePath(stripped)
 }
 
 /** Prefix a site path with the locale root when needed. */
 export function localizedPath(path: string, locale: Locale): string {
-  return locale === 'zh' ? (path === '/' ? '/zh/' : `/zh${path}`) : path
+  const normalized = pagePath(path)
+  if (locale !== 'zh') return normalized
+  return normalized === '/' ? '/zh/' : `/zh${normalized}`
 }
 
 export const ui = {

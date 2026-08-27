@@ -1,3 +1,7 @@
+---
+description: Measured omdsh TUI performance for session replay, tool-call resume, projection updates, and cached frame rendering.
+---
+
 # TUI Performance Report
 
 oh-my-dsh treats responsiveness as part of the terminal architecture rather than a final polish pass. The TUI keeps live state updates immutable, replays durable logs through a private linear-time builder, consumes Harness projections instead of repeatedly deriving aggregate state, caches formatted transcript blocks, and writes only changed terminal rows.

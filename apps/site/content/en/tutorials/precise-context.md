@@ -1,3 +1,7 @@
+---
+description: Point omdsh at exact files and sessions with @ mentions, paste clipboard images, and write structured multiline prompts.
+---
+
 # Give the agent precise context
 
 By the end of this walkthrough you can point the agent at exact files and sessions, attach screenshots, and write structured multi-line prompts.
