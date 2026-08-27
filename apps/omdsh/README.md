@@ -77,7 +77,7 @@ The TUI package is split into a service definition, local terminal Provider, ses
 
 ## Performance
 
-Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.15 ms, 10,000 tool calls take 21.21 ms, and cached updates over a 5,000-turn surface average 0.24 ms per frame.
+Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.62 ms, 10,000 tool calls take 22.71 ms, and rendering cached frames over a 5,000-turn surface averages 0.35 ms per frame.
 
 See the reproducible [TUI performance report](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/performance.md) or run `pnpm benchmark:tui` locally.
 

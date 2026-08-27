@@ -4,6 +4,8 @@
 
 [Tutorials](../tutorials.md) · Previous: [Guide an active turn](guide-a-turn.md) · Next: [Tune the working environment](environment.md)
 
+By the end of this walkthrough you can resume a session after leaving, rewind to an earlier turn, compact old history, and export a transcript.
+
 ### Resume after leaving
 
 The first `Ctrl+C` clears or interrupts, and a second one exits. When the active session is durable, omdsh prints a command you can paste later:
@@ -18,7 +20,10 @@ Inside the TUI, `/resume` opens a searchable session selector with the latest hu
 
 When the agent is idle and the composer is empty, press `Esc` twice to open the conversation-turn selector. Choosing a user turn creates a new session branched from the history before that message and restores the original prompt into the composer. The original session remains available through `/resume`, so rewind is recoverable rather than destructive.
 
-Use `/retry` when you only want to submit the latest human prompt again as a new turn. Use `/new` to start a clean session instead of branching the current one.
+Two neighboring commands cover the cases rewind does not:
+
+- `/retry` submits the latest human prompt again as a new turn.
+- `/new` starts a clean session instead of branching the current one.
 
 ### Compact and export
 

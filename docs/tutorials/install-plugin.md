@@ -4,15 +4,22 @@
 
 [Tutorials](../tutorials.md) · Previous: [Extend a project with Skills and MCP](skills-and-mcp.md) · Next: [Write a plugin](write-a-plugin.md)
 
-From an omdsh checkout, install the shipped example bundle into the omdsh Profile. The path is relative to the invoking directory; if it is missing there, omdsh walks parent directories, so the same command still works from `apps/omdsh`.
+This walkthrough installs the shipped example bundle into the omdsh Profile and confirms it works. You need an omdsh checkout and `pnpm` on `PATH`.
 
 ```sh
 omdsh plugin add ./examples/hello
 omdsh --dump-config
 ```
 
-`--dump-config` should list `@agi-fans/omdsh-plugin-hello` after the product layer. Restart omdsh, then run `/hello`. The command also appears in `/help`. It is a `dsh-commands` handler, not a TUI overlay.
+The path is relative to the invoking directory; if it is missing there, omdsh walks parent directories for the same relative path, so the command also works from `apps/omdsh`.
 
-Remove it with `omdsh plugin remove @agi-fans/omdsh-plugin-hello` and restart again. To author your own bundle, continue with [Write a plugin](write-a-plugin.md). The compatibility contract is in [User plugins](../plugins.md).
+Check the result in two steps:
+
+1. `--dump-config` lists `@agi-fans/omdsh-plugin-hello` after the product layer.
+2. Restart omdsh and run `/hello`. The command also appears in `/help`.
+
+Remove the bundle with `omdsh plugin remove @agi-fans/omdsh-plugin-hello` and restart again.
+
+To author your own bundle, continue with [Write a plugin](write-a-plugin.md). The compatibility contract is in [User plugins](../plugins.md).
 
 [Tutorials](../tutorials.md) · Previous: [Extend a project with Skills and MCP](skills-and-mcp.md) · Next: [Write a plugin](write-a-plugin.md)

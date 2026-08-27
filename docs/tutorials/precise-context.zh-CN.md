@@ -2,25 +2,38 @@
 
 [English](precise-context.md) | 简体中文
 
-[教程](../tutorials.zh-CN.md) · Previous: [完成第一个任务](first-task.zh-CN.md) · Next: [引导运行中的任务](guide-a-turn.zh-CN.md)
+[教程](../tutorials.zh-CN.md) · 上一篇：[完成第一个任务](first-task.zh-CN.md) · 下一篇：[引导运行中的任务](guide-a-turn.zh-CN.md)
+
+读完本教程，你可以把 Agent 精确指向某个文件或会话、附加截图，并编写结构化的多行 Prompt。
 
 ### 提及文件和会话
 
-输入 `@`，再输入项目路径或会话标题中的一部分。弹出列表会先列出工作区文件，再列出其他会话；使用方向键移动，并按 `Tab` 插入选中的行。选中文件会通过 Harness file-reference 发现插入路径，不会上传文件内容；选中会话会插入 mention，omdsh 随后会为模型捕获该会话的只读快照。
+输入 `@`，再输入项目路径或会话标题中的一部分。弹出列表会先列出工作区文件，再列出其他会话；使用方向键移动，并按 `Tab` 插入选中的行。
 
-Mention 会在消息中保持高亮。文件 mention 为 Agent 提供明确路径，随后 Agent 可以使用普通工具读取它，不会上传文件内容。会话 mention 不会 resume 或 fork 源会话。
+文件 mention 只插入路径：Agent 会用普通工具自行读取文件，消息不会上传文件内容。会话 mention 会插入一个标记，omdsh 随后把它替换为该会话的只读快照提供给模型；它不会 resume 或 fork 源会话。Mention 在 Composer 中保持高亮。
 
 ```text
 对比 @packages/tui/omdsh-tui/src/chrome/renderer.ts 与 @packages/tui/omdsh-tui/src/chrome/renderer.spec.ts，编辑前先解释缺失的边界场景。
 ```
 
-输入 `./` 和 `~/` 也会打开路径补全。补全只负责插入路径，不会绕过工具权限，也不会静默上传文件内容。
+输入 `./` 或 `~/` 会打开普通路径补全。它只插入路径，不会绕过工具权限，也不会上传内容。
 
 ### 添加截图和图片
 
-复制图片后按 `Ctrl+V`。当平台剪贴板读取器可用时，Composer 会插入紧凑的图片标记，而不是临时文件路径；补充说明文字后即可作为一条消息发送，也可以随 `/goal` 或 `/plan` 一起提交。粘贴可读取的图片文件路径时，也会导入对应图片。默认 DeepSeek catalog 包含可处理图片的 `deepseek-v4-flash-vision-exp`；其余默认 DeepSeek 模型仍是纯文本。若部署要让其他模型接受原生图片请求，须在该模型上声明 `inputModalities: [text, image]`。
+复制图片后按 `Ctrl+V`。Composer 会插入一个紧凑的图片标记；补充说明文字后即可作为一条消息发送，也可以随 `/goal` 或 `/plan` 一起提交。粘贴可读取的图片文件路径时，也会导入对应图片。
 
-在 Linux 上，原生图片粘贴在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`。如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。图片在粘贴时会按 Harness 源图准入检查——默认 20 MiB、64,000,000 像素、单边 8192px。获准的源图再规范化存储为长边 2048px、编码数据不超过 4 MiB。这些源图与存储限制并不是视觉路由在准备模型请求时使用的 request-image 预算。被拒绝的图片会显示错误提示，不会进入 Prompt。发送带多张图片的消息时会按顺序一次性准入：任一图片被拒绝时，Composer 文本和草稿都会保留。
+图片粘贴依赖平台剪贴板读取器。在 Linux 上，它在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`；如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。
+
+默认 DeepSeek catalog 包含可处理图片的 `deepseek-v4-flash-vision-exp`；其余默认 DeepSeek 模型仍是纯文本。若部署要让其他模型接受原生图片请求，须在该模型上声明 `inputModalities: [text, image]`。
+
+粘贴的图片会先通过准入检查，再规范化存储：
+
+- 源图最大 20 MiB、64,000,000 像素、单边 8192px。
+- 获准的图片存储为长边 2048px、编码数据不超过 4 MiB。
+- 被拒绝的图片会显示错误提示，不会进入 Prompt。
+- 一条消息携带多张图片时会按顺序一次性准入；任一图片被拒绝时，Composer 文本和草稿都会保留。
+
+这些检查发生在粘贴与存储阶段；之后视觉模型在准备请求时还会应用自己的图片预算。
 
 ### 编写结构化 Prompt
 
@@ -37,4 +50,4 @@ Mention 会在消息中保持高亮。文件 mention 为 Agent 提供明确路�
 验证：运行相关 TUI 测试和 typecheck。
 ```
 
-[教程](../tutorials.zh-CN.md) · Previous: [完成第一个任务](first-task.zh-CN.md) · Next: [引导运行中的任务](guide-a-turn.zh-CN.md)
+[教程](../tutorials.zh-CN.md) · 上一篇：[完成第一个任务](first-task.zh-CN.md) · 下一篇：[引导运行中的任务](guide-a-turn.zh-CN.md)

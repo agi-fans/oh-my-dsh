@@ -2,7 +2,7 @@
 
 [English](tutorials.md) | [简体中文](tutorials.zh-CN.md)
 
-These task-based walkthroughs cover the path from a fresh installation to reliable day-to-day use, then to writing an installable plugin. They assume Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, a terminal with TTY support, and a DeepSeek API key for live model turns. Writing a plugin also requires `pnpm` on `PATH`.
+These task-based walkthroughs cover the path from a fresh installation to reliable day-to-day use, then to writing an installable plugin. Read them in order the first time: each page opens with what you will finish and links to the next step. They assume Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, a terminal with TTY support, and a DeepSeek API key for live model turns. Writing a plugin also requires `pnpm` on `PATH`.
 
 Each walkthrough lives on its own page so a later change can update one path without rewriting the rest.
 
@@ -13,7 +13,7 @@ Each walkthrough lives on its own page so a later change can update one path wit
 | [Guide an active turn](tutorials/guide-a-turn.md) | Queue, Loop, Plan, Todo, and `/goal` |
 | [Recover and manage a long session](tutorials/long-session.md) | Resume, rewind, compact, and export |
 | [Tune the working environment](tutorials/environment.md) | `/model`, `/login` for extra providers, and `/settings` |
-| [Extend a project with Skills and MCP](tutorials/skills-and-mcp.md) | Project Skills and `mcp.json`; full reference is [Skills and MCP](skills-and-mcp.md) |
+| [Extend a project with Skills and MCP](tutorials/skills-and-mcp.md) | Add one project Skill and one MCP server; full reference is [Skills and MCP](skills-and-mcp.md) |
 | [Install the example plugin](tutorials/install-plugin.md) | `omdsh plugin add ./examples/hello` |
 | [Write a plugin](tutorials/write-a-plugin.md) | Author, install, inspect, and publish a `dsh.bundle` package |
 

@@ -2,7 +2,7 @@
 
 [English](tutorials.md) | 简体中文
 
-这些任务式教程覆盖从首次安装到日常可靠使用、再到编写可安装插件的完整路径。开始前请准备 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本、支持 TTY 的终端，以及用于真实模型对话的 DeepSeek API Key。编写插件还需要 `PATH` 上有 `pnpm`。
+这些任务式教程覆盖从首次安装到日常可靠使用、再到编写可安装插件的完整路径。第一次阅读时建议按顺序进行：每篇开头会说明你将完成什么，并在结尾链接下一步。开始前请准备 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本、支持 TTY 的终端，以及用于真实模型对话的 DeepSeek API Key。编写插件还需要 `PATH` 上有 `pnpm`。
 
 每篇教程单独成页，后续改一条路径时不必改整份文档。
 
@@ -13,7 +13,7 @@
 | [引导运行中的任务](tutorials/guide-a-turn.zh-CN.md) | 队列、Loop、Plan、Todo 和 `/goal` |
 | [恢复并管理长会话](tutorials/long-session.zh-CN.md) | 恢复、回退、压缩和导出 |
 | [调整工作环境](tutorials/environment.zh-CN.md) | `/model`、为额外提供方 `/login`，以及 `/settings` |
-| [使用 Skills 与 MCP 扩展项目](tutorials/skills-and-mcp.zh-CN.md) | 项目 Skills 与 `mcp.json`；完整说明见 [Skills 与 MCP](skills-and-mcp.zh-CN.md) |
+| [使用 Skills 与 MCP 扩展项目](tutorials/skills-and-mcp.zh-CN.md) | 添加一个项目 Skill 和一个 MCP Server；完整说明见 [Skills 与 MCP](skills-and-mcp.zh-CN.md) |
 | [安装示例插件](tutorials/install-plugin.zh-CN.md) | `omdsh plugin add ./examples/hello` |
 | [编写插件](tutorials/write-a-plugin.zh-CN.md) | 编写、安装、检查并发布一个 `dsh.bundle` 包 |
 
