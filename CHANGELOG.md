@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-27
+
 ### Added
 
 - Published the official documentation site at <https://omdsh.agi.fans/>, a bilingual Astro build deployed to GitHub Pages. The site wears the product's terminal aesthetic: a two-line TUI status footer with a live `Ctx` readout, a keyboard-first Ctrl+K command palette for search, and a homepage that replays a terminal session, alongside canonical language links, social metadata, structured data, a sitemap, and crawler guidance.
@@ -264,7 +266,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.7.0...v0.8.0
