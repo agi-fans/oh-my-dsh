@@ -142,10 +142,9 @@ omdsh 不克隆 Pi 的宿主 `TUI` 对象、`extensions/*.ts` 加载器或 `/rel
 - Pi 的 extensions 目录加载器、`pi` 包清单，以及对散落 TypeScript 文件的 `/reload`。
 - Pi 或 oh-my-pi 的品牌。产品保持 DeepSeek 身份。
 - Pi 的「不要 MCP」立场。omdsh 已经通过 Harness 挂载 MCP Server。
-- 自定义 Session Event 类型。未知事件不会进入 Transcript，也不会让回放崩溃。
+- 自定义持久化 Session Event 类型或 Transcript 条目。持久化层会拒绝读取器不认识的事件，除非该事件带有 `ignorable: true` 且可以安全跳过；omdsh 不提供供下游注册私有事件或将其渲染进 Transcript 的接口。
 - 主题包或 Overlay 组件。这些在出现第二个拥有独立所有权的贡献者之前保持关闭。
 - 第二套工具调用拦截总线。权限门留在 Harness 审批插件里，避免架空审计。
-- 自定义 Session Event 类型进入 Transcript。这条边界不会放宽。
 - 替换 Composer、按键映射，或任何其他由 TTY 拥有的表面。
 - 第二套斜杠命令注册表，或无限的 `/settings` 行列表。
 - 把宿主 TUI 实例、原始终端字节，或插件拥有的 assistant transcript 渲染器交给插件。瘦身 `custom()` Component 缝如果落地，在真实外部 bundle 用过之前只能是 experimental。

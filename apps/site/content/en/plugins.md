@@ -142,10 +142,9 @@ Not promised:
 - Pi's extensions-directory loader, `pi` package manifest, and `/reload` of loose TypeScript files.
 - Pi or oh-my-pi branding. The product keeps the DeepSeek identity.
 - Pi's "no MCP" stance. omdsh already mounts MCP servers through Harness.
-- Custom session event types. Unknown events stay out of the transcript rather than crashing replay.
+- Custom durable session event types or transcript entries. Persistence rejects an event unknown to a reader unless it carries `ignorable: true` and is safe to skip; omdsh provides no downstream registration or transcript-rendering surface for private event types.
 - Theme packs or overlay components. Those stay closed until a second independently owned contributor needs them.
 - A second tool-call intercept bus. Permission gates stay in the Harness approval plugin so audit is not bypassed.
-- Custom session event types in the transcript. That boundary does not loosen.
 - Replacing the composer, keybindings, or any other TTY-owned surface.
 - A second slash-command registry, or an unbounded `/settings` row list.
 - Passing the host TUI instance, raw terminal bytes, or a plugin-owned assistant transcript renderer. A slim `custom()` Component seam, if it ever ships, stays experimental until a real external bundle has used it.

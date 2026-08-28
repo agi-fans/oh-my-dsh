@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected the documentation for private session-event compatibility and legacy session portability, and linked the guided issue forms from both READMEs.
+
 ## [0.12.0] - 2026-08-28
 
 ### Changed

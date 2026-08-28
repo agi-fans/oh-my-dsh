@@ -43,6 +43,7 @@ omdsh
 - [用户插件](https://omdsh.agi.fans/zh/docs/plugins/) — 用 `omdsh plugin` 把 DSH bundle 装进 omdsh Profile。
 - [架构](https://omdsh.agi.fans/zh/docs/architecture/) — 了解插件边界与运行时数据流。
 - [性能](https://omdsh.agi.fans/zh/docs/performance/) — 查看 Benchmark、测试方法与渲染优化。
+- [报告问题或提出功能建议](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) — 使用引导表单提供版本、运行环境、复现步骤及脱敏后的上下文。
 
 ## 为什么做 oh-my-dsh
 

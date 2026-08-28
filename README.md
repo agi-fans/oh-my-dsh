@@ -43,6 +43,7 @@ The full documentation is also published on the [official site](https://omdsh.ag
 - [User plugins](https://omdsh.agi.fans/docs/plugins/) — install DSH bundles into the omdsh Profile with `omdsh plugin`.
 - [Architecture](https://omdsh.agi.fans/docs/architecture/) — understand the plugin boundaries and runtime data flow.
 - [Performance](https://omdsh.agi.fans/docs/performance/) — inspect the benchmarks, methodology, and rendering optimizations.
+- [Report a bug or request a feature](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) — use a guided form to include the version, environment, reproduction steps, and sanitized context.
 
 ## Why oh-my-dsh
 
