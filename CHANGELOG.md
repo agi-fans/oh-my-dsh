@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Fixed
 
 - Documentation pages now publish unique titles and descriptions, canonical URLs match GitHub Pages trailing slashes, crawlers receive a reachable sitemap at `/sitemap.xml`, and the 404 page is marked `noindex`.
+- The homepage terminal demo renders the DeepSeek logo in fixed-width character cells again, so browsers that fall back to a wider font for braille glyphs no longer stretch the logo apart.
 
 ## [0.11.0] - 2026-08-27
 

@@ -2,14 +2,23 @@
 const samplePrompt = 'Hello, Oh My DSH!'
 const thinking = 'The user is saying hello. This is a casual greeting, so no tools are needed.'
 const answer = "Hello! Welcome to Oh My DSH. Tell me what you’d like to build, fix, or explore."
-const logo = [
+// Braille glyphs are missing from most monospace fonts, so browsers fall back
+// to a wider font. Render each character in a fixed-width cell so fallback
+// glyph metrics cannot stretch the logo.
+const logoRows = [
   '         ⢀⣀  ⢀⡀',
   '⢀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣧⣄⡀⢻⣿⣷⣶⣶⣶⡿',
   '⣿⡟⠛⠛⠛⠿⢿⣿⣿⣿⣿⡿⢿⣷⣾⣿⣿⠉⠉',
   '⢻⣿⣄⡀  ⢀⠈⠛⢿⣿⣿⣶⣿⣿⡿⠃',
   ' ⠙⠻⢿⣶⣦⣼⣿⣷⣦⣭⣿⠿⣿⣷⠦',
   '     ⠉⠉⠉⠉⠉⠁',
-].join('\n')
+].map((row, rowIndex) =>
+  Array.from(row).map((character, column) => {
+    const progress = Math.min(1, (column + rowIndex * 0.7) / 23)
+    const hue = Math.round(292 - progress * 108)
+    return { character: character === ' ' ? '\u00a0' : character, color: `hsl(${hue} 84% 61%)` }
+  })
+)
 ---
 
 <div class="terminal-demo" data-terminal-demo aria-hidden="true">
@@ -23,7 +32,15 @@ const logo = [
       <span class="td-welcome-title">omdsh v0.11.0</span>
       <div class="td-identity">
         <strong>Into the Unknown</strong>
-        <pre class="td-logo">{logo}</pre>
+        <div class="td-logo">
+          {
+            logoRows.map((cells) => (
+              <span class="td-logo-row">
+                {cells.map((cell) => <i class="td-logo-cell" style={{ color: cell.color }}>{cell.character}</i>)}
+              </span>
+            ))
+          }
+        </div>
         <div class="td-model">deepseek-v4-flash</div>
         <div class="td-reasoning">max</div>
       </div>
@@ -206,16 +223,29 @@ const logo = [
 }
 
 .td-logo {
+  display: grid;
   margin: 15px 0 8px;
-  background: linear-gradient(100deg, hsl(292 84% 61%), hsl(199 84% 61%));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
   font-family: Menlo, Monaco, 'DejaVu Sans Mono', monospace;
   font-size: 9.5px;
-  line-height: 1.45;
-  letter-spacing: -0.06em;
-  white-space: pre;
+  line-height: 1;
+}
+
+.td-logo-row {
+  display: grid;
+  height: 1.45em;
+  grid-auto-columns: 0.52em;
+  grid-auto-flow: column;
+  justify-content: start;
+}
+
+.td-logo-cell {
+  display: block;
+  width: 0.52em;
+  overflow: visible;
+  font-style: normal;
+  text-align: center;
+  transform: scale(0.84, 1.55);
+  transform-origin: center;
 }
 
 .td-model,
