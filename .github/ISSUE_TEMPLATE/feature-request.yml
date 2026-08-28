@@ -1,0 +1,76 @@
+name: Feature request / 功能建议
+description: Propose a user-facing improvement / 提议面向用户的改进
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before the implementation. This helps us evaluate the smallest change that fits the DeepSeek Harness plugin architecture.
+
+        请先描述用户问题，再描述实现方案。这有助于我们在 DeepSeek Harness 插件架构内评估最小且合适的改动。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting / 提交前确认
+      options:
+        - label: I searched existing issues and did not find the same request. / 我已搜索现有 Issue，没有发现相同建议。
+          required: true
+        - label: I removed secrets and private data from all examples and screenshots. / 我已从示例和截图中移除密钥与隐私数据。
+          required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area / 影响范围
+      options:
+        - omdsh CLI or startup / 命令行或启动
+        - TUI rendering or interaction / 终端界面或交互
+        - Agent, tools, or workflow / Agent、工具或工作流
+        - Session save or resume / Session 保存或恢复
+        - Plugin or MCP integration / 插件或 MCP 集成
+        - Website or documentation / 网站或文档
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem / 用户问题
+      description: Who encounters the problem, in what situation, and what prevents them from completing their task? / 谁在什么场景下遇到问题？这个问题如何阻碍任务完成？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior / 期望行为
+      description: Describe the observable behavior, not only an internal implementation. / 请描述用户可观察到的行为，不要只描述内部实现。
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example interaction / 交互示例
+      description: Show a command, keyboard flow, terminal mockup, or API example when useful. / 如有帮助，请提供命令、键盘流程、终端示意或 API 示例。
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 考虑过的替代方案
+      description: Include existing commands, configuration, plugins, or workarounds you tried. / 请说明尝试过的现有命令、配置、插件或临时方案。
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility considerations / 兼容性考虑
+      description: Note any effect on sessions, plugins, configuration, terminal behavior, or published APIs. / 请说明对 session、插件、配置、终端行为或已发布 API 的影响。
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context / 补充信息

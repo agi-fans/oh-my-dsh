@@ -1,0 +1,132 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem in omdsh or dsh-tui / 报告可复现的问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve omdsh. Please provide the smallest reproducible case you can.
+
+        感谢你帮助改进 omdsh。请尽量提供最小可复现案例。提交前请移除 API Key、访问令牌、私有代码、完整 session 内容及其他敏感信息。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting / 提交前确认
+      options:
+        - label: I searched existing issues and did not find the same problem. / 我已搜索现有 Issue，没有发现相同问题。
+          required: true
+        - label: I removed secrets and private data from all text, logs, and screenshots. / 我已从文本、日志和截图中移除密钥与隐私数据。
+          required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area / 影响范围
+      options:
+        - omdsh CLI or startup / 命令行或启动
+        - TUI rendering or input / 终端界面或输入
+        - Agent, tools, or workflow / Agent、工具或工作流
+        - Session save or resume / Session 保存或恢复
+        - Plugin or MCP integration / 插件或 MCP 集成
+        - Website or documentation / 网站或文档
+        - Unsure / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: omdsh version / omdsh 版本
+      description: Run `omdsh --version`. Do not write only "latest". / 请运行 `omdsh --version`，不要只填写“最新版”。
+      placeholder: 0.12.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method / 安装方式
+      options:
+        - Global npm install / npm 全局安装
+        - npx
+        - Source checkout / 从源码运行
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      description: Include the OS, terminal, shell, and Node.js version. / 请填写操作系统、终端、Shell 和 Node.js 版本。
+      placeholder: |
+        OS: macOS 15.6
+        Terminal: iTerm2 3.5
+        Shell: zsh 5.9
+        Node.js: 24.6.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: runtime-context
+    attributes:
+      label: Runtime context / 运行配置
+      description: Include the Agent preset, workflow, model provider/model, and relevant plugins when applicable. / 如相关，请填写 Agent preset、workflow、模型提供方与模型，以及相关插件。
+      placeholder: |
+        Agent preset: PTC
+        Workflow: default
+        Model: DeepSeek / deepseek-chat
+        Plugins or MCP servers: none
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Provide a minimal, ordered sequence that reproduces the problem. / 请提供能够复现问题的最小操作步骤。
+      placeholder: |
+        1. Start omdsh with ...
+        2. Run ...
+        3. Press ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression / 是否为回归问题
+      description: Did this work in an earlier omdsh version? / 此功能是否曾在旧版本中正常工作？
+      options:
+        - Unknown / 不确定
+        - "Yes / 是"
+        - "No / 否"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots / 脱敏日志或截图
+      description: Paste only the relevant excerpt. Remove API keys, tokens, private paths, source code, prompts, and session content. / 只粘贴相关片段，并移除 API Key、令牌、私有路径、源代码、提示词及 session 内容。
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context / 补充信息
