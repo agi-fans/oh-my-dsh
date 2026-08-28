@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-28
+
 ### Changed
 
 - Agent presets now own their model-facing tool exposure: PTC uses the generated TypeScript tools SDK, while Standard, Minimal, and Cordis expose native functions.
@@ -282,7 +284,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.8.0...v0.9.0
