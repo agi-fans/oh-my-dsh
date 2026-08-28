@@ -15,8 +15,8 @@ export const homeCopy = {
       },
       {
         handle: '/agent /workflow /permission',
-        title: 'Four real session controls',
-        details: 'Choose an Agent preset, Workflow, tool presentation, and Access level without leaving the keyboard.',
+        title: 'Three real session controls',
+        details: 'Choose an Agent preset, Workflow, and Access level without leaving the keyboard. Each preset owns its tool exposure.',
       },
       {
         handle: '@mention · Ctrl+V',
@@ -59,8 +59,8 @@ export const homeCopy = {
       },
       {
         handle: '/agent /workflow /permission',
-        title: '四项真实会话控制',
-        details: '无需离开键盘，即可选择 Agent preset、Workflow、工具展示和 Access 级别。',
+        title: '三项真实会话控制',
+        details: '无需离开键盘，即可选择 Agent preset、Workflow 和 Access 级别；工具暴露方式由 preset 自己决定。',
       },
       {
         handle: '@mention · Ctrl+V',

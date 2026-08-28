@@ -41,7 +41,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 “一切皆插件”描述的是所有权，而不是文件数量。当一项能力拥有独立的生命周期、配置、依赖集合、注册协议、作用域或替换点时，它才应该成为插件。
 
 - 只有本地 Provider 负责 raw mode、按键解码、光标定位、viewport 状态和原子化终端写入。
-- `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、挂载 Agent preset、设置每个 Agent 的工具展示、读取 Projection 和清理资源。
+- `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、挂载 Agent preset、应用 preset 决定的工具暴露方式、读取 Projection 和清理资源。
 - 命令插件通过 `dsh-commands` 注册元数据和处理器；Runner 不维护第二份命令注册表。
 - Loop 命令以独立插件负责进程内调度与 Footer Projection。重复 Prompt 仍通过 `session-runtime` 提交；Loop 状态不会写入持久会话历史，并在活跃 Agent 发生变化时丢弃。
 - 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
@@ -77,7 +77,7 @@ Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。`om
   → 差分终端 Renderer
 ```
 
-普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 与工具展示会在 Agent 发布前完成组合，并写入日志以供重建；产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。后代 subagent 的活动从这些子会话折叠进 Composer 旁的名册。
+普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 会在 Agent 发布前完成组合，并通过 Harness 的 Session Metadata 与 Event 记录下来以供重建；工具暴露方式从该 preset 推导，不再写入产品私有 Session Event。产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。后代 subagent 的活动从这些子会话折叠进 Composer 旁的名册。
 
 ## 终端保证
 

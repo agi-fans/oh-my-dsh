@@ -32,7 +32,6 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 | 复制最近的回复、代码块或命令 | `/copy` |
 | 选择 Agent preset | `/agent` |
 | 选择 Default 或 Plan Workflow | `/workflow` |
-| 选择 Native、Code 或 Both Tools | `/tool-mode` |
 | 选择会话 Access | `/permission` |
 | 查看会话统计 | `/session` |
 | 查看会话事件轨迹 | `/trajectory` |

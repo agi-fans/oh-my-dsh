@@ -127,7 +127,6 @@ describe('omdsh command plugins', () => {
       stats: () => ({ turns: 0, steps: 0, inputTokens: 0, outputTokens: 0 }),
       controls: () => ({
         agentPreset: 'standard',
-        tools: 'native',
         plan: { active: true, pending: false },
         permission: 'workspace-write',
       }),
@@ -163,7 +162,7 @@ describe('omdsh command plugins', () => {
       text: expect.stringContaining('| Workflow | Plan |'),
     })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Agent | Standard |') })
-    expect(details.result).toMatchObject({ text: expect.stringContaining('| Tools | Native |') })
+    expect(details.result).toMatchObject({ text: expect.not.stringContaining('| Tools |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Access | Workspace write |') })
     expect(details.result).toMatchObject({ text: expect.stringContaining('| Reasoning | `high` |') })
 

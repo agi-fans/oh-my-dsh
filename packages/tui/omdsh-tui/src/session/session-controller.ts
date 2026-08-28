@@ -55,10 +55,8 @@ import { descendantDepth, isSteerableSubagent, SubagentRoster } from './subagent
 import type {} from '../runtime/tool-presentation.ts'
 import * as commandPermission from '../commands/permission.ts'
 import {
-  defaultToolPresentation,
   isBlankSession,
-  resolveToolPresentation,
-  type SessionConfiguration,
+  toolPresentationForPreset,
 } from './session-configuration.ts'
 import { stripComposerImageMarkers } from '../input/image-paste.ts'
 import type { ContextDiagnostics } from './context-diagnostics.ts'
@@ -68,11 +66,12 @@ interface ActiveSession {
   selection: ModelSelectionRef
   contextWindow: number | undefined
   reasoningEffort: string | undefined
-  configuration: SessionConfiguration
+  agentPreset: string
   disposeToolPresentation: () => void
 }
 
-interface ConfiguredAgentContext extends SessionConfiguration {
+interface ConfiguredAgentContext {
+  agentPreset: string
   disposeToolPresentation: () => void
 }
 
@@ -85,10 +84,9 @@ async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef
   if (agentPresets === undefined || tools === undefined) throw new Error('agent configuration services are unavailable')
   const agentPreset = resolveSessionPreset(agent.session) ?? agentPresets.defaultId
   const mounted = await agentPresets.mount(agentCtx, agentPreset)
-  const presentation = resolveToolPresentation(agent.session.events, mounted.id)
-  const disposeToolPresentation = tools.presentAs(presentation.tools)
+  const disposeToolPresentation = tools.presentAs(toolPresentationForPreset(mounted.id))
   await agentCtx.plugin(commandPermission)
-  return { agentPreset: mounted.id, ...presentation, disposeToolPresentation }
+  return { agentPreset: mounted.id, disposeToolPresentation }
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -701,17 +699,12 @@ export class SessionRuntime {
       await handle.dispose()
       throw new Error('resumed agent was published without session configuration')
     }
-    this.#pinToolPresentation(handle.agent, configuration)
     await this.#activate({
       handle,
       selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
-      configuration: {
-        agentPreset: configuration.agentPreset,
-        tools: configuration.tools,
-        toolsSource: configuration.toolsSource,
-      },
+      agentPreset: configuration.agentPreset,
       disposeToolPresentation: configuration.disposeToolPresentation,
     })
     await this.refreshRecent()
@@ -815,7 +808,7 @@ export class SessionRuntime {
         ...(agent.session.header.cwd === undefined ? {} : { cwd: agent.session.header.cwd }),
         parentSession: agent.id,
         seedLength: selected.branchIndex,
-        agentPreset: active.configuration.agentPreset,
+        agentPreset: active.agentPreset,
       },
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
@@ -832,17 +825,12 @@ export class SessionRuntime {
       await handle.dispose()
       throw new Error('forked agent was published without session configuration')
     }
-    this.#pinToolPresentation(handle.agent, configuration)
     await this.#activate({
       handle,
       selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
-      configuration: {
-        agentPreset: configuration.agentPreset,
-        tools: configuration.tools,
-        toolsSource: configuration.toolsSource,
-      },
+      agentPreset: configuration.agentPreset,
       disposeToolPresentation: configuration.disposeToolPresentation,
     })
     this.#tui.restoreInput({ text, images })
@@ -874,7 +862,7 @@ export class SessionRuntime {
     return this.#requiredActive().reasoningEffort
   }
 
-  /** Harness-owned workflow/access state plus creation-time Agent/tool configuration. */
+  /** Harness-owned workflow/access state plus the creation-time Agent preset. */
   controls(agent: Agent = this.#requiredAgent()): TuiSessionControls {
     this.assertActive(agent)
     const active = this.#requiredActive()
@@ -888,46 +876,30 @@ export class SessionRuntime {
       || left.id.localeCompare(right.id))
   }
 
-  /** Recompose one blank session and restore that preset's recommended tool presentation. */
-  async changeAgentPreset(agent: Agent, id: string): Promise<SessionConfiguration> {
+  /** Recompose one blank session, including the preset's fixed tool exposure. */
+  async changeAgentPreset(agent: Agent, id: string): Promise<string> {
     this.assertActive(agent)
     if (!isBlankSession(agent.session)) {
       throw new Error('Agent is locked after the first prompt. Start /new, then choose the Agent before sending a message.')
     }
     const active = this.#requiredActive()
-    if (active.configuration.agentPreset === id) return { ...active.configuration }
-    const previousPreset = active.configuration.agentPreset
+    if (active.agentPreset === id) return active.agentPreset
+    const previousPreset = active.agentPreset
     const preset = await this.#ctx.agentPresets.recompose(agent.ctx, id)
     try {
-      this.#replaceToolPresentation(active, defaultToolPresentation(preset.id), 'preset-default')
+      this.#replaceToolPresentation(active, toolPresentationForPreset(preset.id))
     } catch (error: unknown) {
       await this.#ctx.agentPresets.recompose(agent.ctx, previousPreset)
       throw error
     }
-    active.configuration.agentPreset = preset.id
+    active.agentPreset = preset.id
     agent.session.append('agent-preset/selected', { agentPreset: preset.id })
     this.#pushTools()
     this.#pushCommands()
     await this.#refreshSkills()
     this.#replaceTranscript(agent)
     this.#pushSessionInfo()
-    return { ...active.configuration }
-  }
-
-  /** Change how one blank session exposes its real Harness tool registry to the model. */
-  changeToolPresentation(agent: Agent, mode: ToolPresentationMode): SessionConfiguration {
-    this.assertActive(agent)
-    if (!isBlankSession(agent.session)) {
-      throw new Error('Tools are locked after the first prompt. Start /new, then choose the tool presentation before sending a message.')
-    }
-    const active = this.#requiredActive()
-    if (active.configuration.tools !== mode || active.configuration.toolsSource !== 'user') {
-      this.#replaceToolPresentation(active, mode, 'user')
-      this.#pushTools()
-      this.#replaceTranscript(agent)
-      this.#pushSessionInfo()
-    }
-    return { ...active.configuration }
+    return active.agentPreset
   }
 
   /** Select the Harness Plan Mode controller and immediately refresh terminal state. */
@@ -1004,17 +976,12 @@ export class SessionRuntime {
       await handle.dispose()
       throw new Error('created agent was published without session configuration')
     }
-    this.#pinToolPresentation(handle.agent, configuration)
     return {
       handle,
       selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
-      configuration: {
-        agentPreset: configuration.agentPreset,
-        tools: configuration.tools,
-        toolsSource: configuration.toolsSource,
-      },
+      agentPreset: configuration.agentPreset,
       disposeToolPresentation: configuration.disposeToolPresentation,
     }
   }
@@ -1204,21 +1171,8 @@ export class SessionRuntime {
     })
   }
 
-  #pinToolPresentation(agent: Agent, configuration: SessionConfiguration): void {
-    const selected = resolveToolPresentation(agent.session.events, configuration.agentPreset)
-    if (agent.session.events.some(event => event.type === 'omdsh/tools-selected')) return
-    agent.session.append('omdsh/tools-selected', {
-      mode: selected.tools,
-      source: selected.toolsSource,
-    })
-  }
-
-  #replaceToolPresentation(
-    active: ActiveSession,
-    mode: ToolPresentationMode,
-    source: SessionConfiguration['toolsSource'],
-  ): void {
-    const previousMode = active.configuration.tools
+  #replaceToolPresentation(active: ActiveSession, mode: ToolPresentationMode): void {
+    const previousMode = toolPresentationForPreset(active.agentPreset)
     active.disposeToolPresentation()
     try {
       const tools = active.handle.agent.ctx.get('tools')
@@ -1230,9 +1184,6 @@ export class SessionRuntime {
       active.disposeToolPresentation = tools.presentAs(previousMode)
       throw error
     }
-    active.configuration.tools = mode
-    active.configuration.toolsSource = source
-    active.handle.agent.session.append('omdsh/tools-selected', { mode, source })
   }
 
   #replaceTranscript(agent: Agent): void {
@@ -1346,8 +1297,7 @@ export class SessionRuntime {
     const livePlan = this.#ctx.get('planMode')?.get(active.handle.agent)
     return {
       ...controls,
-      agentPreset: active.configuration.agentPreset,
-      tools: active.configuration.tools,
+      agentPreset: active.agentPreset,
       ...(livePlan === undefined
         ? {}
         : { plan: { active: livePlan.active, pending: livePlan.pending !== undefined } }),

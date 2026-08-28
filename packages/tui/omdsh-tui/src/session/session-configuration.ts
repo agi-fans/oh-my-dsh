@@ -1,52 +1,21 @@
-/** Durable session configuration spanning Agent preset and tool presentation. */
+/** Agent-preset configuration and composition guards for one session. */
 
-import { KNOWN_SESSION_EVENT_TYPES, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { KNOWN_SESSION_EVENT_TYPES, type Session } from '@deepseek-ai/dsh-session'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 
-declare module '@deepseek-ai/dsh-session/types' {
-  interface SessionEventMap {
-    /** Tool presentation selected before the session produced model history. */
-    'omdsh/tools-selected': {
-      mode: ToolPresentationMode
-      source: 'preset-default' | 'user'
-    }
-  }
-}
-
 /**
- * Persistence refuses an unknown event type that is not marked ignorable.
- * `Session.append` cannot set that marker yet, so this process adds omdsh-owned
- * log-only types to the published vocabulary before any resume or inspect.
+ * Releases v0.5.0 through v0.11.0 wrote this private event. Keep it readable
+ * inside omdsh while new sessions remain portable and never append it again.
  */
-function registerOmdshSessionEvents(): void {
+function registerLegacyOmdshSessionEvents(): void {
   (KNOWN_SESSION_EVENT_TYPES as Set<string>).add('omdsh/tools-selected')
 }
 
-registerOmdshSessionEvents()
+registerLegacyOmdshSessionEvents()
 
-export interface SessionConfiguration {
-  agentPreset: string
-  tools: ToolPresentationMode
-  toolsSource: 'preset-default' | 'user'
-}
-
-/** PTC starts in Code presentation; the other shipped presets start Native. */
-export function defaultToolPresentation(agentPreset: string): ToolPresentationMode {
+/** PTC uses Code presentation; every other preset exposes native functions. */
+export function toolPresentationForPreset(agentPreset: string): ToolPresentationMode {
   return agentPreset === 'code' ? 'code' : 'native'
-}
-
-/** Reconstruct tool presentation from the log, falling back to the preset default. */
-export function resolveToolPresentation(
-  events: readonly SessionEvent[],
-  agentPreset: string,
-): Pick<SessionConfiguration, 'tools' | 'toolsSource'> {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    if (event?.type === 'omdsh/tools-selected') {
-      return { tools: event.data.mode, toolsSource: event.data.source }
-    }
-  }
-  return { tools: defaultToolPresentation(agentPreset), toolsSource: 'preset-default' }
 }
 
 /** Agent composition may change only before any model-visible history exists. */
@@ -67,10 +36,4 @@ export function formatAgentPreset(id: string): string {
   if (id === 'minimal') return 'Minimal'
   if (id === 'cordis') return 'Cordis'
   return id
-}
-
-export function formatToolPresentation(mode: ToolPresentationMode): string {
-  if (mode === 'native') return 'Native'
-  if (mode === 'code') return 'Code'
-  return 'Both'
 }

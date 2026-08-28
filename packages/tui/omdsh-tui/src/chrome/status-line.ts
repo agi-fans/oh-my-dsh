@@ -9,7 +9,7 @@
  */
 
 import type { TuiLoopStatus, TuiSessionControls, TuiSessionStats } from '../definition.ts'
-import { formatAgentPreset, formatToolPresentation } from '../session/session-configuration.ts'
+import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
   defaultStatusBarConfig,
   itemSide,
@@ -269,9 +269,6 @@ function sessionConfigurationStatus(controls: TuiSessionControls | undefined): {
   const parts = [agent]
   if (controls.plan?.pending === true) parts.push(controls.plan.active ? 'plan off…' : 'plan…')
   else if (controls.plan?.active === true) parts.push('plan')
-  if (controls.tools !== undefined && controls.tools !== 'native') {
-    parts.push(formatToolPresentation(controls.tools).toLowerCase())
-  }
   return {
     text: parts.join(' · '),
     tone: controls.plan?.pending === true ? 'warning' : 'accent',

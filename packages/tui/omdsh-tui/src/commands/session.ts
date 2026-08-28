@@ -10,7 +10,7 @@ import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
 import { formatRelativeAge } from '../chrome/relative-time.ts'
 import { formatPermission, formatTokens } from '../chrome/status-line.ts'
-import { formatAgentPreset, formatToolPresentation } from '../session/session-configuration.ts'
+import { formatAgentPreset } from '../session/session-configuration.ts'
 import { readPinnedSessions, sortSessionRows, togglePinnedSession, writePinnedSessions } from '../session/session-library.ts'
 import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
 
@@ -135,7 +135,6 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
       `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
       `| Agent | ${formatAgentPreset(controls.agentPreset ?? 'standard')} |`,
       `| Workflow | ${workflow} |`,
-      `| Tools | ${formatToolPresentation(controls.tools ?? 'native')} |`,
       ...(controls.permission === undefined ? [] : [`| Access | ${formatPermission(controls.permission)} |`]),
       `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
       `| Tokens | ${formatTokens(stats.inputTokens)} in · ${formatTokens(stats.outputTokens)} out |`,

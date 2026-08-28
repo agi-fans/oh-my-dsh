@@ -162,7 +162,6 @@ describe('session status line', () => {
       reasoningEffort: 'max',
       controls: {
         agentPreset: 'code',
-        tools: 'both',
         plan: { active: true, pending: false },
         permission: 'workspace-write',
       },
@@ -172,7 +171,7 @@ describe('session status line', () => {
       config: statusBar(),
       width: 140,
     }, createTheme(false))
-    expect(active[0]).toContain('deepseek-v4-pro · max · ptc · plan · both')
+    expect(active[0]).toContain('deepseek-v4-pro · max · ptc · plan')
     expect(active[0]).toContain('~/Workspace/dsh-tui · main')
     expect(active[0]).not.toContain('Workspace write')
 
@@ -194,7 +193,6 @@ describe('session status line', () => {
       model: 'm',
       controls: {
         agentPreset: 'minimal',
-        tools: 'native',
         plan: { active: false, pending: false },
       },
       config: statusBar(),
@@ -203,18 +201,6 @@ describe('session status line', () => {
     expect(idle[0]).toContain('m · minimal')
     expect(idle[0]).not.toContain('default')
     expect(idle[0]).not.toContain('native')
-
-    const codeTools = renderStatusFooter({
-      model: 'm',
-      controls: {
-        agentPreset: 'code',
-        tools: 'code',
-        plan: { active: false, pending: false },
-      },
-      config: statusBar(),
-      width: 48,
-    }, createTheme(false))
-    expect(codeTools[0]).toContain('m · ptc · code')
   })
 
   it('shows process-local loop state beside the model controls', () => {

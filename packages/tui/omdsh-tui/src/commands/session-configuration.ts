@@ -1,11 +1,10 @@
-/** Interactive selectors for the independent Agent, Workflow, and Tools concepts. */
+/** Interactive selectors for the independent Agent and Workflow concepts. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '../runtime/session-runtime.ts'
-import { formatAgentPreset, formatToolPresentation } from '../session/session-configuration.ts'
+import { formatAgentPreset } from '../session/session-configuration.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-session-configuration'
@@ -33,50 +32,8 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
   })
   if (selected === null || selected === controls.agentPreset) return { kind: 'success' }
   try {
-    const configuration = await ctx.omdshSession.changeAgentPreset(invocation.agent, selected)
-    return {
-      kind: 'success',
-      text: `Agent: ${formatAgentPreset(configuration.agentPreset)} · Tools: ${formatToolPresentation(configuration.tools)}`,
-    }
-  } catch (error: unknown) {
-    return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-const TOOL_MODES: readonly {
-  value: ToolPresentationMode
-  label: string
-  description: string
-}[] = [
-  { value: 'native', label: 'Native', description: 'Expose each visible tool as a native function.' },
-  { value: 'code', label: 'Code', description: 'Expose run_code with the generated TypeScript tools SDK.' },
-  { value: 'both', label: 'Both', description: 'Expose native functions and the TypeScript tools SDK together.' },
-]
-
-async function selectTools(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /tool-mode' }
-  const current = ctx.omdshSession.controls(invocation.agent).tools ?? 'native'
-  const selected = await ctx.tui.prompt({
-    title: 'Tools',
-    question: 'Choose how tools are exposed to the model',
-    detail: 'Locked after the first prompt',
-    options: TOOL_MODES.map(mode => ({
-      label: mode.label,
-      value: mode.value,
-      description: `${mode.value === current ? 'Current · ' : ''}${mode.description}`,
-    })),
-    initialValue: current,
-    allowCustom: false,
-    submitLabel: 'apply',
-    signal: invocation.signal,
-  })
-  if (selected === null || selected === current) return { kind: 'success' }
-  if (!TOOL_MODES.some(mode => mode.value === selected)) {
-    return { kind: 'error', text: `Unknown tool presentation: ${selected}` }
-  }
-  try {
-    const configuration = ctx.omdshSession.changeToolPresentation(invocation.agent, selected as ToolPresentationMode)
-    return { kind: 'success', text: `Tools: ${formatToolPresentation(configuration.tools)}` }
+    const agentPreset = await ctx.omdshSession.changeAgentPreset(invocation.agent, selected)
+    return { kind: 'success', text: `Agent: ${formatAgentPreset(agentPreset)}` }
   } catch (error: unknown) {
     return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
   }
@@ -109,6 +66,5 @@ export function apply(ctx: Context): void {
   registerCommands(ctx, [
     { name: 'agent', description: 'Choose the session Agent preset', handler: invocation => selectAgent(ctx, invocation) },
     { name: 'workflow', description: 'Choose Default or Plan workflow', handler: invocation => selectWorkflow(ctx, invocation) },
-    { name: 'tool-mode', description: 'Choose Native, Code, or Both tools', handler: invocation => selectTools(ctx, invocation) },
   ], 'omdsh session configuration commands')
 }

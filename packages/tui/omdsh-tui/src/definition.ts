@@ -12,7 +12,6 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 
 /** Context service name providers publish under. */
@@ -81,8 +80,6 @@ export interface TuiPrompt {
 export interface TuiSessionControls {
   /** Harness Agent preset mounted for this session. */
   agentPreset?: string
-  /** How the Harness tool registry is exposed to the model. */
-  tools?: ToolPresentationMode
   /** Logged Plan Mode state, including a selection awaiting the next step boundary. */
   plan?: { active: boolean; pending: boolean }
   /** Effective permission preset, such as workspace-write or danger-full-access. */

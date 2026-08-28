@@ -28,10 +28,10 @@ omdsh
 ## 功能亮点
 
 - **持久化对话：** 在 `/sessions` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
-- **四项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）、工具展示（Native、Code 或 Both）和 Access（Read only、Workspace write 或 Full access）。
+- **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。
 - **丰富的终端输入：** 使用 `@` 提及项目文件和其他会话，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
 - **清晰的工具活动：** 跟踪流式工具调用和子智能体的实时进展，在空 composer 中按 `↓` 再按 `Enter`（或直接按 `Alt+A`）进入键盘驱动的 Agent Hub 并选择子智能体，从其对话里直接跟进可续写任务，查看独立的 Input 和 Output 分区，展开长输出，并让工具插件继续拥有领域展示语义。
-- **实时运行上下文：** 无需离开 Composer，即可查看 Agent、Workflow、Tools、Access、模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤；使用 `/context` 可以在 transcript 中直接查看并保留基于 Projection 的构成明细。
+- **实时运行上下文：** 无需离开 Composer，即可查看 Agent、Workflow、Access、模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤；使用 `/context` 可以在 transcript 中直接查看并保留基于 Projection 的构成明细。
 - **为响应速度而设计：** 复用已完成的 Transcript 布局、合并滚动更新、只输出发生变化的终端行，并正确处理 CJK 文本和 emoji 的显示宽度。
 
 ## 学习指南

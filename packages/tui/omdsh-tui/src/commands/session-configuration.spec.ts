@@ -8,7 +8,7 @@ import type { SessionRuntime } from '../session/session-controller.ts'
 import * as commandSessionConfiguration from './session-configuration.ts'
 
 describe('session configuration commands', () => {
-  it('routes Agent, Workflow, and Tools selectors through their owning runtime seams', async () => {
+  it('routes Agent and Workflow selectors through their owning runtime seams', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -21,37 +21,31 @@ describe('session configuration commands', () => {
     } as unknown as Agent
     const prompt = vi.fn()
       .mockResolvedValueOnce('code')
-      .mockResolvedValueOnce('both')
       .mockResolvedValueOnce('plan')
-    const changeAgentPreset = vi.fn(async () => ({ agentPreset: 'code', tools: 'code', toolsSource: 'preset-default' as const }))
-    const changeToolPresentation = vi.fn(() => ({ agentPreset: 'code', tools: 'both', toolsSource: 'user' as const }))
+    const changeAgentPreset = vi.fn(async () => 'code')
     const changeWorkflow = vi.fn(() => 'committed' as const)
     ctx.provide('tui', { prompt } as unknown as TuiService)
     ctx.provide('agentPresets', {} as never)
     ctx.provide('planMode', { get: () => ({ active: false }) } as never)
     ctx.provide('omdshSession', {
-      controls: () => ({ agentPreset: 'standard', tools: 'native', plan: { active: false, pending: false } }),
+      controls: () => ({ agentPreset: 'standard', plan: { active: false, pending: false } }),
       agentPresets: async () => [
         { id: 'standard', name: 'Standard', trust: 'system', path: '/standard', order: 1 },
         { id: 'code', name: 'PTC', trust: 'system', path: '/code', order: 2 },
       ],
       changeAgentPreset,
-      changeToolPresentation,
       changeWorkflow,
     } as unknown as SessionRuntime)
 
     const fiber = await ctx.plugin(commandSessionConfiguration)
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['agent', 'tool-mode', 'workflow'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['agent', 'workflow'])
 
     await expect(ctx.commands.execute(agent, '/agent', [], new AbortController().signal))
-      .resolves.toMatchObject({ result: { kind: 'success', text: 'Agent: PTC · Tools: Code' } })
-    await expect(ctx.commands.execute(agent, '/tool-mode', [], new AbortController().signal))
-      .resolves.toMatchObject({ result: { kind: 'success', text: 'Tools: Both' } })
+      .resolves.toMatchObject({ result: { kind: 'success', text: 'Agent: PTC' } })
     await expect(ctx.commands.execute(agent, '/workflow', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Workflow: Plan' } })
 
     expect(changeAgentPreset).toHaveBeenCalledWith(agent, 'code')
-    expect(changeToolPresentation).toHaveBeenCalledWith(agent, 'both')
     expect(changeWorkflow).toHaveBeenCalledWith(agent, true)
     await fiber.dispose()
     await ctx.fiber.dispose()

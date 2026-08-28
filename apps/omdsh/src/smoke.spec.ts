@@ -8,6 +8,9 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Context } from '@deepseek-ai/cordis'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../../..', import.meta.url))
@@ -48,7 +51,7 @@ describe('omdsh smoke', () => {
     expect(out).not.toContain('Unsupported platform')
   }, 200_000)
 
-  it('resumes a session that recorded tool presentation', () => {
+  it('creates a session that stock DSH persistence can load', async () => {
     const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-resume-tools-'))
     const env = { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' }
     const created = spawnSync('pnpm', ['omdsh'], {
@@ -60,6 +63,20 @@ describe('omdsh smoke', () => {
     })
     const ids = findSessionIds(omdshHome)
     const sessionId = ids[0]
+    const reader = new Context()
+    let stockEvents: readonly SessionEvent[] | undefined
+    let stockLoadError: unknown
+    if (sessionId !== undefined) {
+      try {
+        await reader.plugin(SessionStore)
+        await reader.plugin(JsonlSessionPersistence, { root: join(omdshHome, 'sessions') })
+        stockEvents = (await reader.sessionPersistence.load(SessionId(sessionId))).events
+      } catch (error: unknown) {
+        stockLoadError = error
+      } finally {
+        await reader.fiber.dispose()
+      }
+    }
     const resumed = sessionId === undefined
       ? undefined
       : spawnSync('pnpm', ['omdsh', '--resume', sessionId], {
@@ -75,6 +92,8 @@ describe('omdsh smoke', () => {
     expect(created.status, createdOut).toBe(0)
     expect(createdOut).toContain('error:')
     expect(sessionId).toEqual(expect.stringMatching(/^session-/u))
+    expect(stockLoadError).toBeUndefined()
+    expect(stockEvents?.some(event => event.type === 'omdsh/tools-selected')).toBe(false)
     expect(resumed?.status, resumedOut).toBe(0)
     expect(resumedOut).toContain(`Resumed ${sessionId}.`)
     expect(resumedOut).not.toContain('unknown to this harness')

@@ -119,7 +119,7 @@ function shortenedWorkspaceRoot(): string {
 }
 
 describe('LocalTui (tty)', () => {
-  it('repaints the footer when live Agent and tool controls change', () => {
+  it('repaints the footer when the live Agent control changes', () => {
     const term = new FakeTerminal()
     term.columns = 100
     const tui = new LocalTui(term, 'm', false)
@@ -128,7 +128,6 @@ describe('LocalTui (tty)', () => {
       recent: [],
       controls: {
         agentPreset: 'standard',
-        tools: 'native',
         plan: { active: false, pending: false },
       },
     })
@@ -139,12 +138,11 @@ describe('LocalTui (tty)', () => {
       recent: [],
       controls: {
         agentPreset: 'code',
-        tools: 'both',
         plan: { active: false, pending: false },
       },
     })
     const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
-    expect(screen).toContain('m · ptc · both')
+    expect(screen).toContain('m · ptc')
     expect(screen).not.toContain('m · standard')
     tui.dispose()
   })

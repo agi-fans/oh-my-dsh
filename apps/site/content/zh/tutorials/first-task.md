@@ -1,5 +1,5 @@
 ---
-description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflow、Tools 和 Access，并完成第一个 DeepSeek 编程任务。
+description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflow 和 Access，并完成第一个 DeepSeek 编程任务。
 ---
 
 # 完成第一个任务
@@ -35,16 +35,15 @@ omdsh
 
 ### 在第一条 Prompt 前配置会话
 
-omdsh 将四个概念分别建模，而不是折叠成一个 Mode。如果不确定，第一个任务全部保持默认即可。
+omdsh 将三项会话控制分别建模，而不是折叠成一个 Mode。如果不确定，第一个任务全部保持默认即可。
 
 | 概念 | 命令 | 选项 |
 |---|---|---|
 | Agent | `/agent` | Standard 是完整 Coding Agent；PTC 默认使用程序化工具调用；Minimal 只保留持久 Bash 与 `str_replace_editor`；Cordis 增加运行时检查与插件实验能力。 |
 | Workflow | `/workflow` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
-| Tools | `/tool-mode` | Native 暴露函数；Code 通过 `run_code` 暴露生成的 TypeScript SDK；Both 同时暴露两种形式。 |
 | Access | `/permission` | Read only、Workspace write 或 Full access。 |
 
-Agent 与 Tools 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它们会被锁定。PTC Agent 默认选择 Code Tools，但在会话仍为空白时仍可通过 Tools 选择器更改。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
+Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
 
 ### 选择安全的 Access
 
@@ -66,4 +65,4 @@ Full access 需要二次确认。Access 才是实际的执行边界；Plan Workf
 找出用户设置无法持久化的原因，只修改负责该行为的最小模块，并运行对应测试。不要修改 refs/ 下的文件。
 ```
 
-Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会分别展示 Input 与 Output；按 `Ctrl+O` 可以展开或折叠最近一次工具输出。两行状态栏会持续展示当前 Agent、Workflow、Tools、模型、工作区、Git 状态和 Token 遥测，Composer 边界则显示 Access；这些内容都不会被写入对话。
+Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会分别展示 Input 与 Output；按 `Ctrl+O` 可以展开或折叠最近一次工具输出。两行状态栏会持续展示当前 Agent、Workflow、模型、工作区、Git 状态和 Token 遥测，Composer 边界则显示 Access；这些内容都不会被写入对话。

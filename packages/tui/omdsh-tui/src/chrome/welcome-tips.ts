@@ -21,7 +21,6 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/login', text: 'Configure a provider API key' },
   { key: '/agent', text: 'Choose Standard, PTC, Minimal, or Cordis' },
   { key: '/workflow', text: 'Choose Default or Plan workflow' },
-  { key: '/tool-mode', text: 'Choose Native, Code, or Both tools' },
   { key: '/loop', text: 'Repeat a prompt after each completed turn' },
   { key: '/permission', text: 'Choose the session access level' },
   { key: '/trajectory', text: 'Inspect the session event trajectory' },

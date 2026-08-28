@@ -32,7 +32,6 @@ The plugin compatibility contract is in [User plugins](plugins.md).
 | Copy the latest reply, code block, or command | `/copy` |
 | Choose Agent preset | `/agent` |
 | Choose Default or Plan workflow | `/workflow` |
-| Choose Native, Code, or Both tools | `/tool-mode` |
 | Choose session Access | `/permission` |
 | Inspect session statistics | `/session` |
 | Inspect the session event trajectory | `/trajectory` |

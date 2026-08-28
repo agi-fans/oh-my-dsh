@@ -8,11 +8,17 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Agent presets now own their model-facing tool exposure: PTC uses the generated TypeScript tools SDK, while Standard, Minimal, and Cordis expose native functions.
 - npm package pages for `@agi-fans/oh-my-dsh` and `@agi-fans/dsh-tui` now treat <https://omdsh.agi.fans/> as the homepage, with keywords that name `omdsh`, `oh-my-dsh`, `dsh`, `plugin`, `dsh-plugin`, and the DeepSeek Harness lineage. The documentation site publishes the same names in page keywords and structured data.
 - The documentation homepage no longer hydrates Vue for the terminal demo, defers Google Analytics until the browser is idle, ships only Latin variable fonts, and inlines stylesheets so the first visit does not wait on extra CSS round trips.
 
+### Removed
+
+- Removed the independent `/tool-mode` selector and Tools status; choose an Agent preset to select the corresponding tool composition and exposure.
+
 ### Fixed
 
+- Newly created omdsh sessions no longer contain the private `omdsh/tools-selected` event, so unmodified DeepSeek Harness readers can open them.
 - Documentation pages now publish unique titles and descriptions, canonical URLs match GitHub Pages trailing slashes, crawlers receive a reachable sitemap at `/sitemap.xml`, and the 404 page is marked `noindex`.
 - The homepage terminal demo renders the DeepSeek logo in fixed-width character cells again, so browsers that fall back to a wider font for braille glyphs no longer stretch the logo apart.
 
