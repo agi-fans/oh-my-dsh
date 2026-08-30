@@ -15,7 +15,7 @@ registerLegacyOmdshSessionEvents()
 
 /** PTC uses Code presentation; every other preset exposes native functions. */
 export function toolPresentationForPreset(agentPreset: string): ToolPresentationMode {
-  return agentPreset === 'code' ? 'code' : 'native'
+  return agentPreset === 'code' ? 'ptc' : 'native'
 }
 
 /** Agent composition may change only before any model-visible history exists. */

@@ -6,11 +6,12 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { boot, installFailLoud } from '@deepseek-ai/dsh-app-boot'
+import { boot, healProfilesModuleFallback, installFailLoud } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { NAME, prepareLaunchEnvironment } from './composition.ts'
-import { composeLaunch } from './profile.ts'
+import { composeLaunch, INSTALL_ANCHOR } from './profile.ts'
+import { omdshHome } from './mcp-config.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 export { NAME } from './composition.ts'
@@ -39,6 +40,11 @@ export async function runOmdsh(
   installFailLoud(NAME, process, async () => { await app.current?.fiber.dispose() })
   const environment = prepareLaunchEnvironment()
   const composed = composeLaunch()
+  await healProfilesModuleFallback({
+    installAnchor: INSTALL_ANCHOR,
+    profile: composed.profile,
+    home: omdshHome(),
+  })
   const ctx = await boot(NAME, composed.rootConfig, structuredClone(composed.patches), (hostCtx) => {
     app.current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)

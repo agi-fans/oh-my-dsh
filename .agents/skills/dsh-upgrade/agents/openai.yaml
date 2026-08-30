@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upgrade DSH Integrations"
+  short_description: "Upgrade DSH plugins and host cohorts safely"
+  default_prompt: "Use $dsh-upgrade to assess and migrate this project to the requested DSH or plugin version."

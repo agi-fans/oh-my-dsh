@@ -4,7 +4,7 @@
  * transcript state and rendered frame — what a terminal shows.
  */
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { applyEvent, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
@@ -615,7 +615,7 @@ describe('applyEvent', () => {
   it('keeps terminal input above a labeled output section after settlement', () => {
     const lines = blockLines({
       kind: 'tool',
-      callId: CallId('call-terminal'),
+      callId: ToolCallId('call-terminal'),
       name: 'bash',
       args: '{"command":"ignored fallback"}',
       status: 'ok',
@@ -638,7 +638,7 @@ describe('applyEvent', () => {
     const output = Array.from({ length: TOOL_COLLAPSED_LINES + 3 }, (_, index) => `line-${index}`)
     const lines = blockLines({
       kind: 'tool',
-      callId: CallId('call-terminal-tail'),
+      callId: ToolCallId('call-terminal-tail'),
       name: 'bash',
       args: '{}',
       status: 'ok',
@@ -663,7 +663,7 @@ describe('applyEvent', () => {
     }
     const lines = blockLines({
       kind: 'tool',
-      callId: CallId('call-edit'),
+      callId: ToolCallId('call-edit'),
       name: 'edit',
       args: '{}',
       status: 'ok',
@@ -687,7 +687,7 @@ describe('applyEvent', () => {
   it('keeps a generic error result visible when the call was a diff', () => {
     const lines = blockLines({
       kind: 'tool',
-      callId: CallId('call-edit-error'),
+      callId: ToolCallId('call-edit-error'),
       name: 'edit',
       args: '{}',
       status: 'error',
@@ -861,7 +861,7 @@ describe('blockLines', () => {
     const command = 'pnpm --filter @agi-fans/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @agi-fans/dsh-tui build'
     const lines = blockLines({
       kind: 'tool',
-      callId: CallId('call-long'),
+      callId: ToolCallId('call-long'),
       name: 'bash',
       args: JSON.stringify({ command }),
       status: 'ok',
@@ -1038,7 +1038,7 @@ describe('renderView', () => {
       status: 'running' as const,
       blocks: [
         settled,
-        { kind: 'tool' as const, callId: CallId('call-running'), name: 'bash', args: '{}', status: 'running' as const, output: '' },
+        { kind: 'tool' as const, callId: ToolCallId('call-running'), name: 'bash', args: '{}', status: 'running' as const, output: '' },
       ],
     }
     const options = {

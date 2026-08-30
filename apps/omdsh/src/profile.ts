@@ -12,7 +12,6 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   composeEntries,
-  healProfilesModuleFallback,
   initProfile,
   loadOptionalPatches,
   loadProfile,
@@ -76,11 +75,11 @@ export function ensureOmdshProfile(home: string): string {
 }
 
 /**
- * Heal the shared module fallback, ensure the Profile exists, load its
- * bundles, and rewrite the empty root include.
+ * Ensure the Profile exists, load its bundles, and rewrite the empty root
+ * include. Module fallback healing happens asynchronously in runOmdsh after
+ * this function returns the resolved Profile.
  */
 export function prepareProfile(home: string, userLayer = true): Profile {
-  healProfilesModuleFallback(INSTALL_ANCHOR, home)
   ensureOmdshProfile(home)
   const profile = loadProfile(NAME, PROFILE_NAME, INSTALL_ANCHOR, home, { userLayer })
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)

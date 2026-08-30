@@ -106,6 +106,7 @@
     name: '@deepseek-ai/dsh-agent-presets'
     config:
       default: standard
+      includeShippedRoot: false
       roots:
         - path: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('./agent-presets/', baseUrl))"
           trust: system

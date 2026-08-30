@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-settings'
 import { registerCommands } from '../commands/registration.ts'
 import type { TuiService } from '../definition.ts'
@@ -93,7 +92,7 @@ class StartupNotices implements OmdshStartupService {
   }
 
   async afterSessionStart(): Promise<void> {
-    const prefs = this.#ctx.settings.get(settingsNamespace(TUI_SETTINGS_NAMESPACE)) as TuiSettings | undefined
+    const prefs = this.#ctx.settings.get(TUI_SETTINGS_NAMESPACE) as TuiSettings | undefined
     const stateDir = join(this.#config.dshHome, 'omdsh')
     try {
       const mode = prefs?.startupChangelog ?? 'summary'

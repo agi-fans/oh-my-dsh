@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { buildCopyTargets, extractCodeBlocks, extractCopyTarget, parseCopyKind } from './copy-targets.ts'
 import type { Block } from './event-views.ts'
 
@@ -7,7 +7,7 @@ const assistant = (text: string): Block =>
   ({ kind: 'assistant', turn: 1, step: 1, text, reasoning: '', streaming: false })
 
 const tool = (name: string, args: string, output = ''): Block =>
-  ({ kind: 'tool', callId: CallId('c1'), name, args, status: 'ok', output })
+  ({ kind: 'tool', callId: ToolCallId('c1'), name, args, status: 'ok', output })
 
 describe('parseCopyKind', () => {
   it('accepts the OMP tokens and rejects unknown ones', () => {

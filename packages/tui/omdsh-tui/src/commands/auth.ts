@@ -22,7 +22,6 @@ import {
 } from '@deepseek-ai/dsh-credentials'
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { registerCommands } from './registration.ts'
@@ -38,8 +37,8 @@ export interface Config {
 export const DEEPSEEK_PROVIDER = 'deepseek-official'
 export const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
 export const OMDSH_DEEPSEEK_API_KEY = credentialRef('OMDSH_DEEPSEEK_API_KEY')
-export const DEEPSEEK_SETTINGS = settingsNamespace('llm-deepseek')
-export const PI_AI_SETTINGS = settingsNamespace('llm-pi-ai')
+export const DEEPSEEK_SETTINGS = 'llm-deepseek'
+export const PI_AI_SETTINGS = 'llm-pi-ai'
 export const DEEPSEEK_API_KEYS_URL = 'https://platform.deepseek.com/api_keys'
 export const DEEPSEEK_MODELS_URL = 'https://api.deepseek.com/v1/models'
 export const CUSTOM_PROVIDER_VALUE = '__omdsh_custom__'
@@ -247,7 +246,7 @@ function loginChoiceValues(
 }
 
 function sectionValue(ctx: Context, namespace: string): unknown {
-  return ctx.settings.get(settingsNamespace(namespace))
+  return ctx.settings.get(namespace)
 }
 
 function walkPath(root: unknown, path: readonly string[]): unknown {
@@ -593,7 +592,7 @@ async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: 
     return { kind: 'error', text: `The API key could not be saved to the Harness credential store.` }
   }
   try {
-    await ctx.settings.mutate(settingsNamespace(entry.settingsNs), [
+    await ctx.settings.mutate(entry.settingsNs, [
       { op: 'set', path: [...entry.settingsPath, 'apiKeyEnv'], value: String(ref) },
     ])
   } catch {
@@ -641,8 +640,7 @@ async function collectCustomModels(
         baseURL: draft.baseURL,
         api: draft.api,
         ...(draft.apiKey === undefined ? {} : { apiKey: draft.apiKey }),
-        signal: invocation.signal,
-      })
+      }, invocation.signal)
       if (discovered.length === 1) return [discovered[0]?.id ?? '']
       if (discovered.length > 1) {
         const picked = await ctx.tui.prompt({
@@ -975,7 +973,7 @@ async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry:
   })
   if (answer !== 'logout') return { kind: 'success' }
   try {
-    await ctx.settings.mutate(settingsNamespace(entry.settingsNs), [
+    await ctx.settings.mutate(entry.settingsNs, [
       { op: 'unset', path: [...entry.settingsPath] },
     ])
     if (removesStoredKey) await ctx.credentials.unset(managedRef)

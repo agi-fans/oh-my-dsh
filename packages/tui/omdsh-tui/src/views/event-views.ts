@@ -11,9 +11,10 @@
 
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { CallId, ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
+import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
@@ -69,7 +70,7 @@ export type ToolBlockStatus = 'running' | 'ok' | 'error'
 export type Block =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean; interrupted?: boolean }
-  | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
+  | { kind: 'tool'; callId: ToolCallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
   | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: string; framed?: boolean }

@@ -5,7 +5,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
 import type {
@@ -76,7 +76,7 @@ export class AgentBehaviorPrompt {
 
 export function apply(ctx: Context): void {
   const scope = ctx.settings.register(
-    settingsNamespace(AGENT_BEHAVIOR_SETTINGS_NAMESPACE),
+    AGENT_BEHAVIOR_SETTINGS_NAMESPACE,
     AgentBehaviorSettingsSchema,
     { applies: 'live' },
   )

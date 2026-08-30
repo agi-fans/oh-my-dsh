@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the published DeepSeek Harness runtime cohort from `0.1.1-rc.2` to `0.1.2-alpha.2`, including its Cordis foundation versions and public API adaptations.
+
 ## [0.13.0] - 2026-08-30
 
 ### Added

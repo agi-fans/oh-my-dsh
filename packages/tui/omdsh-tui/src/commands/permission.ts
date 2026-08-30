@@ -38,7 +38,7 @@ async function selectAccess(
   switchPreset: CommandDefinition['handler'],
 ): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /permission' }
-  const current = ctx.permissionPresets.current(invocation.agent.session.events)
+  const current = ctx.permissionPresets.current(invocation.agent.session)
   const options = ctx.permissionPresets.names.map((value) => {
     const option = ctx.permissionPresets.optionOf(value)
     return {

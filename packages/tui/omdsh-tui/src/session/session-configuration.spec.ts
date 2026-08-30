@@ -9,7 +9,7 @@ import {
 describe('session configuration', () => {
   it('derives tool exposure entirely from the Agent preset', () => {
     expect(toolPresentationForPreset('standard')).toBe('native')
-    expect(toolPresentationForPreset('code')).toBe('code')
+    expect(toolPresentationForPreset('code')).toBe('ptc')
     expect(toolPresentationForPreset('minimal')).toBe('native')
     expect(toolPresentationForPreset('cordis')).toBe('native')
   })

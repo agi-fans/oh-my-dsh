@@ -92,8 +92,9 @@ export function bindHumanInteraction(
   const disposers: Array<() => void> = []
   const questions = ctx.get('userQuestions')
   if (questions !== undefined) {
-    disposers.push(questions.registerProvider({
-      ask: request => askQuestions(tui, request),
+    disposers.push(ctx.on('user-questions/request', (request, next) => {
+      if (request.agent !== undefined && request.agent !== activeAgent()) return next()
+      return askQuestions(tui, request)
     }))
   }
   if (ctx.get('approval') !== undefined) {

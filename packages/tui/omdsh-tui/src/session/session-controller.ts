@@ -16,16 +16,16 @@ import {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import { resolveSessionPreset, type AgentPreset } from '@deepseek-ai/dsh-agent-presets'
+import type { AgentPreset } from '@deepseek-ai/dsh-agent-presets'
 import {
   createUserMessage,
   type LlmResolvedModelInfo,
+  type StreamChunk,
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type {} from '@deepseek-ai/dsh-attachment'
-import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/types'
 import type {} from '@deepseek-ai/dsh-plan-mode'
@@ -80,13 +80,29 @@ async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef
   const agent = agentCtx.agent
   if (agent === undefined) throw new Error('agent setup context has no agent')
   const agentPresets = agentCtx.get('agentPresets')
+  const sessionProjections = agentCtx.get('sessionProjections')
   const tools = agentCtx.get('tools')
-  if (agentPresets === undefined || tools === undefined) throw new Error('agent configuration services are unavailable')
-  const agentPreset = resolveSessionPreset(agent.session) ?? agentPresets.defaultId
+  if (agentPresets === undefined || sessionProjections === undefined || tools === undefined) {
+    throw new Error('agent configuration services are unavailable')
+  }
+  const agentPreset = sessionProjections.stateOf(agent.session, 'agentPreset') ?? agentPresets.defaultId
   const mounted = await agentPresets.mount(agentCtx, agentPreset)
   const disposeToolPresentation = tools.presentAs(toolPresentationForPreset(mounted.id))
   await agentCtx.plugin(commandPermission)
   return { agentPreset: mounted.id, disposeToolPresentation }
+}
+
+/** Whether a stream chunk establishes the first visible model-output boundary. */
+function isVisibleModelDelta(chunk: StreamChunk): boolean {
+  switch (chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return chunk.text !== ''
+    case 'tool-call-delta':
+      return chunk.argumentsDelta !== '' || chunk.name !== undefined
+    default:
+      return false
+  }
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -187,7 +203,7 @@ export function sessionStats(
           && openStep.turn === event.data.turn
           && openStep.step === event.data.step
           && openStep.firstTokenTime === undefined
-          && isTokenDelta(event.data.chunk)) {
+          && isVisibleModelDelta(event.data.chunk)) {
           openStep.firstTokenTime = event.time
         }
         break

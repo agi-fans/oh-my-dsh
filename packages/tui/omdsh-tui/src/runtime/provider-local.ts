@@ -126,7 +126,6 @@ import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } 
 import { HistoryStore } from '../views/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
 import { editExternally } from '../input/external-editor.ts'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-settings'
 import {
   movePromptSelection,
@@ -2509,7 +2508,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => () => { tui.dispose() })
   ctx.inject(['settings'], (settingsCtx) => {
     const scope = settingsCtx.settings.register(
-      settingsNamespace(TUI_SETTINGS_NAMESPACE),
+      TUI_SETTINGS_NAMESPACE,
       TuiSettingsSchema,
       { base: { theme: parseThemeName(config.theme), colors: config.colors ?? term.output.isTTY === true, expandTools: false } },
     )
