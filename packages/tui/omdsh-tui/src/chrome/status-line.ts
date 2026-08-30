@@ -23,7 +23,7 @@ import {
 import type { Theme, ThemeColor } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth } from './width.ts'
 
-type StatusTone = 'label' | 'value' | 'positive' | 'token' | 'separator'
+type StatusTone = 'label' | 'value' | 'positive' | 'warning' | 'error' | 'token' | 'separator'
 
 interface StatusPart {
   text: string
@@ -81,6 +81,13 @@ function formatContextPercent(tokens: number, window: number): string {
   return String(rounded)
 }
 
+function contextPressureTone(tokens: number, window: number): StatusTone {
+  const ratio = window <= 0 ? 0 : Math.max(0, tokens / window)
+  if (ratio >= 0.9) return 'error'
+  if (ratio >= 0.75) return 'warning'
+  return 'token'
+}
+
 function part(text: string, tone: StatusTone): StatusPart {
   return { text, tone }
 }
@@ -94,12 +101,14 @@ function buildStatusGroups(stats: TuiSessionStats, config: StatusBarConfig): Sta
   const groups: StatusGroup[] = []
   if (stats.contextWindow !== undefined && stats.contextWindow > 0) {
     const used = stats.contextTokens ?? 0
+    const pressureTone = contextPressureTone(used, stats.contextWindow)
+    const contextValue = `${formatContextPercent(used, stats.contextWindow)}%`
     groups.push({
       id: 'context',
       parts: [
-        ...metric(config.labels === 'compact' ? 'Ctx' : 'Context', `${formatContextPercent(used, stats.contextWindow)}%`),
+        ...metric(config.labels === 'compact' ? 'Ctx' : 'Context', contextValue, pressureTone),
         part(' · ', 'separator'),
-        part(`${formatTokens(used)}/${formatTokens(stats.contextWindow)}`, 'token'),
+        part(`${formatTokens(used)}/${formatTokens(stats.contextWindow)}`, pressureTone),
       ],
     })
   }
@@ -201,6 +210,8 @@ function itemColor(config: StatusBarConfig, id: StatusItemId, fallback: ThemeCol
 
 function toneColor(tone: StatusTone, config: StatusBarConfig, group: StatusGroupId): ThemeColor {
   if (tone === 'positive') return 'success'
+  if (tone === 'warning') return 'warning'
+  if (tone === 'error') return 'error'
   if (tone === 'separator') return 'dim'
   if (tone === 'label') return 'muted'
   const custom = itemColor(config, group, 'text')

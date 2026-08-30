@@ -236,6 +236,15 @@ describe('renderWorking', () => {
     expect(first).toBe(later)
   })
 
+  it('reduces or removes activity animation through the Motion policy', () => {
+    const colorTheme = createTheme(true, true)
+    const reduced = renderWorking(colorTheme, 10, undefined, 40, 'reduced')[0] ?? ''
+    const off = renderWorking(theme, 10, undefined, 40, 'off')[0] ?? ''
+    expect(reduced).not.toContain('\x1b[1m')
+    expect(stripAnsi(reduced)).toContain('Deep Driving')
+    expect(off).toContain('⟳ Deep Driving')
+  })
+
   it('shows the active tool action when available', () => {
     const line = renderWorking(theme, 0, 'bash · pnpm test', 40)[0] ?? ''
     expect(line).toContain('bash · pnpm test')

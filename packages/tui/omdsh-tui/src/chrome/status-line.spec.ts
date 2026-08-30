@@ -59,6 +59,40 @@ describe('session status line', () => {
     expect(renderSessionStatusLabel(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0% · 0/1M')
   })
 
+  it('renders context pressure as percentage and used/window tokens', () => {
+    const withContext: TuiSessionStats = {
+      ...stats,
+      contextTokens: 12_200,
+      contextWindow: 100_000,
+    }
+    expect(sessionStatusGroups(withContext, statusBar())).toContain(
+      'Ctx 12% · 12.2K/100K',
+    )
+  })
+
+  it('raises context pressure text from warning to error colors', () => {
+    const colorTheme = createTheme(true, true)
+    const base: TuiSessionStats = {
+      ...stats,
+      contextWindow: 100,
+      contextTokens: 80,
+    }
+    const warning = renderStatusFooter({
+      model: 'm',
+      stats: base,
+      config: statusBar({ groups: ['context'] }),
+      width: 80,
+    }, colorTheme)
+    const error = renderStatusFooter({
+      model: 'm',
+      stats: { ...base, contextTokens: 95 },
+      config: statusBar({ groups: ['context'] }),
+      width: 80,
+    }, colorTheme)
+    expect(warning[1]).toContain(colorTheme.getFgAnsi('warning'))
+    expect(error[1]).toContain(colorTheme.getFgAnsi('error'))
+  })
+
   it('formats concise English metric groups', () => {
     expect(sessionStatusGroups(stats)).toEqual([
       'Cache 99%',

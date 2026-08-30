@@ -27,6 +27,13 @@
   "bin": {
     "omdsh": "lib/bin.js"
   },
+  "exports": {
+    "./agent-behavior": {
+      "types": "./lib/agent-behavior.d.ts",
+      "default": "./lib/agent-behavior.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "lib/*.js",
     "lib/*.d.ts",
@@ -110,6 +117,9 @@
     "@agi-fans/dsh-tui": "workspace:^",
     "@deepseek-ai/dsh-subprocess-local": "0.1.1-rc.2",
     "@deepseek-ai/dsh-settings-file": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@deepseek-ai/dsh-credentials-local": "0.1.1-rc.2",
     "@deepseek-ai/dsh-authorization": "0.1.1-rc.2"
   },

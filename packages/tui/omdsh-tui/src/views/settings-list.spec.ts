@@ -15,6 +15,7 @@ const theme = createTheme(false)
 const key = (id: string): KeyEvent => ({ type: 'key', id })
 
 const prefs = { theme: 'dark' as const, colors: true, expandTools: false }
+const agent = { language: 'auto' as const }
 
 describe('tuiSettingItems / applySettingValue', () => {
   it('exposes theme and color cycle rows', () => {
@@ -22,6 +23,8 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items.map((item) => item.id)).toEqual([
       'theme',
       'colors',
+      'motion',
+      'terminalProgress',
       'expandTools',
       'checkUpdates',
       'startupChangelog',
@@ -42,17 +45,21 @@ describe('tuiSettingItems / applySettingValue', () => {
     ])
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
-    expect(items[2]).toMatchObject({ label: 'Tool details', value: 'compact' })
-    expect(items[3]).toMatchObject({ label: 'Update checks', value: 'on' })
-    expect(items[4]).toMatchObject({ label: 'Release notes', value: 'summary' })
-    expect(items[7]?.value).toBe('on')
-    expect(items[7]?.label).toBe('Status line')
-    expect(items[8]?.value).toBe('compact')
-    expect(items[9]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
-    expect(items[13]).toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6%' })
+    expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
+    expect(items[3]).toMatchObject({ label: 'Terminal activity', value: 'off' })
+    expect(items[4]).toMatchObject({ label: 'Tool details', value: 'compact' })
+    expect(items[5]).toMatchObject({ label: 'Update checks', value: 'on' })
+    expect(items[6]).toMatchObject({ label: 'Release notes', value: 'summary' })
+    expect(items[9]?.value).toBe('on')
+    expect(items[9]?.label).toBe('Status line')
+    expect(items[10]?.value).toBe('compact')
+    expect(items[11]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
+    expect(items[15]).toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual({ theme: 'dark', colors: true, expandTools: true })
+    expect(applySettingValue(prefs, 'motion', 'reduced').motion).toBe('reduced')
+    expect(applySettingValue(prefs, 'terminalProgress', 'on').terminalProgress).toBe(true)
     expect(applySettingValue(prefs, 'statusEnabled', 'off').statusBar?.enabled).toBe(false)
     expect(applySettingValue(prefs, 'statusLabels', 'full').statusBar?.labels).toBe('full')
     expect(applySettingValue(prefs, 'statusItem:model', 'accent').statusBar?.colors?.model).toBe('accent')
@@ -84,6 +91,16 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(applySettingValue(prefs, 'notifications', 'long-running').notifications).toBe('long-running')
     expect(applySettingValue(prefs, 'notificationThreshold', '1m').notificationThreshold).toBe('1m')
   })
+
+  it('projects Agent language only when the host binds Agent settings', () => {
+    expect(tuiSettingItems(prefs).some(item => item.id === 'agentLanguage')).toBe(false)
+    expect(tuiSettingItems(prefs, agent)[9]).toMatchObject({
+      id: 'agentLanguage',
+      label: 'Language',
+      value: 'Auto',
+      values: ['Auto', 'Simplified Chinese', 'English'],
+    })
+  })
 })
 
 describe('applySettingsEvent', () => {
@@ -92,6 +109,7 @@ describe('applySettingsEvent', () => {
     const cycled = applySettingsEvent(open, key('enter'))
     expect(cycled).toEqual({
       kind: 'apply',
+      domain: 'tui',
       state: { selected: 0, prefs: { theme: 'light', colors: true, expandTools: false } },
     })
     const again = applySettingsEvent(cycled.kind === 'apply' ? cycled.state : open, { type: 'text', value: ' ' })
@@ -122,15 +140,43 @@ describe('applySettingsEvent', () => {
     const end = applySettingsEvent(firstStatus, key('end'))
     expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
     const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
-    expect(home.kind === 'update' && home.state.selected).toBe(7)
+    expect(home.kind === 'update' && home.state.selected).toBe(9)
   })
 
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(7)
+    expect(status.kind === 'update' && status.state.selected).toBe(9)
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
+  })
+
+  it('navigates General, Agent, and Status line as three bounded sections', () => {
+    const open = createSettings(prefs, 'theme', agent)
+    const agentTab = applySettingsEvent(open, key('tab'))
+    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(9)
+    const down = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('down'))
+    expect(down).toEqual(agentTab)
+    const status = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('tab'))
+    expect(status.kind === 'update' && status.state.selected).toBe(10)
+    const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
+    expect(general.kind === 'update' && general.state.selected).toBe(0)
+    const reverseStatus = applySettingsEvent(general.kind === 'update' ? general.state : open, key('shift+tab'))
+    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(10)
+  })
+
+  it('cycles Agent language independently of TUI preferences', () => {
+    const open = createSettings(prefs, 'agentLanguage', agent)
+    const chinese = applySettingsEvent(open, key('right'))
+    expect(chinese).toEqual({
+      kind: 'apply',
+      domain: 'agent',
+      state: { ...open, agent: { language: 'zh-CN' } },
+    })
+    const english = applySettingsEvent(chinese.kind === 'apply' ? chinese.state : open, key('enter'))
+    expect(english.kind === 'apply' && english.domain).toBe('agent')
+    expect(english.kind === 'apply' && english.state.agent?.language).toBe('en')
+    expect(english.kind === 'apply' && english.state.prefs).toEqual(prefs)
   })
 
   it('reorders first-line preview items independently of telemetry groups', () => {
@@ -169,12 +215,12 @@ describe('applySettingsEvent', () => {
     expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
       'context', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[14]?.id).toBe('statusItem:cache')
+    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[16]?.id).toBe('statusItem:cache')
     const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
     expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
       'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(shown.kind === 'apply' && shown.state.selected).toBe(14)
+    expect(shown.kind === 'apply' && shown.state.selected).toBe(16)
   })
 
   it('ignores unrelated keys and non-space text', () => {
@@ -197,6 +243,10 @@ describe('renderSettings', () => {
     expect(lines).toContain('Tool details')
     const tools = renderSettings(createSettings(prefs, 'expandTools'), theme, 50).lines.join('\n')
     expect(tools).toContain('Expand tool output')
+    const terminalActivity = renderSettings(createSettings(prefs, 'terminalProgress'), theme, 40, 12).lines.join('\n')
+    expect(terminalActivity).toContain('Terminal activity')
+    expect(terminalActivity).toContain('Busy/idle status in supported')
+    expect(terminalActivity).toContain('terminal tabs and taskbars')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
     expect(status).toContain('Show the fixed two-line footer')
@@ -212,6 +262,8 @@ describe('renderSettings', () => {
     expect(wide).toMatch(/deepseek · max\s+~\/project · main \*1/)
     expect(wide).toContain('Tools 3m33s')
     expect(wide).not.toMatch(/main \*1…|Tools…/u)
+    const textPreview = renderSettings(createSettings(prefs, 'statusItem:context'), theme, 120, 14).lines.join('\n')
+    expect(textPreview).toContain('Ctx 1.6% · 16.4K/1M')
   })
 
   it('renders status rows in their effective order and marks a grabbed row', () => {
@@ -254,6 +306,15 @@ describe('renderSettings', () => {
     expect(tiny.lines).toHaveLength(8)
     expect(tiny.lines.every(line => visibleWidth(line) === 40)).toBe(true)
     expect(tiny.lines.join('\n')).toContain('Activity')
+  })
+
+  it.each([40, 60, 80])('renders the Agent tab in display cells at width %i', (width) => {
+    const view = renderSettings(createSettings(prefs, 'agentLanguage', agent), theme, width, 12)
+    const text = view.lines.join('\n')
+    expect(view.lines.every(line => visibleWidth(line) === width)).toBe(true)
+    expect(text).toContain('● Agent')
+    expect(text).toContain('Language')
+    expect(text).toContain('Auto')
   })
 
 })

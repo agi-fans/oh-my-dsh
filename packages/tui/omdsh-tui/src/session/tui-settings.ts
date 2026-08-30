@@ -18,6 +18,10 @@ import {
 } from '../chrome/status-config.ts'
 import { THEME_NAMES, type ThemeName } from '../chrome/theme.ts'
 
+/** Available terminal animation policies. */
+export const MOTION_MODES = ['full', 'reduced', 'off'] as const
+export type MotionMode = typeof MOTION_MODES[number]
+
 /** Settings namespace owned by the local TUI provider. */
 export const TUI_SETTINGS_NAMESPACE = 'omdsh-tui'
 
@@ -25,6 +29,8 @@ export const TUI_SETTINGS_NAMESPACE = 'omdsh-tui'
 export interface TuiSettings {
   theme: ThemeName
   colors: boolean
+  motion: MotionMode
+  terminalProgress: boolean
   expandTools: boolean
   checkUpdates: boolean
   startupChangelog: StartupChangelogMode
@@ -39,6 +45,8 @@ export interface TuiSettings {
 export const TuiSettingsSchema: z<TuiSettings> = z.object({
   theme: z.union([...THEME_NAMES]).default('dark'),
   colors: z.boolean().default(true),
+  motion: z.union([...MOTION_MODES]).default('full'),
+  terminalProgress: z.boolean().default(false),
   expandTools: z.boolean().default(false),
   checkUpdates: z.boolean().default(true),
   startupChangelog: z.union([...STARTUP_CHANGELOG_MODES]).default('summary'),

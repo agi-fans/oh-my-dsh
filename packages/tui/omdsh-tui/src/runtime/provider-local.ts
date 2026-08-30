@@ -11,7 +11,11 @@
  * @module @agi-fans/dsh-tui
  */
 
-import { TerminalNotificationController, terminalNotificationSequence } from './terminal-notifications.ts'
+import {
+  TerminalNotificationController,
+  terminalNotificationSequence,
+  terminalProgressSequence,
+} from './terminal-notifications.ts'
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +24,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   TUI_SERVICE,
+  type TuiAgentBehaviorSettings,
+  type TuiAgentBehaviorSettingsBinding,
   type TuiCommand,
   type TuiPrompt,
   type TuiNoticeOptions,
@@ -103,13 +109,19 @@ import {
   type Block,
   type TranscriptState,
 } from '../views/event-views.ts'
+import {
+  nextRevealStep,
+  revealStreamingAssistant,
+  streamingAssistantKey,
+  streamingAssistantUnits,
+} from '../views/streaming-reveal.ts'
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { type RenderSink } from '../chrome/renderer.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
-import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema } from '../session/tui-settings.ts'
+import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema, type MotionMode } from '../session/tui-settings.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../views/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
@@ -144,6 +156,8 @@ import type { StartupChangelogMode } from '../session/release-notes.ts'
 
 const DOUBLE_CTRL_C_MS = 500
 const DOUBLE_ESCAPE_MS = 500
+const STREAMING_REVEAL_MS = 1000 / 30
+const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
 
 function shortenPath(cwd: string): string {
   const home = homedir()
@@ -233,6 +247,7 @@ export class LocalTui implements TuiService {
   #resumeHintRequested = false
   #lastSigintTime = 0
   #lastEscapeTime = 0
+  #inspectEscapeFenceUntil = 0
   #interrupts = new Set<() => void>()
   #queueEdits = new Set<() => void>()
   #rewinds = new Set<() => void>()
@@ -260,6 +275,8 @@ export class LocalTui implements TuiService {
   #branch: string | undefined
   #spinner = 0
   #tick: ReturnType<typeof setInterval> | null = null
+  #revealTick: ReturnType<typeof setInterval> | null = null
+  #reveal: { key: string; revealed: number } | undefined
   #loopTick: ReturnType<typeof setInterval> | null = null
   #scrollStart = 0
   #maxStart = 0
@@ -267,6 +284,10 @@ export class LocalTui implements TuiService {
   #follow = true
   #focusBlock: number | undefined
   #expandTools = false
+  #motion: MotionMode = 'full'
+  #terminalProgress = false
+  #terminalProgressActive = false
+  #terminalProgressTick: ReturnType<typeof setInterval> | null = null
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
   #notifications = new TerminalNotificationController()
@@ -306,6 +327,10 @@ export class LocalTui implements TuiService {
   #validateImageDraft: ((image: TuiInputImage) => Promise<void>) | undefined
   readonly #autocompleteDebounceMs: number
   #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
+  #agentBehavior: TuiAgentBehaviorSettings | undefined
+  #updateAgentBehavior: ((next: TuiAgentBehaviorSettings) => Promise<void>) | undefined
+  #offAgentBehaviorWatch: (() => void) | undefined
+  #agentBehaviorPending = false
 
   /**
    * @param term - terminal surface (injectable for tests).
@@ -412,11 +437,18 @@ export class LocalTui implements TuiService {
 
   event(event: SessionEvent, presentation?: TuiToolPresentation): void {
     this.#state = applyEvent(this.#state, event, presentation)
-    this.#emitNotification(this.#notifications.event({ type: event.type, ...('reason' in event && typeof event.reason === 'string' ? { reason: event.reason } : {}) }))
+    this.#emitNotification(this.#notifications.event({
+      type: event.type,
+      time: event.time,
+      ...(event.type === 'turn/end' ? { reason: event.data.reason.kind } : {}),
+    }))
     if (this.#trajectory !== null) this.#trajectory = appendTrajectoryEvent(this.#trajectory, event)
+    const smoothStream = this.#syncStreamingReveal(event)
     this.#syncTick()
     if (this.#tty) {
-      if (event.type === 'assistant/chunk' && this.#streamRenderMs > 0) {
+      if (smoothStream) {
+        // The 30 fps reveal clock owns presentation for textual deltas.
+      } else if (event.type === 'assistant/chunk' && this.#streamRenderMs > 0) {
         this.#scheduleStreamRender()
       } else {
         this.#render()
@@ -473,7 +505,10 @@ export class LocalTui implements TuiService {
 
   setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
-    if (inspected !== undefined) this.#subagentLauncherFocused = false
+    if (inspected !== undefined) {
+      this.#inspectEscapeFenceUntil = 0
+      this.#subagentLauncherFocused = false
+    }
     this.#syncTick()
     if (this.#tty) this.#render()
   }
@@ -606,14 +641,18 @@ export class LocalTui implements TuiService {
           ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
         }
     if (!this.#tty) return
+    if (this.#reveal !== undefined && this.#motion !== 'off') return
     if (this.#streamRenderMs > 0 && this.#busy()) this.#scheduleStreamRender()
     else this.#render()
   }
 
   /** Apply prefs loaded from the settings document (does not persist). */
   applyStoredPrefs(prefs: TuiPrefs): void {
+    const previousMotion = this.#motion
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
+    this.#motion = prefs.motion ?? 'full'
+    this.#terminalProgress = prefs.terminalProgress ?? false
     this.#expandTools = prefs.expandTools
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -622,6 +661,11 @@ export class LocalTui implements TuiService {
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     this.#toolsExpanded = prefs.expandTools
+    if (previousMotion !== this.#motion) {
+      this.#stopRevealTick()
+      this.#reveal = undefined
+    }
+    this.#syncTick()
     if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
     if (this.#tty) this.#render()
   }
@@ -629,6 +673,27 @@ export class LocalTui implements TuiService {
   /** Called after a live `/settings` change. */
   setPrefsPersist(persist: (prefs: TuiPrefs) => void): void {
     this.#persistPrefs = persist
+  }
+
+  bindAgentBehaviorSettings(binding: TuiAgentBehaviorSettingsBinding): () => void {
+    if (this.#updateAgentBehavior !== undefined) {
+      throw new Error('omdsh-tui: Agent behavior settings are already bound')
+    }
+    let active = true
+    this.#updateAgentBehavior = next => binding.update(next)
+    this.#applyStoredAgentBehavior(binding.get())
+    this.#offAgentBehaviorWatch = binding.watch(next => { this.#applyStoredAgentBehavior(next) })
+    return () => {
+      if (!active) return
+      active = false
+      this.#offAgentBehaviorWatch?.()
+      this.#offAgentBehaviorWatch = undefined
+      this.#updateAgentBehavior = undefined
+      this.#agentBehavior = undefined
+      this.#agentBehaviorPending = false
+      if (this.#settings !== null) this.#settings = createSettings(this.#prefs())
+      if (this.#tty && !this.#disposed) this.#render()
+    }
   }
 
   readInput(): Promise<TuiSubmission | null> {
@@ -752,6 +817,8 @@ export class LocalTui implements TuiService {
       clearInterval(this.#tick)
       this.#tick = null
     }
+    this.#stopRevealTick()
+    this.#setTerminalProgress(false)
     if (this.#loopTick !== null) {
       clearInterval(this.#loopTick)
       this.#loopTick = null
@@ -778,6 +845,8 @@ export class LocalTui implements TuiService {
     this.#autocompleteTimer = null
     this.#autocompleteAbort = null
     this.#lineReader?.close()
+    this.#offAgentBehaviorWatch?.()
+    this.#offAgentBehaviorWatch = undefined
     this.#pending?.resolve(null)
     this.#pending = null
     this.#finishPrompt(null)
@@ -853,7 +922,9 @@ export class LocalTui implements TuiService {
 
   #syncTick(): void {
     if (!this.#tty) return
-    if (this.#busy()) {
+    const busy = this.#busy()
+    this.#setTerminalProgress(this.#terminalProgress && busy)
+    if (busy && this.#motion !== 'off') {
       if (this.#tick === null) {
         this.#tick = setInterval(() => {
           this.#spinner += 1
@@ -864,6 +935,71 @@ export class LocalTui implements TuiService {
       clearInterval(this.#tick)
       this.#tick = null
     }
+  }
+
+  #syncStreamingReveal(event: SessionEvent): boolean {
+    const textualDelta = event.type === 'assistant/chunk'
+      && (event.data.chunk.type === 'text-delta' || event.data.chunk.type === 'reasoning-delta')
+    const key = streamingAssistantKey(this.#state)
+    if (!textualDelta || this.#motion === 'off' || key === undefined) {
+      this.#stopRevealTick()
+      this.#reveal = undefined
+      return false
+    }
+    if (this.#reveal?.key !== key) this.#reveal = { key, revealed: 0 }
+    this.#startRevealTick()
+    return true
+  }
+
+  #startRevealTick(): void {
+    if (!this.#tty || this.#revealTick !== null) return
+    this.#revealTick = setInterval(() => {
+      const reveal = this.#reveal
+      if (reveal === undefined || streamingAssistantKey(this.#state) !== reveal.key) {
+        this.#stopRevealTick()
+        this.#reveal = undefined
+        return
+      }
+      const total = streamingAssistantUnits(this.#state)
+      const backlog = Math.max(0, total - reveal.revealed)
+      if (backlog === 0) {
+        this.#stopRevealTick()
+        return
+      }
+      reveal.revealed = Math.min(total, reveal.revealed + nextRevealStep(backlog))
+      this.#render()
+      if (reveal.revealed >= total) this.#stopRevealTick()
+    }, STREAMING_REVEAL_MS)
+    this.#revealTick.unref?.()
+  }
+
+  #stopRevealTick(): void {
+    if (this.#revealTick === null) return
+    clearInterval(this.#revealTick)
+    this.#revealTick = null
+  }
+
+  #setTerminalProgress(active: boolean): void {
+    if (!this.#tty) return
+    if (active) {
+      if (this.#terminalProgressActive) return
+      this.#terminalProgressActive = true
+      this.#term.output.write(terminalProgressSequence(true))
+      this.#terminalProgressTick = setInterval(() => {
+        if (!this.#disposed && this.#terminalProgressActive) {
+          this.#term.output.write(terminalProgressSequence(true))
+        }
+      }, TERMINAL_PROGRESS_KEEPALIVE_MS)
+      this.#terminalProgressTick.unref?.()
+      return
+    }
+    if (this.#terminalProgressTick !== null) {
+      clearInterval(this.#terminalProgressTick)
+      this.#terminalProgressTick = null
+    }
+    if (!this.#terminalProgressActive) return
+    this.#terminalProgressActive = false
+    this.#term.output.write(terminalProgressSequence(false))
   }
 
   #syncLoopTick(): void {
@@ -885,8 +1021,11 @@ export class LocalTui implements TuiService {
     }
     if (this.#deferInitialRender) return
     const width = this.#term.width()
+    const renderState = this.#reveal === undefined
+      ? this.#state
+      : revealStreamingAssistant(this.#state, this.#reveal.revealed)
     const frame = this.#tty
-      ? renderView(this.#state, {
+      ? renderView(renderState, {
         width,
         height: this.#term.height(),
         model: this.#model,
@@ -903,6 +1042,7 @@ export class LocalTui implements TuiService {
         version: APP_VERSION,
         appName: APP_NAME,
         spinnerFrame: this.#spinner,
+        motion: this.#motion,
         trueColor: this.#trueColor,
         themeName: this.#themeName,
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
@@ -1217,7 +1357,15 @@ export class LocalTui implements TuiService {
       this.#pasteBuf = ''
       return
     }
-    if (event.type !== 'key' || event.id !== 'escape') this.#lastEscapeTime = 0
+    const isEscape = event.type === 'key' && event.id === 'escape'
+    if (!isEscape) {
+      this.#lastEscapeTime = 0
+      this.#inspectEscapeFenceUntil = 0
+    } else if (this.#inspected === undefined && Date.now() < this.#inspectEscapeFenceUntil) {
+      return
+    } else if (this.#inspected === undefined) {
+      this.#inspectEscapeFenceUntil = 0
+    }
     if (this.#handlePrompt(event)) return
     if (this.#trajectory !== null) {
       const command = applyTrajectoryEvent(this.#trajectory, event)
@@ -1570,6 +1718,9 @@ export class LocalTui implements TuiService {
 
   #closeInspect(): void {
     if (this.#inspected === undefined) return
+    // Keep one exit gesture inside the inspector even when repeated Escape
+    // bytes are decoded after the parent view has already been restored.
+    this.#inspectEscapeFenceUntil = Date.now() + DOUBLE_ESCAPE_MS
     for (const listener of this.#inspectCloses) listener()
   }
 
@@ -1594,6 +1745,8 @@ export class LocalTui implements TuiService {
     return {
       theme: this.#themeName,
       colors: this.#colors,
+      motion: this.#motion,
+      terminalProgress: this.#terminalProgress,
       expandTools: this.#expandTools,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
@@ -1615,6 +1768,9 @@ export class LocalTui implements TuiService {
     const expandChanged = prefs.expandTools !== this.#expandTools
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
+    const previousMotion = this.#motion
+    this.#motion = prefs.motion ?? 'full'
+    this.#terminalProgress = prefs.terminalProgress ?? false
     this.#expandTools = prefs.expandTools
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -1623,7 +1779,40 @@ export class LocalTui implements TuiService {
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     if (expandChanged) this.#toolsExpanded = prefs.expandTools
+    if (previousMotion !== this.#motion) {
+      this.#stopRevealTick()
+      this.#reveal = undefined
+    }
+    this.#syncTick()
     this.#persistPrefs?.(prefs)
+  }
+
+  #applyStoredAgentBehavior(next: TuiAgentBehaviorSettings): void {
+    this.#agentBehavior = { language: next.language }
+    if (this.#settings !== null) {
+      this.#settings = { ...this.#settings, agent: { ...this.#agentBehavior } }
+    }
+    if (this.#tty && !this.#disposed) this.#render()
+  }
+
+  async #commitAgentBehavior(next: TuiAgentBehaviorSettings): Promise<void> {
+    const update = this.#updateAgentBehavior
+    if (update === undefined) return
+    try {
+      await update(next)
+      this.#applyStoredAgentBehavior(next)
+    } catch (error: unknown) {
+      if (this.#settings !== null && this.#agentBehavior !== undefined) {
+        this.#settings = { ...this.#settings, agent: { ...this.#agentBehavior } }
+      }
+      this.notice(
+        `Could not save Agent language: ${error instanceof Error ? error.message : String(error)}`,
+        { level: 'error' },
+      )
+    } finally {
+      this.#agentBehaviorPending = false
+      if (this.#tty && !this.#disposed) this.#render()
+    }
   }
 
   #applySettings(event: KeyEvent): void {
@@ -1635,6 +1824,14 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'apply') {
+      if (command.domain === 'agent') {
+        if (this.#agentBehaviorPending || command.state.agent === undefined) return
+        this.#agentBehaviorPending = true
+        this.#settings = command.state
+        this.#render()
+        void this.#commitAgentBehavior(command.state.agent)
+        return
+      }
       this.#settings = command.state
       this.#applyPrefs(command.state.prefs)
       this.#render()
@@ -2184,7 +2381,7 @@ export class LocalTui implements TuiService {
     }
     this.#search = null
     this.#ac = null
-    this.#settings = createSettings(this.#prefs())
+    this.#settings = createSettings(this.#prefs(), undefined, this.#agentBehavior)
     this.#render()
   }
 

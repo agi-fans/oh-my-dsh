@@ -1,10 +1,10 @@
 ---
-description: 切换 omdsh 模型与推理强度，用 /login 添加额外提供方，并通过 /settings 调整 TUI。
+description: 切换 omdsh 模型与推理强度，添加额外提供方，并设置 Agent 语言与 TUI 偏好。
 ---
 
 # 调整工作环境
 
-读完本教程，你可以切换模型和推理强度、登录额外提供方，并通过 `/settings` 调整界面。
+读完本教程，你可以切换模型和推理强度、登录额外提供方、选择 Agent 默认语言，并通过 `/settings` 调整界面。
 
 ### 选择模型与推理强度
 
@@ -21,17 +21,21 @@ description: 切换 omdsh 模型与推理强度，用 /login 添加额外提供�
 
 选择 `custom` 可以添加 catalog 里没有的网关或本地服务：填写永久 id、Base URL、API 协议、可选 Key，以及一个或多个模型 id。`/logout` 可以停用这条路由，而不会改动环境变量中的凭据。
 
-### 定制界面
+### 设置 Agent 语言与界面
 
-运行 `/settings` 可以配置主题、颜色输出、默认 Tool 展开状态、更新检查、启动时 Release Notes，以及状态栏。
+运行 `/settings` 可以配置 Agent 默认语言、主题、颜色输出、动态效果、终端原生活动提示、默认 Tool 展开状态、更新检查、启动时 Release Notes，以及状态栏。
 
 `/settings` 内的按键：
 
 - `Up` / `Down` 在行间移动，`Left` / `Right` 修改当前值。
-- `Tab` 在 General 与 Status line 两个分区之间切换。
+- `Tab` 和 `Shift+Tab` 在 General、Agent 与 Status line 三个分区之间切换。
 - 在 Status 项上按 `Space` 可以显示或隐藏它。
 - 按 `Enter` 开始移动 Status 项：`Up` / `Down` 调整顺序，`Left` / `Right` 切换左右栏，再按 `Enter` 或 `Esc` 完成移动。
 
-Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
+Agent 分区的 Language 一行可在 `Auto`、`Simplified Chinese` 和 `English` 之间切换。非 Auto 选项会从下一个 turn 开始成为推理与面向用户沟通的默认语言；代码、标识符、命令、Tool 参数、日志、引用和文件内容仍保留准确形式，而用户对当前任务明确提出的语言要求仍然优先。该偏好是用户级设置，因此恢复会话时使用当前值，而不是历史快照。
+
+General 分区的 Motion 只控制显示效果。`full` 会平滑揭示流式 Assistant 文本，并为 `Deep Driving` 添加流光；`reduced` 保留平滑流式显示，但不显示流光；`off` 直接跟随 Provider chunk，并使用静态活动标记。Provider 的完整输出仍会立即进入当前会话，遇到 Tool 边界或已完成的 Assistant 消息时，界面也会立即显示完整内容，不会等待动画。Terminal activity 是单独启用的忙碌/空闲提示，可显示在支持该能力的终端标签页或任务栏中。它不表示任务完成百分比，并会在任务停止或 omdsh 退出时清除。
+
+Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。Context 以百分比和已用/窗口 Token 数显示压力，并会随压力升高切换为警告色和错误色。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
 
 运行 `/help` 可以查看完整的命令与快捷键目录。命令列表由当前启用的插件共同组成，因此也会包含 Skills 和其他运行时集成贡献的能力。

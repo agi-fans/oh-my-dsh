@@ -23,13 +23,23 @@ const DEFAULT_OPTIONS: TerminalNotificationOptions = {
   thresholdMs: 30_000,
 }
 
+const END_REASON_COPY: Readonly<Record<string, string>> = {
+  'max-tokens': 'Output token limit reached',
+  blocked: 'Turn was blocked',
+  interrupted: 'Session was interrupted',
+  aborted: 'Turn was interrupted',
+  error: 'Turn failed',
+}
+
 function eventTime(event: NotificationEvent, fallback: number): number {
   return typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : fallback
 }
 
 function notificationBody(reason: string | undefined, elapsedMs: number): string {
   const seconds = Math.max(0, Math.round(elapsedMs / 1_000))
-  if (reason && reason !== 'complete' && reason !== 'completed') return `Turn ${reason} after ${seconds}s`
+  if (reason && reason !== 'complete' && reason !== 'completed') {
+    return `${END_REASON_COPY[reason] ?? `Turn ended (${reason})`} after ${seconds}s`
+  }
   return `Turn completed in ${seconds}s`
 }
 
@@ -82,4 +92,9 @@ function cleanNotificationText(value: string): string {
 export function terminalNotificationSequence(notification: TerminalNotification): string {
   const message = cleanNotificationText(`${notification.title}: ${notification.body}`)
   return message ? `\x1b]9;${message}\x07` : ''
+}
+
+/** Windows Terminal-compatible native taskbar/tab progress sequences. */
+export function terminalProgressSequence(active: boolean): string {
+  return active ? '\x1b]9;4;3\x07' : '\x1b]9;4;0;\x07'
 }

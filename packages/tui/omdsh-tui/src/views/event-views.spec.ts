@@ -181,6 +181,152 @@ describe('applyEvent', () => {
     expect(state.blocks).toEqual([{ kind: 'notice', level: 'info', text: 'interrupted' }])
   })
 
+  it('settles max-token truncation without leaving an unexecuted tool preview', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'I will update it.' },
+      }, 2),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'write', argumentsDelta: '{"path":"large.ts","content":"partial' },
+      }, 3),
+      ev('assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'text', text: 'I will update it.' }] },
+      }, 4),
+      ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 5),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(live.status).toBe('idle')
+    expect(live.blocks).toEqual([
+      { kind: 'assistant', turn: 1, step: 1, text: 'I will update it.', reasoning: '', streaming: false },
+      {
+        kind: 'notice',
+        level: 'warning',
+        text: 'Output token limit reached. A partial tool call was not executed because its arguments may be incomplete. Send “continue” to resume.',
+      },
+    ])
+    expect(replayEvents(events)).toEqual(live)
+  })
+
+  it('does not keep an empty assistant block after a tool-only max-token truncation', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
+      }, 2),
+      ev('assistant/message', { turn: 1, step: 1, message: { content: [] } }, 3),
+      ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 4),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(live.blocks).toEqual([{
+      kind: 'notice',
+      level: 'warning',
+      text: 'Output token limit reached. A partial tool call was not executed because its arguments may be incomplete. Send “continue” to resume.',
+    }])
+    expect(replayEvents(events)).toEqual(live)
+  })
+
+  it.each([
+    {
+      label: 'cancelled',
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+      notice: { kind: 'notice', level: 'info', text: 'interrupted' },
+    },
+    {
+      label: 'crash-repaired',
+      reason: { kind: 'interrupted' },
+      notice: {
+        kind: 'notice',
+        level: 'warning',
+        text: 'Session was interrupted before completion. A partial tool call was not executed.',
+      },
+    },
+  ])('removes an unexecuted tool preview when a turn is $label', ({ reason, notice }) => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
+      }, 2),
+      ev('turn/end', { turn: 1, reason }, 3),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(live.blocks).toEqual([notice])
+    expect(replayEvents(events)).toEqual(live)
+  })
+
+  it('settles a dispatched tool even when a later block makes it non-trailing', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"long task"}' }, 2),
+      ev('assistant/message', {
+        turn: 1,
+        step: 2,
+        message: { content: [{ type: 'text', text: 'The driver stopped.' }] },
+      }, 3),
+      ev('turn/end', {
+        turn: 1,
+        reason: { kind: 'error', error: { code: 'INTERNAL', message: 'driver stopped' } },
+      }, 4),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    const tool = live.blocks.find((block): block is Extract<typeof block, { kind: 'tool' }> => block.kind === 'tool')
+
+    expect(tool).toMatchObject({
+      callId: 'call-1',
+      status: 'error',
+      output: 'No durable tool result was recorded before the turn ended. The tool\'s outcome is unknown.',
+    })
+    expect(live.blocks.some(block => block.kind === 'tool' && block.status === 'running')).toBe(false)
+    expect(replayEvents(events)).toEqual(live)
+  })
+
+  it('preserves a trailing dispatched tool while settling its unknown outcome', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"long task"}' }, 2),
+      ev('turn/end', {
+        turn: 1,
+        reason: { kind: 'error', error: { code: 'INTERNAL', message: 'driver stopped' } },
+      }, 3),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(live.blocks[0]).toMatchObject({
+      kind: 'tool',
+      callId: 'call-1',
+      status: 'error',
+      output: 'No durable tool result was recorded before the turn ended. The tool\'s outcome is unknown.',
+    })
+    expect(replayEvents(events)).toEqual(live)
+  })
+
+  it('drops an undurable tool preview even when a malformed log says the turn completed', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
+      }, 2),
+      ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+
+    expect(live.blocks).toEqual([])
+    expect(replayEvents(events)).toEqual(live)
+  })
+
   it('hides failed retry partials and keeps one terminal error after retries are exhausted', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
@@ -649,14 +795,16 @@ describe('blockLines', () => {
     const error = blockLines({ kind: 'notice', level: 'error', text: 'Resume failed.' }, theme, 60)
     const colorTheme = createTheme(true, true)
     const coloredInfo = blockLines({ kind: 'notice', level: 'info', text: 'Status\ndetail' }, colorTheme, 60)
+    const coloredWarning = blockLines({ kind: 'notice', level: 'warning', text: 'Output limit reached.' }, colorTheme, 60)
     const coloredError = blockLines({ kind: 'notice', level: 'error', text: 'Status' }, colorTheme, 60)
     const panel = blockLines({ kind: 'notice', level: 'info', text: 'Panel\ndetail', framed: true }, theme, 60)
 
-    for (const lines of [multiline, error, coloredInfo, coloredError]) {
+    for (const lines of [multiline, error, coloredInfo, coloredWarning, coloredError]) {
       expect(lines.join('\n')).not.toMatch(/[╭│╰]/u)
       expect(stripAnsi(lines[0] ?? '')).toMatch(/^  /u)
     }
     expect(stripAnsi(error[0] ?? '')).toBe('  Resume failed.')
+    expect(coloredWarning[0]).toContain(colorTheme.getFgAnsi('warning'))
     expect(coloredError[0]).toContain(colorTheme.getFgAnsi('error'))
     expect(panel.join('\n')).toMatch(/[╭╰]/u)
     expect(stripAnsi(panel[0] ?? '')).toMatch(/^╭─── Panel /u)

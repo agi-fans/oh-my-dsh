@@ -5,7 +5,7 @@ import type { KeyEvent } from '../input/keys.ts'
 import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 
-export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'error'
+export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
 
 export interface TrajectoryRecord {
@@ -21,7 +21,7 @@ export interface TrajectoryRecord {
   payload: string
   result: string
   schema: string
-  status: 'running' | 'ok' | 'error' | 'retry'
+  status: 'running' | 'ok' | 'warning' | 'error' | 'retry'
   startedAt: number | null
   durationMs: number | null
   ttftMs: number | null
@@ -303,9 +303,20 @@ export class TrajectoryLedger {
     }
     if (eventType === 'turn/end') {
       const reason = object(data['reason'])
-      if (reason?.['kind'] !== 'error' && reason?.['kind'] !== 'aborted') return
-      const record = this.#base(event, 'error', 'TURN', compact(json(reason), 'Turn interrupted'), data)
-      record.status = 'error'
+      const reasonKind = string(reason?.['kind'])
+      if (reasonKind === undefined || reasonKind === 'completed') return
+      const isError = reasonKind === 'error' || reasonKind === 'aborted'
+      const summary = reasonKind === 'max-tokens'
+        ? 'Output token limit reached'
+        : reasonKind === 'blocked'
+          ? 'Turn blocked'
+          : reasonKind === 'interrupted'
+            ? 'Session interrupted'
+            : reasonKind === 'aborted'
+              ? 'Turn aborted'
+              : compact(json(reason), 'Turn failed')
+      const record = this.#base(event, isError ? 'error' : 'warning', 'TURN', summary, data)
+      record.status = isError ? 'error' : 'warning'
       this.#push(record)
     }
   }
@@ -443,7 +454,7 @@ function kindColor(kind: TrajectoryKind): 'accent' | 'warning' | 'success' | 'er
   if (kind === 'assistant') return 'text'
   if (kind === 'tool' || kind === 'subtool') return 'success'
   if (kind === 'error') return 'error'
-  if (kind === 'compaction') return 'warning'
+  if (kind === 'compaction' || kind === 'warning') return 'warning'
   return 'dim'
 }
 
@@ -528,9 +539,10 @@ export function renderTrajectory(
   const safeHeight = Math.max(1, height)
   const records = state.ledger.records
   const errors = records.filter(record => record.status === 'error').length
+  const warnings = records.filter(record => record.status === 'warning').length
   const requests = records.filter(record => record.kind === 'assistant').length
   const tools = records.filter(record => record.kind === 'tool' || record.kind === 'subtool').length
-  const header = truncateToWidth(theme.bold(' Trajectory ') + theme.fg('dim', `${records.length} records · ${requests} requests · ${tools} calls · ${errors} errors`), safeWidth)
+  const header = truncateToWidth(theme.bold(' Trajectory ') + theme.fg('dim', `${records.length} records · ${requests} requests · ${tools} calls · ${warnings} warnings · ${errors} errors`), safeWidth)
   const toolbar = truncateToWidth(theme.fg('dim', state.details
     ? ' ↑↓ records · PgUp/PgDn detail · Tab/←→ section · Esc back'
     : ` ↑↓ navigate · Enter details · / search · t turn · c calls · End follow${state.following ? ' ●' : ''}`), safeWidth)

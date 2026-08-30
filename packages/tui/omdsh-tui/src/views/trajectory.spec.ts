@@ -36,6 +36,25 @@ describe('trajectory ledger', () => {
     expect(state.ledger.records[2]).toMatchObject({ label: 'TOOL', status: 'ok', result: 'README contents', durationMs: 100 })
   })
 
+  it('records every non-success turn ending with its durable reason', () => {
+    const state = createTrajectory([
+      event(1, 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } }),
+      event(2, 'turn/end', { turn: 2, reason: { kind: 'blocked' } }),
+      event(3, 'turn/end', { turn: 3, reason: { kind: 'interrupted' } }),
+      event(4, 'turn/end', {
+        turn: 4,
+        reason: { kind: 'aborted', reason: { kind: 'user' } },
+      }),
+    ])
+
+    expect(state.ledger.records).toMatchObject([
+      { type: 'turn/end', kind: 'warning', status: 'warning', summary: 'Output token limit reached' },
+      { type: 'turn/end', kind: 'warning', status: 'warning', summary: 'Turn blocked' },
+      { type: 'turn/end', kind: 'warning', status: 'warning', summary: 'Session interrupted' },
+      { type: 'turn/end', kind: 'error', status: 'error', summary: 'Turn aborted' },
+    ])
+  })
+
   it('searches, opens details, and follows appended records', () => {
     let state = createTrajectory(events)
     state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state

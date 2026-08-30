@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { TuiSettingsSchema } from './tui-settings.ts'
 
 describe('TuiSettingsSchema', () => {
@@ -13,6 +14,8 @@ describe('TuiSettingsSchema', () => {
     expect(validate({})).toEqual({
       theme: 'dark',
       colors: true,
+      motion: 'full',
+      terminalProgress: false,
       expandTools: false,
       checkUpdates: true,
       startupChangelog: 'summary',
@@ -22,6 +25,8 @@ describe('TuiSettingsSchema', () => {
     expect(validate({ theme: 'light', colors: false, expandTools: true })).toEqual({
       theme: 'light',
       colors: false,
+      motion: 'full',
+      terminalProgress: false,
       expandTools: true,
       checkUpdates: true,
       startupChangelog: 'summary',
@@ -31,6 +36,10 @@ describe('TuiSettingsSchema', () => {
     expect(validate({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
       statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] },
     })
+    const retiredContextDisplay = validate({
+      statusBar: { enabled: true, labels: 'compact', groups: ['context'], contextDisplay: 'gauge' },
+    }).statusBar
+    expect(resolveStatusBarConfig(retiredContextDisplay as StatusBarConfig)).not.toHaveProperty('contextDisplay')
     expect(validate({
       statusBar: {
         enabled: true,

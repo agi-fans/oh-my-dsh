@@ -1,5 +1,5 @@
 /**
- * Settings overlay: cycleable theme, color, tool, and status-line preferences.
+ * Settings overlay: cycleable terminal, Agent, and status-line preferences.
  * Pure — the provider owns live application of the selected values.
  * @module @agi-fans/dsh-tui
  */
@@ -25,6 +25,8 @@ import {
 import { renderStatusFooter } from '../chrome/status-line.ts'
 import { BOX, SYMBOL, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, isThemeName } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import type { TuiAgentBehaviorSettings } from '../definition.ts'
+import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
 
 /** One cycleable row in the overlay. */
 export interface SettingItem {
@@ -44,6 +46,8 @@ export interface SettingItem {
 export interface TuiPrefs {
   theme: ThemeName
   colors: boolean
+  motion?: MotionMode
+  terminalProgress?: boolean
   expandTools: boolean
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
@@ -58,6 +62,8 @@ export interface TuiPrefs {
 export interface SettingsState {
   selected: number
   prefs: TuiPrefs
+  /** Product-owned Agent settings are absent when no host binding is mounted. */
+  agent?: TuiAgentBehaviorSettings
   /** Footer item currently attached to the up/down reorder gesture. */
   moving?: StatusItemId
 }
@@ -65,19 +71,28 @@ export interface SettingsState {
 /** Outcome of one key against the overlay. */
 export type SettingsCommand =
   | { kind: 'update'; state: SettingsState }
-  | { kind: 'apply'; state: SettingsState }
+  | { kind: 'apply'; domain: 'tui' | 'agent'; state: SettingsState }
   | { kind: 'close' }
   | { kind: 'ignore' }
 
 const COLOR_VALUES = ['on', 'off'] as const
 const TOOL_DETAIL_VALUES = ['compact', 'expanded'] as const
 const STARTUP_CHANGELOG_VALUES = [...STARTUP_CHANGELOG_MODES]
+const AGENT_LANGUAGE_VALUES = ['Auto', 'Simplified Chinese', 'English'] as const
+const AGENT_LANGUAGE_LABELS: Record<TuiAgentBehaviorSettings['language'], typeof AGENT_LANGUAGE_VALUES[number]> = {
+  auto: 'Auto',
+  'zh-CN': 'Simplified Chinese',
+  en: 'English',
+}
+const AGENT_LANGUAGE_IDS = Object.fromEntries(
+  Object.entries(AGENT_LANGUAGE_LABELS).map(([id, label]) => [label, id]),
+) as Record<typeof AGENT_LANGUAGE_VALUES[number], TuiAgentBehaviorSettings['language']>
 const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: string; sample: string }> = {
   model: { label: 'Model', description: 'Model name on the left of the first footer line. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'deepseek' },
   effort: { label: 'Effort', description: 'Reasoning effort on the first footer line. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'max' },
   path: { label: 'Path', description: 'Workspace path on the right of the first footer line. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: '~/project' },
   git: { label: 'Git', description: 'Git branch on the right of the first footer line. A dirty worktree stays warning while color is default. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'main *1' },
-  context: { label: 'Context', description: 'Context-window pressure. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Ctx 1.6%' },
+  context: { label: 'Context', description: 'Context pressure as percentage and used/window tokens. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Ctx 1.6% · 16.4K/1M' },
   cache: { label: 'Cache', description: 'Prompt-cache hit rate. Cache-hit percentages stay on the success color. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Cache 99%' },
   tokens: { label: 'Tokens', description: 'Input and output token counts. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: '5.9M in' },
   speed: { label: 'Latency', description: 'First-token latency and decode rate. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'TTFT 1.2s' },
@@ -113,9 +128,7 @@ function statusItemRow(config: StatusBarConfig, id: StatusItemId): SettingItem {
   }
 }
 
-/** Rows shown in `/settings` (OMP settings-list cycle widgets). */
-export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
-  const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
+function generalSettingItems(prefs: TuiPrefs): SettingItem[] {
   return [
     {
       id: 'theme',
@@ -129,6 +142,20 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
       label: 'Color',
       description: 'SGR styling',
       value: prefs.colors ? 'on' : 'off',
+      values: COLOR_VALUES,
+    },
+    {
+      id: 'motion',
+      label: 'Motion',
+      description: 'Full adds smooth streaming and a working shimmer; Reduced keeps smooth streaming without the shimmer; Off follows provider chunks with static activity marks',
+      value: prefs.motion ?? 'full',
+      values: MOTION_MODES,
+    },
+    {
+      id: 'terminalProgress',
+      label: 'Terminal activity',
+    description: 'Busy/idle status in supported terminal tabs and taskbars',
+      value: prefs.terminalProgress === true ? 'on' : 'off',
       values: COLOR_VALUES,
     },
     {
@@ -166,6 +193,23 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
       value: prefs.notificationThreshold ?? '30s',
       values: ['15s', '30s', '1m', '2m'],
     },
+  ]
+}
+
+function agentSettingItems(agent: TuiAgentBehaviorSettings | undefined): SettingItem[] {
+  if (agent === undefined) return []
+  return [{
+    id: 'agentLanguage',
+    label: 'Language',
+    description: 'Preferred language for reasoning and replies',
+    value: AGENT_LANGUAGE_LABELS[agent.language],
+    values: AGENT_LANGUAGE_VALUES,
+  }]
+}
+
+function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
+  const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
+  return [
     {
       id: 'statusEnabled',
       label: 'Status line',
@@ -184,6 +228,18 @@ export function tuiSettingItems(prefs: TuiPrefs): SettingItem[] {
     ...statusBar.metaOrder.filter(id => itemSide(statusBar, id) === 'right').map(id => statusItemRow(statusBar, id)),
     ...statusBar.order.filter(id => itemSide(statusBar, id) === 'left').map(id => statusItemRow(statusBar, id)),
     ...statusBar.order.filter(id => itemSide(statusBar, id) === 'right').map(id => statusItemRow(statusBar, id)),
+  ]
+}
+
+/** Product-owned rows shown in `/settings` (OMP settings-list cycle widgets). */
+export function tuiSettingItems(
+  prefs: TuiPrefs,
+  agent?: TuiAgentBehaviorSettings,
+): SettingItem[] {
+  return [
+    ...generalSettingItems(prefs),
+    ...agentSettingItems(agent),
+    ...statusSettingItems(prefs),
   ]
 }
 
@@ -241,6 +297,8 @@ function reorderVisible<T extends string>(visible: readonly T[], order: readonly
 export function applySettingValue(prefs: TuiPrefs, id: string, value: string): TuiPrefs {
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
+  if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
+  if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
   if (id === 'expandTools') return { ...prefs, expandTools: value === 'expanded' || value === 'on' }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
@@ -280,14 +338,18 @@ function adjacentValue(current: string, values: readonly string[], direction: 1 
 }
 
 /** Open the overlay on the current prefs, optionally focused on one row. */
-export function createSettings(prefs: TuiPrefs, focusId?: string): SettingsState {
-  const items = tuiSettingItems(prefs)
+export function createSettings(
+  prefs: TuiPrefs,
+  focusId?: string,
+  agent?: TuiAgentBehaviorSettings,
+): SettingsState {
+  const items = tuiSettingItems(prefs, agent)
   const focused = focusId === undefined ? 0 : items.findIndex((item) => item.id === focusId)
-  return { prefs, selected: focused >= 0 ? focused : 0 }
+  return { prefs, selected: focused >= 0 ? focused : 0, ...(agent === undefined ? {} : { agent }) }
 }
 
 function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
-  const id = tuiSettingItems(state.prefs)[state.selected]?.id
+  const id = tuiSettingItems(state.prefs, state.agent)[state.selected]?.id
   if (id?.startsWith('statusItem:') !== true) return undefined
   const item = id.slice('statusItem:'.length)
   return isStatusItemId(item) ? item : undefined
@@ -298,8 +360,8 @@ function startMoving(state: SettingsState, item: StatusItemId): SettingsState {
   const prefs = statusItemVisible(config, item)
     ? state.prefs
     : { ...state.prefs, statusBar: toggleStatusItem(config, item) }
-  const selected = tuiSettingItems(prefs).findIndex(row => row.id === `statusItem:${item}`)
-  return { prefs, selected: Math.max(0, selected), moving: item }
+  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${item}`)
+  return { ...state, prefs, selected: Math.max(0, selected), moving: item }
 }
 
 function assignItemSide(config: StatusBarConfig, id: StatusItemId, side: StatusSide): StatusBarConfig {
@@ -336,8 +398,8 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
       direction,
     )
     const prefs = { ...state.prefs, statusBar: { ...config, meta: reordered.visible.concat(config.meta.filter(id => itemSide(config, id) !== side)), metaOrder: reordered.order } }
-    const selected = tuiSettingItems(prefs).findIndex(row => row.id === `statusItem:${moving}`)
-    return { prefs, selected, moving }
+    const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+    return { ...state, prefs, selected, moving }
   }
   const reordered = reorderVisible(
     config.groups.filter(id => itemSide(config, id) === side),
@@ -346,8 +408,8 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
     direction,
   )
   const prefs = { ...state.prefs, statusBar: { ...config, groups: reordered.visible.concat(config.groups.filter(id => itemSide(config, id) !== side)), order: reordered.order } }
-  const selected = tuiSettingItems(prefs).findIndex(row => row.id === `statusItem:${moving}`)
-  return { prefs, selected, moving }
+  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+  return { ...state, prefs, selected, moving }
 }
 
 function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsState {
@@ -355,42 +417,63 @@ function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsSta
   if (moving === undefined) return state
   const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
   const prefs = { ...state.prefs, statusBar: assignItemSide(config, moving, side) }
-  const selected = tuiSettingItems(prefs).findIndex(row => row.id === `statusItem:${moving}`)
-  return { prefs, selected, moving }
+  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+  return { ...state, prefs, selected, moving }
 }
 
-function toggleSelectedVisibility(state: SettingsState): SettingsState {
-  const item = selectedStatusItem(state)
-  if (item === undefined) return cycleSelected(state)
-  return { selected: state.selected, prefs: { ...state.prefs, statusBar: toggleStatusItem(resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset), item) } }
+interface SettingsSection {
+  id: 'general' | 'agent' | 'status'
+  label: string
+  start: number
+  end: number
 }
 
-const GENERAL_SETTING_COUNT = 7
+function settingSections(state: SettingsState): SettingsSection[] {
+  const generalEnd = generalSettingItems(state.prefs).length
+  const agentEnd = generalEnd + agentSettingItems(state.agent).length
+  return [
+    { id: 'general', label: 'General', start: 0, end: generalEnd },
+    ...(agentEnd === generalEnd ? [] : [{ id: 'agent' as const, label: 'Agent', start: generalEnd, end: agentEnd }]),
+    { id: 'status', label: 'Status line', start: agentEnd, end: tuiSettingItems(state.prefs, state.agent).length },
+  ]
+}
+
+function selectedSection(state: SettingsState): SettingsSection {
+  const sections = settingSections(state)
+  return sections.find(section => state.selected >= section.start && state.selected < section.end)
+    ?? sections[0] as SettingsSection
+}
 
 function moveSelected(state: SettingsState, next: number): SettingsState {
-  const n = tuiSettingItems(state.prefs).length
-  if (n === 0) return state
-  const start = state.selected < GENERAL_SETTING_COUNT ? 0 : GENERAL_SETTING_COUNT
-  const end = state.selected < GENERAL_SETTING_COUNT ? GENERAL_SETTING_COUNT : n
-  const selected = Math.max(start, Math.min(next, end - 1))
+  const section = selectedSection(state)
+  const selected = Math.max(section.start, Math.min(next, section.end - 1))
   if (selected === state.selected) return state
   return { ...state, selected }
 }
 
 function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
-  const inGeneral = state.selected < GENERAL_SETTING_COUNT
-  const selected = direction > 0
-    ? (inGeneral ? GENERAL_SETTING_COUNT : 0)
-    : (inGeneral ? tuiSettingItems(state.prefs).length - 1 : 0)
-  return { ...state, selected }
+  const sections = settingSections(state)
+  const active = selectedSection(state)
+  const current = sections.findIndex(section => section.id === active.id)
+  const next = (current + direction + sections.length) % sections.length
+  return { ...state, selected: sections[next]?.start ?? 0 }
 }
 
-function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsState {
-  const items = tuiSettingItems(state.prefs)
+function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCommand {
+  const items = tuiSettingItems(state.prefs, state.agent)
   const item = items[state.selected]
-  if (item === undefined) return state
+  if (item === undefined) return { kind: 'ignore' }
   const value = adjacentValue(item.value, item.values, direction)
-  return { selected: state.selected, prefs: applySettingValue(state.prefs, item.id, value) }
+  if (item.id === 'agentLanguage' && state.agent !== undefined) {
+    const language = AGENT_LANGUAGE_IDS[value as typeof AGENT_LANGUAGE_VALUES[number]]
+    if (language === undefined) return { kind: 'ignore' }
+    return { kind: 'apply', domain: 'agent', state: { ...state, agent: { language } } }
+  }
+  return {
+    kind: 'apply',
+    domain: 'tui',
+    state: { ...state, prefs: applySettingValue(state.prefs, item.id, value) },
+  }
 }
 
 /** Apply one decoded event to the overlay. */
@@ -398,10 +481,10 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
   if (state.moving !== undefined) {
     if (event.type !== 'key') return { kind: 'ignore' }
     if (event.id === 'up' || event.id === 'down') {
-      return { kind: 'apply', state: moveStatusItem(state, event.id === 'up' ? -1 : 1) }
+      return { kind: 'apply', domain: 'tui', state: moveStatusItem(state, event.id === 'up' ? -1 : 1) }
     }
     if (event.id === 'left' || event.id === 'right') {
-      return { kind: 'apply', state: moveStatusItemSide(state, event.id === 'left' ? 'left' : 'right') }
+      return { kind: 'apply', domain: 'tui', state: moveStatusItemSide(state, event.id === 'left' ? 'left' : 'right') }
     }
     if (event.id === 'enter' || event.id === 'escape' || event.id === 'ctrl+c') {
       const { moving: _, ...rest } = state
@@ -410,20 +493,32 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
     return { kind: 'ignore' }
   }
   if (event.type === 'text' && event.value === ' ') {
-    return { kind: 'apply', state: toggleSelectedVisibility(state) }
+    const item = selectedStatusItem(state)
+    if (item === undefined) return cycleSelected(state)
+    return {
+      kind: 'apply',
+      domain: 'tui',
+      state: {
+        ...state,
+        prefs: {
+          ...state.prefs,
+          statusBar: toggleStatusItem(resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset), item),
+        },
+      },
+    }
   }
   if (event.type !== 'key') return { kind: 'ignore' }
   switch (event.id) {
     case 'enter':
       {
         const item = selectedStatusItem(state)
-        if (item !== undefined) return { kind: 'apply', state: startMoving(state, item) }
+        if (item !== undefined) return { kind: 'apply', domain: 'tui', state: startMoving(state, item) }
       }
-      return { kind: 'apply', state: cycleSelected(state) }
+      return cycleSelected(state)
     case 'right':
-      return { kind: 'apply', state: cycleSelected(state) }
+      return cycleSelected(state)
     case 'left':
-      return { kind: 'apply', state: cycleSelected(state, -1) }
+      return cycleSelected(state, -1)
     case 'escape':
     case 'ctrl+c':
       return { kind: 'close' }
@@ -438,7 +533,7 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
     case 'home':
       return { kind: 'update', state: moveSelected(state, 0) }
     case 'end':
-      return { kind: 'update', state: moveSelected(state, tuiSettingItems(state.prefs).length - 1) }
+      return { kind: 'update', state: moveSelected(state, selectedSection(state).end - 1) }
     default:
       return { kind: 'ignore' }
   }
@@ -478,11 +573,16 @@ function framedRow(theme: Theme, content: string, width: number): string {
   return border(theme, BOX.vertical) + ' ' + fit(content, inner) + ' ' + border(theme, BOX.vertical)
 }
 
-function renderSectionTabs(active: 'general' | 'status', theme: Theme, width: number): string {
-  const tab = (id: 'general' | 'status', label: string): string => id === active
+function renderSectionTabs(
+  active: SettingsSection['id'],
+  sections: readonly SettingsSection[],
+  theme: Theme,
+  width: number,
+): string {
+  const tab = (id: SettingsSection['id'], label: string): string => id === active
     ? theme.bold(theme.fg('accent', `● ${label}`))
     : theme.fg('muted', `○ ${label}`)
-  return framedRow(theme, ` ${tab('general', 'General')}    ${tab('status', 'Status line')}`, width)
+  return framedRow(theme, ' ' + sections.map(section => tab(section.id, section.label)).join('    '), width)
 }
 
 const STATUS_PREVIEW_STATS = {
@@ -536,11 +636,14 @@ export function renderSettings(
   width: number,
   height: number = 24,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const items = tuiSettingItems(state.prefs)
+  const items = tuiSettingItems(state.prefs, state.agent)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
-  const active = index < GENERAL_SETTING_COUNT ? 'general' : 'status'
-  const sectionStart = active === 'general' ? 0 : GENERAL_SETTING_COUNT
-  const sectionEnd = active === 'general' ? GENERAL_SETTING_COUNT : items.length
+  const viewState = index === state.selected ? state : { ...state, selected: index }
+  const sections = settingSections(viewState)
+  const section = selectedSection(viewState)
+  const active = section.id
+  const sectionStart = section.start
+  const sectionEnd = section.end
   const sectionItems = items.slice(sectionStart, sectionEnd)
   const descriptionRows = height >= 12 ? 2 : height >= 10 ? 1 : 0
   const maxPreviewContent = active === 'status'
@@ -559,7 +662,7 @@ export function renderSettings(
   ))
   const visibleItems = sectionItems.slice(start, start + visibleCount)
   const selected = items[index]
-  const lines = [topBorder(theme, width), renderSectionTabs(active, theme, width), divider(theme, width)]
+  const lines = [topBorder(theme, width), renderSectionTabs(active, sections, theme, width), divider(theme, width)]
   if (previewLines.length > 0) {
     lines.push(...previewLines, divider(theme, width))
   }
@@ -591,9 +694,11 @@ export function renderSettings(
     const text = descriptionLines[row] ?? ''
     lines.push(framedRow(theme, text === '' ? '' : '  ' + theme.fg('muted', text), width))
   }
-  const hints = theme.fg('dim', state.moving === undefined
-    ? '↑↓ navigate · ←→ change · space show/hide · enter move · tab section · esc close'
-    : '↑↓ order · ←→ column · enter place · esc done')
+  const hints = theme.fg('dim', state.moving !== undefined
+    ? '↑↓ order · ←→ column · enter place · esc done'
+    : active === 'status'
+      ? '↑↓ navigate · ←→ change · space show/hide · enter move · tab section · esc close'
+      : '↑↓ navigate · ←→ change · enter change · tab section · esc close')
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))
   return {
     lines,

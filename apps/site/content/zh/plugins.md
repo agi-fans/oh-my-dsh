@@ -97,6 +97,8 @@ Pi 的大多数插件是反应型，不是呈现型。它们属于 Harness 的�
 
 贡献记录是可扩展的判别联合。第一批落地的变体是 `status`，以及只有真实工具证明 `presentCall` / `presentResult` 不够时才加的带类型 `card`。TUI 不再开命令注册表，也不开放可注册的 `/settings` 行。斜杠命令继续走 `dsh-commands`。插件偏好存 `ctx.settings`，通过该插件自己的斜杠命令加 `ctx.tui.prompt` 编辑。`/settings` 仍由产品拥有：`tuiSettingItems` 和 `TuiPrefs`、持久化、校验、分页导航、status 重排绑在一起。若日后多个插件反复实现同一套设置向导，再抽一个表单式的 `prompt` 缝，而不是打开产品设置列表。之后的 `overlay` 必须加 case，且不能破坏已有记录。每个卡片 presenter 声明工具或展示 id、数字优先级和注册插件 id。两个 presenter 抢同一 id 时，优先级高的胜出；优先级相同则保留先注册者，并在启动时打出警告。第一版就把这套注册表当成正式渲染 API 来设计，而不是垫片。在至少一个真实用户 bundle 用过这套形状之前，不要把它放进 `@agi-fans/dsh-tui` 的稳定公共导出。
 
+产品的 Agent 语言设置通过 system-prompt section registry 投影。声明为 `complete: true` 的自定义 persona 会按设计抑制普通 section；若希望响应 Language，必须在自己的 persona 文本末尾追加 `{{omdsh_agent_behavior}}`。`Auto` 时该变量解析为空字符串；省略变量不会报错，但 Language 对该 complete persona 不生效。
+
 `@agi-fans/dsh-tui` 导出贡献 token、对应的 TypeScript 类型，以及一小套展示原语（按显示宽度处理的文本、主题颜色名、卡片分区形状）。没有这些原语，插件卡片一定会撑破布局。它不导出 renderer、editor 或 TTY 所有者。注册表永远不能变成第二条输入路径：`readInput` 保持单消费者，`onInterrupt` / `onQueueEdit` / `onRewind` / `onInspect*` 保持宿主私有。插件向人提问只走 `prompt()`。
 
 Pi 第一批里的大部分丰富度已经是 Harness 缝：命令、工具、审批、提问、notice、Session Event 和 Agent preset，bundle 一挂上就能用。挂上一个真实用户 bundle 之后：

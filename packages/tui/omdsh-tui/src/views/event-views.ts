@@ -58,6 +58,7 @@ import { renderToolsPanel, type ToolInfo } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
 import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
+import type { MotionMode } from '../session/tui-settings.ts'
 
 type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
 
@@ -71,7 +72,7 @@ export type Block =
   | { kind: 'tool'; callId: CallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
-  | { kind: 'notice'; level: 'info' | 'error'; text: string; framed?: boolean }
+  | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: string; framed?: boolean }
 
 /** True for blocks whose rendered text may still change. */
 function isBlockPending(block: Block): boolean {
@@ -158,6 +159,12 @@ function dropRetryNotice(blocks: Block[]): void {
   if (isRetryNotice(blocks[blocks.length - 1])) blocks.pop()
 }
 
+const MAX_TOKENS_NOTICE = 'Output token limit reached before the response completed. Send “continue” to resume.'
+const MAX_TOKENS_TOOL_NOTICE = 'Output token limit reached. A partial tool call was not executed because its arguments may be incomplete. Send “continue” to resume.'
+const INTERRUPTED_NOTICE = 'Session was interrupted before completion.'
+const INTERRUPTED_TOOL_NOTICE = 'Session was interrupted before completion. A partial tool call was not executed.'
+const UNFINISHED_TOOL_OUTPUT = 'No durable tool result was recorded before the turn ended. The tool\'s outcome is unknown.'
+
 interface ReplayIndexes {
   readonly toolByCallId: Map<string, number>
 }
@@ -166,7 +173,7 @@ function isMutableAttemptBlock(block: Block, turn: number, step?: number): boole
   if (block.kind === 'assistant') {
     return block.streaming && block.turn === turn && (step === undefined || block.step === step)
   }
-  return block.kind === 'tool' && (block.status === 'running' || block.partial === true)
+  return block.kind === 'tool' && block.partial === true
 }
 
 /** Drop trailing live mutable rows from a failed attempt and keep replay indexes aligned. */
@@ -189,6 +196,36 @@ function hideFailedAttempt(
   }
 }
 
+/** Remove streamed tool previews that never became durable tool/call events. */
+function dropPartialToolPreviews(blocks: Block[], indexes?: ReplayIndexes): boolean {
+  let removed = false
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index]
+    if (block?.kind !== 'tool' || block.partial !== true) continue
+    blocks.splice(index, 1)
+    removed = true
+  }
+  if (removed && indexes !== undefined) {
+    indexes.toolByCallId.clear()
+    for (const [index, block] of blocks.entries()) {
+      if (block.kind === 'tool') indexes.toolByCallId.set(block.callId, index)
+    }
+  }
+  return removed
+}
+
+/** Preserve dispatched calls for audit while ensuring none remain visually active after a turn. */
+function settleUnfinishedToolCalls(blocks: Block[]): void {
+  for (const [index, block] of blocks.entries()) {
+    if (block.kind !== 'tool' || block.status !== 'running' || block.partial === true) continue
+    blocks[index] = {
+      ...block,
+      status: 'error',
+      output: block.output === '' ? UNFINISHED_TOOL_OUTPUT : block.output,
+    }
+  }
+}
+
 /** Replace the trailing streaming block with a settled one, or append. */
 function editableBlocks(state: TranscriptState, mutable: boolean): Block[] {
   return mutable ? state.blocks as Block[] : state.blocks.slice()
@@ -205,7 +242,6 @@ function settleAssistant(
 ): TranscriptState {
   const blocks = editableBlocks(state, mutable)
   dropRetryNotice(blocks)
-  const last = blocks[blocks.length - 1]
   const settled: Block = {
     kind: 'assistant',
     turn,
@@ -215,9 +251,17 @@ function settleAssistant(
     streaming: false,
     ...(interrupted ? { interrupted: true } : {}),
   }
-  if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
-    blocks[blocks.length - 1] = settled
-  } else {
+  let streamingIndex = -1
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const candidate = blocks[index]
+    if (candidate?.kind === 'assistant' && candidate.streaming && candidate.turn === turn && candidate.step === step) {
+      streamingIndex = index
+      break
+    }
+  }
+  if (streamingIndex >= 0) {
+    blocks[streamingIndex] = settled
+  } else if (text !== '' || reasoning !== '') {
     blocks.push(settled)
   }
   return { ...state, blocks }
@@ -271,15 +315,11 @@ function foldEvent(
       return { ...state, blocks, status: 'running', turn: event.data.turn }
     }
     case 'turn/end': {
-      const last = state.blocks[state.blocks.length - 1]
       const reason = event.data.reason
-      const changesBlocks = (last?.kind === 'assistant' && last.streaming)
-        || (last?.kind === 'tool' && (last.status === 'running' || last.partial === true))
-        || isRetryNotice(last)
-        || reason.kind === 'error'
-        || reason.kind === 'aborted'
-      const blocks = changesBlocks ? editableBlocks(state, mutable) : state.blocks
+      const blocks = editableBlocks(state, mutable)
       if (reason.kind === 'error') hideFailedAttempt(blocks, event.data.turn, undefined, indexes)
+      const droppedPartialTool = dropPartialToolPreviews(blocks, indexes)
+      settleUnfinishedToolCalls(blocks)
       dropRetryNotice(blocks)
       const settledLast = blocks[blocks.length - 1]
       if (settledLast?.kind === 'assistant' && settledLast.streaming) {
@@ -287,6 +327,20 @@ function foldEvent(
       }
       if (reason.kind === 'error') {
         blocks.push({ kind: 'notice', level: 'error', text: 'error: ' + reason.error.code + ': ' + reason.error.message })
+      } else if (reason.kind === 'max-tokens') {
+        blocks.push({
+          kind: 'notice',
+          level: 'warning',
+          text: droppedPartialTool ? MAX_TOKENS_TOOL_NOTICE : MAX_TOKENS_NOTICE,
+        })
+      } else if (reason.kind === 'interrupted') {
+        blocks.push({
+          kind: 'notice',
+          level: 'warning',
+          text: droppedPartialTool ? INTERRUPTED_TOOL_NOTICE : INTERRUPTED_NOTICE,
+        })
+      } else if (reason.kind === 'blocked') {
+        blocks.push({ kind: 'notice', level: 'warning', text: 'Turn was blocked before the next model step could start.' })
       } else if (reason.kind === 'aborted') {
         // A cancelled turn that already delivered a prefix finalizes it as an
         // assistant block marked interrupted; the bare notice only covers a
@@ -502,6 +556,8 @@ export interface ViewOptions {
   appName?: string
   /** Spinner phase while a turn or tool is running. */
   spinnerFrame?: number
+  /** Animation policy for streaming, activity marks, and the working label. */
+  motion?: MotionMode
   /** 24-bit color; defaults to off so tests stay deterministic. */
   trueColor?: boolean
   /** Shipped palette; defaults to dark. */
@@ -642,6 +698,7 @@ function userBubble(text: string, theme: Theme, width: number): string[] {
 
 function toolIcon(status: ToolBlockStatus, theme: Theme, spinnerFrame: number): string {
   if (status === 'running') {
+    if (spinnerFrame < 0) return theme.fg('accent', SYMBOL.running)
     return theme.fg('accent', SPINNER[spinnerFrame % SPINNER.length] ?? SYMBOL.running)
   }
   if (status === 'ok') return theme.fg('success', SYMBOL.success)
@@ -756,12 +813,15 @@ export function blockLines(
   if (block.framed !== true) {
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
-    const tone = block.level === 'error' ? 'error' : 'dim'
+    const tone = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'dim'
     return wrapText(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
       truncateToWidth((index === 0 ? prefix : continuation) + theme.fg(tone, line), width))
   }
-  const state = block.level === 'error' ? 'error' : 'info'
-  const paint = (text: string): string => (block.level === 'error' ? theme.fg('error', text) : theme.fg('dim', text))
+  const state = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'info'
+  const paint = (text: string): string => theme.fg(
+    block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'dim',
+    text,
+  )
   const wrapped = wrapText(block.text, Math.max(1, width - 4))
   const title = paint(wrapped[0] ?? '')
   return renderFramedBlock({
@@ -1128,6 +1188,7 @@ function subagentPreviewStart(agents: readonly TuiSubagentView[]): number {
 
 function subagentPhaseGlyph(phase: TuiSubagentPhase, theme: Theme, spinnerFrame: number): string {
   if (phase === 'running' || phase === 'starting') {
+    if (spinnerFrame < 0) return theme.fg('accent', SYMBOL.running)
     return theme.fg('accent', SPINNER[spinnerFrame % SPINNER.length] ?? SYMBOL.running)
   }
   if (phase === 'error') return theme.fg('error', SYMBOL.error)
@@ -1283,7 +1344,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const appName = options.appName ?? 'omdsh'
   const version = options.version ?? '0.1.0'
   const pwd = options.pwd ?? ''
-  const spinnerFrame = options.spinnerFrame ?? 0
+  const motion = options.motion ?? 'full'
+  const spinnerFrame = motion === 'off' ? -1 : options.spinnerFrame ?? 0
   if (options.agentHub !== undefined) {
     const hub = renderAgentHub(options.agentHub, theme, width, height)
     return {
@@ -1361,9 +1423,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
 
   const working = state.status === 'running'
-    ? renderWorking(theme, spinnerFrame, undefined, width)
+    ? renderWorking(theme, Math.max(0, spinnerFrame), undefined, width, motion)
     : state.status === 'compacting'
-      ? renderWorking(theme, spinnerFrame, 'Compacting', width)
+      ? renderWorking(theme, Math.max(0, spinnerFrame), 'Compacting', width, motion)
       : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const inlineHint = options.inspected === undefined

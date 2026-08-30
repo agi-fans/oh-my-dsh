@@ -6,8 +6,16 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Added an Agent language preference to `/settings`, allowing new and resumed turns to default to Simplified Chinese or English without translating code, commands, or logs.
+- Added grapheme-safe smooth streaming, a `Motion` preference for full, reduced, or static presentation, color-reactive context-pressure text, and opt-in native terminal activity while omdsh is working.
+
 ### Fixed
 
+- Returning from a subagent inspector now fences repeated Escape input, preventing the same exit gesture from interrupting the parent agent and stranding follow-up messages in the queue.
+- Output-token truncation and other non-successful turn endings now settle partial previews and unfinished dispatched tools, remain visible in the transcript and `/trajectory`, and use plain-language terminal notifications instead of appearing to stop silently.
+- DeepSeek requests now inherit the published 384K output limit without replacing the adapter-owned model catalog or its exact per-model overrides.
 - Corrected the documentation for private session-event compatibility and legacy session portability, and linked the guided issue forms from both READMEs.
 
 ## [0.12.0] - 2026-08-28

@@ -191,6 +191,18 @@ export interface TuiSubmission {
   images: readonly TuiInputImage[]
 }
 
+/** Product-owned language preference projected into the settings overlay. */
+export interface TuiAgentBehaviorSettings {
+  language: 'auto' | 'zh-CN' | 'en'
+}
+
+/** Closed binding between the product settings owner and the terminal surface. */
+export interface TuiAgentBehaviorSettingsBinding {
+  get(): TuiAgentBehaviorSettings
+  update(next: TuiAgentBehaviorSettings): Promise<void>
+  watch(listener: (next: TuiAgentBehaviorSettings) => void): () => void
+}
+
 /**
  * Terminal presentation service.
  * Implementations must be single-consumer: one runner owns readInput().
@@ -218,6 +230,8 @@ export interface TuiService {
   notice(text: string, options?: TuiNoticeOptions): void
   /** Append one successful plugin command result using the command-output surface. */
   commandOutput(command: string, text: string): void
+  /** Bind the product-owned Agent settings section; only one binding may be active. */
+  bindAgentBehaviorSettings?(binding: TuiAgentBehaviorSettingsBinding): () => void
   /** Temporarily own the composer and collect one human answer. */
   prompt(request: TuiPrompt): Promise<string | null>
   /** Replace the transcript when a new or resumed session becomes active. */
