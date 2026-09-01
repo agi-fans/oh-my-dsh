@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
-- Updated the published DeepSeek Harness runtime cohort from `0.1.1-rc.2` to `0.1.2-alpha.2`, including its Cordis foundation versions and public API adaptations.
+- Updated the published DeepSeek Harness runtime cohort from `0.1.2-alpha.2` to `0.1.2-alpha.3`, including its public API adaptations (Cordis foundation versions unchanged).
+- Replaced the removed `@deepseek-ai/dsh-agent-spine-demo` spine row with explicit plugin rows in the product composition (system prompt, tools, skills, goals, jobs, invariants, shell env, workspace instructions, and agent loop). User `cordis.patch.yml` layers that target the `spine` row id no longer apply and must be migrated: `workspaceContext` to `agent-instructions`, `tools` to `tools`, `dshHome` to `skill-filesystem` and `shell-env`, `skills*` to `skill`/`skill-filesystem`/`tool-skill`, `goals*` to `goal`/`tool-goal`/`goal-round-driver`, `toolBash` to `tool-bash` (`false` also suppresses `shell-env`), `toolJobs` to `tool-jobs`, `agents` and `maxParallelToolCalls` to `agent-loop`, and system-prompt/session-title fields to their owning rows. A spine-targeted patch is skipped silently at boot (no stderr warning), so check your home or profile patches.
 
 ## [0.13.0] - 2026-08-30
 

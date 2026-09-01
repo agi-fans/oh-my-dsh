@@ -58,7 +58,7 @@ Profile 目录使用 omdsh 已经用于会话、设置、凭据和 MCP 的同一
 4. `$OMDSH_HOME/cordis.patch.yml`（作用于每个 omdsh Profile 的机器级覆盖）。
 5. 现有的、来自用户级和项目级 `mcp.json` 的 MCP insert patch。
 
-后一层按行 id 覆盖前一层。针对 id 的补丁会整份替换 `config` 对象，不做深层合并。补丁点名了一个不存在的 id 时，向 stderr 发出警告，而不是静默忽略。
+后一层按行 id 覆盖前一层。针对 id 的补丁会整份替换 `config` 对象，不做深层合并。补丁点名了一个不存在的 id 时，启动时会被静默跳过（TUI 宿主未将加载器日志接到 stderr），而不是报错。
 
 模块解析保持双锚点，并使用已发布的 `dsh-app-boot` 辅助函数。`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 通过 `healProfilesModuleFallback` 优先从 omdsh 安装位置解析。用户 bundle 从 Profile 的 `node_modules` 解析。insert 了一个 Node 无法解析的软件包时，启动失败并大声报错。
 

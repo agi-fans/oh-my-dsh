@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -246,5 +246,122 @@ describe('boot patch assembly', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(/^omdsh: /u)
     expect(result.stderr).not.toContain('at dumpOmdshConfig')
+  })
+})
+
+describe('dsh 0.1.2-alpha.3 spine expansion', () => {
+  const EXPANDED_IDS = [
+    'system-prompt', 'tools', 'skill', 'skill-filesystem', 'llm-retry', 'goal', 'tool-goal',
+    'goal-round-driver', 'jobs', 'invariants', 'session-invariant', 'agent-invariant',
+    'scope-invariant', 'agent-loop-invariant', 'shell-env', 'tool-bash', 'agent-instructions',
+    'tool-skill', 'tool-jobs', 'agent-loop',
+  ]
+  const FOUNDATION_IDS = ['timer', 'llm', 'session', 'session-projection', 'session-title', 'agent']
+
+  function productRows(): Array<{ id?: string; name?: string; config?: unknown }> {
+    const patches = loadBootPatches(temp('omdsh-spine-cwd-'), { OMDSH_HOME: temp('omdsh-spine-home-') })
+    const product = patches[0] as { insert?: Array<{ id?: string; name?: string; config?: unknown }> }
+    return product.insert ?? []
+  }
+
+  it('replaces the spine row with exactly the explicit expansion rows', () => {
+    const rows = productRows()
+    expect(rows.some(row => row.id === 'spine')).toBe(false)
+    expect(rows.some(row => row.name === '@deepseek-ai/dsh-agent-spine-demo')).toBe(false)
+    const ids = rows.map(row => row.id)
+    for (const id of [...FOUNDATION_IDS, ...EXPANDED_IDS]) expect(ids).toContain(id)
+    const expanded = rows.filter(row => EXPANDED_IDS.includes(row.id ?? ''))
+    expect(expanded).toHaveLength(EXPANDED_IDS.length)
+    expect(new Set(expanded.map(row => row.id))).toHaveLength(EXPANDED_IDS.length)
+    for (const row of expanded) expect(row.name, `row ${row.id}`).toBeTruthy()
+  })
+
+  it('maps each expansion row id to its owning package', () => {
+    const rows = productRows()
+    const row = (id: string) => rows.find(entry => entry.id === id)
+    const expected: Record<string, string> = {
+      'system-prompt': '@deepseek-ai/dsh-system-prompt',
+      'tools': '@deepseek-ai/dsh-tools',
+      'skill': '@deepseek-ai/dsh-skill',
+      'skill-filesystem': '@deepseek-ai/dsh-skill-filesystem',
+      'llm-retry': '@deepseek-ai/dsh-llm-retry',
+      'goal': '@deepseek-ai/dsh-goal',
+      'tool-goal': '@deepseek-ai/dsh-tool-goal',
+      'goal-round-driver': '@deepseek-ai/dsh-goal-round-driver',
+      'jobs': '@deepseek-ai/dsh-jobs-local',
+      'invariants': '@deepseek-ai/dsh-invariants',
+      'session-invariant': '@deepseek-ai/dsh-session/invariant',
+      'agent-invariant': '@deepseek-ai/dsh-agent/invariant',
+      'scope-invariant': '@deepseek-ai/dsh-scope/invariant',
+      'agent-loop-invariant': '@deepseek-ai/dsh-agent-loop/invariant',
+      'shell-env': '@deepseek-ai/dsh-shell-env',
+      'tool-bash': '@deepseek-ai/dsh-tool-bash',
+      'agent-instructions': '@deepseek-ai/dsh-agent-instructions',
+      'tool-skill': '@deepseek-ai/dsh-tool-skill',
+      'tool-jobs': '@deepseek-ai/dsh-tool-jobs',
+      'agent-loop': '@deepseek-ai/dsh-agent-loop',
+    }
+    for (const [id, name] of Object.entries(expected)) expect(row(id)?.name, id).toBe(name)
+  })
+
+  it('keeps the spine registration order (agent-instructions before tool-skill)', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(row => row.id === id)
+    expect(index('agent-instructions')).toBeGreaterThanOrEqual(0)
+    expect(index('agent-instructions')).toBeLessThan(index('tool-skill'))
+  })
+
+  it('preserves the forwarded spine configuration on the owning rows', () => {
+    const rows = productRows()
+    const row = (id: string) => rows.find(entry => entry.id === id)
+    expect(row('tools')?.config).toEqual({ mode: 'native' })
+    expect(row('agent-instructions')?.config).toEqual({ maxBytes: 65536 })
+    expect(row('agent-loop')?.config).toEqual({ agents: [] })
+    expect(row('skill-filesystem')?.config).toHaveProperty('dshHome')
+    expect(row('shell-env')?.config).toHaveProperty('dshHome')
+  })
+
+  it('skips a spine-targeted home patch silently without breaking boot', () => {
+    const home = temp('omdsh-spine-patch-home-')
+    writeFileSync(join(home, 'cordis.patch.yml'), '- id: spine\n  config:\n    workspaceContext:\n      maxBytes: 4096\n')
+    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts'], {
+      cwd: appRoot,
+      input: 'hi\n',
+      encoding: 'utf8',
+      timeout: 180_000,
+      env: { ...process.env, OMDSH_HOME: home, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' },
+    })
+    const out = (result.stdout ?? '') + (result.stderr ?? '')
+    expect(result.status, out).toBe(0)
+    expect(out).toContain('hi')
+    expect(out).not.toContain('spine')
+    expect(out).not.toContain('agent-spine-demo')
+  }, 200_000)
+
+  it('applies the migrated row id to a home patch (spine knob moved to agent-instructions)', () => {
+    const home = temp('omdsh-spine-migrated-home-')
+    writeFileSync(join(home, 'cordis.patch.yml'),
+      '- id: agent-instructions\n  config:\n    maxBytes: 12345\n')
+    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+      cwd: appRoot,
+      encoding: 'utf8',
+      env: { ...process.env, OMDSH_HOME: home },
+      timeout: 30_000,
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('cordis.patch.yml')
+    expect(result.stdout).toContain('maxBytes: 12345')
+  })
+
+  it('keeps the minimal preset persistent bash inside its own cordis group', () => {
+    const minimal = readFileSync(join(appRoot, 'config', 'agent-presets', 'minimal', 'agent.cordis.yml'), 'utf8')
+    const standard = readFileSync(join(appRoot, 'config', 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8')
+    // Root composition owns the global `bash` tool (dsh-tool-bash); the Minimal
+    // preset mounts persistent-bash inside a cordis:group. Per dsh-tools'
+    // documented contract ("Scoped tools shadow globals"), the scoped
+    // registration coexists and shadows the global for that agent scope.
+    expect(minimal).toContain('cordis:group')
+    expect(minimal).toContain('@deepseek-ai/dsh-tool-bash-persistent')
+    expect(standard).not.toContain('@deepseek-ai/dsh-tool-bash-persistent')
   })
 })
