@@ -21,7 +21,7 @@ export function toolPresentationForPreset(agentPreset: string): ToolPresentation
 /** Agent composition may change only before any model-visible history exists. */
 export function isBlankSession(session: Session): boolean {
   if (session.deriveMessages().length > 0) return false
-  return !session.events.some(event => event.type === 'request/header'
+  return !session.snapshotEvents().some(event => event.type === 'request/header'
     || event.type === 'request/context'
     || event.type === 'turn/start'
     || event.type === 'step/start'

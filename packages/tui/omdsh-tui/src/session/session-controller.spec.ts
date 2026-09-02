@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subagent'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { mcpCatalogText } from '../commands/integrations.ts'
 import type { TuiService } from '../definition.ts'
+
+vi.mock('@deepseek-ai/dsh-subagent/internal', () => ({
+  queueHostSubagentPrompt: vi.fn(async () => 'message-id-1'),
+}))
 import {
   conversationTurns,
   createSubmissionMessage,
@@ -380,5 +387,118 @@ describe('SessionRuntime.execute', () => {
       .resolves.toBe(false)
     await runtime.dispose()
     await ctx.fiber.dispose()
+  })
+})
+
+describe('SessionRuntime inspected-subagent delivery', () => {
+  it('delivers a composer follow-up through the subagent host queue, never sendMessage', async () => {
+    vi.mocked(queueHostSubagentPrompt).mockClear()
+    const rootId = SessionId('session-steer-root')
+    const childId = SessionId('session-steer-child')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const rootSession = ctx.sessions.create(rootId)
+    const childSession = ctx.sessions.create(childId, {
+      meta: {
+        parentSession: rootId,
+        isSeeded: false,
+        origin: 'subagent',
+        delegationDepth: 1,
+      },
+    })
+    childSession.append('subagent/descriptor', {
+      version: 2,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'Steer child',
+    })
+    ctx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    const rootAgent = {
+      id: rootId,
+      session: rootSession,
+      status: 'idle',
+      inbox: { nextTurn: [], nextStep: [] },
+    } as unknown as Agent
+
+    const agentCtx = new Context()
+    await agentCtx.plugin(CommandRuntime)
+    agentCtx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    agentCtx.provide('sessionProjections', { stateOf: () => 'standard' })
+    agentCtx.provide('tools', { presentAs: () => () => undefined })
+    agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
+    Object.defineProperty(agentCtx, 'agent', { value: rootAgent })
+
+    const subagents = {
+      listChildren: async () => [],
+      sendMessage: vi.fn(async () => 'sent-1'),
+    }
+    ctx.provide('agents', {
+      create: async (options: { setup?: (context: typeof agentCtx) => Promise<void> }) => {
+        await options.setup?.(agentCtx)
+        return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
+      },
+      get: () => undefined,
+    })
+    ctx.provide('agentDefaultModel', {
+      currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
+    })
+    ctx.provide('subagents', subagents)
+
+    const inspectCallbacks: Array<(id: string) => void> = []
+    const submitCallbacks: Array<(submission: { text: string, images: never[] }) => void> = []
+    const restoreInput = vi.fn()
+    const notice = vi.fn()
+    const tui = new Proxy({ restoreInput, notice }, {
+      get(target: Record<string, unknown>, prop: string) {
+        if (prop in target) return target[prop]
+        if (prop === 'onInspectSubagent') {
+          return (handler: (id: string) => void) => {
+            inspectCallbacks.push(handler)
+            return () => {}
+          }
+        }
+        if (prop === 'onInspectSubmit') {
+          return (handler: (submission: { text: string, images: never[] }) => void) => {
+            submitCallbacks.push(handler)
+            return () => {}
+          }
+        }
+        return () => () => {}
+      },
+    }) as unknown as TuiService
+
+    const runtime = new SessionRuntime(ctx, tui)
+    try {
+      await runtime.start()
+      expect(inspectCallbacks).toHaveLength(1)
+      await inspectCallbacks[0]?.(childId)
+      await submitCallbacks[0]?.({ text: 'Keep going.', images: [] })
+      await new Promise(resolve => { setTimeout(resolve, 0) })
+
+      expect(queueHostSubagentPrompt).toHaveBeenCalledTimes(1)
+      expect(queueHostSubagentPrompt).toHaveBeenCalledWith(
+        subagents,
+        rootAgent,
+        childId,
+        expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'Keep going.' })]),
+        { kind: 'user' },
+        expect.any(AbortSignal),
+      )
+      expect(subagents.sendMessage).not.toHaveBeenCalled()
+      expect(restoreInput).not.toHaveBeenCalled()
+      expect(notice).not.toHaveBeenCalled()
+    } finally {
+      await runtime.dispose()
+      await ctx.fiber.dispose()
+      await agentCtx.fiber.dispose()
+    }
   })
 })

@@ -113,6 +113,18 @@ describe('renderTool', () => {
       summary: 'session-abc',
       input: ['Also check logout.'],
     })
+
+    expect(renderTool({
+      name: 'send_message',
+      arguments: '{"agent_id":"session-abc","message":"Also check logout."}',
+      output: 'message delivered to agent session-abc',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Message',
+      summary: 'session-abc',
+      input: ['Also check logout.'],
+    })
   })
 
   it('falls back to durable result text when a generic result omits content', () => {

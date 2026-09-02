@@ -22,7 +22,7 @@ describe('ToolPresentationBridge', () => {
         meta: { lines: 1 },
       },
     } as unknown as SessionEvent
-    const agent = { session: { events: [call, result] } } as unknown as Agent
+    const agent = { session: { snapshotEvents: () => [call, result] } } as unknown as Agent
     const presentCall = vi.fn(() => ({ card: 'generic' as const, title: 'Read a.ts', kind: 'read' as const }))
     const presentResult = vi.fn(() => ({
       card: 'read' as const,
@@ -54,7 +54,7 @@ describe('ToolPresentationBridge', () => {
       type: 'tool/call', seq: 1, time: 1, surfaceOp: 'append',
       data: { turn: 1, step: 1, callId: 'c1', name: 'unknown', arguments: '{}' },
     } as unknown as SessionEvent
-    const agent = { session: { events: [event] } } as unknown as Agent
+    const agent = { session: { snapshotEvents: () => [event] } } as unknown as Agent
     const missing = createToolPresentationBridge({ tools: { get: () => undefined } } as unknown as Context)
     const broken = createToolPresentationBridge({
       tools: { get: () => ({ presentCall: () => { throw new Error('broken') } }) },

@@ -9,7 +9,7 @@ export const inject = ['commands', 'tui']
 
 function openTrajectory(ctx: Context, invocation: CommandInvocation): CommandResult {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /trajectory' }
-  if (!ctx.tui.openTrajectory(invocation.agent.session.events)) {
+  if (!ctx.tui.openTrajectory(invocation.agent.session.snapshotEvents())) {
     return { kind: 'error', text: 'Trajectory requires an interactive terminal.' }
   }
   return { kind: 'success' }

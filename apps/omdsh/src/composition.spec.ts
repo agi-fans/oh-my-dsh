@@ -249,7 +249,7 @@ describe('boot patch assembly', () => {
   })
 })
 
-describe('dsh 0.1.2-alpha.3 spine expansion', () => {
+describe('dsh spine expansion', () => {
   const EXPANDED_IDS = [
     'system-prompt', 'tools', 'skill', 'skill-filesystem', 'llm-retry', 'goal', 'tool-goal',
     'goal-round-driver', 'jobs', 'invariants', 'session-invariant', 'agent-invariant',

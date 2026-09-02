@@ -92,7 +92,7 @@ function subagentFallback(name: string, raw: string, output: string): PartialToo
   }
   if (name === 'send_message') {
     const message = stringField(args, 'message')
-    const id = stringField(args, 'subagent_id')
+    const id = stringField(args, 'agent_id') || stringField(args, 'subagent_id')
     return {
       title: 'Message',
       ...(id === '' ? {} : { summary: id }),

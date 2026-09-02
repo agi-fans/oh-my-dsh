@@ -36,10 +36,11 @@ import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/type
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-subagent'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type {
   TuiCommand,
@@ -754,7 +755,7 @@ export class SessionRuntime {
   async rewindToTurn(signal: AbortSignal): Promise<void> {
     const agent = this.#requiredAgent()
     if (agent.status !== 'idle') return
-    const events = agent.session.events
+    const events = agent.session.snapshotEvents()
     const turns = conversationTurns(events)
     if (turns.length === 0) {
       this.#tui.notice('No conversation turns are available to rewind.')
@@ -823,9 +824,10 @@ export class SessionRuntime {
       meta: {
         ...(agent.session.header.cwd === undefined ? {} : { cwd: agent.session.header.cwd }),
         parentSession: agent.id,
-        seedLength: selected.branchIndex,
+        isSeeded: true,
         agentPreset: active.agentPreset,
       },
+      inheritedEventCount: SessionLogOffset(selected.branchIndex),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
       setup: async (agentCtx) => { configured = await setupAgentContext(agentCtx, ref) },
@@ -1203,7 +1205,7 @@ export class SessionRuntime {
   }
 
   #replaceTranscript(agent: Agent): void {
-    const events = agent.session.events
+    const events = agent.session.snapshotEvents()
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
   }
 
@@ -1237,12 +1239,12 @@ export class SessionRuntime {
     const live = this.#ctx.get('sessions')?.get(SessionId(id))
     let events: readonly SessionEvent[]
     if (live !== undefined) {
-      events = live.events.slice(live.header.seedLength ?? 0)
+      events = live.ownEvents()
     } else {
       try {
         const inspected = await this.#ctx.get('sessionPersistence')?.inspect(SessionId(id))
         if (inspected === undefined) throw new Error('subagent transcript is unavailable')
-        events = inspected.events.slice(inspected.meta.seedLength ?? 0)
+        events = inspected.events.slice(inspected.inheritedEventCount)
       } catch {
         if (request === this.#inspectEpoch) {
           this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })
@@ -1298,10 +1300,8 @@ export class SessionRuntime {
         this.#tui.restoreInput(submission)
         return
       }
-      await subagents.followup(parent, SessionId(childId), message.content, {
-        source: { kind: 'user' },
-        signal: new AbortController().signal,
-      })
+      await queueHostSubagentPrompt(subagents, parent, SessionId(childId), message.content,
+        { kind: 'user' }, new AbortController().signal)
     } catch (error: unknown) {
       this.#tui.restoreInput(submission)
       this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
@@ -1327,7 +1327,7 @@ export class SessionRuntime {
 
   #stats(active: ActiveSession, projection: TuiStatsProjection | undefined = this.#projection(active)): TuiSessionStats {
     const agent = active.handle.agent
-    return sessionStats(agent.session.events, active.contextWindow, projection)
+    return sessionStats(agent.session.snapshotEvents(), active.contextWindow, projection)
   }
 
   #requiredActive(): ActiveSession {

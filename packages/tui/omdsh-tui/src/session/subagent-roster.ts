@@ -308,8 +308,7 @@ export class SubagentRoster {
       }),
       phase: agentStatus === 'running' ? 'running' : 'starting',
     })
-    const seedLength = session.header.seedLength ?? 0
-    const events = session.events.slice(seedLength)
+    const events = session.ownEvents()
     for (const event of events) view = applySubagentEvent(view, event)
     const startedAt = events[0]?.time
     const updatedAt = events.at(-1)?.time

@@ -49,7 +49,7 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     }
     if (event.type !== 'tool/result') return undefined
     const callId = event.data.message.source.callId
-    const callEvent = agent.session.events.findLast(candidate =>
+    const callEvent = agent.session.snapshotEvents().findLast(candidate =>
       candidate.type === 'tool/call' && candidate.data.callId === callId)
     if (callEvent?.type !== 'tool/call') return undefined
     const definition = this.#ctx.tools.get(callEvent.data.name, agent)

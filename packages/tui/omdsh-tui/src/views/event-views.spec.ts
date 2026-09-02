@@ -34,6 +34,21 @@ const composerRows = (lines: readonly string[], start: number): number => {
 }
 
 describe('applyEvent', () => {
+  it('skips relay frames for both the legacy and the new agent-message source kinds', () => {
+    for (const kind of ['subagent-report', 'agent-message'] as const) {
+      const state = applyEvent(
+        initialTranscript(),
+        ev('user/message', {
+          source: { kind, form: 'relay', senderSessionId: 'session-child-1' },
+          content: [{ type: 'text', text: 'background report from a subagent' }],
+          role: 'user',
+          id: 'message-1',
+        }, 1),
+      )
+      expect(state.blocks, kind).toEqual([])
+    }
+  })
+
   it('replays a complete log with the same state as immutable live folding', () => {
     const events = [
       ev('turn/start', { turn: 1 }, 1),

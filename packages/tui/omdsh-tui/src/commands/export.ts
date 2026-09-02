@@ -27,11 +27,11 @@ async function exportTranscript(invocation: CommandInvocation): Promise<CommandR
   const unquoted = pathInput.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
   const fallback = `omdsh-transcript-${invocation.agent.id}.${html ? 'html' : 'md'}`
   const path = resolve(unquoted === '' ? fallback : (unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted))
-  const title = sessionTitle(invocation.agent.session.events, invocation.agent.id)
+  const title = sessionTitle(invocation.agent.session.snapshotEvents(), invocation.agent.id)
   try {
     const contents = html
-      ? formatTranscriptHtml(invocation.agent.id, title, invocation.agent.session.events)
-      : formatTranscriptMarkdown(invocation.agent.id, title, invocation.agent.session.events)
+      ? formatTranscriptHtml(invocation.agent.id, title, invocation.agent.session.snapshotEvents())
+      : formatTranscriptMarkdown(invocation.agent.id, title, invocation.agent.session.snapshotEvents())
     await writeFile(path, contents, { encoding: 'utf8', mode: 0o600 })
     return { kind: 'success', text: `Exported complete transcript to ${path}` }
   } catch (error: unknown) {

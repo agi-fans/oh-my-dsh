@@ -97,6 +97,20 @@ describe('applySubagentEvent', () => {
 })
 
 describe('SubagentRoster', () => {
+  it('folds an agent-message relay frame exactly like the legacy coordinator frame', () => {
+    const base = view({ phase: 'running', mode: 'continuable' })
+    const frame = (kind: string) => ev('user/message', {
+      content: [{ type: 'text', text: 'Keep going from the parent.' }],
+      source: { kind, form: 'relay', senderSessionId: 'root' },
+      role: 'user',
+      id: 'm-1',
+    }, 9)
+    const coordinator = applySubagentEvent(base, frame('coordinator'))
+    const agentMessage = applySubagentEvent(base, frame('agent-message'))
+    expect(agentMessage).toEqual(coordinator)
+    expect(agentMessage).toMatchObject({ label: 'Keep going from the parent.' })
+  })
+
   it('hydrates a live child log and keeps catalog identity as a fallback', () => {
     const roster = new SubagentRoster()
     roster.reset('root')
@@ -107,10 +121,10 @@ describe('SubagentRoster', () => {
         id: SessionId('child-1'),
         parentSession: SessionId('root'),
         origin: 'subagent' as const,
-        seedLength: 1,
+        isSeeded: true,
       },
-      events: [
-        ev('tool/call', { callId: 'seed', name: 'ignored', arguments: '{}' }, 1),
+      inheritedEventCount: 1,
+      ownEvents: () => [
         ev('tool/call', { callId: 'c1', name: 'bash', arguments: '{"command":"pwd"}' }, 2),
       ],
     } as unknown as Session
@@ -163,9 +177,10 @@ describe('SubagentRoster', () => {
         id: SessionId('child-done'),
         parentSession: SessionId('root'),
         origin: 'subagent' as const,
-        seedLength: 0,
+        isSeeded: false,
       },
-      events: [
+      inheritedEventCount: 0,
+      ownEvents: () => [
         ev('subagent/descriptor', { version: 2, mode: 'one-shot', provider: 'spawn', label: 'Done task' }, 1),
         ev('turn/start', { turn: 1 }, 2),
         ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3),

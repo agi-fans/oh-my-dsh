@@ -151,7 +151,7 @@ describe('omdsh command plugins', () => {
     await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)
-    expect(session.events.filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
+    expect(session.snapshotEvents().filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
       .toEqual(['command/run', 'command/done'])
 
     const details = await ctx.commands.execute(agent, '/session', [], new AbortController().signal)
