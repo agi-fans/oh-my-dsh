@@ -6,11 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-04
+
 ### Changed
 
-- Updated the published DeepSeek Harness runtime cohort from `0.1.2-alpha.2` to `0.1.2-alpha.3`, including its public API adaptations (Cordis foundation versions unchanged).
-- Updated the published DeepSeek Harness runtime cohort from `0.1.2-alpha.3` to `0.1.2-alpha.4` (Cordis foundation versions unchanged). Sessions persisted by the 0.1.2-alpha.3 cohort still resume, including fork-seeded subagent logs and legacy relay frames. The subagent `send_message` tool now takes `agent_id` instead of `subagent_id` (old transcripts still render), delivers as a bidirectional adjacent-agent steer rather than a queued next turn, and continuable subagents are now guided to report back through `send_message`.
-- Updated the published DeepSeek Harness runtime cohort from `0.1.2-alpha.4` to `0.1.2-rc.1` (Cordis foundation versions unchanged). Sessions persisted by the 0.1.2-alpha.3 and 0.1.2-alpha.4 cohorts still resume.
+- Updated the published DeepSeek Harness runtime cohort from `0.1.2-alpha.2` to `0.1.2-rc.1` (Cordis foundation versions unchanged). Sessions persisted by the 0.1.2-alpha.3 and 0.1.2-alpha.4 cohorts still resume, including fork-seeded subagent logs and legacy relay frames. The subagent `send_message` tool now takes `agent_id` instead of `subagent_id` (old transcripts still render), delivers as a bidirectional adjacent-agent steer rather than a queued next turn, and continuable subagents are now guided to report back through `send_message`.
 - Replaced the removed `@deepseek-ai/dsh-agent-spine-demo` spine row with explicit plugin rows in the product composition (system prompt, tools, skills, goals, jobs, invariants, shell env, workspace instructions, and agent loop). User `cordis.patch.yml` layers that target the `spine` row id no longer apply and must be migrated: `workspaceContext` to `agent-instructions`, `tools` to `tools`, `dshHome` to `skill-filesystem` and `shell-env`, `skills*` to `skill`/`skill-filesystem`/`tool-skill`, `goals*` to `goal`/`tool-goal`/`goal-round-driver`, `toolBash` to `tool-bash` (`false` also suppresses `shell-env`), `toolJobs` to `tool-jobs`, `agents` and `maxParallelToolCalls` to `agent-loop`, and system-prompt/session-title fields to their owning rows. A spine-targeted patch is skipped silently at boot (no stderr warning), so check your home or profile patches.
 
 ## [0.13.0] - 2026-08-30
@@ -305,7 +305,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.10.0...v0.11.0
