@@ -1,6 +1,6 @@
 /**
  * Cross-version persistence contract: sessions produced by the DSH
- * `0.1.2-alpha.3` runtime must load under the installed `0.1.2-alpha.4`
+ * `0.1.2-alpha.3` runtime must load under the installed `0.1.2-rc.1`
  * cohort without migration. Provenance of the fixtures under
  * `src/fixtures/dsh-alpha3-sessions/`:
  *
@@ -58,7 +58,7 @@ async function loadCopy(
   }
 }
 
-describe('alpha.3 → alpha.4 persisted-session compatibility', () => {
+describe('alpha.3 persisted-session compatibility', () => {
   it('loads the alpha.3 zstd root artifact with an unseeded header', async () => {
     const { inspected, source } = await loadCopy('zstd', PARENT_ID)
     expect(inspected.meta.isSeeded).toBe(false)
