@@ -19,13 +19,20 @@ describe('trajectory ledger', () => {
     event(1, 'turn/start', { turn: 1 }),
     event(2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'inspect the repo' }] }),
     event(3, 'step/start', { turn: 1, step: 1 }),
-    event(4, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'I will inspect.' } }),
+    event(4, 'assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'reasoning', text: 'I will inspect.' }] },
+      stream: [{ type: 'text-chunks', time0: 400, index: 0, dt: [], texts: ['I will inspect.'] }],
+    }),
     event(5, 'tool/call', { callId: 'call-1', name: 'read', arguments: { path: 'README.md' } }),
     event(6, 'tool/result', { message: { callId: 'call-1', content: [{ type: 'text', text: 'README contents' }] } }),
     event(7, 'assistant/message', {
       turn: 1,
       step: 1,
-      message: { content: [{ type: 'text', text: 'Finished.' }], usage: { inputTokens: 10, outputTokens: 2 } },
+      message: { content: [{ type: 'text', text: 'Finished.' }] },
+      stream: [],
+      usage: { inputTokens: 10, outputTokens: 2 },
     }),
   ]
 

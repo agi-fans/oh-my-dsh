@@ -46,6 +46,12 @@ function string(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
+/** First chunk time of a compact embedded assistant stream, or undefined. */
+function streamFirstTime(records: readonly unknown[]): number | undefined {
+  const first = object(records[0])
+  return first === undefined ? undefined : number(first['time0'])
+}
+
 function compact(text: string, fallback: string): string {
   const normalized = text.replace(/\s+/gu, ' ').trim()
   return normalized === '' ? fallback : normalized
@@ -180,28 +186,6 @@ export class TrajectoryLedger {
       this.#push(this.#base(event, isUser ? 'user' : 'context', isUser ? 'USER' : 'CONTEXT', compact(text, 'Injected context'), data))
       return
     }
-    if (eventType === 'assistant/chunk') {
-      const chunk = object(data['chunk'])
-      const chunkType = string(chunk?.['type'])
-      if (chunkType !== 'text-delta' && chunkType !== 'reasoning-delta') return
-      const delta = string(chunk?.['text']) ?? ''
-      if (!this.#stepFirstToken.has(key)) this.#stepFirstToken.set(key, event.time)
-      const existing = this.#assistantByStep.get(key)
-      if (existing === undefined) {
-        const startedAt = this.#stepStarted.get(key) ?? event.time
-        const record = this.#base(event, 'assistant', 'ASSISTANT', compact(delta, chunkType === 'reasoning-delta' ? 'Thinking…' : 'Streaming…'), data)
-        record.id = `assistant:${key}`
-        record.status = 'running'
-        record.startedAt = startedAt
-        record.ttftMs = event.time - startedAt
-        record.payload = this.#requestByStep.get(key) ?? record.payload
-        this.#assistantByStep.set(key, this.#push(record))
-      } else {
-        const record = this.records[existing]
-        if (record !== undefined && delta !== '') record.summary = compact(`${record.summary} ${delta}`, record.summary)
-      }
-      return
-    }
     if (eventType === 'assistant/message') {
       const message = object(data['message'])
       const text = contentText(message?.['content'] ?? data['content'], 'text')
@@ -210,6 +194,13 @@ export class TrajectoryLedger {
       const startedAt = this.#stepStarted.get(key) ?? event.time
       const existing = this.#assistantByStep.get(key)
       const result = reasoning === '' ? text : `Thinking\n${reasoning}\n\nAnswer\n${text}`
+      // Format-v2 messages embed the exact timed stream; derive the first
+      // token time from its first compact record instead of live chunk events.
+      if (!this.#stepFirstToken.has(key)) {
+        const streamData = data['stream']
+        const firstTime = Array.isArray(streamData) ? streamFirstTime(streamData) : undefined
+        if (firstTime !== undefined) this.#stepFirstToken.set(key, firstTime)
+      }
       if (existing === undefined) {
         const record = this.#base(event, 'assistant', 'ASSISTANT', compact(text, 'Assistant response'), data)
         record.id = `assistant:${key}`

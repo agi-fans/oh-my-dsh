@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -50,21 +50,15 @@ describe('applyEvent', () => {
   })
 
   it('replays a complete log with the same state as immutable live folding', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
       ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] }, 2),
-      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } }, 3),
-      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'draft' } }, 4),
       ev('assistant/message', {
         turn: 1,
         step: 1,
         message: { content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'answer' }] },
+        stream: [],
       }, 5),
-      ev('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":' },
-      }, 6),
       ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"true"}' }, 7),
       ev('tool/result', {
         message: {
@@ -82,9 +76,31 @@ describe('applyEvent', () => {
       }, 10),
       ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 11),
     ]
-    const immutable = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    // Live folding mirrors the bridge: durable events through applyEvent, with
+    // the transient assistant/attempt stream deltas injected right before the
+    // settlement event that overwrites them.
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyEvent(live, settled[1]!)
+    live = applyStreamChunk(live, { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' } })
+    live = applyStreamChunk(live, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'draft' } })
+    live = applyEvent(live, settled[2]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1,
+      chunk: { type: 'tool-call-delta', index: 1, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"command":' },
+    })
+    live = applyEvent(live, settled[3]!)
+    live = applyEvent(live, settled[4]!)
+    live = applyEvent(live, settled[5]!)
+    live = applyEvent(live, settled[6]!)
+    live = applyEvent(live, settled[7]!)
 
-    expect(replayEvents(events)).toEqual(immutable)
+    expect(replayEvents(settled)).toEqual(live)
+    expect(live.blocks).toEqual([
+      { kind: 'user', text: 'hello' },
+      { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: 'thinking', streaming: false },
+      { kind: 'tool', callId: 'call-1', name: 'bash', args: '{"command":"true"}', status: 'ok', output: 'done' },
+    ])
   })
 
   it('renders compact as a visible non-editable activity until the command settles', () => {
@@ -139,8 +155,8 @@ describe('applyEvent', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
     state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] }, 2))
-    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hel' } }, 3))
-    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'lo' } }, 4))
+    state = applyStreamChunk(state, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hel' } })
+    state = applyStreamChunk(state, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'lo' } })
     expect(state.status).toBe('running')
     expect(state.blocks).toEqual([
       { kind: 'user', text: 'hi' },
@@ -155,8 +171,8 @@ describe('applyEvent', () => {
 
   it('settles the streaming block on assistant/message', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } }, 1))
-    state = applyEvent(state, ev('assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'final' }] } }, 2))
+    state = applyStreamChunk(state, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } })
+    state = applyEvent(state, ev('assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'final' }] }, stream: [] }, 2))
     expect(state.blocks).toEqual([
       { kind: 'assistant', turn: 1, step: 1, text: 'final', reasoning: '', streaming: false },
     ])
@@ -164,7 +180,7 @@ describe('applyEvent', () => {
 
   it('settles an unterminated stream on turn/end', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } }, 1))
+    state = applyStreamChunk(state, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } })
     state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 2))
     const block = state.blocks[0]
     expect(block?.kind === 'assistant' && block.streaming).toBe(false)
@@ -173,11 +189,12 @@ describe('applyEvent', () => {
 
   it('marks a cancelled turn\'s delivered prefix instead of adding a bare notice', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } }, 1))
+    state = applyStreamChunk(state, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } })
     state = applyEvent(state, ev('assistant/message', {
       turn: 1,
       step: 1,
       message: { content: [{ type: 'text', text: 'partial' }] },
+      stream: [],
       interrupted: true,
     }, 2))
     state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
@@ -197,24 +214,25 @@ describe('applyEvent', () => {
   })
 
   it('settles max-token truncation without leaving an unexecuted tool preview', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'I will update it.' },
-      }, 2),
-      ev('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'write', argumentsDelta: '{"path":"large.ts","content":"partial' },
-      }, 3),
       ev('assistant/message', {
         turn: 1,
         step: 1,
         message: { content: [{ type: 'text', text: 'I will update it.' }] },
+        stream: [],
       }, 4),
       ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 5),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'I will update it.' } })
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1,
+      chunk: { type: 'tool-call-delta', index: 1, id: ToolCallId('call-1'), name: 'write', argumentsDelta: '{"path":"large.ts","content":"partial' },
+    })
+    live = applyEvent(live, settled[1]!)
+    live = applyEvent(live, settled[2]!)
 
     expect(live.status).toBe('idle')
     expect(live.blocks).toEqual([
@@ -225,28 +243,33 @@ describe('applyEvent', () => {
         text: 'Output token limit reached. A partial tool call was not executed because its arguments may be incomplete. Send “continue” to resume.',
       },
     ])
-    expect(replayEvents(events)).toEqual(live)
+    // The transient tool delta is visible only to the live fold; a pure
+    // durable replay emits the generic notice. Replay still matches the
+    // durable-only fold of the same log.
+    expect(replayEvents(settled)).toEqual(settled.reduce((state, event) => applyEvent(state, event), initialTranscript()))
   })
 
   it('does not keep an empty assistant block after a tool-only max-token truncation', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
-      }, 2),
-      ev('assistant/message', { turn: 1, step: 1, message: { content: [] } }, 3),
+      ev('assistant/message', { turn: 1, step: 1, message: { content: [] }, stream: [] }, 3),
       ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 4),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1,
+      chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"command":"partial' },
+    })
+    live = applyEvent(live, settled[1]!)
+    live = applyEvent(live, settled[2]!)
 
     expect(live.blocks).toEqual([{
       kind: 'notice',
       level: 'warning',
       text: 'Output token limit reached. A partial tool call was not executed because its arguments may be incomplete. Send “continue” to resume.',
     }])
-    expect(replayEvents(events)).toEqual(live)
+    expect(replayEvents(settled)).toEqual(settled.reduce((state, event) => applyEvent(state, event), initialTranscript()))
   })
 
   it.each([
@@ -265,19 +288,20 @@ describe('applyEvent', () => {
       },
     },
   ])('removes an unexecuted tool preview when a turn is $label', ({ reason, notice }) => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
-      }, 2),
       ev('turn/end', { turn: 1, reason }, 3),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1,
+      chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"command":"partial' },
+    })
+    live = applyEvent(live, settled[1]!)
 
     expect(live.blocks).toEqual([notice])
-    expect(replayEvents(events)).toEqual(live)
+    expect(replayEvents(settled)).toEqual(settled.reduce((state, event) => applyEvent(state, event), initialTranscript()))
   })
 
   it('settles a dispatched tool even when a later block makes it non-trailing', () => {
@@ -288,6 +312,7 @@ describe('applyEvent', () => {
         turn: 1,
         step: 2,
         message: { content: [{ type: 'text', text: 'The driver stopped.' }] },
+        stream: [],
       }, 3),
       ev('turn/end', {
         turn: 1,
@@ -327,27 +352,28 @@ describe('applyEvent', () => {
   })
 
   it('drops an undurable tool preview even when a malformed log says the turn completed', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"command":"partial' },
-      }, 2),
       ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1,
+      chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"command":"partial' },
+    })
+    live = applyEvent(live, settled[1]!)
 
     expect(live.blocks).toEqual([])
-    expect(replayEvents(events)).toEqual(live)
+    expect(replayEvents(settled)).toEqual(live)
   })
 
   it('hides failed retry partials and keeps one terminal error after retries are exhausted', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
-    state = applyEvent(state, ev('assistant/chunk', {
+    state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial-1' },
-    }, 2))
+    })
     state = applyEvent(state, ev('llm/retry', {
       retryId: 'retry-1',
       turn: 1,
@@ -366,9 +392,9 @@ describe('applyEvent', () => {
     state = applyEvent(state, ev('llm/retry-started', {
       retryId: 'retry-1', turn: 1, step: 1, retry: 1,
     }, 4))
-    state = applyEvent(state, ev('assistant/chunk', {
+    state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial-2' },
-    }, 5))
+    })
     state = applyEvent(state, ev('llm/retry', {
       retryId: 'retry-1',
       turn: 1,
@@ -392,9 +418,9 @@ describe('applyEvent', () => {
 
   it('replaces a retried attempt with the recovered assistant message', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', {
+    state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'failed' },
-    }, 1))
+    })
     state = applyEvent(state, ev('llm/retry', {
       retryId: 'retry-1',
       turn: 1,
@@ -407,11 +433,11 @@ describe('applyEvent', () => {
       delayMs: 10,
       failure: { message: 'stream closed', code: 'TRANSPORT' },
     }, 2))
-    state = applyEvent(state, ev('assistant/chunk', {
+    state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'recovered' },
-    }, 3))
+    })
     state = applyEvent(state, ev('assistant/message', {
-      turn: 1, step: 1, message: { content: [{ type: 'text', text: 'recovered' }] },
+      turn: 1, step: 1, message: { content: [{ type: 'text', text: 'recovered' }] }, stream: [],
     }, 4))
     state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
     expect(state.blocks).toEqual([
@@ -420,14 +446,8 @@ describe('applyEvent', () => {
   })
 
   it('drops a trailing partial tool from a failed retry attempt', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'calling' },
-      }, 2),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd"' },
-      }, 3),
       ev('llm/retry', {
         retryId: 'retry-1',
         turn: 1,
@@ -445,29 +465,31 @@ describe('applyEvent', () => {
         reason: { kind: 'error', error: { message: 'still closed', code: 'TRANSPORT' } },
       }, 5),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'calling' } })
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 1, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd"' },
+    })
+    live = applyEvent(live, settled[1]!)
+    live = applyEvent(live, settled[2]!)
     expect(live.blocks).toEqual([
       { kind: 'notice', level: 'error', text: 'error: TRANSPORT: still closed' },
     ])
-    expect(replayEvents(events)).toEqual(live)
-    const recovered = replayEvents([
-      ...events.slice(0, 4),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd":"true"}' },
-      }, 6),
-      ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"cmd":"true"}' }, 7),
-    ])
+    expect(replayEvents(settled)).toEqual(live)
+    let recovered = replayEvents([settled[0]!, settled[1]!])
+    recovered = applyStreamChunk(recovered, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 1, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd":"true"}' },
+    })
+    recovered = applyEvent(recovered, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"cmd":"true"}' }, 7))
     const tool = recovered.blocks.find(block => block.kind === 'tool')
     expect(tool).toMatchObject({ callId: 'call-1', status: 'running', name: 'bash' })
     expect(recovered.blocks.some(block => block.kind === 'tool' && block.partial === true)).toBe(false)
   })
 
   it('drops a retried attempt that starts with a tool-call-delta and then fails', () => {
-    const events = [
+    const settled = [
       ev('turn/start', { turn: 1 }, 1),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd"' },
-      }, 2),
       ev('llm/retry', {
         retryId: 'retry-1',
         turn: 1,
@@ -480,26 +502,32 @@ describe('applyEvent', () => {
         delayMs: 10,
         failure: { message: 'stream closed', code: 'TRANSPORT' },
       }, 3),
-      ev('assistant/chunk', {
-        turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd"' },
-      }, 4),
       ev('turn/end', {
         turn: 1,
         reason: { kind: 'error', error: { message: 'still closed', code: 'TRANSPORT' } },
       }, 5),
     ]
-    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    let live = initialTranscript()
+    live = applyEvent(live, settled[0]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd"' },
+    })
+    live = applyEvent(live, settled[1]!)
+    live = applyStreamChunk(live, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd"' },
+    })
+    live = applyEvent(live, settled[2]!)
     expect(live.blocks).toEqual([
       { kind: 'notice', level: 'error', text: 'error: TRANSPORT: still closed' },
     ])
-    expect(replayEvents(events)).toEqual(live)
+    expect(replayEvents(settled)).toEqual(live)
   })
 
   it('drops the retry notice when a recovered assistant/message arrives without a chunk', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', {
+    state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'failed' },
-    }, 1))
+    })
     state = applyEvent(state, ev('llm/retry', {
       retryId: 'retry-1',
       turn: 1,
@@ -516,7 +544,7 @@ describe('applyEvent', () => {
       { kind: 'notice', level: 'info', text: 'retrying EMPTY_RESPONSE (1/5)' },
     ])
     state = applyEvent(state, ev('assistant/message', {
-      turn: 1, step: 1, message: { content: [{ type: 'text', text: 'recovered' }] },
+      turn: 1, step: 1, message: { content: [{ type: 'text', text: 'recovered' }] }, stream: [],
     }, 3))
     expect(state.blocks).toEqual([
       { kind: 'assistant', turn: 1, step: 1, text: 'recovered', reasoning: '', streaming: false },
@@ -525,9 +553,9 @@ describe('applyEvent', () => {
 
   it('drops the retry notice when a recovered tool-call-delta arrives', () => {
     let state = initialTranscript()
-    state = applyEvent(state, ev('assistant/chunk', {
-      turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd"' },
-    }, 1))
+    state = applyStreamChunk(state, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd"' },
+    })
     state = applyEvent(state, ev('llm/retry', {
       retryId: 'retry-1',
       turn: 1,
@@ -543,9 +571,9 @@ describe('applyEvent', () => {
     expect(state.blocks).toEqual([
       { kind: 'notice', level: 'info', text: 'retrying TRANSPORT (1/5)' },
     ])
-    state = applyEvent(state, ev('assistant/chunk', {
-      turn: 1, step: 1, chunk: { type: 'tool-call-delta', id: 'call-1', name: 'bash', argumentsDelta: '{"cmd":"true"}' },
-    }, 3))
+    state = applyStreamChunk(state, {
+      turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd":"true"}' },
+    })
     expect(state.blocks).toEqual([
       {
         kind: 'tool',
@@ -1275,9 +1303,9 @@ describe('renderView', () => {
   })
 
   it('pins running tools but lets an append-only assistant stream scroll naturally', () => {
-    const assistant = applyEvent(
+    const assistant = applyStreamChunk(
       initialTranscript(),
-      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } }, 1),
+      { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' } },
     )
     expect(view(assistant).livePinned).toBe(false)
 

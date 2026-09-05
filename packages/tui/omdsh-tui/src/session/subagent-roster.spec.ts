@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
+  applySubagentDelta,
   applySubagentEvent,
   descendantDepth,
   isSteerableSubagent,
@@ -85,13 +86,9 @@ describe('applySubagentEvent', () => {
     expect(state.activity).toEqual([{ text: 'read src/auth.ts', status: 'ok' }])
   })
 
-  it('does not churn on repeated thinking chunks', () => {
-    const first = applySubagentEvent(view({ phase: 'running' }), ev('assistant/chunk', {
-      chunk: { type: 'text-delta', text: 'a' },
-    }))
-    const second = applySubagentEvent(first, ev('assistant/chunk', {
-      chunk: { type: 'text-delta', text: 'b' },
-    }))
+  it('does not churn on repeated thinking deltas', () => {
+    const first = applySubagentDelta(view({ phase: 'running' }), { type: 'text-delta', index: 0, text: 'a' })
+    const second = applySubagentDelta(first, { type: 'text-delta', index: 0, text: 'b' })
     expect(second).toBe(first)
   })
 })
@@ -202,5 +199,23 @@ describe('SubagentRoster', () => {
     expect(roster.hasRunning()).toBe(false)
     roster.remember({ id: 'child-2', depth: 1, mode: 'one-shot', phase: 'running' })
     expect(roster.setAgentStatus('child-2', 'gone', true)?.phase).toBe('error')
+  })
+
+  it('folds live stream chunks only into remembered roster rows', () => {
+    const roster = new SubagentRoster()
+    roster.reset('root')
+    roster.remember({ id: 'child-1', depth: 1 })
+    const updated = roster.applyDelta('child-1', {
+      type: 'tool-call-delta',
+      index: 0,
+      id: 'c1',
+      name: 'bash',
+      argumentsDelta: '{}',
+    })
+    expect(updated).toMatchObject({
+      phase: 'running',
+      activity: [{ text: 'bash', status: 'running' }],
+    })
+    expect(roster.applyDelta('missing', { type: 'text-delta', index: 0, text: 'x' })).toBeUndefined()
   })
 })

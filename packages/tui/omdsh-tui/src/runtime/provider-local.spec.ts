@@ -167,10 +167,11 @@ describe('LocalTui (tty)', () => {
     const restored = Array.from({ length: 30 }, (_, index) => `restored-${index}`).join('\n')
     tui.replaceSession([
       ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'resumed prompt' }] }, 1),
-      ev('assistant/chunk', {
+      ev('assistant/message', {
         turn: 1,
         step: 1,
-        chunk: { type: 'text-delta', text: restored },
+        message: { content: [{ type: 'text', text: restored }] },
+        stream: [],
       }, 2),
     ])
 
@@ -764,11 +765,11 @@ describe('LocalTui (tty)', () => {
       tui.setStatus('running')
       const initialWrites = term.writes
 
-      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } }, 1))
+      tui.streamDelta({ turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } })
       tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 1 } })
-      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } }, 2))
+      tui.streamDelta({ turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } })
       tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 2 } })
-      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'c' } }, 3))
+      tui.streamDelta({ turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'c' } })
       tui.setSession({ id: 'streaming', recent: [], stats: { ...stats, outputTokens: 3 } })
       expect(term.writes).toBe(initialWrites)
 
@@ -776,7 +777,7 @@ describe('LocalTui (tty)', () => {
       expect(term.writes).toBe(initialWrites + 1)
       expect(term.captured).toContain('abc')
 
-      tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'd' } }, 4))
+      tui.streamDelta({ turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'd' } })
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
       expect(term.writes).toBe(initialWrites + 2)
       expect(term.captured).toContain('abcd')
@@ -800,11 +801,11 @@ describe('LocalTui (tty)', () => {
       expandTools: false,
     })
     tui.setStatus('running')
-    tui.event(ev('assistant/chunk', {
+    tui.streamDelta({
       turn: 1,
       step: 1,
       chunk: { type: 'text-delta', index: 0, text: 'direct chunk' },
-    }, 1))
+    })
     const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
     expect(screen).toContain('direct chunk')
     expect(screen).toContain('⟳ Deep Driving')
@@ -1383,6 +1384,7 @@ describe('LocalTui (tty)', () => {
       turn: 1,
       step: 1,
       message: { content: [{ type: 'text', text: 'hello from the model' }] },
+      stream: [],
     }, 1))
     press(term, '/copy text\r')
     await new Promise((resolve) => { setTimeout(resolve, 0) })
@@ -1402,6 +1404,7 @@ describe('LocalTui (tty)', () => {
       turn: 1,
       step: 1,
       message: { content: [{ type: 'text', text: 'hello from the model' }] },
+      stream: [],
     }, 1))
     press(term, '/copy\r')
     expect(term.captured).toContain('hello from the model')
@@ -2061,10 +2064,15 @@ describe('LocalTui (plain)', () => {
     term.output.isTTY = false
     const tui = new LocalTui(term, 'm', false)
     tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'q' }] }, 1))
-    tui.event(ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } }, 2))
+    tui.streamDelta({ turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'partial' } })
     expect(term.captured).toContain('q')
     expect(term.captured).not.toContain('partial')
-    tui.event(ev('assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'final' }] } }, 3))
+    tui.event(ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'final' }] },
+      stream: [],
+    }, 3))
     expect(term.captured).toContain('final')
     tui.dispose()
   })

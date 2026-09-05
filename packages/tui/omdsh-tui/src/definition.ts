@@ -11,6 +11,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { StreamDelta } from './views/event-views.ts'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 
@@ -210,6 +211,8 @@ export interface TuiAgentBehaviorSettingsBinding {
 export interface TuiService {
   /** Render one session-log event (streamed as recorded). */
   event(event: SessionEvent, presentation?: TuiToolPresentation): void
+  /** Fold one live `agent/assistant-stream` chunk into the transcript. */
+  streamDelta(delta: StreamDelta): void
   /** Update the status line liveness. */
   setStatus(status: TuiStatus): void
   /** Update the model and effective reasoning effort shown in the composer. */

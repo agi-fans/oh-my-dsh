@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the tracked DeepSeek Harness cohort to `0.1.3-alpha.1` (unpublished upstream, tracked on the `alpha` branch until npm release). Live assistant streaming no longer publishes `assistant/chunk` session events: the TUI now subscribes to the agent-scoped `agent/assistant-stream` frames for incremental presentation, and durable settlements arrive as `assistant/message` (now embedding the exact timed stream) or the new `assistant/attempt`. `/trajectory` and session stats derive first-token times from the embedded stream.
+- Session persistence moved to the handle-based seam: recent-session and subagent transcript reads use `open(id, 'read')` through the new `readColdSessionLog` helper. Existing sessions are migrated read-through to the session-format v2 log (`session.v2.jsonl`, predecessor files retained unchanged). Command submission attachments now declare `type` (`image`), and file/content blocks render as `[file name · N bytes]`.
+
 ## [0.14.0] - 2026-09-04
 
 ### Changed

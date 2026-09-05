@@ -16,7 +16,7 @@ vi.mock('@deepseek-ai/dsh-subagent/internal', () => ({
 import {
   conversationTurns,
   createSubmissionMessage,
-  encodeComposerImages,
+  encodeCommandAttachments,
   modelStatus,
   recentSessionContent,
   restoreSubmissionMessage,
@@ -188,7 +188,7 @@ describe('conversationTurns', () => {
       { type: 'session/start', data: {} },
       { type: 'turn/start', data: { turn: 1 } },
       { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'First question' }] } },
-      { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [] } } },
+      { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [] }, stream: [] } },
       { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
       { type: 'turn/start', data: { turn: 2 } },
       { type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'Injected context' }] } },
@@ -218,8 +218,13 @@ describe('sessionStats', () => {
   it('folds boundaries and disjoint token usage', () => {
     const events = [
       { type: 'step/start', time: 10, data: { turn: 1, step: 1 } },
-      { type: 'assistant/chunk', time: 12, data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'hi' } } },
-      { type: 'assistant/message', time: 20, data: { turn: 1, step: 1, usage: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 3 } } },
+      { type: 'assistant/message', time: 20, data: {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'text', text: 'hi' }] },
+        stream: [{ type: 'text-chunks', time0: 12, index: 0, dt: [], texts: ['hi'] }],
+        usage: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 3 },
+      } },
       { type: 'step/end', time: 25, data: { turn: 1, step: 1 } },
       { type: 'turn/end', time: 30, data: { turn: 1 } },
     ] as unknown as SessionEvent[]
@@ -286,14 +291,14 @@ describe('sessionStats', () => {
 })
 
 describe('shouldRefreshSessionInfoAfter', () => {
-  it('leaves streaming deltas to projection notifications and refreshes settled events', () => {
+  it('skips attempt settlements without usage and refreshes other settled events', () => {
     expect(shouldRefreshSessionInfoAfter({
-      type: 'assistant/chunk',
-      data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' } },
+      type: 'assistant/attempt',
+      data: { turn: 1, step: 1, stream: [] },
     } as SessionEvent)).toBe(false)
     expect(shouldRefreshSessionInfoAfter({
       type: 'assistant/message',
-      data: { turn: 1, step: 1, message: { content: [] } },
+      data: { turn: 1, step: 1, message: { content: [] }, stream: [] },
     } as SessionEvent)).toBe(true)
     expect(shouldRefreshSessionInfoAfter({
       type: 'turn/end',
@@ -370,11 +375,11 @@ describe('capability catalogs', () => {
   })
 })
 
-describe('encodeComposerImages', () => {
-  it('encodes composer drafts as canonical base64 attachments', () => {
+describe('encodeCommandAttachments', () => {
+  it('encodes composer drafts as canonical typed command attachments', () => {
     const data = new Uint8Array([1, 2, 3, 4])
-    expect(encodeComposerImages([{ data, mediaType: 'image/png', name: 'shot.png' }])).toEqual([
-      { data: Buffer.from(data).toString('base64'), mediaType: 'image/png', name: 'shot.png' },
+    expect(encodeCommandAttachments([{ data, mediaType: 'image/png', name: 'shot.png' }])).toEqual([
+      { type: 'image', data: Buffer.from(data).toString('base64'), mediaType: 'image/png', name: 'shot.png' },
     ])
   })
 })

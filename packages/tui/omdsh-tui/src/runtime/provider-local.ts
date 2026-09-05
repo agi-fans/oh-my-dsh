@@ -101,12 +101,14 @@ import {
 } from '../views/agent-hub.ts'
 import {
   applyEvent,
+  applyStreamChunk,
   blockLines,
   initialTranscript,
   replayEvents,
   renderView,
   TRANSCRIPT_FAST_SCROLL,
   type Block,
+  type StreamDelta,
   type TranscriptState,
 } from '../views/event-views.ts'
 import {
@@ -442,18 +444,32 @@ export class LocalTui implements TuiService {
       ...(event.type === 'turn/end' ? { reason: event.data.reason.kind } : {}),
     }))
     if (this.#trajectory !== null) this.#trajectory = appendTrajectoryEvent(this.#trajectory, event)
-    const smoothStream = this.#syncStreamingReveal(event)
+    this.#syncStreamingReveal(undefined)
+    this.#syncTick()
+    if (this.#tty) {
+      this.#render()
+    } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
+      this.#printPlain()
+    }
+  }
+
+  /**
+   * Fold one live `agent/assistant-stream` chunk into the transcript and
+   * schedule the streaming reveal. Durable settlement follows on the session
+   * log as `assistant/message` or `assistant/attempt`.
+   */
+  streamDelta(delta: StreamDelta): void {
+    this.#state = applyStreamChunk(this.#state, delta)
+    const smoothStream = this.#syncStreamingReveal(delta)
     this.#syncTick()
     if (this.#tty) {
       if (smoothStream) {
         // The 30 fps reveal clock owns presentation for textual deltas.
-      } else if (event.type === 'assistant/chunk' && this.#streamRenderMs > 0) {
+      } else if (this.#streamRenderMs > 0) {
         this.#scheduleStreamRender()
       } else {
         this.#render()
       }
-    } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
-      this.#printPlain()
     }
   }
 
@@ -936,9 +952,9 @@ export class LocalTui implements TuiService {
     }
   }
 
-  #syncStreamingReveal(event: SessionEvent): boolean {
-    const textualDelta = event.type === 'assistant/chunk'
-      && (event.data.chunk.type === 'text-delta' || event.data.chunk.type === 'reasoning-delta')
+  #syncStreamingReveal(delta: StreamDelta | undefined): boolean {
+    const textualDelta = delta !== undefined
+      && (delta.chunk.type === 'text-delta' || delta.chunk.type === 'reasoning-delta')
     const key = streamingAssistantKey(this.#state)
     if (!textualDelta || this.#motion === 'off' || key === undefined) {
       this.#stopRevealTick()

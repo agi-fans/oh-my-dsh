@@ -19,12 +19,14 @@ import {
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-presets'
 import {
   createUserMessage,
+  expandAssistantStream,
+  type AssistantStreamRecord,
   type LlmResolvedModelInfo,
   type StreamChunk,
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
-import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
+import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/types'
@@ -34,6 +36,7 @@ import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -42,6 +45,7 @@ import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
+import type { StreamDelta } from '../views/event-views.ts'
 import type {
   TuiCommand,
   TuiInspectedSubagent,
@@ -103,6 +107,19 @@ function isVisibleModelDelta(chunk: StreamChunk): boolean {
       return chunk.argumentsDelta !== '' || chunk.name !== undefined
     default:
       return false
+  }
+}
+
+/**
+ * First visible token time of an embedded format-v2 stream, or undefined
+ * when the record is absent or malformed (a damaged log must degrade the
+ * footer fold, not fail it).
+ */
+function firstVisibleStreamTime(stream: readonly AssistantStreamRecord[]): number | undefined {
+  try {
+    return expandAssistantStream(stream).find(entry => isVisibleModelDelta(entry.chunk))?.time
+  } catch {
+    return undefined
   }
 }
 
@@ -199,15 +216,6 @@ export function sessionStats(
       case 'step/start':
         openStep = { turn: event.data.turn, step: event.data.step, startTime: event.time }
         break
-      case 'assistant/chunk':
-        if (openStep !== undefined
-          && openStep.turn === event.data.turn
-          && openStep.step === event.data.step
-          && openStep.firstTokenTime === undefined
-          && isVisibleModelDelta(event.data.chunk)) {
-          openStep.firstTokenTime = event.time
-        }
-        break
       case 'assistant/message': {
         const usage = event.data.usage
         if (usage !== undefined) {
@@ -222,6 +230,12 @@ export function sessionStats(
         }
         if (openStep === undefined || openStep.turn !== event.data.turn || openStep.step !== event.data.step) break
         llmMs += Math.max(0, event.time - openStep.startTime)
+        // Format-v2 messages embed the exact timed stream; derive the first
+        // visible token time from it when live chunk edges were not observed.
+        if (openStep.firstTokenTime === undefined) {
+          const firstTime = firstVisibleStreamTime(event.data.stream)
+          if (firstTime !== undefined) openStep.firstTokenTime = firstTime
+        }
         if (openStep.firstTokenTime !== undefined) {
           ttftMs += Math.max(0, openStep.firstTokenTime - openStep.startTime)
           ttftSteps += 1
@@ -285,7 +299,9 @@ export function sessionStats(
  * fallback fold when projections are absent.
  */
 export function shouldRefreshSessionInfoAfter(event: SessionEvent): boolean {
-  return event.type !== 'assistant/chunk'
+  // Live streaming no longer publishes session events; only durable
+  // settlements reach this fold, and `assistant/attempt` carries no usage.
+  return event.type !== 'assistant/attempt'
 }
 
 function explicitSessionTitle(events: readonly SessionEvent[]): string | undefined {
@@ -429,8 +445,9 @@ export async function createSubmissionMessage(
 }
 
 /** Encode composer drafts for `ctx.commands.execute`. */
-export function encodeComposerImages(images: readonly TuiInputImage[]): EncodedImageAttachment[] {
+export function encodeCommandAttachments(images: readonly TuiInputImage[]): CommandSubmitAttachment[] {
   return images.map(image => ({
+    type: 'image',
     mediaType: image.mediaType,
     data: Buffer.from(image.data).toString('base64'),
     ...(image.name === undefined ? {} : { name: image.name }),
@@ -466,6 +483,14 @@ export async function restoreSubmissionMessage(
   return { text, images }
 }
 
+/** One live assistant stream attempt, keyed by `agentSessionId:attemptId`. */
+interface LiveStreamAttempt {
+  readonly turn: number
+  readonly step: number
+  readonly revision: number
+  nextIndex: number
+}
+
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
   readonly #ctx: Context
@@ -478,6 +503,7 @@ export class SessionRuntime {
   #disposed = false
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
+  readonly #streamAttempts = new Map<string, LiveStreamAttempt>()
   #subagentEpoch = 0
   #inspectEpoch = 0
   #inspectedId: string | undefined
@@ -545,6 +571,35 @@ export class SessionRuntime {
       }
       this.#noteSubagentEvent(session, event)
     }))
+    // Format v2 moved live assistant increments off the session log. The
+    // durable `session/event` firehose now carries only settlements; chunk
+    // frames arrive on this agent-scoped stream and are folded into the
+    // transcript (or the subagent roster) as transient deltas.
+    this.#off.push(ctx.on('agent/assistant-stream', (payload) => {
+      const frame = payload.frame
+      const key = `${payload.agent.session.id}:${frame.attemptId}`
+      if (frame.type === 'start') {
+        this.#streamAttempts.set(key, {
+          turn: frame.turn,
+          step: frame.step,
+          revision: frame.revision,
+          nextIndex: 0,
+        })
+        return
+      }
+      if (frame.type === 'end') {
+        this.#streamAttempts.delete(key)
+        return
+      }
+      const attempt = this.#streamAttempts.get(key)
+      if (attempt === undefined || frame.revision !== attempt.revision || frame.index !== attempt.nextIndex) {
+        // Revision jump or a gap: drop the stream until the next start frame.
+        this.#streamAttempts.delete(key)
+        return
+      }
+      attempt.nextIndex += 1
+      this.#forwardLiveDelta(payload.agent, attempt, frame.chunk)
+    }, { global: true }))
     if (ctx.get('commands') !== undefined) {
       this.#off.push(ctx.on('commands/change', () => { this.#pushCommands() }))
     }
@@ -633,7 +688,7 @@ export class SessionRuntime {
         return await commands?.execute(
           this.#requiredAgent(),
           commandLine,
-          encodeComposerImages(images),
+          encodeCommandAttachments(images),
           signal,
         )
       } finally {
@@ -937,21 +992,22 @@ export class SessionRuntime {
       this.#pushSessionInfo()
       return
     }
-    const headers = (await persistence.list()).filter(header => header.origin !== 'subagent')
-      .sort((left, right) => right.createdAt - left.createdAt)
+    const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
+      .sort((left, right) => right.header.createdAt - left.header.createdAt)
     const rows: TuiRecentSession[] = []
-    for (const header of headers) {
+    for (const snapshot of snapshots) {
+      const header = snapshot.header
       try {
-        const inspected = await persistence.inspect(header.id)
-        const status = recentSessionStatus(inspected.events)
-        const content = recentSessionContent(inspected.events)
+        const log = await readColdSessionLog(persistence, header.id)
+        const status = recentSessionStatus(log.events)
+        const content = recentSessionContent(log.events)
         if (content === undefined) continue
         rows.push({
           id: header.id,
           ...content,
           createdAt: header.createdAt,
-          updatedAt: inspected.events.at(-1)?.time ?? header.createdAt,
-          eventCount: inspected.events.length,
+          updatedAt: log.events.at(-1)?.time ?? header.createdAt,
+          eventCount: log.events.length,
           ...(status === undefined ? {} : { status }),
         })
       } catch {
@@ -1112,6 +1168,21 @@ export class SessionRuntime {
     this.#pushSubagents()
   }
 
+  /** Route one live assistant stream chunk to the visible transcript or the subagent roster. */
+  #forwardLiveDelta(agent: Agent, attempt: LiveStreamAttempt, chunk: StreamChunk): void {
+    const delta: StreamDelta = { turn: attempt.turn, step: attempt.step, chunk }
+    const active = this.#active
+    if (active !== undefined && agent.session.id === active.handle.agent.session.id) {
+      if (this.#inspectedId === undefined) this.#tui.streamDelta(delta)
+      return
+    }
+    if (agent.session.id === this.#inspectedId) {
+      this.#tui.streamDelta(delta)
+      return
+    }
+    if (this.#subagents.applyDelta(agent.session.id, chunk) !== undefined) this.#pushSubagents()
+  }
+
   #noteSubagentStatus(session: Session, status: 'idle' | 'running'): void {
     if (this.#subagents.owns(session.id)) {
       this.#subagents.setAgentStatus(session.id, status)
@@ -1242,9 +1313,10 @@ export class SessionRuntime {
       events = live.ownEvents()
     } else {
       try {
-        const inspected = await this.#ctx.get('sessionPersistence')?.inspect(SessionId(id))
-        if (inspected === undefined) throw new Error('subagent transcript is unavailable')
-        events = inspected.events.slice(inspected.inheritedEventCount)
+        const persistence = this.#ctx.get('sessionPersistence')
+        const log = persistence === undefined ? undefined : await readColdSessionLog(persistence, SessionId(id))
+        if (log === undefined) throw new Error('subagent transcript is unavailable')
+        events = log.events.slice(log.inheritedEventCount)
       } catch {
         if (request === this.#inspectEpoch) {
           this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })

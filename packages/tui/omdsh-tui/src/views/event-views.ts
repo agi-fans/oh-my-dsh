@@ -11,7 +11,7 @@
 
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { ContentBlock, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, StreamChunk, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
@@ -122,6 +122,10 @@ function contentToText(content: readonly ContentBlock[]): string {
       if (block.type === 'image') {
         const ref = block.attachment
         return [`[image ${ref.width}×${ref.height} · ${ref.mediaType}]`]
+      }
+      if (block.type === 'file') {
+        const ref = block.attachment
+        return [`[file ${ref.name} · ${ref.bytes} bytes]`]
       }
       return []
     })
@@ -269,6 +273,77 @@ function settleAssistant(
 }
 
 /**
+ * One live assistant stream delta: a chunk folded with the owning attempt's
+ * turn/step (live frames carry neither durable seq nor turn/step; the bridge
+ * records them from the attempt's start frame).
+ */
+export interface StreamDelta {
+  readonly turn: number
+  readonly step: number
+  readonly chunk: StreamChunk
+}
+
+/**
+ * Fold one live assistant stream chunk into the transcript state. Durable
+ * settlement still arrives as `assistant/message` (or `assistant/attempt`
+ * for a committed attempt with no surface message) on the session log.
+ */
+export function applyStreamChunk(
+  state: TranscriptState,
+  delta: StreamDelta,
+  mutable = false,
+  indexes?: ReplayIndexes,
+): TranscriptState {
+  const { turn, step, chunk } = delta
+  if (chunk.type === 'text-delta') {
+    const blocks = editableBlocks(state, mutable)
+    dropRetryNotice(blocks)
+    const last = blocks[blocks.length - 1]
+    if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
+      blocks[blocks.length - 1] = { ...last, text: last.text + chunk.text }
+    } else {
+      blocks.push({ kind: 'assistant', turn, step, text: chunk.text, reasoning: '', streaming: true })
+    }
+    return { ...state, blocks }
+  }
+  if (chunk.type === 'reasoning-delta') {
+    const blocks = editableBlocks(state, mutable)
+    dropRetryNotice(blocks)
+    const last = blocks[blocks.length - 1]
+    if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
+      blocks[blocks.length - 1] = { ...last, reasoning: last.reasoning + chunk.text }
+    } else {
+      blocks.push({ kind: 'assistant', turn, step, text: '', reasoning: chunk.text, streaming: true })
+    }
+    return { ...state, blocks }
+  }
+  if (chunk.type === 'tool-call-delta') {
+    const blocks = editableBlocks(state, mutable)
+    dropRetryNotice(blocks)
+    const index = indexes === undefined
+      ? blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
+      : indexes.toolByCallId.get(chunk.id) ?? -1
+    const existing = blocks[index]
+    if (existing?.kind === 'tool') {
+      blocks[index] = {
+        ...existing,
+        name: chunk.name ?? existing.name,
+        args: existing.args + chunk.argumentsDelta,
+        partial: true,
+      }
+    } else {
+      blocks.push({
+        kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
+        args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
+      })
+      indexes?.toolByCallId.set(chunk.id, blocks.length - 1)
+    }
+    return { ...state, blocks }
+  }
+  return state
+}
+
+/**
  * Fold one session-log event into the transcript state.
  * @param state - prior state.
  * @param event - the appended session event.
@@ -364,53 +439,9 @@ function foldEvent(
       blocks.push({ kind: 'user', text })
       return { ...state, blocks }
     }
-    case 'assistant/chunk': {
-      const { turn, step, chunk } = event.data
-      if (chunk.type === 'text-delta') {
-        const blocks = editableBlocks(state, mutable)
-        dropRetryNotice(blocks)
-        const last = blocks[blocks.length - 1]
-        if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
-          blocks[blocks.length - 1] = { ...last, text: last.text + chunk.text }
-        } else {
-          blocks.push({ kind: 'assistant', turn, step, text: chunk.text, reasoning: '', streaming: true })
-        }
-        return { ...state, blocks }
-      }
-      if (chunk.type === 'reasoning-delta') {
-        const blocks = editableBlocks(state, mutable)
-        dropRetryNotice(blocks)
-        const last = blocks[blocks.length - 1]
-        if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
-          blocks[blocks.length - 1] = { ...last, reasoning: last.reasoning + chunk.text }
-        } else {
-          blocks.push({ kind: 'assistant', turn, step, text: '', reasoning: chunk.text, streaming: true })
-        }
-        return { ...state, blocks }
-      }
-      if (chunk.type === 'tool-call-delta') {
-        const blocks = editableBlocks(state, mutable)
-        dropRetryNotice(blocks)
-        const index = indexes === undefined
-          ? blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
-          : indexes.toolByCallId.get(chunk.id) ?? -1
-        const existing = blocks[index]
-        if (existing?.kind === 'tool') {
-          blocks[index] = {
-            ...existing,
-            name: chunk.name ?? existing.name,
-            args: existing.args + chunk.argumentsDelta,
-            partial: true,
-          }
-        } else {
-          blocks.push({
-            kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
-            args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
-          })
-          indexes?.toolByCallId.set(chunk.id, blocks.length - 1)
-        }
-        return { ...state, blocks }
-      }
+    case 'assistant/attempt': {
+      // A settled model attempt with no surface message (failed, retried,
+      // cancelled, or stream-error) leaves no visible transcript row.
       return state
     }
     case 'assistant/message': {

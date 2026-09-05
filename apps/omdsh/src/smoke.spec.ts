@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../../..', import.meta.url))
@@ -70,7 +71,7 @@ describe('omdsh smoke', () => {
       try {
         await reader.plugin(SessionStore)
         await reader.plugin(JsonlSessionPersistence, { root: join(omdshHome, 'sessions') })
-        stockEvents = (await reader.sessionPersistence.load(SessionId(sessionId))).events
+        stockEvents = (await readColdSessionLog(reader.sessionPersistence, SessionId(sessionId))).events
       } catch (error: unknown) {
         stockLoadError = error
       } finally {

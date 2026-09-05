@@ -25,7 +25,7 @@ export function isBlankSession(session: Session): boolean {
     || event.type === 'request/context'
     || event.type === 'turn/start'
     || event.type === 'step/start'
-    || event.type === 'assistant/chunk'
+    || event.type === 'assistant/attempt'
     || event.type === 'tool/call'
     || event.type === 'tool/result')
 }

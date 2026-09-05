@@ -8,6 +8,7 @@
  */
 
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentActivity, TuiSubagentPhase, TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
 
@@ -153,18 +154,6 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
     }
     case 'step/start':
       return view.phase === 'running' ? view : { ...view, phase: 'running' }
-    case 'assistant/chunk': {
-      const chunk = event.data.chunk
-      if (chunk.type === 'tool-call-delta') {
-        const name = chunk.name ?? 'tool'
-        const activity = pushActivity(view.activity, { text: name, status: 'running' })
-        if (activity === view.activity && view.phase === 'running') return view
-        return { ...view, phase: 'running', activity }
-      }
-      const activity = pushActivity(view.activity, { text: 'thinking', status: 'thinking' })
-      if (activity === view.activity && view.phase === 'running') return view
-      return { ...view, phase: 'running', activity }
-    }
     case 'tool/call': {
       const activity = pushActivity(view.activity, {
         text: summarizeToolCall(event.data.name, event.data.arguments),
@@ -200,6 +189,22 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
     default:
       return view
   }
+}
+
+/**
+ * Fold one live `agent/assistant-stream` chunk into a roster row. Live chunks
+ * are transient; the next event fold rehydrates from the durable log.
+ */
+export function applySubagentDelta(view: TuiSubagentView, chunk: StreamChunk): TuiSubagentView {
+  if (chunk.type === 'tool-call-delta') {
+    const name = chunk.name ?? 'tool'
+    const activity = pushActivity(view.activity, { text: name, status: 'running' })
+    if (activity === view.activity && view.phase === 'running') return view
+    return { ...view, phase: 'running', activity }
+  }
+  const activity = pushActivity(view.activity, { text: 'thinking', status: 'thinking' })
+  if (activity === view.activity && view.phase === 'running') return view
+  return { ...view, phase: 'running', activity }
 }
 
 function emptyView(input: {
@@ -327,6 +332,15 @@ export class SubagentRoster {
 
   apply(session: Session, depth: number, _event: SessionEvent, agentStatus?: 'idle' | 'running'): TuiSubagentView {
     return this.hydrate(session, depth, agentStatus)
+  }
+
+  /** Fold one live assistant stream chunk into an existing roster row. */
+  applyDelta(id: string, chunk: StreamChunk): TuiSubagentView | undefined {
+    const existing = this.#agents.get(id)
+    if (existing === undefined) return undefined
+    const next = applySubagentDelta(existing, chunk)
+    if (next !== existing) this.#agents.set(id, next)
+    return next
   }
 
   setAgentStatus(id: string, status: 'idle' | 'running' | 'gone', stopError = false): TuiSubagentView | undefined {

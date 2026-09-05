@@ -1,7 +1,9 @@
 /**
  * Cross-version persistence contract: sessions produced by the DSH
- * `0.1.2-alpha.3` runtime must load under the installed `0.1.2-rc.1`
- * cohort without migration. Provenance of the fixtures under
+ * `0.1.2-alpha.3` runtime must survive the `0.1.2-rc.1` → `0.1.3-alpha.1`
+ * cohort upgrade through the released v0→v2 migration chain. Reads publish a
+ * version-named successor (`session.v2.jsonl[.zstd]`); the checked-in v0
+ * fixtures stay byte-identical. Provenance of the fixtures under
  * `src/fixtures/dsh-alpha3-sessions/`:
  *
  * - `zstd/…/session-cfe4e182-…/session.jsonl.zstd` is the untouched zstd
@@ -25,8 +27,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { readColdSessionLog, type ColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import { describe, expect, it } from 'vitest'
 
 const appRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -39,19 +41,19 @@ function fixturePath(compression: 'zstd' | 'none', id: string): string {
   return join(fixtureRoot, compression, WS_DIR, id, `session.jsonl${compression === 'zstd' ? '.zstd' : ''}`)
 }
 
-/** Copy one fixture subtree into a throwaway root and load from the copy. */
+/** Copy one fixture subtree into a throwaway root and read the migrated log from the copy. */
 async function loadCopy(
   compression: 'zstd' | 'none',
   id: string,
-): Promise<{ inspected: SessionInspection, source: string }> {
+): Promise<{ log: ColdSessionLog, source: string }> {
   const root = mkdtempSync(join(tmpdir(), 'omdsh-cross-version-'))
   cpSync(join(fixtureRoot, compression), root, { recursive: true })
   const ctx = new Context()
   try {
     await ctx.plugin(SessionStore)
     await ctx.plugin(JsonlSessionPersistence, { root, compression })
-    const inspected = await ctx.sessionPersistence.load(SessionId(id))
-    return { inspected, source: readFileSync(fixturePath(compression, id), 'utf8') }
+    const log = await readColdSessionLog(ctx.sessionPersistence, SessionId(id))
+    return { log, source: readFileSync(fixturePath(compression, id), 'utf8') }
   } finally {
     await ctx.fiber.dispose()
     rmSync(root, { recursive: true, force: true })
@@ -59,32 +61,32 @@ async function loadCopy(
 }
 
 describe('alpha.3 persisted-session compatibility', () => {
-  it('loads the alpha.3 zstd root artifact with an unseeded header', async () => {
-    const { inspected, source } = await loadCopy('zstd', PARENT_ID)
-    expect(inspected.meta.isSeeded).toBe(false)
-    expect(inspected.inheritedEventCount).toBe(0)
-    expect(JSON.stringify(inspected.events)).toContain('Cross-version resume fixture prompt.')
+  it('migrates the alpha.3 zstd root artifact with an unseeded header', async () => {
+    const { log, source } = await loadCopy('zstd', PARENT_ID)
+    expect(log.header.isSeeded).toBe(false)
+    expect(log.inheritedEventCount).toBe(0)
+    expect(JSON.stringify(log.events)).toContain('Cross-version resume fixture prompt.')
     expect(source).toBe(readFileSync(fixturePath('zstd', PARENT_ID), 'utf8'))
   })
 
   it('derives the seeded lineage from the physical seedLength cut, keeps legacy relay frames, and repairs only the copy', async () => {
     const before = readFileSync(fixturePath('none', CHILD_ID), 'utf8')
-    const { inspected, source } = await loadCopy('none', CHILD_ID)
+    const { log, source } = await loadCopy('none', CHILD_ID)
     expect(source).toBe(before)
     expect(source.trimEnd().endsWith('turn/end')).toBe(false)
 
-    expect(inspected.meta.isSeeded).toBe(true)
-    expect(inspected.meta.parentSession).toBe(PARENT_ID)
-    expect(inspected.meta.origin).toBe('subagent')
-    expect(inspected.inheritedEventCount).toBe(5)
-    expect(inspected.events[5]?.type).toBe('session/end-seed')
-    const relay = inspected.events[8]
+    expect(log.header.isSeeded).toBe(true)
+    expect(log.header.parentSession).toBe(PARENT_ID)
+    expect(log.header.origin).toBe('subagent')
+    expect(log.inheritedEventCount).toBe(5)
+    expect(log.events[5]?.type).toBe('session/end-seed')
+    const relay = log.events[8]
     expect(relay?.type).toBe('user/message')
     expect((relay?.data as { source?: { kind?: string } }).source?.kind).toBe('coordinator')
     // The unterminated fixture turn gains exactly one synthetic interrupted closer.
-    expect(inspected.events).toHaveLength(10)
-    expect(inspected.events[9]?.type).toBe('turn/end')
-    expect((inspected.events[9]?.data as { reason?: { kind?: string } }).reason?.kind).toBe('interrupted')
+    expect(log.events).toHaveLength(10)
+    expect(log.events[9]?.type).toBe('turn/end')
+    expect((log.events[9]?.data as { reason?: { kind?: string } }).reason?.kind).toBe('interrupted')
   })
 
   it('resumes the alpha.3 root session through the installed CLI', () => {
