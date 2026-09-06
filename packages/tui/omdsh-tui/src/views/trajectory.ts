@@ -767,10 +767,11 @@ function fieldSnippet(
   highlightSpans: readonly SearchMatch[],
   width: number,
   theme: Theme,
+  focused?: SearchMatch,
 ): string {
   const text = record[field]
   if (text === '') return highlightSummary(record.summary, highlightSpans, theme)
-  const span = highlightSpans.find(match => match.field === field)
+  const span = focused ?? highlightSpans.find(match => match.field === field)
   if (span === undefined) return highlightSummary(record.summary, highlightSpans, theme)
   if (field === 'summary') return highlightSummary(text, highlightSpans, theme)
   const from = graphemeStart(text, Math.max(0, span.offset - 16))
@@ -846,7 +847,7 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
     const headSpans = recordMatches.filter(match => match.field === headField)
     const summary = headField === undefined || headField === 'summary'
       ? highlightSummary(record.summary, headSpans, theme)
-      : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24), theme)
+      : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24), theme, focusedForRecord)
     lines.push({
       id: record.id,
       text: recordLine(record, record.id === state.selectedId, theme, width,

@@ -260,6 +260,31 @@ describe('trajectory search navigation', () => {
     expect(state.following).toBe(true)
   })
 
+  it('the snippet follows the focused occurrence within one field', () => {
+    const spaced: SessionEvent[] = [
+      ...searchEvents,
+      event(5, 'tool/result', {
+        turn: 1, step: 2, callId: 'c1',
+        message: { content: [{ type: 'text', text: 'HIT first padding padding padding HIT second' }] },
+      }),
+    ]
+    let state = createTrajectory(spaced)
+    state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    for (const char of 'HIT') {
+      state = (applyTrajectoryEvent(state, { type: 'text', value: char }) as { state: typeof state }).state
+    }
+    // Focus the second HIT occurrence (tool result field) and render the row.
+    const matches = trajectorySearch(state).matches
+    const hits = matches.map((match, index) => ({ match, index })).filter(pair => pair.match.record.kind === 'tool' && pair.match.field === 'result')
+    expect(hits).toHaveLength(2)
+    for (let index = 0; index <= hits[1]!.index; index += 1) {
+      state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
+    }
+    const rendered = renderTrajectory(state, createTheme(false), 120, 14).lines.join('\n')
+    expect(rendered).toContain('HIT second')
+    expect(rendered).not.toContain('HIT first')
+  })
+
   it('the layout metrics clamp to the actual body capacity', () => {
     const state = createTrajectory(searchEvents)
     expect(trajectoryListMetrics(state, 24).pageSize).toBeGreaterThan(0)
