@@ -9,7 +9,6 @@ import {
   renderTrajectory,
   trajectoryVisibleRecords,
   captureSearchTarget,
-  restoreSearchTarget,
   trajectoryListMetrics,
   trajectoryDetailMetrics,
   trajectorySearch,
@@ -142,12 +141,13 @@ describe('trajectory search navigation', () => {
 
   it('matching scans the full ledger while collapse only affects display', () => {
     let state = searching(createTrajectory(searchEvents), 'readme')
-    // One user record with a matching summary and payload: two derived spans.
-    expect(trajectorySearch(state).matches).toHaveLength(2)
-    // Collapse turn 1: the hidden user record still counts as a match.
+    // User (summary+payload) and tool (summary+payload) records both match.
+    expect(trajectorySearch(state).matches).toHaveLength(4)
+    expect(trajectorySearch(state).counts.size).toBe(2)
+    // Collapse turn 1: both hidden records still count as matches.
     state = { ...state, collapsedTurns: new Set([1]) }
     expect(trajectoryVisibleRecords(state)).toHaveLength(1)
-    expect(trajectorySearch(state).counts.size).toBe(1)
+    expect(trajectorySearch(state).counts.size).toBe(2)
   })
 
   it('locates a hidden match and expands its turn on enter', () => {
@@ -169,11 +169,12 @@ describe('trajectory search navigation', () => {
     expect(state.searchFocus).toBe(1)
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'N' }) as { state: typeof state }).state
     expect(state.searchFocus).toBe(0)
-    // Editing state: '/' is literal; n is a literal query character, ctrl+n navigates.
+    // Result state: '/' re-enters editing WITHOUT inserting; n is literal there.
     state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
-    expect(state.query.endsWith('/')).toBe(true)
+    expect(state.searching).toBe(true)
+    expect(state.query).toBe('readme')
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'n' }) as { state: typeof state }).state
-    expect(state.query.endsWith('n')).toBe(true)
+    expect(state.query).toBe('readmen')
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
     expect(state.searchFocus).toBe(1)
   })
@@ -211,23 +212,23 @@ describe('trajectory search navigation', () => {
     ]
     let state = createTrajectory(withResults)
     state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
-    for (const char of 'x x x') {
-      state = (applyTrajectoryEvent(state, { type: 'text', value: char }) as { state: typeof state }).state
-    }
-    // Step to the last occurrence (tool result: three 'x' spans).
-    const before = trajectorySearch(state).matches.length
-    for (let index = 0; index < before - 1; index += 1) {
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
+    // Focus the tool record's result field (payload spans precede it) and its
+    // last occurrence. Field order per record: ... payload(3) result(3).
+    const matches = trajectorySearch(state).matches
+    const resultIndex = matches.findLastIndex(match => match.record.kind === 'tool' && match.field === 'result')
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    for (let index = 0; index <= resultIndex; index += 1) {
       state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
     }
     const target = captureSearchTarget(state)
     expect(target?.field).toBe('result')
-    expect(target?.occurrence).toBe(before - 1)
     // Shrink the result text to one 'x': occurrence clamps within the field.
     const next = appendTrajectoryEvent(state, event(6, 'tool/result', {
       turn: 1, step: 2, callId: 'c1', message: { content: [{ type: 'text', text: 'x' }] },
     }))
     expect(next.selectedId).toBe(target?.record.id)
-    expect(next.searchFocus).not.toBeNull()
+    expect(captureSearchTarget(next)?.field).toBe('result')
   })
 
   it('reports the follow notice and clears it on end or moving to the bottom', () => {

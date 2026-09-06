@@ -406,7 +406,11 @@ export function appendTrajectoryEvent(state: TrajectoryState, event: SessionEven
   state.ledger.append(event)
   const added = state.ledger.records.length - beforeCount
   let next: TrajectoryState = target === null ? state : restoreSearchTarget(state, target)
-  if (added > 0 && !state.following) next = { ...next, followNotice: next.followNotice + added }
+  if (added > 0 && !state.following) {
+    const visibleIds = new Set(trajectoryVisibleRecords(next).map(record => record.id))
+    const displayable = state.ledger.records.slice(beforeCount).filter(record => visibleIds.has(record.id)).length
+    if (displayable > 0) next = { ...next, followNotice: next.followNotice + displayable }
+  }
   if (next.following) {
     next = { ...next, selectedId: trajectoryVisibleRecords(next).at(-1)?.id ?? next.selectedId }
   }
@@ -435,6 +439,7 @@ export function restoreSearchTarget(state: TrajectoryState, target: SearchTarget
   let fieldCount = 0
   for (let index = 0; index < matches.length; index += 1) {
     const candidate = matches[index]
+    if (candidate === undefined) continue
     if (candidate.record === target.record && candidate.field === target.field) {
       fieldLast = index
       fieldCount += 1
@@ -478,6 +483,7 @@ export function trajectorySearch(state: TrajectoryState): { matches: SearchMatch
     let total = 0
     for (let fieldIndex = 0; fieldIndex < SEARCH_FIELDS.length; fieldIndex += 1) {
       const field = SEARCH_FIELDS[fieldIndex]
+      if (field === undefined) continue
       const lower = lowerFields[fieldIndex] ?? ''
       if (lower === '') continue
       const original = record[field]
@@ -664,12 +670,13 @@ export function trajectoryListMetrics(state: TrajectoryState, height: number): {
   if (layout.length === 0) return { pageSize: 1 }
   const selected = Math.max(0, layout.findIndex(row => row.id === state.selectedId))
   const start = Math.max(0, Math.min(layout.length - 1, selected - Math.floor(body / 2)))
+  // Count record rows inside the window; turn headers only occupy space.
   let rows = 0
   let count = 0
   for (let index = start; index < layout.length; index += 1) {
     rows += 1
     if (rows > body) break
-    count += 1
+    if (layout[index]?.turnHeader !== true) count += 1
   }
   return { pageSize: Math.max(1, count) }
 }
@@ -710,8 +717,9 @@ function kindColor(kind: TrajectoryKind): 'accent' | 'warning' | 'success' | 'er
   return 'dim'
 }
 
-function highlightSummary(summary: string, spans: readonly SearchMatch[]): string {
+function highlightSummary(summary: string, spans: readonly SearchMatch[], theme?: Theme): string {
   if (spans.length === 0) return summary
+  if (theme?.colors === false) return summary
   // Spans live on summary text (offsets from the derived search); decorations
   // are inserted before width truncation and survive splitAnsi.
   let out = ''
@@ -746,21 +754,23 @@ function recordLine(
 }
 
 /** Snippet of one record field around its first hit (non-summary fields). */
-function fieldSnippet(record: TrajectoryRecord, field: SearchMatch['field'], highlightSpans: readonly SearchMatch[], width: number): string {
+function fieldSnippet(
+  record: TrajectoryRecord,
+  field: SearchMatch['field'],
+  highlightSpans: readonly SearchMatch[],
+  width: number,
+  theme: Theme,
+): string {
   const text = record[field]
-  if (text === '') return highlightSummary(record.summary, highlightSpans)
+  if (text === '') return highlightSummary(record.summary, highlightSpans, theme)
   const span = highlightSpans.find(match => match.field === field)
-  if (span === undefined) return highlightSummary(record.summary, highlightSpans)
-  if (field !== 'summary') {
-    const from = Math.max(0, span.offset - 16)
-    const to = Math.min(text.length, span.offset + span.length + 24)
-    const snippet = text.slice(from, to)
-    const shifted = highlightSummary(snippet, [{ ...span, offset: span.offset - from }])
-    return `${field}: ${truncateToWidth(snippet.replaceAll('\n', ' '), width)}`.length <= width
-      ? `${field}: ${truncateToWidth(snippet.replaceAll('\n', ' '), width)}`
-      : `${field}: ${truncateToWidth(shifted.replaceAll('\n', ' '), width)}`
-  }
-  return highlightSummary(text, highlightSpans)
+  if (span === undefined) return highlightSummary(record.summary, highlightSpans, theme)
+  if (field === 'summary') return highlightSummary(text, highlightSpans, theme)
+  const from = Math.max(0, span.offset - 16)
+  const to = Math.min(text.length, span.offset + span.length + 24)
+  const snippet = text.slice(from, to).replaceAll('\n', ' ')
+  const shifted = highlightSummary(snippet, [{ ...span, offset: span.offset - from }], theme)
+  return `${field}: ${truncateToWidth(shifted, width)}`
 }
 
 function selectedRecord(state: TrajectoryState): TrajectoryRecord | undefined {
@@ -803,6 +813,7 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
     highlighted.set(match.record.id, list)
   }
   const lines: { id: string; text: string }[] = []
+  const layout = rowLayout(state)
   let previousTurn: number | null | undefined
   for (const record of visible) {
     if (record.turn !== previousTurn) {
@@ -812,11 +823,14 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
       lines.push({ id: `turn:${record.turn ?? 'between'}`, text: theme.fg('accent', `── ${label}${collapsed} `) })
     }
     const recordMatches = highlighted.get(record.id) ?? []
-    const headField = recordMatches[0]?.field
+    const focusedField = focusedMatch(state)?.field
+    const headField = focusedField !== undefined && recordMatches.some(match => match.field === focusedField)
+      ? focusedField
+      : recordMatches[0]?.field
     const headSpans = recordMatches.filter(match => match.field === headField)
     const summary = headField === undefined || headField === 'summary'
-      ? highlightSummary(record.summary, headSpans)
-      : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24))
+      ? highlightSummary(record.summary, headSpans, theme)
+      : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24), theme)
     lines.push({
       id: record.id,
       text: recordLine(record, record.id === state.selectedId, theme, width,
@@ -826,8 +840,8 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
       ),
     })
   }
-  const selectedLine = Math.max(0, lines.findIndex(line => line.id === state.selectedId))
-  const start = Math.max(0, Math.min(lines.length - height, selectedLine - Math.floor(height / 2)))
+  const selectedIndex = Math.max(0, layout.findIndex(row => row.id === state.selectedId))
+  const start = Math.max(0, Math.min(layout.length - 1, selectedIndex - Math.floor(height / 2)))
   return lines.slice(start, start + height).map(line => truncateToWidth(line.text, width))
 }
 
@@ -850,6 +864,12 @@ function searchPosition(state: TrajectoryState): string {
   if (matches.length === 0) return '(0/0)'
   const focus = Math.max(0, state.searchFocus ?? 0)
   return `(${Math.min(focus + 1, matches.length)}/${matches.length})`
+}
+
+/** The match currently focused, if any. */
+function focusedMatch(state: TrajectoryState): SearchMatch | undefined {
+  if (state.searchFocus === null) return undefined
+  return trajectorySearch(state).matches[state.searchFocus]
 }
 
 /** Render the full-screen ledger without touching the ordinary transcript viewport. */

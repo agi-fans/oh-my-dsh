@@ -210,7 +210,7 @@ function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'fa
 }
 
 /** Load the public model catalog (id/name/description only). */
-async function loadCatalog(ctx: Context, signal: AbortSignal): Promise<ModelCatalogEntry[]> {
+async function loadCatalog(ctx: Context): Promise<ModelCatalogEntry[]> {
   const catalog: ModelCatalogEntry[] = []
   for (const provider of ctx.llm.listProviders()) {
     const models = await ctx.llm.listModels(provider.id)
@@ -257,7 +257,7 @@ async function applyResolved(
 }
 
 async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, query: string, sessionOnly: boolean): Promise<CommandResult> {
-  const catalog = await loadCatalog(ctx, invocation.signal)
+  const catalog = await loadCatalog(ctx)
   if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const resolve = resolveModelQuery(query, catalog)
   const current = ctx.omdshSession.selection(invocation.agent)
@@ -293,11 +293,19 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   const sessionOnly = raw === '--session' || raw.startsWith('--session ')
   const body = sessionOnly ? raw.slice('--session'.length).trim() : raw
   const action = body.toLowerCase()
+  if (sessionOnly) {
+    // Session scope accepts a query only; subcommand flags cannot combine.
+    if (body === '') return { kind: 'error', text: 'Usage: /model --session <query>' }
+    if (action === 'next' || action === 'previous' || action === 'reasoning'
+      || action === 'favorite' || action === 'unfavorite' || action === 'favorites') {
+      return { kind: 'error', text: 'Invalid arguments: /model --session does not take a subcommand.' }
+    }
+    return resolveQuerySelect(ctx, invocation, body, true)
+  }
   if (action === 'next') return cycleFavorite(ctx, invocation, 1)
   if (action === 'previous') return cycleFavorite(ctx, invocation, -1)
   if (action === 'reasoning') return cycleReasoning(ctx, invocation)
   if (action === 'favorite' || action === 'unfavorite' || action === 'favorites') return manageFavorite(ctx, invocation, action)
-  if (sessionOnly) return { kind: 'error', text: 'Usage: /model --session <query>' }
   if (body !== '') return resolveQuerySelect(ctx, invocation, body, false)
   const providers = ctx.llm.listProviders()
   if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }

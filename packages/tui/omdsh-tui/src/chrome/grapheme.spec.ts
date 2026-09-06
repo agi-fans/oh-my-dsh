@@ -6,8 +6,8 @@ describe('grapheme geometry', () => {
     const whale = '🐳'
     expect(moveGraphemeLeft('a' + whale, 3)).toBe(1)
     expect(moveGraphemeRight('a' + whale, 1)).toBe(3)
-    expect(moveGraphemeLeft('ab', 2)).toBe(0)
-    expect(moveGraphemeRight('ab', 0)).toBe(2)
+    expect(moveGraphemeLeft('ab', 2)).toBe(1)
+    expect(moveGraphemeRight('ab', 0)).toBe(1)
   })
 
   it('clamps at the edges', () => {

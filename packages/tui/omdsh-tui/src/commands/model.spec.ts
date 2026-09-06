@@ -7,7 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandModel from './model.ts'
-import { resolveModelQuery, type ModelCatalogEntry } from './model.ts'
+import { resolveModelQuery } from './model.ts'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
 import { writeModelFavorites } from '../session/model-favorites.ts'
@@ -162,7 +162,7 @@ describe('resolveModelQuery', () => {
 
   it('returns every exact candidate with a case-folded collision', () => {
     const result = resolveModelQuery('deepseek-v4-pro', catalog)
-    expect(result).toMatchObject({ kind: 'exact' })
+    if (result.kind !== 'exact') throw new Error('expected exact resolution')
     expect(result.matches).toHaveLength(2)
   })
 

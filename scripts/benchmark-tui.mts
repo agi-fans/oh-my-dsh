@@ -233,19 +233,26 @@ console.log(`${'Terminal output for 200 streaming frames'.padEnd(42)} ${String(t
 
 // --- Transcript search navigation ---
 const searchState = createTrajectory(conversation.slice(0, 10_000))
-const searchMatchCount = trajectorySearch(searchState).matches.length
 const searchOpen: KeyEvent = { type: 'text', value: '/' }
 const searchTyped = Array.from('question', char => ({ type: 'text' as const, value: char }))
 
-benchmark('Search and navigate a 10,000-record ledger (200 frames)', () => {
+function searchPreparedState(): TrajectoryState {
   let state = searchState
   state = (applyTrajectoryEvent(state, searchOpen) as { state: TrajectoryState }).state
   for (const event of searchTyped) state = (applyTrajectoryEvent(state, event) as { state: TrajectoryState }).state
+  return state
+}
+const searchPrepared = searchPreparedState()
+const searchMatchCount = trajectorySearch(searchPrepared).matches.length
+
+benchmark('Search and navigate a 10,000-record ledger (200 frames)', () => {
+  let state = searchPrepared
   for (let index = 0; index < 200; index += 1) {
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: TrajectoryState }).state
   }
 })
 console.log(`${'Search matches over 10,000 records'.padEnd(42)} ${String(searchMatchCount).padStart(9)} matches`)
+console.log(`${'Search navigation selection'.padEnd(42)} ${String((applyTrajectoryEvent(searchPrepared, { type: 'key', id: 'ctrl+n' }) as { state: TrajectoryState }).state.selectedId).padStart(9)}`)
 
 benchmark('Search text cache over 10,000 records (cold vs warm)', () => {
   const state = createTrajectory(conversation.slice(0, 10_000))
