@@ -25,7 +25,7 @@ function fail(error: unknown, exit: (code: number) => void): void {
   exit(1)
 }
 
-async function run(ctx: Context, tui: TuiService): Promise<void> {
+async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promise<void> {
   await ctx.get('loader')?.await()
   const controller = ctx.get('omdshSession')
   if (controller === undefined) return
@@ -79,7 +79,7 @@ async function run(ctx: Context, tui: TuiService): Promise<void> {
       await controller.send(args.join(' '))
     }
     for (;;) {
-      const submission = await tui.readInput()
+      const submission = await tui.readInput(cancelled)
       if (submission === null) break
       if (submission.text.trim() === '' && submission.images.length === 0) continue
       if (looksLikeSlashCommand(submission.text, submission.images)) {
@@ -130,5 +130,10 @@ export function apply(ctx: Context): void {
   if (tui === undefined) throw new Error('omdsh-runner: the tui provider must be mounted (config row: @agi-fans/dsh-tui)')
   const exit = ctx.get('appExit')
   if (exit === undefined) throw new Error('omdsh-runner: the launcher must provide ctx.appExit before the tree mounts')
-  void run(ctx, tui).catch((error: unknown) => { fail(error, exit) })
+  const cancelled = new AbortController()
+  // Unmounting the runner must release a pending readInput and settle the
+  // run loop; leaving it unowned would keep the old reader alive past a
+  // remount and risk a second "input read already in flight" or a blocked exit.
+  ctx.effect(() => () => { cancelled.abort(new Error('omdsh-runner unloaded')) })
+  void run(ctx, tui, cancelled.signal).catch((error: unknown) => { fail(error, exit) })
 }

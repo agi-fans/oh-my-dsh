@@ -9,8 +9,16 @@ import type { TranscriptState } from './event-views.ts'
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
+// One-slot segmentation cache: the latest streaming block is the only text
+// sliced per reveal tick, so caching its grapheme list keeps a long stream
+// linear instead of re-segmenting the growing answer every frame.
+const partsCache: { text: string; parts: string[] } = { text: '', parts: [] }
+
 function graphemes(text: string): string[] {
-  return [...segmenter.segment(text)].map(item => item.segment)
+  if (text === partsCache.text) return partsCache.parts
+  partsCache.text = text
+  partsCache.parts = [...segmenter.segment(text)].map(item => item.segment)
+  return partsCache.parts
 }
 
 /** Count user-visible text units without splitting emoji or combining marks. */

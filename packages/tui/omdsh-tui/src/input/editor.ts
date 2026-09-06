@@ -71,6 +71,36 @@ export function lineEnd(text: string, cursor: number): number {
   return at < 0 ? text.length : at
 }
 
+let graphemeSegmenter: Intl.Segmenter | undefined
+
+function graphemes(text: string): Iterable<{ index: number; segment: string }> {
+  graphemeSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return graphemeSegmenter.segment(text)
+}
+
+/** Index of the grapheme boundary before `cursor` (UTF-16 index). */
+export function moveGraphemeLeft(text: string, cursor: number): number {
+  if (cursor <= 0) return cursor
+  let last = 0
+  for (const part of graphemes(text)) {
+    if (part.index >= cursor) return last
+    last = part.index + part.segment.length
+  }
+  return last
+}
+
+/** Index of the grapheme boundary after `cursor` (UTF-16 index). */
+export function moveGraphemeRight(text: string, cursor: number): number {
+  if (cursor >= text.length) return cursor
+  for (const part of graphemes(text)) {
+    if (part.index < cursor && cursor < part.index + part.segment.length) {
+      return part.index + part.segment.length
+    }
+    if (part.index >= cursor) return part.index + part.segment.length
+  }
+  return text.length
+}
+
 /** Word-left: skip trailing whitespace, then the previous word. */
 export function moveWordLeft(text: string, cursor: number): number {
   let i = cursor
@@ -199,10 +229,10 @@ export class InputEditor {
         return this.#vertical(1)
       case 'left':
       case 'ctrl+b':
-        return this.#moveTo(this.#cursor - 1)
+        return this.#moveTo(moveGraphemeLeft(this.#text, this.#cursor))
       case 'right':
       case 'ctrl+f':
-        return this.#moveTo(this.#cursor + 1)
+        return this.#moveTo(moveGraphemeRight(this.#text, this.#cursor))
       case 'home':
       case 'ctrl+a':
         return this.#moveTo(lineStart(this.#text, this.#cursor))
@@ -300,13 +330,15 @@ export class InputEditor {
   }
 
   #deleteBackward(): void {
-    if (this.#cursor === 0) return
-    this.#deleteRange(this.#cursor - 1, this.#cursor, 'backward')
+    const start = moveGraphemeLeft(this.#text, this.#cursor)
+    if (start === this.#cursor) return
+    this.#deleteRange(start, this.#cursor, 'backward')
   }
 
   #deleteForward(): void {
-    if (this.#cursor >= this.#text.length) return
-    this.#deleteRange(this.#cursor, this.#cursor + 1, 'forward')
+    const end = moveGraphemeRight(this.#text, this.#cursor)
+    if (end === this.#cursor) return
+    this.#deleteRange(this.#cursor, end, 'forward')
   }
 
   #deleteWordBackward(): void {

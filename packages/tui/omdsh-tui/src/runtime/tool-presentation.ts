@@ -37,6 +37,14 @@ class HarnessToolPresentation implements ToolPresentationBridge {
   }
 
   event(agent: Agent, event: SessionEvent): TuiToolPresentation | undefined {
+    return this.#event(agent, event, undefined)
+  }
+
+  #event(
+    agent: Agent,
+    event: SessionEvent,
+    callIndex: ReadonlyMap<string, SessionEvent> | undefined,
+  ): TuiToolPresentation | undefined {
     if (event.type === 'tool/call') {
       const definition = this.#ctx.tools.get(event.data.name, agent)
       if (definition?.presentCall === undefined) return undefined
@@ -49,8 +57,9 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     }
     if (event.type !== 'tool/result') return undefined
     const callId = event.data.message.source.callId
-    const callEvent = agent.session.snapshotEvents().findLast(candidate =>
-      candidate.type === 'tool/call' && candidate.data.callId === callId)
+    const callEvent = callIndex?.get(callId)
+      ?? agent.session.snapshotEvents().findLast(candidate =>
+        candidate.type === 'tool/call' && candidate.data.callId === callId)
     if (callEvent?.type !== 'tool/call') return undefined
     const definition = this.#ctx.tools.get(callEvent.data.name, agent)
     const args = parsedArguments(callEvent.data.arguments)
@@ -78,9 +87,15 @@ class HarnessToolPresentation implements ToolPresentationBridge {
   }
 
   session(agent: Agent, events: readonly SessionEvent[]): ReadonlyMap<number, TuiToolPresentation> {
+    // One pass builds a callId index instead of the per-result backwards
+    // log scan, keeping replay linear in the event count.
+    const callIndex = new Map<string, SessionEvent>()
+    for (const event of events) {
+      if (event.type === 'tool/call') callIndex.set(event.data.callId, event)
+    }
     const presentations = new Map<number, TuiToolPresentation>()
     for (const event of events) {
-      const presentation = this.event(agent, event)
+      const presentation = this.#event(agent, event, callIndex)
       if (presentation !== undefined) presentations.set(event.seq, presentation)
     }
     return presentations

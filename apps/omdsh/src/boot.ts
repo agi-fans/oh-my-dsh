@@ -28,9 +28,7 @@ export async function runOmdsh(
 ): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
-  const signalShutdown = new AbortController()
   const interrupt = (code: number): void => {
-    signalShutdown.abort()
     shutdown.interrupt(code)
   }
   // SIGINT only fires outside raw mode (a raw tty delivers Ctrl-C as a

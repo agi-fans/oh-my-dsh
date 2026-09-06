@@ -252,10 +252,11 @@ export interface TuiService {
   }): void
   /**
    * Read the next submitted composer value. Resolves null when the user quits
-   * (Ctrl-D on empty input, or stdin EOF in non-tty mode). One in-flight
-   * call at a time.
+   * (Ctrl-D on empty input, or stdin EOF in non-tty mode), on dispose, or when
+   * `signal` aborts (the runner unmount must not leak a pending read). One
+   * in-flight call at a time.
    */
-  readInput(): Promise<TuiSubmission | null>
+  readInput(signal?: AbortSignal): Promise<TuiSubmission | null>
   /** Restore an accepted draft when persistence or dispatch fails. */
   restoreInput(submission: TuiSubmission): void
   /** Resolve one queued-message back-navigation request into the composer. */

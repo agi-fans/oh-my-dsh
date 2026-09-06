@@ -18,7 +18,9 @@ const runGit: GitRunner = (cwd, args) => execFileSync('git', ['-C', cwd, ...args
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'ignore'],
 })
-const defaultCache = new Map<string, ProjectContext>()
+/** Bounded freshness so an agent checkpoint or checkout is reflected without a restart. */
+const PROJECT_CONTEXT_TTL_MS = 15_000
+const defaultCache = new Map<string, { at: number; value: ProjectContext }>()
 
 function attempt(runner: GitRunner, cwd: string, args: readonly string[]): string | undefined {
   try {
@@ -31,13 +33,26 @@ function attempt(runner: GitRunner, cwd: string, args: readonly string[]): strin
 
 /** Resolve a cwd to its worktree root, branch, and compact dirty counters. */
 export function resolveProjectContext(cwd: string, runner: GitRunner = runGit): ProjectContext {
-  const cached = runner === runGit ? defaultCache.get(cwd) : undefined
-  if (cached !== undefined) return cached
+  if (runner === runGit) {
+    const cached = defaultCache.get(cwd)
+    if (cached !== undefined && Date.now() - cached.at < PROJECT_CONTEXT_TTL_MS) return cached.value
+  }
+  const result = resolveProjectContextFresh(cwd, runner)
+  if (runner === runGit) defaultCache.set(cwd, { at: Date.now(), value: result })
+  return result
+}
+
+/** Re-resolve one cwd immediately, refreshing the default-cache entry. */
+export function refreshProjectContext(cwd: string, runner: GitRunner = runGit): ProjectContext {
+  const result = resolveProjectContextFresh(cwd, runner)
+  if (runner === runGit) defaultCache.set(cwd, { at: Date.now(), value: result })
+  return result
+}
+
+function resolveProjectContextFresh(cwd: string, runner: GitRunner): ProjectContext {
   const root = attempt(runner, cwd, ['rev-parse', '--show-toplevel'])
   if (root === undefined) {
-    const result = { root: cwd, modified: 0, untracked: 0 }
-    if (runner === runGit) defaultCache.set(cwd, result)
-    return result
+    return { root: cwd, modified: 0, untracked: 0 }
   }
 
   const branch = attempt(runner, root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
@@ -55,7 +70,5 @@ export function resolveProjectContext(cwd: string, runner: GitRunner = runGit): 
   const gitLabel = branch
     + (modified > 0 ? ` *${modified}` : '')
     + (untracked > 0 ? ` ?${untracked}` : '')
-  const result = { root, branch, modified, untracked, gitLabel }
-  if (runner === runGit) defaultCache.set(cwd, result)
-  return result
+  return { root, branch, modified, untracked, gitLabel }
 }

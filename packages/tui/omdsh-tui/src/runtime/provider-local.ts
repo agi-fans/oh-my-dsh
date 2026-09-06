@@ -20,6 +20,7 @@ import {
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
+import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
@@ -137,7 +138,7 @@ import {
   togglePromptSelection,
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
-import { resolveProjectContext } from '../session/project-context.ts'
+import { refreshProjectContext, resolveProjectContext } from '../session/project-context.ts'
 import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount } from '../views/hotkeys.ts'
 import {
@@ -199,11 +200,19 @@ export interface TerminalLike {
   onResize?(listener: () => void): () => void
 }
 
-type PendingRead = { resolve: (submission: TuiSubmission | null) => void }
+type PendingRead = { resolve: (submission: TuiSubmission | null) => void; signal?: AbortSignal | null }
 type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
 }
+
+/** One overlay surface displaced by an in-flight human prompt. */
+type DisplacedSurface =
+  | { kind: 'trajectory'; state: TrajectoryState }
+  | { kind: 'agentHub'; state: AgentHubState }
+  | { kind: 'settings'; state: SettingsState }
+  | { kind: 'copySelector'; state: CopySelectorState }
+  | { kind: 'search'; state: HistorySearchState }
 /**
  * Local terminal presentation service.
  */
@@ -300,6 +309,13 @@ export class LocalTui implements TuiService {
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
   #prompt: PendingPrompt | null = null
+  /**
+   * The overlay surface displaced by an in-flight prompt: while a human
+   * prompt owns the keyboard, its screen must not compete with a stale
+   * trajectory/hub surface that accepts invisible confirmations. Restored
+   * when the prompt settles.
+   */
+  #promptDisplaced: DisplacedSurface | null = null
   #recentSessions: TuiRecentSession[] = []
   readonly #welcomeTips: readonly WelcomeTip[]
   #sessionId: string | undefined
@@ -415,8 +431,7 @@ export class LocalTui implements TuiService {
       term.input.setRawMode?.(true)
       const listener = (chunk: Buffer): void => { this.#onData(chunk) }
       term.input.on('data', listener)
-      this.#offData = () => { term.input.off('data', listener) }
-      this.#offResize = term.onResize?.(() => {
+      this.#offData = () => { term.input.off('data', listener) }      this.#offResize = term.onResize?.(() => {
         // A terminal resize changes the committed/live seam; re-anchor the
         // live window so it stays anchored at the bottom.
         const repaint = (): void => {
@@ -436,6 +451,14 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
+  /** Refresh Git workspace metadata after a turn; the footer shows realtime branch/dirty state. */
+  #refreshProjectContext(): void {
+    const branch = refreshProjectContext(this.#cwd).gitLabel
+    if (branch === this.#branch) return
+    this.#branch = branch
+    if (this.#tty) this.#render()
+  }
+
   event(event: SessionEvent, presentation?: TuiToolPresentation): void {
     this.#state = applyEvent(this.#state, event, presentation)
     this.#emitNotification(this.#notifications.event({
@@ -444,6 +467,7 @@ export class LocalTui implements TuiService {
       ...(event.type === 'turn/end' ? { reason: event.data.reason.kind } : {}),
     }))
     if (this.#trajectory !== null) this.#trajectory = appendTrajectoryEvent(this.#trajectory, event)
+    if (event.type === 'turn/end') this.#refreshProjectContext()
     this.#syncStreamingReveal(undefined)
     this.#syncTick()
     if (this.#tty) {
@@ -544,9 +568,9 @@ export class LocalTui implements TuiService {
 
   openTrajectory(events: readonly SessionEvent[]): boolean {
     if (!this.#tty) return false
+    this.#finishPrompt(null)
     this.#trajectory = createTrajectory(events)
     this.#agentHub = null
-    this.#prompt = null
     this.#settings = null
     this.#copySelector = null
     this.#search = null
@@ -595,6 +619,7 @@ export class LocalTui implements TuiService {
     this.#emitNotification(this.#notifications.humanPrompt())
     this.#editor.setText('')
     this.#ac = null
+    const displaced = this.#displaceSurface()
     return new Promise((resolve) => {
       const selected = Math.max(0, request.options?.findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
@@ -605,6 +630,7 @@ export class LocalTui implements TuiService {
         pending.offAbort = () => { request.signal?.removeEventListener('abort', onAbort) }
       }
       this.#prompt = pending
+      this.#promptDisplaced = displaced
       if (this.#tty) {
         this.#render()
       } else {
@@ -711,7 +737,7 @@ export class LocalTui implements TuiService {
     }
   }
 
-  readInput(): Promise<TuiSubmission | null> {
+  readInput(signal?: AbortSignal): Promise<TuiSubmission | null> {
     if (this.#pending !== null) return Promise.reject(new Error('omdsh-tui: input read already in flight'))
     if (this.#disposed) return Promise.resolve(null)
     // A Ctrl-D pressed while the previous turn was still settling lands here
@@ -720,7 +746,7 @@ export class LocalTui implements TuiService {
       this.#quitRequested = false
       return Promise.resolve(null)
     }
-    if (!this.#tty) return this.#readlinePlain()
+    if (!this.#tty) return this.#readlinePlain(signal)
     // Lines submitted while a turn was still running were queued instead of
     // dropped; serve the oldest before waiting for fresh input.
     const queued = this.#queuedSubmissions.shift()
@@ -729,7 +755,14 @@ export class LocalTui implements TuiService {
       return Promise.resolve(queued)
     }
     return new Promise((resolve) => {
-      this.#pending = { resolve }
+      this.#pending = { resolve, signal: signal ?? null }
+      if (signal !== undefined) {
+        signal.addEventListener('abort', () => {
+          if (this.#pending?.signal !== signal) return
+          this.#pending = null
+          resolve(null)
+        }, { once: true })
+      }
     })
   }
 
@@ -872,7 +905,7 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
-  #readlinePlain(): Promise<TuiSubmission | null> {
+  #readlinePlain(signal?: AbortSignal): Promise<TuiSubmission | null> {
     return new Promise((resolve) => {
       if (this.#lineReader === null) {
         this.#lineReader = createInterface({ input: this.#term.input })
@@ -884,14 +917,23 @@ export class LocalTui implements TuiService {
           this.#plainResolve(null)
         })
       }
-      if (this.#plainClosed) {
-        resolve(null)
-        return
+      this.#plainPending = { resolve, signal: signal ?? null }
+      if (signal !== undefined) {
+        signal.addEventListener('abort', () => {
+          if (this.#plainPending?.signal !== signal) return
+          this.#plainPending = null
+          resolve(null)
+        }, { once: true })
       }
-      this.#plainPending = { resolve }
+      this.#pumpPlain()
     })
   }
 
+  /**
+   * Queue one readline delivery, then drain. A single stream chunk can carry
+   * several lines; every line is buffered until the runner asks for the next
+   * read, and EOF waits for the queue before closing the reader.
+   */
   #plainResolve(line: string | null): void {
     if (this.#prompt !== null && line !== null) {
       const value = line.trim()
@@ -910,9 +952,24 @@ export class LocalTui implements TuiService {
       return
     }
     if (this.#prompt !== null) this.#finishPrompt(null)
+    if (line !== null) this.#plainQueue.push(line)
+    this.#pumpPlain()
+  }
+
+  /** Resolve the pending plain read from the queue, or close it after EOF drained. */
+  #pumpPlain(): void {
     const pending = this.#plainPending
-    this.#plainPending = null
-    pending?.resolve(line === null ? null : { text: line, images: [] })
+    if (pending === null) return
+    const line = this.#plainQueue.shift()
+    if (line !== undefined) {
+      this.#plainPending = null
+      pending.resolve({ text: line, images: [] })
+      return
+    }
+    if (this.#plainClosed) {
+      this.#plainPending = null
+      pending.resolve(null)
+    }
   }
 
   /** Print plain-mode blocks that settled since the last flush. */
@@ -1134,8 +1191,13 @@ export class LocalTui implements TuiService {
     this.#scrollStart = this.#maxStart
   }
 
+  readonly #utf8 = new StringDecoder('utf8')
+  readonly #plainQueue: string[] = []
   #onData(chunk: Buffer): void {
-    const { events, rest } = parseKeys(this.#pendingKeys + chunk.toString('utf8'))
+    // Decode bytes across the whole stream so a multi-byte UTF-8 character
+    // split between data events is never corrupted into replacement chars.
+    const text = this.#utf8.write(chunk)
+    const { events, rest } = parseKeys(this.#pendingKeys + text)
     this.#pendingKeys = rest
     if (this.#escapeTimer !== null) {
       clearTimeout(this.#escapeTimer)
@@ -2273,7 +2335,10 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.name === 'clear') {
-      this.#state = initialTranscript()
+      // Presentation-only reset: the agent may still own an active turn with
+      // live status, todos, and queued inbox state. Clearing those would make
+      // the next Ctrl-C (or follow-up) behave as if the session had finished.
+      this.#state = { ...this.#state, blocks: [] }
       this.#followTail()
       this.#renderer.startEpoch()
       this.#render()
@@ -2356,6 +2421,38 @@ export class LocalTui implements TuiService {
     this.#prompt = null
     pending.offAbort?.()
     pending.resolve(answer)
+    this.#restoreDisplacedSurface()
+  }
+
+  /** Save and close the visible overlay so a prompt owns both input and screen. */
+  #displaceSurface(): DisplacedSurface | null {
+    const displaced: DisplacedSurface | null = this.#trajectory !== null
+      ? { kind: 'trajectory', state: this.#trajectory }
+      : this.#agentHub !== null
+        ? { kind: 'agentHub', state: this.#agentHub }
+        : this.#settings !== null
+          ? { kind: 'settings', state: this.#settings }
+          : this.#copySelector !== null
+            ? { kind: 'copySelector', state: this.#copySelector }
+            : this.#search !== null ? { kind: 'search', state: this.#search } : null
+    this.#trajectory = null
+    this.#agentHub = null
+    this.#settings = null
+    this.#copySelector = null
+    this.#search = null
+    return displaced
+  }
+
+  /** Restore the surface displaced by the settled prompt, if one existed. */
+  #restoreDisplacedSurface(): void {
+    const displaced = this.#promptDisplaced
+    this.#promptDisplaced = null
+    if (displaced === null) return
+    if (displaced.kind === 'trajectory') this.#trajectory = displaced.state
+    else if (displaced.kind === 'agentHub') this.#agentHub = displaced.state
+    else if (displaced.kind === 'settings') this.#settings = displaced.state
+    else if (displaced.kind === 'copySelector') this.#copySelector = displaced.state
+    else this.#search = displaced.state
   }
 
   async #runCopy(args: string): Promise<void> {

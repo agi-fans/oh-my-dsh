@@ -480,8 +480,11 @@ export class SessionRuntime {
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
   readonly #streamAttempts = new LiveAttemptTracker()
+  readonly #recentCache = new Map<string, { revision: string; row: TuiRecentSession }>()
+  #refreshInFlight: Promise<void> | null = null
   #subagentEpoch = 0
   #inspectEpoch = 0
+  #activationEpoch = 0
   #inspectedId: string | undefined
 
   constructor(ctx: Context, tui: TuiService) {
@@ -951,6 +954,14 @@ export class SessionRuntime {
   }
 
   async refreshRecent(): Promise<void> {
+    // Coalesce concurrent callers: the recent list is one snapshot, and a
+    // burst of title/status events must not queue a read of every stored log.
+    if (this.#refreshInFlight !== null) return this.#refreshInFlight
+    this.#refreshInFlight = this.#refreshRecentNow().finally(() => { this.#refreshInFlight = null })
+    return this.#refreshInFlight
+  }
+
+  async #refreshRecentNow(): Promise<void> {
     const persistence = this.#ctx.get('sessionPersistence')
     if (persistence === undefined) {
       this.#recent = []
@@ -960,21 +971,30 @@ export class SessionRuntime {
     const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
       .sort((left, right) => right.header.createdAt - left.header.createdAt)
     const rows: TuiRecentSession[] = []
+    const liveIds = new Set(snapshots.map(snapshot => snapshot.header.id))
+    for (const id of this.#recentCache.keys()) if (!liveIds.has(id)) this.#recentCache.delete(id)
     for (const snapshot of snapshots) {
       const header = snapshot.header
+      const cached = this.#recentCache.get(header.id)
+      if (cached?.revision === snapshot.revision) {
+        rows.push(cached.row)
+        continue
+      }
       try {
         const log = await readColdSessionLog(persistence, header.id)
         const status = recentSessionStatus(log.events)
         const content = recentSessionContent(log.events)
         if (content === undefined) continue
-        rows.push({
+        const row: TuiRecentSession = {
           id: header.id,
           ...content,
           createdAt: header.createdAt,
           updatedAt: log.events.at(-1)?.time ?? header.createdAt,
           eventCount: log.events.length,
           ...(status === undefined ? {} : { status }),
-        })
+        }
+        this.#recentCache.set(header.id, { revision: snapshot.revision, row })
+        rows.push(row)
       } catch {
         rows.push({ id: header.id, title: '(unavailable session)', createdAt: header.createdAt })
       }
@@ -987,6 +1007,7 @@ export class SessionRuntime {
     if (this.#disposed) return
     this.#disposed = true
     this.#subagentEpoch += 1
+    this.#activationEpoch += 1
     this.#inspectedId = undefined
     this.#subagents.reset()
     this.#tui.setInspectedSubagent(undefined)
@@ -1035,26 +1056,52 @@ export class SessionRuntime {
 
   async #activate(next: ActiveSession): Promise<void> {
     const previous = this.#active
+    const epoch = ++this.#activationEpoch
     this.#active = next
     const agent = next.handle.agent
-    this.#inspectedId = undefined
-    this.#tui.setInspectedSubagent(undefined)
-    this.#tui.setStatus(agent.status)
-    this.#syncSubagents()
-    // Seed welcome metadata before replaceSession commits the startup header to
-    // native scrollback; later updates cannot rewrite that frozen first frame.
-    this.#pushSessionInfo()
-    this.#replaceTranscript(agent)
-    this.#pushTools()
-    const selected = this.selection(agent)
-    const info = await this.#resolveModelInfo(selected)
-    next.contextWindow = info?.context?.contextWindow
-    const status = modelStatus(selected, info)
-    next.reasoningEffort = status.reasoningEffort
-    this.#tui.setModel(status.model, status.reasoningEffort)
-    await this.#refreshSkills()
-    this.#pushSessionInfo()
-    if (previous !== undefined) this.#retired.push(previous.handle)
+    try {
+      this.#inspectedId = undefined
+      this.#tui.setInspectedSubagent(undefined)
+      this.#tui.setStatus(agent.status)
+      this.#syncSubagents()
+      // Seed welcome metadata before replaceSession commits the startup header to
+      // native scrollback; later updates cannot rewrite that frozen first frame.
+      this.#pushSessionInfo()
+      this.#replaceTranscript(agent)
+      this.#pushTools()
+      const selected = this.selection(agent)
+      const info = await this.#resolveModelInfo(selected)
+      if (this.#disposed || this.#activationEpoch !== epoch) {
+        this.#releaseHandle(next.handle)
+        return
+      }
+      next.contextWindow = info?.context?.contextWindow
+      const status = modelStatus(selected, info)
+      next.reasoningEffort = status.reasoningEffort
+      this.#tui.setModel(status.model, status.reasoningEffort)
+      await this.#refreshSkills()
+      if (this.#disposed || this.#activationEpoch !== epoch) {
+        this.#releaseHandle(next.handle)
+        return
+      }
+      this.#pushSessionInfo()
+    } catch (error: unknown) {
+      // A rejected activation must not orphan the freshly created handle:
+      // revert the active slot and hand the handle to teardown ownership.
+      if (this.#activationEpoch === epoch) this.#active = previous
+      this.#releaseHandle(next.handle)
+      throw error
+    }
+    if (previous !== undefined) this.#releaseHandle(previous.handle)
+  }
+
+  /** Retire one agent handle; a raced dispose disposes it directly instead. */
+  #releaseHandle(handle: AgentHandle): void {
+    if (this.#disposed) {
+      void handle.dispose().catch(() => {})
+      return
+    }
+    this.#retired.push(handle)
   }
 
   #pushCommands(): void {

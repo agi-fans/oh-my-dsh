@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { InputEditor, lineEnd, lineStart, moveWordLeft, moveWordRight } from './editor.ts'
+import { InputEditor, lineEnd, lineStart, moveGraphemeLeft, moveGraphemeRight, moveWordLeft, moveWordRight } from './editor.ts'
 import type { KeyEvent } from './keys.ts'
 
 const key = (id: string): KeyEvent => ({ type: 'key', id })
@@ -16,6 +16,19 @@ describe('word and line geometry', () => {
   it('finds the current line span', () => {
     expect(lineStart('ab\ncd', 4)).toBe(3)
     expect(lineEnd('ab\ncd', 0)).toBe(2)
+  })
+
+  it('moves and deletes by grapheme, never splitting a surrogate pair', () => {
+    const whale = '🐳'
+    expect(moveGraphemeLeft('a' + whale, 3)).toBe(1)
+    expect(moveGraphemeRight('a' + whale, 1)).toBe(3)
+    const editor = new InputEditor()
+    editor.handle(text('a' + whale))
+    // Backspace at the tail removes the whole whale, not half a surrogate.
+    expect(editor.handle(key('backspace'))).toEqual({ kind: 'changed', edited: true })
+    expect(editor.text).toBe('a')
+    editor.handle(text(whale))
+    expect(editor.text).toBe('a' + whale)
   })
 })
 
