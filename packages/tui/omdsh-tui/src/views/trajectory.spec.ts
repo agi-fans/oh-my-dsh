@@ -158,7 +158,8 @@ describe('trajectory search navigation', () => {
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'enter' }) as { state: typeof state }).state
     expect(state.searching).toBe(false)
     expect(state.collapsedTurns.has(1)).toBe(false)
-    expect(state.selectedId).toBe(state.ledger.records[1]!.id)
+    // The first sweep lands on the user record (records[0]).
+    expect(state.selectedId).toBe(state.ledger.records[0]!.id)
   })
 
   it('navigates matches with n/N in the result state and ctrl+n/p while editing', () => {
@@ -175,8 +176,10 @@ describe('trajectory search navigation', () => {
     expect(state.query).toBe('readme')
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'n' }) as { state: typeof state }).state
     expect(state.query).toBe('readmen')
+    expect(trajectorySearch(state).matches).toHaveLength(0)
+    // No matches: navigation is a no-op and focus stays null.
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
-    expect(state.searchFocus).toBe(1)
+    expect(state.searchFocus).toBeNull()
   })
 
   it('deletes the query by grapheme boundary', () => {
@@ -238,11 +241,20 @@ describe('trajectory search navigation', () => {
     state = { ...state, query: 'readme', searching: false, followNotice: 0, following: false }
     state = appendTrajectoryEvent(state, event(6, 'llm/retry', { turn: 1, step: 3, attempt: 1 }))
     state = appendTrajectoryEvent(state, event(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
-    expect(state.followNotice).toBe(1)
-    // While already following the counter stays at zero.
-    state = { ...state, followNotice: 0, following: true }
-    state = appendTrajectoryEvent(state, event(8, 'llm/retry', { turn: 1, step: 4, attempt: 1 }))
+    // The retry record is not visible under the 'readme' query: no notice.
     expect(state.followNotice).toBe(0)
+    // While already following the counter stays at zero even for matches.
+    state = { ...state, followNotice: 0, following: true }
+    state = appendTrajectoryEvent(state, event(8, 'user/message', {
+      source: { kind: 'user' }, content: [{ type: 'text', text: 'readme follow-up' }],
+    }))
+    expect(state.followNotice).toBe(0)
+    // A visible matching append while detached is counted.
+    state = { ...state, followNotice: 0, following: false }
+    state = appendTrajectoryEvent(state, event(9, 'user/message', {
+      source: { kind: 'user' }, content: [{ type: 'text', text: 'readme detached' }],
+    }))
+    expect(state.followNotice).toBe(1)
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'end' }) as { state: typeof state }).state
     expect(state.followNotice).toBe(0)
     expect(state.following).toBe(true)

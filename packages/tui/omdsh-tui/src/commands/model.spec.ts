@@ -186,7 +186,7 @@ describe('model query command', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const tui = { prompt } as unknown as TuiService
-    const selection = vi.fn(async (_agent: unknown, _selection: unknown, _info?: unknown, options?: { persist?: boolean }) => undefined)
+        const selection = vi.fn(async (_agent: unknown, _selection: unknown, _info?: unknown, _options?: { persist?: boolean }) => undefined)
     const runtime = {
       selection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
       changeSelection: selection,

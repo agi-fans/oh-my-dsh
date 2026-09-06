@@ -5,7 +5,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KeyEvent } from '../input/keys.ts'
 import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
-import { moveGraphemeLeft } from '../chrome/grapheme.ts'
+import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { firstVisibleStreamTime } from './stream-time.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
@@ -560,6 +560,13 @@ function move(state: TrajectoryState, delta: number): TrajectoryState {
   }
 }
 
+let trajectorySegmenter: Intl.Segmenter | undefined
+
+function graphemes(text: string): Iterable<{ index: number; segment: string }> {
+  trajectorySegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return trajectorySegmenter.segment(text)
+}
+
 const DETAIL_TABS: readonly TrajectoryDetailTab[] = ['summary', 'payload', 'result', 'schema', 'timing']
 
 function moveTab(state: TrajectoryState, delta: number): TrajectoryState {
@@ -696,7 +703,7 @@ function rowLayout(state: TrajectoryState): { id: string; turnHeader: boolean }[
 }
 
 /** Detail scroll step in wrapped lines for one body height (pure, shared with rendering). */
-export function trajectoryDetailMetrics(state: TrajectoryState, height: number): { pageLines: number } {
+export function trajectoryDetailMetrics(_state: TrajectoryState, height: number): { pageLines: number } {
   const body = Math.max(0, height - 4)
   const viewport = Math.max(0, body - 2)
   return { pageLines: Math.max(1, viewport) }
@@ -766,11 +773,21 @@ function fieldSnippet(
   const span = highlightSpans.find(match => match.field === field)
   if (span === undefined) return highlightSummary(record.summary, highlightSpans, theme)
   if (field === 'summary') return highlightSummary(text, highlightSpans, theme)
-  const from = Math.max(0, span.offset - 16)
-  const to = Math.min(text.length, span.offset + span.length + 24)
+  const from = graphemeStart(text, Math.max(0, span.offset - 16))
+  const to = moveGraphemeRight(text, Math.min(text.length, span.offset + span.length + 24))
   const snippet = text.slice(from, to).replaceAll('\n', ' ')
   const shifted = highlightSummary(snippet, [{ ...span, offset: span.offset - from }], theme)
   return `${field}: ${truncateToWidth(shifted, width)}`
+}
+
+/** Start index of the grapheme containing or preceding `cursor`. */
+function graphemeStart(text: string, cursor: number): number {
+  let last = 0
+  for (const part of graphemes(text)) {
+    if (part.index >= cursor) return last
+    last = part.index
+  }
+  return last
 }
 
 function selectedRecord(state: TrajectoryState): TrajectoryRecord | undefined {
@@ -806,6 +823,7 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
   const visible = trajectoryVisibleRecords(state)
   if (visible.length === 0) return [theme.fg('dim', state.query === '' ? '  No trajectory records.' : '  No matching trajectory records.')]
   const { matches, counts } = trajectorySearch(state)
+  const focused = state.searchFocus === null ? undefined : matches[state.searchFocus]
   const highlighted = new Map<string, SearchMatch[]>()
   for (const match of matches) {
     const list = highlighted.get(match.record.id) ?? []
@@ -823,10 +841,8 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
       lines.push({ id: `turn:${record.turn ?? 'between'}`, text: theme.fg('accent', `── ${label}${collapsed} `) })
     }
     const recordMatches = highlighted.get(record.id) ?? []
-    const focusedField = focusedMatch(state)?.field
-    const headField = focusedField !== undefined && recordMatches.some(match => match.field === focusedField)
-      ? focusedField
-      : recordMatches[0]?.field
+    const focusedForRecord = focused?.record === record ? focused : undefined
+    const headField = focusedForRecord !== undefined ? focusedForRecord.field : recordMatches[0]?.field
     const headSpans = recordMatches.filter(match => match.field === headField)
     const summary = headField === undefined || headField === 'summary'
       ? highlightSummary(record.summary, headSpans, theme)
@@ -864,12 +880,6 @@ function searchPosition(state: TrajectoryState): string {
   if (matches.length === 0) return '(0/0)'
   const focus = Math.max(0, state.searchFocus ?? 0)
   return `(${Math.min(focus + 1, matches.length)}/${matches.length})`
-}
-
-/** The match currently focused, if any. */
-function focusedMatch(state: TrajectoryState): SearchMatch | undefined {
-  if (state.searchFocus === null) return undefined
-  return trajectorySearch(state).matches[state.searchFocus]
 }
 
 /** Render the full-screen ledger without touching the ordinary transcript viewport. */
