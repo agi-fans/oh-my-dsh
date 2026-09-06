@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Updated the tracked DeepSeek Harness cohort to `0.1.3-alpha.1` (unpublished upstream, tracked on the `alpha` branch until npm release). Live assistant streaming no longer publishes `assistant/chunk` session events: the TUI now subscribes to the agent-scoped `agent/assistant-stream` frames for incremental presentation, and durable settlements arrive as `assistant/message` (now embedding the exact timed stream) or the new `assistant/attempt`. `/trajectory` and session stats derive first-token times from the embedded stream.
 - Session persistence moved to the handle-based seam: recent-session and subagent transcript reads use `open(id, 'read')` through the new `readColdSessionLog` helper. Existing sessions are migrated read-through to the session-format v2 log (`session.v2.jsonl`, predecessor files retained unchanged). Command submission attachments now declare `type` (`image`), and file/content blocks render as `[file name · N bytes]`.
+- `/clear` is now presentation-only: it empties the visible transcript while the running turn, status, todos, and queued follow-ups keep their state, so a later Ctrl-C still interrupts the active work instead of looking like an idle clear of the input. Git workspace metadata (branch and dirty counters in the status footer) now refreshes at each turn end with a short TTL instead of freezing at startup.
+- A human approval (or other modal prompt) now displaces an open overlay such as `/trajectory` or the Agent Hub and restores it when settled, so a confirmation can never be accepted behind a stale screen. Large session switching and tool-card replay are faster: tool presentation indexes call IDs in one pass, the recent-session list reuses unchanged rows and coalesces concurrent refreshes, and settled row sanitization plus live reveal segmentation are cached.
+
+### Fixed
+
+- Input is now Unicode-safe end to end: the editor moves and deletes by grapheme boundaries (an emoji can no longer be split into a lone surrogate, and vertical motion snaps out of a surrogate pair), and terminal bytes are decoded across stream chunks so a multi-byte character split between data events is no longer corrupted.
+- Pipe mode no longer drops submitted lines when two lines arrive in one stream chunk; buffered lines drain before EOF.
 
 ## [0.14.0] - 2026-09-04
 
