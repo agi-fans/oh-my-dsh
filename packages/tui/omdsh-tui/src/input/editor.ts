@@ -81,12 +81,12 @@ function graphemes(text: string): Iterable<{ index: number; segment: string }> {
 /** Index of the grapheme boundary before `cursor` (UTF-16 index). */
 export function moveGraphemeLeft(text: string, cursor: number): number {
   if (cursor <= 0) return cursor
-  let last = 0
+  let prev = cursor
   for (const part of graphemes(text)) {
-    if (part.index >= cursor) return last
-    last = part.index + part.segment.length
+    if (part.index >= cursor) return prev
+    prev = part.index
   }
-  return last
+  return prev
 }
 
 /** Index of the grapheme boundary after `cursor` (UTF-16 index). */
@@ -156,7 +156,7 @@ export class InputEditor {
   /** Replace the buffer (history recall). Clears undo. */
   setText(text: string, cursor = text.length): void {
     this.#text = text
-    this.#cursor = Math.max(0, Math.min(cursor, text.length))
+    this.#cursor = this.#snapCursor(Math.max(0, Math.min(cursor, text.length)))
     this.#undo = []
     this.#last = 'none'
     this.#yankLen = 0
@@ -165,7 +165,7 @@ export class InputEditor {
 
   /** Move the caret without changing text or undo. */
   setCursor(cursor: number): void {
-    this.#cursor = Math.max(0, Math.min(cursor, this.#text.length))
+    this.#cursor = this.#snapCursor(Math.max(0, Math.min(cursor, this.#text.length)))
     this.#last = 'none'
   }
 
@@ -296,11 +296,21 @@ export class InputEditor {
   }
 
   #moveTo(cursor: number): EditorCommand {
-    const next = Math.max(0, Math.min(this.#text.length, cursor))
+    const next = this.#snapCursor(Math.max(0, Math.min(this.#text.length, cursor)))
     if (next === this.#cursor) return { kind: 'changed' }
     this.#cursor = next
     this.#last = 'none'
     return { kind: 'changed' }
+  }
+
+  /** Snap a UTF-16 offset to the grapheme boundary it belongs to (forward). */
+  #snapCursor(cursor: number): number {
+    for (const part of graphemes(this.#text)) {
+      if (part.index < cursor && cursor < part.index + part.segment.length) {
+        return part.index + part.segment.length
+      }
+    }
+    return cursor
   }
 
   #pushUndo(): void {

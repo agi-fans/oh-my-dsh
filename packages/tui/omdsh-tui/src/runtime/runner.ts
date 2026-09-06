@@ -111,10 +111,15 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         }
       }
     }
-    // EOF means "no more input", not "discard the accepted work". Let the
-    // active turn and every queued follow-up settle so pipe/CI mode observes
-    // the same transcript and errors as an interactive terminal.
-    await controller.agent?.whenIdle()
+    if (!cancelled.signal.aborted) {
+      // EOF means "no more input", not "discard the accepted work". Let the
+      // active turn and every queued follow-up settle so pipe/CI mode observes
+      // the same transcript and errors as an interactive terminal.
+      await controller.agent?.whenIdle()
+    } else {
+      // An unmount cancel aborts the in-flight command instead of waiting.
+      operation?.abort(new Error('runner unloaded'))
+    }
   } finally {
     operation?.abort(new Error('runner disposed'))
     loop?.disable()
@@ -122,7 +127,9 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
     offRewind()
     offInterrupt()
   }
-  ctx.get('appExit')?.(0)
+  // A plugin unmount must not exit the surviving application; only a user
+  // EOF/Ctrl-D quits the host.
+  if (!cancelled.signal.aborted) ctx.get('appExit')?.(0)
 }
 
 export function apply(ctx: Context): void {

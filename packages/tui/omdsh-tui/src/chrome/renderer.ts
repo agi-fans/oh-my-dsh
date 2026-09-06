@@ -71,6 +71,7 @@ export function sanitizeDisplayLine(value: string): string {
     cursor = match.index + sequence.length
   }
   const result = output + plain(value.slice(cursor))
-  if (sanitizeCache.size < SANITIZE_CACHE_LIMIT) sanitizeCache.set(value, result)
+  if (sanitizeCache.size >= SANITIZE_CACHE_LIMIT) sanitizeCache.clear()
+  sanitizeCache.set(value, result)
   return result
 }

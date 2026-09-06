@@ -476,12 +476,14 @@ export class SessionRuntime {
   #skillCommands: TuiCommand[] = []
   #started = false
   readonly #retired: AgentHandle[] = []
+  readonly #releasedHandles = new Set<AgentHandle>()
   #disposed = false
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
   readonly #streamAttempts = new LiveAttemptTracker()
   readonly #recentCache = new Map<string, { revision: string; row: TuiRecentSession }>()
   #refreshInFlight: Promise<void> | null = null
+  #refreshDirty = false
   #subagentEpoch = 0
   #inspectEpoch = 0
   #activationEpoch = 0
@@ -956,8 +958,19 @@ export class SessionRuntime {
   async refreshRecent(): Promise<void> {
     // Coalesce concurrent callers: the recent list is one snapshot, and a
     // burst of title/status events must not queue a read of every stored log.
-    if (this.#refreshInFlight !== null) return this.#refreshInFlight
-    this.#refreshInFlight = this.#refreshRecentNow().finally(() => { this.#refreshInFlight = null })
+    if (this.#refreshInFlight !== null) {
+      // Mark the invalidation observed during the snapshot so one trailing
+      // refresh publishes it instead of dropping the change.
+      this.#refreshDirty = true
+      return this.#refreshInFlight
+    }
+    this.#refreshInFlight = this.#refreshRecentNow().finally(() => {
+      this.#refreshInFlight = null
+      if (this.#refreshDirty) {
+        this.#refreshDirty = false
+        void this.refreshRecent()
+      }
+    })
     return this.#refreshInFlight
   }
 
@@ -971,7 +984,7 @@ export class SessionRuntime {
     const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
       .sort((left, right) => right.header.createdAt - left.header.createdAt)
     const rows: TuiRecentSession[] = []
-    const liveIds = new Set(snapshots.map(snapshot => snapshot.header.id))
+    const liveIds = new Set<string>(snapshots.map(snapshot => snapshot.header.id))
     for (const id of this.#recentCache.keys()) if (!liveIds.has(id)) this.#recentCache.delete(id)
     for (const snapshot of snapshots) {
       const header = snapshot.header
@@ -1016,9 +1029,13 @@ export class SessionRuntime {
     this.#tui.setFileSearch()
     this.#tui.setImageValidator()
     for (const off of this.#off.splice(0).reverse()) off()
-    await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
-    await this.#active?.handle.dispose()
+    const handles = this.#retired.splice(0)
+    const active = this.#active
     this.#active = undefined
+    if (active !== undefined) handles.push(active.handle)
+    // Own every handle here so a late activation cannot double-release it.
+    for (const handle of handles) this.#releasedHandles.add(handle)
+    await Promise.allSettled(handles.map(handle => handle.dispose()))
   }
 
   async #create(selection: ModelSelection): Promise<ActiveSession> {
@@ -1058,21 +1075,19 @@ export class SessionRuntime {
     const previous = this.#active
     const epoch = ++this.#activationEpoch
     this.#active = next
-    const agent = next.handle.agent
+    this.#presentAgent(next)
+    // Reject a late activation before its UI work publishes on a disposed tree.
+    if (this.#disposed) {
+      this.#releaseHandle(next.handle)
+      return
+    }
     try {
-      this.#inspectedId = undefined
-      this.#tui.setInspectedSubagent(undefined)
-      this.#tui.setStatus(agent.status)
-      this.#syncSubagents()
-      // Seed welcome metadata before replaceSession commits the startup header to
-      // native scrollback; later updates cannot rewrite that frozen first frame.
-      this.#pushSessionInfo()
-      this.#replaceTranscript(agent)
-      this.#pushTools()
-      const selected = this.selection(agent)
+      const selected = this.selection(next.handle.agent)
       const info = await this.#resolveModelInfo(selected)
       if (this.#disposed || this.#activationEpoch !== epoch) {
-        this.#releaseHandle(next.handle)
+        // Dispose (or a newer activation) already reclaimed the visible
+        // handle; the superseded previous agent is the one still unowned.
+        if (previous !== undefined) this.#releaseHandle(previous.handle)
         return
       }
       next.contextWindow = info?.context?.contextWindow
@@ -1081,22 +1096,46 @@ export class SessionRuntime {
       this.#tui.setModel(status.model, status.reasoningEffort)
       await this.#refreshSkills()
       if (this.#disposed || this.#activationEpoch !== epoch) {
-        this.#releaseHandle(next.handle)
+        if (previous !== undefined) this.#releaseHandle(previous.handle)
         return
       }
       this.#pushSessionInfo()
     } catch (error: unknown) {
-      // A rejected activation must not orphan the freshly created handle:
-      // revert the active slot and hand the handle to teardown ownership.
-      if (this.#activationEpoch === epoch) this.#active = previous
+      // A rejected activation must not orphan the freshly created handle nor
+      // leave the screen on an agent that is no longer active: revert the
+      // slot and re-present the previous agent.
+      if (this.#activationEpoch === epoch) {
+        this.#active = previous
+        if (previous !== undefined) this.#presentAgent(previous)
+      }
       this.#releaseHandle(next.handle)
       throw error
     }
     if (previous !== undefined) this.#releaseHandle(previous.handle)
   }
 
-  /** Retire one agent handle; a raced dispose disposes it directly instead. */
+  /** Show one active session on the terminal: transcript, tools, controls, model. */
+  #presentAgent(active: ActiveSession): void {
+    const agent = active.handle.agent
+    this.#inspectedId = undefined
+    this.#tui.setInspectedSubagent(undefined)
+    this.#tui.setStatus(agent.status)
+    this.#syncSubagents()
+    // Seed welcome metadata before replaceSession commits the startup header to
+    // native scrollback; later updates cannot rewrite that frozen first frame.
+    this.#pushSessionInfo()
+    this.#replaceTranscript(agent)
+    this.#pushTools()
+    this.#pushCommands()
+    const selected = this.selection(agent)
+    const status = modelStatus(selected, undefined)
+    this.#tui.setModel(status.model, status.reasoningEffort ?? active.reasoningEffort)
+  }
+
+  /** Retire one agent handle once; a raced dispose takes it directly. */
   #releaseHandle(handle: AgentHandle): void {
+    if (this.#releasedHandles.has(handle)) return
+    this.#releasedHandles.add(handle)
     if (this.#disposed) {
       void handle.dispose().catch(() => {})
       return

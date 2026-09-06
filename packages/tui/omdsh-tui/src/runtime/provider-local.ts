@@ -200,7 +200,12 @@ export interface TerminalLike {
   onResize?(listener: () => void): () => void
 }
 
-type PendingRead = { resolve: (submission: TuiSubmission | null) => void; signal?: AbortSignal | null }
+type PendingRead = {
+  resolve: (submission: TuiSubmission | null) => void
+  signal?: AbortSignal | null
+  /** Detaches this read's abort listener once the read settles. */
+  offAbort?: () => void
+}
 type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
@@ -431,7 +436,8 @@ export class LocalTui implements TuiService {
       term.input.setRawMode?.(true)
       const listener = (chunk: Buffer): void => { this.#onData(chunk) }
       term.input.on('data', listener)
-      this.#offData = () => { term.input.off('data', listener) }      this.#offResize = term.onResize?.(() => {
+      this.#offData = () => { term.input.off('data', listener) }
+      this.#offResize = term.onResize?.(() => {
         // A terminal resize changes the committed/live seam; re-anchor the
         // live window so it stays anchored at the bottom.
         const repaint = (): void => {
@@ -739,7 +745,7 @@ export class LocalTui implements TuiService {
 
   readInput(signal?: AbortSignal): Promise<TuiSubmission | null> {
     if (this.#pending !== null) return Promise.reject(new Error('omdsh-tui: input read already in flight'))
-    if (this.#disposed) return Promise.resolve(null)
+    if (this.#disposed || signal?.aborted === true) return Promise.resolve(null)
     // A Ctrl-D pressed while the previous turn was still settling lands here
     // (no pending readline existed to resolve); honor it now.
     if (this.#quitRequested) {
@@ -755,13 +761,16 @@ export class LocalTui implements TuiService {
       return Promise.resolve(queued)
     }
     return new Promise((resolve) => {
-      this.#pending = { resolve, signal: signal ?? null }
+      const pending: PendingRead = { resolve, signal: signal ?? null }
+      this.#pending = pending
       if (signal !== undefined) {
-        signal.addEventListener('abort', () => {
-          if (this.#pending?.signal !== signal) return
+        const onAbort = (): void => {
+          if (this.#pending !== pending) return
           this.#pending = null
           resolve(null)
-        }, { once: true })
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        pending.offAbort = () => { signal.removeEventListener('abort', onAbort) }
       }
     })
   }
@@ -895,9 +904,17 @@ export class LocalTui implements TuiService {
     this.#lineReader?.close()
     this.#offAgentBehaviorWatch?.()
     this.#offAgentBehaviorWatch = undefined
-    this.#pending?.resolve(null)
-    this.#pending = null
+    this.#settlePending(null)
     this.#finishPrompt(null)
+  }
+
+  /** Settle one pending read, detaching its abort listener. */
+  #settlePending(submission: TuiSubmission | null): void {
+    const pending = this.#pending
+    if (pending === null) return
+    pending.offAbort?.()
+    this.#pending = null
+    pending.resolve(submission)
   }
 
   /** Re-render the current frame (resize reflow). */
@@ -917,13 +934,16 @@ export class LocalTui implements TuiService {
           this.#plainResolve(null)
         })
       }
-      this.#plainPending = { resolve, signal: signal ?? null }
+      const pending: PendingRead = { resolve, signal: signal ?? null }
+      this.#plainPending = pending
       if (signal !== undefined) {
-        signal.addEventListener('abort', () => {
-          if (this.#plainPending?.signal !== signal) return
+        const onAbort = (): void => {
+          if (this.#plainPending !== pending) return
           this.#plainPending = null
           resolve(null)
-        }, { once: true })
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        pending.offAbort = () => { signal.removeEventListener('abort', onAbort) }
       }
       this.#pumpPlain()
     })
@@ -962,11 +982,13 @@ export class LocalTui implements TuiService {
     if (pending === null) return
     const line = this.#plainQueue.shift()
     if (line !== undefined) {
+      pending.offAbort?.()
       this.#plainPending = null
       pending.resolve({ text: line, images: [] })
       return
     }
     if (this.#plainClosed) {
+      pending.offAbort?.()
       this.#plainPending = null
       pending.resolve(null)
     }
@@ -2228,6 +2250,7 @@ export class LocalTui implements TuiService {
     this.#resumeHintRequested = true
     if (this.#pending !== null) {
       const pending = this.#pending
+      pending.offAbort?.()
       this.#pending = null
       pending.resolve(null)
     } else {
@@ -2276,6 +2299,7 @@ export class LocalTui implements TuiService {
     }
     const pending = this.#pending
     if (pending !== null) {
+      pending.offAbort?.()
       this.#pending = null
       pending.resolve({ text: submittedText, images })
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
@@ -2366,6 +2390,7 @@ export class LocalTui implements TuiService {
       const raw = '/' + name + (args === '' ? '' : ' ' + args)
       const pending = this.#pending
       if (pending !== null) {
+        pending.offAbort?.()
         this.#pending = null
         pending.resolve({ text: raw, images: [] })
       } else {
