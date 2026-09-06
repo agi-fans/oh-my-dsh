@@ -20,8 +20,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- `/trajectory` search gained match navigation: `n`/`N` (result state) or `Ctrl+N`/`Ctrl+P` (while editing) step across matches, `Enter` locates a hidden match and expands its collapsed turn or subtool call, matching rows show a `×N` badge with highlighted snippets, and the toolbar reports `(3/10)` plus `End: follow · +N new` while detached. The query editor is grapheme-safe and `/` inside it is a literal character (path queries like `src/foo` type correctly).
-- `/model <query>` resolves a provider/model or fuzzy model name against the installed catalog: exact matches switch immediately, ambiguous matches open the picker, and the three closest entries are shown on no match. `/model --session <query>` switches the active session without writing the saved default (fresh starts still use the saved default).
+- `/trajectory` search gained match navigation: matching scans the full ledger, so collapsed turns and hidden subtools still count, and `n`/`N` (result state) or `Ctrl+N`/`Ctrl+P` (while editing) step across matches; `Enter` locates a hidden match and expands its collapsed turn or subtool call. Matching rows show a `×N` badge, the snippet follows the focused occurrence, and the toolbar reports `(3/10)` plus `End: follow · +N new` while detached. The query editor is grapheme-safe and `/` inside it is a literal character (path queries like `src/foo` type correctly).
+- `/model <query>` resolves a provider/model or fuzzy model name against the installed catalog: exact matches switch immediately and print `Default model: …`, ambiguous matches open the picker, and the three closest entries are shown on no match. `/model --session <query>` switches the active session without writing the saved default (fresh starts still use the saved default) and reports `Session model: …`; the flag cannot combine with a subcommand.
 
 ## [0.14.0] - 2026-09-04
 
