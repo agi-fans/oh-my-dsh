@@ -38,6 +38,87 @@ function selected(raw: string, values: readonly string[]): string | undefined {
   return index >= 0 ? values[index] : raw
 }
 
+/** One public-catalog model row used by query resolution (no private metadata). */
+export interface ModelCatalogEntry {
+  readonly provider: string
+  readonly model: string
+  readonly name: string
+  readonly description: string
+}
+
+export type ModelQueryResolution =
+  | { kind: 'unknown-provider'; provider: string }
+  | { kind: 'exact'; matches: readonly ModelCatalogEntry[] }
+  | { kind: 'fuzzy'; matches: readonly ModelCatalogEntry[] }
+  | { kind: 'none'; closest: readonly ModelCatalogEntry[] }
+
+function doubledHill(a: string, b: string, max: number): number | undefined {
+  if (Math.abs(a.length - b.length) > max) return undefined
+  const rows = Array.from({ length: b.length + 1 }, (_, j) => j)
+  let previous = 0
+  let min = max + 1
+  for (let i = 1; i <= a.length; i += 1) {
+    previous = rows[0]
+    rows[0] = i
+    min = rows[0]
+    for (let j = 1; j <= b.length; j += 1) {
+      const temp = rows[j]
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      rows[j] = Math.min(rows[j]! + 1, rows[j - 1]! + 1, previous + cost)
+      if (rows[j]! < min) min = rows[j]!
+    }
+    if (min > max) return undefined
+  }
+  return rows[b.length]
+}
+
+function closestEntries(query: string, catalog: readonly ModelCatalogEntry[]): ModelCatalogEntry[] {
+  const targets: { entry: ModelCatalogEntry; distance: number }[] = []
+  for (const entry of catalog) {
+    for (const candidate of [entry.model, entry.name]) {
+      const distance = doubledHill(query.toLowerCase(), candidate.toLowerCase(), 3)
+      if (distance !== undefined && distance <= 3) {
+        targets.push({ entry, distance })
+        break
+      }
+    }
+  }
+  targets.sort((left, right) => left.distance - right.distance)
+  return targets.slice(0, 3).map(entry => entry.entry)
+}
+
+function matchesQuery(entry: ModelCatalogEntry, query: string): boolean {
+  return entry.model.toLowerCase().includes(query)
+    || entry.name.toLowerCase().includes(query)
+    || entry.description.toLowerCase().includes(query)
+}
+
+/**
+ * Resolve one /model query against the public catalog. Pure; the caller
+ * fetches the catalog and performs the side effects.
+ */
+export function resolveModelQuery(query: string, catalog: readonly ModelCatalogEntry[]): ModelQueryResolution {
+  const trimmed = query.trim()
+  if (trimmed === '') return { kind: 'exact', matches: [] }
+  const qualifier = /^([^:]+):([^:]+)$/u.exec(trimmed)
+  if (qualifier !== null) {
+    const provider = qualifier[1]!.toLowerCase()
+    const model = qualifier[2]!.toLowerCase()
+    const inProvider = catalog.filter(entry => entry.provider.toLowerCase() === provider)
+    if (inProvider.length === 0) return { kind: 'unknown-provider', provider: qualifier[1]! }
+    const exact = inProvider.filter(entry => entry.model.toLowerCase() === model)
+    if (exact.length > 0) return { kind: 'exact', matches: exact }
+    const fuzzy = inProvider.filter(entry => matchesQuery(entry, model))
+    return fuzzy.length > 0 ? { kind: 'fuzzy', matches: fuzzy } : { kind: 'none', closest: closestEntries(model, inProvider) }
+  }
+  const lower = trimmed.toLowerCase()
+  const exact = catalog.filter(entry => entry.model.toLowerCase() === lower)
+  if (exact.length > 0) return { kind: 'exact', matches: exact }
+  const fuzzy = catalog.filter(entry => matchesQuery(entry, lower))
+  if (fuzzy.length > 0) return { kind: 'fuzzy', matches: fuzzy }
+  return { kind: 'none', closest: closestEntries(lower, catalog) }
+}
+
 function favoritesPath(): string {
   const dshHome = process.env.OMDSH_HOME ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
   return join(dshHome, 'omdsh', 'model-favorites.json')
@@ -127,13 +208,94 @@ function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'fa
   return { kind: 'success', text: `Removed favorite: ${current.provider}/${current.model}` }
 }
 
+/** Load the public model catalog (id/name/description only). */
+async function loadCatalog(ctx: Context, signal: AbortSignal): Promise<ModelCatalogEntry[]> {
+  const catalog: ModelCatalogEntry[] = []
+  for (const provider of ctx.llm.listProviders()) {
+    const models = await ctx.llm.listModels(provider.id, signal)
+    for (const model of models) {
+      catalog.push({
+        provider: provider.id,
+        model: model.id,
+        name: model.name ?? model.id,
+        description: model.description ?? '',
+      })
+    }
+  }
+  return catalog
+}
+
+function pickEffort(current: ModelSelection, info: LlmResolvedModelInfo): ReasoningEffortId | undefined {
+  if (current.reasoningEffort === undefined) return undefined
+  const efforts = info.reasoning?.efforts.map(effort => String(effort.id)) ?? []
+  return efforts.includes(String(current.reasoningEffort))
+    ? ReasoningEffortId(String(current.reasoningEffort))
+    : undefined
+}
+
+/** Switch through one resolved catalog entry; `sessionOnly` skips the default write. */
+async function applyResolved(
+  ctx: Context,
+  invocation: CommandInvocation,
+  entry: ModelCatalogEntry,
+  sessionOnly: boolean,
+  current: ModelSelection,
+): Promise<CommandResult> {
+  const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
+  const reasoningEffort = pickEffort(current, info)
+  const selection: ModelSelection = {
+    provider: entry.provider,
+    model: entry.model,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+  }
+  await ctx.omdshSession.changeSelection(invocation.agent, selection, info, { persist: !sessionOnly })
+  return {
+    kind: 'success',
+    text: `${sessionOnly ? 'Session' : 'Default'} model: ${entry.provider}/${entry.model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`,
+  }
+}
+
+async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, query: string, sessionOnly: boolean): Promise<CommandResult> {
+  const catalog = await loadCatalog(ctx, invocation.signal)
+  if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
+  const resolve = resolveModelQuery(query, catalog)
+  const current = ctx.omdshSession.selection(invocation.agent)
+  if (resolve.kind === 'unknown-provider') return { kind: 'error', text: `Unknown provider: ${resolve.provider}` }
+  let matches = resolve.matches
+  if (resolve.kind === 'none') {
+    const closest = resolve.closest.map(entry => `${entry.provider}/${entry.model}`).join(' · ')
+    return {
+      kind: 'error',
+      text: `No model matches "${query.trim()}"` + (closest === '' ? '' : `. Closest: ${closest}`),
+    }
+  }
+  let entry: ModelCatalogEntry | undefined
+  if (matches.length === 1) {
+    entry = matches[0]
+  } else {
+    const raw = await ctx.tui.prompt({
+      ...fixedChoice(matches.length),
+      title: sessionOnly ? 'Model (session)' : 'Model',
+      question: `Matches for "${query.trim()}"; use provider:model to disambiguate`,
+      options: matches.map(match => ({ label: `${match.provider}/${match.model}`, value: `${match.provider}/${match.model}`, description: match.description })),
+      signal: invocation.signal,
+    })
+    if (raw === null) return { kind: 'success' }
+    entry = matches.find(match => `${match.provider}/${match.model}` === raw)
+  }
+  if (entry === undefined) return { kind: 'error', text: `Unknown match: ${query.trim()}` }
+  return applyResolved(ctx, invocation, entry, sessionOnly, current)
+}
+
 async function selectModel(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const action = invocation.rawInput.trim().toLowerCase()
   if (action === 'next') return cycleFavorite(ctx, invocation, 1)
   if (action === 'previous') return cycleFavorite(ctx, invocation, -1)
   if (action === 'reasoning') return cycleReasoning(ctx, invocation)
   if (action === 'favorite' || action === 'unfavorite' || action === 'favorites') return manageFavorite(ctx, invocation, action)
-  if (action !== '') return { kind: 'error', text: 'Usage: /model [favorite|unfavorite|favorites|next|previous|reasoning]' }
+  if (action === '--session') return { kind: 'error', text: 'Usage: /model --session <query>' }
+  if (action.startsWith('--')) return { kind: 'error', text: 'Usage: /model [--session <query> | favorite|unfavorite|favorites|next|previous|reasoning]' }
+  if (action !== '') return resolveQuerySelect(ctx, invocation, action, false)
   const providers = ctx.llm.listProviders()
   if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
@@ -201,7 +363,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   await ctx.omdshSession.changeSelection(invocation.agent, selection, info)
   return {
     kind: 'success',
-    text: `Model: ${provider}/${model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`,
+    text: `Default model: ${provider}/${model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`,
   }
 }
 

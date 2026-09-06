@@ -704,8 +704,13 @@ export class SessionRuntime {
     return current
   }
 
-  /** Replace the active Agent's selection and persist it as the next default. */
-  async changeSelection(agent: Agent, selection: ModelSelection, info?: LlmResolvedModelInfo): Promise<void> {
+  /** Replace the active Agent's selection, optionally persisting it as the next default. */
+  async changeSelection(
+    agent: Agent,
+    selection: ModelSelection,
+    info?: LlmResolvedModelInfo,
+    options?: { persist?: boolean },
+  ): Promise<void> {
     this.assertActive(agent)
     const active = this.#requiredActive()
     active.selection.current = selection
@@ -715,7 +720,9 @@ export class SessionRuntime {
     active.reasoningEffort = status.reasoningEffort
     this.#tui.setModel(status.model, status.reasoningEffort)
     this.#pushSessionInfo()
-    await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
+    if (options?.persist !== false) {
+      await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
+    }
   }
 
   /** Start a new top-level session with the current model selection. */

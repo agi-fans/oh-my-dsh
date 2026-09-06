@@ -120,3 +120,98 @@ describe('trajectory ledger', () => {
     expect(new Set(dividerColumns)).toEqual(new Set([69]))
   })
 })
+
+describe('trajectory search navigation', () => {
+  const searchEvents: SessionEvent[] = [
+    event(1, 'turn/start', { turn: 1 }),
+    event(2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'read the readme' }] }),
+    event(3, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'draft' }] }, stream: [] }),
+    event(4, 'tool/call', { turn: 1, step: 2, callId: 'c1', name: 'bash', arguments: '{"command":"cat readme.md"}' }),
+  ]
+
+  function searching(state: ReturnType<typeof createTrajectory>, query: string): ReturnType<typeof createTrajectory> {
+    let next = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    for (const char of query) next = (applyTrajectoryEvent(next, { type: 'text', value: char }) as { state: typeof state }).state
+    return next
+  }
+
+  it('matching scans the full ledger while collapse only affects display', () => {
+    let state = searching(createTrajectory(searchEvents), 'readme')
+    expect(trajectorySearch(state).matches).toHaveLength(2)
+    // Collapse turn 1: the hidden user record still counts as a match.
+    state = { ...state, collapsedTurns: new Set([1]) }
+    expect(trajectoryVisibleRecords(state)).toHaveLength(1)
+    expect(trajectorySearch(state).counts.size).toBe(2)
+  })
+
+  it('locates a hidden match and expands its turn on enter', () => {
+    let state = searching(createTrajectory(searchEvents), 'readme')
+    state = { ...state, collapsedTurns: new Set([1]) }
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
+    expect(state.searchFocus).toBe(0)
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'enter' }) as { state: typeof state }).state
+    expect(state.searching).toBe(false)
+    expect(state.collapsedTurns.has(1)).toBe(false)
+    expect(state.selectedId).toBe(state.ledger.records[1]!.id)
+  })
+
+  it('navigates matches with n/N in the result state and ctrl+n/p while editing', () => {
+    let state = searching(createTrajectory(searchEvents), 'readme')
+    expect(state.searching).toBe(true)
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'enter' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'n' }) as { state: typeof state }).state
+    expect(state.searchFocus).toBe(1)
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'N' }) as { state: typeof state }).state
+    expect(state.searchFocus).toBe(0)
+    // Editing state: n is a literal query character, ctrl+n navigates.
+    state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'n' }) as { state: typeof state }).state
+    expect(state.query).toBe('n')
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
+    expect(state.searchFocus).toBe(1)
+  })
+
+  it('deletes the query by grapheme boundary', () => {
+    let state = createTrajectory(searchEvents)
+    state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'a🐳' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'backspace' }) as { state: typeof state }).state
+    expect(state.query).toBe('a')
+  })
+
+  it('restores the located match across an append that shifts earlier matches', () => {
+    let state = searching(createTrajectory(searchEvents), 'readme')
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
+    const target = captureSearchTarget(state)
+    expect(target).not.toBeNull()
+    // Appending a retry record matches earlier in the ledger (record order
+    // shifts); the focused record identity must survive.
+    const next = appendTrajectoryEvent(state, event(5, 'llm/retry', { turn: 1, step: 3, attempt: 1 }))
+    expect(next.searchFocus).not.toBeNull()
+    expect(next.selectedId).toBe(target?.record.id)
+  })
+
+  it('reports the follow notice and clears it on end or moving to the bottom', () => {
+    let state = createTrajectory(searchEvents)
+    state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'readme' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
+    state = { ...state, query: 'readme', searching: false, followNotice: 0 }
+    state = appendTrajectoryEvent(state, event(6, 'llm/retry', { turn: 1, step: 3, attempt: 1 }))
+    state = appendTrajectoryEvent(state, event(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    expect(state.followNotice).toBe(1)
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'end' }) as { state: typeof state }).state
+    expect(state.followNotice).toBe(0)
+    expect(state.following).toBe(true)
+  })
+
+  it('the layout metrics clamp to the actual body capacity', () => {
+    const state = createTrajectory(searchEvents)
+    expect(trajectoryListMetrics(state, 24).pageSize).toBeGreaterThan(0)
+    expect(trajectoryListMetrics(state, 3).pageSize).toBe(0)
+    expect(trajectoryDetailMetrics(state, 7).pageLines).toBe(1)
+    expect(trajectoryDetailMetrics(state, 24).pageLines).toBe(18)
+  })
+})

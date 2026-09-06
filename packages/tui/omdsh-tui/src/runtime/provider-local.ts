@@ -92,6 +92,8 @@ import {
   appendTrajectoryEvent,
   applyTrajectoryEvent,
   createTrajectory,
+  trajectoryDetailMetrics,
+  trajectoryListMetrics,
   type TrajectoryState,
 } from '../views/trajectory.ts'
 import {
@@ -1467,7 +1469,9 @@ export class LocalTui implements TuiService {
     }
     if (this.#handlePrompt(event)) return
     if (this.#trajectory !== null) {
-      const command = applyTrajectoryEvent(this.#trajectory, event)
+      const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height())
+      const { pageLines } = trajectoryDetailMetrics(this.#trajectory, this.#term.height())
+      const command = applyTrajectoryEvent(this.#trajectory, event, { pageSize, detailPageLines: pageLines })
       if ('close' in command) this.#trajectory = null
       else this.#trajectory = command.state
       this.#render()
