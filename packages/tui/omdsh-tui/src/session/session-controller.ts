@@ -476,7 +476,8 @@ export class SessionRuntime {
   #skillCommands: TuiCommand[] = []
   #started = false
   readonly #retired: AgentHandle[] = []
-  readonly #releasedHandles = new Set<AgentHandle>()
+  // Weak: deduplication must not retain disposed session graphs.
+  readonly #releasedHandles = new WeakSet<AgentHandle>()
   #disposed = false
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
@@ -964,14 +965,15 @@ export class SessionRuntime {
       this.#refreshDirty = true
       return this.#refreshInFlight
     }
-    this.#refreshInFlight = this.#refreshRecentNow().finally(() => {
-      this.#refreshInFlight = null
-      if (this.#refreshDirty) {
+    const run = (async () => {
+      for (;;) {
+        await this.#refreshRecentNow()
+        if (!this.#refreshDirty || this.#disposed) break
         this.#refreshDirty = false
-        void this.refreshRecent()
       }
-    })
-    return this.#refreshInFlight
+    })().finally(() => { this.#refreshInFlight = null })
+    this.#refreshInFlight = run
+    return run
   }
 
   async #refreshRecentNow(): Promise<void> {
@@ -1072,16 +1074,16 @@ export class SessionRuntime {
   }
 
   async #activate(next: ActiveSession): Promise<void> {
-    const previous = this.#active
-    const epoch = ++this.#activationEpoch
-    this.#active = next
-    this.#presentAgent(next)
-    // Reject a late activation before its UI work publishes on a disposed tree.
+    // Reject a late create before it publishes UI on a disposed tree.
     if (this.#disposed) {
       this.#releaseHandle(next.handle)
       return
     }
+    const previous = this.#active
+    const epoch = ++this.#activationEpoch
+    this.#active = next
     try {
+      this.#presentAgent(next)
       const selected = this.selection(next.handle.agent)
       const info = await this.#resolveModelInfo(selected)
       if (this.#disposed || this.#activationEpoch !== epoch) {
@@ -1107,8 +1109,12 @@ export class SessionRuntime {
       if (this.#activationEpoch === epoch) {
         this.#active = previous
         if (previous !== undefined) this.#presentAgent(previous)
+        this.#releaseHandle(next.handle)
+      } else if (previous !== undefined) {
+        // A dispose or a newer activation owns the visible handle chain;
+        // only the superseded previous agent is still unowned here.
+        this.#releaseHandle(previous.handle)
       }
-      this.#releaseHandle(next.handle)
       throw error
     }
     if (previous !== undefined) this.#releaseHandle(previous.handle)

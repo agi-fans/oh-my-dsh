@@ -19,7 +19,8 @@ function graphemes(text: string): string[] {
   const hit = partsCache.get(text)
   if (hit !== undefined) return hit
   const parts = [...segmenter.segment(text)].map(item => item.segment)
-  if (partsCache.size < PARTS_CACHE_LIMIT) partsCache.set(text, parts)
+  if (partsCache.size >= PARTS_CACHE_LIMIT) partsCache.clear()
+  partsCache.set(text, parts)
   return parts
 }
 

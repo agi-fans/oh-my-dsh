@@ -34,6 +34,9 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   await controller.start()
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
+  // An unmount must also cancel an in-flight slash command, not just the read.
+  const onCancelled = (): void => { operation?.abort(new Error('runner unloaded')) }
+  cancelled.addEventListener('abort', onCancelled, { once: true })
   const offInterrupt = tui.onInterrupt(() => {
     if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
@@ -111,7 +114,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         }
       }
     }
-    if (!cancelled.signal.aborted) {
+    if (!cancelled.aborted) {
       // EOF means "no more input", not "discard the accepted work". Let the
       // active turn and every queued follow-up settle so pipe/CI mode observes
       // the same transcript and errors as an interactive terminal.
@@ -121,6 +124,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       operation?.abort(new Error('runner unloaded'))
     }
   } finally {
+    cancelled.removeEventListener('abort', onCancelled)
     operation?.abort(new Error('runner disposed'))
     loop?.disable()
     offQueueEdit()
@@ -129,7 +133,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   }
   // A plugin unmount must not exit the surviving application; only a user
   // EOF/Ctrl-D quits the host.
-  if (!cancelled.signal.aborted) ctx.get('appExit')?.(0)
+  if (!cancelled.aborted) ctx.get('appExit')?.(0)
 }
 
 export function apply(ctx: Context): void {
