@@ -8,6 +8,11 @@ import {
   createTrajectory,
   renderTrajectory,
   trajectoryVisibleRecords,
+  captureSearchTarget,
+  restoreSearchTarget,
+  trajectoryListMetrics,
+  trajectoryDetailMetrics,
+  trajectorySearch,
 } from './trajectory.ts'
 
 function event(seq: number, type: string, data: unknown, time = seq * 100): SessionEvent {
@@ -137,11 +142,12 @@ describe('trajectory search navigation', () => {
 
   it('matching scans the full ledger while collapse only affects display', () => {
     let state = searching(createTrajectory(searchEvents), 'readme')
+    // One user record with a matching summary and payload: two derived spans.
     expect(trajectorySearch(state).matches).toHaveLength(2)
     // Collapse turn 1: the hidden user record still counts as a match.
     state = { ...state, collapsedTurns: new Set([1]) }
     expect(trajectoryVisibleRecords(state)).toHaveLength(1)
-    expect(trajectorySearch(state).counts.size).toBe(2)
+    expect(trajectorySearch(state).counts.size).toBe(1)
   })
 
   it('locates a hidden match and expands its turn on enter', () => {
@@ -163,10 +169,11 @@ describe('trajectory search navigation', () => {
     expect(state.searchFocus).toBe(1)
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'N' }) as { state: typeof state }).state
     expect(state.searchFocus).toBe(0)
-    // Editing state: n is a literal query character, ctrl+n navigates.
+    // Editing state: '/' is literal; n is a literal query character, ctrl+n navigates.
     state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    expect(state.query.endsWith('/')).toBe(true)
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'n' }) as { state: typeof state }).state
-    expect(state.query).toBe('n')
+    expect(state.query.endsWith('n')).toBe(true)
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
     expect(state.searchFocus).toBe(1)
   })
@@ -179,29 +186,62 @@ describe('trajectory search navigation', () => {
     expect(state.query).toBe('a')
   })
 
-  it('restores the located match across an append that shifts earlier matches', () => {
+  it('keeps the located match when an earlier record gains a match', () => {
     let state = searching(createTrajectory(searchEvents), 'readme')
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
     const target = captureSearchTarget(state)
     expect(target).not.toBeNull()
-    // Appending a retry record matches earlier in the ledger (record order
-    // shifts); the focused record identity must survive.
-    const next = appendTrajectoryEvent(state, event(5, 'llm/retry', { turn: 1, step: 3, attempt: 1 }))
+    // A tool/result update adds a match to the tool record (before the focused
+    // user record in the derived list when re-scanned from the top): the
+    // focused record identity must survive.
+    const next = appendTrajectoryEvent(state, event(5, 'tool/result', {
+      turn: 1, step: 2, callId: 'c1', message: { content: [{ type: 'text', text: 'readme content' }] },
+    }))
     expect(next.searchFocus).not.toBeNull()
     expect(next.selectedId).toBe(target?.record.id)
+    expect(trajectorySearch(next).matches.length).toBeGreaterThan(2)
+  })
+
+  it('clamps within the field when a focused occurrence shrinks', () => {
+    const withResults: SessionEvent[] = [
+      ...searchEvents,
+      event(5, 'tool/result', {
+        turn: 1, step: 2, callId: 'c1', message: { content: [{ type: 'text', text: 'x x x' }] },
+      }),
+    ]
+    let state = createTrajectory(withResults)
+    state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
+    for (const char of 'x x x') {
+      state = (applyTrajectoryEvent(state, { type: 'text', value: char }) as { state: typeof state }).state
+    }
+    // Step to the last occurrence (tool result: three 'x' spans).
+    const before = trajectorySearch(state).matches.length
+    for (let index = 0; index < before - 1; index += 1) {
+      state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: typeof state }).state
+    }
+    const target = captureSearchTarget(state)
+    expect(target?.field).toBe('result')
+    expect(target?.occurrence).toBe(before - 1)
+    // Shrink the result text to one 'x': occurrence clamps within the field.
+    const next = appendTrajectoryEvent(state, event(6, 'tool/result', {
+      turn: 1, step: 2, callId: 'c1', message: { content: [{ type: 'text', text: 'x' }] },
+    }))
+    expect(next.selectedId).toBe(target?.record.id)
+    expect(next.searchFocus).not.toBeNull()
   })
 
   it('reports the follow notice and clears it on end or moving to the bottom', () => {
     let state = createTrajectory(searchEvents)
     state = (applyTrajectoryEvent(state, { type: 'text', value: '/' }) as { state: typeof state }).state
     state = (applyTrajectoryEvent(state, { type: 'text', value: 'readme' }) as { state: typeof state }).state
-    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
-    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
-    state = (applyTrajectoryEvent(state, { type: 'text', value: 'x' }) as { state: typeof state }).state
-    state = { ...state, query: 'readme', searching: false, followNotice: 0 }
+    state = { ...state, query: 'readme', searching: false, followNotice: 0, following: false }
     state = appendTrajectoryEvent(state, event(6, 'llm/retry', { turn: 1, step: 3, attempt: 1 }))
     state = appendTrajectoryEvent(state, event(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
     expect(state.followNotice).toBe(1)
+    // While already following the counter stays at zero.
+    state = { ...state, followNotice: 0, following: true }
+    state = appendTrajectoryEvent(state, event(8, 'llm/retry', { turn: 1, step: 4, attempt: 1 }))
+    expect(state.followNotice).toBe(0)
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'end' }) as { state: typeof state }).state
     expect(state.followNotice).toBe(0)
     expect(state.following).toBe(true)

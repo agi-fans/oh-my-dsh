@@ -104,6 +104,7 @@ export class TrajectoryLedger {
   readonly records: TrajectoryRecord[] = []
   /** Searchable text per record; every in-place text mutation invalidates it. */
   readonly #textCache = new WeakMap<TrajectoryRecord, string>()
+  readonly #fieldCache = new WeakMap<TrajectoryRecord, readonly string[]>()
   #turn: number | null = null
   #step: number | null = null
   readonly #stepStarted = new Map<string, number>()
@@ -118,18 +119,34 @@ export class TrajectoryLedger {
     for (const event of events) this.append(event)
   }
 
+  /** Lowercased searchable fields for one record (cached per record object). */
+  normalizedFields(record: TrajectoryRecord): readonly string[] {
+    const cached = this.#fieldCache.get(record)
+    if (cached !== undefined) return cached
+    const fields = [record.type, record.label, record.summary, record.payload, record.result, record.schema]
+      .map(field => field.toLocaleLowerCase())
+    this.#fieldCache.set(record, fields)
+    return fields
+  }
+
   /** Concatenated searchable text for one record (cached per record object). */
   searchText(record: TrajectoryRecord): string {
     const cached = this.#textCache.get(record)
     if (cached !== undefined) return cached
-    const text = `${record.type}\n${record.label}\n${record.summary}\n${record.payload}\n${record.result}\n${record.schema}`
+    const text = this.normalizedFields(record).join('\n')
     this.#textCache.set(record, text)
     return text
+  }
+
+  /** Whether one record's fields contain the lowercased query (per-field, no cross-field joins). */
+  recordMatches(record: TrajectoryRecord, query: string): boolean {
+    return this.normalizedFields(record).some(field => field.includes(query))
   }
 
   /** Invalidate one record's cached search text after mutating its text fields. */
   #invalidateText(record: TrajectoryRecord): void {
     this.#textCache.delete(record)
+    this.#fieldCache.delete(record)
   }
 
   #push(record: Omit<TrajectoryRecord, 'index'>): number {
@@ -389,7 +406,7 @@ export function appendTrajectoryEvent(state: TrajectoryState, event: SessionEven
   state.ledger.append(event)
   const added = state.ledger.records.length - beforeCount
   let next: TrajectoryState = target === null ? state : restoreSearchTarget(state, target)
-  if (added > 0) next = { ...next, followNotice: next.followNotice + added }
+  if (added > 0 && !state.following) next = { ...next, followNotice: next.followNotice + added }
   if (next.following) {
     next = { ...next, selectedId: trajectoryVisibleRecords(next).at(-1)?.id ?? next.selectedId }
   }
@@ -414,17 +431,25 @@ export function restoreSearchTarget(state: TrajectoryState, target: SearchTarget
   if (matches.length === 0) return { ...state, searchFocus: null }
   let targetIndex = -1
   let occurrence = 0
+  let fieldLast = -1
+  let fieldCount = 0
   for (let index = 0; index < matches.length; index += 1) {
     const candidate = matches[index]
     if (candidate.record === target.record && candidate.field === target.field) {
+      fieldLast = index
+      fieldCount += 1
       if (occurrence === target.occurrence) { targetIndex = index; break }
       occurrence += 1
     }
   }
+  // The field still matches: clamp within it (an occurrence may have shrunk).
   const index = targetIndex >= 0
     ? targetIndex
-    : Math.max(0, Math.min(matches.length - 1, state.searchFocus ?? 0))
+    : fieldCount > 0
+      ? fieldLast >= 0 ? fieldLast : Math.max(0, Math.min(matches.length - 1, state.searchFocus ?? 0))
+      : Math.max(0, Math.min(matches.length - 1, state.searchFocus ?? 0))
   const match = matches[index]
+  if (match === undefined) return { ...state, searchFocus: null }
   return { ...state, searchFocus: index, selectedId: match.record.id }
 }
 
@@ -438,7 +463,7 @@ export function trajectoryVisibleRecords(state: TrajectoryState): TrajectoryReco
       firstInCollapsed.add(record.turn)
     }
     if (query === '') return true
-    return state.ledger.searchText(record).toLocaleLowerCase().includes(query)
+    return state.ledger.recordMatches(record, query)
   })
 }
 
@@ -449,11 +474,23 @@ export function trajectorySearch(state: TrajectoryState): { matches: SearchMatch
   const matches: SearchMatch[] = []
   const counts = new Map<string, number>()
   for (const record of state.ledger.records) {
+    const lowerFields = state.ledger.normalizedFields(record)
     let total = 0
-    for (const field of SEARCH_FIELDS) {
-      const text = record[field]
-      if (text === '') continue
-      const lower = text.toLocaleLowerCase()
+    for (let fieldIndex = 0; fieldIndex < SEARCH_FIELDS.length; fieldIndex += 1) {
+      const field = SEARCH_FIELDS[fieldIndex]
+      const lower = lowerFields[fieldIndex] ?? ''
+      if (lower === '') continue
+      const original = record[field]
+      // Case folding can expand code points (e.g. U+0130); only then are the
+      // lowercase offsets valid against the original text.
+      const offsetsExact = Array.from(lower).length === Array.from(original).length
+      if (!offsetsExact) {
+        if (lower.includes(query)) {
+          matches.push({ record, field, offset: 0, length: original.length })
+          total += 1
+        }
+        continue
+      }
       let from = 0
       for (;;) {
         const at = lower.indexOf(query, from)
@@ -493,8 +530,10 @@ function locateMatch(state: TrajectoryState, index: number): TrajectoryState {
 function moveMatch(state: TrajectoryState, delta: number): TrajectoryState {
   const matches = trajectorySearch(state).matches
   if (matches.length === 0) return state
-  const current = Math.max(0, state.searchFocus ?? 0)
-  const next = ((current + delta) % matches.length + matches.length) % matches.length
+  const current = state.searchFocus
+  const next = current === null
+    ? delta > 0 ? 0 : matches.length - 1
+    : (current + delta + matches.length) % matches.length
   return locateMatch(state, next)
 }
 
@@ -543,11 +582,13 @@ export function applyTrajectoryEvent(
   if (state.searching) {
     // Editing state: every printable character (including / n N c t) is a
     // literal query character; navigation uses control keys only.
-    if (event.type === 'text') return { state: { ...state, query: state.query + event.value, following: false } }
+    if (event.type === 'text') {
+      return { state: { ...state, query: state.query + event.value, searchFocus: null, following: false } }
+    }
     if (event.type !== 'key') return { state }
     if (event.id === 'backspace') {
       const start = moveGraphemeLeft(state.query, state.query.length)
-      return { state: { ...state, query: state.query.slice(0, start) } }
+      return { state: { ...state, query: state.query.slice(0, start), searchFocus: null } }
     }
     if (event.id === 'ctrl+n') return { state: moveMatch(state, 1) }
     if (event.id === 'ctrl+p') return { state: moveMatch(state, -1) }
@@ -568,8 +609,8 @@ export function applyTrajectoryEvent(
       return { state: { ...state, searching: true, following: false } }
     }
     if (lower === 'n' && state.query !== '') return { state: moveMatch(state, event.value === 'N' ? -1 : 1) }
-    if (lower === 'c' && state.query === '') return { state: { ...state, callsCollapsed: !state.callsCollapsed } }
-    if (lower === 't' && state.query === '') {
+    if (lower === 'c') return { state: { ...state, callsCollapsed: !state.callsCollapsed } }
+    if (lower === 't') {
       const selected = state.ledger.records.find(record => record.id === state.selectedId)
       if (selected?.turn === null || selected?.turn === undefined) return { state }
       const collapsed = new Set(state.collapsedTurns)
@@ -619,16 +660,32 @@ export function applyTrajectoryEvent(
 export function trajectoryListMetrics(state: TrajectoryState, height: number): { pageSize: number } {
   const body = Math.max(0, height - 4)
   if (body <= 0) return { pageSize: 0 }
+  const layout = rowLayout(state)
+  if (layout.length === 0) return { pageSize: 1 }
+  const selected = Math.max(0, layout.findIndex(row => row.id === state.selectedId))
+  const start = Math.max(0, Math.min(layout.length - 1, selected - Math.floor(body / 2)))
   let rows = 0
   let count = 0
-  let previousTurn: number | null | undefined
-  for (const record of trajectoryVisibleRecords(state)) {
-    rows += 1 + (record.turn !== previousTurn ? 1 : 0)
-    previousTurn = record.turn
+  for (let index = start; index < layout.length; index += 1) {
+    rows += 1
     if (rows > body) break
     count += 1
   }
   return { pageSize: Math.max(1, count) }
+}
+
+/** Per-record row layout (turn headers included), consumed by rendering and metrics. */
+function rowLayout(state: TrajectoryState): { id: string; turnHeader: boolean }[] {
+  const layout: { id: string; turnHeader: boolean }[] = []
+  let previousTurn: number | null | undefined
+  for (const record of trajectoryVisibleRecords(state)) {
+    if (record.turn !== previousTurn) {
+      previousTurn = record.turn
+      layout.push({ id: `turn:${record.turn ?? 'between'}`, turnHeader: true })
+    }
+    layout.push({ id: record.id, turnHeader: false })
+  }
+  return layout
 }
 
 /** Detail scroll step in wrapped lines for one body height (pure, shared with rendering). */
@@ -675,14 +732,35 @@ function recordLine(
   width: number,
   highlightSpans: readonly SearchMatch[],
   matchCount: number | undefined,
+  summaryOverride?: string,
 ): string {
   const marker = selected ? theme.fg('accent', '›') : ' '
   const locationLabel = record.turn === null ? ' —   ' : `T${record.turn}${record.step === null ? '' : `·${record.step}`}`.padEnd(5)
   const kind = theme.fg(kindColor(record.kind), record.label.padEnd(9).slice(0, 9))
   const elapsed = duration(record).padStart(6)
-  const badge = matchCount === undefined ? '' : theme.fg('dim', ` ×${matchCount}`)
+  const badge = matchCount === undefined ? '' : ` ${theme.fg('dim', `×${matchCount}`)}`
   const prefix = `${marker} ${String(record.index).padStart(4)} ${locationLabel} ${kind} ${elapsed}  `
-  return truncateToWidth(prefix + highlightSummary(record.summary, highlightSpans) + badge, Math.max(0, width))
+  const bodyWidth = Math.max(0, width - visibleWidth(prefix) - visibleWidth(badge))
+  const body = summaryOverride ?? highlightSummary(record.summary, highlightSpans)
+  return prefix + truncateToWidth(body, bodyWidth) + badge
+}
+
+/** Snippet of one record field around its first hit (non-summary fields). */
+function fieldSnippet(record: TrajectoryRecord, field: SearchMatch['field'], highlightSpans: readonly SearchMatch[], width: number): string {
+  const text = record[field]
+  if (text === '') return highlightSummary(record.summary, highlightSpans)
+  const span = highlightSpans.find(match => match.field === field)
+  if (span === undefined) return highlightSummary(record.summary, highlightSpans)
+  if (field !== 'summary') {
+    const from = Math.max(0, span.offset - 16)
+    const to = Math.min(text.length, span.offset + span.length + 24)
+    const snippet = text.slice(from, to)
+    const shifted = highlightSummary(snippet, [{ ...span, offset: span.offset - from }])
+    return `${field}: ${truncateToWidth(snippet.replaceAll('\n', ' '), width)}`.length <= width
+      ? `${field}: ${truncateToWidth(snippet.replaceAll('\n', ' '), width)}`
+      : `${field}: ${truncateToWidth(shifted.replaceAll('\n', ' '), width)}`
+  }
+  return highlightSummary(text, highlightSpans)
 }
 
 function selectedRecord(state: TrajectoryState): TrajectoryRecord | undefined {
@@ -720,7 +798,6 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
   const { matches, counts } = trajectorySearch(state)
   const highlighted = new Map<string, SearchMatch[]>()
   for (const match of matches) {
-    if (match.field !== 'summary') continue
     const list = highlighted.get(match.record.id) ?? []
     list.push(match)
     highlighted.set(match.record.id, list)
@@ -734,15 +811,18 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
       const collapsed = record.turn !== null && state.collapsedTurns.has(record.turn) ? ' · collapsed' : ''
       lines.push({ id: `turn:${record.turn ?? 'between'}`, text: theme.fg('accent', `── ${label}${collapsed} `) })
     }
+    const recordMatches = highlighted.get(record.id) ?? []
+    const headField = recordMatches[0]?.field
+    const headSpans = recordMatches.filter(match => match.field === headField)
+    const summary = headField === undefined || headField === 'summary'
+      ? highlightSummary(record.summary, headSpans)
+      : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24))
     lines.push({
       id: record.id,
-      text: recordLine(
-        record,
-        record.id === state.selectedId,
-        theme,
-        width,
-        highlighted.get(record.id) ?? [],
+      text: recordLine(record, record.id === state.selectedId, theme, width,
+        headField === 'summary' ? headSpans : [],
         state.query === '' ? undefined : counts.get(record.id),
+        summary,
       ),
     })
   }
@@ -790,8 +870,8 @@ export function renderTrajectory(
   const searchInfo = state.query === '' ? '' : ` · ${searchPosition(state)}`
   const followInfo = state.following ? '' : state.followNotice > 0 ? ` · End: follow · +${state.followNotice} new` : ''
   const toolbar = truncateToWidth(theme.fg('dim', state.details
-    ? ' ↑↓ records · PgUp/PgDn detail · Tab/←→ section · Esc back'
-    : ` ↑↓ navigate · Enter details · / search · n/N match · t turn · c calls · End follow${state.following ? ' ●' : ''}${searchInfo}${followInfo}`), safeWidth)
+    ? `${searchInfo.slice(2)}${followInfo} · ↑↓ records · PgUp/PgDn detail · Tab/←→ section · Esc back`
+    : `${searchInfo.slice(2)}${followInfo} · ↑↓ navigate · Enter details · / search · n/N match · t turn · c calls · End follow${state.following ? ' ●' : ''}`), safeWidth)
   const divider = theme.fg('border', '─'.repeat(safeWidth))
   const bodyHeight = Math.max(0, safeHeight - 4)
   const wideDetails = state.details && safeWidth >= 96

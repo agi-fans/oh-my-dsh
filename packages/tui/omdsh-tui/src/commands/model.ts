@@ -54,34 +54,31 @@ export type ModelQueryResolution =
 
 function doubledHill(a: string, b: string, max: number): number | undefined {
   if (Math.abs(a.length - b.length) > max) return undefined
-  const rows = Array.from({ length: b.length + 1 }, (_, j) => j)
-  let previous = 0
-  let min = max + 1
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j)
   for (let i = 1; i <= a.length; i += 1) {
-    previous = rows[0]
-    rows[0] = i
-    min = rows[0]
+    const current = new Array<number>(b.length + 1)
+    current[0] = i
+    let min = current[0]!
     for (let j = 1; j <= b.length; j += 1) {
-      const temp = rows[j]
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      rows[j] = Math.min(rows[j]! + 1, rows[j - 1]! + 1, previous + cost)
-      if (rows[j]! < min) min = rows[j]!
+      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + cost)
+      if (current[j]! < min) min = current[j]!
     }
     if (min > max) return undefined
+    previous = current
   }
-  return rows[b.length]
+  return previous[b.length]
 }
 
 function closestEntries(query: string, catalog: readonly ModelCatalogEntry[]): ModelCatalogEntry[] {
   const targets: { entry: ModelCatalogEntry; distance: number }[] = []
   for (const entry of catalog) {
+    let distance: number | undefined
     for (const candidate of [entry.model, entry.name]) {
-      const distance = doubledHill(query.toLowerCase(), candidate.toLowerCase(), 3)
-      if (distance !== undefined && distance <= 3) {
-        targets.push({ entry, distance })
-        break
-      }
+      const attempt = doubledHill(query.toLowerCase(), candidate.toLowerCase(), 3)
+      if (attempt !== undefined && (distance === undefined || attempt < distance)) distance = attempt
     }
+    if (distance !== undefined) targets.push({ entry, distance })
   }
   targets.sort((left, right) => left.distance - right.distance)
   return targets.slice(0, 3).map(entry => entry.entry)
@@ -106,8 +103,12 @@ export function resolveModelQuery(query: string, catalog: readonly ModelCatalogE
     const model = qualifier[2]!.toLowerCase()
     const inProvider = catalog.filter(entry => entry.provider.toLowerCase() === provider)
     if (inProvider.length === 0) return { kind: 'unknown-provider', provider: qualifier[1]! }
-    const exact = inProvider.filter(entry => entry.model.toLowerCase() === model)
-    if (exact.length > 0) return { kind: 'exact', matches: exact }
+    const exactId = inProvider.filter(entry => entry.model.toLowerCase() === model)
+    if (exactId.length > 0) return { kind: 'exact', matches: exactId }
+    const exactName = inProvider.filter(entry => entry.name.toLowerCase() === model)
+    if (exactName.length > 0) return { kind: 'exact', matches: exactName }
+    const exactDescription = inProvider.filter(entry => entry.description.toLowerCase() === model)
+    if (exactDescription.length > 0) return { kind: 'exact', matches: exactDescription }
     const fuzzy = inProvider.filter(entry => matchesQuery(entry, model))
     return fuzzy.length > 0 ? { kind: 'fuzzy', matches: fuzzy } : { kind: 'none', closest: closestEntries(model, inProvider) }
   }
@@ -212,7 +213,7 @@ function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'fa
 async function loadCatalog(ctx: Context, signal: AbortSignal): Promise<ModelCatalogEntry[]> {
   const catalog: ModelCatalogEntry[] = []
   for (const provider of ctx.llm.listProviders()) {
-    const models = await ctx.llm.listModels(provider.id, signal)
+    const models = await ctx.llm.listModels(provider.id)
     for (const model of models) {
       catalog.push({
         provider: provider.id,
@@ -261,7 +262,6 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
   const resolve = resolveModelQuery(query, catalog)
   const current = ctx.omdshSession.selection(invocation.agent)
   if (resolve.kind === 'unknown-provider') return { kind: 'error', text: `Unknown provider: ${resolve.provider}` }
-  let matches = resolve.matches
   if (resolve.kind === 'none') {
     const closest = resolve.closest.map(entry => `${entry.provider}/${entry.model}`).join(' · ')
     return {
@@ -269,6 +269,7 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
       text: `No model matches "${query.trim()}"` + (closest === '' ? '' : `. Closest: ${closest}`),
     }
   }
+  const matches = resolve.matches
   let entry: ModelCatalogEntry | undefined
   if (matches.length === 1) {
     entry = matches[0]
@@ -288,14 +289,16 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
 }
 
 async function selectModel(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const action = invocation.rawInput.trim().toLowerCase()
+  const raw = invocation.rawInput.trim()
+  const sessionOnly = raw === '--session' || raw.startsWith('--session ')
+  const body = sessionOnly ? raw.slice('--session'.length).trim() : raw
+  const action = body.toLowerCase()
   if (action === 'next') return cycleFavorite(ctx, invocation, 1)
   if (action === 'previous') return cycleFavorite(ctx, invocation, -1)
   if (action === 'reasoning') return cycleReasoning(ctx, invocation)
   if (action === 'favorite' || action === 'unfavorite' || action === 'favorites') return manageFavorite(ctx, invocation, action)
-  if (action === '--session') return { kind: 'error', text: 'Usage: /model --session <query>' }
-  if (action.startsWith('--')) return { kind: 'error', text: 'Usage: /model [--session <query> | favorite|unfavorite|favorites|next|previous|reasoning]' }
-  if (action !== '') return resolveQuerySelect(ctx, invocation, action, false)
+  if (sessionOnly) return { kind: 'error', text: 'Usage: /model --session <query>' }
+  if (body !== '') return resolveQuerySelect(ctx, invocation, body, false)
   const providers = ctx.llm.listProviders()
   if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)

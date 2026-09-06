@@ -234,12 +234,15 @@ console.log(`${'Terminal output for 200 streaming frames'.padEnd(42)} ${String(t
 // --- Transcript search navigation ---
 const searchState = createTrajectory(conversation.slice(0, 10_000))
 const searchMatchCount = trajectorySearch(searchState).matches.length
-const searchEvent: KeyEvent = { type: 'text', value: 'question' }
+const searchOpen: KeyEvent = { type: 'text', value: '/' }
+const searchTyped = Array.from('question', char => ({ type: 'text' as const, value: char }))
 
 benchmark('Search and navigate a 10,000-record ledger (200 frames)', () => {
   let state = searchState
+  state = (applyTrajectoryEvent(state, searchOpen) as { state: TrajectoryState }).state
+  for (const event of searchTyped) state = (applyTrajectoryEvent(state, event) as { state: TrajectoryState }).state
   for (let index = 0; index < 200; index += 1) {
-    state = (applyTrajectoryEvent(state, searchEvent) as { state: TrajectoryState }).state
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: TrajectoryState }).state
   }
 })
 console.log(`${'Search matches over 10,000 records'.padEnd(42)} ${String(searchMatchCount).padStart(9)} matches`)

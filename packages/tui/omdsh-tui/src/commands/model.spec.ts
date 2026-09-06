@@ -7,6 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandModel from './model.ts'
+import { resolveModelQuery, type ModelCatalogEntry } from './model.ts'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
 import { writeModelFavorites } from '../session/model-favorites.ts'
@@ -176,7 +177,7 @@ describe('resolveModelQuery', () => {
 
 describe('model query command', () => {
   async function queryEnv(rawInput: string, prompt = vi.fn()): Promise<{
-    result: Awaited<ReturnType<typeof ctx.commands.execute>>,
+    result: Awaited<ReturnType<CommandRuntime['execute']>>,
     selection: ReturnType<typeof vi.fn>,
     prompt: ReturnType<typeof vi.fn>,
     dispose: () => Promise<void>,
@@ -197,7 +198,7 @@ describe('model query command', () => {
       ],
       listModels: async (provider: string) => provider === 'deepseek-official'
         ? [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }, { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' }]
-        : [{ id: 'mirror-pro', name: 'Mirror Pro' }],
+        : [{ id: 'deepseek-v4-pro', name: 'Mirror Pro' }, { id: 'mirror-pro', name: 'Mirror Pro' }],
       resolveModelInfo: async () => ({}),
     }
     ctx.provide('tui', tui)

@@ -20,7 +20,9 @@ describe('grapheme geometry', () => {
     const whale = '🐳'
     expect(snapToGraphemeBoundary('a' + whale, 2)).toBe(3)
     expect(snapToGraphemeBoundary('a' + whale, 1)).toBe(1)
-    expect(snapToGraphemeBoundary('a\n' + whale, 2)).toBe(4)
+    // Offset 2 is the boundary before the whale: stays put.
+    expect(snapToGraphemeBoundary('a\n' + whale, 2)).toBe(2)
+    expect(snapToGraphemeBoundary('a\n' + whale, 3)).toBe(4)
   })
 
   it('keeps combining sequences whole', () => {
