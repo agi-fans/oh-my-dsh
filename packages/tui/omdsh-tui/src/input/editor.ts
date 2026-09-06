@@ -6,6 +6,11 @@
  */
 
 import type { KeyEvent } from './keys.ts'
+import { moveGraphemeLeft, moveGraphemeRight, snapToGraphemeBoundary } from '../chrome/grapheme.ts'
+
+// Re-exported for existing importers; the implementation moved to
+// chrome/grapheme.ts so view-layer query editors share the same geometry.
+export { moveGraphemeLeft, moveGraphemeRight, snapToGraphemeBoundary }
 
 const MAX_UNDO = 80
 const MAX_KILLS = 60
@@ -71,35 +76,11 @@ export function lineEnd(text: string, cursor: number): number {
   return at < 0 ? text.length : at
 }
 
-let graphemeSegmenter: Intl.Segmenter | undefined
 
-function graphemes(text: string): Iterable<{ index: number; segment: string }> {
-  graphemeSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-  return graphemeSegmenter.segment(text)
-}
 
-/** Index of the grapheme boundary before `cursor` (UTF-16 index). */
-export function moveGraphemeLeft(text: string, cursor: number): number {
-  if (cursor <= 0) return cursor
-  let prev = cursor
-  for (const part of graphemes(text)) {
-    if (part.index >= cursor) return prev
-    prev = part.index
-  }
-  return prev
-}
 
-/** Index of the grapheme boundary after `cursor` (UTF-16 index). */
-export function moveGraphemeRight(text: string, cursor: number): number {
-  if (cursor >= text.length) return cursor
-  for (const part of graphemes(text)) {
-    if (part.index < cursor && cursor < part.index + part.segment.length) {
-      return part.index + part.segment.length
-    }
-    if (part.index >= cursor) return part.index + part.segment.length
-  }
-  return text.length
-}
+
+
 
 /** Word-left: skip trailing whitespace, then the previous word. */
 export function moveWordLeft(text: string, cursor: number): number {
@@ -305,12 +286,7 @@ export class InputEditor {
 
   /** Snap a UTF-16 offset to the grapheme boundary it belongs to (forward). */
   #snapCursor(cursor: number): number {
-    for (const part of graphemes(this.#text)) {
-      if (part.index < cursor && cursor < part.index + part.segment.length) {
-        return part.index + part.segment.length
-      }
-    }
-    return cursor
+    return snapToGraphemeBoundary(this.#text, cursor)
   }
 
   #pushUndo(): void {
