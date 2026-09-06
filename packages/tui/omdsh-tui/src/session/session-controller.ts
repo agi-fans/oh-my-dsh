@@ -1106,11 +1106,18 @@ export class SessionRuntime {
       // A rejected activation must not orphan the freshly created handle nor
       // leave the screen on an agent that is no longer active: revert the
       // slot and re-present the previous agent. The rejected handle joins
-      // teardown ownership even when the rollback presentation itself fails.
+      // teardown ownership even when the rollback presentation itself fails,
+      // and the activation failure remains the actionable error.
       try {
         if (this.#activationEpoch === epoch) {
           this.#active = previous
-          if (previous !== undefined) this.#presentAgent(previous)
+          if (previous !== undefined) {
+            try {
+              this.#presentAgent(previous)
+            } catch (rollback: unknown) {
+              this.#tui.notice(rollback instanceof Error ? rollback.message : String(rollback), { level: 'error' })
+            }
+          }
         } else if (previous !== undefined) {
           // A dispose or a newer activation owns the visible handle chain;
           // only the superseded previous agent is still unowned here.
