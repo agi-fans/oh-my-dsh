@@ -1115,7 +1115,11 @@ export class SessionRuntime {
             try {
               this.#presentAgent(previous)
             } catch (rollback: unknown) {
-              this.#tui.notice(rollback instanceof Error ? rollback.message : String(rollback), { level: 'error' })
+              try {
+                this.#tui.notice(rollback instanceof Error ? rollback.message : String(rollback), { level: 'error' })
+              } catch {
+                // The display itself is failing; the activation error stays primary.
+              }
             }
           }
         } else if (previous !== undefined) {
