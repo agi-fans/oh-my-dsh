@@ -32,6 +32,9 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   const loop = ctx.get('omdshLoop')
 
   await controller.start()
+  // The unmount may have landed while startup was pending; nothing may start
+  // after the lifetime signal aborted.
+  if (cancelled.aborted) return
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
   // An unmount must also cancel an in-flight slash command, not just the read.
@@ -84,6 +87,8 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
     for (;;) {
       const submission = await tui.readInput(cancelled)
       if (submission === null) break
+      // Re-check after the read: an unmount may have aborted while it awaited.
+      if (cancelled.aborted) break
       if (submission.text.trim() === '' && submission.images.length === 0) continue
       if (looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
