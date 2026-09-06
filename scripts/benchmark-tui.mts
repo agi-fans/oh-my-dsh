@@ -42,6 +42,7 @@ function conversationEvents(turns: number): SessionEvent[] {
         turn,
         step: 1,
         message: { content: [{ type: 'text', text: `answer ${turn}` }] },
+        stream: [{ type: 'text-chunks', time0: events.length + 1, index: 0, dt: [], texts: ['answer'] }],
       },
     } as unknown as SessionEvent)
   }
@@ -107,8 +108,14 @@ benchmark('Apply 10,000 projected stats updates', () => {
     projectedEvents.push({
       seq: index + 1,
       time: index + 1,
-      type: 'assistant/chunk',
-      data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'x' } },
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'text', text: 'x' }] },
+        stream: [{ type: 'text-chunks', time0: index + 1, index: 0, dt: [], texts: ['x'] }],
+        usage: { inputTokens: 10, outputTokens: 1 },
+      },
     } as unknown as SessionEvent)
     sessionStats(projectedEvents, 1_000_000, projection)
   }

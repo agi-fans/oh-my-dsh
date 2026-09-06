@@ -1,9 +1,11 @@
 /** Keyboard-first Trajectory ledger projected directly from durable session events. */
 
+import type { AssistantStreamRecord } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KeyEvent } from '../input/keys.ts'
 import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { firstVisibleStreamTime } from './stream-time.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
@@ -44,12 +46,6 @@ function number(value: unknown): number | undefined {
 
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
-}
-
-/** First chunk time of a compact embedded assistant stream, or undefined. */
-function streamFirstTime(records: readonly unknown[]): number | undefined {
-  const first = object(records[0])
-  return first === undefined ? undefined : number(first['time0'])
 }
 
 function compact(text: string, fallback: string): string {
@@ -195,10 +191,12 @@ export class TrajectoryLedger {
       const existing = this.#assistantByStep.get(key)
       const result = reasoning === '' ? text : `Thinking\n${reasoning}\n\nAnswer\n${text}`
       // Format-v2 messages embed the exact timed stream; derive the first
-      // token time from its first compact record instead of live chunk events.
+      // visible token time from it instead of live chunk events.
       if (!this.#stepFirstToken.has(key)) {
         const streamData = data['stream']
-        const firstTime = Array.isArray(streamData) ? streamFirstTime(streamData) : undefined
+        const firstTime = Array.isArray(streamData)
+          ? firstVisibleStreamTime(streamData as unknown as AssistantStreamRecord[])
+          : undefined
         if (firstTime !== undefined) this.#stepFirstToken.set(key, firstTime)
       }
       if (existing === undefined) {

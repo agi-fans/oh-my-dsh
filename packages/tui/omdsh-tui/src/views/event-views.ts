@@ -288,15 +288,10 @@ export interface StreamDelta {
  * settlement still arrives as `assistant/message` (or `assistant/attempt`
  * for a committed attempt with no surface message) on the session log.
  */
-export function applyStreamChunk(
-  state: TranscriptState,
-  delta: StreamDelta,
-  mutable = false,
-  indexes?: ReplayIndexes,
-): TranscriptState {
+export function applyStreamChunk(state: TranscriptState, delta: StreamDelta): TranscriptState {
   const { turn, step, chunk } = delta
   if (chunk.type === 'text-delta') {
-    const blocks = editableBlocks(state, mutable)
+    const blocks = editableBlocks(state, false)
     dropRetryNotice(blocks)
     const last = blocks[blocks.length - 1]
     if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
@@ -307,7 +302,7 @@ export function applyStreamChunk(
     return { ...state, blocks }
   }
   if (chunk.type === 'reasoning-delta') {
-    const blocks = editableBlocks(state, mutable)
+    const blocks = editableBlocks(state, false)
     dropRetryNotice(blocks)
     const last = blocks[blocks.length - 1]
     if (last?.kind === 'assistant' && last.streaming && last.turn === turn && last.step === step) {
@@ -318,11 +313,9 @@ export function applyStreamChunk(
     return { ...state, blocks }
   }
   if (chunk.type === 'tool-call-delta') {
-    const blocks = editableBlocks(state, mutable)
+    const blocks = editableBlocks(state, false)
     dropRetryNotice(blocks)
-    const index = indexes === undefined
-      ? blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
-      : indexes.toolByCallId.get(chunk.id) ?? -1
+    const index = blocks.findIndex(block => block.kind === 'tool' && block.callId === chunk.id)
     const existing = blocks[index]
     if (existing?.kind === 'tool') {
       blocks[index] = {
@@ -336,7 +329,6 @@ export function applyStreamChunk(
         kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
         args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
       })
-      indexes?.toolByCallId.set(chunk.id, blocks.length - 1)
     }
     return { ...state, blocks }
   }

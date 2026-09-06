@@ -19,10 +19,7 @@ import {
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-presets'
 import {
   createUserMessage,
-  expandAssistantStream,
-  type AssistantStreamRecord,
   type LlmResolvedModelInfo,
-  type StreamChunk,
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -46,6 +43,8 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type { StreamDelta } from '../views/event-views.ts'
+import { firstVisibleStreamTime } from '../views/stream-time.ts'
+import { LiveAttemptTracker } from './live-attempt-tracker.ts'
 import type {
   TuiCommand,
   TuiInspectedSubagent,
@@ -95,32 +94,6 @@ async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef
   const disposeToolPresentation = tools.presentAs(toolPresentationForPreset(mounted.id))
   await agentCtx.plugin(commandPermission)
   return { agentPreset: mounted.id, disposeToolPresentation }
-}
-
-/** Whether a stream chunk establishes the first visible model-output boundary. */
-function isVisibleModelDelta(chunk: StreamChunk): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
-  }
-}
-
-/**
- * First visible token time of an embedded format-v2 stream, or undefined
- * when the record is absent or malformed (a damaged log must degrade the
- * footer fold, not fail it).
- */
-function firstVisibleStreamTime(stream: readonly AssistantStreamRecord[]): number | undefined {
-  try {
-    return expandAssistantStream(stream).find(entry => isVisibleModelDelta(entry.chunk))?.time
-  } catch {
-    return undefined
-  }
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -245,6 +218,17 @@ export function sessionStats(
           }
         }
         openStep = undefined
+        break
+      }
+      case 'assistant/attempt': {
+        // A failed attempt may still carry the step's first visible token;
+        // remember it without counting usage or closing the step (the later
+        // successful settlement folds the timing exactly once).
+        if (openStep === undefined || openStep.turn !== event.data.turn || openStep.step !== event.data.step) break
+        if (openStep.firstTokenTime === undefined) {
+          const firstTime = firstVisibleStreamTime(event.data.stream)
+          if (firstTime !== undefined) openStep.firstTokenTime = firstTime
+        }
         break
       }
       case 'tool/call':
@@ -483,14 +467,6 @@ export async function restoreSubmissionMessage(
   return { text, images }
 }
 
-/** One live assistant stream attempt, keyed by `agentSessionId:attemptId`. */
-interface LiveStreamAttempt {
-  readonly turn: number
-  readonly step: number
-  readonly revision: number
-  nextIndex: number
-}
-
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
   readonly #ctx: Context
@@ -503,7 +479,7 @@ export class SessionRuntime {
   #disposed = false
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
-  readonly #streamAttempts = new Map<string, LiveStreamAttempt>()
+  readonly #streamAttempts = new LiveAttemptTracker()
   #subagentEpoch = 0
   #inspectEpoch = 0
   #inspectedId: string | undefined
@@ -579,26 +555,15 @@ export class SessionRuntime {
       const frame = payload.frame
       const key = `${payload.agent.session.id}:${frame.attemptId}`
       if (frame.type === 'start') {
-        this.#streamAttempts.set(key, {
-          turn: frame.turn,
-          step: frame.step,
-          revision: frame.revision,
-          nextIndex: 0,
-        })
+        this.#streamAttempts.start(key, frame)
         return
       }
       if (frame.type === 'end') {
-        this.#streamAttempts.delete(key)
+        this.#streamAttempts.end(key)
         return
       }
-      const attempt = this.#streamAttempts.get(key)
-      if (attempt === undefined || frame.revision !== attempt.revision || frame.index !== attempt.nextIndex) {
-        // Revision jump or a gap: drop the stream until the next start frame.
-        this.#streamAttempts.delete(key)
-        return
-      }
-      attempt.nextIndex += 1
-      this.#forwardLiveDelta(payload.agent, attempt, frame.chunk)
+      const delta = this.#streamAttempts.chunk(key, frame)
+      if (delta !== undefined) this.#forwardLiveDelta(payload.agent, delta)
     }, { global: true }))
     if (ctx.get('commands') !== undefined) {
       this.#off.push(ctx.on('commands/change', () => { this.#pushCommands() }))
@@ -1169,8 +1134,7 @@ export class SessionRuntime {
   }
 
   /** Route one live assistant stream chunk to the visible transcript or the subagent roster. */
-  #forwardLiveDelta(agent: Agent, attempt: LiveStreamAttempt, chunk: StreamChunk): void {
-    const delta: StreamDelta = { turn: attempt.turn, step: attempt.step, chunk }
+  #forwardLiveDelta(agent: Agent, delta: StreamDelta): void {
     const active = this.#active
     if (active !== undefined && agent.session.id === active.handle.agent.session.id) {
       if (this.#inspectedId === undefined) this.#tui.streamDelta(delta)
@@ -1180,7 +1144,20 @@ export class SessionRuntime {
       this.#tui.streamDelta(delta)
       return
     }
-    if (this.#subagents.applyDelta(agent.session.id, chunk) !== undefined) this.#pushSubagents()
+    if (this.#subagents.applyDelta(agent.session.id, delta.chunk) !== undefined) this.#pushSubagents()
+  }
+
+  /**
+   * Replay the buffered live deltas of one session after a transcript
+   * rebuild. The durable log only carries settlements, so a rebuilt state
+   * starts without any in-flight prefix; re-folding the buffered chunks
+   * restores it without waiting for the next frame.
+   */
+  #replayLivePrefix(sessionId: string): void {
+    for (const key of this.#streamAttempts.activeKeys()) {
+      if (!key.startsWith(`${sessionId}:`)) continue
+      for (const delta of this.#streamAttempts.deltas(key)) this.#tui.streamDelta(delta)
+    }
   }
 
   #noteSubagentStatus(session: Session, status: 'idle' | 'running'): void {
@@ -1278,6 +1255,7 @@ export class SessionRuntime {
   #replaceTranscript(agent: Agent): void {
     const events = agent.session.snapshotEvents()
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
+    this.#replayLivePrefix(agent.session.id)
   }
 
   #replaceVisibleTranscript(): void {
@@ -1332,6 +1310,7 @@ export class SessionRuntime {
       child === undefined ? undefined : this.#ctx.get('tuiToolPresentation')?.session(child, events),
       child?.status ?? 'idle',
     )
+    this.#replayLivePrefix(id)
     this.#tui.setInspectedSubagent(this.#inspectView(
       id,
       child?.status === 'running' ? 'running' : 'waiting',
