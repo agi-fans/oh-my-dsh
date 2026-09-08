@@ -365,3 +365,41 @@ describe('dsh spine expansion', () => {
     expect(standard).not.toContain('@deepseek-ai/dsh-tool-bash-persistent')
   })
 })
+
+describe('upstream capability adaptation rows', () => {
+  function productRows(): Array<{ id?: string; name?: string; config?: Record<string, unknown> }> {
+    const patches = loadBootPatches(temp('omdsh-adapt-cwd-'), { OMDSH_HOME: temp('omdsh-adapt-home-') })
+    const product = patches[0] as { insert?: Array<{ id?: string; name?: string; config?: Record<string, unknown> }> }
+    return product.insert ?? []
+  }
+
+  it('mounts both subagent providers with distinct tool names', () => {
+    const rows = productRows()
+    const row = (id: string) => rows.find(entry => entry.id === id)
+    expect(row('subagent-fork')?.name).toBe('@deepseek-ai/dsh-subagent-fork-in-process')
+    expect(row('subagent-fork')?.config).toMatchObject({ providerName: 'fork' })
+    expect(row('tool-subagent')?.config).toMatchObject({ provider: 'spawn', toolName: 'subagent' })
+    expect(row('tool-subagent-fork')?.config).toMatchObject({ provider: 'fork', toolName: 'subagent_fork' })
+    expect(row('tool-subagent-fork')?.name).toBe(row('tool-subagent')?.name)
+  })
+
+  it('spills oversized tool results before the compaction pruner runs', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('spill-local')]?.name).toBe('@deepseek-ai/dsh-spill-local')
+    expect(rows[index('spill-policy')]?.name).toBe('@deepseek-ai/dsh-spill-policy')
+    expect(rows[index('spill-policy')]?.config).toMatchObject({ maxInlineBytes: 200000 })
+    expect(index('spill-policy')).toBeLessThan(index('tool-result-pruner'))
+  })
+
+  it('mounts anonymous web fetch and leaves search disabled', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('web')]?.name).toBe('@deepseek-ai/dsh-web')
+    expect(rows[index('web-fetch-http')]?.name).toBe('@deepseek-ai/dsh-web-fetch-http')
+    expect(rows[index('tool-web')]?.name).toBe('@deepseek-ai/dsh-tool-web')
+    expect(rows[index('tool-web')]?.config).toMatchObject({ search: false, fetch: true })
+    expect(index('web')).toBeLessThan(index('web-fetch-http'))
+    expect(index('web-fetch-http')).toBeLessThan(index('tool-web'))
+  })
+})

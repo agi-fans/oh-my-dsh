@@ -291,6 +291,35 @@
     config:
       maxOutputChars: 16000
 
+  # Anonymous public web fetch, no credential and no search provider: a fetch
+  # costs nothing and the TUI already renders web sources. Search stays off
+  # because DeepSeek's native search spends a whole model turn per query; a
+  # deployment that wants it mounts a provider in its own overlay and flips
+  # `search` on here.
+  - id: web
+    name: '@deepseek-ai/dsh-web'
+
+  - id: web-fetch-http
+    name: '@deepseek-ai/dsh-web-fetch-http'
+
+  - id: tool-web
+    name: '@deepseek-ai/dsh-tool-web'
+    config:
+      search: false
+      fetch: true
+
+  # Spills one oversized plain-text tool result to a private file and hands the
+  # model a bounded preview plus the path. The cap is deliberately far above
+  # upstream's 50 KB: the session log carries the replacement, so a lower cap
+  # would shorten what a human can expand in the transcript.
+  - id: spill-local
+    name: '@deepseek-ai/dsh-spill-local'
+
+  - id: spill-policy
+    name: '@deepseek-ai/dsh-spill-policy'
+    config:
+      maxInlineBytes: 200000
+
   - id: token-meter
     name: '@deepseek-ai/dsh-token-meter'
 
@@ -329,6 +358,15 @@
     config:
       providerName: spawn
 
+  # Fork seeds the child with the parent's completed turns, so the inherited
+  # prefix stays eligible for KV cache reuse. Model selection is deliberately
+  # absent: a child that switched routes would pay for the inherited history
+  # again.
+  - id: subagent-fork
+    name: '@deepseek-ai/dsh-subagent-fork-in-process'
+    config:
+      providerName: fork
+
   - id: subagent-control
     name: '@deepseek-ai/dsh-tool-subagent-control'
 
@@ -340,6 +378,13 @@
     config:
       provider: spawn
       toolName: subagent
+      backgroundMode: continuable
+
+  - id: tool-subagent-fork
+    name: '@deepseek-ai/dsh-tool-subagent'
+    config:
+      provider: fork
+      toolName: subagent_fork
       backgroundMode: continuable
 
   - id: tui
