@@ -31,12 +31,12 @@ jobs:
           node-version: '22'
           cache: pnpm
 
-      # Proves the product installs, compiles, builds, and boots on Windows.
-      # `pnpm test` and the boundary audit stay on Linux until this baseline is
-      # green: the audit shells out to POSIX `find`, and the cross-version
-      # fixture replays a session recorded on macOS.
+      # Proves the product installs, compiles, passes its suite, builds, and
+      # boots on Windows. Only the boundary audit stays on Linux: it shells out
+      # to POSIX `find`.
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm test
       - run: pnpm build
       - run: pnpm smoke:happy
 
