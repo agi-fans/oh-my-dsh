@@ -96,7 +96,7 @@ GitHub Actions runs this set, plus `pnpm check:boundaries`, on pull requests and
 - Before finishing dependency-boundary work, audit with commands equivalent to:
 
 ```sh
-rg -n 'refs/deepseek-harness|link:refs' package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json apps packages scripts --glob '!**/*.md'
+rg -n 'refs/deepseek-harness|link:refs' package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json apps packages scripts --glob '!**/*.md' --glob '!apps/omdsh/src/fixtures/**/*.jsonl'
 find node_modules apps packages -type l -lname '*refs/deepseek-harness*' -print
 git -C refs/deepseek-harness status --short
 git -C refs/oh-my-pi status --short

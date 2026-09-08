@@ -31,6 +31,11 @@ try {
       'apps',
       'packages',
       'scripts',
+      // Captured session logs embed the repository documentation that was in
+      // the agent's context when they were recorded, so they can mention
+      // refs/ without being a dependency reference. Test data, not product
+      // configuration; every other file under the fixtures tree stays scanned.
+      ':(exclude)apps/omdsh/src/fixtures/**/*.jsonl',
     ],
     { cwd: root, encoding: 'utf8' },
   )
