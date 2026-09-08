@@ -58,7 +58,7 @@ describe('Agent behavior prompt projection', () => {
       'utf8',
     )
     const persona = 'You are a helpful software engineer assistant.'
-    expect(minimal).toContain(`text: ${persona}{{${AGENT_BEHAVIOR_VARIABLE}}}`)
+    expect(minimal).toContain(`prefix: ${persona}{{${AGENT_BEHAVIOR_VARIABLE}}}`)
     expect(`${persona}{{${AGENT_BEHAVIOR_VARIABLE}}}`.replace(
       `{{${AGENT_BEHAVIOR_VARIABLE}}}`,
       prompt.variable(contextFor(), 'auto'),

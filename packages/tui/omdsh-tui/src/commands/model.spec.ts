@@ -216,7 +216,7 @@ describe('model query command', () => {
     expect(env.selection).toHaveBeenCalledTimes(1)
     const call = env.selection.mock.calls[0] as unknown[]
     expect(call[3]).toEqual({ persist: true })
-    expect(env.result).toMatchObject({ kind: 'success', text: 'Default model: mock-provider/mirror-pro' })
+    expect(env.result.result).toMatchObject({ kind: 'success', text: 'Default model: mock-provider/mirror-pro' })
     await env.dispose()
   })
 
@@ -225,7 +225,7 @@ describe('model query command', () => {
     expect(env.selection).toHaveBeenCalledTimes(1)
     const call = env.selection.mock.calls[0] as unknown[]
     expect(call[3]).toEqual({ persist: false })
-    expect(env.result).toMatchObject({ kind: 'success', text: 'Session model: mock-provider/mirror-pro' })
+    expect(env.result.result).toMatchObject({ kind: 'success', text: 'Session model: mock-provider/mirror-pro' })
     await env.dispose()
   })
 
@@ -237,15 +237,15 @@ describe('model query command', () => {
     await env.dispose()
 
     const miss = await queryEnv('/model zzz-not-a-model')
-    expect(miss.result.kind).toBe('error')
-    if (miss.result.kind === 'error') expect(miss.result.text).toContain('No model matches')
+    expect(miss.result.result.kind).toBe('error')
+    if (miss.result.result.kind === 'error') expect(miss.result.result.text).toContain('No model matches')
     await miss.dispose()
   })
 
   it('rejects a bare --session flag', async () => {
     const env = await queryEnv('/model --session')
     expect(env.selection).not.toHaveBeenCalled()
-    expect(env.result).toMatchObject({ kind: 'error', text: expect.stringContaining('Usage') })
+    expect(env.result.result).toMatchObject({ kind: 'error', text: expect.stringContaining('Usage') })
     await env.dispose()
   })
 })
