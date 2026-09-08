@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - The model can now fetch public web pages with `web_fetch`. Web search stays disabled because DeepSeek's native search spends a whole model turn per query.
 - Delegation gained `subagent_fork`, which seeds a child with the parent's completed turns so the inherited prefix stays eligible for cache reuse. `/tools` now lists both `subagent` and `subagent_fork`.
 - Automatic context compaction now shows the same live `Compacting` activity as `/compact` and records what the model's view lost when it finishes: `Context compacted · 3 events · 12.4K tokens condensed`, or `Context trimmed · 2 results` when the model-free prune pass was enough. A failed compaction reports the error instead of staying silent.
+- omdsh can now drive local language servers: add `lsp.json` beside `mcp.json` (user `$DSH_HOME/lsp.json` and project `.dsh/lsp.json`, project wins) and the agent gains a read-only `lsp` tool for definitions, references, implementations, and hover. No server is configured by default, and no `lsp` tool appears until one is.
 
 ## [0.14.0] - 2026-09-04
 

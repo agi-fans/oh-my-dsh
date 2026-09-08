@@ -20,7 +20,7 @@ import {
   writeProfileManifest,
   type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
-import { omdshHome } from './mcp-config.ts'
+import { omdshHome } from './config-paths.ts'
 import {
   ensureOmdshProfile,
   INSTALL_ANCHOR,

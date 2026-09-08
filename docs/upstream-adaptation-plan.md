@@ -52,8 +52,8 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 | Workflow 与 Ralph | `dsh-workflow`、`dsh-workflow-worker-thread`、`dsh-tool-workflow`、`dsh-tool-ralph` | 未挂；注意 TUI 的 `/workflow` 是"Default/Plan 工作流"选择器，与上游 workflow 工具无关 | 挂 worker-thread 引擎 + 两个工具；`tool-ralph` 需 `subagentProvider` 配置 |
 | 子代理 fork（**已落地**） | `dsh-subagent-fork-in-process` + `tool-subagent` 的 `provider: fork` 行 | 只挂了 `spawn` | 已加 provider 行与 `subagent_fork` 工具行（continuable，不设 modelSelectionSettings）；TUI roster 与 `subagent_` 前缀渲染直接可用 |
 | 超大工具输出落盘（**已落地**） | `dsh-spill-local`、`dsh-spill-policy` | 未挂；上游 base 默认挂 | 已挂两行；`maxInlineBytes` 必须显式给（省略即 no-op），取 200000 见 D7 |
-| Windows 支持 | `dsh-pwsh-local`、`dsh-pwsh-sandbox`、`dsh-tool-pwsh`、`dsh-tool-pwsh-persistent` | 未挂；上游用 `process.platform` 门控，omdsh 在 Windows 上没有 shell 工具 | **待产品决策**，理由见下（需要 CI + Windows PTY smoke 才能算做完） |
-| 代码智能 | `dsh-lsp`、`dsh-lsp-stdio`、`dsh-tool-lsp` | 未挂 | 按语言服务器配置挂载；需要用户侧 server 路径配置 |
+| Windows 支持 | `dsh-pwsh-local`、`dsh-pwsh-sandbox`、`dsh-tool-pwsh`、`dsh-tool-pwsh-persistent` | 未挂；上游用 `process.platform` 门控，omdsh 在 Windows 上没有 shell 工具 | **暂不实现**：当前没有 Windows 受众，且 CI 只有 ubuntu；配方见下 |
+| 代码智能（**已落地**） | `dsh-lsp`、`dsh-lsp-stdio`、`dsh-tool-lsp` | 未挂 | 已加产品侧配置缝 `apps/omdsh/src/lsp-config.ts`：读用户/项目 `lsp.json`，只有配置了服务器才插入三行；无默认服务器，不做自动探测（见 D9） |
 | Hooks 复用 | `dsh-hook-protocol`、`dsh-hooks-claude-code`、`dsh-hooks-codex` | 未挂 | 先挂 protocol + claude-code bridge，按需扩 codex |
 | 定时提醒 | `dsh-schedule` | 未挂；TUI 的 `/loop` 是进程内 prompt 循环，不是持久化提醒 | 挂 schedule 服务；呈现层留到 P2 |
 | 反馈 | `dsh-message-feedback`、`dsh-command-feedback` | 未挂；TUI 无 `/feedback` | 挂两行即可让 `/feedback` 走通用命令输出 |
@@ -112,6 +112,7 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 - **D5 · shell 超时保持 120s 并显式钉住**：上游 base 的 60s 对常规 build / test 太紧，本仓自身的 `pnpm test` 单包已需 33s；改为显式写 `timeoutMs: 120000`，模型仍可按调用传 `timeoutMs` 或走后台任务。这是与上游 base 的有意分歧，不是遗漏。
 - **D6 · 本批次不发布**：版本号、tag、npm 发布留待发布决策，与上次 cohort 迁移一致。
 - **D7 · spill 上限取 200 KB 而非上游的 50 KB**：spill 的替换发生在 `tools/post-execute`，被替换后的内容就是写进 session log 的 `tool/result`，所以转录里展开卡片看到的也是预览 + 路径，而不是完整输出。50 KB 会让普通的大文件读取也失去可展开的全文；200000 与 `tool-web` 的 `fetchMaxOutputChars` 默认值对齐，普通输出保持可展开，只有病态输出才落盘。
+- **D9 · LSP 走 `lsp.json` 配置缝，不内置服务器、不做自动探测**：与 `mcp.json` 同构（用户级 + 项目级，项目覆盖），由 `apps/omdsh/src/lsp-config.ts` 翻译成 `dsh-lsp` + `dsh-lsp-stdio` + `dsh-tool-lsp` 三行，只有配置了至少一个服务器才插入。理由：`lsp-stdio` 在加载期解析每个可执行文件，任何一条坏配置会让全部 provider 注册失败，所以不能把服务器写进产品 bundle；而没有 provider 时挂上 `tool-lsp` 只会让模型每次多付一个 schema 加一段 prompt 却永远拿到 `LSP_UNAVAILABLE`。自动探测会引入按机器变化的组合，与显式组合的取向冲突，留待真实需求。
 - **D8 · web search 默认关闭**：DeepSeek 原生 search 每次查询要跑一次完整模型 turn（上游文档明说延迟与 token 成本），Exa/Perplexity 需要独立 key 与账单。所以产品只挂匿名 `web_fetch`；要 search 的部署在自己的 overlay 里挂 provider 并把 `tool-web` 的 `search` 打开。
 
 ## 风险与回退
@@ -139,7 +140,14 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 - [x] `dsh-subagent-fork-in-process` provider 行 + `subagent_fork` 工具行（两个 `tool-subagent` 实例用不同 `toolName`）
 - [x] `dsh-spill-local` + `dsh-spill-policy`（`maxInlineBytes: 200000`，D7），放在 pruner 之前
 - [x] 组合级回归测试：`apps/omdsh/src/composition.spec.ts` 的 `upstream capability adaptation rows`
-- [ ] 推迟项（含触发条件）：workflow/ralph、pwsh/Windows、LSP、hooks、schedule、feedback、session-query（受 `openAt: never` 阻塞）、time/tmux context、LLM 标题、skill-badge
+- [ ] 推迟项（含触发条件）：workflow/ralph、pwsh/Windows、hooks、schedule、feedback、session-query（受 `openAt: never` 阻塞）、time/tmux context、LLM 标题、skill-badge
+
+批次 4（LSP）已完成：
+
+- [x] 产品侧配置缝 `apps/omdsh/src/lsp-config.ts` + `config-paths.ts`（从 `mcp-config.ts` 抽出的共享路径解析），`composeLaunch` 在 MCP 之后插入 `lsp.json` 层
+- [x] 只有配置了服务器才插入 `lsp` + `lsp-stdio` + `tool-lsp` 三行；无配置时不挂载、不出现死工具
+- [x] 集成测试 `apps/omdsh/src/lsp-stack.spec.ts`：真实 `dsh-lsp` 缝 + 真实 `dsh-lsp-stdio` 宿主 + 真实 stdio 假服务器（`src/fixtures/fake-lsp-server.mjs`），覆盖定义/引用/实现/悬浮、`LSP_UNAVAILABLE`，以及三行挂载后 `lsp` 工具确实注册
+- [x] 双语文档 `apps/site/content/{en,zh}/language-servers.md` + 侧栏条目
 
 批次 3（P2）已完成：
 
@@ -154,4 +162,4 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 - **PTC 子调用折叠**：默认 preset 是 `standard`（native 工具），`code`/PTC 是 opt-in；`/trajectory` 已能看全部派发。触发：把 PTC 设为默认，或出现明确的 PTC 使用诉求。
 - **`/plugins` 运行时清单**：`omdsh --dump-config` 已经给出完整组合树，重复一遍没有新信息。触发：需要"当前进程实际激活状态"（而非配置树）的诊断场景。
 - **`tool-session-query`**：两条独立理由。① 我们刻意把 `session-query-sqlite` 配成 `openAt: 'never'`，该配置下任何 search 调用在碰 sqlite 之前就抛 `SESSION_QUERY_SEARCH_DISABLED`；要启用就得改 `first-search`，第一次搜索会 import `node:sqlite` 并往 stderr 打 ExperimentalWarning。② 上游文档明说挂载它会给**每个请求**加 5 个工具 schema 和一段 guidance 段，而跨会话检索是小众能力。触发：Node 基线提升到 `node:sqlite` 稳定版本，且确有跨会话检索的诉求。
-- **Windows（pwsh）**：这是剩余项里唯一有重大用户影响的一个——omdsh 在 Windows 上完全不可用（没有 shell 工具）。它不是几行配置，而是"平台门控行 + Windows CI + 一条 Windows PTY smoke"的小项目，因此**待产品决策**：若 Windows 在目标平台内就立项，若不在就写进文档明确排除。
+- **Windows（pwsh）**：**当前不做**，因为目前没有 Windows 受众，而 `.github/workflows/ci.yml` 只有 `ubuntu-latest`，无法在本机验证。可行配方已确定，出现真实需求时照做即可：① `cordis.yml` 给 `bash` 行补 `disabled: !!js process.platform === 'win32'`，新增 `pwsh-sandbox` + `tool-pwsh` 行并加 `disabled: !!js process.platform !== 'win32'`；② minimal preset 的持久 shell 同样按平台二选一（`tool-pwsh-persistent`）；③ 依赖 + age-gate + lockfile；④ 加 `windows-latest` CI job（install/typecheck/test/smoke:happy）与一条 Windows PTY smoke。产品侧已有基础：TUI 的 conpty 终端档位、Windows 剪贴板/图片粘贴、`shell: true` 拉起子进程都已实现，`dsh-sandbox-local` 的 win32 档位就是 ACL restricted-token runner。

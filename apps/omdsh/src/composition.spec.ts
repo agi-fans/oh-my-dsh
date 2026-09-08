@@ -53,6 +53,34 @@ describe('boot patch assembly', () => {
     ]))
   })
 
+  it('inserts the language-server trio after MCP inserts', () => {
+    const cwd = temp('omdsh-compose-project-')
+    const home = temp('omdsh-compose-home-')
+    mkdirSync(join(cwd, '.dsh'), { recursive: true })
+    writeFileSync(join(cwd, '.dsh', 'mcp.json'), JSON.stringify({
+      mcpServers: { memory: { command: 'memory-server' } },
+    }))
+    writeFileSync(join(cwd, '.dsh', 'lsp.json'), JSON.stringify({
+      servers: {
+        typescript: {
+          command: 'typescript-language-server',
+          args: ['--stdio'],
+          extensionToLanguage: { '.ts': 'typescript' },
+        },
+      },
+    }))
+    expect(composeLaunch(cwd, { OMDSH_HOME: home }).layers.map(layer => layer.label)).toEqual([
+      PRODUCT_BUNDLE,
+      PROFILE_PATCH_LABEL,
+      'mcp.json',
+      'lsp.json',
+      'agent-presets',
+    ])
+    const lsp = loadBootPatches(cwd, { OMDSH_HOME: home })
+      .flatMap(patch => (patch as { insert?: { id?: string }[] }).insert ?? [])
+    expect(lsp.map(row => row.id)).toEqual(expect.arrayContaining(['lsp', 'lsp-stdio', 'tool-lsp']))
+  })
+
   it('applies a home cordis.patch.yml before MCP inserts', () => {
     const cwd = temp('omdsh-compose-project-')
     const home = temp('omdsh-compose-home-')

@@ -9,8 +9,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { omdshHome, projectRoot } from './config-paths.ts'
 
 export interface McpPluginRow {
   id: string
@@ -148,25 +148,6 @@ function serverConfig(
 
 function safeId(name: string): string {
   return 'mcp-' + name
-}
-
-/** Resolve the native user-level MCP document. */
-export function omdshHome(environment: NodeJS.ProcessEnv = process.env): string {
-  const configured = environment.OMDSH_HOME?.trim() || environment.DSH_HOME?.trim()
-  return configured === undefined
-    ? join(homedir(), '.dsh')
-    : (isAbsolute(configured) ? configured : resolve(configured))
-}
-
-function projectRoot(cwd: string): string {
-  const fallback = resolve(cwd)
-  let current = fallback
-  for (;;) {
-    if (existsSync(join(current, '.git'))) return current
-    const parent = dirname(current)
-    if (parent === current) return fallback
-    current = parent
-  }
 }
 
 /**

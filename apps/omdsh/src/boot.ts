@@ -11,7 +11,7 @@ import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { NAME, prepareLaunchEnvironment } from './composition.ts'
 import { composeLaunch, INSTALL_ANCHOR } from './profile.ts'
-import { omdshHome } from './mcp-config.ts'
+import { omdshHome } from './config-paths.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 export { NAME } from './composition.ts'

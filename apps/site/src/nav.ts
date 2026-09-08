@@ -17,6 +17,7 @@ export const tutorialEntries: NavEntry[] = [
 
 export const referenceEntries: NavEntry[] = [
   { slug: 'skills-and-mcp', en: 'Skills and MCP', zh: 'Skills 与 MCP' },
+  { slug: 'language-servers', en: 'Language servers', zh: '语言服务器' },
   { slug: 'plugins', en: 'User plugins', zh: '用户插件' },
   { slug: 'architecture', en: 'Architecture', zh: '架构' },
   { slug: 'performance', en: 'Performance', zh: '性能' },

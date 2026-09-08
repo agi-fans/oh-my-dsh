@@ -22,7 +22,9 @@ import {
   type ConfigDumpLayer,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
-import { loadMcpPatches, omdshHome } from './mcp-config.ts'
+import { omdshHome } from './config-paths.ts'
+import { loadLspPatches } from './lsp-config.ts'
+import { loadMcpPatches } from './mcp-config.ts'
 
 type PatchOptions = ConfigDumpLayer['patches'][number]
 
@@ -113,7 +115,7 @@ export function agentPresetsOverlay(layerPatches: readonly PatchOptions[][]): Pa
 
 /**
  * Compose the live launch layers in product → user bundles → Profile patch
- * → home patch → MCP → agent-presets overlay order.
+ * → home patch → MCP → LSP → agent-presets overlay order.
  */
 export function composeLaunch(
   cwd: string = process.cwd(),
@@ -134,6 +136,8 @@ export function composeLaunch(
   if (homePatches !== undefined) layers.push({ label: PROFILE_PATCH_FILENAME, patches: homePatches })
   const mcp = loadMcpPatches(cwd, environment)
   if (mcp.length > 0) layers.push({ label: 'mcp.json', patches: mcp })
+  const lsp = loadLspPatches(cwd, environment)
+  if (lsp.length > 0) layers.push({ label: 'lsp.json', patches: lsp })
   const overlay = agentPresetsOverlay(layers.map(layer => layer.patches))
   if (overlay !== undefined) layers.push({ label: 'agent-presets', patches: [overlay] })
   return {
