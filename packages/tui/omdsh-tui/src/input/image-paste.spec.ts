@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   imageMarker,
@@ -18,7 +19,10 @@ describe('image paste', () => {
     expect(imagePathCandidates('/tmp/a\\ b.webp')).toEqual(['/tmp/a b.webp'])
     expect(imagePathCandidates('/tmp/Screenshot 2026-08-15 at 19.00.00.png'))
       .toEqual(['/tmp/Screenshot 2026-08-15 at 19.00.00.png'])
-    expect(imagePathCandidates('file:///tmp/a%20b.jpg')).toEqual(['/tmp/a b.jpg'])
+    // A file URL is decoded with the host's path flavor; a drive-less URL is
+    // only valid where the platform allows one.
+    const fileUrl = process.platform === 'win32' ? 'file:///C:/tmp/a%20b.jpg' : 'file:///tmp/a%20b.jpg'
+    expect(imagePathCandidates(fileUrl)).toEqual([fileURLToPath(fileUrl)])
     expect(imagePathCandidates('/tmp/a.png\n/tmp/b.gif')).toEqual(['/tmp/a.png', '/tmp/b.gif'])
     expect(imagePathCandidates('/tmp/a.png /tmp/b.gif')).toEqual([])
     expect(imagePathCandidates('please inspect /tmp/a.png')).toEqual([])

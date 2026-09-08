@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
@@ -161,7 +162,8 @@ describe('LocalTui (tty)', () => {
   it('keeps the welcome card when a durable transcript replaces the startup frame', () => {
     const term = new FakeTerminal()
     term.rows = 12
-    const tui = new LocalTui(term, 'm', false)
+    // ED3 is a direct-terminal behavior; conpty and multiplexer profiles skip it.
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { terminalProfile: 'direct' })
     expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(1)
 
     const restored = Array.from({ length: 30 }, (_, index) => `restored-${index}`).join('\n')
@@ -187,7 +189,10 @@ describe('LocalTui (tty)', () => {
 
   it('defers the production first frame until the initial session is available', () => {
     const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      deferInitialRender: true,
+      terminalProfile: 'direct',
+    })
 
     expect(term.captured).not.toContain('Into the Unknown')
     expect(term.captured).not.toContain('\x1b[3J')
@@ -1204,20 +1209,21 @@ describe('LocalTui (tty)', () => {
   })
 
   it('completes @ paths from the injected listing', () => {
+    const proj = resolve('/proj')
     const listing = (dir: string): readonly DirEntry[] | undefined => {
-      if (dir === '/proj') {
+      if (dir === proj) {
         return [
           { name: 'src', directory: true },
           { name: 'README.md', directory: false },
         ]
       }
-      if (dir === '/proj/src') return [{ name: 'index.ts', directory: false }]
+      if (dir === join(proj, 'src')) return [{ name: 'index.ts', directory: false }]
       return undefined
     }
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
-      cwd: '/proj',
-      home: '/home/me',
+      cwd: proj,
+      home: resolve('/home/me'),
       listDir: listing,
     })
     press(term, '@')

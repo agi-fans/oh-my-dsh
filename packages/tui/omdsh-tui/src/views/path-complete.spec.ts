@@ -1,3 +1,4 @@
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createTheme } from '../chrome/theme.ts'
 import { renderAutocomplete } from './autocomplete.ts'
@@ -17,6 +18,13 @@ import {
 
 const theme = createTheme(false)
 
+// Host-resolved fixtures: the completion logic runs on the host path flavor,
+// so the same assertions must hold on POSIX and Windows.
+const proj = resolve('/proj')
+const home = resolve('/home/me')
+const tmp = resolve('/tmp')
+const srcDir = join(proj, 'src')
+
 const listing: readonly DirEntry[] = [
   { name: '.git', directory: true },
   { name: '.env', directory: false },
@@ -26,14 +34,14 @@ const listing: readonly DirEntry[] = [
 ]
 
 const listDir = (dir: string): readonly DirEntry[] | undefined => {
-  if (dir === '/proj' || dir === '/proj/') return listing
-  if (dir === '/proj/src') return [{ name: 'index.ts', directory: false }]
-  if (dir === '/home/me') return [{ name: 'notes.md', directory: false }]
-  if (dir === '/tmp') return [{ name: 'foo', directory: false }]
+  if (dir === proj || dir === proj + sep) return listing
+  if (dir === srcDir) return [{ name: 'index.ts', directory: false }]
+  if (dir === home) return [{ name: 'notes.md', directory: false }]
+  if (dir === tmp) return [{ name: 'foo', directory: false }]
   return undefined
 }
 
-const opts = { cwd: '/proj', home: '/home/me', listDir }
+const opts = { cwd: proj, home, listDir }
 
 describe('findPathToken', () => {
   it('finds @ tokens after a delimiter and explicit path syntax', () => {
@@ -63,28 +71,28 @@ describe('parsePathPrefix / resolveSearch / formatPathValue', () => {
   it('strips @ and resolves listing vs basename prefixes', () => {
     expect(parsePathPrefix('@src/f')).toEqual({ raw: 'src/f', at: true })
     expect(parsePathPrefix('./src')).toEqual({ raw: './src', at: false })
-    expect(resolveSearch('', '/proj', '/home/me')).toEqual({
-      searchDir: '/proj',
+    expect(resolveSearch('', proj, home)).toEqual({
+      searchDir: proj,
       searchPrefix: '',
       displayBase: '',
     })
-    expect(resolveSearch('src/', '/proj', '/home/me')).toEqual({
-      searchDir: '/proj/src',
+    expect(resolveSearch('src/', proj, home)).toEqual({
+      searchDir: srcDir,
       searchPrefix: '',
       displayBase: 'src/',
     })
-    expect(resolveSearch('./src', '/proj', '/home/me')).toEqual({
-      searchDir: '/proj',
+    expect(resolveSearch('./src', proj, home)).toEqual({
+      searchDir: proj,
       searchPrefix: 'src',
       displayBase: './',
     })
-    expect(resolveSearch('~/Do', '/proj', '/home/me')).toEqual({
-      searchDir: '/home/me',
+    expect(resolveSearch('~/Do', proj, home)).toEqual({
+      searchDir: home,
       searchPrefix: 'Do',
       displayBase: '~/',
     })
-    expect(resolveSearch('/tmp/f', '/proj', '/home/me')).toEqual({
-      searchDir: '/tmp',
+    expect(resolveSearch('/tmp/f', proj, home)).toEqual({
+      searchDir: tmp,
       searchPrefix: 'f',
       displayBase: '/tmp/',
     })
@@ -115,7 +123,7 @@ describe('pathSuggestions / applyPathCompletion', () => {
 
   it('lists /tmp when the token is an unmatched absolute path', () => {
     const result = pathSuggestions('/tmp/f', 6, opts)
-    expect(result?.items.map((item) => item.value)).toEqual(['/tmp/foo'])
+    expect(result?.items.map((item) => item.value)).toEqual([join(tmp, 'foo')])
   })
 
   it('lists @src/ children and applies files vs directories', () => {
@@ -179,7 +187,7 @@ describe('searchPathSuggestions', () => {
   it('finds a nested project file by basename without its directory prefix', async () => {
     const result = await searchPathSuggestions('@index', 6, {
       ...opts,
-      projectRoot: '/proj',
+      projectRoot: proj,
       searchFiles,
     })
 
@@ -194,7 +202,7 @@ describe('searchPathSuggestions', () => {
   it('supports abbreviated fuzzy filename queries', async () => {
     const result = await searchPathSuggestions('@histsr', 7, {
       ...opts,
-      projectRoot: '/proj',
+      projectRoot: proj,
       searchFiles,
     })
 
@@ -213,11 +221,11 @@ describe('searchPathSuggestions', () => {
     }
     const result = await searchPathSuggestions('@src/ind', 8, {
       ...opts,
-      projectRoot: '/proj',
+      projectRoot: proj,
       searchFiles: scopedSearch,
     })
 
-    expect(calls).toEqual([{ root: '/proj/src', query: 'ind' }])
+    expect(calls).toEqual([{ root: srcDir, query: 'ind' }])
     expect(result?.items[0]).toEqual({
       value: '@src/index.ts',
       label: 'index.ts',
@@ -230,7 +238,7 @@ describe('searchPathSuggestions', () => {
     let searches = 0
     const result = await searchPathSuggestions('@src/', 5, {
       ...opts,
-      projectRoot: '/proj',
+      projectRoot: proj,
       searchFiles: async () => {
         searches += 1
         return []
@@ -244,8 +252,8 @@ describe('searchPathSuggestions', () => {
   it('uses projectRoot for @ browsing when the process cwd is nested', () => {
     const result = pathSuggestions('@', 1, {
       ...opts,
-      cwd: '/proj/apps/omdsh',
-      projectRoot: '/proj',
+      cwd: join(proj, 'apps', 'omdsh'),
+      projectRoot: proj,
     })
 
     expect(result?.items.map(item => item.value)).toContain('@README.md')
@@ -254,10 +262,10 @@ describe('searchPathSuggestions', () => {
   it('does not recursively search outside the project root', async () => {
     let searches = 0
     const result = await searchPathSuggestions('@../outside/wor', 15, {
-      cwd: '/proj/app',
-      projectRoot: '/proj',
-      home: '/home/me',
-      listDir: dir => dir === '/outside'
+      cwd: join(proj, 'app'),
+      projectRoot: proj,
+      home,
+      listDir: dir => dir === resolve('/outside')
         ? [{ name: 'workspace.md', directory: false }]
         : undefined,
       searchFiles: async () => {
