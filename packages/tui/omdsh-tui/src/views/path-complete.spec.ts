@@ -123,7 +123,8 @@ describe('pathSuggestions / applyPathCompletion', () => {
 
   it('lists /tmp when the token is an unmatched absolute path', () => {
     const result = pathSuggestions('/tmp/f', 6, opts)
-    expect(result?.items.map((item) => item.value)).toEqual([join(tmp, 'foo')])
+    // The display value keeps the token's forward slashes on every platform.
+    expect(result?.items.map((item) => item.value)).toEqual(['/tmp/foo'])
   })
 
   it('lists @src/ children and applies files vs directories', () => {
