@@ -7,6 +7,8 @@ import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-ses
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { GoalId } from '@deepseek-ai/dsh-goal'
+import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import { mcpCatalogText } from '../commands/integrations.ts'
 import type { TuiService } from '../definition.ts'
 
@@ -73,6 +75,34 @@ describe('sessionControls', () => {
       plan: { active: true, pending: false },
       permission: 'workspace-write',
     })
+  })
+
+  it('projects the durable goal and hides a completed one', () => {
+    const projection: GoalProjection = {
+      goal: { id: GoalId('goal-1'), revision: 2, objective: 'Land batch 2', phase: 'active', maxGoalRounds: 12 },
+      roundsStarted: 3,
+      createdAt: 1_000,
+      updatedAt: 2_000,
+    }
+    expect(sessionControls({ goal: projection })).toEqual({
+      goal: { phase: 'active', objective: 'Land batch 2', roundsStarted: 3, maxGoalRounds: 12 },
+    })
+    const blocked: GoalProjection = {
+      ...projection,
+      goal: {
+        ...projection.goal,
+        phase: 'blocked',
+        blockedReason: { code: 'waiting', message: 'waiting on the API key' },
+      },
+    }
+    expect(sessionControls({ goal: blocked }).goal).toMatchObject({
+      phase: 'blocked',
+      blockedReason: 'waiting on the API key',
+    })
+    expect(sessionControls({ goal: null })).toEqual({})
+    expect(sessionControls({
+      goal: { ...projection, goal: { ...projection.goal, phase: 'complete' } },
+    })).toEqual({})
   })
 
   it('reads only client-visible snapshot values for footer inputs', () => {

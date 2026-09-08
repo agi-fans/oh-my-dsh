@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/model <query>` resolves a provider/model or fuzzy model name against the installed catalog: exact matches switch immediately and print `Default model: …`, ambiguous matches open the picker, and the three closest entries are shown on no match. `/model --session <query>` switches the active session without writing the saved default (fresh starts still use the saved default) and reports `Session model: …`; the flag cannot combine with a subcommand.
 - Oversized tool results are trimmed to an 8192-character budget (4096 head, 1024 tail) before conversation compaction runs; the full original stays in the session log.
 - Repeated identical tool calls now draw an advisory reminder at 3, 5, and 8 consecutive repeats, and tools that declare a limit now receive a cooperative per-call deadline that reports `tool call timed out after <ms>ms`.
+- A session goal now renders as a bar above the composer with its phase (active, paused, or blocked), objective, and admitted-round counter, and clears itself when the goal completes.
+- `/jobs` lists the session's background jobs with status and elapsed time, `/jobs kill <id>` stops one, and a finished background job posts one completion notice.
+- Automatic context compaction now shows the same live `Compacting` activity as `/compact` and records what the model's view lost when it finishes: `Context compacted · 3 events · 12.4K tokens condensed`, or `Context trimmed · 2 results` when the model-free prune pass was enough. A failed compaction reports the error instead of staying silent.
 
 ## [0.14.0] - 2026-09-04
 

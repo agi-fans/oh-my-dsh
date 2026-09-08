@@ -295,7 +295,7 @@ export class TrajectoryLedger {
       return
     }
     if (eventType === 'compaction/start') {
-      const id = string(data['compactId']) ?? string(data['id']) ?? `${event.seq}`
+      const id = string(data['compactionId']) ?? string(data['compactId']) ?? string(data['id']) ?? `${event.seq}`
       const record = this.#base(event, 'compaction', 'COMPACT', 'Compaction started', data)
       record.id = `compaction:${id}`
       record.status = 'running'
@@ -303,7 +303,7 @@ export class TrajectoryLedger {
       return
     }
     if (eventType === 'compaction/summary' || eventType === 'compaction/end') {
-      const id = string(data['compactId']) ?? string(data['id'])
+      const id = string(data['compactionId']) ?? string(data['compactId']) ?? string(data['id'])
       const index = id === undefined ? [...this.#compactionById.values()].at(-1) : this.#compactionById.get(id)
       if (index === undefined) return
       const record = this.records[index]

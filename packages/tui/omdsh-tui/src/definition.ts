@@ -85,6 +85,23 @@ export interface TuiSessionControls {
   plan?: { active: boolean; pending: boolean }
   /** Effective permission preset, such as workspace-write or danger-full-access. */
   permission?: string
+  /** Current durable goal; absent before the first goal and after a clear or completion. */
+  goal?: TuiGoalStatus
+}
+
+/**
+ * One durable goal projected into the bar above the composer. A completed goal
+ * is reported as absent, matching the Harness projection's own visibility rule.
+ */
+export interface TuiGoalStatus {
+  phase: 'active' | 'paused' | 'blocked'
+  objective: string
+  /** Present exactly while `phase` is `blocked`. */
+  blockedReason?: string
+  /** Highest admitted goal round. */
+  roundsStarted: number
+  /** Admitted round cap; `0` means no cap was configured. */
+  maxGoalRounds: number
 }
 
 /** Process-local repeated-prompt state contributed by the Loop plugin. */

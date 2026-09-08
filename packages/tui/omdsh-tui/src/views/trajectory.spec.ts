@@ -47,6 +47,28 @@ describe('trajectory ledger', () => {
     expect(state.ledger.records[2]).toMatchObject({ label: 'TOOL', status: 'ok', result: 'README contents', durationMs: 100 })
   })
 
+  it('correlates an interleaved compaction lifecycle by its durable id', () => {
+    const state = createTrajectory([
+      event(1, 'compaction/start', { compactionId: 'compact-a', turn: 1 }),
+      event(2, 'compaction/start', { compactionId: 'compact-b', turn: 1 }),
+      event(3, 'compaction/summary', {
+        compactionId: 'compact-b',
+        summary: [{ type: 'text', text: 'second summary' }],
+        shadowedRange: { start: 1, end: 2 },
+        shadowedSeqs: [1, 2],
+        shadowedTokenCount: 10,
+      }),
+      event(4, 'compaction/end', { compactionId: 'compact-a', turn: 1, error: 'summarizer failed' }),
+      event(5, 'compaction/end', { compactionId: 'compact-b', turn: 1 }),
+    ])
+    const records = state.ledger.records.filter(record => record.kind === 'compaction')
+    expect(records).toHaveLength(2)
+    const [first, second] = records
+    expect(first).toMatchObject({ id: 'compaction:compact-a', status: 'error' })
+    expect(first?.result ?? '').toBe('')
+    expect(second).toMatchObject({ id: 'compaction:compact-b', status: 'ok', result: 'second summary' })
+  })
+
   it('records every non-success turn ending with its durable reason', () => {
     const state = createTrajectory([
       event(1, 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } }),

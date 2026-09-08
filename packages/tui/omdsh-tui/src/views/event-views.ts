@@ -11,6 +11,7 @@
 
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type { ContentBlock, StreamChunk, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
@@ -33,8 +34,9 @@ import {
   type PromptSelectorState,
 } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
-import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
+import { renderPermissionBadge, renderStatusFooter, formatTokens } from '../chrome/status-line.ts'
 import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from '../chrome/theme.ts'
+import { renderGoalBar } from '../chrome/goal-bar.ts'
 import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
@@ -95,6 +97,12 @@ export interface TranscriptState {
   todos: TodoItem[]
   /** Lifecycle id of a manual compact command currently owning the UI. */
   compactCommandId: string | undefined
+  /**
+   * Durable compaction in flight: its identity, the shadow price its summary
+   * reported, and the status to restore when it settles. Automatic compaction
+   * runs inside an open turn, so the restored status is usually `running`.
+   */
+  compaction: { id: string; events: number; tokens: number; resume: SessionStatus } | undefined
   /** Durable follow-up turns waiting in the Harness-owned agent inbox. */
   nextTurnInbox: UserMessage[]
   /** Durable steering/context waiting for a later step (kept for splice fidelity). */
@@ -109,6 +117,7 @@ export function initialTranscript(): TranscriptState {
     turn: 0,
     todos: [],
     compactCommandId: undefined,
+    compaction: undefined,
     nextTurnInbox: [],
     nextStepInbox: [],
   }
@@ -169,6 +178,28 @@ const MAX_TOKENS_TOOL_NOTICE = 'Output token limit reached. A partial tool call 
 const INTERRUPTED_NOTICE = 'Session was interrupted before completion.'
 const INTERRUPTED_TOOL_NOTICE = 'Session was interrupted before completion. A partial tool call was not executed.'
 const UNFINISHED_TOOL_OUTPUT = 'No durable tool result was recorded before the turn ended. The tool\'s outcome is unknown.'
+
+const COMPACTED_NOTICE_PREFIX = 'Context compacted'
+const TRIMMED_NOTICE_PREFIX = 'Context trimmed'
+
+/** One-line condensation record: what the model's view lost and how much. */
+function compactionNoticeText(action: 'compacted' | 'trimmed', events: number, tokens: number): string {
+  const parts: string[] = []
+  if (events > 0) parts.push(`${events} ${action === 'compacted' ? 'events' : 'results'}`)
+  if (tokens > 0) parts.push(`${formatTokens(tokens)} tokens condensed`)
+  const head = action === 'compacted' ? COMPACTED_NOTICE_PREFIX : TRIMMED_NOTICE_PREFIX
+  return parts.length === 0 ? head : `${head} · ${parts.join(' · ')}`
+}
+
+function isCompactionNotice(block: Block | undefined): boolean {
+  return block?.kind === 'notice'
+    && (block.text.startsWith(COMPACTED_NOTICE_PREFIX) || block.text.startsWith(TRIMMED_NOTICE_PREFIX))
+}
+
+/** Replace the previous cycle's condensation notice instead of stacking them. */
+function dropCompactionNotice(blocks: Block[]): void {
+  if (isCompactionNotice(blocks[blocks.length - 1])) blocks.pop()
+}
 
 interface ReplayIndexes {
   readonly toolByCallId: Map<string, number>
@@ -373,7 +404,7 @@ function foldEvent(
 ): TranscriptState {
   switch (event.type) {
     case 'turn/start':
-      return { ...state, status: 'running', turn: event.data.turn, todos: [], compactCommandId: undefined }
+      return { ...state, status: 'running', turn: event.data.turn, todos: [], compactCommandId: undefined, compaction: undefined }
     case 'llm/retry': {
       const blocks = editableBlocks(state, mutable)
       hideFailedAttempt(blocks, event.data.turn, event.data.step, indexes)
@@ -418,7 +449,9 @@ function foldEvent(
           blocks.push({ kind: 'notice', level: 'info', text: 'interrupted' })
         }
       }
-      return { ...state, blocks, status: 'idle', compactCommandId: undefined }
+      // A compaction still open here cannot be the turn's own: clear it so a
+      // late `compaction/end` cannot restore a stale running status.
+      return { ...state, blocks, status: 'idle', compactCommandId: undefined, compaction: undefined }
     }
     case 'user/message': {
       // Synthetic plugin injections (system-prompt runtime context, skill
@@ -483,7 +516,60 @@ function foldEvent(
       }
     case 'command/done':
       if (state.compactCommandId !== event.data.commandId) return state
-      return { ...state, status: 'idle', compactCommandId: undefined }
+      return {
+        ...state,
+        compactCommandId: undefined,
+        status: state.compaction === undefined ? 'idle' : 'compacting',
+      }
+    // Durable condensation. The manual `/compact` command and the automatic
+    // pressure path emit the same lifecycle, so one set of cases covers both.
+    case 'compaction/start':
+      return {
+        ...state,
+        status: 'compacting',
+        compaction: { id: event.data.compactionId, events: 0, tokens: 0, resume: state.status },
+      }
+    case 'compaction/summary': {
+      if (state.compaction?.id !== event.data.compactionId) return state
+      return {
+        ...state,
+        compaction: {
+          id: state.compaction.id,
+          events: event.data.shadowedSeqs.length,
+          tokens: event.data.shadowedTokenCount,
+          resume: state.compaction.resume,
+        },
+      }
+    }
+    case 'compaction/end': {
+      if (state.compaction?.id !== event.data.compactionId) return state
+      const error = event.data.error
+      const notice = error !== undefined
+        ? `Context compaction failed: ${error}`
+        : state.compaction.events === 0 && state.compaction.tokens === 0
+          ? undefined
+          : compactionNoticeText('compacted', state.compaction.events, state.compaction.tokens)
+      if (notice === undefined) {
+        return { ...state, compaction: undefined, status: state.compaction.resume }
+      }
+      const blocks = editableBlocks(state, mutable)
+      dropCompactionNotice(blocks)
+      blocks.push({ kind: 'notice', level: error === undefined ? 'info' : 'error', text: notice })
+      return { ...state, blocks, compaction: undefined, status: state.compaction.resume }
+    }
+    // The model-free prune pass runs before a summarizing compaction, so its
+    // notice is superseded when a summary follows in the same cycle.
+    case 'compaction/prune': {
+      if (event.data.shadowedSeqs.length === 0) return state
+      const blocks = editableBlocks(state, mutable)
+      dropCompactionNotice(blocks)
+      blocks.push({
+        kind: 'notice',
+        level: 'info',
+        text: compactionNoticeText('trimmed', event.data.shadowedSeqs.length, event.data.shadowedTokenCount),
+      })
+      return { ...state, blocks }
+    }
     case 'agent/inbox/spliced': {
       const key = event.data.target === 'next-turn' ? 'nextTurnInbox' : 'nextStepInbox'
       return {
@@ -1518,6 +1604,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ? []
     : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
   const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
+  const goal = editor === undefined || options.inspected !== undefined || options.sessionControls?.goal === undefined
+    ? []
+    : renderGoalBar(options.sessionControls.goal, theme, width)
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
   const subagents = editor === undefined
     ? []
@@ -1529,7 +1618,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + queuedSubmissions.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusStart = options.focusBlock === undefined
     ? undefined
@@ -1547,9 +1636,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   const lines: string[] = [...visible]
   if (visible.length > 0) lines.push('')
-  const bottomRows = working.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = working.length + goal.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
+  lines.push(...goal)
   lines.push(...working)
   lines.push(...inspect)
   lines.push(...subagents)

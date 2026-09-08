@@ -123,6 +123,114 @@ describe('applyEvent', () => {
     expect(state.status).toBe('idle')
   })
 
+  it('surfaces automatic compaction as activity plus one condensation notice', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
+    expect(state.status).toBe('running')
+    state = applyEvent(state, ev('compaction/start', { compactionId: 'compact-1', turn: 1 }, 2))
+    expect(state.status).toBe('compacting')
+    expect(view(state).lines.join('\n')).toContain('Compacting')
+
+    state = applyEvent(state, ev('compaction/summary', {
+      compactionId: 'compact-1',
+      summary: [{ type: 'text', text: 'summary' }],
+      shadowedRange: { start: 1, end: 9 },
+      shadowedSeqs: [1, 2, 3],
+      shadowedTokenCount: 12_400,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }, 3))
+    expect(state.status).toBe('compacting')
+
+    state = applyEvent(state, ev('compaction/end', { compactionId: 'compact-1', turn: 1 }, 4))
+    // Automatic compaction runs inside an open turn: the agent keeps working.
+    expect(state.status).toBe('running')
+    expect(state.blocks.at(-1)).toMatchObject({
+      kind: 'notice',
+      level: 'info',
+      text: 'Context compacted · 3 events · 12.4K tokens condensed',
+    })
+
+    state = applyEvent(state, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
+    expect(state.status).toBe('idle')
+  })
+
+  it('reconstructs the same compaction state when replaying the durable log', () => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('compaction/start', { compactionId: 'compact-1', turn: 1 }, 2),
+      ev('compaction/summary', {
+        compactionId: 'compact-1',
+        summary: [{ type: 'text', text: 'summary' }],
+        shadowedRange: { start: 1, end: 9 },
+        shadowedSeqs: [1, 2, 3],
+        shadowedTokenCount: 12_400,
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      }, 3),
+      ev('compaction/end', { compactionId: 'compact-1', turn: 1 }, 4),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    const replayed = replayEvents(events)
+    expect(replayed.status).toBe(live.status)
+    expect(replayed.compaction).toBeUndefined()
+    expect(replayed.blocks).toEqual(live.blocks)
+    expect(replayed.blocks.at(-1)).toMatchObject({
+      kind: 'notice',
+      text: 'Context compacted · 3 events · 12.4K tokens condensed',
+    })
+  })
+
+  it('reports a model-free trim when compaction skips the summary', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('compaction/prune', {
+      shadowedRange: { start: 4, end: 5 },
+      shadowedSeqs: [4, 5],
+      shadowedTokenCount: 4_100,
+    }, 1))
+    expect(state.status).toBe('idle')
+    expect(state.blocks.at(-1)).toMatchObject({
+      kind: 'notice',
+      text: 'Context trimmed · 2 results · 4.1K tokens condensed',
+    })
+
+    // A summarizing cycle that follows the prune supersedes its notice.
+    state = applyEvent(state, ev('compaction/start', { compactionId: 'compact-2', turn: 2 }, 2))
+    state = applyEvent(state, ev('compaction/summary', {
+      compactionId: 'compact-2',
+      summary: [{ type: 'text', text: 'summary' }],
+      shadowedRange: { start: 1, end: 9 },
+      shadowedSeqs: [1, 2, 3, 4, 5],
+      shadowedTokenCount: 20_000,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }, 3))
+    state = applyEvent(state, ev('compaction/end', { compactionId: 'compact-2', turn: 2 }, 4))
+    const notices = state.blocks.filter(block => block.kind === 'notice' && block.text.startsWith('Context'))
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.text).toContain('5 events')
+  })
+
+  it('reports a failed compaction and keeps the manual command status until it settles', () => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('command/run', { commandId: 'cmd-1', name: 'compact', source: { kind: 'user' } }, 1))
+    state = applyEvent(state, ev('compaction/start', { compactionId: 'compact-3', sourceCommandId: 'cmd-1', turn: null }, 2))
+    state = applyEvent(state, ev('compaction/end', {
+      compactionId: 'compact-3',
+      sourceCommandId: 'cmd-1',
+      turn: null,
+      error: 'summarizer unavailable',
+    }, 3))
+    expect(state.status).toBe('compacting')
+    expect(state.blocks.at(-1)).toMatchObject({
+      kind: 'notice',
+      level: 'error',
+      text: 'Context compaction failed: summarizer unavailable',
+    })
+    state = applyEvent(state, ev('command/done', { commandId: 'cmd-1', kind: 'error' }, 4))
+    expect(state.status).toBe('idle')
+  })
+
   it('projects queued agent follow-ups above the composer until they are claimed', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
@@ -1125,6 +1233,35 @@ describe('renderView', () => {
     state = applyEvent(state, ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'x'.repeat(200) }] }, 1))
     const frame = view(state)
     for (const line of frame.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(60)
+  })
+
+  it('docks the goal bar above the composer and hides it while inspecting', () => {
+    const state = initialTranscript()
+    const goal = { phase: 'active' as const, objective: 'Land batch 2', roundsStarted: 2, maxGoalRounds: 12 }
+    const frame = renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      sessionControls: { goal },
+    })
+    const bar = frame.lines.findIndex(line => line.includes('Land batch 2'))
+    expect(bar).toBeGreaterThan(-1)
+    expect(bar).toBeLessThan(composerStart(frame.lines))
+    expect(frame.lines[bar]).toContain('round 2/12')
+    const inspecting = renderView(state, {
+      width: 60,
+      height: 24,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      sessionControls: { goal },
+      inspected: { id: 'child-1', label: 'child', phase: 'running', writable: false },
+    })
+    expect(inspecting.lines.some(line => line.includes('Land batch 2'))).toBe(false)
   })
 
   it('places the cursor on the editor input row', () => {

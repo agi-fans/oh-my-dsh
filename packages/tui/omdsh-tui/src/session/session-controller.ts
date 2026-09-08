@@ -39,14 +39,18 @@ import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageP
 import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
+import type {} from '@deepseek-ai/dsh-goal'
+import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
+import { jobNoticeFor } from './job-notice.ts'
 import type {
   TuiCommand,
+  TuiGoalStatus,
   TuiInspectedSubagent,
   TuiRecentSession,
   TuiService,
@@ -110,6 +114,7 @@ export interface TuiStatsProjection {
   contextBreakdown?: ContextBreakdownProjection
   plan?: PlanProjection
   permissions?: PermissionSelect
+  goal?: GoalProjection | null
 }
 
 /** Present only the session controls whose owning Harness plugins are composed. */
@@ -117,6 +122,23 @@ export function sessionControls(projection?: TuiStatsProjection): TuiSessionCont
   return {
     ...(projection?.plan === undefined ? {} : { plan: { ...projection.plan } }),
     ...(projection?.permissions === undefined ? {} : { permission: projection.permissions.currentValue }),
+    ...goalControl(projection?.goal),
+  }
+}
+
+/** A completed goal renders nothing, mirroring the projection's own visibility rule. */
+function goalControl(projection: GoalProjection | null | undefined): { goal?: TuiGoalStatus } {
+  if (projection === null || projection === undefined) return {}
+  const goal = projection.goal
+  if (goal.phase === 'complete') return {}
+  return {
+    goal: {
+      phase: goal.phase,
+      objective: goal.objective,
+      ...(goal.blockedReason === undefined ? {} : { blockedReason: goal.blockedReason.message }),
+      roundsStarted: projection.roundsStarted,
+      maxGoalRounds: goal.maxGoalRounds,
+    },
   }
 }
 
@@ -518,6 +540,13 @@ export class SessionRuntime {
         ...(image.name === undefined ? {} : { name: image.name }),
       }))
     }
+    const jobs = this.#ctx.get('jobs')
+    if (jobs !== undefined) {
+      this.#off.push(jobs.onJobDone((snapshot, owner) => {
+        const notice = jobNoticeFor(snapshot, owner, this.#active?.handle.agent)
+        if (notice !== undefined) tui.notice(notice)
+      }))
+    }
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
         if (this.#inspectedId === undefined) tui.setStatus(payload.status)
@@ -589,7 +618,7 @@ export class SessionRuntime {
       this.#off.push(projections.onChanged((session, key) => {
         if (session !== this.#active?.handle.agent.session) return
         if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure' || key === 'contextBreakdown'
-          || key === 'plan' || key === 'permissions') this.#pushSessionInfo()
+          || key === 'plan' || key === 'permissions' || key === 'goal') this.#pushSessionInfo()
       }))
     }
   }
