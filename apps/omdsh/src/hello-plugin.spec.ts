@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnPnpm, spawnTool } from './test-support/pnpm.ts'
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -24,7 +24,7 @@ const appManifest = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'
 
 function packedArchive(cwd: string, packDir: string): string {
   if (!existsSync(join(cwd, 'lib'))) {
-    const built = spawnSync('pnpm', ['run', 'build'], {
+    const built = spawnPnpm(['run', 'build'], {
       cwd,
       encoding: 'utf8',
       timeout: 60_000,
@@ -45,7 +45,7 @@ function packedArchive(cwd: string, packDir: string): string {
     const from = join(cwd, name)
     if (existsSync(from)) cpSync(from, join(stage, name), { recursive: true })
   }
-  const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
+  const packed = spawnTool('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
     cwd: stage,
     encoding: 'utf8',
     timeout: 60_000,
@@ -113,7 +113,7 @@ describe('examples/hello bundle', () => {
       write: () => undefined,
     })
     expect(added).toBe(0)
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
@@ -135,20 +135,20 @@ describe('examples/hello bundle', () => {
     const home = temp('omdsh-hello-packed-home-')
     const tuiArchive = packedArchive(tuiDir, packDir)
     const appArchive = packedArchive(appDir, packDir)
-    const installed = spawnSync('npm', ['install', '--prefix', installDir, appArchive, tuiArchive], {
+    const installed = spawnTool('npm', ['install', '--prefix', installDir, appArchive, tuiArchive], {
       encoding: 'utf8',
       timeout: 180_000,
     })
     expect(installed.status, installed.stderr + installed.stdout).toBe(0)
-    const bin = join(installDir, 'node_modules', '.bin', 'omdsh')
-    const added = spawnSync(bin, ['plugin', 'add', exampleDir], {
+    const bin = join(installDir, 'node_modules', '.bin', process.platform === 'win32' ? 'omdsh.cmd' : 'omdsh')
+    const added = spawnTool(bin, ['plugin', 'add', exampleDir], {
       cwd: repoRoot,
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
       timeout: 60_000,
     })
     expect(added.status, added.stderr + added.stdout).toBe(0)
-    const launched = spawnSync(bin, [], {
+    const launched = spawnTool(bin, [], {
       cwd: repoRoot,
       input: '/hello\n',
       encoding: 'utf8',

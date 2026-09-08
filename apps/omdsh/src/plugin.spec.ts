@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnPnpm } from './test-support/pnpm.ts'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -247,7 +247,7 @@ describe('omdsh plugin', () => {
 
   it('prints usage from the bin without starting a session', () => {
     const appRoot = fileURLToPath(new URL('..', import.meta.url))
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', 'plugin'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', 'plugin'], {
       cwd: appRoot,
       encoding: 'utf8',
       timeout: 30_000,

@@ -18,7 +18,7 @@ import {
 } from './terminal-notifications.ts'
 
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
 import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
@@ -166,7 +166,8 @@ const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
 function shortenPath(cwd: string): string {
   const home = homedir()
   if (cwd === home) return '~'
-  if (cwd.startsWith(home + '/')) return '~' + cwd.slice(home.length)
+  // Windows separates with `\`, so the home prefix check follows the host.
+  if (cwd.startsWith(home + sep)) return '~' + cwd.slice(home.length)
   return cwd
 }
 

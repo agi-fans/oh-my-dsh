@@ -5,12 +5,15 @@
     complete: true
     includeRuntimeContext: false
 
+# `shell` is an omdsh alias for the host's one shell tool (`bash` on POSIX,
+# `pwsh` on Windows), so this two-tool shape holds on every platform without a
+# name that `tools.restrict()` would reject.
 - id: profile
   name: '@agi-fans/dsh-tui/agent-profile'
   config:
     tools:
       allow:
-        - bash
+        - shell
         - str_replace_editor
 
 - id: persistent-shell
@@ -24,10 +27,26 @@
 
     - id: terminal-bash
       name: '@deepseek-ai/dsh-terminal-bash'
+      disabled: !!js process.platform === 'win32'
       config:
         timeoutMs: 300000
 
     - id: persistent-bash
       name: '@deepseek-ai/dsh-tool-bash-persistent'
+      disabled: !!js process.platform === 'win32'
+      config:
+        timeoutMs: 300000
+
+    # The PTY backend is shared; the dialect selects PowerShell on Windows.
+    - id: terminal-pwsh
+      name: '@deepseek-ai/dsh-terminal-bash'
+      disabled: !!js process.platform !== 'win32'
+      config:
+        shellDialect: pwsh
+        timeoutMs: 300000
+
+    - id: persistent-pwsh
+      name: '@deepseek-ai/dsh-tool-pwsh-persistent'
+      disabled: !!js process.platform !== 'win32'
       config:
         timeoutMs: 300000

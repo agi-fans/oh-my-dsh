@@ -23,7 +23,13 @@ const server = await startMockLlmServer({
   chunkDelayMs: 40,
 })
 
-const omdsh = spawn('pnpm', ['--dir', 'apps/omdsh', 'omdsh'], {
+// Windows resolves pnpm through a .cmd shim, so it needs a command shell.
+const pnpmCommand = process.platform === 'win32' ? 'cmd.exe' : 'pnpm'
+const pnpmArgs = process.platform === 'win32'
+  ? ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']
+  : ['--dir', 'apps/omdsh', 'omdsh']
+
+const omdsh = spawn(pnpmCommand, pnpmArgs, {
   cwd: root,
   stdio: ['pipe', 'pipe', 'pipe'],
   env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' },

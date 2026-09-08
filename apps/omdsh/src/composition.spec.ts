@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { spawnSync } from 'node:child_process'
+import { spawnPnpm } from './test-support/pnpm.ts'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +18,7 @@ import {
   writeAll,
 } from './composition.ts'
 import { composeLaunch } from './profile.ts'
+import { interpolate } from '@deepseek-ai/cordis-plugin-loader'
 
 const appRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -51,6 +53,31 @@ describe('boot patch assembly', () => {
       expect.objectContaining({ insert: expect.arrayContaining([expect.objectContaining({ id: 'tui' })]) }),
       expect.objectContaining({ insert: [expect.objectContaining({ id: 'mcp-memory' })] }),
     ]))
+  })
+
+  it('mounts exactly one shell stack for the running platform', () => {
+    const patches = loadBootPatches(temp('omdsh-shell-cwd-'), { OMDSH_HOME: temp('omdsh-shell-home-') })
+    const rows = patches.flatMap((patch) => {
+      const inserted = (patch as { insert?: Array<{ id?: string; disabled?: unknown }> }).insert
+      return Array.isArray(inserted) ? inserted : [patch as { id?: string; disabled?: unknown }]
+    })
+    // Row-level `disabled` is a `!!js` expression node the loader evaluates at
+    // activation; evaluating it here pins the same decision per platform.
+    const active = (id: string): boolean => {
+      const row = rows.find(candidate => candidate.id === id)
+      if (row === undefined) return false
+      const disabled = row.disabled
+      return disabled === undefined || interpolate({} as Context, disabled) !== true
+    }
+    expect(active('bash')).not.toBe(active('pwsh'))
+    expect(active('tool-bash')).not.toBe(active('tool-pwsh'))
+    if (process.platform === 'win32') {
+      expect(active('pwsh')).toBe(true)
+      expect(active('tool-pwsh')).toBe(true)
+    } else {
+      expect(active('bash')).toBe(true)
+      expect(active('tool-bash')).toBe(true)
+    }
   })
 
   it('inserts the language-server trio after MCP inserts', () => {
@@ -231,7 +258,7 @@ describe('boot patch assembly', () => {
 
   it('prints the composed tree from the bin and exits 0 without booting a session', () => {
     const home = temp('omdsh-dump-bin-')
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
       cwd: appRoot,
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
@@ -251,7 +278,7 @@ describe('boot patch assembly', () => {
     const env = { ...process.env }
     delete env.OMDSH_HOME
     delete env.DSH_HOME
-    const result = spawnSync(join(appRoot, 'node_modules/.bin/tsx'), [join(appRoot, 'src/bin.ts'), '--dump-config'], {
+    const result = spawnSync(process.execPath, [join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'), join(appRoot, 'src/bin.ts'), '--dump-config'], {
       cwd,
       encoding: 'utf8',
       env,
@@ -265,7 +292,7 @@ describe('boot patch assembly', () => {
   it('exits 1 with one labelled line when the home patch is invalid', () => {
     const home = temp('omdsh-dump-bin-bad-')
     writeFileSync(join(home, 'cordis.patch.yml'), '')
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
       cwd: appRoot,
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
@@ -352,7 +379,7 @@ describe('dsh spine expansion', () => {
   it('skips a spine-targeted home patch silently without breaking boot', () => {
     const home = temp('omdsh-spine-patch-home-')
     writeFileSync(join(home, 'cordis.patch.yml'), '- id: spine\n  config:\n    workspaceContext:\n      maxBytes: 4096\n')
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts'], {
       cwd: appRoot,
       input: 'hi\n',
       encoding: 'utf8',
@@ -370,7 +397,7 @@ describe('dsh spine expansion', () => {
     const home = temp('omdsh-spine-migrated-home-')
     writeFileSync(join(home, 'cordis.patch.yml'),
       '- id: agent-instructions\n  config:\n    maxBytes: 12345\n')
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
       cwd: appRoot,
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },

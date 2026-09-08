@@ -25,7 +25,10 @@ const hasReasoningEffort = (value) => /deepseek-v4-flash · (?:off|high|max)/u.t
 // default exercises the tsx source launch.
 const spawnCmd = process.env.OMDSH_RUN_MODE === 'built'
   ? [process.execPath, ['apps/omdsh/lib/bin.js']]
-  : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
+  : process.platform === 'win32'
+    // Windows resolves pnpm through a .cmd shim, so it needs a command shell.
+    ? ['cmd.exe', ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']]
+    : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
 
 const smokeEnv = {
   ...process.env,

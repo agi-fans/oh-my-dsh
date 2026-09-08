@@ -142,11 +142,21 @@
   - id: subprocess
     name: '@deepseek-ai/dsh-subprocess-local'
 
-  # Pinned rather than inherited: upstream's base bundle caps shell commands at
-  # 60s, which is short for ordinary builds and test suites. The model can still
-  # raise the limit per call or run the command in the background.
+  # Exactly one shell stack mounts per host: the bash stack gates off Windows
+  # and its PowerShell twin gates off everything else, so a session always has
+  # one confined shell and never a tool whose interpreter is missing. Timeouts
+  # are pinned rather than inherited: upstream's 60s base default is short for
+  # ordinary builds and test suites, and the model can still raise the limit
+  # per call or run the command in the background.
   - id: bash
     name: '@deepseek-ai/dsh-bash-sandbox'
+    disabled: !!js process.platform === 'win32'
+    config:
+      timeoutMs: 120000
+
+  - id: pwsh
+    name: '@deepseek-ai/dsh-pwsh-sandbox'
+    disabled: !!js process.platform !== 'win32'
     config:
       timeoutMs: 120000
 
@@ -226,6 +236,11 @@
 
   - id: tool-bash
     name: '@deepseek-ai/dsh-tool-bash'
+    disabled: !!js process.platform === 'win32'
+
+  - id: tool-pwsh
+    name: '@deepseek-ai/dsh-tool-pwsh'
+    disabled: !!js process.platform !== 'win32'
 
   - id: agent-instructions
     name: '@deepseek-ai/dsh-agent-instructions'

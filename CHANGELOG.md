@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Delegation gained `subagent_fork`, which seeds a child with the parent's completed turns so the inherited prefix stays eligible for cache reuse. `/tools` now lists both `subagent` and `subagent_fork`.
 - Automatic context compaction now shows the same live `Compacting` activity as `/compact` and records what the model's view lost when it finishes: `Context compacted · 3 events · 12.4K tokens condensed`, or `Context trimmed · 2 results` when the model-free prune pass was enough. A failed compaction reports the error instead of staying silent.
 - omdsh can now drive local language servers: add `lsp.json` beside `mcp.json` (user `$DSH_HOME/lsp.json` and project `.dsh/lsp.json`, project wins) and the agent gains a read-only `lsp` tool for definitions, references, implementations, and hover. No server is configured by default, and no `lsp` tool appears until one is.
+- omdsh now runs on Windows. Every session gets exactly one confined shell — `pwsh` on Windows, `bash` elsewhere — and the Minimal preset's persistent shell follows the same rule, so the agent never carries a shell tool whose interpreter is missing. CI gained a `windows-latest` job covering install, typecheck, build, and a boot smoke.
 
 ## [0.14.0] - 2026-09-04
 

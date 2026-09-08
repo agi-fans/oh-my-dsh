@@ -24,7 +24,7 @@
  * records, so every load below runs against a throwaway copy and the test
  * asserts the source files were not modified.
  */
-import { spawnSync } from 'node:child_process'
+import { spawnPnpm } from './test-support/pnpm.ts'
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -102,7 +102,7 @@ describe('alpha.3 persisted-session compatibility', () => {
     const home = mkdtempSync(join(tmpdir(), 'omdsh-cross-version-'))
     cpSync(join(fixtureRoot, 'zstd'), join(home, 'sessions'), { recursive: true })
     try {
-      const result = spawnSync('pnpm', ['--dir', appRoot, 'omdsh', '--resume', PARENT_ID], {
+      const result = spawnPnpm(['--dir', appRoot, 'omdsh', '--resume', PARENT_ID], {
         cwd: appRoot,
         input: '',
         encoding: 'utf8',

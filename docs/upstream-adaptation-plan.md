@@ -52,7 +52,7 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 | Workflow 与 Ralph | `dsh-workflow`、`dsh-workflow-worker-thread`、`dsh-tool-workflow`、`dsh-tool-ralph` | 未挂；注意 TUI 的 `/workflow` 是"Default/Plan 工作流"选择器，与上游 workflow 工具无关 | 挂 worker-thread 引擎 + 两个工具；`tool-ralph` 需 `subagentProvider` 配置 |
 | 子代理 fork（**已落地**） | `dsh-subagent-fork-in-process` + `tool-subagent` 的 `provider: fork` 行 | 只挂了 `spawn` | 已加 provider 行与 `subagent_fork` 工具行（continuable，不设 modelSelectionSettings）；TUI roster 与 `subagent_` 前缀渲染直接可用 |
 | 超大工具输出落盘（**已落地**） | `dsh-spill-local`、`dsh-spill-policy` | 未挂；上游 base 默认挂 | 已挂两行；`maxInlineBytes` 必须显式给（省略即 no-op），取 200000 见 D7 |
-| Windows 支持 | `dsh-pwsh-local`、`dsh-pwsh-sandbox`、`dsh-tool-pwsh`、`dsh-tool-pwsh-persistent` | 未挂；上游用 `process.platform` 门控，omdsh 在 Windows 上没有 shell 工具 | **暂不实现**：当前没有 Windows 受众，且 CI 只有 ubuntu；配方见下 |
+| Windows 支持（**已落地**） | `dsh-pwsh-sandbox`、`dsh-tool-pwsh`、`dsh-tool-pwsh-persistent` | 未挂；上游用 `process.platform` 门控，omdsh 在 Windows 上没有 shell 工具 | 已按上游门控实现：每台主机恰好一套 shell 栈（bash/pwsh），minimal preset 的持久 shell 同规则；测试与 smoke 的 `pnpm`/`npm` 调用改为 Windows 可解析；CI 增加 `windows-latest` 基线 job |
 | 代码智能（**已落地**） | `dsh-lsp`、`dsh-lsp-stdio`、`dsh-tool-lsp` | 未挂 | 已加产品侧配置缝 `apps/omdsh/src/lsp-config.ts`：读用户/项目 `lsp.json`，只有配置了服务器才插入三行；无默认服务器，不做自动探测（见 D9） |
 | Hooks 复用 | `dsh-hook-protocol`、`dsh-hooks-claude-code`、`dsh-hooks-codex` | 未挂 | 先挂 protocol + claude-code bridge，按需扩 codex |
 | 定时提醒 | `dsh-schedule` | 未挂；TUI 的 `/loop` 是进程内 prompt 循环，不是持久化提醒 | 挂 schedule 服务；呈现层留到 P2 |
@@ -140,7 +140,8 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 - [x] `dsh-subagent-fork-in-process` provider 行 + `subagent_fork` 工具行（两个 `tool-subagent` 实例用不同 `toolName`）
 - [x] `dsh-spill-local` + `dsh-spill-policy`（`maxInlineBytes: 200000`，D7），放在 pruner 之前
 - [x] 组合级回归测试：`apps/omdsh/src/composition.spec.ts` 的 `upstream capability adaptation rows`
-- [ ] 推迟项（含触发条件）：workflow/ralph、pwsh/Windows、hooks、schedule、feedback、session-query（受 `openAt: never` 阻塞）、time/tmux context、LLM 标题、skill-badge
+- [x] Windows：组合门控 + minimal preset + Windows 可解析的测试/smoke 启动 + `windows-latest` CI 基线 job
+- [ ] 推迟项（含触发条件）：workflow/ralph、hooks、schedule、feedback、session-query（受 `openAt: never` 阻塞）、time/tmux context、LLM 标题、skill-badge
 
 批次 4（LSP）已完成：
 
@@ -162,4 +163,4 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 - **PTC 子调用折叠**：默认 preset 是 `standard`（native 工具），`code`/PTC 是 opt-in；`/trajectory` 已能看全部派发。触发：把 PTC 设为默认，或出现明确的 PTC 使用诉求。
 - **`/plugins` 运行时清单**：`omdsh --dump-config` 已经给出完整组合树，重复一遍没有新信息。触发：需要"当前进程实际激活状态"（而非配置树）的诊断场景。
 - **`tool-session-query`**：两条独立理由。① 我们刻意把 `session-query-sqlite` 配成 `openAt: 'never'`，该配置下任何 search 调用在碰 sqlite 之前就抛 `SESSION_QUERY_SEARCH_DISABLED`；要启用就得改 `first-search`，第一次搜索会 import `node:sqlite` 并往 stderr 打 ExperimentalWarning。② 上游文档明说挂载它会给**每个请求**加 5 个工具 schema 和一段 guidance 段，而跨会话检索是小众能力。触发：Node 基线提升到 `node:sqlite` 稳定版本，且确有跨会话检索的诉求。
-- **Windows（pwsh）**：**当前不做**，因为目前没有 Windows 受众，而 `.github/workflows/ci.yml` 只有 `ubuntu-latest`，无法在本机验证。可行配方已确定，出现真实需求时照做即可：① `cordis.yml` 给 `bash` 行补 `disabled: !!js process.platform === 'win32'`，新增 `pwsh-sandbox` + `tool-pwsh` 行并加 `disabled: !!js process.platform !== 'win32'`；② minimal preset 的持久 shell 同样按平台二选一（`tool-pwsh-persistent`）；③ 依赖 + age-gate + lockfile；④ 加 `windows-latest` CI job（install/typecheck/test/smoke:happy）与一条 Windows PTY smoke。产品侧已有基础：TUI 的 conpty 终端档位、Windows 剪贴板/图片粘贴、`shell: true` 拉起子进程都已实现，`dsh-sandbox-local` 的 win32 档位就是 ACL restricted-token runner。
+- **Windows（pwsh）**：**已实现**。组合层每台主机只挂一套 shell 栈：`bash`/`tool-bash` 在 win32 禁用，`pwsh`/`tool-pwsh` 在非 win32 禁用；minimal preset 的持久 shell 同样二选一（`terminal-bash` + `tool-bash-persistent`，以及 `terminal-bash(shellDialect: pwsh)` + `tool-pwsh-persistent`）。`tools.restrict()` 只认已注册的全局工具名，而名字随平台变化，所以 `agent-profile` 新增 `shell` 别名（POSIX → `bash`，Windows → `pwsh`）。测试与 smoke 里所有 `pnpm`/`npm`/`.bin` 调用改走 `spawnTool`/`spawnPnpm`（win32 下经 shell 解析 `.cmd`），`tsx` 改为 `process.execPath` + CLI 入口，PTY 脚本在 win32 用 `cmd.exe /d /s /c`。CI 增加 `windows-latest` 基线 job（install/typecheck/build/smoke:happy）；`pnpm test` 与 `check:boundaries` 暂留 Linux，因为后者依赖 POSIX `find`、跨版本 fixture 是 macOS 录制的。
