@@ -134,7 +134,7 @@
       workspaceRoot: !!js process.cwd()
 
   - id: fs
-    name: '@deepseek-ai/dsh-fs-local'
+    name: '@deepseek-ai/dsh-fs-sandbox'
 
   - id: fs-observation-policy
     name: '@deepseek-ai/dsh-fs-observation-policy'
@@ -142,8 +142,13 @@
   - id: subprocess
     name: '@deepseek-ai/dsh-subprocess-local'
 
+  # Pinned rather than inherited: upstream's base bundle caps shell commands at
+  # 60s, which is short for ordinary builds and test suites. The model can still
+  # raise the limit per call or run the command in the background.
   - id: bash
     name: '@deepseek-ai/dsh-bash-sandbox'
+    config:
+      timeoutMs: 120000
 
   - id: permission
     name: '@deepseek-ai/dsh-permission-presets'
@@ -289,11 +294,32 @@
   - id: token-meter
     name: '@deepseek-ai/dsh-token-meter'
 
+  # Trims oversized tool results before condensation, so the model-visible
+  # result stays inside the budget; the full original stays in the session log.
+  # compaction-basic reads this through ctx.get, so the row must precede it.
+  - id: tool-result-pruner
+    name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+    config:
+      thresholdChars: 8192
+      headChars: 4096
+      tailChars: 1024
+
   - id: compaction
     name: '@deepseek-ai/dsh-compaction-basic'
 
   - id: command-compact
     name: '@deepseek-ai/dsh-command-compact'
+
+  # Guard rails on the tool chain: a cooperative per-tool deadline, and an
+  # advisory reminder when an agent repeats an identical call.
+  - id: timeout-policy
+    name: '@deepseek-ai/dsh-tool-call-timeout-policy'
+
+  - id: repeat-tool-reminder
+    name: '@deepseek-ai/dsh-repeat-tool-reminder'
+    config:
+      thresholds: [3, 5, 8]
+      argumentsPreviewChars: 500
 
   - id: subagent
     name: '@deepseek-ai/dsh-subagent'

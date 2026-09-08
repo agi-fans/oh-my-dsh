@@ -17,11 +17,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Input is now Unicode-safe end to end: the editor moves and deletes by grapheme boundaries (an emoji can no longer be split into a lone surrogate, and vertical motion snaps out of a surrogate pair), and terminal bytes are decoded across stream chunks so a multi-byte character split between data events is no longer corrupted.
 - Pipe mode no longer drops submitted lines when two lines arrive in one stream chunk; buffered lines drain before EOF.
+- File writes and edits now honor the session's Access preset: `write`, `edit`, and `str_replace_editor` previously ignored Read only and Workspace write and could modify any path the process could reach. A mutation outside the workspace now returns the shared sandbox denial, and the model may retry it once at a wider mode after approval.
 
 ### Added
 
 - `/trajectory` search gained match navigation: matching scans the full ledger, so collapsed turns and hidden subtools still count, and `n`/`N` (result state) or `Ctrl+N`/`Ctrl+P` (while editing) step across matches; `Enter` locates a hidden match and expands its collapsed turn or subtool call. Matching rows show a `×N` badge, the snippet follows the focused occurrence, and the toolbar reports `(3/10)` plus `End: follow · +N new` while detached. The query editor is grapheme-safe and `/` inside it is a literal character (path queries like `src/foo` type correctly).
 - `/model <query>` resolves a provider/model or fuzzy model name against the installed catalog: exact matches switch immediately and print `Default model: …`, ambiguous matches open the picker, and the three closest entries are shown on no match. `/model --session <query>` switches the active session without writing the saved default (fresh starts still use the saved default) and reports `Session model: …`; the flag cannot combine with a subcommand.
+- Oversized tool results are trimmed to an 8192-character budget (4096 head, 1024 tail) before conversation compaction runs; the full original stays in the session log.
+- Repeated identical tool calls now draw an advisory reminder at 3, 5, and 8 consecutive repeats, and tools that declare a limit now receive a cooperative per-call deadline that reports `tool call timed out after <ms>ms`.
 
 ## [0.14.0] - 2026-09-04
 
