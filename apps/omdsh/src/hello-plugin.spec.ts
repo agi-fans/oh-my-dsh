@@ -135,9 +135,11 @@ describe('examples/hello bundle', () => {
     const home = temp('omdsh-hello-packed-home-')
     const tuiArchive = packedArchive(tuiDir, packDir)
     const appArchive = packedArchive(appDir, packDir)
-    const installed = spawnTool('npm', ['install', '--prefix', installDir, appArchive, tuiArchive], {
+    // A cold Windows runner installs the packed dependency tree well past the
+    // POSIX budget, so this step gets its own generous bound.
+    const installed = spawnTool('npm', ['install', '--no-audit', '--no-fund', '--prefix', installDir, appArchive, tuiArchive], {
       encoding: 'utf8',
-      timeout: 180_000,
+      timeout: 420_000,
     })
     expect(installed.status, installed.stderr + installed.stdout).toBe(0)
     const bin = join(installDir, 'node_modules', '.bin', process.platform === 'win32' ? 'omdsh.cmd' : 'omdsh')
@@ -157,5 +159,5 @@ describe('examples/hello bundle', () => {
     })
     expect(launched.status, launched.stderr + launched.stdout).toBe(0)
     expect(launched.stdout).toContain('Hello from @agi-fans/omdsh-plugin-hello.')
-  }, 300_000)
+  }, 600_000)
 })

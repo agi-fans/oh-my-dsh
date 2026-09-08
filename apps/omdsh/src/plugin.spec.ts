@@ -1,7 +1,7 @@
 import { spawnPnpm } from './test-support/pnpm.ts'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
@@ -66,9 +66,11 @@ describe('omdsh plugin', () => {
   })
 
   it('anchors relative filesystem specs to the invoking directory', () => {
-    expect(anchorPathSpec('.', '/tmp/plugin-src')).toBe('/tmp/plugin-src')
-    expect(anchorPathSpec('file:../plugin', '/tmp/checkout')).toBe('file:/tmp/plugin')
-    expect(anchorPathSpec('@scope/dsh-example', '/tmp/checkout')).toBe('@scope/dsh-example')
+    const source = resolve('/tmp/plugin-src')
+    const checkout = resolve('/tmp/checkout')
+    expect(anchorPathSpec('.', source)).toBe(source)
+    expect(anchorPathSpec('file:../plugin', checkout)).toBe('file:' + resolve(checkout, '..', 'plugin'))
+    expect(anchorPathSpec('@scope/dsh-example', checkout)).toBe('@scope/dsh-example')
   })
 
   it('walks parent directories for a missing ./path and fails when nothing exists', () => {
