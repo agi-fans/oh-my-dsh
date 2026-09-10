@@ -373,4 +373,19 @@ describe('session status line', () => {
     expect(lines.join('\n')).not.toContain('…')
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80)
   })
+
+  it('shows the session title only when the session meta item is enabled', () => {
+    const hidden = renderStatusFooter({
+      model: 'deepseek', sessionTitle: 'Fix the parser', config: statusBar(), width: 80,
+    }, createTheme(false))
+    expect(stripAnsi(hidden[0] ?? '')).not.toContain('Fix the parser')
+
+    const shown = renderStatusFooter({
+      model: 'deepseek',
+      sessionTitle: 'Fix the parser',
+      config: statusBar({ meta: [...defaultStatusBarConfig().meta, 'session'] }),
+      width: 80,
+    }, createTheme(false))
+    expect(stripAnsi(shown[0] ?? '')).toContain('Fix the parser')
+  })
 })

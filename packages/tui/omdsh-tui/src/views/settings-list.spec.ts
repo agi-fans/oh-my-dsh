@@ -34,6 +34,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'statusLabels',
       'statusItem:model',
       'statusItem:effort',
+      'statusItem:session',
       'statusItem:path',
       'statusItem:git',
       'statusItem:context',
@@ -54,7 +55,8 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[9]?.label).toBe('Status line')
     expect(items[10]?.value).toBe('compact')
     expect(items[11]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
-    expect(items[15]).toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
+    expect(items.find(item => item.id === 'statusItem:context'))
+      .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual({ theme: 'dark', colors: true, expandTools: true })
@@ -184,7 +186,7 @@ describe('applySettingsEvent', () => {
     const grabbed = applySettingsEvent(open, key('enter'))
     const moved = applySettingsEvent(grabbed.kind === 'apply' ? grabbed.state : open, key('up'))
     expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.metaOrder).toEqual([
-      'model', 'effort', 'git', 'path',
+      'model', 'effort', 'git', 'path', 'session',
     ])
     const preview = renderSettings(moved.kind === 'apply' ? moved.state : open, theme, 80, 16).lines.join('\n')
     expect(preview).toMatch(/deepseek · max\s+main \*1 · ~\/project/)
@@ -215,12 +217,14 @@ describe('applySettingsEvent', () => {
     expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
       'context', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(hidden.kind === 'apply' && tuiSettingItems(hidden.state.prefs)[16]?.id).toBe('statusItem:cache')
+    expect(hidden.kind === 'apply'
+      && tuiSettingItems(hidden.state.prefs)[hidden.state.selected]?.id).toBe('statusItem:cache')
     const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
     expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
       'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
     ])
-    expect(shown.kind === 'apply' && shown.state.selected).toBe(16)
+    expect(shown.kind === 'apply'
+      && tuiSettingItems(shown.state.prefs)[shown.state.selected]?.id).toBe('statusItem:cache')
   })
 
   it('ignores unrelated keys and non-space text', () => {

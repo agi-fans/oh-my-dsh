@@ -43,6 +43,8 @@ const COLUMN_GAP = 3
 export interface StatusFooterOptions {
   model: string
   reasoningEffort?: string
+  /** Folded session title, shown only when the `session` meta item is enabled. */
+  sessionTitle?: string
   controls?: TuiSessionControls
   loop?: TuiLoopStatus
   pwd?: string
@@ -314,13 +316,13 @@ function gitTone(branch: string, config: StatusBarConfig): ThemeColor {
 }
 
 function visibleMetaIds(config: StatusBarConfig): StatusMetaId[] {
-  const order = config.metaOrder ?? ['model', 'effort', 'path', 'git']
+  const order = config.metaOrder ?? ['model', 'effort', 'path', 'git', 'session']
   const visible = new Set(config.meta ?? ['model', 'effort', 'path', 'git'])
   return order.filter(id => visible.has(id))
 }
 
 function buildMetaParts(
-  options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch'>,
+  options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch' | 'sessionTitle'>,
   config: StatusBarConfig,
 ): { id: StatusItemId; text: string; color: ThemeColor }[] {
   const parts: { id: StatusItemId; text: string; color: ThemeColor }[] = []
@@ -330,6 +332,9 @@ function buildMetaParts(
     }
     if (id === 'effort' && options.reasoningEffort !== undefined && options.reasoningEffort !== '') {
       parts.push({ id, text: options.reasoningEffort, color: itemColor(config, 'effort', 'customMessageLabel') })
+    }
+    if (id === 'session' && options.sessionTitle !== undefined && options.sessionTitle !== '') {
+      parts.push({ id, text: options.sessionTitle, color: itemColor(config, 'session', 'customMessageLabel') })
     }
     if (id === 'path' && options.pwd !== undefined && options.pwd !== '') {
       parts.push({ id, text: options.pwd, color: itemColor(config, 'path', 'muted') })
@@ -366,7 +371,7 @@ export function renderPermissionBadge(permission: string | undefined, theme: The
 }
 
 function splitMetaParts(
-  options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch'>,
+  options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch' | 'sessionTitle'>,
   config: StatusBarConfig,
 ): { left: ReturnType<typeof buildMetaParts>; right: ReturnType<typeof buildMetaParts> } {
   const left: ReturnType<typeof buildMetaParts> = []

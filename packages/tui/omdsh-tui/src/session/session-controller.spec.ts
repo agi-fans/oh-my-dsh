@@ -77,6 +77,14 @@ describe('sessionControls', () => {
     })
   })
 
+  it('reports the logged sandbox override ahead of the standing preset', () => {
+    const permissions = { currentValue: 'workspace-write', options: [] }
+    expect(sessionControls({ permissions })).toEqual({ permission: 'workspace-write' })
+    expect(sessionControls({ permissions, sandboxMode: 'danger-full-access' })).toEqual({ permission: 'danger-full-access' })
+    // null means no override was ever logged; the preset still describes the mode.
+    expect(sessionControls({ permissions, sandboxMode: null })).toEqual({ permission: 'workspace-write' })
+  })
+
   it('projects the durable goal and hides a completed one', () => {
     const projection: GoalProjection = {
       goal: { id: GoalId('goal-1'), revision: 2, objective: 'Land batch 2', phase: 'active', maxGoalRounds: 12 },

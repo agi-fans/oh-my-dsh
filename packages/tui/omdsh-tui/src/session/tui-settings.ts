@@ -64,6 +64,7 @@ export const TuiSettingsSchema: z<TuiSettings> = z.object({
       effort: z.union([...STATUS_COLOR_TOKENS]),
       path: z.union([...STATUS_COLOR_TOKENS]),
       git: z.union([...STATUS_COLOR_TOKENS]),
+      session: z.union([...STATUS_COLOR_TOKENS]),
       metrics: z.union([...STATUS_COLOR_TOKENS]),
       context: z.union([...STATUS_COLOR_TOKENS]),
       cache: z.union([...STATUS_COLOR_TOKENS]),

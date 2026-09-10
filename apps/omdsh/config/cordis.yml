@@ -44,13 +44,14 @@
   - id: session-stats
     name: '@deepseek-ai/dsh-session-stats'
 
-  # Exact session reads for @session mentions. openAt: never keeps FTS closed so
-  # Node 22 never loads experimental node:sqlite; list/read still work over JSONL.
+  # Exact session reads for @session mentions, plus lazy full-text search.
+  # openAt: first-search keeps startup free of experimental node:sqlite; the
+  # index opens only when a human actually searches the session library.
   - id: session-query
     name: '@deepseek-ai/dsh-session-query-sqlite'
     config:
       path: ':memory:'
-      openAt: never
+      openAt: first-search
 
   - id: session-reference
     name: '@deepseek-ai/dsh-session-reference'

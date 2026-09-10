@@ -263,6 +263,8 @@ export interface TuiService {
   /** Update session identity, recent rows, projected controls, and aggregate figures. */
   setSession(info: {
     id: string
+    /** Folded title of the active session, when it has one. */
+    title?: string
     recent: readonly TuiRecentSession[]
     stats?: TuiSessionStats
     controls?: TuiSessionControls

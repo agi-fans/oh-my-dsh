@@ -646,6 +646,8 @@ export interface ViewOptions {
   model: string
   /** Effective reasoning effort for the selected model, including adapter defaults. */
   reasoningEffort?: string
+  /** Folded session title; rendered only when the footer's `session` item is enabled. */
+  sessionTitle?: string
   /** Current input buffer text. */
   input: string
   /** Cursor column inside the input buffer (0-based, before the prefix). */
@@ -1546,6 +1548,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const statusFooter = renderStatusFooter({
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
+    ...(options.sessionTitle === undefined || options.sessionTitle === '' ? {} : { sessionTitle: options.sessionTitle }),
     ...(options.sessionControls === undefined ? {} : { controls: options.sessionControls }),
     ...(options.loopStatus === undefined ? {} : { loop: options.loopStatus }),
     ...(pwd === '' ? {} : { pwd }),

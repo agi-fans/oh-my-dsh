@@ -171,6 +171,20 @@ function shortenPath(cwd: string): string {
   return cwd
 }
 
+/** Maximum code points written into the OSC 2 window title. */
+const WINDOW_TITLE_MAX = 120
+
+/**
+ * Make a session title safe for an OSC 2 write: control characters are
+ * replaced so a title cannot terminate or inject the escape sequence, and the
+ * payload is bounded without splitting a surrogate pair.
+ */
+function windowTitleText(title: string | undefined): string {
+  if (title === undefined) return ''
+  const cleaned = title.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim()
+  return [...cleaned].slice(0, WINDOW_TITLE_MAX).join('')
+}
+
 export const name = 'omdsh-tui'
 
 /** Plugin config: the model label shown on the status line. */
@@ -327,6 +341,8 @@ export class LocalTui implements TuiService {
   #recentSessions: TuiRecentSession[] = []
   readonly #welcomeTips: readonly WelcomeTip[]
   #sessionId: string | undefined
+  #sessionTitle: string | undefined
+  #writtenWindowTitle: string | undefined
   #sessionStats: TuiSessionStats | undefined
   #sessionControls: TuiSessionControls | undefined
   #loopStatus: TuiLoopStatus | undefined
@@ -677,11 +693,14 @@ export class LocalTui implements TuiService {
 
   setSession(info: {
     id: string
+    title?: string
     recent: readonly TuiRecentSession[]
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
     this.#sessionId = info.id
+    const title = info.title?.trim()
+    this.#sessionTitle = title === undefined || title === '' ? undefined : title
     this.#recentSessions = info.recent.map((session) => ({ ...session }))
     this.#sessionStats = info.stats === undefined ? undefined : { ...info.stats }
     this.#sessionControls = info.controls === undefined
@@ -691,9 +710,22 @@ export class LocalTui implements TuiService {
           ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
         }
     if (!this.#tty) return
+    this.#syncWindowTitle()
     if (this.#reveal !== undefined && this.#motion !== 'off') return
     if (this.#streamRenderMs > 0 && this.#busy()) this.#scheduleStreamRender()
     else this.#render()
+  }
+
+  /**
+   * Mirror the folded session title into the terminal's own window/tab title.
+   * Control characters are stripped so a title can never inject an escape
+   * sequence, and the payload is bounded to keep tab strips readable.
+   */
+  #syncWindowTitle(): void {
+    const title = windowTitleText(this.#sessionTitle)
+    if (title === this.#writtenWindowTitle) return
+    this.#writtenWindowTitle = title
+    this.#term.output.write(`\x1b]2;${title}\x07`)
   }
 
   /** Apply prefs loaded from the settings document (does not persist). */
@@ -891,6 +923,11 @@ export class LocalTui implements TuiService {
       // prompt does not overwrite the transcript. Disable bracketed paste
       // and restore the cursor.
       this.#renderer.finish()
+      // Clear the session title we owned so the shell's own title returns.
+      if (this.#writtenWindowTitle !== undefined && this.#writtenWindowTitle !== '') {
+        this.#term.output.write('\x1b]2;\x07')
+        this.#writtenWindowTitle = undefined
+      }
       this.#term.output.write('\x1b[?2004l\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
@@ -1136,6 +1173,7 @@ export class LocalTui implements TuiService {
         colors: this.#colors,
         pwd: this.#pwd,
         ...(this.#branch !== undefined ? { branch: this.#branch } : {}),
+        ...(this.#sessionTitle === undefined ? {} : { sessionTitle: this.#sessionTitle }),
         version: APP_VERSION,
         appName: APP_NAME,
         spinnerFrame: this.#spinner,

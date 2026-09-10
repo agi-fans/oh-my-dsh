@@ -1630,12 +1630,13 @@ describe('LocalTui (tty)', () => {
         groups: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
         order: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
         meta: ['model', 'effort', 'path', 'git'],
-        metaOrder: ['model', 'effort', 'path', 'git'],
+        metaOrder: ['model', 'effort', 'path', 'git', 'session'],
         colors: {
           model: 'default',
           effort: 'default',
           path: 'default',
           git: 'default',
+          session: 'default',
           metrics: 'default',
           context: 'default',
           cache: 'default',
@@ -1649,6 +1650,7 @@ describe('LocalTui (tty)', () => {
           effort: 'left',
           path: 'right',
           git: 'right',
+          session: 'left',
           context: 'left',
           cache: 'left',
           tokens: 'left',
@@ -1663,6 +1665,25 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).not.toContain('Theme: dark')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
+    tui.dispose()
+  })
+
+  it('mirrors the folded session title into the terminal window title', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const titleWrites = (sequence: string): number => term.captured.split(sequence).length - 1
+
+    tui.setSession({ id: 'session-1', title: 'Fix \u001b[31mthe parser\u0007', recent: [] })
+    // Control characters are replaced, so a title can never inject or close OSC 2.
+    const written = '\x1b]2;Fix [31mthe parser\x07'
+    expect(titleWrites(written)).toBe(1)
+
+    // An unchanged title must not re-emit the sequence on every session push.
+    tui.setSession({ id: 'session-1', title: 'Fix \u001b[31mthe parser\u0007', recent: [] })
+    expect(titleWrites(written)).toBe(1)
+
+    tui.setSession({ id: 'session-1', title: 'Add the export flag', recent: [] })
+    expect(term.captured).toContain('\x1b]2;Add the export flag\x07')
     tui.dispose()
   })
 

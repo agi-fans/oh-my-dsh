@@ -92,6 +92,7 @@ const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: strin
   effort: { label: 'Effort', description: 'Reasoning effort on the first footer line. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'max' },
   path: { label: 'Path', description: 'Workspace path on the right of the first footer line. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: '~/project' },
   git: { label: 'Git', description: 'Git branch on the right of the first footer line. A dirty worktree stays warning while color is default. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'main *1' },
+  session: { label: 'Session', description: 'Folded session title on the first footer line. Off by default; the terminal window title shows it regardless. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Fix the parser' },
   context: { label: 'Context', description: 'Context pressure as percentage and used/window tokens. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Ctx 1.6% · 16.4K/1M' },
   cache: { label: 'Cache', description: 'Prompt-cache hit rate. Cache-hit percentages stay on the success color. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: 'Cache 99%' },
   tokens: { label: 'Tokens', description: 'Input and output token counts. Left/Right sets color; Space shows or hides; Enter then arrows move it.', sample: '5.9M in' },

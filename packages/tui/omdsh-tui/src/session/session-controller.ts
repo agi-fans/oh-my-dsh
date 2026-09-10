@@ -115,13 +115,20 @@ export interface TuiStatsProjection {
   plan?: PlanProjection
   permissions?: PermissionSelect
   goal?: GoalProjection | null
+  /** Last logged sandbox-mode override, or null before one; outranks the preset while set. */
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null
 }
 
 /** Present only the session controls whose owning Harness plugins are composed. */
 export function sessionControls(projection?: TuiStatsProjection): TuiSessionControls {
+  const override = projection?.sandboxMode
   return {
     ...(projection?.plan === undefined ? {} : { plan: { ...projection.plan } }),
-    ...(projection?.permissions === undefined ? {} : { permission: projection.permissions.currentValue }),
+    // A logged sandbox override (for example an approved widening) is the mode
+    // actually in force; the preset only describes the user's standing choice.
+    ...(override == null
+      ? (projection?.permissions === undefined ? {} : { permission: projection.permissions.currentValue })
+      : { permission: override }),
     ...goalControl(projection?.goal),
   }
 }
@@ -1372,8 +1379,10 @@ export class SessionRuntime {
     if (active === undefined) return
     const agent = active.handle.agent
     const projection = this.#projection(active)
+    const title = explicitSessionTitle(agent.session.snapshotEvents())
     this.#tui.setSession({
       id: agent.id,
+      ...(title === undefined ? {} : { title }),
       recent: this.#recent.filter(row => row.id !== agent.id),
       stats: this.#stats(active, projection),
       controls: this.#sessionControls(active, projection),

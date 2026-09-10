@@ -7,8 +7,8 @@
 export const STATUS_GROUP_IDS = ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'] as const
 export type StatusGroupId = (typeof STATUS_GROUP_IDS)[number]
 
-/** First-line pieces: model, reasoning effort, workspace path, and Git branch. */
-export const STATUS_META_IDS = ['model', 'effort', 'path', 'git'] as const
+/** First-line pieces: model, reasoning effort, workspace path, Git branch, and session title. */
+export const STATUS_META_IDS = ['model', 'effort', 'path', 'git', 'session'] as const
 export type StatusMetaId = (typeof STATUS_META_IDS)[number]
 
 /** Every independently placed footer item. */
@@ -38,6 +38,7 @@ export const DEFAULT_STATUS_SIDES: Record<StatusItemId, StatusSide> = {
   effort: 'left',
   path: 'right',
   git: 'right',
+  session: 'left',
   context: 'left',
   cache: 'left',
   tokens: 'left',
@@ -80,13 +81,19 @@ export const STATUS_PRESETS = ['minimal', 'compact', 'full'] as const
 export type StatusPreset = (typeof STATUS_PRESETS)[number]
 
 export const DEFAULT_STATUS_GROUPS: readonly StatusGroupId[] = STATUS_GROUP_IDS
-export const DEFAULT_STATUS_META: readonly StatusMetaId[] = STATUS_META_IDS
+/**
+ * Session title is offered but off by default: adding it to the first line
+ * would push narrow terminals into degradation sooner. The terminal window
+ * title carries it unconditionally.
+ */
+export const DEFAULT_STATUS_META: readonly StatusMetaId[] = ['model', 'effort', 'path', 'git']
 
 export const DEFAULT_STATUS_COLORS: Required<StatusBarColors> = {
   model: 'default',
   effort: 'default',
   path: 'default',
   git: 'default',
+  session: 'default',
   metrics: 'default',
   context: 'default',
   cache: 'default',
@@ -104,7 +111,9 @@ export function defaultStatusBarConfig(): ResolvedStatusBarConfig {
     groups: [...DEFAULT_STATUS_GROUPS],
     order: [...DEFAULT_STATUS_GROUPS],
     meta: [...DEFAULT_STATUS_META],
-    metaOrder: [...DEFAULT_STATUS_META],
+    // Every meta id keeps its slot so the settings list stays stable when an
+    // item is toggled; only `meta` decides what is actually painted.
+    metaOrder: [...STATUS_META_IDS],
     colors: { ...DEFAULT_STATUS_COLORS },
     sides: { ...DEFAULT_STATUS_SIDES },
   }

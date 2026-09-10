@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Input is now Unicode-safe end to end: the editor moves and deletes by grapheme boundaries (an emoji can no longer be split into a lone surrogate, and vertical motion snaps out of a surrogate pair), and terminal bytes are decoded across stream chunks so a multi-byte character split between data events is no longer corrupted.
 - Pipe mode no longer drops submitted lines when two lines arrive in one stream chunk; buffered lines drain before EOF.
 - File writes and edits now honor the session's Access preset: `write`, `edit`, and `str_replace_editor` previously ignored Read only and Workspace write and could modify any path the process could reach. A mutation outside the workspace now returns the shared sandbox denial, and the model may retry it once at a wider mode after approval.
+- The composer's Access badge now reports the sandbox mode actually in force, so an approved widening is visible instead of showing only the standing preset.
+- Tool cards no longer repeat the raw argument JSON in their Input section when the tool already supplied a semantic title, removing redundant lines from `read` and similar cards.
 
 ### Added
 
@@ -32,6 +34,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Automatic context compaction now shows the same live `Compacting` activity as `/compact` and records what the model's view lost when it finishes: `Context compacted · 3 events · 12.4K tokens condensed`, or `Context trimmed · 2 results` when the model-free prune pass was enough. A failed compaction reports the error instead of staying silent.
 - omdsh can now drive local language servers: add `lsp.json` beside `mcp.json` (user `$DSH_HOME/lsp.json` and project `.dsh/lsp.json`, project wins) and the agent gains a read-only `lsp` tool for definitions, references, implementations, and hover. No server is configured by default, and no `lsp` tool appears until one is.
 - omdsh now runs on Windows. Every session gets exactly one confined shell — `pwsh` on Windows, `bash` elsewhere — and the Minimal preset's persistent shell follows the same rule, so the agent never carries a shell tool whose interpreter is missing. CI gained a `windows-latest` job covering install, typecheck, build, and a boot smoke.
+- `/sessions <query>` searches durable session content through the mounted full-text index (SQLite FTS5, opened lazily on the first search so startup still avoids `node:sqlite`) and resumes the chosen hit; a bare `/sessions` keeps the Session Library.
+- The active session title is written to the terminal window/tab title and can be shown on the status line's first row through the new `Session` item, off by default and configurable in `/settings`.
 
 ## [0.14.0] - 2026-09-04
 

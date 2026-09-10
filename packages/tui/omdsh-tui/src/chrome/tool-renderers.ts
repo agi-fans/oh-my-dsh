@@ -249,7 +249,12 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
     : undefined
   const call = callPresentation(input.presentation?.call, input.name)
   const result = resultPresentation(input.presentation?.result)
-  const callLines = call.lines ?? fallback?.lines ?? fallbackArgumentLines(input.arguments)
+  // A tool that supplied a call card with a semantic title has already decided
+  // how the invocation reads; raw argument JSON would only duplicate it. The
+  // raw fallback stays for tools that ship no call presentation at all.
+  const semanticCall = input.presentation?.call !== undefined && call.title !== undefined
+  const callLines = call.lines
+    ?? (semanticCall ? [] : fallback?.lines ?? fallbackArgumentLines(input.arguments))
   const outputLines = result.lines ?? (
     fallback?.hideOutput === true || input.output === '' ? [] : input.output.split('\n')
   )

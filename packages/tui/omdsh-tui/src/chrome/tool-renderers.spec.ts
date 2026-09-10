@@ -136,8 +136,37 @@ describe('renderTool', () => {
       },
     })).toMatchObject({
       title: 'Find needle',
-      input: ['{', '  "query": "needle"', '}'],
+      // The call card carries a semantic title, so raw argument JSON stays out.
+      input: [],
       output: ['durable result'],
     })
+  })
+
+  it('omits raw argument JSON when a generic call card carries a semantic title', () => {
+    expect(renderTool({
+      name: 'read',
+      arguments: '{"file_path":"src/commands/export.ts","offset":1,"limit":100}',
+      output: 'import { writeFile } from "node:fs"',
+      status: 'ok',
+      expanded: false,
+      presentation: {
+        call: {
+          card: 'generic',
+          title: 'Read src/commands/export.ts',
+          kind: 'read',
+          locations: [{ path: 'src/commands/export.ts', line: 1 }],
+        },
+        result: { card: 'read', path: 'src/commands/export.ts', offset: 1, totalLines: 240, lines: [{ number: 1, text: 'x' }] },
+      },
+    })).toMatchObject({
+      title: 'Read src/commands/export.ts',
+      summary: '1/240 lines',
+      input: [],
+    })
+
+    // Without any call presentation the durable arguments remain the only input.
+    expect(renderTool({
+      name: 'unknown', arguments: '{"x":1}', output: 'safe', status: 'ok', expanded: false,
+    })).toMatchObject({ input: ['{', '  "x": 1', '}'] })
   })
 })

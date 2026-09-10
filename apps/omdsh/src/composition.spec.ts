@@ -457,4 +457,13 @@ describe('upstream capability adaptation rows', () => {
     expect(index('web')).toBeLessThan(index('web-fetch-http'))
     expect(index('web-fetch-http')).toBeLessThan(index('tool-web'))
   })
+
+  it('opens session full-text search lazily instead of disabling it', () => {
+    const rows = productRows()
+    const row = rows.find(entry => entry.id === 'session-query')
+    expect(row?.name).toBe('@deepseek-ai/dsh-session-query-sqlite')
+    // first-search keeps startup free of experimental node:sqlite while still
+    // allowing the Session Library to search session content.
+    expect(row?.config).toMatchObject({ openAt: 'first-search' })
+  })
 })

@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '../runtime/session-runtime.ts'
@@ -17,6 +18,9 @@ import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
+
+/** Cross-session search page size shown in one Session Library prompt. */
+const SESSION_SEARCH_LIMIT = 20
 
 function humanText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
@@ -116,6 +120,63 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
   }
 }
 
+/** Search every durable session by content, then resume the chosen hit. */
+async function searchSessions(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  if (invocation.agent.status === 'running') {
+    return { kind: 'error', text: 'Finish or interrupt the active turn before resuming another session.' }
+  }
+  const query = invocation.rawInput.trim()
+  const sessionQuery = ctx.get('sessionQuery')
+  if (sessionQuery === undefined) return { kind: 'error', text: 'Session search is not configured.' }
+  let hits: readonly SessionSearchHit[]
+  try {
+    const page = await sessionQuery.searchSessions({ query, limit: SESSION_SEARCH_LIMIT }, { signal: invocation.signal })
+    hits = page.items
+  } catch (error: unknown) {
+    if (invocation.signal.aborted) return { kind: 'error', text: 'Search cancelled.' }
+    return { kind: 'error', text: 'Session search failed: ' + (error instanceof Error ? error.message : String(error)) }
+  }
+  if (hits.length === 0) return { kind: 'success', text: `No sessions match “${query}”.` }
+  const titles = new Map<string, string>()
+  try {
+    for (const result of await sessionQuery.readTitleSnapshots(hits.map(hit => hit.header.id), invocation.signal)) {
+      if (result.status === 'fulfilled' && result.value.title !== undefined) {
+        titles.set(result.sessionId, result.value.title.title)
+      }
+    }
+  } catch { /* title folding is best-effort; the snippet still identifies the hit */ }
+  const answer = await ctx.tui.prompt({
+    title: 'Session Search',
+    question: '',
+    options: hits.map(hit => ({
+      label: titles.get(hit.header.id) ?? hit.bestMatch.snippet,
+      value: hit.header.id,
+      preview: hit.bestMatch.snippet,
+      description: formatRelativeAge(hit.header.createdAt),
+    })),
+    presentation: 'fullscreen-list',
+    filterable: false,
+    allowCustom: false,
+    signal: invocation.signal,
+  })
+  if (answer === null) return { kind: 'success' }
+  if (answer === invocation.agent.id) return { kind: 'success', text: 'That session is already active.' }
+  try {
+    await ctx.omdshSession.resumeSession(invocation.agent, answer, invocation.signal)
+    return { kind: 'success', text: `Resumed ${answer}.` }
+  } catch (error: unknown) {
+    if (invocation.signal.aborted) return { kind: 'error', text: 'Resume cancelled.' }
+    return { kind: 'error', text: 'Resume failed: ' + (error instanceof Error ? error.message : String(error)) }
+  }
+}
+
+/** `/sessions` opens the library bare, or searches session content when given a query. */
+function sessionsCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  return invocation.rawInput.trim() === ''
+    ? resumeSession(ctx, invocation)
+    : searchSessions(ctx, invocation)
+}
+
 function showSession(ctx: Context, invocation: CommandInvocation): CommandResult {
   const stats = ctx.omdshSession.stats(invocation.agent)
   const selection = ctx.omdshSession.selection(invocation.agent)
@@ -192,7 +253,12 @@ export function apply(ctx: Context): void {
       input: { hint: '[session-id]' },
       handler: invocation => resumeSession(ctx, invocation),
     },
-    { name: 'sessions', description: 'Open the durable Session Library', handler: invocation => resumeSession(ctx, invocation) },
+    {
+      name: 'sessions',
+      description: 'Open the Session Library, or search session content with a query',
+      input: { hint: '[query]' },
+      handler: invocation => sessionsCommand(ctx, invocation),
+    },
     { name: 'session', description: 'Show current session details', handler: invocation => showSession(ctx, invocation) },
     { name: 'retry', description: 'Run the most recent human prompt again', handler: invocation => retry(ctx, invocation) },
     { name: 'todo', description: 'Show the current session todo list', handler: showTodo },
