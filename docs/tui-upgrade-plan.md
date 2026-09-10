@@ -209,14 +209,17 @@ omdsh 只挂了一次性 shell（`tool-bash` / `tool-pwsh`，`apps/omdsh/config/
 - 纯渲染：CJK/emoji 下的高亮宽度安全，ANSI 控制字符被 sanitize。
 - 契约：`Ctrl+F` 进入/退出不改变 composer 内容；滚动位置在退出后保持。
 
-## 批次 3（P2，暂缓并记录触发条件）
+## 批次 3（P2）
+
+已落地：`/diff` 工作区改动汇总（独立命令插件 `commands/diff.ts`，只读 git 状态；`/diff` 输出逐文件增删表与未跟踪列表，`/diff <path>` 输出单文件补丁）。它走工作区视角而非会话日志——`ToolResultBlock` 不持久化 `meta.diffs`，所以"本会话改动"无法从日志复原。
+
+其余项按触发条件暂缓：
 
 | 项 | 触发条件 |
 | --- | --- |
 | 模型侧 `tool-session-query` | 人类侧检索稳定后，评估每请求新增的 schema 成本 |
 | 会话投影缓存 `session-projection-cache` | 需要先挂 `dsh-storage-*`；冷启动恢复大会话成为可观测瓶颈时 |
 | 全日志 turn 大纲 `session-turn-outline` | 单会话日志大到完整加载明显卡顿时 |
-| 改动汇总视图（`/diff`） | 与工具卡片 diff 的重复度评估后 |
 | 内联图片（iTerm2/Kitty/Sixel） | 有明确终端目标与降级策略时 |
 | 成本估算 | 需要自建定价表；上游无 cost 包 |
 | 符号预设（ascii/nerd） | 有用户反馈字体缺失时 |

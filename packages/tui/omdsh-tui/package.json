@@ -90,6 +90,10 @@
       "types": "./lib/commands/auth.d.ts",
       "default": "./lib/commands/auth.js"
     },
+    "./command-diff": {
+      "types": "./lib/commands/diff.d.ts",
+      "default": "./lib/commands/diff.js"
+    },
     "./command-export": {
       "types": "./lib/commands/export.d.ts",
       "default": "./lib/commands/export.js"

@@ -453,6 +453,9 @@
   - id: tui-command-export
     name: '@agi-fans/dsh-tui/command-export'
 
+  - id: tui-command-diff
+    name: '@agi-fans/dsh-tui/command-diff'
+
   - id: tui-command-trajectory
     name: '@agi-fans/dsh-tui/command-trajectory'
 
