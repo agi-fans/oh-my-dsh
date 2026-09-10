@@ -113,11 +113,24 @@ pnpm --filter @agi-fans/dsh-tui publish --access public --no-git-checks
 pnpm --filter @agi-fans/oh-my-dsh publish --access public --no-git-checks
 ```
 
-Tell the user to publish the TUI dependency first, wait until npm exposes that exact version, and then publish the CLI. The user must enter any OTP only in that terminal.
+Tell the user to publish the TUI dependency first, confirm its own publish output reports success, and then publish the CLI. Tell them **not** to wait for a registry read to show the new version before publishing the CLI: a read that still reports the previous version is expected for `@agi-fans/dsh-tui` and does not mean the write failed. The user must enter any OTP only in that terminal.
 
 4. Pause the workflow after recording the target version, release commit SHA, completed preparation checks, already-published packages, and remaining commands. This is an expected handoff, not a failure or blocked release. Do not perform GitHub release writes while npm publication is pending.
-5. When the user reports that publication is complete, resume from registry inspection rather than repeating preparation or attempting publication. Verify both exact versions and their `latest` dist-tags with `npm view`.
-6. If only the TUI version is visible, report the partial state and give only the remaining CLI command. If neither version is visible, repeat the original handoff without changing versions. If both are visible and correct, continue any GitHub finalization already authorized by the original end-to-end request without asking for authorization again.
+5. When the user reports that publication is complete, take that report as authoritative and continue with any GitHub finalization already authorized by the original end-to-end request. Do not re-derive publish status from registry reads, do not treat a stale read as a failure, and do not ask the user to publish again — publication belongs to the user, whose terminal showed the publish result.
+6. Re-read both exact versions and their `latest` dist-tags with `npm view` to record the released state, but treat a mismatch as propagation lag rather than a defect. If it still disagrees after the GitHub phases are done, note the residual lag in the final report and move on.
+
+### Registry reads for `@agi-fans/dsh-tui` lag behind the publish
+
+A publish of `@agi-fans/dsh-tui` can report success in the user's terminal while every read endpoint still serves the previous version. Observed on 0.15.0: `npm view … version`, the full and abbreviated registry documents, and the exact-version manifest URL all reported the prior version and a stale `modified` timestamp, and `npm view '@agi-fans/dsh-tui@^X.Y.Z' version` answered `E404`, roughly four minutes after the publish reported `✅ Published package @agi-fans/dsh-tui@X.Y.Z`. The registry caught up on its own with no further action.
+
+Treat the user's publish result as the write-side fact and a registry read as an eventually-consistent view:
+
+- A `404` or a stale `latest` immediately after a reported publish is **not** evidence that the publish failed, and it is **not** a reason to withhold the tag or GitHub Release the user already authorized.
+- Never conclude "the package was not published" from reads alone, and never tell the user their publish did not happen. If the state matters, say only what the read showed and that reads lag writes.
+- Never request a re-publish to "fix" a stale read. The version may already be live, and re-publishing an existing version is exactly what this skill forbids.
+- Do not open a database of caches to hunt for the discrepancy: check the registry configuration once (a stray `.npmrc` registry override is worth ruling out), then proceed.
+
+Verification that both packages carry the target version remains part of the final audit, and it is expected to succeed by the time the GitHub phases finish.
 
 Never attempt to republish an existing npm version. Do not bump the version merely to conceal a recoverable partial release. If both exact target versions were already published before the workflow began, no human npm checkpoint is necessary; verify them and continue with the authorized remaining phases.
 
@@ -163,7 +176,7 @@ git status --short --branch
 
 Confirm that:
 
-- Both npm packages expose the target version.
+- Both npm packages expose the target version. A registry read that still shows the previous version for `@agi-fans/dsh-tui` is propagation lag, not a failed release: record it as residual lag and never let it hold up the tag, the Release, or the report.
 - The annotated remote tag dereferences to the recorded release commit.
 - The GitHub Release is published at the same tag and contains the intended Changelog notes.
 - The local branch is synchronized with its upstream.
