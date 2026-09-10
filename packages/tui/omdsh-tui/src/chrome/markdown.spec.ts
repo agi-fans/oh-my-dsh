@@ -174,3 +174,22 @@ describe('renderMarkdown', () => {
     expect(after).not.toContain(code + 'pwd')
   })
 })
+
+describe('pathological nesting', () => {
+  it('renders deeply nested markdown instead of overflowing the stack', () => {
+    const nested: readonly string[] = [
+      '> '.repeat(2000) + 'deep',
+      Array.from({ length: 2000 }, (_, i) => '  '.repeat(i) + '- item').join('\n'),
+      '*'.repeat(5000) + 'x' + '*'.repeat(5000),
+    ]
+    for (const source of nested) {
+      expect(() => renderMarkdown(source, theme, 80)).not.toThrow()
+    }
+    expect(plain('> '.repeat(2000) + 'deep', 80)).toContain('deep')
+  })
+
+  it('keeps fenced code bytes out of the nesting clamp', () => {
+    const run = '*'.repeat(40)
+    expect(plain('```\n' + run + '\n```', 80)).toContain(run)
+  })
+})

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - File writes and edits now honor the session's Access preset: `write`, `edit`, and `str_replace_editor` previously ignored Read only and Workspace write and could modify any path the process could reach. A mutation outside the workspace now returns the shared sandbox denial, and the model may retry it once at a wider mode after approval.
 - The composer's Access badge now reports the sandbox mode actually in force, so an approved widening is visible instead of showing only the standing preset.
 - Tool cards no longer repeat the raw argument JSON in their Input section when the tool already supplied a semantic title, removing redundant lines from `read` and similar cards.
+- Terminal rendering no longer dies on pathologically nested markdown. Deeply nested blockquotes, deeply indented lists, and long `*`/`_` runs used to overflow the call stack inside the markdown lexer and take the whole process down with `RangeError: Maximum call stack size exceeded`. Nesting is now clamped before lexing, and rendering stops descending past a fixed depth, so such content still shows its text.
 
 ### Added
 

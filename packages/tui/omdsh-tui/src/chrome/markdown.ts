@@ -127,7 +127,50 @@ function normalizeHtml(source: string): string {
 }
 
 function prepare(source: string): string {
-  return normalizeHtml(source).replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+  return clampNesting(normalizeHtml(source).replaceAll('\r\n', '\n').replaceAll('\r', '\n'))
+}
+
+/**
+ * Cap the nesting one markdown source may express before the lexer runs.
+ * `marked` recurses once per nested blockquote or list level and once per
+ * emphasis run, so `'> '.repeat(5000)`, a deeply indented list, or a long `***`
+ * run overflows the call stack **inside the parser** — before any rendering
+ * guard can help, and on some inputs as an uncatchable process crash rather
+ * than a catchable `RangeError`. Clamping the shape here keeps the model's
+ * intent while bounding the parser's recursion. Fenced code keeps its bytes.
+ */
+const MAX_MARKDOWN_NESTING = 24
+const MAX_EMPHASIS_RUN = 3
+
+function clampNesting(source: string): string {
+  let fence: string | undefined
+  return source.split('\n').map((line) => {
+    const fenceMatch = /^\s*(`{3,}|~{3,})/u.exec(line)
+    if (fence !== undefined) {
+      if (fenceMatch?.[1] !== undefined
+        && fenceMatch[1].startsWith(fence[0] ?? '')
+        && fenceMatch[1].length >= fence.length) fence = undefined
+      return line
+    }
+    if (fenceMatch?.[1] !== undefined) {
+      fence = fenceMatch[1]
+      return line
+    }
+    let out = line
+    const quote = /^(\s*)((?:>\s?)+)(.*)$/u.exec(out)
+    if (quote !== null) {
+      const count = ((quote[2] ?? '').match(/>/gu) ?? []).length
+      if (count > MAX_MARKDOWN_NESTING) {
+        out = (quote[1] ?? '') + '> '.repeat(MAX_MARKDOWN_NESTING) + (quote[3] ?? '')
+      }
+    }
+    const indent = /^( +)(\S.*)$/u.exec(out)
+    const spaces = indent?.[1]?.length ?? 0
+    if (indent !== null && spaces > MAX_MARKDOWN_NESTING * 2) {
+      out = ' '.repeat(MAX_MARKDOWN_NESTING * 2) + (indent[2] ?? '')
+    }
+    return out.replace(/([*_])\1{2,}/gu, (_match, mark: string) => mark.repeat(MAX_EMPHASIS_RUN))
+  }).join('\n')
 }
 
 function isProseCodespan(text: string): boolean {
@@ -197,8 +240,34 @@ function flattenText(text: string): string {
   return text.replace(/\n+/gu, ' ')
 }
 
-function renderInlineTokens(tokens: readonly Token[] | undefined, theme: Theme, style?: MarkdownStyle): string {
+/**
+ * Maximum block and inline nesting a single render descends into. Markdown in
+ * model output can nest arbitrarily (`> > > …`, `***…`, indented lists), and an
+ * unbounded walk blows the JS call stack — which crashes the process rather
+ * than raising a catchable error. Past this depth the renderer degrades to the
+ * node's plain text instead of recursing further.
+ */
+const MAX_MARKDOWN_DEPTH = 24
+
+/** Plain text of one token tree, used when nesting exceeds the depth cap. */
+function tokenText(token: Token): string {
+  if ('text' in token && typeof token.text === 'string') return token.text
+  if ('tokens' in token && Array.isArray(token.tokens)) {
+    return (token.tokens as readonly Token[]).map(tokenText).join('')
+  }
+  return ''
+}
+
+function renderInlineTokens(
+  tokens: readonly Token[] | undefined,
+  theme: Theme,
+  style?: MarkdownStyle,
+  depth = 0,
+): string {
   if (tokens === undefined) return ''
+  if (depth > MAX_MARKDOWN_DEPTH) {
+    return paintBase(theme, flattenText(tokens.map(tokenText).join('')), style)
+  }
   let out = ''
   for (const token of tokens) {
     if (isMathToken(token)) {
@@ -212,31 +281,31 @@ function renderInlineTokens(tokens: readonly Token[] | undefined, theme: Theme, 
       case 'text':
         out += token.tokens === undefined
           ? paintBase(theme, flattenText(token.text), style)
-          : renderInlineTokens(token.tokens, theme, style)
+          : renderInlineTokens(token.tokens, theme, style, depth + 1)
         break
       case 'strong':
-        out += paintBold(theme, renderInlineTokens(token.tokens, theme, style), style)
+        out += paintBold(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
         break
       case 'em':
-        out += paintItalic(theme, renderInlineTokens(token.tokens, theme, style), style)
+        out += paintItalic(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
         break
       case 'del':
-        out += paintStrike(theme, renderInlineTokens(token.tokens, theme, style), style)
+        out += paintStrike(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
         break
       case 'codespan':
         out += paintFg(theme, ink(style, isProseCodespan(token.text) ? 'muted' : 'mdCode'), token.text, style)
         break
       case 'link':
-        out += paintLink(renderInlineTokens(token.tokens, theme, style) || token.text, token.href, theme, style) + openBase(theme, style)
+        out += paintLink(renderInlineTokens(token.tokens, theme, style, depth + 1) || token.text, token.href, theme, style) + openBase(theme, style)
         break
       case 'image':
-        out += paintLink(renderInlineTokens(token.tokens, theme, style) || token.text || 'image', token.href, theme, style) + openBase(theme, style)
+        out += paintLink(renderInlineTokens(token.tokens, theme, style, depth + 1) || token.text || 'image', token.href, theme, style) + openBase(theme, style)
         break
       case 'br':
         out += '\n'
         break
       default:
-        if ('tokens' in token && token.tokens !== undefined) out += renderInlineTokens(token.tokens, theme, style)
+        if ('tokens' in token && token.tokens !== undefined) out += renderInlineTokens(token.tokens, theme, style, depth + 1)
         else if ('text' in token && typeof token.text === 'string') out += paintBase(theme, flattenText(token.text), style)
     }
   }
@@ -245,7 +314,7 @@ function renderInlineTokens(tokens: readonly Token[] | undefined, theme: Theme, 
 
 /** Inline markdown: code, links, strike, bold, italic, math. */
 export function renderInline(text: string, theme: Theme, style?: MarkdownStyle): string {
-  return renderInlineTokens(Lexer.lexInline(prepare(text), parser.defaults), theme, style)
+  return renderInlineTokens(Lexer.lexInline(prepare(text), parser.defaults), theme, style, 0)
 }
 
 function withStyle(theme: Theme, style: MarkdownStyle | undefined, line: string): string {
@@ -258,14 +327,14 @@ function withStyledLines(theme: Theme, style: MarkdownStyle | undefined, lines: 
   return lines.map(line => withStyle(theme, style, line))
 }
 
-function flowLines(token: Token, theme: Theme, width: number, style?: MarkdownStyle): string[] {
+function flowLines(token: Token, theme: Theme, width: number, style?: MarkdownStyle, depth = 0): string[] {
   if (token.type === 'paragraph' || token.type === 'text' || token.type === 'heading') {
     const inner = token.tokens === undefined
       ? paintBase(theme, flattenText('text' in token ? String(token.text ?? '') : ''), style)
-      : renderInlineTokens(token.tokens, theme, style)
+      : renderInlineTokens(token.tokens, theme, style, depth)
     return wrapStyled(inner, width)
   }
-  return renderBlock(token, theme, width, 0, style)
+  return renderBlock(token, theme, width, 0, style, depth)
 }
 
 function renderTable(token: Tokens.Table, theme: Theme, width: number): string[] {
@@ -387,7 +456,7 @@ function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: Mar
   return lines
 }
 
-function renderList(token: Tokens.List, theme: Theme, width: number, level: number, style?: MarkdownStyle): string[] {
+function renderList(token: Tokens.List, theme: Theme, width: number, level: number, style?: MarkdownStyle, depth = 0): string[] {
   const lines: string[] = []
   let number = typeof token.start === 'number' && token.start > 0 ? token.start : 1
   for (const item of token.items) {
@@ -398,7 +467,7 @@ function renderList(token: Tokens.List, theme: Theme, width: number, level: numb
         ? theme.fg(bullet, `${number}. `)
         : theme.fg(bullet, '• ')
     number += 1
-    lines.push(...renderListItem(item, marker, theme, width, level, style))
+    lines.push(...renderListItem(item, marker, theme, width, level, style, depth))
   }
   return lines
 }
@@ -410,6 +479,7 @@ function renderListItem(
   width: number,
   level: number,
   style?: MarkdownStyle,
+  depth = 0,
 ): string[] {
   const pad = '  '.repeat(level)
   const markerWidth = visibleWidth(pad + marker)
@@ -423,11 +493,11 @@ function renderListItem(
       continue
     }
     if (child.type === 'list') {
-      lines.push(...renderList(child as Tokens.List, theme, width, level + 1, style))
+      lines.push(...renderList(child as Tokens.List, theme, width, level + 1, style, depth + 1))
       first = false
       continue
     }
-    const content = withStyledLines(theme, style, flowLines(child, theme, innerWidth, style))
+    const content = withStyledLines(theme, style, flowLines(child, theme, innerWidth, style, depth + 1))
     if (first) {
       lines.push(pad + marker + (content[0] ?? ''))
       for (const line of content.slice(1)) lines.push(hang + line)
@@ -440,12 +510,12 @@ function renderListItem(
   return lines
 }
 
-function renderBlockquote(token: Tokens.Blockquote, theme: Theme, width: number, style?: MarkdownStyle): string[] {
-  const inner = renderTokens(token.tokens, theme, Math.max(1, width - 2), 0, style)
+function renderBlockquote(token: Tokens.Blockquote, theme: Theme, width: number, style?: MarkdownStyle, depth = 0): string[] {
+  const inner = renderTokens(token.tokens, theme, Math.max(1, width - 2), 0, style, depth)
   return inner.map(line => theme.fg('borderMuted', '│ ') + line)
 }
 
-function renderBlock(token: Token, theme: Theme, width: number, listLevel: number, style?: MarkdownStyle): string[] {
+function renderBlock(token: Token, theme: Theme, width: number, listLevel: number, style?: MarkdownStyle, depth = 0): string[] {
   if (isMathToken(token)) {
     return wrapStyled('  ' + renderMath(token.text, theme, style), width)
   }
@@ -455,14 +525,14 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
     case 'hr':
       return [theme.fg('borderMuted', '─'.repeat(Math.max(1, width)))]
     case 'heading':
-      return wrapStyled(theme.bold(theme.fg(style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading', renderInlineTokens(token.tokens, theme, style))), width)
+      return wrapStyled(theme.bold(theme.fg(style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading', renderInlineTokens(token.tokens, theme, style, depth + 1))), width)
     case 'paragraph':
     case 'text':
-      return flowLines(token, theme, width, style)
+      return flowLines(token, theme, width, style, depth + 1)
     case 'blockquote':
-      return renderBlockquote(token as Tokens.Blockquote, theme, width, style)
+      return renderBlockquote(token as Tokens.Blockquote, theme, width, style, depth + 1)
     case 'list':
-      return renderList(token as Tokens.List, theme, width, listLevel, style)
+      return renderList(token as Tokens.List, theme, width, listLevel, style, depth + 1)
     case 'code':
       return renderCode(token as Tokens.Code, theme, width, style)
     case 'table':
@@ -475,7 +545,7 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
     case 'def':
       return []
     default:
-      if ('tokens' in token && token.tokens !== undefined) return renderTokens(token.tokens, theme, width, listLevel, style)
+      if ('tokens' in token && token.tokens !== undefined) return renderTokens(token.tokens, theme, width, listLevel, style, depth + 1)
       if ('text' in token && typeof token.text === 'string') {
         return wrapStyled(paintBase(theme, flattenText(token.text), style), width)
       }
@@ -483,10 +553,22 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
   }
 }
 
-function renderTokens(tokens: readonly Token[], theme: Theme, width: number, listLevel: number, style?: MarkdownStyle): string[] {
+function renderTokens(
+  tokens: readonly Token[],
+  theme: Theme,
+  width: number,
+  listLevel: number,
+  style?: MarkdownStyle,
+  depth = 0,
+): string[] {
   const lines: string[] = []
   for (const token of tokens) {
-    const chunk = renderBlock(token, theme, width, listLevel, style)
+    if (depth > MAX_MARKDOWN_DEPTH) {
+      const text = flattenText(tokenText(token))
+      if (text !== '') lines.push(...wrapStyled(paintBase(theme, text, style), width))
+      continue
+    }
+    const chunk = renderBlock(token, theme, width, listLevel, style, depth)
     if (chunk.length === 0) continue
     lines.push(...withStyledLines(theme, style, chunk))
   }
