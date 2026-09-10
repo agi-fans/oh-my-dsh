@@ -9,24 +9,67 @@ import type { TranscriptState } from './event-views.ts'
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
-// Bounded segmentation cache: the latest streaming blocks are the only text
-// sliced per reveal tick, so counting and slicing share one grapheme list per
-// text instead of segmenting the growing answer twice every frame.
-const partsCache = new Map<string, string[]>()
-const PARTS_CACHE_LIMIT = 32
+/**
+ * Counts for recently seen texts. A reveal tick reads the same growing text two
+ * or three times in a row — total units, then the reasoning share — so a few
+ * slots are needed because reasoning and prose are counted alternately and a
+ * single slot would be evicted by the other on every call. These hold counts
+ * only, unlike the previous 32-entry cache of whole cluster arrays, which kept
+ * dozens of full-text copies alive for a long answer.
+ */
+interface CountEntry {
+  readonly text: string
+  readonly count: number
+  /** Offset of this text's final cluster, where an append must re-count from. */
+  readonly lastStart: number
+  /** Cluster count before `lastStart`. */
+  readonly countBeforeLast: number
+}
 
-function graphemes(text: string): string[] {
-  const hit = partsCache.get(text)
-  if (hit !== undefined) return hit
-  const parts = [...segmenter.segment(text)].map(item => item.segment)
-  if (partsCache.size >= PARTS_CACHE_LIMIT) partsCache.clear()
-  partsCache.set(text, parts)
-  return parts
+const countCache: CountEntry[] = []
+const COUNT_CACHE_SLOTS = 4
+
+function remember(entry: CountEntry): number {
+  countCache.unshift(entry)
+  if (countCache.length > COUNT_CACHE_SLOTS) countCache.pop()
+  return entry.count
+}
+
+function countAll(text: string): CountEntry {
+  let count = 0
+  let lastStart = 0
+  let countBeforeLast = 0
+  for (const part of segmenter.segment(text)) {
+    countBeforeLast = count
+    lastStart = part.index
+    count += 1
+  }
+  return { text, count, lastStart, countBeforeLast }
 }
 
 /** Count user-visible text units without splitting emoji or combining marks. */
 export function revealUnitCount(text: string): number {
-  return graphemes(text).length
+  if (text === '') return 0
+  for (const entry of countCache) {
+    if (entry.text === text) return entry.count
+    // A streaming answer only ever grows, and appending characters can change
+    // only the final cluster (a ZWJ sequence or an unfinished flag pair). Re-count
+    // from that cluster's start instead of rescanning the whole answer: a
+    // 176,000-character reply cost 2.9 ms per tick when every frame re-counted
+    // the full text.
+    if (text.length > entry.text.length && text.startsWith(entry.text)) {
+      let count = entry.countBeforeLast
+      let lastStart = entry.lastStart
+      let countBeforeLast = count
+      for (const part of segmenter.segment(text.slice(entry.lastStart))) {
+        countBeforeLast = count
+        lastStart = entry.lastStart + part.index
+        count += 1
+      }
+      return remember({ text, count, lastStart, countBeforeLast })
+    }
+  }
+  return remember(countAll(text))
 }
 
 /** Reveal enough units to catch an eight-frame backlog, with a small floor. */
@@ -47,10 +90,22 @@ export function streamingAssistantUnits(state: TranscriptState): number {
   return revealUnitCount(block.reasoning) + revealUnitCount(block.text)
 }
 
+/**
+ * Slice the first `units` clusters. The segmenter iterator is lazy, so this
+ * costs the revealed prefix rather than the whole answer: segmenting and
+ * re-joining the full text measured 2.20 ms per tick on a 200,000-character
+ * reply, and every tick paid it again.
+ */
 function revealText(text: string, units: number): string {
   if (units <= 0 || text === '') return ''
-  const parts = graphemes(text)
-  return units >= parts.length ? text : parts.slice(0, units).join('')
+  let end = 0
+  let count = 0
+  for (const part of segmenter.segment(text)) {
+    if (count >= units) return text.slice(0, end)
+    count += 1
+    end = part.index + part.segment.length
+  }
+  return text
 }
 
 /**

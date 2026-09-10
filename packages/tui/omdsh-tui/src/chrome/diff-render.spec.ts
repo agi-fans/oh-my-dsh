@@ -103,6 +103,30 @@ describe('alignFileDiffs', () => {
   })
 })
 
+describe('intra-line alignment ceiling', () => {
+  const tokens = (count: number, prefix: string): string =>
+    Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
+
+  it('marks a very long single-line replacement without aligning its tokens', () => {
+    const oldText = tokens(3000, 'old')
+    const newText = tokens(3000, 'new')
+    const started = performance.now()
+    const rows = alignFileDiffs([{ path: 'min.js', oldText, newText }])
+    const elapsed = performance.now() - started
+
+    // Without the ceiling this pair builds a 3000x3000 table: measured at 63 ms
+    // and ~18 MB, once per frame while the tool card's spinner invalidates it.
+    expect(elapsed).toBeLessThan(20)
+    expect(formatDiffRows(rows)).toEqual(['min.js', '- ' + oldText, '+ ' + newText])
+    expect(countDiffStats(rows)).toEqual({ added: 1, removed: 1 })
+  })
+
+  it('still highlights a replacement below the ceiling', () => {
+    const rows = alignFileDiffs([{ path: 'a.ts', oldText: 'const alpha = 1', newText: 'const alpha = 2' }])
+    expect(rows.some(row => row.tokens.some(token => token.changed === true))).toBe(true)
+  })
+})
+
 describe('formatDiffStats', () => {
   it('omits a zero/zero label and keeps a single-sided count', () => {
     expect(formatDiffStats(0, 0)).toBeUndefined()

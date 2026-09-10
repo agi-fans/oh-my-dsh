@@ -187,6 +187,49 @@ describe('trajectory ledger', () => {
   })
 })
 
+describe('trajectory search caching', () => {
+  const cacheEvents: SessionEvent[] = [
+    event(1, 'turn/start', { turn: 1 }),
+    event(2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'cache me' }] }),
+    event(3, 'step/start', { turn: 1, step: 1 }),
+    event(4, 'assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'cache result' }] },
+      stream: [],
+    }),
+  ]
+
+  it('reuses one derived result until the query moves', () => {
+    const base = createTrajectory(cacheEvents)
+    const queried = { ...base, query: 'cache' }
+
+    const first = trajectorySearch(queried)
+    expect(first.matches.length).toBeGreaterThan(0)
+    // Same ledger and query: the derivation is reused instead of rescanned.
+    expect(trajectorySearch(queried)).toBe(first)
+    expect(trajectorySearch({ ...base, query: 'result' })).not.toBe(first)
+    // The empty query keeps one shared empty result rather than allocating.
+    expect(trajectorySearch({ ...base, query: '' })).toBe(trajectorySearch({ ...base, query: '  ' }))
+  })
+
+  it('invalidates the derivation when the ledger appends', () => {
+    const base = createTrajectory(cacheEvents)
+    const queried = { ...base, query: 'cache' }
+    const first = trajectorySearch(queried)
+
+    // appendTrajectoryEvent mutates the ledger in place, so only the ledger's
+    // own version can tell the cache that its result went stale.
+    const appended = appendTrajectoryEvent(
+      queried,
+      event(99, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'cache again' }] }),
+    )
+    const second = trajectorySearch(appended)
+    expect(second).not.toBe(first)
+    expect(second.matches.length).toBeGreaterThan(first.matches.length)
+  })
+})
+
 describe('trajectory search navigation', () => {
   const searchEvents: SessionEvent[] = [
     event(1, 'turn/start', { turn: 1 }),

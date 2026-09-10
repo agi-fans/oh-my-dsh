@@ -2,10 +2,13 @@ import { performance } from 'node:perf_hooks'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { MainScreenRenderer } from '../packages/tui/omdsh-tui/src/chrome/main-screen-renderer.ts'
 import {
+  initialTranscript,
   replayEvents,
   renderView,
+  type TranscriptState,
 } from '../packages/tui/omdsh-tui/src/views/event-views.ts'
 import { sessionStats } from '../packages/tui/omdsh-tui/src/session/session-controller.ts'
+import { streamingAssistantUnits } from '../packages/tui/omdsh-tui/src/views/streaming-reveal.ts'
 import {
   applyTrajectoryEvent,
   createTrajectory,
@@ -21,7 +24,7 @@ function median(values: readonly number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0
 }
 
-function benchmark(label: string, run: () => void): void {
+function benchmark(label: string, run: () => void): number {
   run()
   const samples: number[] = []
   for (let index = 0; index < RUNS; index += 1) {
@@ -29,7 +32,9 @@ function benchmark(label: string, run: () => void): void {
     run()
     samples.push(performance.now() - start)
   }
-  console.log(`${label.padEnd(42)} ${median(samples).toFixed(2).padStart(9)} ms`)
+  const value = median(samples)
+  console.log(`${label.padEnd(42)} ${value.toFixed(2).padStart(9)} ms`)
+  return value
 }
 
 function conversationEvents(turns: number): SessionEvent[] {
@@ -245,6 +250,10 @@ function searchPreparedState(): TrajectoryState {
 const searchPrepared = searchPreparedState()
 const searchMatchCount = trajectorySearch(searchPrepared).matches.length
 
+// Navigation reuses one derived match list per ledger version, so this measures
+// cache hits rather than a rescan. Before that cache it was 5139 ms, because
+// every Ctrl+N derived the full match list twice and each rendered frame twice
+// more (18 ms per derivation over 10,000 records).
 benchmark('Search and navigate a 10,000-record ledger (200 frames)', () => {
   let state = searchPrepared
   for (let index = 0; index < 200; index += 1) {
@@ -261,3 +270,26 @@ benchmark('Search text cache over 10,000 records (cold vs warm)', () => {
   for (const record of state.ledger.records) count += state.ledger.searchText(record).length
   if (count === 0) throw new Error('unreachable')
 })
+
+// --- Streaming reveal ---
+// Counting an answer that only grows must cost the appended text, not the whole
+// answer. Re-segmenting the full text per tick measured 2.9 ms at this size.
+const revealAnswer = '中文 emoji 🚀 reasoning '.repeat(5500)
+const revealTicks = 20
+const revealState = (text: string): TranscriptState => ({
+  ...initialTranscript(),
+  status: 'running',
+  blocks: [{ kind: 'assistant', turn: 1, step: 1, reasoning: '', text, streaming: true }],
+})
+let revealUnits = 0
+const revealMedian = benchmark('Count 20 appends onto a 121k-char answer', () => {
+  let text = revealAnswer
+  let units = 0
+  for (let tick = 0; tick < revealTicks; tick += 1) {
+    text += `tail ${tick} arriving `
+    units += streamingAssistantUnits(revealState(text))
+  }
+  revealUnits = units / revealTicks
+})
+console.log(`${'Per appended frame'.padEnd(42)} ${(revealMedian / revealTicks).toFixed(3).padStart(9)} ms`)
+console.log(`${'Revealed units per frame'.padEnd(42)} ${revealUnits.toFixed(0).padStart(9)} units`)

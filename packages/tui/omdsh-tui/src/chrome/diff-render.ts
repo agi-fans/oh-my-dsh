@@ -34,6 +34,16 @@ export interface DiffStats {
 /** Skip Myers/LCS when a side is this long; dump old then new instead. */
 const ALIGN_LINE_LIMIT = 200
 
+/**
+ * Skip the quadratic intra-line alignment when either side tokenizes this
+ * long. The table costs time and memory in the product of both sides, so one
+ * minified source line measured 63 ms and roughly 18 MB of temporary storage at
+ * 3 000 tokens, and the running tool card re-renders on every spinner frame.
+ * Past this ceiling the row keeps its added/removed marking and loses only the
+ * intra-line highlighting.
+ */
+const TOKEN_ALIGN_LIMIT = 400
+
 /** Inverse-off after each wrapped visual row so frame padding cannot inherit it. */
 const INVERSE_OFF = '\x1b[27m'
 
@@ -119,6 +129,9 @@ function highlightPair(oldText: string, newText: string): { removed: DiffRow; ad
   const oldTokens = tokenize(oldText)
   const newTokens = tokenize(newText)
   if (oldTokens.length === 0 && newTokens.length === 0) {
+    return { removed: plainRow('del', oldText), added: plainRow('add', newText) }
+  }
+  if (oldTokens.length > TOKEN_ALIGN_LIMIT || newTokens.length > TOKEN_ALIGN_LIMIT) {
     return { removed: plainRow('del', oldText), added: plainRow('add', newText) }
   }
   const aligned = alignSequences(oldTokens, newTokens)
