@@ -37,10 +37,33 @@ describe('formatHotkeysText', () => {
 
   it('keeps the default help subset compact and honors the paste binding', () => {
     const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
-    expect(text.split('\n')).toHaveLength(8)
+    expect(text.split('\n')).toHaveLength(9)
     expect(text).toContain('Ctrl+V / Ctrl+G')
     expect(text).toContain('Esc twice')
     expect(text).not.toContain('Ctrl+A')
+  })
+
+  it('names the effective bindings rather than fixed keys', () => {
+    // The subset used to spell out Ctrl+R, PgUp/PgDn and Ctrl+O, so a rebound
+    // action left the help text naming keys that no longer did anything. With
+    // the defaults removed, only a lookup can still name the new binding.
+    const rebound: Record<string, string> = { ...DEFAULT_KEYBINDINGS }
+    delete rebound['ctrl+r']
+    delete rebound['pageup']
+    rebound['ctrl+g'] = 'search-history'
+    rebound['ctrl+y'] = 'scroll-page-up'
+
+    const text = formatEssentialHotkeysText(rebound)
+    expect(text).toContain('Ctrl+G')
+    expect(text).toContain('Ctrl+Y')
+    expect(text).not.toContain('Ctrl+R')
+    expect(text).not.toContain('PgUp')
+    expect(text).toContain('Search the current transcript')
+  })
+
+  it('lists the transcript search, which had no entry in either help list', () => {
+    expect(formatHotkeysText()).toContain('Ctrl+F')
+    expect(formatEssentialHotkeysText()).toContain('Ctrl+F')
   })
 
   it('counts catalog rows after configurable bindings are merged by action', () => {

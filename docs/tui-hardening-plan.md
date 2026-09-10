@@ -525,41 +525,44 @@ git diff --check
 
 ## 实施清单
 
-批次 1（P0）：
+进度与提交状态：批次 1、2 已提交（`9a5e30f`、`eab433c`）。批次 3 与批次 4 的非决策项已实现，完整验证集通过（`pnpm typecheck`、`pnpm test` 825 + 103 + 13、`pnpm build`、`pnpm check:md`、`pnpm smoke:happy`、`pnpm smoke`、`git diff --check`），但**尚未提交**：本工作树同时被另一个会话修改，`runtime/provider-local.ts`、`views/event-views.ts`、`CHANGELOG.md` 三个文件由两个会话共同修改，部分提交会留下不可编译的半成品，提交需要跨会话协调。
 
-- [ ] `chrome/width.ts`：修 `charWidth` 区间（补 U+1F650–U+1F8FF、修饰符归 0）
-- [ ] `chrome/width.ts`：新增 `graphemeWidth` 与 `visibleWidth` 快速路径
-- [ ] `chrome/width.ts`：`truncateToWidth` / `hardWrapAnsi` / `wrapText` 按簇推进
-- [ ] `chrome/width.ts`：`wrapIndexed` / `indexOnWrapped` / `cursorOnWrapped` 按簇推进并保索引语义
-- [ ] `chrome/grapheme.ts`：导出共享簇迭代器
-- [ ] `chrome/width.golden.spec.ts`：独立预言机 + golden 表
-- [ ] `chrome/box.spec.ts`：`terminalWidth` 改引预言机
-- [ ] tab 路径统一（markdown / trajectory / settings-list / copy-selector）
-- [ ] 反向自检：改回旧区间后新用例必须失败
-- [ ] 批次 1 验证集 + `pnpm benchmark:tui` + CHANGELOG
+批次 1（P0，已提交 `9a5e30f`）：
 
-批次 2（P1）：
+- [x] `chrome/width.ts`：修 `charWidth` 区间（补 U+1F680–U+1F6FF 与 U+1F7E0–U+1F7EB；emoji 修饰符归零）
+- [x] `chrome/width.ts`：新增 `graphemeWidth` 与 `visibleWidth` 快速路径（`CLUSTER_RE` 探测后才分段）
+- [x] `chrome/width.ts`：`truncateToWidth` / `hardWrapAnsi` / `wrapText` 按簇推进
+- [x] `chrome/width.ts`：`wrapIndexed` / `indexOnWrapped` 按簇推进并保 UTF-16 索引语义
+- [x] 偏离：未改 `chrome/grapheme.ts`；簇迭代与 `Intl.Segmenter` 收在 `width.ts` 内部，避免两处分段器
+- [x] `chrome/width.oracle.ts` + `chrome/width.golden.spec.ts`：独立预言机与 golden 表（`.oracle.ts` 由 `tsconfig.json` 排除出产物）
+- [x] `chrome/box.spec.ts`：`terminalWidth` 改引预言机，删除「用被测函数拼期望值」的老写法
+- [x] tab 路径统一：`wrapText` 入口展开，带 gutter 的入口（box / diff / markdown 代码块 / copy 预览）按各自列展开
+- [x] 反向自检：回退 emoji 区间 → 5 条失败；回退两处 tab 展开 → 2 条失败
+- [x] 批次 1 验证集 + `pnpm benchmark:tui`（与原始 `width.ts` 对照确认无回归）+ CHANGELOG
 
-- [ ] `chrome/diff-render.ts`：`TOKEN_ALIGN_LIMIT` 闸门 + 语义一致性用例
-- [ ] `views/trajectory.ts`：ledger `version` + 结果级缓存 + 可测接缝
-- [ ] `views/streaming-reveal.ts`：删除全文缓存、惰性切片、前缀引用稳定
-- [ ] `runtime/provider-local.ts`：增量维护总簇数
-- [ ] `scripts/benchmark-tui.mts`：收紧搜索导航基线、新增 200k 字 reveal 基准
-- [ ] 批次 2 验证集 + CHANGELOG
+批次 2（P1，已提交 `eab433c`）：
 
-批次 3（P1）：
+- [x] `chrome/diff-render.ts`：`TOKEN_ALIGN_LIMIT = 400` 闸门（回退后 3000 token 用例实测 65.6 ms 失败）
+- [x] `views/trajectory.ts`：ledger `version` + `WeakMap` 结果级缓存（10,000 记录 200 帧导航 5139 ms → 0.04 ms）
+- [x] `views/streaming-reveal.ts`：删除全文簇数组缓存、惰性切片、按末簇边界增量计数（121k 字 2.9 ms/帧 → 0.26 ms）
+- [x] 偏离：未改 `runtime/provider-local.ts`；增量计数收在 `streaming-reveal.ts` 内，不把流式状态散布到 provider
+- [x] `scripts/benchmark-tui.mts`：记录收紧后的基线，新增 121k 字追加计数基准
+- [x] 批次 2 验证集 + CHANGELOG
 
-- [ ] `runtime/tool-presentation.ts`：`summarizeToolCall`
-- [ ] `session/interaction-adapter.ts`：审批卡 `detail` 组装（含四种组合用例）
-- [ ] 回合失败持久错误位（投影字段 + 置位/清除 + 渲染 + 布局断言）
-- [ ] 流式参数容错解码（实时与 replay 同源）
-- [ ] `detectTrueColor` 读 `NO_COLOR`/`FORCE_COLOR`；`#trueColor` 重算；背景回落表独立
-- [ ] 批次 3 验证集 + CHANGELOG
+批次 3（P1，已实现并验证，未提交）：
 
-批次 4（P2，待决策）：
+- [x] 偏离：摘要查询落在 `TuiService.toolCallContext`（`LocalTui` 从 transcript 的 tool block 复用 `renderTool`），因为 `runtime/tool-presentation.ts` 的 callId 索引是 `session()` 内的局部变量、不可查询
+- [x] `session/interaction-adapter.ts`：`approvalDetail` 把调用摘要排在 asker 理由之前（三种组合用例）
+- [x] 回合失败持久错误行：`TranscriptState.turnError` 由 `turn/end` 置位、`user/message` 与无失败的 `turn/end` 清除；`renderTurnError` 限一行，窄终端先丢重试提示
+- [x] 流式参数容错解码：`renderTool` 的 `partial` 入参 + 三级解码（直接 parse / 补全后 parse / 正则提取），失败回退原始片段
+- [x] `detectTrueColor` 读 `NO_COLOR` / `FORCE_COLOR=0`；`#syncTrueColor` 在颜色偏好变化时重算；16 色背景回落表独立
+- [x] `resolveColors(preference, isTty)`：显式偏好赢过 `NO_COLOR`，未配置时 `isTty && !colorDisabledByEnv()`
+- [x] 批次 3 验证集（含 `pnpm smoke` 真实 PTY）
 
-- [ ] D5 决策记录后实施 `Frame` 语义字段与备用屏分支修复
-- [ ] 帮助页动态键位 + `Ctrl+F` 行 + overlay 小节 + 覆盖性断言
-- [ ] `prompt-selector` 空态文案外置
-- [ ] 状态栏降级与截断策略（D4）+ 两个格式化函数进位
-- [ ] 批次 4 验证集 + CHANGELOG
+批次 4（P2）：
+
+- [ ] 4.1 `liveStart` 语义拆分：待 D5 决策，本轮未做
+- [x] 4.2 帮助页：essential 段改走 `keysForAction`、新增 `Ctrl+F` 行与 welcome tip、`prompt-selector` 空态文案由请求方提供
+- [ ] 4.2 未做：overlay 按键小节与「提示行 ∪ 帮助页 ⊇ 视图按键集合」的覆盖性断言 —— 需要各 overlay 先导出自己的按键集合常量（单一事实来源），否则断言只会复述渲染代码
+- [x] 4.3 状态栏：`selectGroups` / `selectFooterGroups` 的 `break` → `continue`、`MIN_CLIPPED_CELLS = 8` 整项丢弃、`formatTokens` / `formatDuration` 进位
+- [x] 批次 4 验证集（含 4.3 的宽度表驱动用例，用独立预言机校验每行宽度）

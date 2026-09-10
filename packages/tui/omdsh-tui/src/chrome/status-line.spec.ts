@@ -11,6 +11,7 @@ import {
 } from './status-line.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
+import { oracleWidth } from './width.oracle.ts'
 
 const stats: TuiSessionStats = {
   turns: 1,
@@ -30,6 +31,62 @@ const stats: TuiSessionStats = {
 function statusBar(overrides: Partial<StatusBarConfig> = {}): StatusBarConfig {
   return { ...defaultStatusBarConfig(), ...overrides }
 }
+
+/** Painted footer rows for the standard metadata and telemetry sample. */
+function footerRows(width: number): string[] {
+  return renderStatusFooter({
+    model: 'deepseek-v4-pro',
+    reasoningEffort: 'max',
+    pwd: '~/Workspace/dsh-tui',
+    branch: 'main *3',
+    stats,
+    config: statusBar(),
+    width,
+  }, createTheme(false))
+}
+
+/** Cell widths of the ellipsis-terminated fragments a row shows. */
+function clippedCells(line: string): number[] {
+  return [...stripAnsi(line).matchAll(/\S*…/gu)].map(match => oracleWidth(match[0]))
+}
+
+/**
+ * Telemetry groups `stats` can show, in configured order. The sample has no
+ * context window, so the context group never appears.
+ */
+const TELEMETRY_GROUPS = [
+  'Cache 99%',
+  '5.9M in · 73.8K out',
+  'TTFT 1.2s · 80 tok/s',
+  'LLM 16m51s · Tools 3m33s',
+  '1 turn · 74 steps',
+] as const
+
+/**
+ * Degradation expected at each width, stated from the configured order and the
+ * measured group sizes rather than read back from the selection code.
+ */
+const FOOTER_WIDTH_CASES: ReadonlyArray<{
+  width: number
+  first: readonly string[]
+  dropped: readonly string[]
+  groups: readonly number[]
+  clipped: boolean
+}> = [
+  { width: 30, first: ['deepseek', '~/Workspace'], dropped: ['max', 'main *3'], groups: [0], clipped: true },
+  { width: 40, first: ['deepseek', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: true },
+  { width: 50, first: ['deepseek-v4-pro', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: false },
+  { width: 60, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
+  { width: 70, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
+  // durations fills 24 cells and does not fit the 76 inner columns, while the
+  // narrower counts group fills 17, so counts takes the free right column.
+  { width: 80, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 4], clipped: false },
+  // At 100 the wider durations group fits first and counts no longer does: the
+  // visible set is allowed to change with width.
+  { width: 100, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3], clipped: false },
+  { width: 120, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
+  { width: 200, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
+]
 
 describe('session status line', () => {
   it('keeps initialization telemetry visible with zero context usage', () => {
@@ -110,15 +167,92 @@ describe('session status line', () => {
     expect([formatDuration(45_240), formatDuration(162_000)]).toEqual(['45.2s', '2m42s'])
   })
 
+  it('carries a rounded token count into the next unit', () => {
+    expect([
+      formatTokens(999),
+      formatTokens(999_499),
+      formatTokens(999_500),
+      formatTokens(999_999),
+      formatTokens(1_000_000),
+      formatTokens(1_250_000),
+    ]).toEqual(['999', '999K', '1M', '1M', '1M', '1.3M'])
+  })
+
+  it('carries duration seconds into minutes and hours', () => {
+    expect([
+      formatDuration(1_000),
+      formatDuration(59_900),
+      formatDuration(60_000),
+      formatDuration(62_000),
+      formatDuration(3_600_000),
+      formatDuration(3_660_000),
+    ]).toEqual(['1s', '59.9s', '1m', '1m2s', '1h', '1h1m'])
+    // Rounding up to a boundary must not print an empty unit either.
+    expect([formatDuration(59_990), formatDuration(3_599_999)]).toEqual(['1m', '1h'])
+  })
+
   it('keeps complete high-priority groups on a narrow terminal', () => {
     const line = renderSessionStatusLabel(stats, statusBar(), createTheme(false), 76)
     expect(line).toContain('Cache 99%')
     expect(line).toContain('5.9M in · 73.8K out')
     expect(line).toContain('TTFT 1.2s · 80 tok/s')
     expect(line).not.toContain('LLM 16m51s')
-    expect(line).not.toContain('1 turn · 74 steps')
+    // The wide durations group does not fit, so the scan skips it and the
+    // narrower counts group fills the columns it left free.
+    expect(line).toContain('1 turn · 74 steps')
     expect(stripAnsi(line)).not.toContain('…')
     expect(visibleWidth(line)).toBeLessThanOrEqual(80)
+  })
+
+  it('skips a telemetry group that does not fit so a narrower one can use the columns', () => {
+    for (const testCase of FOOTER_WIDTH_CASES) {
+      const label = `${testCase.width} columns`
+      const lines = footerRows(testCase.width)
+      expect(lines, label).toHaveLength(2)
+      const first = stripAnsi(lines[0] ?? '')
+      const telemetry = stripAnsi(lines[1] ?? '')
+      for (const line of lines) expect(oracleWidth(line), label).toBeLessThanOrEqual(testCase.width)
+      for (const text of testCase.first) expect(first, label).toContain(text)
+      for (const text of testCase.dropped) expect(first, label).not.toContain(text)
+      TELEMETRY_GROUPS.forEach((group, index) => {
+        if (testCase.groups.includes(index)) expect(telemetry, label).toContain(group)
+        else expect(telemetry, label).not.toContain(group)
+      })
+      // Configured order and column sides survive the skip: the row reads as
+      // the left column then the right column, each in configured order.
+      const column = (indices: readonly number[]): string =>
+        indices.map(index => TELEMETRY_GROUPS[index] ?? '').join(' • ')
+      const expected = [
+        column(testCase.groups.filter(index => index < 3)),
+        column(testCase.groups.filter(index => index >= 3)),
+      ].filter(text => text !== '').join(' ')
+      expect(telemetry.trim().replace(/\s+/gu, ' '), label).toBe(expected)
+      // A separator never precedes an ellipsis, and a clip only survives with a
+      // readable prefix: a metadata item is shown whole, clipped, or not at all.
+      expect(first, label).not.toMatch(/·\s*…/u)
+      if (testCase.clipped) expect(clippedCells(first), label).not.toHaveLength(0)
+      else expect(first, label).not.toContain('…')
+      for (const cells of clippedCells(first)) expect(cells, label).toBeGreaterThanOrEqual(8)
+    }
+  })
+
+  it('drops a clipped metadata item instead of keeping a fragment', () => {
+    // 50 columns is the reported case: `deepseek-v4-pro · …` and `main *3`
+    // clipped to `m…` named nothing, so both items go away whole.
+    const narrow = footerRows(50).map(stripAnsi)
+    expect(narrow[0]).toContain('deepseek-v4-pro')
+    expect(narrow[0]).toContain('~/Workspace/dsh-tui')
+    expect(narrow[0]).not.toContain('…')
+    expect(narrow[1]).not.toContain('…')
+
+    // A clip survives only when the free cells still hold a readable prefix:
+    // 8 cells are seven characters plus the ellipsis.
+    for (const width of [30, 40]) {
+      const fragments = clippedCells(footerRows(width)[0] ?? '')
+      expect(fragments, `${width} columns`).not.toHaveLength(0)
+      for (const cells of fragments) expect(cells, `${width} columns`).toBeGreaterThanOrEqual(8)
+    }
+    expect(clippedCells(footerRows(200)[0] ?? '')).toHaveLength(0)
   })
 
   it('uses a continuous border label and includes every group when space allows', () => {

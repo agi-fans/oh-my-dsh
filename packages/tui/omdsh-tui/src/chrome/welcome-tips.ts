@@ -11,6 +11,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/', text: 'Browse available commands' },
   { key: 'Tab', text: 'Complete commands and paths' },
   { key: 'Ctrl+R', text: 'Search and reuse prompt history' },
+  { key: 'Ctrl+F', text: 'Search the current transcript' },
   { key: 'Ctrl+O', text: 'Expand or collapse tool output' },
   { key: '↓ / Alt+A', text: 'Open the keyboard-driven Agent Hub' },
   { key: 'PgUp/PgDn', text: 'Scroll through the transcript' },

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { BOX, createTheme, DEEPSEEK_LOGO, detectTrueColor, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES } from './theme.ts'
+import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectTrueColor, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES, type ThemeColor } from './theme.ts'
+
+/** Every semantic color a view can address; mirrors the `ThemeColor` union. */
+const THEME_COLORS: readonly ThemeColor[] = [
+  'accent', 'border', 'borderAccent', 'borderMuted', 'success', 'error', 'warning',
+  'muted', 'dim', 'text', 'userMessageText', 'userMessageBg', 'toolPendingBg',
+  'toolSuccessBg', 'toolErrorBg', 'toolTitle', 'toolOutput', 'toolDiffAdded',
+  'toolDiffRemoved', 'toolDiffContext', 'mdHeading', 'mdLink', 'mdLinkUrl', 'mdCode',
+  'mdCodeBlock', 'mdCodeBlockBorder', 'mdKeyword', 'mdQuote', 'mdListBullet',
+  'thinkingText', 'customMessageLabel',
+]
 
 function sgrLuminance(ansi: string): number {
   const match = /38;2;(\d+);(\d+);(\d+)/u.exec(ansi)
@@ -53,6 +63,40 @@ describe('createTheme', () => {
   it('falls back to 16-color SGR without truecolor', () => {
     const theme = createTheme(true, false)
     expect(theme.getFgAnsi('error')).toBe('\x1b[31m')
+    expect(theme.trueColor).toBe(false)
+    expect(createTheme(false, true).trueColor).toBe(false)
+    expect(createTheme(true, true).trueColor).toBe(true)
+  })
+
+  it('paints every 16-color background with a background SGR code', () => {
+    const backgroundCode = /^\x1b\[(?:4[0-7]|49|10[0-7])m$/u
+    for (const name of THEME_NAMES) {
+      const theme = createTheme(true, false, name)
+      for (const color of THEME_COLORS) {
+        expect(theme.getBgAnsi(color), `${name} ${color}`).toMatch(backgroundCode)
+      }
+    }
+  })
+
+  it('derives 16-color backgrounds from the foreground fallback table', () => {
+    const dark = createTheme(true, false, 'dark')
+    expect(dark.getBgAnsi('error')).toBe('\x1b[41m')
+    expect(dark.getFgAnsi('error')).toBe('\x1b[31m')
+    expect(dark.getBgAnsi('userMessageBg')).toBe('\x1b[40m')
+    expect(dark.getBgAnsi('toolErrorBg')).toBe('\x1b[41m')
+    expect(dark.getBgAnsi('text')).toBe('\x1b[49m')
+    const light = createTheme(true, false, 'light')
+    expect(light.getBgAnsi('userMessageBg')).toBe('\x1b[47m')
+    expect(light.getBgAnsi('toolSuccessBg')).toBe('\x1b[42m')
+    expect(light.getBgAnsi('accent')).toBe('\x1b[46m')
+  })
+
+  it('documents the shared 16-color dark tool-card background', () => {
+    // SGR 40 is the only dark background both states can use without a
+    // 256-color tier; a fabricated difference would misreport tool state.
+    const dark = createTheme(true, false, 'dark')
+    expect(dark.getBgAnsi('toolPendingBg')).toBe('\x1b[40m')
+    expect(dark.getBgAnsi('toolSuccessBg')).toBe('\x1b[40m')
   })
 
   it('preserves body and metadata hierarchy in every 16-color fallback', () => {
@@ -176,9 +220,48 @@ describe('parseThemeName', () => {
 })
 
 describe('detectTrueColor', () => {
-  it('honors COLORTERM and known 16-color TERMs', () => {
+  it('lets NO_COLOR and FORCE_COLOR=0 outrank every capability hint', () => {
+    expect(detectTrueColor({ NO_COLOR: '1' })).toBe(false)
+    expect(detectTrueColor({ NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe(false)
+    expect(detectTrueColor({ NO_COLOR: '0', COLORTERM: 'truecolor' })).toBe(false)
+    expect(detectTrueColor({ NO_COLOR: '1', WT_SESSION: '{guid}' })).toBe(false)
+    expect(detectTrueColor({ FORCE_COLOR: '0' })).toBe(false)
+    expect(detectTrueColor({ FORCE_COLOR: '0', COLORTERM: 'truecolor' })).toBe(false)
+  })
+
+  it('treats an empty NO_COLOR as unset', () => {
+    // https://no-color.org only disables color for a non-empty value.
+    expect(detectTrueColor({ NO_COLOR: '', TERM: 'xterm-256color' })).toBe(true)
+    expect(detectTrueColor({ NO_COLOR: '', COLORTERM: 'truecolor' })).toBe(true)
+    expect(detectTrueColor({ NO_COLOR: '', TERM: 'dumb' })).toBe(false)
+  })
+
+  it('separates an unset FORCE_COLOR from FORCE_COLOR=0', () => {
+    expect(detectTrueColor({ FORCE_COLOR: undefined, TERM: 'xterm-256color' })).toBe(true)
+    expect(detectTrueColor({ FORCE_COLOR: '1', TERM: 'xterm-256color' })).toBe(true)
+    expect(detectTrueColor({ FORCE_COLOR: '0', TERM: 'xterm-256color' })).toBe(false)
+  })
+
+  it('honors COLORTERM, Windows Terminal, and known 16-color TERMs', () => {
     expect(detectTrueColor({ COLORTERM: 'truecolor' })).toBe(true)
+    expect(detectTrueColor({ COLORTERM: '24bit' })).toBe(true)
+    expect(detectTrueColor({ WT_SESSION: '{guid}' })).toBe(true)
+    // No 256-color tier yet, so *-256color stays on the 24-bit path.
+    expect(detectTrueColor({ TERM: 'xterm-256color' })).toBe(true)
     expect(detectTrueColor({ TERM: 'linux' })).toBe(false)
+    expect(detectTrueColor({ TERM: 'dumb' })).toBe(false)
+    expect(detectTrueColor({ TERM: '' })).toBe(false)
+  })
+})
+
+describe('colorDisabledByEnv', () => {
+  it('counts only a non-empty NO_COLOR or FORCE_COLOR=0 as a request for no color', () => {
+    expect(colorDisabledByEnv({ NO_COLOR: '1' })).toBe(true)
+    expect(colorDisabledByEnv({ NO_COLOR: '0' })).toBe(true)
+    expect(colorDisabledByEnv({ NO_COLOR: '' })).toBe(false)
+    expect(colorDisabledByEnv({ FORCE_COLOR: '0' })).toBe(true)
+    expect(colorDisabledByEnv({ FORCE_COLOR: '1' })).toBe(false)
+    expect(colorDisabledByEnv({})).toBe(false)
   })
 })
 

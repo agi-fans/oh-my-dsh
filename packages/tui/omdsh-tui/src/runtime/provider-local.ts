@@ -130,9 +130,9 @@ import {
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { type RenderSink } from '../chrome/renderer.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
-import { createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
+import { colorDisabledByEnv, createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
-import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
+import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema, type MotionMode } from '../session/tui-settings.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../views/history-store.ts'
@@ -198,7 +198,7 @@ export const name = 'omdsh-tui'
 export interface Config {
   /** Model name for the status line. */
   model: string
-  /** Emit SGR color sequences; defaults to the output stream's tty-ness. */
+  /** Emit SGR color sequences; defaults to the output stream's tty-ness, minus `NO_COLOR` / `FORCE_COLOR=0`. */
   colors?: boolean
   /** Shipped palette; defaults to dark. */
   theme?: string
@@ -250,6 +250,18 @@ function detectTerminalProfile(): 'direct' | 'multiplexer' | 'conpty' {
     return 'multiplexer'
   }
   return process.platform === 'win32' ? 'conpty' : 'direct'
+}
+
+/**
+ * Decide whether SGR is emitted. An explicit preference — plugin config or a
+ * value the user picked in `/settings` — always wins, so a non-empty `NO_COLOR`
+ * can never block someone who asked for color. Without a preference, a
+ * non-empty `NO_COLOR` or `FORCE_COLOR=0` suppresses color and the output
+ * stream's tty-ness decides.
+ */
+function resolveColors(preference: boolean | undefined, isTty: boolean): boolean {
+  if (preference !== undefined) return preference
+  return isTty && !colorDisabledByEnv()
 }
 
 export class LocalTui implements TuiService {
@@ -358,7 +370,12 @@ export class LocalTui implements TuiService {
   #subagentLauncherFocused = false
   #inspected: TuiInspectedSubagent | undefined
   #promptDocument: { start: number; maxStart: number; pageSize: number } | undefined
-  readonly #trueColor: boolean
+  /**
+   * 24-bit switch for the current color preference, re-derived whenever that
+   * preference changes so a session that starts colorless can still enable
+   * hexadecimal palettes without a restart.
+   */
+  #trueColor = false
   readonly #copy: ClipboardWriter
   readonly #readClipboard: ClipboardReader
   readonly #readClipboardImage: ClipboardImageReader
@@ -384,7 +401,8 @@ export class LocalTui implements TuiService {
   /**
    * @param term - terminal surface (injectable for tests).
    * @param model - model label for the status line.
-   * @param colors - SGR styling switch.
+   * @param colors - SGR styling switch; `undefined` derives one from the
+   * output stream's tty-ness and the environment.
    * @param themeName - shipped palette.
    * @param copy - clipboard writer (defaults to the platform tool).
    * @param paths - cwd/home/listing used by `@` and path autocomplete.
@@ -392,7 +410,7 @@ export class LocalTui implements TuiService {
   constructor(
     term: TerminalLike,
     model: string,
-    colors: boolean,
+    colors: boolean | undefined,
     themeName: ThemeName = 'dark',
     copy: ClipboardWriter = copyToClipboard,
     paths: {
@@ -419,7 +437,7 @@ export class LocalTui implements TuiService {
   ) {
     this.#term = term
     this.#model = model
-    this.#colors = colors
+    this.#colors = resolveColors(colors, term.output.isTTY === true)
     this.#themeName = themeName
     this.#copy = copy
     this.#readClipboard = paths.readClipboard ?? readFromClipboard
@@ -444,7 +462,7 @@ export class LocalTui implements TuiService {
     this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
     this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
-    this.#trueColor = colors && detectTrueColor()
+    this.#syncTrueColor()
     this.#tty = term.input.isTTY === true
     this.#pwd = shortenPath(project.root)
     this.#branch = project.gitLabel
@@ -639,6 +657,33 @@ export class LocalTui implements TuiService {
     this.#validateImageDraft = validate
   }
 
+  toolCallContext(callId: string): string | undefined {
+    const block = this.#state.blocks.findLast(
+      candidate => candidate.kind === 'tool' && String(candidate.callId) === callId,
+    )
+    if (block?.kind !== 'tool') return undefined
+    // Reuse the card renderer so a decision explains the call the same way the
+    // transcript already does. The approval prompt renders its detail on one
+    // line, so the parts are joined here rather than handed over as rows.
+    const view = renderTool({
+      name: block.name,
+      arguments: block.args,
+      output: block.output,
+      status: block.status,
+      expanded: false,
+      ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
+    })
+    const detail = view.summary === undefined || view.summary === ''
+      ? view.input.join(' ').replace(/\s+/gu, ' ').trim()
+      : ''
+    // A card with a summary already says what the call is. Without one the raw
+    // argument text is all there is, and its pretty-printed form would reduce to
+    // a lone brace on a single row, so the whole body is folded into one line.
+    return [view.title, view.summary, detail === '' ? undefined : detail]
+      .filter((part): part is string => part !== undefined && part !== '')
+      .join(' · ')
+  }
+
   notice(text: string, options: TuiNoticeOptions = {}): void {
     const block: Block = {
       kind: 'notice',
@@ -747,11 +792,20 @@ export class LocalTui implements TuiService {
     this.#term.output.write(`\x1b]2;${title}\x07`)
   }
 
+  /**
+   * Re-derive the 24-bit switch from the active color preference. Every path
+   * that changes `#colors` calls this so `/settings` takes effect immediately.
+   */
+  #syncTrueColor(): void {
+    this.#trueColor = this.#colors && detectTrueColor()
+  }
+
   /** Apply prefs loaded from the settings document (does not persist). */
   applyStoredPrefs(prefs: TuiPrefs): void {
     const previousMotion = this.#motion
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
+    this.#syncTrueColor()
     this.#motion = prefs.motion ?? 'full'
     this.#terminalProgress = prefs.terminalProgress ?? false
     this.#expandTools = prefs.expandTools
@@ -1897,6 +1951,7 @@ export class LocalTui implements TuiService {
     const expandChanged = prefs.expandTools !== this.#expandTools
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
+    this.#syncTrueColor()
     const previousMotion = this.#motion
     this.#motion = prefs.motion ?? 'full'
     this.#terminalProgress = prefs.terminalProgress ?? false
@@ -2742,7 +2797,7 @@ export function apply(ctx: Context, config: Config): void {
   const tui = new LocalTui(
     term,
     config.model,
-    config.colors ?? term.output.isTTY === true,
+    config.colors,
     parseThemeName(config.theme),
     copyToClipboard,
     {
@@ -2759,7 +2814,7 @@ export function apply(ctx: Context, config: Config): void {
     const scope = settingsCtx.settings.register(
       TUI_SETTINGS_NAMESPACE,
       TuiSettingsSchema,
-      { base: { theme: parseThemeName(config.theme), colors: config.colors ?? term.output.isTTY === true, expandTools: false } },
+      { base: { theme: parseThemeName(config.theme), colors: resolveColors(config.colors, term.output.isTTY === true), expandTools: false } },
     )
     tui.applyStoredPrefs(scope.get())
     tui.setPrefsPersist((prefs) => { void scope.update(prefs) })

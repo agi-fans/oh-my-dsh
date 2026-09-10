@@ -1668,6 +1668,120 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('keeps an unconfigured session colorless under NO_COLOR', () => {
+    vi.stubEnv('NO_COLOR', '1')
+    vi.stubEnv('COLORTERM', 'truecolor')
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', undefined)
+      tui.notice('probe', { level: 'error' })
+
+      // The viewport still emits cursor and sync controls (`?2026h`, `2K`), so
+      // the no-color contract is the absence of every SGR sequence.
+      expect(term.captured).toContain('probe')
+      expect(term.captured).not.toMatch(/\x1b\[[0-9;]*m/u)
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('lets an explicit color preference override NO_COLOR', () => {
+    vi.stubEnv('NO_COLOR', '1')
+    vi.stubEnv('COLORTERM', 'truecolor')
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', true)
+      tui.notice('probe', { level: 'error' })
+
+      // NO_COLOR still suppresses 24-bit, but an explicit preference keeps SGR.
+      expect(term.captured).toContain('\x1b[31mprobe')
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('treats an empty NO_COLOR as unset for an unconfigured session', () => {
+    vi.stubEnv('NO_COLOR', '')
+    vi.stubEnv('COLORTERM', 'truecolor')
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', undefined)
+      tui.notice('probe', { level: 'error' })
+
+      expect(term.captured).toContain('\x1b[38;2;252;58;75mprobe')
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('keeps an unconfigured session colorless on a piped output stream', () => {
+    vi.stubEnv('NO_COLOR', undefined)
+    vi.stubEnv('FORCE_COLOR', undefined)
+    try {
+      const term = new FakeTerminal()
+      term.output.isTTY = false
+      const tui = new LocalTui(term, 'm', undefined)
+      tui.notice('probe', { level: 'error' })
+
+      expect(term.captured).toContain('probe')
+      expect(term.captured).not.toMatch(/\x1b\[[0-9;]*m/u)
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('repaints the settings overlay with color after the switch is toggled on', () => {
+    vi.stubEnv('COLORTERM', 'truecolor')
+    vi.stubEnv('NO_COLOR', undefined)
+    vi.stubEnv('FORCE_COLOR', undefined)
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', false)
+      void tui.readline()
+      press(term, '/settings\r')
+      press(term, '\x1b[B')
+      // Dark accent is #febc38; a colorless session emits no SGR at all.
+      expect(term.captured).not.toContain('\x1b[38;2;254;188;56m')
+
+      // Row 1 is `Colors`; toggling it applies immediately, without a restart.
+      press(term, '\r')
+      expect(term.captured).toContain('\x1b[38;2;254;188;56m')
+      expect(term.captured).not.toContain('\x1b[33m')
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('repaints notices with 24-bit color once settings turn color back on', () => {
+    // Pin the capability query so the assertion cannot inherit the runner's
+    // own terminal environment.
+    vi.stubEnv('COLORTERM', 'truecolor')
+    vi.stubEnv('NO_COLOR', undefined)
+    vi.stubEnv('FORCE_COLOR', undefined)
+    try {
+      const term = new FakeTerminal()
+      const tui = new LocalTui(term, 'm', false)
+      tui.notice('colorless', { level: 'error' })
+      expect(term.captured).not.toContain('\x1b[38;2;252;58;75m')
+      expect(term.captured).not.toContain('\x1b[31m')
+
+      tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
+      tui.notice('colorful', { level: 'error' })
+
+      // Dark `error` is #fc3a4b, so 16-color fallback would emit `31` instead.
+      expect(term.captured).toContain('\x1b[38;2;252;58;75mcolorful')
+      expect(term.captured).not.toContain('\x1b[31m')
+      tui.dispose()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('mirrors the folded session title into the terminal window title', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -1904,6 +2018,19 @@ describe('LocalTui (tty)', () => {
     expect(term.captured.slice(before)).not.toContain('NEW-TAIL')
     for (let i = 0; i < 24; i += 1) press(term, '\x1b[6~')
     expect(term.captured).toContain('NEW-TAIL')
+    tui.dispose()
+  })
+
+  it('summarizes a streamed tool call on one line for a pending decision', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('tool/call', { callId: 'call-9', name: 'bash', arguments: '{"command":"rm -rf build"}' }, 1))
+
+    const summary = tui.toolCallContext('call-9')
+    expect(summary).toContain('rm -rf build')
+    // The approval prompt renders its detail on a single row.
+    expect(summary).not.toContain('\n')
+    expect(tui.toolCallContext('never-streamed')).toBeUndefined()
     tui.dispose()
   })
 

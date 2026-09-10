@@ -16,6 +16,8 @@ export interface ToolRenderInput {
   status: 'running' | 'ok' | 'error'
   expanded: boolean
   presentation?: TuiToolPresentation
+  /** Arguments are still streaming, so the text may be an unfinished JSON prefix. */
+  partial?: boolean
 }
 
 export interface ToolPresentation {
@@ -65,6 +67,95 @@ function parsedObject(raw: string): Record<string, unknown> | undefined {
 function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key]
   return typeof field === 'string' ? field : ''
+}
+
+/**
+ * Argument fields worth previewing while they stream, in reading order. A shell
+ * command is the whole intent, so it stops the scan rather than letting the
+ * remaining fields stack around it.
+ */
+const PREVIEW_FIELDS = ['command', 'file_path', 'path', 'pattern', 'query', 'url'] as const
+
+/** Read declared fields through one accessor into displayable lines. */
+function previewFieldLines(read: (field: string) => string | undefined): string[] {
+  const lines: string[] = []
+  const seen = new Set<string>()
+  for (const field of PREVIEW_FIELDS) {
+    const value = read(field)
+    if (value === undefined || value.trim() === '' || seen.has(value)) continue
+    seen.add(value)
+    lines.push(...value.split('\n'))
+    if (field === 'command') break
+  }
+  return lines
+}
+
+/**
+ * Close an unterminated string and any container left open, so a streamed
+ * argument prefix parses as the object it is still becoming. Returns undefined
+ * when the fragment does not even start a JSON object or array.
+ */
+function repairedJsonPrefix(raw: string): string | undefined {
+  const text = raw.trim()
+  if (text === '' || (text[0] !== '{' && text[0] !== '[')) return undefined
+  const open: string[] = []
+  const out: string[] = []
+  let inString = false
+  let escaped = false
+  for (const char of text) {
+    if (inString) {
+      out.push(char)
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') inString = true
+    else if (char === '{' || char === '[') open.push(char)
+    else if (char === '}' || char === ']') open.pop()
+    out.push(char)
+  }
+  if (inString) {
+    // A lone trailing backslash cannot escape the quote added here.
+    if (escaped) out.pop()
+    out.push('"')
+  }
+  for (const opener of open.reverse()) out.push(opener === '{' ? '}' : ']')
+  return out.join('')
+}
+
+/** Read one string field straight out of a fragment that is not valid JSON yet. */
+function extractedStringField(raw: string, field: string): string | undefined {
+  const match = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"?`, 'su').exec(raw)
+  const captured = match?.[1]
+  if (captured === undefined) return undefined
+  try {
+    const value: unknown = JSON.parse(`"${captured}"`)
+    if (typeof value === 'string') return value
+  } catch {
+    // A value truncated inside an escape sequence still reads better than its source.
+  }
+  return captured
+}
+
+/**
+ * Decode streamed argument fragments into the lines a card should show while the
+ * call is still arriving. A prefix is parsed once its open string and containers
+ * are closed; otherwise its known fields are read directly. Returns undefined for
+ * an undecodable fragment so the caller keeps its raw-text fallback.
+ */
+function partialArgumentLines(raw: string): string[] | undefined {
+  const repaired = repairedJsonPrefix(raw)
+  const parsed = parsedObject(raw) ?? (repaired === undefined ? undefined : parsedObject(repaired))
+  if (parsed !== undefined) {
+    const lines = previewFieldLines((field) => {
+      const value = parsed[field]
+      return typeof value === 'string' ? value : undefined
+    })
+    return lines.length === 0 ? undefined : lines
+  }
+  const lines = previewFieldLines(field => extractedStringField(raw, field))
+  return lines.length === 0 ? undefined : lines
 }
 
 function isSubagentToolName(name: string): boolean {
@@ -294,8 +385,11 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   // how the invocation reads; raw argument JSON would only duplicate it. The
   // raw fallback stays for tools that ship no call presentation at all.
   const semanticCall = input.presentation?.call !== undefined && call.title !== undefined
+  // A streamed prefix has no card yet, so a decoded preview replaces the raw
+  // JSON fragment. Predicates such as `present` still own their richer fallback.
+  const partialLines = input.partial === true ? partialArgumentLines(input.arguments) : undefined
   const callLines = call.lines
-    ?? (semanticCall ? [] : fallback?.lines ?? fallbackArgumentLines(input.arguments))
+    ?? (semanticCall ? [] : fallback?.lines ?? partialLines ?? fallbackArgumentLines(input.arguments))
   const outputLines = result.lines ?? (
     fallback?.hideOutput === true || input.output === '' ? [] : input.output.split('\n')
   )

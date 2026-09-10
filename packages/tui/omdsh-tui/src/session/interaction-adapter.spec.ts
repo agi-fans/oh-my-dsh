@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import type { ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { TuiService } from '../definition.ts'
-import { bindHumanInteraction, parsePromptAnswer } from './interaction-adapter.ts'
+import { approvalDetail, bindHumanInteraction, parsePromptAnswer } from './interaction-adapter.ts'
 
 describe('parsePromptAnswer', () => {
   const options = [{ label: 'Alpha' }, { label: 'Beta' }]
@@ -17,6 +18,28 @@ describe('parsePromptAnswer', () => {
       selected: ['Alpha', 'Beta'],
       custom: 'something else',
     })
+  })
+})
+
+describe('approvalDetail', () => {
+  const request = (fields: Partial<ApprovalRequest>): ApprovalRequest =>
+    ({ toolName: 'bash', agent: {}, ...fields }) as unknown as ApprovalRequest
+
+  it('puts the rendered call before the asker explanation', () => {
+    const tui = { toolCallContext: (callId: string) => callId === 'call-1' ? 'bash · rm -rf build' : undefined }
+    expect(approvalDetail(tui as unknown as TuiService, request({ callId: 'call-1', reason: 'outside the workspace' })))
+      .toEqual({ detail: 'bash · rm -rf build · outside the workspace' })
+  })
+
+  it('falls back to the reason alone when the call did not stream', () => {
+    const tui = { toolCallContext: () => undefined }
+    expect(approvalDetail(tui as unknown as TuiService, request({ callId: 'call-1', reason: 'needs approval' })))
+      .toEqual({ detail: 'needs approval' })
+  })
+
+  it('omits the detail entirely when neither part exists', () => {
+    const tui = { toolCallContext: () => undefined }
+    expect(approvalDetail(tui as unknown as TuiService, request({}))).toEqual({})
   })
 })
 

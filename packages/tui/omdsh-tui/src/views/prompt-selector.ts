@@ -161,7 +161,10 @@ export function renderPromptSelectorPage(
   lines.push(pageRow(theme, searchPrefix + searchText, width), pageRow(theme, '', width))
 
   if (options.length === 0) {
-    const empty = input === '' ? 'No sessions found.' : `No sessions match “${input}”.`
+    // The generic line is a fallback only: this selector also serves approvals
+    // and questions, whose empty states have nothing to do with sessions.
+    const fallback = state.request.emptyText ?? 'No matching options.'
+    const empty = input === '' ? fallback : `No match for “${input}”.`
     lines.push(pageRow(theme, '  ' + theme.fg('muted', empty), width))
   } else {
     for (let index = start; index < end; index += 1) {

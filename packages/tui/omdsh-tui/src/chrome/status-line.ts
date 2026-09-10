@@ -39,6 +39,13 @@ const LABEL_PADDING = 2
 const GROUP_SEPARATOR = ' • '
 const FOOTER_PADDING = 2
 const COLUMN_GAP = 3
+/**
+ * Fewest cells a clipped metadata item may keep. The ellipsis costs one cell,
+ * so 8 cells leave a seven-character prefix such as `deepseek…` or `~/Works…`
+ * that still identifies the item; a shorter fragment is a lone initial whose
+ * only content is the ellipsis announcing that content is missing.
+ */
+const MIN_CLIPPED_CELLS = 8
 /** Context needed to render the fixed session footer. */
 export interface StatusFooterOptions {
   model: string
@@ -60,16 +67,25 @@ export interface StatusFooterOptions {
 export function formatTokens(value: number): string {
   const scaled = (n: number): string => n >= 100 ? String(Math.round(n)) : String(Math.round(n * 10) / 10)
   if (value < 1_000) return String(value)
-  if (value < 1_000_000) return `${scaled(value / 1_000)}K`
+  // Rounding at the printed precision can reach the next unit: 999_500 must
+  // read `1M` instead of `1000K`, so the rounded thousands decide the scale.
+  if (value < 1_000_000 && Math.round(value / 1_000) < 1_000) return `${scaled(value / 1_000)}K`
   return `${scaled(value / 1_000_000)}M`
 }
 
-/** Compact duration: 45.2s under a minute, 2m42s from there on. */
+/** Compact duration: 45.2s under a minute, 2m42s under an hour, 1h1m above. */
 export function formatDuration(ms: number): string {
   const seconds = ms / 1_000
-  if (seconds < 60) return `${Math.round(seconds * 10) / 10}s`
+  // A single rounding at the printed precision keeps a value just under a unit
+  // boundary from reading as `60s`, `60m0s`, or an empty unit.
+  const tenths = Math.round(seconds * 10)
+  if (tenths < 600) return `${tenths / 10}s`
   const whole = Math.round(seconds)
-  return `${Math.floor(whole / 60)}m${whole % 60}s`
+  const minutes = Math.floor(whole / 60)
+  const restSeconds = whole % 60
+  if (minutes < 60) return restSeconds === 0 ? `${minutes}m` : `${minutes}m${restSeconds}s`
+  const restMinutes = minutes % 60
+  return restMinutes === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h${restMinutes}m`
 }
 
 /** Human-readable model throughput with the same precision as dsh web. */
@@ -188,12 +204,14 @@ function layoutWidth(groups: readonly StatusGroup[]): number {
 /**
  * Keep complete metric groups instead of truncating the sentence. Cache and
  * token usage survive first, followed by latency/rate, timings, then counts.
+ * A group that does not fit whole is skipped instead of ending the scan, so a
+ * wide group no longer hides the narrower groups configured after it.
  */
 function selectGroups(groups: readonly StatusGroup[], width: number): StatusGroup[] {
   const selected: StatusGroup[] = []
   for (const group of groups) {
     const candidate = [...selected, group]
-    if (layoutWidth(candidate) > width) break
+    if (layoutWidth(candidate) > width) continue
     selected.push(group)
   }
   return selected
@@ -243,7 +261,12 @@ function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[])
   return leftWidth + rightWidth + (leftWidth > 0 && rightWidth > 0 ? COLUMN_GAP : 0)
 }
 
-/** Select whole groups in user order, then place each on its configured column. */
+/**
+ * Select whole groups in user order, then place each on its configured column.
+ * A group that does not fit both columns is skipped so a later, narrower group
+ * can still use the free columns; configured order and column sides are never
+ * rearranged, so only the visible set changes with width.
+ */
 function selectFooterGroups(
   groups: readonly StatusGroup[],
   width: number,
@@ -255,7 +278,7 @@ function selectFooterGroups(
     const rightSide = itemSide(config, group.id) === 'right'
     const candidateLeft = rightSide ? left : [...left, group]
     const candidateRight = rightSide ? [...right, group] : right
-    if (splitWidth(candidateLeft, candidateRight) > width) break
+    if (splitWidth(candidateLeft, candidateRight) > width) continue
     if (rightSide) right.push(group)
     else left.push(group)
   }
@@ -443,6 +466,11 @@ export function renderStatusFooter(options: StatusFooterOptions, theme: Theme): 
   ]
 }
 
+/**
+ * Pack metadata items into one column. Every item is painted whole or dropped
+ * as a unit: a clip shorter than `MIN_CLIPPED_CELLS` says nothing about the
+ * value it replaces, so the leftover columns stay padding instead.
+ */
 function packPreviewParts(
   parts: readonly { text: string; color: ThemeColor; id?: StatusItemId }[],
   theme: Theme,
@@ -469,7 +497,7 @@ function packPreviewParts(
       continue
     }
     const remaining = width - used - prefix
-    if (remaining <= 0) break
+    if (remaining < MIN_CLIPPED_CELLS) break
     if (out !== '') out += theme.fg('dim', separator)
     out += paint(truncateToWidth(part.text, remaining))
     break

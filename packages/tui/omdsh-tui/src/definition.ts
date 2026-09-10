@@ -40,6 +40,12 @@ export interface TuiPrompt {
   title: string
   question: string
   detail?: string
+  /**
+   * Text for an empty option list. Callers that own the domain supply their own
+   * wording; the selector otherwise falls back to a generic line, which used to
+   * say "No sessions found." even for approvals and questions.
+   */
+  emptyText?: string
   options?: readonly {
     /** Human-facing option name. */
     label: string
@@ -246,6 +252,12 @@ export interface TuiService {
   setCommands(commands: readonly TuiCommand[]): void
   /** Open a keyboard-driven event ledger for the active session. */
   openTrajectory(events: readonly SessionEvent[]): boolean
+  /**
+   * One-line plain-text summary of a tool call this interface already rendered,
+   * for surfaces that must explain a pending decision. Undefined when the call
+   * has not streamed yet, so callers keep their own fallback instead of blocking.
+   */
+  toolCallContext(callId: string): string | undefined
   /** Append a direct UI/command result without fabricating a session event. */
   notice(text: string, options?: TuiNoticeOptions): void
   /** Append one successful plugin command result using the command-output surface. */

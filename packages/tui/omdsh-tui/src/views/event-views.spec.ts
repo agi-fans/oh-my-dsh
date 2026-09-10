@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderTurnError, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -695,6 +695,37 @@ describe('applyEvent', () => {
     ])
   })
 
+  it('renders a decoded tool preview from both live streaming and a replayed log', () => {
+    const settled = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'list the files' }] }, 2),
+      ev('assistant/message', {
+        turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Checking.' }] }, stream: [],
+      }, 3),
+    ]
+    const delta = {
+      turn: 1,
+      step: 1,
+      chunk: {
+        type: 'tool-call-delta' as const,
+        index: 1,
+        id: ToolCallId('call-1'),
+        name: 'bash',
+        argumentsDelta: '{"command":"ls -la /tm',
+      },
+    }
+    let live = settled.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    live = applyStreamChunk(live, delta)
+    // A resumed session replays the durable log and keeps streaming into it, so
+    // both transcripts must render the same card.
+    const resumed = applyStreamChunk(replayEvents(settled), delta)
+
+    expect(view(resumed).lines).toEqual(view(live).lines)
+    const text = view(live).lines.map(stripAnsi).join('\n')
+    expect(text).toContain('ls -la /tm')
+    expect(text).not.toContain('"command"')
+  })
+
   it('tracks tool calls to ok and error results', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"ls"}' }, 1))
@@ -1026,6 +1057,26 @@ describe('blockLines', () => {
     expect(text).toContain('pnpm --filter @agi-fans/dsh-tui test')
     expect(text).toContain('@agi-fans/dsh-tui build')
     expect(visibleWidth(top)).toBe(80)
+  })
+
+  it('previews decoded arguments for a streaming tool call', () => {
+    const block = {
+      kind: 'tool' as const,
+      callId: ToolCallId('call-partial'),
+      name: 'bash',
+      args: '{"command":"ls -la /tm',
+      status: 'running' as const,
+      output: '',
+      partial: true,
+    }
+    // Replay-rendered transcripts share this renderer, so a decoded prefix must
+    // come from the block itself rather than from the live streaming fold.
+    const text = blockLines(block, theme, 60).map(stripAnsi).join('\n')
+    expect(text).toContain('ls -la /tm')
+    expect(text).not.toContain('"command"')
+
+    const raw = blockLines({ ...block, partial: false }, theme, 60).map(stripAnsi).join('\n')
+    expect(raw).toContain('{"command":"ls -la /tm')
   })
 
   it('applies the same padding to reasoning and the streaming placeholder', () => {
@@ -1893,6 +1944,61 @@ describe('renderView', () => {
     expect(frame.lines[0]).toMatch(/^╭─ .*Settings/)
     expect(frame.cursorVisible).toBe(false)
     expect(frame.cursor?.row).toBeGreaterThan(0)
+  })
+})
+
+describe('turn failure row', () => {
+  const failed = (): ReturnType<typeof initialTranscript> => {
+    let state = initialTranscript()
+    state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
+    return applyEvent(state, ev('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', error: { code: 'API_ERROR', message: 'quota exhausted' } },
+    }, 2))
+  }
+
+  it('holds the failure above the composer until the next submission', () => {
+    const state = failed()
+    expect(state.turnError).toContain('quota exhausted')
+
+    const lines = view(state).lines.map(stripAnsi)
+    // Two rows carry the message: the durable transcript notice near the top of
+    // the turn and the fixed row above the composer.
+    const rows = lines
+      .map((line, index) => ({ line, index }))
+      .filter(row => row.line.includes('quota exhausted'))
+    expect(rows).toHaveLength(2)
+    const fixed = rows[rows.length - 1]!
+    const composerRow = composerStart(lines)
+    expect(fixed.index).toBeLessThan(composerRow)
+    expect(fixed.line).toContain('Alt+R retry')
+
+    // Submitting again clears the fixed row; the durable transcript notice stays.
+    const submitted = applyEvent(state, ev(
+      'user/message',
+      { source: { kind: 'user' }, content: [{ type: 'text', text: 'try again' }] },
+      3,
+    ))
+    expect(submitted.turnError).toBeUndefined()
+    expect(view(submitted).lines.map(stripAnsi).some(line => line.includes('quota exhausted'))).toBe(true)
+  })
+
+  it('clears the row when a later turn ends without failure', () => {
+    let state = failed()
+    state = applyEvent(state, ev('turn/start', { turn: 2 }, 4))
+    state = applyEvent(state, ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 5))
+    expect(state.turnError).toBeUndefined()
+  })
+
+  it('keeps the frame inside its height budget while the row is present', () => {
+    expect(view(failed()).lines.length).toBeLessThanOrEqual(24)
+  })
+
+  it('drops the retry hint before the message on a narrow terminal', () => {
+    const narrow = renderTurnError('boom', createTheme(false), 20)
+    expect(narrow).toHaveLength(1)
+    expect(visibleWidth(narrow[0]!)).toBe(20)
+    expect(stripAnsi(narrow[0]!)).not.toContain('Alt+R')
   })
 })
 

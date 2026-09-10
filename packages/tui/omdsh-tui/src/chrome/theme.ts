@@ -426,7 +426,11 @@ const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
   mono: MONO_PALETTE,
 }
 
-/** 16-color fallbacks when the terminal is not truecolor. */
+/**
+ * 16-color foreground fallbacks when the terminal is not truecolor. Entries
+ * named `*Bg` describe a background, so they hold the foreground code whose
+ * shift in {@link ANSI16_BG} yields the intended background SGR.
+ */
 const DARK_ANSI16: Record<ThemeColor, string> = {
   accent: '33',
   border: '36',
@@ -439,10 +443,12 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   dim: '90',
   text: '39',
   userMessageText: '39',
-  userMessageBg: '40',
-  toolPendingBg: '40',
-  toolSuccessBg: '40',
-  toolErrorBg: '41',
+  userMessageBg: '30',
+  // SGR 40 is the only 16-color background dark tool cards can share, so
+  // pending and successful states stay visually identical without 256 colors.
+  toolPendingBg: '30',
+  toolSuccessBg: '30',
+  toolErrorBg: '31',
   toolTitle: '39',
   toolOutput: '37',
   toolDiffAdded: '32',
@@ -473,10 +479,10 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   dim: '90',
   text: '39',
   userMessageText: '39',
-  userMessageBg: '47',
-  toolPendingBg: '47',
-  toolSuccessBg: '42',
-  toolErrorBg: '41',
+  userMessageBg: '37',
+  toolPendingBg: '37',
+  toolSuccessBg: '32',
+  toolErrorBg: '31',
   toolTitle: '39',
   toolOutput: '30',
   toolDiffAdded: '32',
@@ -610,6 +616,37 @@ const ANSI16: Record<ThemeName, Record<ThemeColor, string>> = {
   mono: MONO_ANSI16,
 }
 
+/** Distance from a foreground SGR code to its background twin: 31 → 41, 39 → 49. */
+const BG_CODE_OFFSET = 10
+
+/**
+ * Build the background twin of a 16-color foreground table. Every result is a
+ * background SGR code, which keeps `bgCode` from ever emitting a foreground
+ * code even when a palette paints a foreground swatch as a background.
+ */
+function toBackgrounds(foreground: Record<ThemeColor, string>): Record<ThemeColor, string> {
+  const result = {} as Record<ThemeColor, string>
+  for (const color of Object.keys(foreground) as ThemeColor[]) {
+    const code = Number.parseInt(foreground[color], 10)
+    result[color] = Number.isFinite(code) ? String(code + BG_CODE_OFFSET) : foreground[color]
+  }
+  return result
+}
+
+/** 16-color background fallbacks when the terminal is not truecolor. */
+const ANSI16_BG: Record<ThemeName, Record<ThemeColor, string>> = {
+  dark: toBackgrounds(DARK_ANSI16),
+  light: toBackgrounds(LIGHT_ANSI16),
+  midnight: toBackgrounds(MIDNIGHT_ANSI16),
+  solarized: toBackgrounds(SOLARIZED_ANSI16),
+  catppuccin: toBackgrounds(CATPPUCCIN_ANSI16),
+  dracula: toBackgrounds(DRACULA_ANSI16),
+  nord: toBackgrounds(NORD_ANSI16),
+  gruvbox: toBackgrounds(GRUVBOX_ANSI16),
+  'rose-pine': toBackgrounds(ROSE_PINE_ANSI16),
+  mono: toBackgrounds(MONO_ANSI16),
+}
+
 const FG_RESET = '\x1b[39m'
 const BG_RESET = '\x1b[49m'
 const BOLD_RESET = '\x1b[22m'
@@ -668,6 +705,7 @@ function hexToRgb(hex: string): [number, number, number] {
   ]
 }
 
+/** Foreground SGR for one swatch; `fallback` is a code from {@link ANSI16}. */
 function fgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
   if (swatch === '') return '\x1b[39m'
   if (typeof swatch === 'number') return `\x1b[38;5;${swatch}m`
@@ -676,6 +714,7 @@ function fgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
   return `\x1b[38;2;${r};${g};${b}m`
 }
 
+/** Background SGR for one swatch; `fallback` is a code from {@link ANSI16_BG}. */
 function bgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
   if (swatch === '') return '\x1b[49m'
   if (typeof swatch === 'number') return `\x1b[48;5;${swatch}m`
@@ -685,10 +724,21 @@ function bgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
 }
 
 /**
- * Detect 24-bit color the way OMP does: COLORTERM, Windows Terminal, else
- * assume truecolor unless TERM is a known 16-color host.
+ * True when the environment asks for no color at all: a non-empty `NO_COLOR`
+ * (https://no-color.org) or `FORCE_COLOR=0`. An empty `NO_COLOR` counts as
+ * unset, so callers can safely branch on this alone.
+ */
+export function colorDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.NO_COLOR !== undefined && env.NO_COLOR !== '') || env.FORCE_COLOR === '0'
+}
+
+/**
+ * Detect 24-bit color. `NO_COLOR` (any non-empty value) and `FORCE_COLOR=0`
+ * suppress 24-bit color and outrank every capability hint; `COLORTERM` and
+ * Windows Terminal enable it, and only known 16-color hosts disqualify it.
  */
 export function detectTrueColor(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (colorDisabledByEnv(env)) return false
   const colorterm = env.COLORTERM ?? ''
   if (colorterm === 'truecolor' || colorterm === '24bit') return true
   if (env.WT_SESSION) return true
@@ -711,10 +761,11 @@ export function createTheme(
   const tc = colors && trueColor
   const palette = PALETTES[name]
   const ansi = ANSI16[name]
+  const ansiBg = ANSI16_BG[name]
   const getFgAnsi = (color: ThemeColor): string =>
     colors ? fgCode(palette[color], tc, ansi[color]) : ''
   const getBgAnsi = (color: ThemeColor): string =>
-    colors ? bgCode(palette[color], tc, ansi[color]) : ''
+    colors ? bgCode(palette[color], tc, ansiBg[color]) : ''
   const paint = (open: string, text: string, close: string): string =>
     colors && open !== '' ? open + text + close : text
   return {

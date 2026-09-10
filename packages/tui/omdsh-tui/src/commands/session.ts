@@ -57,6 +57,8 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
       const answer = await ctx.tui.prompt({
         title: 'Session Library',
         question: '',
+        // Filtering can empty the list even when the library is not empty.
+        emptyText: 'No sessions found.',
         options: recent.map(row => ({
           label: `${pinned.includes(row.id) ? '◆ ' : ''}${row.title}`,
           value: row.id,
@@ -148,6 +150,7 @@ async function searchSessions(ctx: Context, invocation: CommandInvocation): Prom
   const answer = await ctx.tui.prompt({
     title: 'Session Search',
     question: '',
+    emptyText: 'No session content matched.',
     options: hits.map(hit => ({
       label: titles.get(hit.header.id) ?? hit.bestMatch.snippet,
       value: hit.header.id,

@@ -206,3 +206,63 @@ describe('renderTool', () => {
     })).toMatchObject({ input: ['{', '  "x": 1', '}'] })
   })
 })
+
+describe('renderTool partial arguments', () => {
+  const streaming = (args: string): readonly string[] => renderTool({
+    name: 'bash', arguments: args, output: '', status: 'running', expanded: false, partial: true,
+  }).input
+
+  const settled = (args: string): readonly string[] => renderTool({
+    name: 'bash', arguments: args, output: '', status: 'running', expanded: false,
+  }).input
+
+  const previews: { label: string; args: string; expected: string[] }[] = [
+    { label: 'a value truncated mid-string', args: '{"command":"ls -la /tm', expected: ['ls -la /tm'] },
+    { label: 'a complete value before the object closes', args: '{"command":"ls -la /tmp"}', expected: ['ls -la /tmp'] },
+    { label: 'a path followed by a truncated pattern', args: '{"path":"src/a.ts","pattern":"foo', expected: ['src/a.ts', 'foo'] },
+    { label: 'a file_path field', args: '{"file_path":"src/a.ts","offset":1', expected: ['src/a.ts'] },
+    { label: 'a query field', args: '{"query":"needle', expected: ['needle'] },
+    { label: 'a url field', args: '{"url":"https://example.com/a', expected: ['https://example.com/a'] },
+    { label: 'an escaped quote inside the value', args: '{"command":"echo \\"hi', expected: ['echo "hi'] },
+    { label: 'an escaped newline inside the value', args: '{"command":"echo one\\necho two', expected: ['echo one', 'echo two'] },
+    { label: 'a literal newline inside the value', args: '{"command":"ls -la\n/tmp', expected: ['ls -la', '/tmp'] },
+    { label: 'an escaped trailing backslash', args: '{"command":"echo C:\\\\', expected: ['echo C:\\'] },
+    { label: 'a lone trailing backslash', args: '{"command":"echo C:\\', expected: ['echo C:'] },
+    { label: 'CJK characters in the value', args: '{"path":"中文/文件.ts', expected: ['中文/文件.ts'] },
+    { label: 'an emoji in the value', args: '{"path":"docs/🐳.md', expected: ['docs/🐳.md'] },
+  ]
+
+  it.each(previews)('previews $label while arguments stream', ({ args, expected }) => {
+    expect(streaming(args)).toEqual(expected)
+  })
+
+  const undecodable: { label: string; args: string; expected: string[] }[] = [
+    { label: 'an empty prefix', args: '', expected: [] },
+    { label: 'a lone opening brace', args: '{', expected: ['{'] },
+    { label: 'a key with no value yet', args: '{"command":', expected: ['{"command":'] },
+    { label: 'an object whose only field is not previewable', args: '{"timeout":30', expected: ['{"timeout":30'] },
+    { label: 'plain text that is not JSON', args: 'ls -la', expected: ['ls -la'] },
+  ]
+
+  it.each(undecodable)('keeps the raw fragment for $label', ({ args, expected }) => {
+    expect(streaming(args)).toEqual(expected)
+    // An undecodable prefix renders exactly as the same text renders when settled.
+    expect(streaming(args)).toEqual(settled(args))
+  })
+
+  it('leaves settled arguments alone when the partial flag is absent', () => {
+    expect(settled('{"command":"ls -la /tmp"}')).toEqual(['{', '  "command": "ls -la /tmp"', '}'])
+  })
+
+  it('keeps a presentation call card ahead of the decoded preview', () => {
+    expect(renderTool({
+      name: 'read',
+      arguments: '{"file_path":"src/a.ts"',
+      output: '',
+      status: 'running',
+      expanded: false,
+      partial: true,
+      presentation: { call: { card: 'generic', title: 'Read src/a.ts', kind: 'read' } },
+    })).toMatchObject({ title: 'Read src/a.ts', input: [] })
+  })
+})

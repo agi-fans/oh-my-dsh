@@ -6,19 +6,28 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Approval prompts now show what they are asking about: the tool card the session already streamed supplies the command, path, or diff summary for the pending call, so a decision no longer requires scrolling back through the transcript to find it. The asker's own reason still follows, after the action.
+
 ### Changed
 
 - The main-screen Agents list shows task names and lifecycle states instead of thinking and tool activity. Waiting agents are counted separately from completed runs; detailed tool activity remains in the Agent Hub and full output in each agent's transcript.
 - `/trajectory` search no longer rescans the ledger for every step and every frame: the match list is derived once per ledger revision and reused, so `n`/`N` and `Ctrl+N`/`Ctrl+P` navigation and the ledger's own rendering stop costing time proportional to the session length. On a 10,000-record session, 200 navigation steps went from 5.1 s to well under a millisecond.
 - A streaming answer is now counted at the cost of the text that just arrived instead of the whole reply, so the reveal animation no longer re-segments the full answer on every frame. A 121,000-character answer measured 2.9 ms per frame before and 0.26 ms after.
+- Streaming tool arguments preview as they arrive: a half-written `{"command":"ls -la /tm` reads as `ls -la /tmp` instead of raw JSON, so the seconds before a call is dispatched show what the call will do. A value that cannot be recovered falls back to the raw fragment.
 
 ### Fixed
 
 - Background subagent streams no longer redraw the parent interface for every chunk. Status updates are coalesced, child activity is folded incrementally, and failed states survive idle notifications; opening an agent still restores its in-progress output.
 - Truncating a plain label no longer inserts an ANSI color reset into colorless output.
+- A turn that ends in failure keeps a fixed row above the composer until the next submission. The transcript still records the error in place, but that row scrolls into native history while the composer stays put, so a failed turn used to leave an apparently idle screen behind.
 - Editing a minified single-line file no longer stalls the interface while the tool card is running: intra-line diff highlighting is skipped above 400 tokens on either side, where the quadratic alignment table cost 63 ms and about 18 MB of temporary storage per re-render. The line still shows as removed and added, with only the token-level highlighting inside it dropped.
 - Terminal cell widths now match what terminals actually draw for multi-code-point graphemes. Zero-width joiners, skin-tone modifiers, emoji presentation selectors, and regional-indicator flags are measured as the single glyph they render as, so box borders, right padding, and the composer cursor no longer drift on emoji-bearing lines. Transport and map symbols such as 🚀 and 🛸 span two cells instead of one, which previously measured a line one column short of what the terminal drew and let the right edge be clipped.
 - Fenced code blocks, table cells, `/copy` previews, and other wrapped panel text expand tabs against a tab stop before measuring, so content containing a tab wraps at its real width instead of losing its right side to the terminal's disabled automatic wrap.
+- `NO_COLOR` and `FORCE_COLOR=0` are now honored: an unconfigured session stops emitting color at all instead of only dropping to the 16-color fallback, while an explicit color preference (plugin config or a value chosen in `/settings`) still wins, so the environment cannot lock anyone out of color. Turning color on in `/settings` also takes effect immediately; it previously stayed on the 16-color fallback until restart.
+- `/help` now lists every configurable action, including the transcript search added in 0.15.0, and names the bindings actually in effect: the high-frequency subset spelled out `Ctrl+R`, `PgUp`/`PgDn` and `Ctrl+O` literally, so rebinding any of them left the help text naming dead keys.
+- The status line no longer wastes columns or leaves fragments on a narrow terminal: a telemetry group that does not fit is skipped so a narrower later group can use the space, and a metadata item with less than eight cells left is dropped whole instead of becoming `m…`. Token counts and durations also carry into the next unit (`1M` instead of `1000K`, `1m` instead of `1m0s`).
 
 ## [0.15.0] - 2026-09-10
 
