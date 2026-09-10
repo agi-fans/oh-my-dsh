@@ -544,3 +544,82 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     }
   })
 })
+
+describe('SessionRuntime subagent catalog restore', () => {
+  it('lists the children a resumed parent recorded in its own log', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const rootId = SessionId('session-catalog-root')
+    const rootSession = ctx.sessions.create(rootId)
+    // A resumed parent never loads its children, so this durable fact is the
+    // only thing that can still put them on the roster.
+    rootSession.append('subagent/catalog', {
+      version: 0,
+      childId: SessionId('session-catalog-child'),
+      childCreatedAt: 1,
+      mode: 'continuable',
+      label: 'Catalog child',
+    })
+
+    const agentCtx = new Context()
+    await agentCtx.plugin(CommandRuntime)
+    agentCtx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    agentCtx.provide('sessionProjections', { stateOf: () => 'standard' })
+    agentCtx.provide('tools', { presentAs: () => () => undefined })
+    agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
+
+    const rootAgent = {
+      id: rootId,
+      session: rootSession,
+      status: 'idle',
+      inbox: { nextTurn: [], nextStep: [] },
+    } as unknown as Agent
+    ctx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    ctx.provide('agents', {
+      create: async (options: { setup?: (context: typeof agentCtx, agent: Agent) => Promise<void> }) => {
+        await options.setup?.(agentCtx, rootAgent)
+        return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
+      },
+      get: () => undefined,
+    })
+    ctx.provide('agentDefaultModel', {
+      currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
+    })
+    ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
+
+    const rosters: unknown[] = []
+    // Activation touches far more of the TuiService than one roster assertion
+    // needs; unknown members resolve to a no-op returning no-op.
+    const tui = new Proxy(
+      {
+        ...(stubTui() as unknown as Record<string, unknown>),
+        setSubagents: (roster: unknown) => { rosters.push(roster) },
+      },
+      {
+        get(target: Record<string, unknown>, prop: string) {
+          return prop in target ? target[prop] : () => () => {}
+        },
+      },
+    ) as unknown as TuiService
+
+    const runtime = new SessionRuntime(ctx, tui)
+    try {
+      await runtime.start()
+      expect(rosters.at(-1)).toMatchObject({
+        agents: [{ id: 'session-catalog-child', label: 'Catalog child', mode: 'continuable', phase: 'completed' }],
+      })
+    } finally {
+      await runtime.dispose()
+      await ctx.fiber.dispose()
+      await agentCtx.fiber.dispose()
+    }
+  })
+})

@@ -581,6 +581,7 @@ export class SessionRuntime {
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
         }
+        if (event.type === 'subagent/catalog') this.#observeCatalogChildren(session, [event])
         if (shouldRefreshSessionInfoAfter(event)) this.#pushSessionInfo()
         if (event.type === 'session/title') void this.refreshRecent()
         return
@@ -1281,6 +1282,19 @@ export class SessionRuntime {
     this.#pushSubagents()
   }
 
+  /**
+   * Add the direct children a Session's durable catalog declares.
+   *
+   * The live roster is built from `session/created` and child events, so a
+   * resumed parent would otherwise show nothing: its children are neither
+   * loaded nor replayed. Catalog facts are durable, so a restored roster still
+   * lists those children, and `#inspectSubagent` opens each transcript from
+   * disk. Children the live path already knows keep their own state.
+   */
+  #observeCatalogChildren(session: Session, events: readonly SessionEvent[]): void {
+    if (this.#subagents.observeCatalog(session.id, events)) this.#pushSubagents()
+  }
+
   /** Route one live assistant stream chunk to the visible transcript or the subagent roster. */
   #forwardLiveDelta(agent: Agent, delta: StreamDelta): void {
     const active = this.#active
@@ -1404,6 +1418,7 @@ export class SessionRuntime {
 
   #replaceTranscript(agent: Agent): void {
     const events = agent.session.snapshotEvents()
+    this.#observeCatalogChildren(agent.session, events)
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
     this.#replayLivePrefix(agent.session.id)
   }

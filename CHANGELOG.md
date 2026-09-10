@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `Ctrl+F` on an empty composer searches the current transcript: matching rows paint inverse, `n`/`N` or `Ctrl+N`/`Ctrl+P` step across matches, and `Enter` confirms the query. A non-empty draft keeps the editor's own `Ctrl+F`.
 - `/diff` summarizes the workspace changes as a per-file table with added and removed line counts and lists untracked files; `/diff <path>` prints one file's patch. It only reads git state and never stages or commits.
 - The model can declare finished deliverables with `present`, which records the workspace files it produced so they stay findable after the turn. The card lists their source paths and descriptions instead of the raw call arguments, and `/trajectory` records each declaration as a `DELIVERABLE` row. Files are referenced where they already live, never copied or preserved.
+- Resuming a session now restores the subagents it dispatched. The parent's durable `subagent/catalog` directory puts each direct child back on the roster as a completed run, so the Agent Hub still lists it and its transcript stays openable from disk; previously a resumed parent showed no subagents at all, because its children are neither loaded nor replayed. `/trajectory` records each catalogued child as a `SUBAGENT` row.
 
 ## [0.14.0] - 2026-09-04
 

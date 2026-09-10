@@ -304,6 +304,21 @@ export class TrajectoryLedger {
       this.#push(record)
       return
     }
+    if (eventType === 'subagent/catalog') {
+      const label = string(data['label'])
+      const childId = string(data['childId'])
+      const mode = string(data['mode'])
+      const record = this.#base(
+        event,
+        'tool',
+        'SUBAGENT',
+        compact(label ?? childId ?? '', 'Subagent catalogued'),
+        data,
+      )
+      record.result = [childId, label, mode].filter((value): value is string => value !== undefined).join('\n')
+      this.#push(record)
+      return
+    }
     if (eventType === 'llm/retry') {
       const record = this.#base(event, 'error', 'RETRY', compact(json(data), 'Model request retry'), data)
       record.status = 'retry'

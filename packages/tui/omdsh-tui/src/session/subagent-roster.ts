@@ -111,6 +111,36 @@ export function descendantDepth(
   return undefined
 }
 
+/** One direct child declared by a durable `subagent/catalog` event. */
+export interface CatalogChild {
+  readonly id: string
+  readonly label?: string
+  readonly mode?: TuiSubagentView['mode']
+}
+
+/**
+ * Read the durable direct-child directory out of one Session's events.
+ *
+ * `subagent/catalog` is the parent's own record of every direct child it
+ * created, so it outlives a resume that never loads those children. Later
+ * facts win: re-establishing a child rewrites its row.
+ * @param events - the parent Session's events, oldest first.
+ * @returns one entry per declared child, in first-declaration order.
+ */
+export function catalogChildren(events: readonly SessionEvent[]): CatalogChild[] {
+  const children = new Map<string, CatalogChild>()
+  for (const event of events) {
+    if (event.type !== 'subagent/catalog') continue
+    const label = event.data.label?.trim()
+    children.set(event.data.childId, {
+      id: event.data.childId,
+      ...(label === undefined || label === '' ? {} : { label }),
+      mode: event.data.mode,
+    })
+  }
+  return [...children.values()]
+}
+
 function sameActivity(left: TuiSubagentActivity, right: TuiSubagentActivity): boolean {
   return left.text === right.text && left.status === right.status
 }
@@ -297,6 +327,35 @@ export class SubagentRoster {
     }
     this.#agents.set(input.id, next)
     return next
+  }
+
+  /**
+   * Add the direct children a durable catalog declares, skipping known rows.
+   *
+   * The live roster is built from `session/created` and child events, so a
+   * resumed parent would otherwise show nothing: its children are neither
+   * loaded nor replayed. Catalog facts are durable, so a restored roster still
+   * lists those children and their transcripts stay openable from disk. A row
+   * the live path already knows keeps its own phase.
+   * @param parentId - the Session that owns the catalog.
+   * @param events - that Session's events, oldest first.
+   * @returns whether any child was added.
+   */
+  observeCatalog(parentId: string, events: readonly SessionEvent[]): boolean {
+    let added = false
+    for (const child of catalogChildren(events)) {
+      if (this.#agents.has(child.id)) continue
+      this.remember({
+        id: child.id,
+        parentId,
+        depth: 1,
+        ...(child.label === undefined ? {} : { label: child.label }),
+        ...(child.mode === undefined ? {} : { mode: child.mode }),
+        phase: 'completed',
+      })
+      added = true
+    }
+    return added
   }
 
   hydrate(session: Session, depth: number, agentStatus?: 'idle' | 'running'): TuiSubagentView {
