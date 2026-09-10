@@ -144,6 +144,7 @@
     "@deepseek-ai/dsh-tool-goal": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-tool-jobs": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-tool-lsp": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-tool-present": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-tool-pwsh": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-tool-pwsh-persistent": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-tool-skill": "0.1.5-alpha.2",

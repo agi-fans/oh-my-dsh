@@ -478,4 +478,14 @@ describe('upstream capability adaptation rows', () => {
     expect(index('terminal')).toBeLessThan(index('terminal-bash'))
     expect(index('terminal-bash')).toBeLessThan(index('tool-terminal'))
   })
+
+  it('mounts the present delivery tool beside the workspace file tools', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('tool-present')]?.name).toBe('@deepseek-ai/dsh-tool-present')
+    // present resolves paths through the Session filesystem and appends
+    // deliverables to the Session log, so those services mount first.
+    expect(index('fs')).toBeLessThan(index('tool-present'))
+    expect(index('tools')).toBeLessThan(index('tool-present'))
+  })
 })

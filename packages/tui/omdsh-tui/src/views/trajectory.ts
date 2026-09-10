@@ -288,6 +288,22 @@ export class TrajectoryLedger {
       record.durationMs = record.startedAt === null ? null : Math.max(0, event.time - record.startedAt)
       return
     }
+    if (eventType === 'deliverables/presented') {
+      const files = Array.isArray(data['files']) ? data['files'] : []
+      const paths = files
+        .map(file => string(object(file)?.['path']))
+        .filter((path): path is string => path !== undefined)
+      const record = this.#base(
+        event,
+        'tool',
+        'DELIVERABLE',
+        paths.length === 0 ? 'Deliverables declared' : compact(paths.join(' · '), 'Deliverables declared'),
+        data,
+      )
+      record.result = paths.join('\n')
+      this.#push(record)
+      return
+    }
     if (eventType === 'llm/retry') {
       const record = this.#base(event, 'error', 'RETRY', compact(json(data), 'Model request retry'), data)
       record.status = 'retry'

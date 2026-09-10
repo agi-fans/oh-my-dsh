@@ -319,6 +319,13 @@
     config:
       maxOutputChars: 16000
 
+  # Deliverables: the model declares the workspace files it finished so the
+  # user can find them afterwards. The files are not copied or preserved — the
+  # card lists their source paths, and the TUI renders that list instead of the
+  # raw call arguments.
+  - id: tool-present
+    name: '@deepseek-ai/dsh-tool-present'
+
   # Anonymous public web fetch, no credential and no search provider: a fetch
   # costs nothing and the TUI already renders web sources. Search stays off
   # because DeepSeek's native search spends a whole model turn per query; a

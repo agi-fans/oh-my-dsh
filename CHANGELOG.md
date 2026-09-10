@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Application keybindings now cover transcript scrolling, tool expansion, history search, and transcript search through `keybindings.json` (`scroll-page-up`, `scroll-page-down`, `scroll-fast-up`, `scroll-fast-down`, `toggle-tools`, `search-history`, `search-transcript`); defaults are unchanged.
 - `Ctrl+F` on an empty composer searches the current transcript: matching rows paint inverse, `n`/`N` or `Ctrl+N`/`Ctrl+P` step across matches, and `Enter` confirms the query. A non-empty draft keeps the editor's own `Ctrl+F`.
 - `/diff` summarizes the workspace changes as a per-file table with added and removed line counts and lists untracked files; `/diff <path>` prints one file's patch. It only reads git state and never stages or commits.
+- The model can declare finished deliverables with `present`, which records the workspace files it produced so they stay findable after the turn. The card lists their source paths and descriptions instead of the raw call arguments, and `/trajectory` records each declaration as a `DELIVERABLE` row. Files are referenced where they already live, never copied or preserved.
 
 ## [0.14.0] - 2026-09-04
 

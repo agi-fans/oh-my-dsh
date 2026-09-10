@@ -71,6 +71,46 @@ function isSubagentToolName(name: string): boolean {
   return name === 'subagent' || name.startsWith('subagent_')
 }
 
+interface PresentedArgument {
+  path: string
+  description?: string
+}
+
+/** Declared deliverables from a `present` call, ignoring malformed entries. */
+function presentedFiles(raw: string): PresentedArgument[] {
+  const files = parsedObject(raw)?.['files']
+  if (!Array.isArray(files)) return []
+  const declared: PresentedArgument[] = []
+  for (const entry of files) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const record = entry as Record<string, unknown>
+    const path = record['path']
+    if (typeof path !== 'string' || path.trim() === '') continue
+    const description = typeof record['description'] === 'string' ? record['description'].trim() : ''
+    declared.push(description === '' ? { path } : { path, description })
+  }
+  return declared
+}
+
+/**
+ * Presentation for the Harness `present` tool, which ships no presentCall: the
+ * card lists the declared source paths instead of the raw JSON arguments. The
+ * durable result only echoes those paths back, so it is hidden when it does.
+ */
+function presentFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
+  if (name !== 'present') return undefined
+  const files = presentedFiles(raw)
+  if (files.length === 0) return undefined
+  const rendered = output.trim()
+  const echoed = rendered === '' || rendered.split('\n').every(line => line.startsWith('Presented '))
+  return {
+    title: 'Deliverables',
+    summary: files.length === 1 ? '1 file' : `${files.length} files`,
+    lines: files.map(file => (file.description === undefined ? file.path : `${file.path} — ${file.description}`)),
+    ...(echoed ? { hideOutput: true } : {}),
+  }
+}
+
 /** Presentation for Harness delegation tools that do not ship presentCall. */
 function subagentFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
   const args = parsedObject(raw) ?? {}
@@ -245,7 +285,8 @@ function resultPresentation(view: ToolResultView | undefined): PartialToolPresen
 /** Render a Harness presentation intent, falling back to durable raw arguments/result text. */
 export function renderTool(input: ToolRenderInput): ToolPresentation {
   const fallback = input.presentation === undefined
-    ? subagentFallback(input.name, input.arguments, input.output)
+    ? presentFallback(input.name, input.arguments, input.output)
+      ?? subagentFallback(input.name, input.arguments, input.output)
     : undefined
   const call = callPresentation(input.presentation?.call, input.name)
   const result = resultPresentation(input.presentation?.result)

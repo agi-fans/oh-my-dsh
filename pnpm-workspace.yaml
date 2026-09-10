@@ -171,3 +171,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-session-format@0.1.5-alpha.2'
   - '@deepseek-ai/dsh-chunked-list@0.1.5-alpha.2'
   - '@deepseek-ai/dsh-session-format-v2-to-v3@0.1.5-alpha.2'
+  - '@deepseek-ai/dsh-tool-present@0.1.5-alpha.2'

@@ -47,6 +47,26 @@ describe('trajectory ledger', () => {
     expect(state.ledger.records[2]).toMatchObject({ label: 'TOOL', status: 'ok', result: 'README contents', durationMs: 100 })
   })
 
+  it('records declared deliverables as their own tool record', () => {
+    const state = createTrajectory([
+      event(1, 'turn/start', { turn: 1 }),
+      event(2, 'tool/call', { callId: 'call-9', name: 'present', arguments: { files: [{ path: 'dist/omdsh.js' }] } }),
+      event(3, 'deliverables/presented', {
+        turn: 1,
+        callId: 'call-9',
+        files: [{ path: 'dist/omdsh.js', description: 'Bundled CLI' }, { path: 'report.md' }],
+      }),
+    ])
+    expect(state.ledger.records.map(record => record.label)).toEqual(['TOOL', 'DELIVERABLE'])
+    expect(state.ledger.records[1]).toMatchObject({
+      type: 'deliverables/presented',
+      kind: 'tool',
+      turn: 1,
+      summary: 'dist/omdsh.js · report.md',
+      result: 'dist/omdsh.js\nreport.md',
+    })
+  })
+
   it('correlates an interleaved compaction lifecycle by its durable id', () => {
     const state = createTrajectory([
       event(1, 'compaction/start', { compactionId: 'compact-a', turn: 1 }),

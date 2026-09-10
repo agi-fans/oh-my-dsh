@@ -127,6 +127,42 @@ describe('renderTool', () => {
     })
   })
 
+  it('lists presented deliverables instead of raw present arguments', () => {
+    expect(renderTool({
+      name: 'present',
+      arguments: '{"files":[{"path":"dist/omdsh.js","description":"Bundled CLI"},{"path":"report.md"}]}',
+      output: 'Presented dist/omdsh.js\nPresented report.md',
+      status: 'ok',
+      expanded: false,
+    })).toEqual({
+      title: 'Deliverables',
+      summary: '2 files',
+      input: ['dist/omdsh.js — Bundled CLI', 'report.md'],
+      output: [],
+      outputPreview: 'head',
+    })
+
+    // The durable result only echoes the paths, so a failure that says
+    // something else must still reach the card.
+    expect(renderTool({
+      name: 'present',
+      arguments: '{"files":[{"path":"missing.md"}]}',
+      output: 'Cannot present missing.md: file not found.',
+      status: 'error',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Deliverables',
+      summary: '1 file',
+      input: ['missing.md'],
+      output: ['Cannot present missing.md: file not found.'],
+    })
+
+    // A declaration with no usable path keeps the raw-argument fallback.
+    expect(renderTool({
+      name: 'present', arguments: '{"files":[]}', output: '', status: 'ok', expanded: false,
+    })).toMatchObject({ title: 'present', input: ['{', '  "files": []', '}'] })
+  })
+
   it('falls back to durable result text when a generic result omits content', () => {
     expect(renderTool({
       name: 'custom', arguments: '{"query":"needle"}', output: 'durable result', status: 'ok', expanded: false,
