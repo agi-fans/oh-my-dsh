@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-10
+
 ### Changed
 
 - The session goal bar now renders below the `Deep Driving` activity row instead of above it, so the rows docked below the transcript share one order, and its phase label no longer carries the `◈` icon.
@@ -349,7 +351,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.11.0...v0.12.0
