@@ -8,7 +8,7 @@ import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtens
 import { BOX, SYMBOL, type Theme } from './theme.ts'
 import { highlightCodeLines } from './code-highlight.ts'
 import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
-import { padToWidth, visibleWidth, wrapText } from './width.ts'
+import { expandTabs, padToWidth, visibleWidth, wrapText } from './width.ts'
 
 export type { MarkdownStyle } from './md-style.ts'
 
@@ -449,7 +449,10 @@ function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: Mar
     const highlighted = highlightCodeLines(rows, lang, theme, style)
     for (let i = 0; i < rows.length; i += 1) {
       const body = highlighted[i] ?? ''
-      lines.push(...wrapStyled(body === '' ? '  ' : '  ' + body, width))
+      // The two-space gutter is added before wrapping, so a tab inside the code
+      // block has to resolve against the column that gutter already occupies.
+      const text = body === '' ? '  ' : '  ' + expandTabs(body, 8, 2)
+      lines.push(...wrapStyled(text, width))
     }
   }
   lines.push(...wrapStyled(theme.fg(fence, '  ```'), width))

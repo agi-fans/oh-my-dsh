@@ -7,7 +7,7 @@
 import type { CopyPick } from './copy-targets.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
-import { truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { expandTabs, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 
 /** Visible picker rows. */
 export const COPY_SELECTOR_MAX_VISIBLE = 8
@@ -136,7 +136,9 @@ function renderCopyRow(item: CopyPick, selected: boolean, theme: Theme, width: n
 function renderCopyPreview(item: CopyPick | undefined, theme: Theme, width: number): string[] {
   const header = '  ' + theme.fg('dim', item === undefined ? 'Preview' : 'Preview · ' + item.hint)
   if (item === undefined) return [header]
-  const wrapped = wrapText(item.text.replace(/\t/g, '  '), Math.max(1, width - 2))
+  // The preview body is painted behind a two-space gutter, so a tab inside the
+  // copied text resolves against that column rather than against column zero.
+  const wrapped = wrapText(expandTabs(item.text, 8, 2), Math.max(1, width - 2))
   const cap = COPY_SELECTOR_PREVIEW_LINES
   const visible = wrapped.slice(0, cap)
   const extra = wrapped.length > cap ? wrapped.length - cap : 0

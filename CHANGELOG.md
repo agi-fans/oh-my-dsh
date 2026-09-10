@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Terminal cell widths now match what terminals actually draw for multi-code-point graphemes. Zero-width joiners, skin-tone modifiers, emoji presentation selectors, and regional-indicator flags are measured as the single glyph they render as, so box borders, right padding, and the composer cursor no longer drift on emoji-bearing lines. Transport and map symbols such as 🚀 and 🛸 span two cells instead of one, which previously measured a line one column short of what the terminal drew and let the right edge be clipped.
+- Fenced code blocks, table cells, `/copy` previews, and other wrapped panel text expand tabs against a tab stop before measuring, so content containing a tab wraps at its real width instead of losing its right side to the terminal's disabled automatic wrap.
+
 ## [0.15.0] - 2026-09-10
 
 ### Changed

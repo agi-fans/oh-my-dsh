@@ -57,6 +57,9 @@ export function charWidth(cp: number): number {
   if (cp >= 0x300 && cp <= 0x36f) return 0
   if (cp >= 0xfe00 && cp <= 0xfe0f) return 0
   if (cp === 0x200d || cp === 0xfe0f) return 0
+  // Skin-tone modifiers fold into the preceding base glyph and never advance
+  // the cursor, so they must be measured as zero rather than as emoji.
+  if (cp >= 0x1f3fb && cp <= 0x1f3ff) return 0
   if (
     (cp >= 0x1100 && cp <= 0x115f)
     || cp === 0x2329
@@ -70,18 +73,94 @@ export function charWidth(cp: number): number {
     || (cp >= 0xffe0 && cp <= 0xffe6)
     || isWideEmojiSymbol(cp)
     || (cp >= 0x1f300 && cp <= 0x1f64f)
+    // Transport and map symbols (🚀 U+1F680, 🛸 U+1F6F8, …). Ornamental
+    // dingbats (U+1F650–U+1F67F) sit between the two emoji blocks and are
+    // text-presentation, so they stay one cell.
+    || (cp >= 0x1f680 && cp <= 0x1f6ff)
+    // Large coloured circles and squares (U+1F7E0–U+1F7EB).
+    || (cp >= 0x1f7e0 && cp <= 0x1f7eb)
     || (cp >= 0x1f900 && cp <= 0x1f9ff)
     || (cp >= 0x1fa00 && cp <= 0x1faff)
   ) return 2
   return 1
 }
 
+let clusterSegmenter: Intl.Segmenter | undefined
+
+/**
+ * Clusters that a terminal draws as a single glyph but that per-code-point
+ * summing gets wrong: ZWJ sequences, emoji presentation selectors, and
+ * regional-indicator pairs. Everything else — including skin-tone modifiers
+ * and combining marks, which `charWidth` already reports as zero — keeps the
+ * per-code-point fast path.
+ */
+const CLUSTER_RE = /[\u200D\uFE0F\u{1F1E6}-\u{1F1FF}]/u
+
+const REGIONAL_PAIR_RE = /^\p{Regional_Indicator}{2}$/u
+
+function segments(text: string): Intl.Segments {
+  clusterSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return clusterSegmenter.segment(text)
+}
+
+/**
+ * Cell width of one grapheme cluster.
+ *
+ * Clusters that fold several code points into a single terminal glyph occupy
+ * two cells on mainstream terminals, so they are measured as a unit instead of
+ * summing their parts (which would report a ZWJ family as eight). Clusters
+ * without ZWJ, an emoji presentation selector, or a regional-indicator pair
+ * fall back to per-code-point summing, which is also what makes decomposed
+ * sequences such as `e` + U+0301 measure as one cell.
+ */
+export function graphemeWidth(cluster: string): number {
+  if (cluster === '') return 0
+  if (cluster.length === 1) return charWidth(cluster.codePointAt(0) ?? 0)
+  if (cluster.includes('\u200D') || cluster.includes('\uFE0F')) return 2
+  if (REGIONAL_PAIR_RE.test(cluster)) return 2
+  let width = 0
+  for (const ch of cluster) width += charWidth(ch.codePointAt(0) ?? 0)
+  return width
+}
+
+/** Iterate `text` as grapheme clusters, using code points when that suffices. */
+function* clusters(text: string): Generator<string> {
+  if (!CLUSTER_RE.test(text)) {
+    for (const ch of text) yield ch
+    return
+  }
+  for (const part of segments(text)) yield part.segment
+}
+
+/**
+ * Grapheme spans with their UTF-16 offsets. Callers that must map a cursor
+ * back onto a wrapped row need both the cluster text and where it starts, so
+ * the offsets stay valid indices into the original string.
+ */
+function clusterSpans(text: string): { index: number; cluster: string }[] {
+  const spans: { index: number; cluster: string }[] = []
+  if (!CLUSTER_RE.test(text)) {
+    for (let i = 0; i < text.length;) {
+      const ch = String.fromCodePoint(text.codePointAt(i) ?? 0)
+      spans.push({ index: i, cluster: ch })
+      i += ch.length
+    }
+    return spans
+  }
+  for (const part of segments(text)) spans.push({ index: part.index, cluster: part.segment })
+  return spans
+}
+
 /** Visible column count, ignoring ANSI and counting wide glyphs as two cells. */
 export function visibleWidth(text: string): number {
-  let width = 0
-  for (const ch of stripAnsi(text)) {
-    width += charWidth(ch.codePointAt(0) ?? 0)
+  const plain = stripAnsi(text)
+  if (!CLUSTER_RE.test(plain)) {
+    let width = 0
+    for (const ch of plain) width += charWidth(ch.codePointAt(0) ?? 0)
+    return width
   }
+  let width = 0
+  for (const part of segments(plain)) width += graphemeWidth(part.segment)
   return width
 }
 
@@ -112,15 +191,15 @@ export function expandTabs(text: string, tabWidth = 8, initialColumn = 0): strin
       out += part.value
       continue
     }
-    for (const char of part.value) {
-      if (char === '\t') {
+    for (const cluster of clusters(part.value)) {
+      if (cluster === '\t') {
         const spaces = size - (column % size)
         out += ' '.repeat(spaces)
         column += spaces
       } else {
-        out += char
-        if (char === '\n') column = Math.max(0, Math.trunc(initialColumn))
-        else column += charWidth(char.codePointAt(0) ?? 0)
+        out += cluster
+        if (cluster === '\n') column = Math.max(0, Math.trunc(initialColumn))
+        else column += graphemeWidth(cluster)
       }
     }
   }
@@ -134,7 +213,9 @@ export function padding(n: number): string {
 
 /**
  * Truncate to `width` cells, preserving leading ANSI and appending an ellipsis.
- * Closes SGR so a cut mid-style cannot bleed into the next cell.
+ * Clusters are atomic: a ZWJ sequence, emoji presentation sequence, or flag is
+ * either kept whole or dropped, never cut into a dangling joiner. Closes SGR so
+ * a cut mid-style cannot bleed into the next cell.
  */
 export function truncateToWidth(text: string, width: number, ellipsis = '…'): string {
   if (width <= 0) return ''
@@ -148,10 +229,10 @@ export function truncateToWidth(text: string, width: number, ellipsis = '…'): 
       out += part.value
       continue
     }
-    for (const ch of part.value) {
-      const cw = charWidth(ch.codePointAt(0) ?? 0)
+    for (const cluster of clusters(part.value)) {
+      const cw = graphemeWidth(cluster)
       if (used + cw > budget) return out + ellipsis + '\x1b[0m'
-      out += ch
+      out += cluster
       used += cw
     }
   }
@@ -202,14 +283,14 @@ function hardWrapAnsi(text: string, width: number): string[] {
       pending += part.value
       continue
     }
-    for (const ch of part.value) {
-      const cw = charWidth(ch.codePointAt(0) ?? 0)
+    for (const cluster of clusters(part.value)) {
+      const cw = graphemeWidth(cluster)
       if (currentW + cw > width && currentW > 0) {
         lines.push(current)
         current = ''
         currentW = 0
       }
-      current += pending + ch
+      current += pending + cluster
       pending = ''
       currentW += cw
     }
@@ -225,8 +306,13 @@ function hardWrapAnsi(text: string, width: number): string[] {
  */
 export function wrapText(text: string, width: number): string[] {
   if (width <= 0) return ['']
+  // A tab carries no cell width of its own, so a paragraph that still holds one
+  // would be measured short and overflow its row. Callers that prefix padding
+  // expand before adding it, so the tab stop accounts for that padding; the
+  // expansion here covers the remaining entry points from column zero.
+  const expanded = text.includes('\t') ? expandTabs(text, 8, 0) : text
   const out: string[] = []
-  for (const para of text.split('\n')) {
+  for (const para of expanded.split('\n')) {
     if (para === '') {
       out.push('')
       continue
@@ -354,45 +440,48 @@ export interface IndexedLine {
 /**
  * Wrap plain `text` (no ANSI) to `width`, carrying source offsets so a cursor
  * index can be mapped to (row, column).
+ *
+ * Tabs are deliberately not expanded here: a literal tab is a completion key in
+ * the composer rather than buffer content, and expanding would invalidate the
+ * UTF-16 offsets this returns. A tab that did reach the buffer would measure as
+ * zero cells, so callers must keep it out of the text.
  */
 export function wrapIndexed(text: string, width: number): IndexedLine[] {
   if (width <= 0) return [{ text: '', start: 0, end: 0 }]
   const lines: IndexedLine[] = []
+  const spans = clusterSpans(text)
   let start = 0
   let used = 0
   let breakAt = -1
   const flush = (end: number): void => {
     lines.push({ text: text.slice(start, end), start, end })
   }
-  for (let i = 0; i < text.length; ) {
-    const cp = text.codePointAt(i) ?? 0
-    const ch = String.fromCodePoint(cp)
-    if (ch === '\n') {
+  for (const span of spans) {
+    const i = span.index
+    const cluster = span.cluster
+    if (cluster === '\n') {
       flush(i)
-      i += ch.length
-      start = i
+      start = i + 1
       used = 0
       breakAt = -1
       continue
     }
-    const cw = charWidth(cp)
+    const cw = graphemeWidth(cluster)
     if (used + cw > width && i > start) {
       const cut = breakAt >= start ? breakAt : i
       flush(cut)
       start = breakAt >= start ? breakAt + 1 : i
       used = 0
       breakAt = -1
-      for (let j = start; j < i; ) {
-        const cp2 = text.codePointAt(j) ?? 0
-        const ch2 = String.fromCodePoint(cp2)
-        if (ch2 === ' ') breakAt = j
-        used += charWidth(cp2)
-        j += ch2.length
+      for (const inner of spans) {
+        if (inner.index < start) continue
+        if (inner.index >= i) break
+        if (inner.cluster === ' ') breakAt = inner.index
+        used += graphemeWidth(inner.cluster)
       }
     }
-    if (ch === ' ') breakAt = i
+    if (cluster === ' ') breakAt = i
     used += cw
-    i += ch.length
   }
   flush(text.length)
   return lines.length > 0 ? lines : [{ text: '', start: 0, end: 0 }]
@@ -402,14 +491,10 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
 export function indexOnWrapped(line: IndexedLine, column: number, source: string): number {
   const target = Math.max(0, column)
   let col = 0
-  let i = line.start
-  while (i < line.end) {
-    const cp = source.codePointAt(i) ?? 0
-    const ch = String.fromCodePoint(cp)
-    const width = charWidth(cp)
-    if (col + width > target) return i
+  for (const span of clusterSpans(source.slice(line.start, line.end))) {
+    const width = graphemeWidth(span.cluster)
+    if (col + width > target) return line.start + span.index
     col += width
-    i += ch.length
   }
   return line.end
 }

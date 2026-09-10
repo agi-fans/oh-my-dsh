@@ -1,18 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
 import { createTheme, THEME_NAMES } from './theme.ts'
-import { stripAnsi, visibleWidth } from './width.ts'
+import { stripAnsi } from './width.ts'
+import { oracleWidth } from './width.oracle.ts'
 
 const theme = createTheme(false)
-
-function terminalWidth(text: string): number {
-  let column = 0
-  for (const char of stripAnsi(text)) {
-    if (char === '\t') column += 8 - (column % 8)
-    else column += visibleWidth(char)
-  }
-  return column
-}
 
 describe('renderFramedBlock', () => {
   it('draws a rounded box with a header and body', () => {
@@ -21,7 +13,7 @@ describe('renderFramedBlock', () => {
     expect(lines[0]).toContain('✔ bash')
     expect(lines.some((line) => line.includes('output'))).toBe(true)
     expect(lines[lines.length - 1]).toMatch(/^╰/)
-    for (const line of lines) expect(visibleWidth(line)).toBe(40)
+    for (const line of lines) expect(oracleWidth(line)).toBe(40)
   })
 
   it('keeps tab-indented command output inside the terminal width', () => {
@@ -32,7 +24,7 @@ describe('renderFramedBlock', () => {
         width: 40,
         state: 'ok',
       }, activeTheme)
-      for (const line of lines) expect(terminalWidth(line)).toBe(40)
+      for (const line of lines) expect(oracleWidth(line)).toBe(40)
       expect(lines.join('\n')).not.toContain('\t')
     }
   })
@@ -50,7 +42,7 @@ describe('renderFramedBlock', () => {
 
       expect(top).toMatch(/^╭─── /u)
       expect(top).toMatch(/ ───╮$/u)
-      expect(visibleWidth(top)).toBe(80)
+      expect(oracleWidth(top)).toBe(80)
     }
   })
 
@@ -69,7 +61,7 @@ describe('renderFramedBlock', () => {
     expect(plain.some(line => /^├─── Output .*───┤$/u.test(line))).toBe(true)
     expect(plain.join('\n')).toContain('$ pnpm test')
     expect(plain.join('\n')).toContain('42 passed')
-    for (const line of lines) expect(visibleWidth(line)).toBe(40)
+    for (const line of lines) expect(oracleWidth(line)).toBe(40)
   })
 })
 
@@ -112,7 +104,7 @@ describe('renderWelcome', () => {
     }, theme)
 
     expect(lines).not.toHaveLength(0)
-    for (const line of lines) expect(visibleWidth(line)).toBe(width)
+    for (const line of lines) expect(oracleWidth(line)).toBe(width)
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^╭.*╮$/u)
     expect(stripAnsi(lines[0] ?? '')).toContain('┬')
     expect(lines.map(stripAnsi).some(line => /^│.*├─+┤$/u.test(line))).toBe(true)
@@ -193,7 +185,7 @@ describe('renderEditor', () => {
     expect(top.startsWith('╭')).toBe(true)
     expect(top.indexOf('🐳')).toBeLessThan(top.indexOf('full access'))
     expect(top).toMatch(/full access ─+╮$/)
-    expect(visibleWidth(top)).toBe(40)
+    expect(oracleWidth(top)).toBe(40)
   })
 
   it('paints a dim inline hint after the caret', () => {
@@ -208,7 +200,7 @@ describe('renderEditor', () => {
     expect(frame.lines[1]).toContain('/copy ')
     expect(frame.lines[1]).toContain('text|code|cmd')
     expect(frame.cursor).toEqual({ row: 1, column: 8 })
-    expect(visibleWidth(frame.lines[1] ?? '')).toBe(40)
+    expect(oracleWidth(frame.lines[1] ?? '')).toBe(40)
   })
 
 })
@@ -226,7 +218,7 @@ describe('renderWorking', () => {
     const later = renderWorking(colorTheme, 10, undefined, 40)[0] ?? ''
     expect(first).not.toBe(later)
     expect(stripAnsi(first)).toBe(stripAnsi(later))
-    expect(visibleWidth(first)).toBe(visibleWidth(later))
+    expect(oracleWidth(first)).toBe(oracleWidth(later))
     expect(later).toContain('\x1b[1m')
   })
 
@@ -249,6 +241,6 @@ describe('renderWorking', () => {
     const line = renderWorking(theme, 0, 'bash · pnpm test', 40)[0] ?? ''
     expect(line).toContain('bash · pnpm test')
     expect(line).toContain('Ctrl+C: Interrupt')
-    expect(visibleWidth(line)).toBeLessThanOrEqual(40)
+    expect(oracleWidth(line)).toBeLessThanOrEqual(40)
   })
 })

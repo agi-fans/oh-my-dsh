@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderInline, renderMarkdown } from './markdown.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
+import { oracleWidth } from './width.oracle.ts'
 
 const theme = createTheme(false)
 const color = createTheme(true, true)
@@ -191,5 +192,29 @@ describe('pathological nesting', () => {
   it('keeps fenced code bytes out of the nesting clamp', () => {
     const run = '*'.repeat(40)
     expect(plain('```\n' + run + '\n```', 80)).toContain(run)
+  })
+})
+
+describe('tab expansion in block content', () => {
+  it('keeps tab-indented fenced code inside the width budget', () => {
+    const source = '```\n\tmodified: packages/tui/omdsh-tui/src/chrome/width.ts\n\t\tindented deeper\n```'
+    for (const width of [72, 48, 32, 20]) {
+      for (const line of renderMarkdown(source, theme, width)) {
+        expect(oracleWidth(line), `width ${width}: ${JSON.stringify(stripAnsi(line))}`).toBeLessThanOrEqual(width)
+        expect(stripAnsi(line)).not.toContain('\t')
+      }
+    }
+  })
+
+  it('keeps tab-indented table cells inside the width budget', () => {
+    // The tab sits between words: a leading tab would be trimmed by the table
+    // parser and the case would assert nothing.
+    const source = '| File | State |\n| --- | --- |\n| src/\ta.ts | ✅ done |'
+    for (const width of [40, 28]) {
+      for (const line of renderMarkdown(source, theme, width)) {
+        expect(oracleWidth(line), `width ${width}: ${JSON.stringify(stripAnsi(line))}`).toBeLessThanOrEqual(width)
+        expect(stripAnsi(line)).not.toContain('\t')
+      }
+    }
   })
 })
