@@ -402,6 +402,34 @@
     config:
       providerName: fork
 
+  # Process-isolated transport. Every in-process backend above runs the child
+  # agent on the TUI's own event loop, so a heavy delegation starves rendering
+  # and the activity animation. This backend spawns a whole child runtime
+  # instead, moving that CPU off the TUI thread. It is an extra opt-in
+  # transport: `spawn`/`fork` stay mounted and keep their parent-shared
+  # features, which ACP cannot honour.
+  #
+  # ACP advertises no start-time capabilities and implements no continuable
+  # runs, so `providerName: acp` must not be selected by a tool that needs
+  # `agentOptions`, `persona`, `toolFilter`, a numeric `maxDepth`, or
+  # `backgroundMode: continuable`.
+  - id: subagent-acp
+    name: '@deepseek-ai/dsh-subagent-acp'
+    config:
+      providerName: acp
+      command: !!js process.env.OMDSH_ACP_COMMAND || 'dsh'
+      args: !!js (process.env.OMDSH_ACP_ARGS || '--profile acp').split(' ')
+      permission: allow
+      # The child boots its own profile, so it gets its own home. Leaving the
+      # parent's home visible would let the child read the parent's profiles
+      # and credentials, and a composition that also delegated by ACP would
+      # recurse.
+      env:
+        DSH_HOME: !!js (process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/acp-child'
+        OMDSH_HOME: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
+        OMDSH_DEEPSEEK_API_KEY: !!js process.env.OMDSH_DEEPSEEK_API_KEY || undefined
+        DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY || process.env.OMDSH_DEEPSEEK_API_KEY || undefined
+
   - id: subagent-control
     name: '@deepseek-ai/dsh-tool-subagent-control'
 
@@ -421,6 +449,57 @@
       provider: fork
       toolName: subagent_fork
       backgroundMode: continuable
+
+  # The isolated delegation tool. It is a second `dsh-tool-subagent` over the
+  # out-of-process backend, so a caller chooses isolation per delegation
+  # instead of trading the parent-shared features away globally.
+  #
+  # Three settings are forced by ACP's absent capabilities, not preferences:
+  #   - `maxDepth: provider-managed` — a numeric cap is refused because the
+  #     provider cannot enforce recursion depth across a process boundary, and
+  #     the child's own composition already bounds it.
+  #   - `backgroundMode: one-shot` — the published ACP provider implements no
+  #     `prepareContinuable`, so a continuable run is refused at mount.
+  #   - no `agentOptions`/`persona`/`toolFilter` — all three are refused.
+  # The consequence is user-visible: an isolated child cannot be steered or
+  # followed up after dispatch. Use `subagent` when that matters.
+  - id: tool-subagent-isolated
+    name: '@deepseek-ai/dsh-tool-subagent'
+    config:
+      provider: acp
+      toolName: subagent_isolated
+      backgroundMode: one-shot
+      maxDepth: provider-managed
+
+  # Workflow and Ralph, as the upstream base bundle mounts them.
+  #
+  # The worker-thread engine is the seam provider: `dsh-workflow-worker-thread`
+  # executes model-written orchestration scripts off the host event loop, which
+  # is the same isolation the ACP subagent transport buys for delegation.
+  # Mounting `dsh-workflow` as well would double-register `workflowEngine`, so
+  # it stays a dependency the engine resolves rather than a composition row.
+  - id: workflow-worker-thread
+    name: '@deepseek-ai/dsh-workflow-worker-thread'
+    config:
+      provider: spawn
+
+  # `toolName` is renamed because omdsh already owns a `/workflow` slash command
+  # that switches the Default/Plan workflow. The two live in different
+  # namespaces (tool vs command) and never collide at runtime, but a bare
+  # `workflow` entry in `/tools` would read as that command.
+  - id: tool-workflow
+    name: '@deepseek-ai/dsh-tool-workflow'
+    config:
+      toolName: workflow_run
+
+  # Ralph iterates fresh agents over a build-time-fixed script; it reuses the
+  # continuable in-process `spawn` provider, so it depends on that transport
+  # staying mounted.
+  - id: tool-ralph
+    name: '@deepseek-ai/dsh-tool-ralph'
+    config:
+      subagentProvider: spawn
+      maxRounds: 64
 
   - id: tui
     name: '@agi-fans/dsh-tui'
