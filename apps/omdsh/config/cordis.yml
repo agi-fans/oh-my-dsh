@@ -254,6 +254,18 @@
   - id: tool-jobs
     name: '@deepseek-ai/dsh-tool-jobs'
 
+  # Persistent, owner-scoped terminal sessions for interactive stdin and
+  # cross-call state (REPLs, debuggers, a shell to return to). The one-shot
+  # bash/pwsh tools remain the default for bounded commands.
+  - id: terminal
+    name: '@deepseek-ai/dsh-terminal'
+
+  - id: terminal-bash
+    name: '@deepseek-ai/dsh-terminal-bash'
+
+  - id: tool-terminal
+    name: '@deepseek-ai/dsh-tool-terminal'
+
   - id: agent-loop
     name: '@deepseek-ai/dsh-agent-loop'
     config:

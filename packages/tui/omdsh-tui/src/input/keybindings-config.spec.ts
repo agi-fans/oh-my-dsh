@@ -16,4 +16,23 @@ describe('loadKeybindings', () => {
     expect(bindings['alt+p']).toBe('cycle-model-backward')
     expect(bindings['ctrl+t']).toBe('cycle-reasoning')
   })
+
+  it('ships configurable scroll, tool, and history actions', () => {
+    const bindings = loadKeybindings(undefined)
+    expect(bindings['ctrl+o']).toBe('toggle-tools')
+    expect(bindings['pageup']).toBe('scroll-page-up')
+    expect(bindings['pagedown']).toBe('scroll-page-down')
+    expect(bindings['shift+up']).toBe('scroll-fast-up')
+    expect(bindings['shift+down']).toBe('scroll-fast-down')
+    expect(bindings['ctrl+r']).toBe('search-history')
+  })
+
+  it('lets a user move one of the new actions to another chord', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'alt+o': 'toggle-tools', 'ctrl+o': 'retry' }))
+    const bindings = loadKeybindings(path)
+    expect(bindings['alt+o']).toBe('toggle-tools')
+    // A user row replaces the shipped chord for the same key id.
+    expect(bindings['ctrl+o']).toBe('retry')
+  })
 })

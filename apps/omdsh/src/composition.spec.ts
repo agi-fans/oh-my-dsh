@@ -466,4 +466,16 @@ describe('upstream capability adaptation rows', () => {
     // allowing the Session Library to search session content.
     expect(row?.config).toMatchObject({ openAt: 'first-search' })
   })
+
+  it('mounts the persistent terminal stack after the jobs service', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('terminal')]?.name).toBe('@deepseek-ai/dsh-terminal')
+    expect(rows[index('terminal-bash')]?.name).toBe('@deepseek-ai/dsh-terminal-bash')
+    expect(rows[index('tool-terminal')]?.name).toBe('@deepseek-ai/dsh-tool-terminal')
+    // Background sends need the jobs service, so tool-terminal follows it.
+    expect(index('tool-jobs')).toBeLessThan(index('terminal'))
+    expect(index('terminal')).toBeLessThan(index('terminal-bash'))
+    expect(index('terminal-bash')).toBeLessThan(index('tool-terminal'))
+  })
 })

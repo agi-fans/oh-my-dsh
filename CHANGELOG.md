@@ -36,6 +36,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - omdsh now runs on Windows. Every session gets exactly one confined shell — `pwsh` on Windows, `bash` elsewhere — and the Minimal preset's persistent shell follows the same rule, so the agent never carries a shell tool whose interpreter is missing. CI gained a `windows-latest` job covering install, typecheck, build, and a boot smoke.
 - `/sessions <query>` searches durable session content through the mounted full-text index (SQLite FTS5, opened lazily on the first search so startup still avoids `node:sqlite`) and resumes the chosen hit; a bare `/sessions` keeps the Session Library.
 - The active session title is written to the terminal window/tab title and can be shown on the status line's first row through the new `Session` item, off by default and configurable in `/settings`.
+- The model can now keep persistent terminal sessions: `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, and `terminal_list` retain cwd, environment, and interactive children across calls. The one-shot `bash`/`pwsh` tools remain the default for bounded commands.
+- Application keybindings now cover transcript scrolling, tool expansion, history search, and transcript search through `keybindings.json` (`scroll-page-up`, `scroll-page-down`, `scroll-fast-up`, `scroll-fast-down`, `toggle-tools`, `search-history`, `search-transcript`); defaults are unchanged.
+- `Ctrl+F` on an empty composer searches the current transcript: matching rows paint inverse, `n`/`N` or `Ctrl+N`/`Ctrl+P` step across matches, and `Enter` confirms the query. A non-empty draft keeps the editor's own `Ctrl+F`.
 
 ## [0.14.0] - 2026-09-04
 

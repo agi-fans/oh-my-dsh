@@ -106,6 +106,7 @@ import {
   applyEvent,
   applyStreamChunk,
   blockLines,
+  blockSearchText,
   initialTranscript,
   replayEvents,
   renderView,
@@ -114,6 +115,12 @@ import {
   type StreamDelta,
   type TranscriptState,
 } from '../views/event-views.ts'
+import {
+  applyTranscriptSearchEvent,
+  createTranscriptSearch,
+  searchBlockIndexes,
+  type TranscriptSearchState,
+} from '../views/transcript-search.ts'
 import {
   nextRevealStep,
   revealStreamingAssistant,
@@ -266,6 +273,7 @@ export class LocalTui implements TuiService {
   #draft = ''
   #ac: { items: AutocompleteItem[]; selected: number } | null = null
   #search: HistorySearchState | null = null
+  #transcriptSearch: TranscriptSearchState | null = null
   #settings: SettingsState | null = null
   #copySelector: CopySelectorState | null = null
   #trajectory: TrajectoryState | null = null
@@ -1182,6 +1190,14 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock }),
+        ...(this.#transcriptSearch === null ? {} : {
+          transcriptSearch: {
+            query: this.#transcriptSearch.query,
+            matches: searchBlockIndexes(this.#state.blocks.map(blockSearchText), this.#transcriptSearch.query),
+            focus: this.#transcriptSearch.focus,
+            editing: this.#transcriptSearch.editing,
+          },
+        }),
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#expandedToolCalls,
         commands: this.#commands(),
@@ -1526,12 +1542,13 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
+    if (this.#transcriptSearch !== null) {
+      this.#applyTranscriptSearch(event)
+      return
+    }
     if (event.type === 'key') {
-      const action = this.#keybindings[event.id]
-      if (action !== undefined) {
-        this.#runAction(action)
-        return
-      }
+      const action = this.#boundAction(event.id)
+      if (action !== undefined && this.#runAction(action)) return
     }
     if (this.#inspected !== undefined && this.#inspected.writable !== true && event.type === 'text'
       && this.#prompt === null && this.#settings === null && this.#copySelector === null && this.#search === null) {
@@ -1585,13 +1602,6 @@ export class LocalTui implements TuiService {
       this.#applyCopySelector(event)
       return
     }
-    if (event.type === 'key' && event.id === 'ctrl+r') {
-      if (this.#images.length > 0) return
-      this.#search = createHistorySearch(this.#history)
-      this.#ac = null
-      this.#render()
-      return
-    }
     if (this.#search !== null) {
       this.#applySearch(event)
       return
@@ -1629,40 +1639,6 @@ export class LocalTui implements TuiService {
     }
     if (event.type === 'key' && (event.id === 'backspace' || event.id === 'delete')
       && this.#removeImageAtCursor(event.id)) return
-    if (event.type === 'key') {
-      if (event.id === 'pageUp') {
-        this.#scrollBy(-this.#pageSize())
-        return
-      }
-      if (event.id === 'pageDown') {
-        this.#scrollBy(this.#pageSize())
-        return
-      }
-      if (event.id === 'shift+up') {
-        this.#scrollBy(-TRANSCRIPT_FAST_SCROLL)
-        return
-      }
-      if (event.id === 'shift+down') {
-        this.#scrollBy(TRANSCRIPT_FAST_SCROLL)
-        return
-      }
-      if (event.id === 'ctrl+o') {
-        const last = this.#state.blocks.at(-1)
-        const tool = last?.kind === 'toolCatalog'
-          ? undefined
-          : this.#state.blocks.findLast(block => block.kind === 'tool')
-        if (last?.kind === 'toolCatalog') {
-          this.#toolsExpanded = !this.#toolsExpanded
-        } else if (tool?.kind === 'tool') {
-          if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
-          else this.#expandedToolCalls.add(tool.callId)
-        } else {
-          this.#toolsExpanded = !this.#toolsExpanded
-        }
-        this.#render()
-        return
-      }
-    }
     this.#applyCommand(this.#editor.handle(event))
   }
 
@@ -2599,31 +2575,79 @@ export class LocalTui implements TuiService {
     this.#focusBlock = Math.max(0, this.#state.blocks.length - 1)
   }
 
-  #runAction(action: TuiAction): void {
-    if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return
+  /** Resolve a configured action for one key id, tolerating camelCase ids. */
+  #boundAction(id: string): TuiAction | undefined {
+    return this.#keybindings[id] ?? this.#keybindings[id.toLowerCase()]
+  }
+
+  /** Run one configured action; returns true when the event was consumed. */
+  #runAction(action: TuiAction): boolean {
+    if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (action === 'scroll-page-up') {
+      if (this.#search !== null) return false
+      this.#scrollBy(-this.#pageSize())
+      return true
+    }
+    if (action === 'scroll-page-down') {
+      if (this.#search !== null) return false
+      this.#scrollBy(this.#pageSize())
+      return true
+    }
+    if (action === 'scroll-fast-up') {
+      if (this.#search !== null) return false
+      this.#scrollBy(-TRANSCRIPT_FAST_SCROLL)
+      return true
+    }
+    if (action === 'scroll-fast-down') {
+      if (this.#search !== null) return false
+      this.#scrollBy(TRANSCRIPT_FAST_SCROLL)
+      return true
+    }
+    if (action === 'toggle-tools') {
+      if (this.#search !== null) return false
+      this.#toggleToolExpansion()
+      return true
+    }
+    if (action === 'search-history') {
+      if (this.#images.length > 0) return false
+      this.#search = createHistorySearch(this.#history)
+      this.#ac = null
+      this.#render()
+      return true
+    }
+    if (action === 'search-transcript') {
+      // An empty composer has no forward-char target, so Ctrl+F searches the
+      // transcript there; a non-empty draft keeps the editor's own binding.
+      if (this.#search !== null) return false
+      if (this.#editor.text !== '' || this.#images.length > 0) return false
+      this.#transcriptSearch = createTranscriptSearch()
+      this.#ac = null
+      this.#render()
+      return true
+    }
     if (action === 'inspect-subagent') {
       void this.#pickSubagent()
-      return
+      return true
     }
     if (action === 'retry') {
       this.#submit('/retry')
-      return
+      return true
     }
     if (action === 'cycle-model-forward') {
       this.#submit('/model next')
-      return
+      return true
     }
     if (action === 'cycle-model-backward') {
       this.#submit('/model previous')
-      return
+      return true
     }
     if (action === 'cycle-reasoning') {
       this.#submit('/model reasoning')
-      return
+      return true
     }
     if (action === 'copy-prompt') {
       void this.#copyPicked(this.#editor.text, 'current prompt')
-      return
+      return true
     }
     if (action === 'copy-line') {
       const text = this.#editor.text.slice(
@@ -2631,11 +2655,11 @@ export class LocalTui implements TuiService {
         lineEnd(this.#editor.text, this.#editor.cursor),
       )
       void this.#copyPicked(text, 'current line')
-      return
+      return true
     }
     if (action === 'paste-clipboard') {
       this.#startAsyncPaste(this.#pasteClipboard())
-      return
+      return true
     }
     try {
       this.#term.input.setRawMode?.(false)
@@ -2650,6 +2674,39 @@ export class LocalTui implements TuiService {
       this.#refreshAutocomplete()
       this.#render()
     }
+    return true
+  }
+
+  /** Expand or collapse the newest tool card, or the whole tool catalog. */
+  #toggleToolExpansion(): void {
+    const last = this.#state.blocks.at(-1)
+    const tool = last?.kind === 'toolCatalog'
+      ? undefined
+      : this.#state.blocks.findLast(block => block.kind === 'tool')
+    if (last?.kind === 'toolCatalog') {
+      this.#toolsExpanded = !this.#toolsExpanded
+    } else if (tool?.kind === 'tool') {
+      if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
+      else this.#expandedToolCalls.add(tool.callId)
+    } else {
+      this.#toolsExpanded = !this.#toolsExpanded
+    }
+    this.#render()
+  }
+
+  /** Fold one event into the active transcript search. */
+  #applyTranscriptSearch(event: KeyEvent): void {
+    const state = this.#transcriptSearch
+    if (state === null) return
+    const command = applyTranscriptSearchEvent(state, event, this.#state.blocks.map(blockSearchText))
+    if (command.kind === 'close') {
+      this.#transcriptSearch = null
+      this.#render()
+      return
+    }
+    this.#transcriptSearch = command.state
+    if (command.kind === 'focus') this.#focusBlock = command.block
+    this.#render()
   }
 }
 

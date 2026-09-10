@@ -5,8 +5,8 @@
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
@@ -1769,6 +1769,52 @@ describe('LocalTui (tty)', () => {
     press(term, '\x12')
     expect(term.captured).toContain('Search History')
     expect(term.captured).toContain('find the files')
+    tui.dispose()
+  })
+
+  it('honors a remapped history-search chord', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'ctrl+r': 'toggle-tools', 'alt+s': 'search-history' }))
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', async () => {}, { keybindingsPath: path })
+    const first = tui.readline()
+    press(term, 'find the files\r')
+    await first
+    void tui.readline()
+
+    press(term, '\x12')
+    expect(term.captured).not.toContain('Search History')
+    press(term, '\x1bs')
+    expect(term.captured).toContain('Search History')
+    tui.dispose()
+  })
+
+  it('opens transcript search with ctrl+f on an empty composer', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const first = tui.readline()
+    press(term, 'find the needle\r')
+    await first
+    void tui.readline()
+
+    press(term, '\x06')
+    expect(term.captured).toContain('Search:')
+    press(term, 'needle')
+    expect(term.captured).toContain('Search: needle')
+    press(term, '\r')
+    press(term, 'n')
+    expect(term.captured).toContain('n/N next')
+    tui.dispose()
+  })
+
+  it('leaves ctrl+f to the editor while a draft is present', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    void tui.readline()
+
+    press(term, 'ab')
+    press(term, '\x06')
+    expect(term.captured).not.toContain('Search:')
     tui.dispose()
   })
 

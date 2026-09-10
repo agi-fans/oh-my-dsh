@@ -26,6 +26,8 @@ function displayKey(key: string): string {
     if (normalized === 'shift') return 'Shift'
     if (normalized === 'super') return 'Super'
     if (normalized === 'escape') return 'Esc'
+    if (normalized === 'pageup') return 'PgUp'
+    if (normalized === 'pagedown') return 'PgDn'
     return part.length === 1 ? part.toUpperCase() : part[0]?.toUpperCase() + part.slice(1)
   }).join('+')
 }
@@ -35,6 +37,10 @@ function keysForAction(bindings: HotkeyBindings, action: TuiAction): string {
     .filter(([, value]) => value === action)
     .map(([key]) => displayKey(key))
   return keys.length > 0 ? keys.join(' / ') : 'Disabled'
+}
+
+function keysForActions(bindings: HotkeyBindings, ...actions: TuiAction[]): string {
+  return actions.map(action => keysForAction(bindings, action)).join(' / ')
 }
 
 function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
@@ -73,9 +79,9 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
     {
       title: 'Transcript',
       rows: [
-        { keys: 'PgUp / PgDn', action: 'Scroll one page' },
-        { keys: 'Shift+Up / Shift+Down', action: 'Scroll quickly' },
-        { keys: 'Ctrl+O', action: 'Expand tool output or catalog descriptions' },
+        { keys: keysForActions(bindings, 'scroll-page-up', 'scroll-page-down'), action: 'Scroll one page' },
+        { keys: keysForActions(bindings, 'scroll-fast-up', 'scroll-fast-down'), action: 'Scroll quickly' },
+        { keys: keysForAction(bindings, 'toggle-tools'), action: 'Expand tool output or catalog descriptions' },
         { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],
     },
@@ -86,7 +92,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
         { keys: 'Ctrl+Z', action: 'Suspend to the background' },
         { keys: 'Alt+L', action: 'Reset the terminal display' },
-        { keys: 'Ctrl+R', action: 'Search prompt history' },
+        { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
         { keys: keysForAction(bindings, 'retry'), action: 'Retry the latest human prompt' },
         { keys: keysForAction(bindings, 'cycle-model-forward'), action: 'Cycle to the next favorite model' },
         { keys: keysForAction(bindings, 'cycle-model-backward'), action: 'Cycle to the previous favorite model' },

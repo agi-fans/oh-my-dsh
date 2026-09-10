@@ -61,6 +61,7 @@ import { renderToolsPanel, type ToolInfo } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
 import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
+import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
 
 type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
@@ -718,6 +719,12 @@ export interface ViewOptions {
   /** Open one transcript block at its first row instead of following the tail. */
   focusBlock?: number
   /**
+   * Active transcript search. Matching block rows containing the query paint
+   * inverse; `matches` are block indexes in render order and `focus` selects
+   * the one the caller has scrolled to.
+   */
+  transcriptSearch?: { query: string; matches: readonly number[]; focus: number; editing: boolean }
+  /**
    * When true, tool blocks paint their full output (OMP `ctrl+o`). Default
    * is the collapsed preview of {@link TOOL_COLLAPSED_LINES} rows.
    */
@@ -945,6 +952,18 @@ export function blockLines(
   }, theme)
 }
 
+/** Plain text of one block, used by transcript search and match painting. */
+export function blockSearchText(block: Block): string {
+  if (block.kind === 'assistant') {
+    return block.reasoning === '' ? block.text : `${block.reasoning}\n${block.text}`
+  }
+  if (block.kind === 'tool') return `${block.args}\n${block.output}`
+  if (block.kind === 'toolCatalog') {
+    return block.tools.map(tool => `${tool.name} ${tool.description}`).join('\n')
+  }
+  return block.text
+}
+
 function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
   let fitted: string[] | undefined
   const start = Math.max(0, Math.min(lines.length, stablePrefix))
@@ -965,6 +984,8 @@ interface TranscriptBodyCache {
   spinnerFrame: number
   toolsExpanded: boolean
   expandedTools: string
+  /** Query/focus/match signature; search painting must invalidate the cache. */
+  searchKey: string
   lines: readonly string[]
   blockStarts: readonly number[]
 }
@@ -1034,6 +1055,10 @@ function renderTranscriptBody(
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
     ? spinnerFrame
     : -1
+  const search = options.transcriptSearch
+  const searchKey = search === undefined
+    ? ''
+    : `${search.query}\u0000${search.focus}\u0000${search.matches.join(',')}`
   const cached = transcriptBodyCache.get(state.blocks)
   if (cached !== undefined
     && cached.width === options.width
@@ -1042,14 +1067,17 @@ function renderTranscriptBody(
     && cached.themeName === themeName
     && cached.spinnerFrame === animatedSpinnerFrame
     && cached.toolsExpanded === toolsExpanded
-    && cached.expandedTools === expandedTools) {
+    && cached.expandedTools === expandedTools
+    && cached.searchKey === searchKey) {
     return { lines: cached.lines, blockStarts: cached.blockStarts }
   }
 
+  const matches = new Set(search?.matches ?? [])
   const lines: string[] = []
   const blockStarts: number[] = []
   let previous: Block | undefined
-  for (const block of state.blocks) {
+  for (let index = 0; index < state.blocks.length; index += 1) {
+    const block = state.blocks[index]!
     if (lines.length > 0) {
       const previousCommand = commandSurfaceName(previous)
       const currentCommand = commandSurfaceName(block)
@@ -1061,7 +1089,10 @@ function renderTranscriptBody(
     }
     blockStarts.push(lines.length)
     const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
-    lines.push(...cachedBlockLines(block, options, theme, themeName, trueColor, spinnerFrame, expanded))
+    const rendered = cachedBlockLines(block, options, theme, themeName, trueColor, spinnerFrame, expanded)
+    lines.push(...(search !== undefined && matches.has(index)
+      ? rendered.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
+      : rendered))
     previous = block
   }
   transcriptBodyCache.set(state.blocks, {
@@ -1072,6 +1103,7 @@ function renderTranscriptBody(
     spinnerFrame: animatedSpinnerFrame,
     toolsExpanded,
     expandedTools,
+    searchKey,
     lines,
     blockStarts,
   })
@@ -1540,11 +1572,17 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? renderWorking(theme, Math.max(0, spinnerFrame), 'Compacting', width, motion)
       : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
-  const inlineHint = options.inspected === undefined
-    ? slashInlineHint(options.input, options.inputCursor, options.commands)
-    : options.inspected.writable
-      ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
-      : 'Read-only · Esc to return'
+  const inlineHint = options.transcriptSearch !== undefined
+    ? transcriptSearchHint({
+      query: options.transcriptSearch.query,
+      editing: options.transcriptSearch.editing,
+      focus: options.transcriptSearch.focus,
+    }, options.transcriptSearch.matches.length)
+    : options.inspected === undefined
+      ? slashInlineHint(options.input, options.inputCursor, options.commands)
+      : options.inspected.writable
+        ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
+        : 'Read-only · Esc to return'
   const statusFooter = renderStatusFooter({
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
