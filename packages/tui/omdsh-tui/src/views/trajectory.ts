@@ -260,7 +260,7 @@ export class TrajectoryLedger {
       }
       return
     }
-    if (eventType === 'tool/call' || eventType === 'tool/code-dispatch-start') {
+    if (eventType === 'tool/call' || eventType === 'tool/ptc-dispatch-start') {
       const callId = string(data['callId']) ?? string(data['id']) ?? `${event.seq}`
       const parentCallId = string(data['parentCallId']) ?? string(data['parentId']) ?? null
       const name = string(data['name']) ?? string(data['toolName']) ?? 'tool'
@@ -274,7 +274,7 @@ export class TrajectoryLedger {
       this.#toolByCallId.set(callId, this.#push(record))
       return
     }
-    if (eventType === 'tool/result' || eventType === 'tool/code-dispatch') {
+    if (eventType === 'tool/result' || eventType === 'tool/ptc-dispatch') {
       const message = object(data['message'])
       const callId = string(message?.['callId']) ?? string(data['callId']) ?? string(data['id'])
       if (callId === undefined) return

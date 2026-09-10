@@ -1,6 +1,7 @@
 /** Interactive permission command shadowing the Harness preset write command. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '../definition.ts'
@@ -73,16 +74,26 @@ async function selectAccess(
   return { kind: 'success', text: `Access: ${option.name}` }
 }
 
-export function apply(ctx: Context): void {
-  const agent = ctx.agent
-  if (agent === undefined) throw new Error('omdsh-command-permission must be mounted under agent.ctx')
-  const upstream = ctx.commands.find(agent, 'permission')
-  if (upstream === undefined) throw new Error('the Harness permission command is unavailable')
-  registerCommands(ctx, [
-    {
-      name: 'permission',
-      description: 'Choose the session access level',
-      handler: invocation => selectAccess(ctx, invocation, upstream.handler),
-    },
-  ], 'omdsh permission command')
+/**
+ * Build the interactive permission command for one agent scope. The owning
+ * agent arrives by closure because a Cordis context no longer exposes the
+ * agent it is scoped to.
+ * @param agent - the agent whose Harness permission command this shadows.
+ */
+export function commandPermission(agent: Agent) {
+  const apply = (ctx: Context): void => {
+    const upstream = ctx.commands.find(agent, 'permission')
+    if (upstream === undefined) throw new Error('the Harness permission command is unavailable')
+    registerCommands(ctx, [
+      {
+        name: 'permission',
+        description: 'Choose the session access level',
+        handler: invocation => selectAccess(ctx, invocation, upstream.handler),
+      },
+    ], 'omdsh permission command')
+  }
+  // A function's own `name` is read-only, so the Cordis metadata goes on with
+  // defineProperty rather than Object.assign.
+  Object.defineProperty(apply, 'name', { value: name, configurable: true })
+  return Object.assign(apply, { inject })
 }

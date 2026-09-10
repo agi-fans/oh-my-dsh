@@ -61,7 +61,7 @@ import type {
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent, SubagentRoster } from './subagent-roster.ts'
 import type {} from '../runtime/tool-presentation.ts'
-import * as commandPermission from '../commands/permission.ts'
+import { commandPermission } from '../commands/permission.ts'
 import {
   isBlankSession,
   toolPresentationForPreset,
@@ -83,10 +83,8 @@ interface ConfiguredAgentContext {
   disposeToolPresentation: () => void
 }
 
-async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef): Promise<ConfiguredAgentContext> {
+async function setupAgentContext(agentCtx: Context, agent: Agent, selection: ModelSelectionRef): Promise<ConfiguredAgentContext> {
   installModelSelection(agentCtx, selection)
-  const agent = agentCtx.agent
-  if (agent === undefined) throw new Error('agent setup context has no agent')
   const agentPresets = agentCtx.get('agentPresets')
   const sessionProjections = agentCtx.get('sessionProjections')
   const tools = agentCtx.get('tools')
@@ -96,7 +94,7 @@ async function setupAgentContext(agentCtx: Context, selection: ModelSelectionRef
   const agentPreset = sessionProjections.stateOf(agent.session, 'agentPreset') ?? agentPresets.defaultId
   const mounted = await agentPresets.mount(agentCtx, agentPreset)
   const disposeToolPresentation = tools.presentAs(toolPresentationForPreset(mounted.id))
-  await agentCtx.plugin(commandPermission)
+  await agentCtx.plugin(commandPermission(agent))
   return { agentPreset: mounted.id, disposeToolPresentation }
 }
 
@@ -778,7 +776,7 @@ export class SessionRuntime {
       resumeSessionId: SessionId(id),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx) => { configured = await setupAgentContext(agentCtx, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
     })
     const configuration = configured
     if (configuration === undefined) {
@@ -810,7 +808,7 @@ export class SessionRuntime {
       resumeSessionId: SessionId(id),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx) => { await setupAgentContext(agentCtx, ref) },
+      setup: async (agentCtx, agent) => { await setupAgentContext(agentCtx, agent, ref) },
     })
     try {
       this.#ctx.sessionTitle.rename(handle.agent.session, title)
@@ -899,7 +897,7 @@ export class SessionRuntime {
       inheritedEventCount: SessionLogOffset(selected.branchIndex),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx) => { configured = await setupAgentContext(agentCtx, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
     })
     try {
       this.assertActive(agent)
@@ -1091,7 +1089,7 @@ export class SessionRuntime {
       sessionId: SessionId('session-' + randomUUID()),
       meta: { cwd: process.cwd(), agentPreset: preset.id },
       agentOptions: { provider: selection.provider, model: selection.model },
-      setup: async (agentCtx) => { configured = await setupAgentContext(agentCtx, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
     })
     const configuration = configured
     if (configuration === undefined) {

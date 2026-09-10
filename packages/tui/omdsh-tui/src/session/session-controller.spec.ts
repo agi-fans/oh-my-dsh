@@ -477,15 +477,14 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     agentCtx.provide('sessionProjections', { stateOf: () => 'standard' })
     agentCtx.provide('tools', { presentAs: () => () => undefined })
     agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
-    Object.defineProperty(agentCtx, 'agent', { value: rootAgent })
 
     const subagents = {
       listChildren: async () => [],
       sendMessage: vi.fn(async () => 'sent-1'),
     }
     ctx.provide('agents', {
-      create: async (options: { setup?: (context: typeof agentCtx) => Promise<void> }) => {
-        await options.setup?.(agentCtx)
+      create: async (options: { setup?: (context: typeof agentCtx, agent: Agent) => Promise<void> }) => {
+        await options.setup?.(agentCtx, rootAgent)
         return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
       },
       get: () => undefined,

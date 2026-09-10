@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import * as commandPermission from './permission.ts'
+import { commandPermission } from './permission.ts'
 import type { TuiService } from '../definition.ts'
 
 interface PermissionHarness {
@@ -49,9 +49,8 @@ async function permissionHarness(answers: readonly string[]): Promise<Permission
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => {
     scope = createScope(inner, agent)
-    Object.defineProperty(scope.ctx, 'agent', { configurable: true, value: agent })
   }, { inject: ['commands'] }))
-  await scope.ctx.plugin(commandPermission)
+  await scope.ctx.plugin(commandPermission(agent))
   return { ctx, scope, agent, prompt, switched }
 }
 

@@ -1,8 +1,8 @@
 /**
  * Cross-version persistence contract: sessions produced by the DSH
- * `0.1.2-alpha.3` runtime must survive the `0.1.2-rc.1` → `0.1.3-alpha.2`
- * cohort upgrade through the released v0→v2 migration chain. Reads publish a
- * version-named successor (`session.v2.jsonl[.zstd]`); the checked-in v0
+ * `0.1.2-alpha.3` runtime must survive the `0.1.2-rc.1` → `0.1.5-alpha.2`
+ * cohort upgrade through the released v0→v3 migration chain. Reads publish a
+ * version-named successor (`session.v3.jsonl[.zstd]`); the checked-in v0
  * fixtures stay byte-identical. Provenance of the fixtures under
  * `src/fixtures/dsh-alpha3-sessions/`:
  *
@@ -82,16 +82,18 @@ describe('alpha.3 persisted-session compatibility', () => {
     expect(log.header.isSeeded).toBe(true)
     expect(log.header.parentSession).toBe(PARENT_ID)
     expect(log.header.origin).toBe('subagent')
-    expect(log.inheritedEventCount).toBe(17)
-    expect(log.events[17]?.type).toBe('session/end-seed')
-    const relay = log.events[20]
+    // The v2→v3 edge promotes both system heads into `system/message` events,
+    // so the 17 inherited lines become 19 and every later index shifts by two.
+    expect(log.inheritedEventCount).toBe(19)
+    expect(log.events[19]?.type).toBe('session/end-seed')
+    const relay = log.events[22]
     expect(relay?.type).toBe('user/message')
     if (relay?.type === 'user/message') {
       expect(relay.data.source?.kind).toBe('coordinator')
     }
     // The unterminated fixture turn gains exactly one synthetic interrupted closer.
-    expect(log.events).toHaveLength(22)
-    const closer = log.events[21]
+    expect(log.events).toHaveLength(24)
+    const closer = log.events[23]
     expect(closer?.type).toBe('turn/end')
     if (closer?.type === 'turn/end') {
       expect(closer.data.reason?.kind).toBe('interrupted')
