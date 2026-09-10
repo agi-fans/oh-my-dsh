@@ -47,6 +47,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
 - Harness Projection 插件负责 token、上下文、耗时、标题和会话统计；状态栏只负责格式化这些输出。
 - `session-runtime` 把带 `origin: subagent` 的后代会话投影为 Composer 上方的实时名册，并可以把视口切换到其中一个孩子的 Transcript。可续写的孩子通过 subagent 宿主队列（`@deepseek-ai/dsh-subagent/internal` 的 `queueHostSubagentPrompt`）接收 Composer 的后续消息，保留用户署名与 FIFO 轮次顺序；一次性运行保持只读。子会话日志留在各自的 Session 中，不会回放到父 Transcript。
+- 三种委托 transport 并存，按次选择而非常量配置。两个进程内后端（`subagent`、`subagent_fork`）在 TUI 自己的事件循环上运行子 Agent，并支持全部由父级强制的启动能力。进程外后端（`subagent_isolated`，基于 `dsh-subagent-acp`）改为派生一整个子运行时，把重负载委托的 CPU 移出该事件循环；它不声明任何启动期能力、也不实现可续写运行，因此这样的孩子在派发后无法被 steering。
 - 人机交互适配器将审批和提问 Service 连接到终端选择器，而不把这些领域迁入终端 Provider。
 
 纯算法仍然保留为内部模块，包括 ANSI 解析、终端显示宽度、Markdown 格式化、编辑器移动、路径匹配、主题映射、帧差分、viewport 切片和 Overlay 状态转换。除非出现第二个拥有独立所有权的适配器并形成真实边界，否则不应将它们改造成运行时插件。

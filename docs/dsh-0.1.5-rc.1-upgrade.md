@@ -82,7 +82,41 @@ omdsh: agent-presets: preset "standard" failed to mount: failed to apply loader 
 
 供应链策略注意：pnpm 11 的 `minimumReleaseAge` 在解析前先校验**旧 lockfile**，因此把白名单从 `0.1.5-alpha.2` 换成 `0.1.5-rc.1` 之后，第一次 `pnpm install` 会因旧 lock 中的 alpha.2 条目被拒；本次用一次 `pnpm install --trust-lockfile` 完成过渡（新 lock 生成后再跑普通 `pnpm install` 已通过）。放宽白名单或删除 lock 重解析都不是必需的。
 
+## 迁移后的补充挂载
+
+cohort 迁移之后，又在同一 corridor 内补挂了四项上游已发布、`base` bundle 已挂载、而 omdsh 未挂载的能力。判定基准是上游 `packages/bundle/base/cordis.patch.yml` 的挂载行，而不是逐包猜测。
+
+| 包 | 配置要点 | 原因 |
+| --- | --- | --- |
+| `dsh-subagent-acp` | `providerName: acp`，`command: dsh`，`args: ['--profile','acp']` | 进程外委托 transport，暴露为 `subagent_isolated` |
+| `dsh-workflow-worker-thread` | `provider: spawn` | workflow seam 的 provider；编排脚本跑在 worker thread |
+| `dsh-tool-workflow` | `toolName: workflow_run` | 模型侧 JS 编排工具 |
+| `dsh-tool-ralph` | `subagentProvider: spawn`，`maxRounds: 64` | 模型侧 Ralph 循环 |
+
+两处与直觉不同的必要配置：
+
+- `dsh-workflow` **只做依赖、不做挂载行**。同时挂载它与 `dsh-workflow-worker-thread` 会重复注册 `workflowEngine`，启动即以 `service "workflowEngine" has been registered` 失败。
+- `toolName` 从默认的 `workflow` 改为 `workflow_run`。omdsh 自有 `/workflow` slash 命令（Default/Plan 模式切换），与工具分属不同命名空间、运行时不冲突，但 `/tools` 里一个裸的 `workflow` 会被读成那条命令。
+
+ACP 的能力声明为全无，且已发布的 `dsh-subagent-acp@0.1.5-rc.1` 未实现 `prepareContinuable`（README 提及但实现中不存在），因此 `subagent_isolated` 的三处配置是被约束而非选择：`maxDepth: provider-managed`、`backgroundMode: one-shot`、不设 `agentOptions`/`persona`/`toolFilter`。代价是进程外的孩子派发后无法 steering 或追问。`subagent` 与 `subagent_fork` 仍是进程内、能力完整，隔离是按次可选而非全局替换。
+
+`subagent_isolated` 的子进程会以隔离 home 启动自己的 profile，因此需要 `PATH` 上有一个能提供 `acp` profile 的 `dsh`；`OMDSH_ACP_COMMAND` / `OMDSH_ACP_ARGS` 可覆盖启动方式。
+
+## 未采用的项
+
+上游 `base` 挂载而 omdsh 未挂载的其余 16 项，按类判定为不需要：遥测上报（`dsh-session-log-deepseek`、`dsh-session-telemetry-otel`、`dsh-command-feedback`、`dsh-message-feedback`、`dsh-deepseek-llm-api-extensions`、`dsh-plugin-package-inventory-deepseek`）、宿主或开发专用（`dsh-api-gateway`、`dsh-typert-loader`、`dsh-typert-registry`、`cordis-plugin-hmr`）、有意禁用（`dsh-web-search-deepseek`，原生搜索每次查询消耗一整个模型轮次）、以及非缺口（`dsh-session-title-first-prompt-llm`，omdsh 用的是 base 同款 `dsh-session-title-llm`）。
+
+**`dsh-session-projection-cache` 明确不采用。** 该插件把冷会话的投影值持久化到 `session_projcache` 存储域，但它唯一的消费者是 `@deepseek-ai/dsh-session-query` 的 `SessionQueryEngine.preparedProjections`，而 omdsh 触达的三条路径全部绕过它：
+
+| omdsh 的用法 | 实际读法 |
+| --- | --- |
+| 最近会话列表（`#refreshRecentNow`） | `readColdSessionLog` → 只 `handle.read()` 取 events，不做投影 |
+| `/sessions` 搜索标题（`readTitleSnapshots`） | `foldSessionTitle(source.events)`，直接从事件折叠 |
+| 实时状态（`ctx.get('sessionProjections')`） | 实时投影注册表的 `onChanged`，与持久化缓存无关 |
+
+挂载它需要额外引入 `dsh-storage`、`dsh-storage-json`、`dsh-storage-domain` 三个前置，并按节流周期在每个会话事件上产生磁盘写入，却没有任何代码路径读取它。插件自身文档给出的判据也是"当额外存储写入的成本高于省下的投影工作时跳过"。若将来让 omdsh 消费冷会话投影（例如让历史列表改用投影而非读取完整日志），再重新评估。
+
 ## 遗留风险
 
 - `deepseek-flash` 由 adapter 预注册、不探测网关可用性；若网关尚未开放该 ID，请求会以 `INVALID_REQUEST` 失败。上游 README 明示此点，本地无 API key 无法验证网关状态，也未做真机 turn。
-- `refs/deepseek-harness` 已 checkout 到 `dsh-v0.1.5-rc.1` 但父仓库 gitlink 尚未提交（`git submodule status` 显示 `+`）。
+- 进程外委托依赖 `PATH` 上的 `dsh` 能提供 `acp` profile。本机全局 `dsh` 为 `0.1.2-rc.1`，与项目的 `0.1.5-rc.1` 存在版本偏移；已实测该版本可正常服务 `acp` profile（全新空 `DSH_HOME` 下可自举），但发版后应固定子进程启动方式而非依赖消费者恰好安装了什么。
