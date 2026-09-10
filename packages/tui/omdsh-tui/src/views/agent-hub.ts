@@ -4,6 +4,7 @@ import type { KeyEvent } from '../input/keys.ts'
 import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type { TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
+import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 export interface AgentHubState {
   roster: TuiSubagentRoster
@@ -65,6 +66,47 @@ export function applyAgentHubEvent(state: AgentHubState, event: KeyEvent): Agent
     return agent === undefined ? { state } : { open: agent.id }
   }
   return { state }
+}
+
+// Every key `applyAgentHubEvent` accepts. Rows whose first word is the toolbar
+// label are also printed by the overlay's toolbar and footer.
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate subagents' }
+const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last subagent' }
+const HOTKEY_OPEN: HotkeyRow = { keys: 'Enter', action: 'Transcript — open the selected transcript' }
+const HOTKEY_INSPECTOR: HotkeyRow = { keys: 'Tab', action: 'Inspector — show or hide the detail pane' }
+const HOTKEY_INSPECTOR_ARROWS: HotkeyRow = { keys: '← / →', action: 'Inspector — show or hide the detail pane, like Tab' }
+const HOTKEY_SCROLL: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Scroll — move through the inspector detail' }
+const HOTKEY_TREE: HotkeyRow = { keys: 'T', action: 'Tree — show or hide the depth tree' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Close — leave the inspector, or the hub' }
+
+/** Keys the Agent Hub accepts; `/help` and its toolbar and footer read this list. */
+export const AGENT_HUB_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_NAVIGATE,
+  HOTKEY_EDGE,
+  HOTKEY_OPEN,
+  HOTKEY_INSPECTOR,
+  HOTKEY_INSPECTOR_ARROWS,
+  HOTKEY_SCROLL,
+  HOTKEY_TREE,
+  HOTKEY_CLOSE,
+]
+
+/** Toolbar gestures, most frequent first; the arrow alias stays in `/help`. */
+const AGENT_HUB_TOOLBAR: readonly HotkeyRow[] = [
+  HOTKEY_NAVIGATE,
+  HOTKEY_OPEN,
+  HOTKEY_INSPECTOR,
+  HOTKEY_SCROLL,
+  HOTKEY_TREE,
+  HOTKEY_CLOSE,
+  HOTKEY_EDGE,
+]
+
+/** Footer gestures for the current hub layout; keys keep their catalog spelling. */
+function agentHubFooter(wide: boolean, inspector: boolean): string {
+  return formatOverlayHint(wide || inspector
+    ? [HOTKEY_SCROLL, HOTKEY_OPEN, HOTKEY_CLOSE]
+    : [HOTKEY_INSPECTOR, HOTKEY_OPEN, HOTKEY_CLOSE], 'catalog')
 }
 
 function phaseColor(phase: TuiSubagentView['phase']): 'accent' | 'success' | 'warning' | 'error' | 'dim' {
@@ -147,7 +189,7 @@ export function renderAgentHub(
   const running = state.roster.agents.filter(agent => agent.phase === 'running' || agent.phase === 'starting').length
   const waiting = state.roster.agents.filter(agent => agent.phase === 'waiting').length
   const header = truncateToWidth(theme.bold(' Agent Hub ') + theme.fg('dim', `${state.roster.agents.length} agents · ${running} active · ${waiting} waiting`), safeWidth)
-  const toolbar = truncateToWidth(theme.fg('dim', ' ↑↓ navigate · Enter transcript · Tab inspector · PgUp/PgDn detail · t tree · Esc close'), safeWidth)
+  const toolbar = truncateToWidth(theme.fg('dim', ' ' + formatOverlayHint(AGENT_HUB_TOOLBAR, 'catalog')), safeWidth)
   const divider = theme.fg('border', '─'.repeat(safeWidth))
   const bodyHeight = Math.max(0, safeHeight - 4)
   const wide = safeWidth >= 96
@@ -165,9 +207,7 @@ export function renderAgentHub(
     body = rosterRows(state, theme, safeWidth, bodyHeight, now)
   }
   while (body.length < bodyHeight) body.push('')
-  const footer = truncateToWidth(theme.fg('dim', wide || state.inspector
-    ? ' PgUp/PgDn scroll · Enter transcript · Esc close'
-    : ' Tab inspector · Enter transcript · Esc close'), safeWidth)
+  const footer = truncateToWidth(theme.fg('dim', ' ' + agentHubFooter(wide, state.inspector)), safeWidth)
   const lines = [header, toolbar, divider, ...body.slice(0, bodyHeight), footer].slice(0, safeHeight)
   while (lines.length < safeHeight) lines.push('')
   return { lines, cursor: { row: safeHeight - 1, column: 0 }, cursorVisible: false }

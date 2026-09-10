@@ -8,6 +8,7 @@ import type { CopyPick } from './copy-targets.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { expandTabs, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 /** Visible picker rows. */
 export const COPY_SELECTOR_MAX_VISIBLE = 8
@@ -90,6 +91,27 @@ export function applyCopySelectorEvent(state: CopySelectorState, event: KeyEvent
   }
 }
 
+// Every key `applyCopySelectorEvent` accepts. Rows whose first word is the
+// footer label are also printed by the overlay's bottom hint.
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate targets' }
+const HOTKEY_TAB: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Navigate targets, like ↑↓' }
+const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Page — jump one page of targets' }
+const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last target' }
+const HOTKEY_COPY: HotkeyRow = { keys: 'Enter', action: 'Copy the selected target' }
+const HOTKEY_COPY_SPACE: HotkeyRow = { keys: 'Space', action: 'Copy the selected target, like Enter' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Close the picker' }
+
+/** Keys the copy picker accepts; `/help` and its bottom hint read this list. */
+export const COPY_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_NAVIGATE,
+  HOTKEY_TAB,
+  HOTKEY_PAGE,
+  HOTKEY_EDGE,
+  HOTKEY_COPY,
+  HOTKEY_COPY_SPACE,
+  HOTKEY_CLOSE,
+]
+
 /** Overlay frame: title, windowed rows, preview, hints. */
 export function renderCopySelector(
   state: CopySelectorState,
@@ -115,10 +137,8 @@ export function renderCopySelector(
     }
   }
   const preview = renderCopyPreview(state.items[index], theme, width)
-  const hints = ' ' + theme.fg('dim', '↑↓ navigate') + theme.fg('dim', ' · ')
-    + theme.fg('dim', 'enter copy') + theme.fg('dim', ' · ')
-    + theme.fg('dim', 'esc close')
-  const lines = ['', title, '', ...rows, '', ...preview, '', hints]
+  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_COPY, HOTKEY_CLOSE]))
+  const lines = ['', title, '', ...rows, '', ...preview, '', truncateToWidth(hints, width)]
   return {
     lines,
     cursor: { row: COPY_SELECTOR_ITEM_ROW + (index - start), column: 2 },

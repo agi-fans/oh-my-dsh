@@ -5,6 +5,7 @@ import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth } from '../chrome/width.ts'
+import { formatHotkeyKeys, formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 /** Presentation state owned by the terminal while a human prompt is active. */
 export interface PromptSelectorState {
@@ -26,6 +27,40 @@ export interface PromptSelectorFrame {
 
 /** Maximum option rows retained in the prompt overlay before it windows. */
 export const PROMPT_SELECTOR_MAX_VISIBLE = 10
+
+// Every key the prompt handlers accept, covering the inline card, the full-screen
+// list, and plan review. Rows whose first word is the footer label are also
+// printed by the matching bottom hint.
+const HOTKEY_TEXT: HotkeyRow = { keys: 'Text', action: 'Filter — narrow the option list while typing' }
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate options' }
+const HOTKEY_NAVIGATE_TAB: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Navigate options, like ↑↓' }
+const HOTKEY_CHOOSE: HotkeyRow = { keys: '←→', action: 'Choose — move between the plan options' }
+const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Scroll — page the options or the plan' }
+const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last option, or the plan edges' }
+const HOTKEY_TOGGLE: HotkeyRow = { keys: 'Space', action: 'Toggle — check or clear a multi-select option' }
+const HOTKEY_SELECT: HotkeyRow = { keys: 'Enter', action: 'Select the highlighted option' }
+const HOTKEY_SUBMIT: HotkeyRow = { keys: 'Enter', action: 'Submit — send revision feedback, or keep planning when empty' }
+const HOTKEY_SUBMIT_NEWLINE: HotkeyRow = { keys: 'Ctrl+J', action: 'Submit — send revision feedback like Enter' }
+const HOTKEY_BACK: HotkeyRow = { keys: 'Esc', action: 'Back — leave revision feedback' }
+const HOTKEY_CANCEL: HotkeyRow = { keys: 'Esc', action: 'Cancel — dismiss the prompt' }
+const HOTKEY_CANCEL_CTRL: HotkeyRow = { keys: 'Ctrl+C', action: 'Cancel — dismiss the prompt at any step' }
+
+/** Keys the prompt selector accepts; `/help` and its bottom hints read this list. */
+export const PROMPT_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_TEXT,
+  HOTKEY_NAVIGATE,
+  HOTKEY_NAVIGATE_TAB,
+  HOTKEY_CHOOSE,
+  HOTKEY_PAGE,
+  HOTKEY_EDGE,
+  HOTKEY_TOGGLE,
+  HOTKEY_SELECT,
+  HOTKEY_SUBMIT,
+  HOTKEY_SUBMIT_NEWLINE,
+  HOTKEY_BACK,
+  HOTKEY_CANCEL,
+  HOTKEY_CANCEL_CTRL,
+]
 
 type PromptOption = NonNullable<TuiPrompt['options']>[number]
 
@@ -192,7 +227,7 @@ export function renderPromptSelectorPage(
   while (lines.length < targetBeforeFooter) lines.push(pageRow(theme, '', width))
   const position = options.length === 0 ? '' : ` · ${selected + 1}/${options.length}`
   const actions = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
-  const hint = `[type to filter · ↑↓ navigate · Enter select${actions === '' ? '' : ' · ' + actions} · Esc cancel${position}]`
+  const hint = `[${formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL])}${actions === '' ? '' : ' · ' + actions}${position}]`
   lines.push(pageRow(theme, '', width), pageRow(theme, theme.fg('dim', hint), width), pageRow(theme, '', width), pageBottom(theme, width))
   const cursorColumn = Math.min(Math.max(1, width - 3), 4 + visibleWidth(input.slice(0, inputCursor)))
   return {
@@ -249,7 +284,8 @@ export function renderPlanReviewPage(
     const value = truncateToWidth(displayInput, available)
     const inputRow = lines.length
     lines.push(pageRow(theme, ' ' + prefix + value, width))
-    lines.push(pageRow(theme, theme.fg('dim', '[Enter send feedback · empty Enter keeps planning · Esc back · Ctrl+C cancel]'), width))
+    // "empty Enter keeps planning" is prose, but it names the key through the catalog.
+    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_SUBMIT, HOTKEY_BACK, HOTKEY_CANCEL_CTRL])} · empty ${formatHotkeyKeys(HOTKEY_SUBMIT)} keeps planning]`), width))
     lines.push(pageBottom(theme, width))
     cursor = {
       row: inputRow,
@@ -264,7 +300,7 @@ export function renderPlanReviewPage(
         : theme.fg('muted', label)
     }).join(theme.fg('dim', '   '))
     lines.push(pageRow(theme, ' ' + actions, width))
-    lines.push(pageRow(theme, theme.fg('dim', '[PgUp/PgDn scroll · Tab choose · Enter select · Esc cancel]'), width))
+    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])}]`), width))
     lines.push(pageBottom(theme, width))
   }
 
@@ -299,11 +335,13 @@ export function renderPromptSelector(
   }
   const submit = state.request.submitLabel?.trim()
     || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')
+  // The request supplies the submit verb; the key itself comes from the catalog.
+  const select = `${formatHotkeyKeys(HOTKEY_SELECT)} ${submit}`
   const navigation = options.length === 0
-    ? `enter ${submit} · esc cancel`
+    ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
     : state.request.multiSelect === true
-      ? `↑↓ navigate · space toggle · enter ${submit} · esc cancel`
-      : `↑↓ navigate · enter ${submit} · esc cancel`
+      ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+      : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
   body.push('', theme.fg('dim', navigation))
 
   const card = renderFramedBlock({

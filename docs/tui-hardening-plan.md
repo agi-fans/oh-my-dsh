@@ -399,6 +399,18 @@
 - 后果二：`multiplexer`（tmux/screen/zellij）下 `alternateScreenOverlays` 为 false，同一操作走重画路径，**行为因终端而异**。
 - 后果三：备用屏分支不消费 `#resize` 与 `#reanchor`（`:175`、`:188` 对比 `:228`、`:339-348`），滚动期间每帧全屏重绘。
 
+**留主屏是否可行（实测补充）**
+
+`multiplexer`（`alternateScreenOverlays: false`）已经走「留主屏重画」路径。同一份 transcript、同一滚动位置下对比两条路径：
+
+| 帧 | direct（备用屏） | multiplexer（留主屏） |
+| --- | --- | --- |
+| PgUp 回历史 | 2266 B，`?1049h` + `2J` | 1719 B，无清屏序列 |
+| 再 PgUp | 974 B | 968 B |
+| End 回尾部 | 25 B，`?1049l` | 2292 B，`2J` |
+
+留主屏路径在浏览历史时不产生 `2J` / `3J` / `?1049h`，并以绝对光标定位重画视口（每帧 2–10 次光标移动、2–23 个换行，对比首帧的 4817 个换行），成本与备用屏路径相当。这削弱了「必须用备用屏才能滚动」的前提，使 D5 可以倾向「不遮蔽原生 scrollback」；剩余的待确认点是它是否会向 scrollback 推入个位数行。
+
 **待决策**
 
 滚动历史时是否允许遮蔽原生 scrollback。留主屏的代价是重画窗口会把重复内容推进 scrollback；用备用屏的代价是原生 scrollback 不可用。两个选项都需要产品取向，本方案不预设结论，只给出最小改动面：
@@ -563,6 +575,6 @@ git diff --check
 
 - [ ] 4.1 `liveStart` 语义拆分：待 D5 决策，本轮未做
 - [x] 4.2 帮助页：essential 段改走 `keysForAction`、新增 `Ctrl+F` 行与 welcome tip、`prompt-selector` 空态文案由请求方提供
-- [ ] 4.2 未做：overlay 按键小节与「提示行 ∪ 帮助页 ⊇ 视图按键集合」的覆盖性断言 —— 需要各 overlay 先导出自己的按键集合常量（单一事实来源），否则断言只会复述渲染代码
+- [x] 4.2 overlay 一致性：7 个 overlay 各自导出按键目录常量，底行提示由该常量生成，`/help` 新增 Overlays 小节（80 行）遍历这些常量；覆盖性测试断言帮助页包含每个目录的每一行，另把 7 个目录的键序列冻结成期望数组以捕获「常量被删一行」。为此把 `HotkeyRow` / `formatHotkeyKeys` / `formatOverlayHint` 抽到零依赖的 `views/hotkey-format.ts`，避免帮助页与各 overlay 形成运行时环。已知缺口：测试不反向探测事件处理分支，「处理器新增键而未同步常量」不会被自动发现
 - [x] 4.3 状态栏：`selectGroups` / `selectFooterGroups` 的 `break` → `continue`、`MIN_CLIPPED_CELLS = 8` 整项丢弃、`formatTokens` / `formatDuration` 进位
 - [x] 批次 4 验证集（含 4.3 的宽度表驱动用例，用独立预言机校验每行宽度）

@@ -7,6 +7,7 @@
 
 import type { KeyEvent } from '../input/keys.ts'
 import { moveGraphemeLeft } from '../chrome/grapheme.ts'
+import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 /** Transcript search state owned by the local terminal provider. */
 export interface TranscriptSearchState {
@@ -49,11 +50,34 @@ export function blockMatchesQuery(text: string, query: string): boolean {
   return needle !== '' && text.toLowerCase().includes(needle)
 }
 
+// Every key `applyTranscriptSearchEvent` accepts. Rows whose first word is the
+// footer label are also printed by the composer hint below the transcript.
+const HOTKEY_TEXT: HotkeyRow = { keys: 'Text', action: 'Query — type the search text' }
+const HOTKEY_BACKSPACE: HotkeyRow = { keys: 'Backspace', action: 'Delete — remove the last query character' }
+const HOTKEY_STEP_EDIT: HotkeyRow = { keys: 'Ctrl+N / Ctrl+P', action: 'Match — step through matches while typing' }
+const HOTKEY_CONFIRM: HotkeyRow = { keys: 'Enter', action: 'Confirm — keep the query and jump to the match' }
+const HOTKEY_STEP: HotkeyRow = { keys: 'n/N', action: 'Next — step to the next match, or back with N' }
+const HOTKEY_EDIT: HotkeyRow = { keys: '/', action: 'Edit — return to the query editor' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Close the search' }
+
+/** Keys the transcript search accepts; `/help` and its composer hint read this list. */
+export const TRANSCRIPT_SEARCH_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_TEXT,
+  HOTKEY_BACKSPACE,
+  HOTKEY_STEP_EDIT,
+  HOTKEY_CONFIRM,
+  HOTKEY_STEP,
+  HOTKEY_EDIT,
+  HOTKEY_CLOSE,
+]
+
 /** One-line composer hint describing the active search. */
 export function transcriptSearchHint(state: TranscriptSearchState, total: number): string {
   const position = total === 0 ? '0/0' : `${Math.min(state.focus + 1, total)}/${total}`
-  if (state.editing) return `Search: ${state.query} (${position}) · Enter confirm · Esc close`
-  return `Search (${position}) · n/N next · Esc close`
+  if (state.editing) {
+    return `Search: ${state.query} (${position}) · ${formatOverlayHint([HOTKEY_CONFIRM, HOTKEY_CLOSE])}`
+  }
+  return `Search (${position}) · ${formatOverlayHint([HOTKEY_STEP, HOTKEY_CLOSE])}`
 }
 
 /**

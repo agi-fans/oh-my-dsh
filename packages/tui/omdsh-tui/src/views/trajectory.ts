@@ -7,6 +7,7 @@ import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { firstVisibleStreamTime } from './stream-time.ts'
+import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
@@ -739,6 +740,39 @@ export function applyTrajectoryEvent(
   return { state }
 }
 
+// Every key `applyTrajectoryEvent` accepts. Rows whose first word is the footer
+// label are also printed by the overlay's toolbar and footer.
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate records' }
+const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first record, or follow the newest' }
+const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Scroll — page the detail or the record list' }
+const HOTKEY_DETAILS: HotkeyRow = { keys: 'Enter', action: 'Details — open or close the detail panel' }
+const HOTKEY_SECTION: HotkeyRow = { keys: 'Tab / ←→', action: 'Section — switch the detail tab' }
+const HOTKEY_SEARCH: HotkeyRow = { keys: '/', action: 'Search the ledger' }
+const HOTKEY_MATCH: HotkeyRow = { keys: 'n/N', action: 'Match — step to the next or previous hit' }
+const HOTKEY_MATCH_EDIT: HotkeyRow = { keys: 'Ctrl+N / Ctrl+P', action: 'Match while typing — step to the next or previous hit' }
+const HOTKEY_TURN: HotkeyRow = { keys: 't', action: 'Turn — collapse or expand the selected turn' }
+const HOTKEY_CALLS: HotkeyRow = { keys: 'c', action: 'Calls — collapse or expand tool-call rows' }
+const HOTKEY_QUERY: HotkeyRow = { keys: 'Text', action: 'Query — type the search text' }
+const HOTKEY_BACKSPACE: HotkeyRow = { keys: 'Backspace', action: 'Delete — remove the last query character' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Close — leave the detail panel, or the ledger' }
+
+/** Keys the trajectory ledger accepts; `/help` and its toolbar and footer read this list. */
+export const TRAJECTORY_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_NAVIGATE,
+  HOTKEY_EDGE,
+  HOTKEY_PAGE,
+  HOTKEY_DETAILS,
+  HOTKEY_SECTION,
+  HOTKEY_SEARCH,
+  HOTKEY_MATCH,
+  HOTKEY_MATCH_EDIT,
+  HOTKEY_TURN,
+  HOTKEY_CALLS,
+  HOTKEY_QUERY,
+  HOTKEY_BACKSPACE,
+  HOTKEY_CLOSE,
+]
+
 /** List paging capacity in records for one body height (pure, shared with rendering). */
 export function trajectoryListMetrics(state: TrajectoryState, height: number): { pageSize: number } {
   const body = Math.max(0, height - 4)
@@ -971,8 +1005,8 @@ export function renderTrajectory(
   const searchInfo = state.query === '' ? '' : ` · ${searchPosition(state)}`
   const followInfo = state.following ? '' : state.followNotice > 0 ? ` · End: follow · +${state.followNotice} new` : ''
   const toolbar = truncateToWidth(theme.fg('dim', state.details
-    ? `${searchInfo.slice(2)}${followInfo} · ↑↓ records · PgUp/PgDn detail · Tab/←→ section · Esc back`
-    : `${searchInfo.slice(2)}${followInfo} · ↑↓ navigate · Enter details · / search · n/N match · t turn · c calls · End follow${state.following ? ' ●' : ''}`), safeWidth)
+    ? `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_PAGE, HOTKEY_SECTION, HOTKEY_CLOSE])}`
+    : `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_DETAILS, HOTKEY_SEARCH, HOTKEY_MATCH, HOTKEY_TURN, HOTKEY_CALLS, HOTKEY_EDGE])}${state.following ? ' ●' : ''}`), safeWidth)
   const divider = theme.fg('border', '─'.repeat(safeWidth))
   const bodyHeight = Math.max(0, safeHeight - 4)
   const wideDetails = state.details && safeWidth >= 96
@@ -993,8 +1027,8 @@ export function renderTrajectory(
   const footerText = state.searching
     ? ` Search: ${state.query}`
     : state.details
-      ? ' PgUp/PgDn scroll · Tab/←→ section · Esc back'
-      : ' Esc close'
+      ? ' ' + formatOverlayHint([HOTKEY_PAGE, HOTKEY_SECTION, HOTKEY_CLOSE])
+      : ' ' + formatOverlayHint([HOTKEY_CLOSE])
   const footer = truncateToWidth(theme.fg(state.searching ? 'accent' : 'dim', footerText), safeWidth)
   const lines = [header, toolbar, divider, ...body.slice(0, bodyHeight), footer].slice(0, safeHeight)
   while (lines.length < safeHeight) lines.push('')

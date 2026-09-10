@@ -8,6 +8,7 @@ import { renderEditor } from '../chrome/box.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
+import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 /** Visible result rows (OMP history-search window). */
 export const HISTORY_SEARCH_MAX_VISIBLE = 10
@@ -182,6 +183,45 @@ export function applyHistorySearchEvent(
   }
 }
 
+// Every key `applyHistorySearchEvent` accepts. Rows whose first word is the
+// footer label are also printed by the overlay's bottom hint.
+const HOTKEY_TEXT: HotkeyRow = { keys: 'Text', action: 'Query — type the search text' }
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate results' }
+const HOTKEY_TAB: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Navigate results, like ↑↓' }
+const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Page — jump one page of results' }
+const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last result' }
+const HOTKEY_SELECT: HotkeyRow = { keys: 'Enter', action: 'Select the highlighted prompt' }
+const HOTKEY_CANCEL: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Cancel the search' }
+const HOTKEY_LEFT: HotkeyRow = { keys: '← / Ctrl+B', action: 'Cursor left — walk back through the query' }
+const HOTKEY_RIGHT: HotkeyRow = { keys: '→ / Ctrl+F', action: 'Cursor right — walk forward through the query' }
+const HOTKEY_START: HotkeyRow = { keys: 'Ctrl+A', action: 'Cursor — jump to the start of the query' }
+const HOTKEY_END: HotkeyRow = { keys: 'Ctrl+E', action: 'Cursor — jump to the end of the query' }
+const HOTKEY_BACKSPACE: HotkeyRow = { keys: 'Backspace', action: 'Delete — remove the character before the cursor' }
+const HOTKEY_DELETE: HotkeyRow = { keys: 'Delete / Ctrl+D', action: 'Delete — remove the character after the cursor, or cancel an empty query' }
+const HOTKEY_WORD: HotkeyRow = { keys: 'Ctrl+W / Alt+Backspace', action: 'Delete — remove the previous word' }
+const HOTKEY_KILL_START: HotkeyRow = { keys: 'Ctrl+U', action: 'Delete — clear everything before the cursor' }
+const HOTKEY_KILL_END: HotkeyRow = { keys: 'Ctrl+K', action: 'Delete — clear everything after the cursor' }
+
+/** Keys the history search accepts; `/help` and its bottom hint read this list. */
+export const HISTORY_SEARCH_HOTKEYS: readonly HotkeyRow[] = [
+  HOTKEY_TEXT,
+  HOTKEY_NAVIGATE,
+  HOTKEY_TAB,
+  HOTKEY_PAGE,
+  HOTKEY_EDGE,
+  HOTKEY_SELECT,
+  HOTKEY_CANCEL,
+  HOTKEY_LEFT,
+  HOTKEY_RIGHT,
+  HOTKEY_START,
+  HOTKEY_END,
+  HOTKEY_BACKSPACE,
+  HOTKEY_DELETE,
+  HOTKEY_WORD,
+  HOTKEY_KILL_START,
+  HOTKEY_KILL_END,
+]
+
 /** Paint token hits in accent so they line up with `queryTokens`. */
 export function highlightTokens(text: string, tokens: readonly string[], theme: Theme): string {
   if (tokens.length === 0) return text
@@ -227,10 +267,8 @@ export function renderHistorySearch(
   const tokens = queryTokens(state.query.trim())
   const visible = Math.max(1, maxVisible)
   const resultLines = renderHistoryResults(state, tokens, theme, width, visible)
-  const hints = ' ' + theme.fg('dim', '↑↓ navigate') + theme.fg('dim', ' · ')
-    + theme.fg('dim', 'enter select') + theme.fg('dim', ' · ')
-    + theme.fg('dim', 'esc cancel')
-  const lines = ['', title, '', ...editor.lines, '', ...resultLines, '', hints]
+  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL]))
+  const lines = ['', title, '', ...editor.lines, '', ...resultLines, '', truncateToWidth(hints, width)]
   return {
     lines,
     cursor: { row: 3 + editor.cursor.row, column: editor.cursor.column },
