@@ -52,7 +52,7 @@ Usage:
   omdsh completions bash|zsh|fish
 
 Options:
-  --model <name>      model route (default deepseek-v4-flash)
+  --model <name>      model route (default deepseek-flash)
   --provider <name>   provider route (default deepseek-official)
   -r, --resume <id>   resume a durable session
   --dump-config       print the composed plugin tree and exit

@@ -24,7 +24,7 @@ Copy an image and press `Ctrl+V`. The composer inserts a compact image marker; a
 
 Image paste needs the platform clipboard reader. On Linux it uses `wl-paste` under Wayland or `xclip` under X11; if neither is installed, text paste keeps working but clipboard images are unavailable.
 
-The default DeepSeek catalog includes the image-capable `deepseek-v4-flash-vision-exp`; the other default DeepSeek models stay text-only. A deployment that wants native image requests on another model must list `inputModalities: [text, image]` on that model.
+The default DeepSeek catalog includes the image-capable `deepseek-flash` and `deepseek-v4-flash-vision-exp`; the other default DeepSeek models stay text-only. A deployment that wants native image requests on another model must list `inputModalities: [text, image]` on that model.
 
 Pasted images are checked on admission and normalized for storage:
 

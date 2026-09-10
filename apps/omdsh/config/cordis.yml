@@ -101,7 +101,7 @@
     name: '@deepseek-ai/dsh-agent-default-model'
     config:
       provider: !!js process.env.OMDSH_PROVIDER || 'deepseek-official'
-      model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
+      model: !!js process.env.OMDSH_MODEL || 'deepseek-flash'
 
   - id: agent-presets
     name: '@deepseek-ai/dsh-agent-presets'
@@ -425,7 +425,7 @@
   - id: tui
     name: '@agi-fans/dsh-tui'
     config:
-      model: !!js process.env.OMDSH_MODEL || 'deepseek-v4-flash'
+      model: !!js process.env.OMDSH_MODEL || 'deepseek-flash'
 
   - id: agent-behavior
     name: '@agi-fans/oh-my-dsh/agent-behavior'

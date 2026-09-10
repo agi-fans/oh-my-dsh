@@ -90,7 +90,7 @@ try {
   let interruptedAt
   term.onData(data => {
     out += data
-    if (!submitted && out.includes('deepseek-v4-flash')) {
+    if (!submitted && out.includes('deepseek-flash')) {
       submitted = true
       term.write('exercise streaming interruption\r')
     }
