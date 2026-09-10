@@ -1943,6 +1943,62 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('does not render background activity, but keeps its details available in the Agent Hub', () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      const agent = { id: 'child', depth: 1, label: 'Worker', phase: 'running' as const, activity: [] }
+      tui.setSubagents({ agents: [agent] })
+      vi.advanceTimersByTime(8)
+      const width = vi.spyOn(term, 'width')
+      for (let index = 0; index < 120; index += 1) {
+        tui.setSubagents({ agents: [{ ...agent, activity: [{ text: `read file-${index}`, status: 'running' }] }] })
+      }
+      vi.advanceTimersByTime(8)
+      expect(width.mock.calls.length).toBe(0)
+      expect(term.captured).not.toContain('read file-')
+      press(term, '\x1ba')
+      press(term, '\t')
+      expect(term.captured).toContain('read file-119')
+      width.mockClear()
+      tui.setSubagents({ agents: [{ ...agent, activity: [{ text: 'read next-file', status: 'running' }] }] })
+      vi.advanceTimersByTime(8)
+      expect(width.mock.calls.length).toBeGreaterThan(0)
+      expect(term.captured).toContain('read next-file')
+    } finally {
+      tui.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('coalesces roster state changes and handles input without waiting for the roster timer', () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      const width = vi.spyOn(term, 'width')
+      const agent = { id: 'child', depth: 1, label: 'Worker', activity: [] }
+      tui.setSubagents({ agents: [{ ...agent, phase: 'starting' }] })
+      tui.setSubagents({ agents: [{ ...agent, phase: 'running' }] })
+      tui.setSubagents({ agents: [{ ...agent, phase: 'waiting' }] })
+      expect(width.mock.calls.length).toBe(0)
+      vi.advanceTimersByTime(8)
+      expect(width.mock.calls.length).toBe(1)
+      expect(term.captured).toContain('Worker · Waiting')
+      tui.setSubagents({ agents: [{ ...agent, phase: 'completed' }] })
+      press(term, 'input')
+      expect(term.captured).toContain('input')
+      expect(term.captured).toContain('Worker · Done')
+      const renders = width.mock.calls.length
+      vi.advanceTimersByTime(8)
+      expect(width.mock.calls.length).toBe(renders)
+    } finally {
+      tui.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('focuses the task launcher with down and activates an agent through the hub', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

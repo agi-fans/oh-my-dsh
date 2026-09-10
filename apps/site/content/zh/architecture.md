@@ -78,7 +78,7 @@ Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。`om
   → 差分终端 Renderer
 ```
 
-普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 会在 Agent 发布前完成组合，并通过 Harness 的 Session Metadata 与 Event 记录下来以供重建；工具暴露方式从该 preset 推导，不再写入产品私有 Session Event。产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。后代 subagent 的活动从这些子会话折叠进 Composer 旁的名册。
+普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 会在 Agent 发布前完成组合，并通过 Harness 的 Session Metadata 与 Event 记录下来以供重建；工具暴露方式从该 preset 推导，不再写入产品私有 Session Event。产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。Composer 旁的 subagent 名册展示任务名称和生命周期状态，后台流式增量不触发名册刷新。Agent Hub 保留持久工具活动，打开子会话对话时会恢复其正在生成的输出。
 
 ## 终端保证
 

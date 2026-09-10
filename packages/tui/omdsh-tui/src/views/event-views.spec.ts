@@ -1362,7 +1362,8 @@ describe('renderView', () => {
     })
     const text = frame.lines.map(stripAnsi).join('\n')
     expect(text).toContain('Agents · 1 running · ↓ select · Alt+A open')
-    expect(text).toContain('Explore auth · read src/auth.ts')
+    expect(text).toContain('Explore auth · Running')
+    expect(text).not.toContain('read src/auth.ts')
     expect(text.indexOf('Agents')).toBeLessThan(text.lastIndexOf('🐳'))
   })
 
@@ -1379,13 +1380,30 @@ describe('renderView', () => {
     }, createTheme(false), 48)
 
     const text = painted.map(stripAnsi)
-    expect(text[0]).toContain('Agents · 2 running · 4 done · ↓ select')
-    expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · read src/auth.ts`))).toBe(true)
+    expect(text[0]).toContain('Agents · 2 running · 2 waiting · 2 done')
+    expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · Running`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} waiting child`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} done review`))).toBe(true)
     expect(text.join('\n')).not.toContain(SYMBOL.pending)
-    expect(text.some(line => line.includes('Nested search · grep login'))).toBe(true)
+    expect(text.some(line => line.includes('Nested search · Running'))).toBe(true)
     expect(painted.every(line => visibleWidth(line) <= 48)).toBe(true)
+  })
+
+  it.each([false, true])('shows lifecycle labels without stream or tool details (colors=%s)', (colors) => {
+    const agents = [
+      { id: 'a', depth: 1, label: '初始化', phase: 'starting' as const, activity: [] },
+      { id: 'b', depth: 1, label: '检查🐳', phase: 'running' as const, activity: [{ text: 'thinking', status: 'thinking' as const }] },
+      { id: 'c', depth: 1, label: '等候', phase: 'waiting' as const, activity: [{ text: 'read secret-path', status: 'running' as const }] },
+      { id: 'd', depth: 1, label: '完成', phase: 'completed' as const, activity: [] },
+      { id: 'e', depth: 1, label: '失败', phase: 'error' as const, activity: [] },
+    ]
+    const text = renderSubagents({ agents }, createTheme(colors), 100).map(stripAnsi).join('\n')
+    for (const label of ['Starting', 'Running', 'Waiting', 'Done', 'Failed']) expect(text).toContain(label)
+    expect(text).not.toContain('thinking')
+    expect(text).not.toContain('secret-path')
+    for (const width of [1, 12, 24]) {
+      expect(renderSubagents({ agents }, createTheme(colors), width).every(line => visibleWidth(line) <= width)).toBe(true)
+    }
   })
 
   it('anchors an inspect banner and marks the open subagent', () => {

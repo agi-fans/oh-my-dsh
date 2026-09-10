@@ -508,6 +508,7 @@ export class SessionRuntime {
   #disposed = false
   readonly #off: Array<() => void> = []
   readonly #subagents = new SubagentRoster()
+  #publishedSubagents: ReturnType<SubagentRoster['snapshot']>
   readonly #streamAttempts = new LiveAttemptTracker()
   readonly #recentCache = new Map<string, { revision: string; row: TuiRecentSession }>()
   #refreshInFlight: Promise<void> | null = null
@@ -1295,7 +1296,7 @@ export class SessionRuntime {
     if (this.#subagents.observeCatalog(session.id, events)) this.#pushSubagents()
   }
 
-  /** Route one live assistant stream chunk to the visible transcript or the subagent roster. */
+  /** Route live output only to the visible session; background frames remain buffered for inspection. */
   #forwardLiveDelta(agent: Agent, delta: StreamDelta): void {
     const active = this.#active
     if (active !== undefined && agent.session.id === active.handle.agent.session.id) {
@@ -1306,7 +1307,6 @@ export class SessionRuntime {
       this.#tui.streamDelta(delta)
       return
     }
-    if (this.#subagents.applyDelta(agent.session.id, delta.chunk) !== undefined) this.#pushSubagents()
   }
 
   /**
@@ -1381,7 +1381,10 @@ export class SessionRuntime {
   }
 
   #pushSubagents(): void {
-    this.#tui.setSubagents(this.#subagents.snapshot())
+    const roster = this.#subagents.snapshot()
+    if (roster === this.#publishedSubagents) return
+    this.#publishedSubagents = roster
+    this.#tui.setSubagents(roster)
     if (this.#inspectedId === undefined) return
     this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
   }

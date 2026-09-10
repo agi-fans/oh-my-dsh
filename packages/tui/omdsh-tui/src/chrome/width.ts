@@ -224,19 +224,21 @@ export function truncateToWidth(text: string, width: number, ellipsis = '…'): 
   const budget = Math.max(0, width - ellW)
   let out = ''
   let used = 0
+  let reset = ''
   for (const part of splitAnsi(text)) {
     if (part.ansi) {
       out += part.value
+      if (part.value.endsWith('m')) reset = '\x1b[0m'
       continue
     }
     for (const cluster of clusters(part.value)) {
       const cw = graphemeWidth(cluster)
-      if (used + cw > budget) return out + ellipsis + '\x1b[0m'
+      if (used + cw > budget) return out + ellipsis + reset
       out += cluster
       used += cw
     }
   }
-  return out + ellipsis + '\x1b[0m'
+  return out + ellipsis + reset
 }
 
 /** Pad (or truncate) so the line occupies exactly `width` cells. */

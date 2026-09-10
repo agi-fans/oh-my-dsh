@@ -8,11 +8,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- The main-screen Agents list shows task names and lifecycle states instead of thinking and tool activity. Waiting agents are counted separately from completed runs; detailed tool activity remains in the Agent Hub and full output in each agent's transcript.
 - `/trajectory` search no longer rescans the ledger for every step and every frame: the match list is derived once per ledger revision and reused, so `n`/`N` and `Ctrl+N`/`Ctrl+P` navigation and the ledger's own rendering stop costing time proportional to the session length. On a 10,000-record session, 200 navigation steps went from 5.1 s to well under a millisecond.
 - A streaming answer is now counted at the cost of the text that just arrived instead of the whole reply, so the reveal animation no longer re-segments the full answer on every frame. A 121,000-character answer measured 2.9 ms per frame before and 0.26 ms after.
 
 ### Fixed
 
+- Background subagent streams no longer redraw the parent interface for every chunk. Status updates are coalesced, child activity is folded incrementally, and failed states survive idle notifications; opening an agent still restores its in-progress output.
+- Truncating a plain label no longer inserts an ANSI color reset into colorless output.
 - Editing a minified single-line file no longer stalls the interface while the tool card is running: intra-line diff highlighting is skipped above 400 tokens on either side, where the quadratic alignment table cost 63 ms and about 18 MB of temporary storage per re-render. The line still shows as removed and added, with only the token-level highlighting inside it dropped.
 - Terminal cell widths now match what terminals actually draw for multi-code-point graphemes. Zero-width joiners, skin-tone modifiers, emoji presentation selectors, and regional-indicator flags are measured as the single glyph they render as, so box borders, right padding, and the composer cursor no longer drift on emoji-bearing lines. Transport and map symbols such as 🚀 and 🛸 span two cells instead of one, which previously measured a line one column short of what the terminal drew and let the right edge be clipped.
 - Fenced code blocks, table cells, `/copy` previews, and other wrapped panel text expand tabs against a tab stop before measuring, so content containing a tab wraps at its real width instead of losing its right side to the terminal's disabled automatic wrap.

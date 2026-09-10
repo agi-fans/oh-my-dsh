@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  applySubagentDelta,
   applySubagentEvent,
   catalogChildren,
   descendantDepth,
@@ -87,11 +86,7 @@ describe('applySubagentEvent', () => {
     expect(state.activity).toEqual([{ text: 'read src/auth.ts', status: 'ok' }])
   })
 
-  it('does not churn on repeated thinking deltas', () => {
-    const first = applySubagentDelta(view({ phase: 'running' }), { type: 'text-delta', index: 0, text: 'a' })
-    const second = applySubagentDelta(first, { type: 'text-delta', index: 0, text: 'b' })
-    expect(second).toBe(first)
-  })
+
 })
 
 describe('SubagentRoster', () => {
@@ -202,23 +197,48 @@ describe('SubagentRoster', () => {
     expect(roster.setAgentStatus('child-2', 'gone', true)?.phase).toBe('error')
   })
 
-  it('folds live stream chunks only into remembered roster rows', () => {
+  it('applies durable events once without rereading the history and caches unchanged snapshots', () => {
     const roster = new SubagentRoster()
-    roster.reset('root')
-    roster.remember({ id: 'child-1', depth: 1 })
-    const updated = roster.applyDelta('child-1', {
-      type: 'tool-call-delta',
-      index: 0,
-      id: 'c1',
-      name: 'bash',
-      argumentsDelta: '{}',
-    })
-    expect(updated).toMatchObject({
-      phase: 'running',
-      activity: [{ text: 'bash', status: 'running' }],
-    })
-    expect(roster.applyDelta('missing', { type: 'text-delta', index: 0, text: 'x' })).toBeUndefined()
+    const events = [ev('subagent/descriptor', { version: 2, mode: 'continuable', provider: 'spawn', label: 'Worker' }, 1)]
+    const ownEvents = vi.fn(() => events)
+    const session = { id: SessionId('child-1'), header: {}, ownEvents } as unknown as Session
+    roster.hydrate(session, 1)
+    const initial = roster.snapshot()
+    expect(roster.snapshot()).toBe(initial)
+    ownEvents.mockClear()
+    const call = ev('tool/call', { callId: 'c1', name: 'read', arguments: '{"path":"file"}' }, 2)
+    events.push(call)
+    roster.apply(session, 1, call, 'running')
+    const active = roster.snapshot()
+    expect(active).not.toBe(initial)
+    expect(active?.agents[0]?.activity).toEqual([{ text: 'read file', status: 'running' }])
+    roster.apply(session, 1, call, 'running')
+    expect(roster.snapshot()).toBe(active)
+    const result = ev('tool/result', { message: { content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }] } }, 3)
+    events.push(result)
+    roster.apply(session, 1, result, 'running')
+    expect(roster.snapshot()?.agents[0]?.activity).toEqual([{ text: 'read file', status: 'ok' }])
+    const settled = roster.snapshot()
+    roster.apply(session, 1, ev('step/end', {}, 4), 'running')
+    expect(roster.snapshot()).toBe(settled)
+    expect(ownEvents).not.toHaveBeenCalled()
   })
+
+  it('rebuilds on a gap and on a new session instance with the same id', () => {
+    const roster = new SubagentRoster()
+    const events = [ev('step/start', { turn: 1, step: 1 }, 1)]
+    const ownEvents = vi.fn(() => events)
+    const session = { id: SessionId('child-1'), header: {}, ownEvents } as unknown as Session
+    roster.hydrate(session, 1)
+    events.push(ev('step/end', {}, 2), ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
+    roster.apply(session, 1, events[2]!)
+    expect(ownEvents).toHaveBeenCalledTimes(2)
+    expect(roster.snapshot()?.agents[0]?.phase).toBe('error')
+    const reopened = { ...session, ownEvents: () => [ev('step/start', { turn: 2, step: 1 }, 4)] } as unknown as Session
+    roster.apply(reopened, 1, ev('step/start', { turn: 2, step: 1 }, 4), 'running')
+    expect(roster.snapshot()?.agents[0]?.phase).toBe('running')
+  })
+
 })
 
 describe('catalogChildren', () => {

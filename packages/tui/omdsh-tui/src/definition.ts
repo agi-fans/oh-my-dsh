@@ -137,7 +137,7 @@ export interface TuiSubagentView {
   readonly mode?: 'one-shot' | 'continuable'
   readonly phase: TuiSubagentPhase
   readonly activity: readonly TuiSubagentActivity[]
-  /** First and latest durable event timestamps for elapsed-time presentation. */
+  /** First durable event and latest hydrated or changed activity/state timestamps. */
   readonly startedAt?: number
   readonly updatedAt?: number
 }

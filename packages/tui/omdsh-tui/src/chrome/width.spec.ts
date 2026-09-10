@@ -17,6 +17,10 @@ describe('visibleWidth', () => {
 })
 
 describe('truncateToWidth', () => {
+  it('keeps plain truncated labels free of SGR sequences', () => {
+    expect(truncateToWidth('Long task label', 6)).toBe('Long …')
+    expect(truncateToWidth('后台任务正在运行', 7)).toBe('后台任…')
+  })
   it('preserves ANSI and appends an ellipsis', () => {
     const out = truncateToWidth('\x1b[31mhello world\x1b[0m', 8)
     expect(visibleWidth(out)).toBeLessThanOrEqual(8)

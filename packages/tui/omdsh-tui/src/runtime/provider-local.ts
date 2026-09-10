@@ -550,6 +550,13 @@ export class LocalTui implements TuiService {
   }
 
   setSubagents(roster: TuiSubagentRoster | undefined): void {
+    const previous = this.#subagents?.agents ?? []
+    const incoming = roster?.agents ?? []
+    const statusChanged = previous.length !== incoming.length || incoming.some((agent, index) => {
+      const before = previous[index]
+      return before === undefined || before.id !== agent.id || before.label !== agent.label
+        || before.phase !== agent.phase || before.depth !== agent.depth || before.mode !== agent.mode
+    })
     this.#subagents = roster === undefined
       ? undefined
       : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
@@ -571,11 +578,15 @@ export class LocalTui implements TuiService {
         }
       }
     }
+    if (!statusChanged && this.#agentHub === null) return
     this.#syncTick()
-    if (this.#tty) this.#render()
+    if (this.#tty) this.#scheduleStreamRender()
   }
 
   setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
+    if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
+      && this.#inspected?.phase === inspected?.phase && this.#inspected?.mode === inspected?.mode
+      && this.#inspected?.writable === inspected?.writable) return
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     if (inspected !== undefined) {
       this.#inspectEscapeFenceUntil = 0

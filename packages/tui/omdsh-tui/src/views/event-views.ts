@@ -1339,13 +1339,13 @@ function subagentPhaseGlyph(phase: TuiSubagentPhase, theme: Theme, spinnerFrame:
   return theme.fg('success', SYMBOL.success)
 }
 
+const SUBAGENT_PHASE_LABELS: Record<TuiSubagentPhase, string> = {
+  starting: 'Starting', running: 'Running', waiting: 'Waiting', completed: 'Done', error: 'Failed',
+}
+
 function subagentRowText(agent: TuiSubagentView): string {
-  const current = agent.activity.at(-1)
-  const detail = current === undefined || current.status === 'ok' || current.text === agent.label
-    ? ''
-    : current.text
-  const indent = agent.depth > 1 ? `${'  '.repeat(agent.depth - 1)}` : ''
-  return detail === '' ? indent + agent.label : `${indent}${agent.label} · ${detail}`
+  const indent = agent.depth > 1 ? '  '.repeat(agent.depth - 1) : ''
+  return `${indent}${agent.label} · ${SUBAGENT_PHASE_LABELS[agent.phase]}`
 }
 
 /** Compact, unframed descendant-subagent tree placed above Todos. */
@@ -1361,9 +1361,11 @@ export function renderSubagents(
   if (agents.length === 0 || width <= 0) return []
   const running = agents.filter(agent => agent.phase === 'running' || agent.phase === 'starting').length
   const failed = agents.filter(agent => agent.phase === 'error').length
-  const done = agents.filter(agent => agent.phase === 'completed' || agent.phase === 'waiting').length
+  const waiting = agents.filter(agent => agent.phase === 'waiting').length
+  const done = agents.filter(agent => agent.phase === 'completed').length
   const counts = [
     running === 0 ? undefined : `${running} running`,
+    waiting === 0 ? undefined : `${waiting} waiting`,
     done === 0 ? undefined : `${done} done`,
     failed === 0 ? undefined : `${failed} failed`,
   ].filter((part): part is string => part !== undefined)

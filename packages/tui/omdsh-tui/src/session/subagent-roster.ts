@@ -8,7 +8,6 @@
  */
 
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentActivity, TuiSubagentPhase, TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
 
@@ -221,22 +220,6 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
   }
 }
 
-/**
- * Fold one live `agent/assistant-stream` chunk into a roster row. Live chunks
- * are transient; the next event fold rehydrates from the durable log.
- */
-export function applySubagentDelta(view: TuiSubagentView, chunk: StreamChunk): TuiSubagentView {
-  if (chunk.type === 'tool-call-delta') {
-    const name = chunk.name ?? 'tool'
-    const activity = pushActivity(view.activity, { text: name, status: 'running' })
-    if (activity === view.activity && view.phase === 'running') return view
-    return { ...view, phase: 'running', activity }
-  }
-  const activity = pushActivity(view.activity, { text: 'thinking', status: 'thinking' })
-  if (activity === view.activity && view.phase === 'running') return view
-  return { ...view, phase: 'running', activity }
-}
-
 function emptyView(input: {
   id: string
   parentId?: string
@@ -268,10 +251,14 @@ function compareAgents(left: TuiSubagentView, right: TuiSubagentView): number {
 export class SubagentRoster {
   #rootId: string | undefined
   readonly #agents = new Map<string, TuiSubagentView>()
+  #positions = new WeakMap<Session, number>()
+  #snapshot: TuiSubagentRoster | undefined
 
   reset(rootId?: string): void {
     this.#rootId = rootId
     this.#agents.clear()
+    this.#positions = new WeakMap()
+    this.#snapshot = undefined
   }
 
   get rootId(): string | undefined {
@@ -291,7 +278,7 @@ export class SubagentRoster {
 
   snapshot(): TuiSubagentRoster | undefined {
     if (this.#agents.size === 0) return undefined
-    return { agents: [...this.#agents.values()].sort(compareAgents) }
+    return this.#snapshot ??= { agents: [...this.#agents.values()].sort(compareAgents) }
   }
 
   remember(input: {
@@ -305,6 +292,7 @@ export class SubagentRoster {
     const existing = this.#agents.get(input.id)
     if (existing === undefined) {
       const created = emptyView(input)
+      this.#snapshot = undefined
       this.#agents.set(input.id, created)
       return created
     }
@@ -325,6 +313,7 @@ export class SubagentRoster {
       ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
       ...(mode === undefined ? {} : { mode }),
     }
+    this.#snapshot = undefined
     this.#agents.set(input.id, next)
     return next
   }
@@ -385,20 +374,26 @@ export class SubagentRoster {
     }
     if (agentStatus === 'running' && view.phase !== 'error') view = { ...view, phase: 'running' }
     else if (agentStatus === 'idle' && view.phase === 'starting') view = { ...view, phase: 'waiting' }
+    this.#positions.set(session, Number(events.at(-1)?.seq ?? Number(session.inheritedEventCount) - 1))
+    this.#snapshot = undefined
     this.#agents.set(id, view)
     return view
   }
 
-  apply(session: Session, depth: number, _event: SessionEvent, agentStatus?: 'idle' | 'running'): TuiSubagentView {
-    return this.hydrate(session, depth, agentStatus)
-  }
-
-  /** Fold one live assistant stream chunk into an existing roster row. */
-  applyDelta(id: string, chunk: StreamChunk): TuiSubagentView | undefined {
-    const existing = this.#agents.get(id)
-    if (existing === undefined) return undefined
-    const next = applySubagentDelta(existing, chunk)
-    if (next !== existing) this.#agents.set(id, next)
+  /** Apply one durable event; only a new session or a sequence gap requires replay. */
+  apply(session: Session, depth: number, event: SessionEvent, agentStatus?: 'idle' | 'running'): TuiSubagentView {
+    const existing = this.#agents.get(asId(session.id))
+    const position = this.#positions.get(session)
+    if (existing === undefined || position === undefined || event.seq > position + 1) {
+      return this.hydrate(session, depth, agentStatus)
+    }
+    if (event.seq <= position) return existing
+    this.#positions.set(session, event.seq)
+    const folded = applySubagentEvent(existing, event)
+    if (folded === existing) return existing
+    const next = { ...folded, startedAt: existing.startedAt ?? event.time, updatedAt: event.time }
+    this.#snapshot = undefined
+    this.#agents.set(asId(session.id), next)
     return next
   }
 
@@ -407,7 +402,6 @@ export class SubagentRoster {
     if (existing === undefined) return undefined
     let phase: TuiSubagentPhase
     if (status === 'running') phase = 'running'
-    else if (status === 'idle') phase = existing.mode === 'one-shot' ? 'completed' : 'waiting'
     else if (stopError) phase = 'error'
     else if (existing.phase === 'error') phase = 'error'
     else if (existing.mode === 'one-shot') phase = 'completed'
@@ -417,6 +411,7 @@ export class SubagentRoster {
       : existing.activity
     if (phase === existing.phase && settled === existing.activity) return existing
     const next = { ...existing, phase, activity: settled }
+    this.#snapshot = undefined
     this.#agents.set(id, next)
     return next
   }
