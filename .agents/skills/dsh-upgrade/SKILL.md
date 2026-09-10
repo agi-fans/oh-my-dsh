@@ -26,6 +26,7 @@ Record the baseline, target, supported host range, package source, repository sh
 - Read [validation](references/validation.md) before implementing an upgrade or claiming that an assessment or migration is verified.
 - Read [evidence cards](references/evidence-cards.md) when recording a reusable finding, writing a version card, or preparing an upstream report.
 - Read the [0.1.1 to 0.1.2 prerelease card](references/dsh-0.1.1-to-0.1.2-prerelease.md) when the selected corridor crosses from the `0.1.1` line into a `0.1.2` prerelease. Re-verify every prerelease fact against the selected artifact.
+- Read the [0.1.5-rc.1 prerelease card](references/dsh-0.1.5-rc.1-prerelease.md) when the corridor crosses a `0.1.5` prerelease boundary, when a prerelease range may absorb a newer cohort, or when a product-owned composition must re-state a changed upstream default. Re-verify every prerelease fact against the selected artifact.
 
 ## Establish the contract graph
 
