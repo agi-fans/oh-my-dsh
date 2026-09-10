@@ -99,7 +99,7 @@ Pi 的大多数插件是反应型，不是呈现型。它们属于 Harness 的�
 
 产品的 Agent 语言设置通过 system-prompt section registry 投影。声明为 `complete: true` 的自定义 persona 会按设计抑制普通 section；若希望响应 Language，必须在自己的 persona 文本末尾追加 `{{omdsh_agent_behavior}}`。`Auto` 时该变量解析为空字符串；省略变量不会报错，但 Language 对该 complete persona 不生效。
 
-`@agi-fans/dsh-tui` 导出贡献 token、对应的 TypeScript 类型，以及一小套展示原语（按显示宽度处理的文本、主题颜色名、卡片分区形状）。没有这些原语，插件卡片一定会撑破布局。它不导出 renderer、editor 或 TTY 所有者。注册表永远不能变成第二条输入路径：`readInput` 保持单消费者，`onInterrupt` / `onQueueEdit` / `onRewind` / `onInspect*` 保持宿主私有。插件向人提问只走 `prompt()`。
+等到 `ctx.tui.contributions` 发布后，`@agi-fans/dsh-tui` 将导出贡献 token、对应的 TypeScript 类型，以及一小套展示原语（按显示宽度处理的文本、主题颜色名、卡片分区形状）；没有这些原语，插件卡片一定会撑破布局。以上目前都还没有导出——该包当前只发布 `definition.ts` 与 provider 入口，宽度与主题相关的辅助函数仍是私有实现模块。它不导出 renderer、editor 或 TTY 所有者。注册表永远不能变成第二条输入路径：`readInput` 保持单消费者，`onInterrupt` / `onQueueEdit` / `onRewind` / `onInspect*` 保持宿主私有。插件向人提问只走 `prompt()`。
 
 Pi 第一批里的大部分丰富度已经是 Harness 缝：命令、工具、审批、提问、notice、Session Event 和 Agent preset，bundle 一挂上就能用。挂上一个真实用户 bundle 之后：
 

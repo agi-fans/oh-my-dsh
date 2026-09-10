@@ -57,7 +57,7 @@ cd greet-plugin
       name: greet-plugin
 ```
 
-行里的 `name` 必须是 npm 包名，这样 Node 才能解析已安装的模块；行 `id` 在组合后的树里必须唯一。之后针对该 id 的 patch 会整份替换 `config` 对象，而不是深合并。patch 点到不存在的 id 时，只在 stderr 给出警告。
+行里的 `name` 必须是 npm 包名，这样 Node 才能解析已安装的模块；行 `id` 在组合后的树里必须唯一。之后针对该 id 的 patch 会整份替换 `config` 对象，而不是深合并。patch 点到不存在的 id 时会在启动时被静默跳过：报告该问题的 loader logger 在 TUI 宿主里没有接到 stderr。
 
 ### 注册斜杠命令
 

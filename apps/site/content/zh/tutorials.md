@@ -10,7 +10,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 
 | 教程 | 内容 |
 |---|---|
-| [完成第一个任务](tutorials/first-task.md) | 安装、`/login`、Agent / Workflow / Tools / Access，以及第一条请求 |
+| [完成第一个任务](tutorials/first-task.md) | 安装、`/login`、Agent / Workflow / Access，以及第一条请求 |
 | [提供精确的项目上下文](tutorials/precise-context.md) | `@` mention、图片粘贴和结构化 Prompt |
 | [引导运行中的任务](tutorials/guide-a-turn.md) | 队列、Loop、Plan、Todo 和 `/goal` |
 | [恢复并管理长会话](tutorials/long-session.md) | 恢复、回退、压缩和导出 |

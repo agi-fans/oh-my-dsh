@@ -57,7 +57,7 @@ Two rules keep the install safe:
       name: greet-plugin
 ```
 
-The row `name` must be the npm package name so Node resolves the installed module, and the row `id` must be unique in the composed tree. A later patch that targets an id replaces the whole `config` object for that id; it does not deep-merge. A patch that names a missing id is a stderr warning.
+The row `name` must be the npm package name so Node resolves the installed module, and the row `id` must be unique in the composed tree. A later patch that targets an id replaces the whole `config` object for that id; it does not deep-merge. A patch that names a missing id is skipped silently at boot: the loader logger that reports it is not wired to stderr in the TUI host.
 
 ### Register a slash command
 
