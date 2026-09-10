@@ -32,7 +32,7 @@ export function renderGoalBar(goal: TuiGoalStatus, theme: Theme, width: number):
   const reason = goal.blockedReason === undefined
     ? ''
     : theme.fg('dim', ' — ') + theme.fg('warning', goal.blockedReason)
-  const left = '  ' + theme.fg(PHASE_TONE[goal.phase], '◈') + ' ' + label + theme.fg('dim', ' · ') + objective + reason
+  const left = '  ' + label + theme.fg('dim', ' · ') + objective + reason
   const rounds = goal.roundsStarted === 0
     ? ''
     : theme.fg('dim', `round ${goal.roundsStarted}${goal.maxGoalRounds > 0 ? `/${goal.maxGoalRounds}` : ''}`)

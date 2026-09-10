@@ -21,6 +21,11 @@ describe('renderGoalBar', () => {
     expect(lines[0]).toContain('Ship the upstream adaptation plan')
   })
 
+  it('labels the phase without a leading icon, matching the docked header rows', () => {
+    expect(stripAnsi(renderGoalBar(active, theme, 80)[0] ?? '')).toBe('  Goal · Ship the upstream adaptation plan')
+    expect(renderGoalBar(active, theme, 80)[0]).not.toContain('◈')
+  })
+
   it('labels paused and blocked goals and shows the blocked reason', () => {
     expect(renderGoalBar({ ...active, phase: 'paused' }, theme, 80)[0]).toContain('Goal paused')
     const blocked = renderGoalBar({

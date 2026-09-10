@@ -1680,8 +1680,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const bottomRows = working.length + goal.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
-  lines.push(...goal)
   lines.push(...working)
+  lines.push(...goal)
   lines.push(...inspect)
   lines.push(...subagents)
   lines.push(...todos)

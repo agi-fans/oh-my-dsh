@@ -1235,8 +1235,8 @@ describe('renderView', () => {
     for (const line of frame.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(60)
   })
 
-  it('docks the goal bar above the composer and hides it while inspecting', () => {
-    const state = initialTranscript()
+  it('docks the goal bar below the activity row and above the composer, and hides it while inspecting', () => {
+    const state = { ...initialTranscript(), status: 'running' as const }
     const goal = { phase: 'active' as const, objective: 'Land batch 2', roundsStarted: 2, maxGoalRounds: 12 }
     const frame = renderView(state, {
       width: 60,
@@ -1247,8 +1247,10 @@ describe('renderView', () => {
       colors: false,
       sessionControls: { goal },
     })
+    const driving = frame.lines.findIndex(line => line.includes('Deep Driving'))
     const bar = frame.lines.findIndex(line => line.includes('Land batch 2'))
-    expect(bar).toBeGreaterThan(-1)
+    expect(driving).toBeGreaterThan(-1)
+    expect(bar).toBeGreaterThan(driving)
     expect(bar).toBeLessThan(composerStart(frame.lines))
     expect(frame.lines[bar]).toContain('round 2/12')
     const inspecting = renderView(state, {
