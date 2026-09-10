@@ -1,5 +1,7 @@
 # 上游能力适配差距与落地计划（dsh 0.1.3-alpha.2）
 
+> **状态：审计已在 0.1.3-alpha.2 上完成，计划已落地。** 本文件记录当时的基线与判断依据，不是待办清单。P0 全部落地，P1 除下表标注为「不做」与仍未挂载的项外均已落地，P2 已落地的三项见该节标注。依赖队列此后又走了 `0.1.5-alpha.2` → `0.1.5-rc.1` 两个 cohort，最新走廊记录见 [`dsh-0.1.5-rc.1-upgrade.md`](./dsh-0.1.5-rc.1-upgrade.md)。任何复核都应像 [`tui-upgrade-plan.md`](./tui-upgrade-plan.md) 那样由当前工作树的代码、组合配置与真实渲染帧得出，不采信本文件的自述。
+
 ## 目标与范围
 
 本方案处理一次审计的结论：omdsh 的 DeepSeek Harness 依赖队列**没有版本落后**——`refs/deepseek-harness` 与全部 `@deepseek-ai/dsh-*` 都停在 `dsh-v0.1.3-alpha.2`，npm 上 `@deepseek-ai/dsh-agent` 的最新发布同样是 `0.1.3-alpha.2`（2026-09-07）。真正的差距是：**同一个 cohort 里上游已经发布、omdsh 还没有消费的能力与界面语义**。所以本次不升级任何版本，只补适配。
@@ -10,7 +12,7 @@
 | Harness source tag | `dsh-v0.1.3-alpha.2`（refs 已在该标签，无需改动） |
 | 产品源码改动 | `apps/omdsh/config/cordis.yml`、`apps/omdsh/config/agent-presets/*`、`apps/omdsh/package.json`、`pnpm-workspace.yaml`、按批次新增的 TUI 呈现与测试文件 |
 | 交付方式 | 三批：P0 正确性与安全 → P1 能力面 → P2 呈现层。每批独立可验证、可回退 |
-| 明确非目标 | 其它宿主形态（`dsh-api-*`、`dsh-host-*`、`dsh-client-*`、`dsh-web-app`、`dsh-sdk-*`、`dsh-acp*`、`dsh-headless`、`dsh-e2b`、`dsh-typert-*`）；DeepSeek 服务端字段（`dsh-session-log-deepseek`、`dsh-plugin-package-inventory-deepseek`、`dsh-deepseek-llm-api-extensions`，属隐私与产品决策）；`dsh-session-telemetry-otel`（可选导出）；`cordis-plugin-hmr`（开发期） |
+| 明确非目标 | 其它宿主形态（`dsh-api-*`、`dsh-host-*`、`dsh-client-*`、`dsh-web-app`、`dsh-headless`、`dsh-e2b`、`dsh-typert-*`）；DeepSeek 服务端字段（`dsh-session-log-deepseek`、`dsh-plugin-package-inventory-deepseek`、`dsh-deepseek-llm-api-extensions`，属隐私与产品决策）；`dsh-session-telemetry-otel`（可选导出）；`cordis-plugin-hmr`（开发期）。**`dsh-acp*` 与 `dsh-sdk-*` 当年被归入"其它宿主形态"而排除，该判断已在 0.1.5-rc.1 期间被推翻**：`dsh-subagent-acp` 不是宿主形态，而是 subagent seam 的进程外 transport。它现作为可选隔离通道挂在 `subagent_isolated` 上，理由见 [`dsh-0.1.5-rc.1-upgrade.md`](./dsh-0.1.5-rc.1-upgrade.md)。`dsh-subagent-dsh-sdk` 是同一 seam 的另一个进程外后端，评估后未采用（需要额外的 `dsh-sdk-client` 与 `sdk` profile，且 ACP 已够用） |
 
 ## 判断方法
 
@@ -49,7 +51,7 @@ grep -hoE '"@deepseek-ai/[a-z0-9-]+"' apps/omdsh/package.json packages/tui/omdsh
 | 能力 | 上游包 | 现状 | 落地动作 |
 | --- | --- | --- | --- |
 | 联网抓取（**已落地**） | `dsh-web`、`dsh-web-fetch-http`、`dsh-tool-web` | 未挂；TUI 已有 `web` 卡片渲染器（`chrome/tool-renderers.ts:230`）但没有生产者 | 已挂 seam + 匿名 fetch + `tool-web`（`search: false`）。search 默认不开，理由见 D8 |
-| Workflow 与 Ralph | `dsh-workflow`、`dsh-workflow-worker-thread`、`dsh-tool-workflow`、`dsh-tool-ralph` | 未挂；注意 TUI 的 `/workflow` 是"Default/Plan 工作流"选择器，与上游 workflow 工具无关 | 挂 worker-thread 引擎 + 两个工具；`tool-ralph` 需 `subagentProvider` 配置 |
+| Workflow 与 Ralph（**已落地**） | `dsh-workflow`、`dsh-workflow-worker-thread`、`dsh-tool-workflow`、`dsh-tool-ralph` | 未挂；注意 TUI 的 `/workflow` 是"Default/Plan 工作流"选择器，与上游 workflow 工具无关 | 已挂 worker-thread 引擎 + 两个工具；`tool-ralph` 需 `subagentProvider` 配置。落地时有两处偏离本行的原计划：`dsh-workflow` **只做依赖不做挂载行**（与引擎同时挂载会重复注册 `workflowEngine` 并启动失败），`dsh-tool-workflow` 的 `toolName` 改为 `workflow_run` 以免在 `/tools` 中被读成 `/workflow` 命令。详见 [`dsh-0.1.5-rc.1-upgrade.md`](./dsh-0.1.5-rc.1-upgrade.md) 的「迁移后的补充挂载」 |
 | 子代理 fork（**已落地**） | `dsh-subagent-fork-in-process` + `tool-subagent` 的 `provider: fork` 行 | 只挂了 `spawn` | 已加 provider 行与 `subagent_fork` 工具行（continuable，不设 modelSelectionSettings）；TUI roster 与 `subagent_` 前缀渲染直接可用 |
 | 超大工具输出落盘（**已落地**） | `dsh-spill-local`、`dsh-spill-policy` | 未挂；上游 base 默认挂 | 已挂两行；`maxInlineBytes` 必须显式给（省略即 no-op），取 200000 见 D7 |
 | Windows 支持（**已落地**） | `dsh-pwsh-sandbox`、`dsh-tool-pwsh`、`dsh-tool-pwsh-persistent` | 未挂；上游用 `process.platform` 门控，omdsh 在 Windows 上没有 shell 工具 | 已按上游门控实现：每台主机恰好一套 shell 栈（bash/pwsh），minimal preset 的持久 shell 同规则；测试与 smoke 的 `pnpm`/`npm` 调用改为 Windows 可解析；CI 增加 `windows-latest` 基线 job |

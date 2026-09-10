@@ -1,6 +1,6 @@
 # TUI 特性实现计划：Transcript 搜索导航与会话级模型选择
 
-Status: draft for review (rev 4 — codex DONE, editorial leftovers cleaned) Branch: `alpha` (DSH cohort 0.1.3-alpha.1 adaptation in place) Scope: first slice of the codex feature-brainstorm shortlist. Everything below stays inside omdsh-owned code; upstream DSH seams are consumed, never replaced.
+Status: **implemented and shipped** — this is the design record for the slice that landed across `49848d8`…`ef07081` (search navigation and session-scoped `/model`), not a pending plan. Both features are live in 0.14.0: transcript search lives in `packages/tui/omdsh-tui/src/views/transcript-search.ts`, and the session-scoped route switch is the `sessionOnly` path in `packages/tui/omdsh-tui/src/commands/model.ts`. The audit below was written against DSH cohort `0.1.3-alpha.1`; the dependency queue has since moved through `0.1.5-alpha.2` to `0.1.5-rc.1` (see [`dsh-0.1.5-rc.1-upgrade.md`](./dsh-0.1.5-rc.1-upgrade.md)), so re-verify any claim here against the current worktree rather than trusting this text. Branch: `alpha`. Scope: first slice of the codex feature-brainstorm shortlist. Everything below stays inside omdsh-owned code; upstream DSH seams are consumed, never replaced.
 
 ## 1. 背景与目标
 
