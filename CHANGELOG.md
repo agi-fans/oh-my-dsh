@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Installing `@agi-fans/oh-my-dsh` with npm no longer resolves a mixed Harness cohort. The previous release pinned `0.1.5-alpha.2` directly while downstream packages declared `^0.1.5-alpha.2` peer ranges, and prerelease ranges accept a later prerelease in the same version tuple, so a fresh install mixed alpha.2 and rc.1 copies of eight shared packages and the packed application failed to boot with `prompt section "deployment:persona-prefix" is already registered`. Every dependency now pins `0.1.5-rc.1`, which installs as a single cohort.
 - Input is now Unicode-safe end to end: the editor moves and deletes by grapheme boundaries (an emoji can no longer be split into a lone surrogate, and vertical motion snaps out of a surrogate pair), and terminal bytes are decoded across stream chunks so a multi-byte character split between data events is no longer corrupted.
 - Pipe mode no longer drops submitted lines when two lines arrive in one stream chunk; buffered lines drain before EOF.
 - File writes and edits now honor the session's Access preset: `write`, `edit`, and `str_replace_editor` previously ignored Read only and Workspace write and could modify any path the process could reach. A mutation outside the workspace now returns the shared sandbox denial, and the model may retry it once at a wider mode after approval.
