@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Streaming tool-call previews now recognize `description`, so a delegation call shows its task description while its arguments arrive instead of the raw JSON fragment.
+
 ## [0.16.0] - 2026-09-11
 
 ### Added

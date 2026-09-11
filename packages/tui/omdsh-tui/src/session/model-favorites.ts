@@ -1,7 +1,6 @@
 /** Durable, product-owned model favorites used by keyboard model cycling. */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readJsonFile, writeJsonAtomic } from './json-file.ts'
 
 export interface FavoriteModel {
   provider: string
@@ -30,30 +29,22 @@ function key(value: Pick<FavoriteModel, 'provider' | 'model'>): string {
 }
 
 export function readModelFavorites(path: string): FavoriteModel[] {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    const seen = new Set<string>()
-    const result: FavoriteModel[] = []
-    for (const value of parsed) {
-      const entry = favorite(value)
-      if (entry === undefined || seen.has(key(entry))) continue
-      seen.add(key(entry))
-      result.push(entry)
-      if (result.length >= MAX_FAVORITES) break
-    }
-    return result
-  } catch {
-    return []
+  const parsed = readJsonFile(path)
+  if (!Array.isArray(parsed)) return []
+  const seen = new Set<string>()
+  const result: FavoriteModel[] = []
+  for (const value of parsed) {
+    const entry = favorite(value)
+    if (entry === undefined || seen.has(key(entry))) continue
+    seen.add(key(entry))
+    result.push(entry)
+    if (result.length >= MAX_FAVORITES) break
   }
+  return result
 }
 
 export function writeModelFavorites(path: string, favorites: readonly FavoriteModel[]): void {
-  const normalized = readDistinct(favorites)
-  mkdirSync(dirname(path), { recursive: true })
-  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`
-  writeFileSync(temporary, JSON.stringify(normalized, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  renameSync(temporary, path)
+  writeJsonAtomic(path, readDistinct(favorites))
 }
 
 export function addModelFavorite(favorites: readonly FavoriteModel[], entry: FavoriteModel): FavoriteModel[] {

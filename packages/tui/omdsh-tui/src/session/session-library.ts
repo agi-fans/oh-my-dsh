@@ -1,7 +1,6 @@
 /** Product-owned ordering metadata for the durable Session Library. */
 
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readJsonFile, writeJsonAtomic } from './json-file.ts'
 
 interface SessionLibraryDocument {
   readonly pinned: readonly string[]
@@ -13,20 +12,12 @@ function validIds(value: unknown): string[] {
 }
 
 export function readPinnedSessions(path: string): string[] {
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SessionLibraryDocument>
-    return validIds(parsed.pinned)
-  } catch {
-    return []
-  }
+  const parsed = readJsonFile(path) as Partial<SessionLibraryDocument> | undefined
+  return validIds(parsed?.pinned)
 }
 
 export function writePinnedSessions(path: string, pinned: readonly string[]): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-  const temp = `${path}.${process.pid}.tmp`
-  writeFileSync(temp, JSON.stringify({ pinned: validIds(pinned) }, null, 2) + '\n', { mode: 0o600 })
-  chmodSync(temp, 0o600)
-  renameSync(temp, path)
+  writeJsonAtomic(path, { pinned: validIds(pinned) })
 }
 
 export function togglePinnedSession(pinned: readonly string[], id: string): string[] {

@@ -4,15 +4,12 @@
 // Run: node scripts/happy-smoke.mjs
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
+import { omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
-const root = fileURLToPath(new URL('..', import.meta.url))
-const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-happy-smoke-'))
-process.on('exit', () => { rmSync(omdshHome, { recursive: true, force: true }) })
+const omdshHome = smokeHome('omdsh-happy-smoke-')
 writeFileSync(join(omdshHome, 'settings.yaml'), 'agent-presets:\n  default: code\n')
 
 const server = await startMockLlmServer({
@@ -23,16 +20,11 @@ const server = await startMockLlmServer({
   chunkDelayMs: 40,
 })
 
-// Windows resolves pnpm through a .cmd shim, so it needs a command shell.
-const pnpmCommand = process.platform === 'win32' ? 'cmd.exe' : 'pnpm'
-const pnpmArgs = process.platform === 'win32'
-  ? ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']
-  : ['--dir', 'apps/omdsh', 'omdsh']
-
+const [pnpmCommand, pnpmArgs] = omdshCommand()
 const omdsh = spawn(pnpmCommand, pnpmArgs, {
-  cwd: root,
+  cwd: repoRoot,
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' },
+  env: smokeEnv(omdshHome, { DEEPSEEK_BASE_URL: 'http://127.0.0.1:8123/v1', DEEPSEEK_API_KEY: 'sk-mock' }),
 })
 let out = ''
 omdsh.stdout.on('data', (chunk) => { out += String(chunk) })

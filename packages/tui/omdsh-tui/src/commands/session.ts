@@ -15,6 +15,7 @@ import { formatPermission, formatTokens } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import { readPinnedSessions, sortSessionRows, togglePinnedSession, writePinnedSessions } from '../session/session-library.ts'
 import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
+import { blocksText } from '../session/content-text.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
@@ -24,10 +25,7 @@ const SESSION_SEARCH_LIMIT = 20
 
 function humanText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
-  const text = event.data.content
-    .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
+  const text = blocksText(event.data.content)
   return text === '' ? undefined : text
 }
 

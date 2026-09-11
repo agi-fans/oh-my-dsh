@@ -10,6 +10,8 @@
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentActivity, TuiSubagentPhase, TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
+import { blocksText } from './content-text.ts'
+import { TOOL_ARG_FIELDS, toolArgsObject } from '../chrome/tool-args.ts'
 
 const ACTIVITY_LIMIT = 8
 
@@ -26,32 +28,12 @@ function asId(value: SessionId | string): string {
   return String(value)
 }
 
-function parseObject(raw: string): Record<string, unknown> | undefined {
-  try {
-    const value: unknown = JSON.parse(raw)
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function firstLine(value: string): string {
   return value.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')[0]?.trim() ?? ''
 }
 
 function contentText(content: unknown): string {
-  if (!Array.isArray(content)) return ''
-  return content
-    .flatMap((block) => {
-      if (block === null || typeof block !== 'object') return []
-      const item = block as { type?: unknown; text?: unknown }
-      return (item.type === 'text' || item.type === 'reasoning') && typeof item.text === 'string'
-        ? [item.text]
-        : []
-    })
-    .join('')
+  return blocksText(content, { kinds: ['text', 'reasoning'], join: '' })
 }
 
 /** Short fallback when a child has no descriptor label or title yet. */
@@ -66,22 +48,15 @@ export function isSteerableSubagent(mode: TuiSubagentView['mode'] | undefined): 
 
 /** One-line child tool summary used by the roster and tests. */
 export function summarizeToolCall(name: string, raw: string): string {
-  const args = parseObject(raw)
+  const args = toolArgsObject(raw)
   if (args === undefined) return name
-  const command = typeof args.command === 'string' ? firstLine(args.command) : ''
-  if (command !== '') return `${name} ${command}`
-  const path = typeof args.path === 'string'
-    ? args.path
-    : typeof args.file_path === 'string' ? args.file_path : ''
-  if (path !== '') return `${name} ${path}`
-  const query = typeof args.pattern === 'string'
-    ? args.pattern
-    : typeof args.query === 'string'
-      ? args.query
-      : typeof args.description === 'string'
-        ? args.description
-        : typeof args.url === 'string' ? args.url : ''
-  return query === '' ? name : `${name} ${query}`
+  for (const field of TOOL_ARG_FIELDS) {
+    const value = args[field]
+    if (typeof value !== 'string') continue
+    const summary = field === 'command' ? firstLine(value) : value
+    if (summary !== '') return `${name} ${summary}`
+  }
+  return name
 }
 
 /**

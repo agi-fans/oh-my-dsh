@@ -135,7 +135,7 @@ import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema, type MotionMode } from '../session/tui-settings.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
-import { HistoryStore } from '../views/history-store.ts'
+import { HistoryStore } from '../session/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
 import { editExternally } from '../input/external-editor.ts'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -802,25 +802,7 @@ export class LocalTui implements TuiService {
 
   /** Apply prefs loaded from the settings document (does not persist). */
   applyStoredPrefs(prefs: TuiPrefs): void {
-    const previousMotion = this.#motion
-    this.#themeName = prefs.theme
-    this.#colors = prefs.colors
-    this.#syncTrueColor()
-    this.#motion = prefs.motion ?? 'full'
-    this.#terminalProgress = prefs.terminalProgress ?? false
-    this.#expandTools = prefs.expandTools
-    this.#checkUpdates = prefs.checkUpdates ?? true
-    this.#startupChangelog = prefs.startupChangelog ?? 'summary'
-    this.#notificationPolicy = prefs.notifications ?? 'off'
-    this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
-    this.#configureNotifications()
-    this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
-    this.#toolsExpanded = prefs.expandTools
-    if (previousMotion !== this.#motion) {
-      this.#stopRevealTick()
-      this.#reveal = undefined
-    }
-    this.#syncTick()
+    this.#applyPrefs(prefs, { persist: false, forceToolsSync: true })
     if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
     if (this.#tty) this.#render()
   }
@@ -1947,12 +1929,12 @@ export class LocalTui implements TuiService {
     }
   }
 
-  #applyPrefs(prefs: TuiPrefs): void {
+  #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
+    const previousMotion = this.#motion
     const expandChanged = prefs.expandTools !== this.#expandTools
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#syncTrueColor()
-    const previousMotion = this.#motion
     this.#motion = prefs.motion ?? 'full'
     this.#terminalProgress = prefs.terminalProgress ?? false
     this.#expandTools = prefs.expandTools
@@ -1962,13 +1944,13 @@ export class LocalTui implements TuiService {
     this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
-    if (expandChanged) this.#toolsExpanded = prefs.expandTools
+    if (options.forceToolsSync || expandChanged) this.#toolsExpanded = prefs.expandTools
     if (previousMotion !== this.#motion) {
       this.#stopRevealTick()
       this.#reveal = undefined
     }
     this.#syncTick()
-    this.#persistPrefs?.(prefs)
+    if (options.persist) this.#persistPrefs?.(prefs)
   }
 
   #applyStoredAgentBehavior(next: TuiAgentBehaviorSettings): void {
@@ -2017,7 +1999,7 @@ export class LocalTui implements TuiService {
         return
       }
       this.#settings = command.state
-      this.#applyPrefs(command.state.prefs)
+      this.#applyPrefs(command.state.prefs, { persist: true, forceToolsSync: false })
       this.#render()
       return
     }

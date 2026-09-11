@@ -3,6 +3,7 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FileDiff, ToolCallView, ToolResultView, WebSource } from '@deepseek-ai/dsh-tools'
 import { alignFileDiffs, countDiffStats, formatDiffRows, formatDiffStats } from './diff-render.ts'
+import { TOOL_ARG_FIELDS, toolArgsObject } from './tool-args.ts'
 
 export interface TuiToolPresentation {
   readonly call?: ToolCallView
@@ -54,14 +55,7 @@ function fallbackArgumentLines(raw: string): string[] {
 }
 
 function parsedObject(raw: string): Record<string, unknown> | undefined {
-  try {
-    const value: unknown = JSON.parse(raw)
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined
-  } catch {
-    return undefined
-  }
+  return toolArgsObject(raw)
 }
 
 function stringField(value: Record<string, unknown>, key: string): string {
@@ -70,17 +64,14 @@ function stringField(value: Record<string, unknown>, key: string): string {
 }
 
 /**
- * Argument fields worth previewing while they stream, in reading order. A shell
+ * Read declared fields through one accessor into displayable lines. A shell
  * command is the whole intent, so it stops the scan rather than letting the
  * remaining fields stack around it.
  */
-const PREVIEW_FIELDS = ['command', 'file_path', 'path', 'pattern', 'query', 'url'] as const
-
-/** Read declared fields through one accessor into displayable lines. */
 function previewFieldLines(read: (field: string) => string | undefined): string[] {
   const lines: string[] = []
   const seen = new Set<string>()
-  for (const field of PREVIEW_FIELDS) {
+  for (const field of TOOL_ARG_FIELDS) {
     const value = read(field)
     if (value === undefined || value.trim() === '' || seen.has(value)) continue
     seen.add(value)

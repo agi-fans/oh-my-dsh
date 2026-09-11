@@ -6,10 +6,9 @@
 import { fork } from 'node:child_process'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { cleanOutput, omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
 const REASONING_CHARS = 5_000
 const INTERRUPT_BUDGET_MS = 1_000
@@ -44,12 +43,11 @@ if (process.argv[2] === 'server') {
   await new Promise(() => {})
 }
 
-const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
 const pty = require('node-pty')
-const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-stream-interrupt-'))
+const omdshHome = smokeHome('omdsh-stream-interrupt-')
 const server = fork(fileURLToPath(import.meta.url), ['server'], {
-  cwd: root,
+  cwd: repoRoot,
   stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
 })
 
@@ -67,21 +65,16 @@ try {
     })
   })
 
-  const [command, args] = process.platform === 'win32'
-    ? ['cmd.exe', ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']]
-    : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
+  const [command, args] = omdshCommand()
   term = pty.spawn(command, args, {
     name: 'xterm-256color',
     cols: 80,
     rows: 30,
-    cwd: root,
-    env: {
-      ...process.env,
-      OMDSH_HOME: omdshHome,
+    cwd: repoRoot,
+    env: smokeEnv(omdshHome, {
       DEEPSEEK_BASE_URL: baseURL + '/v1',
       DEEPSEEK_API_KEY: 'sk-mock',
-      NO_COLOR: '1',
-    },
+    }),
   })
 
   let out = ''
@@ -113,7 +106,7 @@ try {
     : interruptedAt - ctrlCAt
   if (!Number.isFinite(latency) || latency >= INTERRUPT_BUDGET_MS) {
     console.error(`FAIL: Ctrl-C latency=${Number.isFinite(latency) ? Math.round(latency) + 'ms' : 'not observed'}`)
-    console.error(out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '').slice(-1_500))
+    console.error(cleanOutput(out).slice(-1_500))
     process.exitCode = 1
   } else {
     console.log(`STREAM_INTERRUPT_SMOKE_PASS latency=${Math.round(latency)}ms`)

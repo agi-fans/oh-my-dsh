@@ -63,6 +63,7 @@ import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
+import { blocksText } from '../session/content-text.ts'
 
 type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
 
@@ -152,10 +153,7 @@ function contentToText(content: readonly ContentBlock[]): string {
 
 /** Extract reasoning text from reasoning blocks. */
 function contentToReasoning(content: readonly ContentBlock[]): string {
-  return content
-    .filter((block): block is Extract<ContentBlock, { type: 'reasoning' }> => block.type === 'reasoning')
-    .map((block) => block.text)
-    .join('')
+  return blocksText(content, { kinds: ['reasoning'], join: '' })
 }
 
 /** Compact pretty-print of a tool call's raw arguments JSON. */

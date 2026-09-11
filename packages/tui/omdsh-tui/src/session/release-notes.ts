@@ -1,5 +1,7 @@
 /** Keep a Changelog parsing and startup release-note selection. */
 
+import { compareVersions } from './version-compare.ts'
+
 export interface ChangelogEntry {
   version: string
   markdown: string
@@ -16,23 +18,6 @@ export interface ChangelogSelection {
 
 export const STARTUP_CHANGELOG_MODES = ['summary', 'expanded', 'hidden'] as const
 export type StartupChangelogMode = typeof STARTUP_CHANGELOG_MODES[number]
-
-function versionParts(version: string): [number, number, number] | undefined {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(version)
-  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) return undefined
-  return [Number(match[1]), Number(match[2]), Number(match[3])]
-}
-
-function compareVersions(left: string, right: string): number {
-  const a = versionParts(left)
-  const b = versionParts(right)
-  if (a === undefined || b === undefined) return 0
-  for (let index = 0; index < a.length; index += 1) {
-    const difference = (a[index] ?? 0) - (b[index] ?? 0)
-    if (difference !== 0) return difference
-  }
-  return 0
-}
 
 function countCategories(markdown: string): Record<string, number> {
   const counts: Record<string, number> = {}

@@ -47,6 +47,7 @@ import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
+import { blocksText } from './content-text.ts'
 import { jobNoticeFor } from './job-notice.ts'
 import type {
   TuiCommand,
@@ -325,12 +326,7 @@ function explicitSessionTitle(events: readonly SessionEvent[]): string | undefin
 
 function humanMessageText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
-  const text = event.data.content
-    .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join(' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
+  const text = blocksText(event.data.content, { collapse: true })
   return text === '' ? undefined : text
 }
 
@@ -363,12 +359,7 @@ export function conversationTurns(events: readonly SessionEvent[]): Conversation
       continue
     }
     if (open === undefined || event.type !== 'user/message' || event.data.source.kind !== 'user') continue
-    const text = event.data.content
-      .filter((block): block is Extract<(typeof event.data.content)[number], { type: 'text' }> => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
-      .replace(/\s+/gu, ' ')
-      .trim()
+    const text = blocksText(event.data.content, { collapse: true })
     const imageCount = event.data.content.filter(block => block.type === 'image').length
     if (text === '' && imageCount === 0) continue
     turns.push({
@@ -470,10 +461,7 @@ export async function restoreSubmissionMessage(
   message: UserMessage,
   attachments?: RestoreAttachmentStore,
 ): Promise<TuiSubmission> {
-  const text = message.content
-    .filter((block): block is Extract<(typeof message.content)[number], { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
+  const text = blocksText(message.content)
   const refs = message.content
     .filter((block): block is Extract<(typeof message.content)[number], { type: 'image' }> => block.type === 'image')
     .map(block => block.attachment)
@@ -860,10 +848,7 @@ export class SessionRuntime {
     if (message?.type !== 'user/message' || message.data.source.kind !== 'user') {
       throw new Error('The selected conversation turn is no longer available.')
     }
-    const text = message.data.content
-      .filter((block): block is Extract<(typeof message.data.content)[number], { type: 'text' }> => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
+    const text = blocksText(message.data.content)
     const imageRefs = message.data.content
       .filter((block): block is Extract<(typeof message.data.content)[number], { type: 'image' }> => block.type === 'image')
       .map(block => block.attachment)
