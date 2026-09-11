@@ -1773,6 +1773,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       : promptSelector?.cursorVisible ?? (settings === undefined && copySelector === undefined),
     liveStart,
     livePinned,
+    // A transient frame is either a full-screen surface or the user browsing
+    // history; the renderer needs to tell them apart because only the first may
+    // borrow the alternate buffer.
+    ...(liveStart === 0 ? { transientSurface: hasOverlay ? 'overlay' as const : 'scroll' as const } : {}),
     transcript: windowed ?? {
       start: 0,
       maxStart: 0,

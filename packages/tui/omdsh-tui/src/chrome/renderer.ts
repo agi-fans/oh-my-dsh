@@ -37,6 +37,14 @@ export interface Frame {
   liveStart?: number
   /** True when the live region must stay in the viewport instead of scrolling as frozen snapshots. */
   livePinned?: boolean
+  /**
+   * Why a frame with {@link liveStart} zero is transient. Both reasons paint into
+   * the mutable screen instead of scrolling history, but they want opposite
+   * handling: a full-screen overlay may borrow the alternate buffer, while
+   * browsing history must stay on the main screen so the terminal's own
+   * scrollback keeps working. Omitted keeps the overlay behavior.
+   */
+  transientSurface?: 'overlay' | 'scroll'
 }
 
 /** The write sink a renderer emits into (stdout or a test capture). */

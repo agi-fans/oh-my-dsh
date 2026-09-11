@@ -382,7 +382,7 @@
 
 ## 批次 4（P2）待决策项与文案一致性
 
-### 4.1 `liveStart` 语义拆分（需产品决策）
+### 4.1 `liveStart` 语义拆分（已按「不遮蔽原生 scrollback」实现）
 
 **现状与证据**
 
@@ -411,13 +411,14 @@
 
 留主屏路径在浏览历史时不产生 `2J` / `3J` / `?1049h`，并以绝对光标定位重画视口（每帧 2–10 次光标移动、2–23 个换行，对比首帧的 4817 个换行），成本与备用屏路径相当。这削弱了「必须用备用屏才能滚动」的前提，使 D5 可以倾向「不遮蔽原生 scrollback」；剩余的待确认点是它是否会向 scrollback 推入个位数行。
 
-**待决策**
+**决策与实现**
 
-滚动历史时是否允许遮蔽原生 scrollback。留主屏的代价是重画窗口会把重复内容推进 scrollback；用备用屏的代价是原生 scrollback 不可用。两个选项都需要产品取向，本方案不预设结论，只给出最小改动面：
+D5 定为「不遮蔽原生 scrollback」。此前设想的取舍（留主屏会把重复内容推进 scrollback）经 `main-screen-renderer.spec.ts` 的 `Emulator` 网格模型实测**不成立**：留主屏滚动期间 `scrollback` 的长度与内容都不变，也不产生 `2J` / `3J` / `?1049h`，成本与备用屏路径相当。因此让 `direct` 对齐 `multiplexer` 已经走通的路径，代价只有实现成本。
 
-1. 给 `Frame` 增加显式语义字段（如 `transientSurface: 'overlay' | 'scroll' | undefined`），让 `render()` 按语义而不是按 `liveStart === 0` 分支。
-2. 若选「滚动留在主屏」，需要同时给出「不污染 scrollback」的策略（例如滚动期间只重画视口并在退出时重新锚定）。
-3. 无论选哪个，都补齐备用屏分支的 `#resize` / `#reanchor` 消费，并加两条用例：滚动帧不产生 `?1049h`（或按决策产生）、备用屏内 resize 后第二帧不含 `\x1b[2J`。
+1. `Frame` 增加 `transientSurface?: 'overlay' | 'scroll'`；`renderView` 在 `liveStart === 0` 时按 `hasOverlay` 标注，缺省仍是 overlay 行为（可选字段，向后兼容）。
+2. `#paintTransient` 只在 `alternateScreenOverlays && surface !== 'scroll'` 时使用备用屏；从备用屏切回主屏时先退出缓冲区、以进入前的主屏快照为基线重画一次。
+3. 备用屏分支现在消费 `#resize` 与 `#reanchor`，resize 后不再每帧清屏。
+4. 三条用例：滚动不污染 scrollback（长度与内容都不变）、标为 `scroll` 的帧即使开了 `alternateScreenOverlays` 也不进备用屏、备用屏 overlay 在 resize 后只清屏一次。三条都做了反向自检。
 
 **涉及文件**
 
@@ -521,7 +522,7 @@ git diff --check
 - **D2 · diff 行内高亮的退化阈值**：建议 400 token。过低会让常见的中等行改动失去高亮，过高则保不住帧预算。落地前用真实 edit 负载标定一次。
 - **D3 · 是否引入 256 色档**：当前只有 16 色与 24 位两档，`Swatch` 的 number 分支是死代码。引入第三档需要扩 `Theme` 接口；不引入则 `TERM=xterm-256color` 会继续按 24 位输出（多数终端能降级，风险可接受）。建议本轮只加 `NO_COLOR`/`FORCE_COLOR` 与 `#trueColor` 重算，256 档另立条目。
 - **D4 · 状态栏降级是否允许跳过超宽组**：允许则窄终端信息更满但组集合可能随宽度跳变；不允许则维持当前稳定的前缀行为。建议允许，并在 `/settings` 里可观察。
-- **D5 · 滚动是否允许遮蔽原生 scrollback**（4.1）：影响 `AGENTS.md` 主张的架构一致性，需要产品取向，本轮不预设。
+- **D5 · 滚动是否允许遮蔽原生 scrollback**（4.1）：定为**不允许**。实测表明留主屏既不污染 scrollback、成本也与备用屏相当，因此没有理由为了滚动去遮蔽终端自己的缓冲；备用屏只留给真正的全屏 overlay。
 - **D6 · 批次顺序**：建议 1 → 2 → 3 → 4。批次 1 是其他批次布局断言的共同前提；批次 4.1 独立于前三批，可以在决策明确后任意时点插入。
 
 ## 风险与回退
@@ -537,7 +538,7 @@ git diff --check
 
 ## 实施清单
 
-进度与提交状态：批次 1、2 已提交（`9a5e30f`、`eab433c`）。批次 3 与批次 4 的非决策项已实现，完整验证集通过（`pnpm typecheck`、`pnpm test` 825 + 103 + 13、`pnpm build`、`pnpm check:md`、`pnpm smoke:happy`、`pnpm smoke`、`git diff --check`），但**尚未提交**：本工作树同时被另一个会话修改，`runtime/provider-local.ts`、`views/event-views.ts`、`CHANGELOG.md` 三个文件由两个会话共同修改，部分提交会留下不可编译的半成品，提交需要跨会话协调。
+进度与提交状态：批次 1、2 已提交（`9a5e30f`、`eab433c`）。批次 3、批次 4 全部已实现，完整验证集通过（`pnpm typecheck`、`pnpm test` 825 + 103 + 13、`pnpm build`、`pnpm check:md`、`pnpm smoke:happy`、`pnpm smoke`、`git diff --check`），但**尚未提交**：本工作树同时被另一个会话修改，`runtime/provider-local.ts`、`views/event-views.ts`、`CHANGELOG.md` 三个文件由两个会话共同修改，部分提交会留下不可编译的半成品，提交需要跨会话协调。
 
 批次 1（P0，已提交 `9a5e30f`）：
 
@@ -573,7 +574,7 @@ git diff --check
 
 批次 4（P2）：
 
-- [ ] 4.1 `liveStart` 语义拆分：待 D5 决策，本轮未做
+- [x] 4.1 `Frame.transientSurface` 语义字段 + 渲染器按语义分支（仅 overlay 进备用屏）+ 备用屏分支消费 `#resize`/`#reanchor`；D5 定为「不遮蔽原生 scrollback」，留主屏不污染 scrollback 已用 `Emulator` 网格模型测实并反向自检
 - [x] 4.2 帮助页：essential 段改走 `keysForAction`、新增 `Ctrl+F` 行与 welcome tip、`prompt-selector` 空态文案由请求方提供
 - [x] 4.2 overlay 一致性：7 个 overlay 各自导出按键目录常量，底行提示由该常量生成，`/help` 新增 Overlays 小节（80 行）遍历这些常量；覆盖性测试断言帮助页包含每个目录的每一行，另把 7 个目录的键序列冻结成期望数组以捕获「常量被删一行」。为此把 `HotkeyRow` / `formatHotkeyKeys` / `formatOverlayHint` 抽到零依赖的 `views/hotkey-format.ts`，避免帮助页与各 overlay 形成运行时环。已知缺口：测试不反向探测事件处理分支，「处理器新增键而未同步常量」不会被自动发现
 - [x] 4.3 状态栏：`selectGroups` / `selectFooterGroups` 的 `break` → `continue`、`MIN_CLIPPED_CELLS = 8` 整项丢弃、`formatTokens` / `formatDuration` 进位

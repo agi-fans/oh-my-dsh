@@ -160,7 +160,7 @@ export class MainScreenRenderer {
     const cursor = frame.cursor ?? { row: next.length, column: 0 }
     const cursorVisible = frame.cursorVisible !== false
     const paint = liveStart === 0
-      ? this.#paintTransient(next, cursor, cursorVisible)
+      ? this.#paintTransient(next, cursor, cursorVisible, frame.transientSurface)
       : this.#paintFollow(next, liveStart, livePinned, cursor, cursorVisible)
     if (paint !== '') this.#sink.write(paint)
   }
@@ -169,9 +169,13 @@ export class MainScreenRenderer {
     next: readonly string[],
     cursor: { row: number; column: number },
     cursorVisible: boolean,
+    surface: 'overlay' | 'scroll' | undefined,
   ): string {
     const target = this.#target(next, 0, 'top')
-    if (this.#alternateScreenOverlays) {
+    // Browsing history is not an overlay: the alternate buffer would hide the
+    // terminal's own scrollback, which is exactly what the user is scrolling
+    // through, so a scroll frame repaints the main screen instead.
+    if (this.#alternateScreenOverlays && surface !== 'scroll') {
       const clear = !this.#altActive || this.#resize !== undefined
       let body = this.#altActive ? '' : ENTER_ALT_SCREEN
       body += this.#paintScreen(target.rows, clear ? this.#blankScreen() : this.#altScreen, clear)
@@ -181,13 +185,26 @@ export class MainScreenRenderer {
       this.#altActive = true
       this.#altScreen = target.rows
       this.#cursorVisible = cursorVisible
+      // The clear above already reconciled the resize and the re-anchor; leaving
+      // them pending would clear the overlay again on every following frame.
+      this.#resize = undefined
+      this.#reanchor = false
       return this.#wrap(body)
     }
+    const leavingAlt = this.#altActive
+    const exitAlt = leavingAlt ? EXIT_ALT_SCREEN : ''
     const resized = this.#takeResizeBaseline()
-    const body = this.#paintScreen(target.rows, resized.rows, this.#reanchor || resized.clear)
+    // Leaving the alternate buffer restores whatever the main screen held before
+    // it was entered, so that snapshot is the baseline to diff against.
+    const baseline = leavingAlt ? this.#screen : resized.rows
+    if (leavingAlt) {
+      this.#altActive = false
+      this.#altScreen = this.#blankScreen()
+    }
+    const body = this.#paintScreen(target.rows, baseline, this.#reanchor || resized.clear || leavingAlt)
     this.#reanchor = false
     this.#transient = true
-    return this.#finishPaint(body, target, next.length, cursor, cursorVisible)
+    return this.#finishPaint(exitAlt + body, target, next.length, cursor, cursorVisible)
   }
 
   #paintFollow(

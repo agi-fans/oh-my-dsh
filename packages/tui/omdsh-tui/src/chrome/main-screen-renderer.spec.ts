@@ -120,7 +120,12 @@ class Emulator {
 function frame(
   lines: readonly string[],
   liveStart?: number,
-  extras: { cursor?: { row: number; column: number }; cursorVisible?: boolean; livePinned?: boolean } = {},
+  extras: {
+    cursor?: { row: number; column: number }
+    cursorVisible?: boolean
+    livePinned?: boolean
+    transientSurface?: 'overlay' | 'scroll'
+  } = {},
 ): Frame {
   return { lines, liveStart, ...extras }
 }
@@ -130,6 +135,81 @@ function joined(lines: readonly string[]): string {
 }
 
 describe('MainScreenRenderer', () => {
+  it('browses history without re-emitting rows into native scrollback', () => {
+    const emu = new Emulator(6)
+    const renderer = new MainScreenRenderer(emu, { width: 40, height: 6, synchronized: false })
+    const transcript = Array.from({ length: 40 }, (_, index) => `row-${index}`)
+
+    // Follow the tail so the transcript settles into native scrollback.
+    renderer.render(frame(transcript, 34))
+    const settled = emu.scrollback.length
+    expect(settled).toBeGreaterThan(0)
+    expect(emu.scrollback).toEqual(transcript.slice(0, settled))
+
+    // PgUp twice: the viewport becomes a window over history and liveStart
+    // drops to zero, which is also what an overlay frame looks like.
+    const mark = emu.captured.length
+    renderer.render(frame(transcript.slice(20, 26), 0))
+    renderer.render(frame(transcript.slice(14, 20), 0))
+
+    // Browsing must not borrow the overlay path or duplicate rows into history.
+    const browsing = emu.outputAfter(mark)
+    expect(browsing).not.toContain('\x1b[?1049h')
+    expect(browsing).not.toContain('\x1b[3J')
+    expect(emu.scrollback.length).toBe(settled)
+    expect(emu.scrollback).toEqual(transcript.slice(0, settled))
+  })
+
+  it('keeps a scroll frame on the main screen even when overlays use the alternate buffer', () => {
+    const emu = new Emulator(6)
+    const renderer = new MainScreenRenderer(emu, {
+      width: 40,
+      height: 6,
+      synchronized: false,
+      alternateScreenOverlays: true,
+    })
+    const transcript = Array.from({ length: 30 }, (_, index) => `row-${index}`)
+    renderer.render(frame(transcript, 24))
+    const settled = emu.scrollback.length
+    expect(settled).toBeGreaterThan(0)
+
+    const mark = emu.captured.length
+    renderer.render(frame(transcript.slice(10, 16), 0, { transientSurface: 'scroll' }))
+
+    // The alternate buffer would hide the very scrollback being browsed.
+    const browsing = emu.outputAfter(mark)
+    expect(browsing).not.toContain('\x1b[?1049h')
+    expect(browsing).not.toContain('\x1b[3J')
+    expect(emu.scrollback).toEqual(transcript.slice(0, settled))
+    expect(emu.visible()).toEqual(transcript.slice(10, 16))
+  })
+
+  it('clears an alternate-screen overlay once per resize, not on every frame', () => {
+    const emu = new Emulator(6)
+    const renderer = new MainScreenRenderer(emu, {
+      width: 40,
+      height: 6,
+      synchronized: false,
+      alternateScreenOverlays: true,
+    })
+    const overlay = frame(['overlay row'], 0, { transientSurface: 'overlay' })
+    renderer.render(overlay)
+    expect(emu.captured).toContain('\x1b[?1049h')
+
+    // A resize forces one clear repaint for the new geometry...
+    emu.resize(5)
+    renderer.resize(40, 5)
+    const afterResize = emu.captured.length
+    renderer.render(overlay)
+    expect(emu.outputAfter(afterResize)).toContain('\x1b[2J')
+
+    // ...and the frames after it must not clear again.
+    const settled = emu.captured.length
+    renderer.render(overlay)
+    renderer.render(overlay)
+    expect(emu.outputAfter(settled)).not.toContain('\x1b[2J')
+  })
+
   it('scrolls committed rows into native scrollback when the live region grows', () => {
     const emu = new Emulator(5)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 5, synchronized: false })
