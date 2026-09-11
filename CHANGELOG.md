@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-11
+
 ### Added
 
 - Approval prompts now show what they are asking about: the tool card the session already streamed supplies the command, path, or diff summary for the pending call, so a decision no longer requires scrolling back through the transcript to find it. The asker's own reason still follows, after the action.
@@ -377,7 +379,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.12.0...v0.13.0
