@@ -16,10 +16,11 @@ import {
   terminalNotificationSequence,
   terminalProgressSequence,
 } from './terminal-notifications.ts'
+import { ComposerImages } from './composer-images.ts'
+import { PlainTui, type PendingRead } from './plain-tui.ts'
 
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
-import { createInterface, type Interface } from 'node:readline'
 import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -105,7 +106,6 @@ import {
 import {
   applyEvent,
   applyStreamChunk,
-  blockLines,
   blockSearchText,
   initialTranscript,
   replayEvents,
@@ -130,7 +130,7 @@ import {
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { type RenderSink } from '../chrome/renderer.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
-import { colorDisabledByEnv, createTheme, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
+import { colorDisabledByEnv, detectTrueColor, parseThemeName, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_NAMESPACE, TuiSettingsSchema, type MotionMode } from '../session/tui-settings.ts'
@@ -151,9 +151,7 @@ import { refreshProjectContext, resolveProjectContext } from '../session/project
 import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount } from '../views/hotkeys.ts'
 import {
-  imageMarker,
   imagePathCandidates,
-  probeImageDimensions,
   stripComposerImageMarkers,
   readImageFile,
   readImageFromClipboard,
@@ -224,12 +222,6 @@ export interface TerminalLike {
   onResize?(listener: () => void): () => void
 }
 
-type PendingRead = {
-  resolve: (submission: TuiSubmission | null) => void
-  signal?: AbortSignal | null
-  /** Detaches this read's abort listener once the read settles. */
-  offAbort?: () => void
-}
 type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
@@ -316,11 +308,11 @@ export class LocalTui implements TuiService {
   #pasteBuf = ''
   #pasteInFlight = 0
   #deferredPasteEvents: KeyEvent[] = []
-  #images: TuiInputImage[] = []
-  #lineReader: Interface | null = null
-  #plainPending: PendingRead | null = null
-  #plainClosed = false
-  #plainPrinted = 0
+  readonly #images = new ComposerImages({
+    editor: this.#editor,
+    notice: text => { this.notice(text, { level: 'error' }) },
+  })
+  readonly #plain: PlainTui
   #offData: (() => void) | null = null
   #offResize: (() => void) | null = null
   #pwd: string
@@ -390,7 +382,6 @@ export class LocalTui implements TuiService {
   readonly #searchFiles: PathSearcher
   #searchFileMentions: FileSearcher | undefined
   #searchSessions: SessionSearcher | undefined
-  #validateImageDraft: ((image: TuiInputImage) => Promise<void>) | undefined
   readonly #autocompleteDebounceMs: number
   #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
   #agentBehavior: TuiAgentBehaviorSettings | undefined
@@ -464,6 +455,12 @@ export class LocalTui implements TuiService {
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
     this.#syncTrueColor()
     this.#tty = term.input.isTTY === true
+    this.#plain = new PlainTui({
+      term,
+      blocks: () => this.#state.blocks,
+      promptRequest: () => this.#prompt?.request,
+      finishPrompt: answer => { this.#finishPrompt(answer) },
+    })
     this.#pwd = shortenPath(project.root)
     this.#branch = project.gitLabel
     this.#renderer = new MainScreenRenderer(
@@ -524,7 +521,7 @@ export class LocalTui implements TuiService {
     if (this.#tty) {
       this.#render()
     } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
-      this.#printPlain()
+      this.#plain.print()
     }
   }
 
@@ -654,7 +651,7 @@ export class LocalTui implements TuiService {
   }
 
   setImageValidator(validate?: (image: TuiInputImage) => Promise<void>): void {
-    this.#validateImageDraft = validate
+    this.#images.setValidator(validate)
   }
 
   toolCallContext(callId: string): string | undefined {
@@ -693,13 +690,13 @@ export class LocalTui implements TuiService {
     }
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
     if (this.#tty) this.#render()
-    else this.#printPlain()
+    else this.#plain.print()
   }
 
   commandOutput(command: string, text: string): void {
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'commandOutput', command, text }] }
     if (this.#tty) this.#render()
-    else this.#printPlain()
+    else this.#plain.print()
   }
 
   prompt(request: TuiPrompt): Promise<string | null> {
@@ -747,12 +744,12 @@ export class LocalTui implements TuiService {
     this.#trajectory = null
     const state = replayEvents(events, presentations)
     this.#state = { ...state, status, compactCommandId: undefined }
-    this.#plainPrinted = 0
+    this.#plain.resetPrinted()
     this.#followTail()
     this.#deferInitialRender = false
     this.#renderer.startEpoch({ replay: status === 'idle' ? 'full' : 'pinned' })
     if (this.#tty) this.#render()
-    else this.#printPlain()
+    else this.#plain.print()
   }
 
   setSession(info: {
@@ -842,7 +839,7 @@ export class LocalTui implements TuiService {
       this.#quitRequested = false
       return Promise.resolve(null)
     }
-    if (!this.#tty) return this.#readlinePlain(signal)
+    if (!this.#tty) return this.#plain.readline(signal)
     // Lines submitted while a turn was still running were queued instead of
     // dropped; serve the oldest before waiting for fresh input.
     const queued = this.#queuedSubmissions.shift()
@@ -871,19 +868,7 @@ export class LocalTui implements TuiService {
   }
 
   restoreInput(submission: TuiSubmission): void {
-    const currentText = this.#editor.text
-    const currentImages = this.#images
-    let rebasedCurrent = currentText
-    for (let index = currentImages.length - 1; index >= 0; index -= 1) {
-      const image = currentImages[index] as TuiInputImage
-      rebasedCurrent = rebasedCurrent.replaceAll(
-        imageMarker(index, image),
-        imageMarker(index + submission.images.length, image),
-      )
-    }
-    const separator = submission.text !== '' && rebasedCurrent !== '' ? '\n' : ''
-    this.#images = [...submission.images.map(image => ({ ...image })), ...currentImages]
-    this.#editor.setText(submission.text + separator + rebasedCurrent)
+    this.#images.restore(submission)
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -892,13 +877,13 @@ export class LocalTui implements TuiService {
     if (!this.#queueEditPending) return
     this.#queueEditPending = false
     if (submission === null) {
-      if (this.#editor.text === '' && this.#images.length === 0 && this.#queueEditNewer?.length === 0) {
+      if (this.#editor.text === '' && this.#images.count === 0 && this.#queueEditNewer?.length === 0) {
         this.#queueEditNewer = null
       }
       return
     }
     if (this.#queueEditNewer === null) this.#queueEditNewer = []
-    if (this.#editor.text !== '' || this.#images.length > 0) {
+    if (this.#editor.text !== '' || this.#images.count > 0) {
       this.#queueEditNewer.unshift(this.#currentSubmission())
     }
     this.#replaceInput(submission)
@@ -907,13 +892,12 @@ export class LocalTui implements TuiService {
   #currentSubmission(): TuiSubmission {
     return {
       text: this.#editor.text,
-      images: this.#images.map(image => ({ ...image })),
+      images: this.#images.copies(),
     }
   }
 
   #replaceInput(submission: TuiSubmission): void {
-    this.#images = submission.images.map(image => ({ ...image }))
-    this.#editor.setText(submission.text)
+    this.#images.replace(submission)
     this.#historyIndex = 0
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
@@ -996,7 +980,7 @@ export class LocalTui implements TuiService {
     this.#autocompleteAbort?.abort()
     this.#autocompleteTimer = null
     this.#autocompleteAbort = null
-    this.#lineReader?.close()
+    this.#plain.dispose()
     this.#offAgentBehaviorWatch?.()
     this.#offAgentBehaviorWatch = undefined
     this.#settlePending(null)
@@ -1015,92 +999,6 @@ export class LocalTui implements TuiService {
   /** Re-render the current frame (resize reflow). */
   refresh(): void {
     this.#render()
-  }
-
-  #readlinePlain(signal?: AbortSignal): Promise<TuiSubmission | null> {
-    return new Promise((resolve) => {
-      if (this.#lineReader === null) {
-        this.#lineReader = createInterface({ input: this.#term.input })
-        // Permanent listeners: once() handlers would auto-pause the input
-        // stream after one line and miss the EOF close.
-        this.#lineReader.on('line', (line: string) => { this.#plainResolve(line) })
-        this.#lineReader.on('close', () => {
-          this.#plainClosed = true
-          this.#plainResolve(null)
-        })
-      }
-      const pending: PendingRead = { resolve, signal: signal ?? null }
-      this.#plainPending = pending
-      if (signal !== undefined) {
-        const onAbort = (): void => {
-          if (this.#plainPending !== pending) return
-          this.#plainPending = null
-          resolve(null)
-        }
-        signal.addEventListener('abort', onAbort, { once: true })
-        pending.offAbort = () => { signal.removeEventListener('abort', onAbort) }
-      }
-      this.#pumpPlain()
-    })
-  }
-
-  /**
-   * Queue one readline delivery, then drain. A single stream chunk can carry
-   * several lines; every line is buffered until the runner asks for the next
-   * read, and EOF waits for the queue before closing the reader.
-   */
-  #plainResolve(line: string | null): void {
-    if (this.#prompt !== null && line !== null) {
-      const value = line.trim()
-      if (value === '') {
-        this.#finishPrompt(null)
-      } else if (this.#prompt.request.allowCustom === false) {
-        const options = this.#prompt.request.options ?? []
-        const numeric = /^\d+$/u.test(value) ? Number(value) - 1 : -1
-        const option = numeric >= 0
-          ? options[numeric]
-          : options.find(item => item.label.toLowerCase() === value.toLowerCase())
-        this.#finishPrompt(option?.value ?? option?.label ?? null)
-      } else {
-        this.#finishPrompt(value)
-      }
-      return
-    }
-    if (this.#prompt !== null) this.#finishPrompt(null)
-    if (line !== null) this.#plainQueue.push(line)
-    this.#pumpPlain()
-  }
-
-  /** Resolve the pending plain read from the queue, or close it after EOF drained. */
-  #pumpPlain(): void {
-    const pending = this.#plainPending
-    if (pending === null) return
-    const line = this.#plainQueue.shift()
-    if (line !== undefined) {
-      pending.offAbort?.()
-      this.#plainPending = null
-      pending.resolve({ text: line, images: [] })
-      return
-    }
-    if (this.#plainClosed) {
-      pending.offAbort?.()
-      this.#plainPending = null
-      pending.resolve(null)
-    }
-  }
-
-  /** Print plain-mode blocks that settled since the last flush. */
-  #printPlain(): void {
-    const theme = createTheme(false, false)
-    const width = this.#term.width()
-    const fresh = this.#state.blocks.slice(this.#plainPrinted)
-    let out = ''
-    for (const block of fresh) {
-      // Pipe / CI output is not a viewport: print the full tool body.
-      for (const line of blockLines(block, theme, width, 0, true)) out += line + '\n'
-    }
-    this.#plainPrinted = this.#state.blocks.length
-    if (out !== '') this.#term.output.write(out)
   }
 
   #busy(): boolean {
@@ -1221,7 +1119,7 @@ export class LocalTui implements TuiService {
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
         input: this.#editor.text,
         inputCursor: this.#editor.cursor,
-        inputImages: this.#images.length,
+        inputImages: this.#images.count,
         queuedSubmissions: this.#queueEditNewer === null
           ? this.#queuedSubmissions
           : [...this.#queuedSubmissions, ...this.#queueEditNewer],
@@ -1318,7 +1216,6 @@ export class LocalTui implements TuiService {
   }
 
   readonly #utf8 = new StringDecoder('utf8')
-  readonly #plainQueue: string[] = []
   #onData(chunk: Buffer): void {
     // Decode bytes across the whole stream so a multi-byte UTF-8 character
     // split between data events is never corrupted into replacement chars.
@@ -1375,8 +1272,8 @@ export class LocalTui implements TuiService {
       if (images.every((image): image is TuiInputImage => image !== null)) {
         let inserted = false
         for (const image of images) {
-          if (await this.#admitImage(image)) {
-            this.#insertImageDraft(image)
+          if (await this.#images.admit(image)) {
+            this.#images.insert(image)
             inserted = true
           }
         }
@@ -1391,7 +1288,7 @@ export class LocalTui implements TuiService {
       // image instead of leaking that stale path into the prompt.
       const clipboardImage = await this.#readClipboardImage()
       if (clipboardImage !== null) {
-        this.#insertImageDraft(clipboardImage)
+        this.#images.insert(clipboardImage)
         this.#refreshAutocomplete()
         this.#render()
         return
@@ -1406,8 +1303,8 @@ export class LocalTui implements TuiService {
     if (this.#search === null && this.#settings === null && this.#copySelector === null) {
       const image = await this.#readClipboardImage()
       if (image !== null) {
-        if (await this.#admitImage(image)) {
-          this.#insertImageDraft(image)
+        if (await this.#images.admit(image)) {
+          this.#images.insert(image)
           this.#refreshAutocomplete()
           this.#render()
         }
@@ -1421,8 +1318,8 @@ export class LocalTui implements TuiService {
         if (images.length > 0) {
           let inserted = false
           for (const candidate of images) {
-            if (await this.#admitImage(candidate)) {
-              this.#insertImageDraft(candidate)
+            if (await this.#images.admit(candidate)) {
+              this.#images.insert(candidate)
               inserted = true
             }
           }
@@ -1436,92 +1333,6 @@ export class LocalTui implements TuiService {
     }
     const text = await this.#readClipboard()
     if (text !== '') await this.#acceptPastedText(text)
-  }
-
-  /**
-   * Run the Harness image-admission check for one paste candidate. A refusal
-   * becomes an error notice and skips the draft, instead of failing the whole
-   * submission after the user has typed a prompt around it.
-   */
-  async #admitImage(image: TuiInputImage): Promise<boolean> {
-    if (this.#validateImageDraft === undefined) return true
-    try {
-      await this.#validateImageDraft(image)
-      return true
-    } catch (error: unknown) {
-      this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-      return false
-    }
-  }
-
-  #insertImageDraft(input: TuiInputImage): void {
-    const size = input.width === undefined || input.height === undefined
-      ? probeImageDimensions(input.data, input.mediaType)
-      : undefined
-    const image: TuiInputImage = {
-      ...input,
-      ...(input.width === undefined && size !== undefined ? { width: size.width } : {}),
-      ...(input.height === undefined && size !== undefined ? { height: size.height } : {}),
-    }
-    const marker = imageMarker(this.#images.length, image)
-    const before = this.#editor.cursor > 0 && !/\s/u.test(this.#editor.text[this.#editor.cursor - 1] ?? '') ? ' ' : ''
-    const after = this.#editor.cursor >= this.#editor.text.length || !/\s/u.test(this.#editor.text[this.#editor.cursor] ?? '')
-      ? ' '
-      : ''
-    this.#images.push(image)
-    this.#editor.handle({ type: 'text', value: before + marker + after })
-  }
-
-  #removeImageAtCursor(key: 'backspace' | 'delete'): boolean {
-    const cursor = this.#editor.cursor
-    for (let index = 0; index < this.#images.length; index += 1) {
-      const image = this.#images[index] as TuiInputImage
-      const marker = imageMarker(index, image)
-      const start = this.#editor.text.indexOf(marker)
-      if (start < 0) continue
-      let from = start
-      let to = start + marker.length
-      const touches = key === 'backspace'
-        ? cursor > start && cursor <= to
-        : cursor >= start && cursor < to
-      if (!touches) continue
-      if (this.#editor.text[to] === ' ') to += 1
-      else if (from > 0 && this.#editor.text[from - 1] === ' ') from -= 1
-      const oldImages = this.#images
-      let text = this.#editor.text.slice(0, from) + this.#editor.text.slice(to)
-      const nextImages = oldImages.filter((_, oldIndex) => oldIndex !== index)
-      let nextIndex = 0
-      for (let oldIndex = 0; oldIndex < oldImages.length; oldIndex += 1) {
-        if (oldIndex === index) continue
-        const remaining = oldImages[oldIndex] as TuiInputImage
-        text = text.replaceAll(imageMarker(oldIndex, remaining), imageMarker(nextIndex, remaining))
-        nextIndex += 1
-      }
-      this.#images = nextImages
-      this.#editor.setText(text, Math.min(from, text.length))
-      this.#refreshAutocomplete()
-      this.#render()
-      return true
-    }
-    return false
-  }
-
-  #reconcileImageDrafts(): void {
-    if (this.#images.length === 0) return
-    const oldImages = this.#images
-    const retained = oldImages.filter((image, index) => this.#editor.text.includes(imageMarker(index, image)))
-    if (retained.length === oldImages.length) return
-    let text = this.#editor.text
-    let nextIndex = 0
-    for (let oldIndex = 0; oldIndex < oldImages.length; oldIndex += 1) {
-      const image = oldImages[oldIndex] as TuiInputImage
-      const oldMarker = imageMarker(oldIndex, image)
-      if (!text.includes(oldMarker)) continue
-      text = text.replaceAll(oldMarker, imageMarker(nextIndex, image))
-      nextIndex += 1
-    }
-    this.#images = retained
-    this.#editor.setText(text, Math.min(this.#editor.cursor, text.length))
   }
 
   #dispatch(event: KeyEvent): void {
@@ -1634,7 +1445,7 @@ export class LocalTui implements TuiService {
         for (const listener of this.#interrupts) listener()
       } else {
         this.#editor.clear()
-        this.#images = []
+        this.#images.clear()
         this.#historyIndex = 0
         this.#ac = null
         this.#render()
@@ -1660,9 +1471,9 @@ export class LocalTui implements TuiService {
     if (this.#handleSubagentLauncher(event)) return
     if (event.type === 'key' && event.id === 'escape') {
       if (this.#inspected !== undefined) {
-        if (this.#inspected.writable === true && (this.#editor.text !== '' || this.#images.length > 0)) {
+        if (this.#inspected.writable === true && (this.#editor.text !== '' || this.#images.count > 0)) {
           this.#editor.clear()
-          this.#images = []
+          this.#images.clear()
           this.#ac = null
           this.#render()
           return
@@ -1671,7 +1482,7 @@ export class LocalTui implements TuiService {
         return
       }
       if (this.#state.status !== 'idle' || this.#pending === null
-        || this.#editor.text !== '' || this.#images.length > 0) {
+        || this.#editor.text !== '' || this.#images.count > 0) {
         this.#lastEscapeTime = 0
       } else {
         const now = Date.now()
@@ -1685,7 +1496,11 @@ export class LocalTui implements TuiService {
       }
     }
     if (event.type === 'key' && (event.id === 'backspace' || event.id === 'delete')
-      && this.#removeImageAtCursor(event.id)) return
+      && this.#images.removeAtCursor(event.id)) {
+      this.#refreshAutocomplete()
+      this.#render()
+      return
+    }
     this.#applyCommand(this.#editor.handle(event))
   }
 
@@ -1874,7 +1689,7 @@ export class LocalTui implements TuiService {
       return false
     }
     if (!hasAgents || event.type !== 'key' || event.id !== 'down') return false
-    if (this.#editor.text !== '' || this.#images.length > 0 || this.#historyIndex !== 0 || this.#ac !== null) return false
+    if (this.#editor.text !== '' || this.#images.count > 0 || this.#historyIndex !== 0 || this.#ac !== null) return false
     if (this.#queuedSubmissions.length > 0 || this.#queueEditNewer !== null || this.#queueEditPending) return false
     this.#subagentLauncherFocused = true
     this.#render()
@@ -2206,7 +2021,7 @@ export class LocalTui implements TuiService {
 
   #applyCommand(command: EditorCommand): void {
     if (command.kind === 'changed') {
-      this.#reconcileImageDrafts()
+      this.#images.reconcile()
       if (command.edited === true) this.#historyIndex = 0
       this.#refreshAutocomplete()
       this.#render()
@@ -2237,7 +2052,7 @@ export class LocalTui implements TuiService {
     }
     if (command.kind === 'clear') {
       this.#editor.clear()
-      this.#images = []
+      this.#images.clear()
       this.#queueEditNewer = null
       this.#queueEditPending = false
       this.#historyIndex = 0
@@ -2263,7 +2078,7 @@ export class LocalTui implements TuiService {
   }
 
   #historyPrev(): void {
-    if (this.#images.length > 0) return
+    if (this.#images.count > 0) return
     if (this.#history.length === 0 || this.#historyIndex >= this.#history.length) return
     if (this.#historyIndex === 0) this.#draft = this.#editor.text
     this.#historyIndex += 1
@@ -2287,7 +2102,7 @@ export class LocalTui implements TuiService {
       for (const listener of this.#queueEdits) listener()
       return true
     }
-    if (this.#editor.text !== '' || this.#images.length > 0 || this.#historyIndex !== 0) return false
+    if (this.#editor.text !== '' || this.#images.count > 0 || this.#historyIndex !== 0) return false
     const submission = this.#queuedSubmissions.pop()
     if (submission !== undefined) {
       this.#queueEditNewer = []
@@ -2303,7 +2118,7 @@ export class LocalTui implements TuiService {
   }
 
   #historyNext(): void {
-    if (this.#images.length > 0) return
+    if (this.#images.count > 0) return
     if (this.#historyIndex === 0) return
     this.#historyIndex -= 1
     this.#editor.setText(
@@ -2332,7 +2147,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    const images = this.#images.map(image => ({ ...image }))
+    const images = this.#images.copies()
     const submittedText = images.length > 0 ? text.trim() : text
     const queueEditNewer = this.#queueEditNewer
     const historyText = stripComposerImageMarkers(submittedText, images)
@@ -2347,7 +2162,7 @@ export class LocalTui implements TuiService {
     this.#queueEditNewer = null
     this.#queueEditPending = false
     this.#editor.setText('')
-    this.#images = []
+    this.#images.clear()
     this.#ac = null
     this.#search = null
     this.#settings = null
@@ -2380,7 +2195,7 @@ export class LocalTui implements TuiService {
   }
 
   #submitInspect(text: string): void {
-    const images = this.#images.map(image => ({ ...image }))
+    const images = this.#images.copies()
     const submittedText = images.length > 0 ? text.trim() : text
     const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
@@ -2392,7 +2207,7 @@ export class LocalTui implements TuiService {
     this.#historyIndex = 0
     this.#draft = ''
     this.#editor.setText('')
-    this.#images = []
+    this.#images.clear()
     this.#ac = null
     this.#search = null
     this.#followTail()
@@ -2657,7 +2472,7 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'search-history') {
-      if (this.#images.length > 0) return false
+      if (this.#images.count > 0) return false
       this.#search = createHistorySearch(this.#history)
       this.#ac = null
       this.#render()
@@ -2667,7 +2482,7 @@ export class LocalTui implements TuiService {
       // An empty composer has no forward-char target, so Ctrl+F searches the
       // transcript there; a non-empty draft keeps the editor's own binding.
       if (this.#search !== null) return false
-      if (this.#editor.text !== '' || this.#images.length > 0) return false
+      if (this.#editor.text !== '' || this.#images.count > 0) return false
       this.#transcriptSearch = createTranscriptSearch()
       this.#ac = null
       this.#render()
@@ -2713,7 +2528,7 @@ export class LocalTui implements TuiService {
       this.#term.input.setRawMode?.(false)
       const text = editExternally(this.#editor.text)
       this.#editor.setText(text)
-      this.#reconcileImageDrafts()
+      this.#images.reconcile()
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {

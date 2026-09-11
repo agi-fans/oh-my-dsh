@@ -60,7 +60,8 @@ import type {
   TuiSubmission,
   TuiInputImage,
 } from '../definition.ts'
-import { descendantDepth, isSteerableSubagent, SubagentRoster } from './subagent-roster.ts'
+import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
+import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
 import {
@@ -495,13 +496,11 @@ export class SessionRuntime {
   readonly #releasedHandles = new WeakSet<AgentHandle>()
   #disposed = false
   readonly #off: Array<() => void> = []
-  readonly #subagents = new SubagentRoster()
-  #publishedSubagents: ReturnType<SubagentRoster['snapshot']>
+  readonly #tracker: SubagentTracker
   readonly #streamAttempts = new LiveAttemptTracker()
   readonly #recentCache = new Map<string, { revision: string; row: TuiRecentSession }>()
   #refreshInFlight: Promise<void> | null = null
   #refreshDirty = false
-  #subagentEpoch = 0
   #inspectEpoch = 0
   #activationEpoch = 0
   #inspectedId: string | undefined
@@ -509,6 +508,21 @@ export class SessionRuntime {
   constructor(ctx: Context, tui: TuiService) {
     this.#ctx = ctx
     this.#tui = tui
+    this.#tracker = new SubagentTracker({
+      rootId: () => this.#active?.handle.agent.id,
+      depth: (session) => {
+        const rootId = this.#active?.handle.agent.id
+        return rootId === undefined ? undefined : descendantDepth(session, rootId, this.#lookupSession)
+      },
+      agentStatus: id => this.#ctx.get('agents')?.get(SessionId(id))?.status,
+      sessions: () => this.#ctx.get('sessions')?.list() ?? [],
+      listChildren: rootId => this.#ctx.get('subagents')?.listChildren(SessionId(rootId)),
+      publish: (roster) => {
+        this.#tui.setSubagents(roster)
+        if (this.#inspectedId === undefined) return
+        this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
+      },
+    })
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
     this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
     this.#off.push(tui.onInspectSubmit(submission => { void this.#steerInspected(submission) }))
@@ -547,15 +561,13 @@ export class SessionRuntime {
         return
       }
       if (payload.agent.id === this.#inspectedId) tui.setStatus(payload.status)
-      this.#noteSubagentStatus(payload.agent.session, payload.status)
+      this.#tracker.noteStatus(payload.agent.session, payload.status)
     }))
     this.#off.push(ctx.on('session/created', (session) => {
-      this.#noteSubagentSession(session)
+      this.#tracker.noteSession(session)
     }))
     this.#off.push(ctx.on('session/disposed', (session) => {
-      if (!this.#subagents.owns(session.id)) return
-      this.#subagents.setAgentStatus(session.id, 'gone')
-      this.#pushSubagents()
+      this.#tracker.noteGone(session)
     }))
     this.#off.push(ctx.on('session/event', (session, event) => {
       const active = this.#active
@@ -563,19 +575,19 @@ export class SessionRuntime {
       if (session.id === this.#inspectedId) {
         const child = ctx.get('agents')?.get(session.id)
         tui.event(event, child === undefined ? undefined : ctx.get('tuiToolPresentation')?.event(child, event))
-        this.#noteSubagentEvent(session, event)
+        this.#tracker.noteEvent(session, event)
         return
       }
       if (session === active.handle.agent.session) {
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
         }
-        if (event.type === 'subagent/catalog') this.#observeCatalogChildren(session, [event])
+        if (event.type === 'subagent/catalog') this.#tracker.observeCatalog(session, [event])
         if (shouldRefreshSessionInfoAfter(event)) this.#pushSessionInfo()
         if (event.type === 'session/title') void this.refreshRecent()
         return
       }
-      this.#noteSubagentEvent(session, event)
+      this.#tracker.noteEvent(session, event)
     }))
     // Format v2 moved live assistant increments off the session log. The
     // durable `session/event` firehose now carries only settlements; chunk
@@ -1049,10 +1061,9 @@ export class SessionRuntime {
   async dispose(): Promise<void> {
     if (this.#disposed) return
     this.#disposed = true
-    this.#subagentEpoch += 1
     this.#activationEpoch += 1
     this.#inspectedId = undefined
-    this.#subagents.reset()
+    this.#tracker.reset()
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setSubagents(undefined)
     this.#tui.setSessionSearch()
@@ -1169,7 +1180,7 @@ export class SessionRuntime {
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setStatus(agent.status)
-    this.#syncSubagents()
+    this.#tracker.sync()
     // Seed welcome metadata before replaceSession commits the startup header to
     // native scrollback; later updates cannot rewrite that frozen first frame.
     this.#pushSessionInfo()
@@ -1242,45 +1253,6 @@ export class SessionRuntime {
 
   #lookupSession = (id: string): Session | undefined => this.#ctx.get('sessions')?.get(SessionId(id))
 
-  #subagentDepth(session: Session): number | undefined {
-    const rootId = this.#active?.handle.agent.id
-    if (rootId === undefined) return undefined
-    return descendantDepth(session, rootId, this.#lookupSession)
-  }
-
-  #noteSubagentSession(session: Session): void {
-    const depth = this.#subagentDepth(session)
-    if (depth === undefined) return
-    const parentId = session.header.parentSession
-    this.#subagents.remember({
-      id: session.id,
-      ...(parentId === undefined ? {} : { parentId }),
-      depth,
-      phase: this.#ctx.get('agents')?.get(session.id)?.status === 'running' ? 'running' : 'starting',
-    })
-    this.#pushSubagents()
-  }
-
-  #noteSubagentEvent(session: Session, event: SessionEvent): void {
-    const depth = this.#subagentDepth(session)
-    if (depth === undefined) return
-    this.#subagents.apply(session, depth, event, this.#ctx.get('agents')?.get(session.id)?.status)
-    this.#pushSubagents()
-  }
-
-  /**
-   * Add the direct children a Session's durable catalog declares.
-   *
-   * The live roster is built from `session/created` and child events, so a
-   * resumed parent would otherwise show nothing: its children are neither
-   * loaded nor replayed. Catalog facts are durable, so a restored roster still
-   * lists those children, and `#inspectSubagent` opens each transcript from
-   * disk. Children the live path already knows keep their own state.
-   */
-  #observeCatalogChildren(session: Session, events: readonly SessionEvent[]): void {
-    if (this.#subagents.observeCatalog(session.id, events)) this.#pushSubagents()
-  }
-
   /** Route live output only to the visible session; background frames remain buffered for inspection. */
   #forwardLiveDelta(agent: Agent, delta: StreamDelta): void {
     const active = this.#active
@@ -1307,54 +1279,8 @@ export class SessionRuntime {
     }
   }
 
-  #noteSubagentStatus(session: Session, status: 'idle' | 'running'): void {
-    if (this.#subagents.owns(session.id)) {
-      this.#subagents.setAgentStatus(session.id, status)
-      this.#pushSubagents()
-      return
-    }
-    const depth = this.#subagentDepth(session)
-    if (depth === undefined) return
-    this.#subagents.hydrate(session, depth, this.#ctx.get('agents')?.get(session.id)?.status ?? status)
-    this.#pushSubagents()
-  }
-
-  #syncSubagents(): void {
-    const root = this.#active?.handle.agent
-    const epoch = this.#subagentEpoch + 1
-    this.#subagentEpoch = epoch
-    if (root === undefined) {
-      this.#subagents.reset()
-      this.#tui.setSubagents(undefined)
-      return
-    }
-    this.#subagents.reset(root.id)
-    for (const session of this.#ctx.get('sessions')?.list() ?? []) {
-      const depth = descendantDepth(session, root.id, this.#lookupSession)
-      if (depth === undefined) continue
-      this.#subagents.hydrate(session, depth, this.#ctx.get('agents')?.get(session.id)?.status)
-    }
-    this.#pushSubagents()
-    const listed = this.#ctx.get('subagents')?.listChildren(root.id)
-    if (listed === undefined) return
-    void listed.then((entries) => {
-      if (epoch !== this.#subagentEpoch || this.#active?.handle.agent !== root) return
-      for (const entry of entries) {
-        if (entry.kind !== 'child') continue
-        this.#subagents.remember({
-          id: entry.id,
-          depth: 1,
-          mode: entry.mode,
-          ...(entry.label === undefined ? {} : { label: entry.label }),
-          phase: entry.activity === 'running' ? 'running' : 'waiting',
-        })
-      }
-      this.#pushSubagents()
-    }, () => undefined)
-  }
-
   #inspectView(id: string, fallbackPhase: TuiInspectedSubagent['phase'] = 'waiting'): TuiInspectedSubagent {
-    const view = this.#subagents.snapshot()?.agents.find(agent => agent.id === id)
+    const view = this.#tracker.snapshot()?.agents.find(agent => agent.id === id)
     const mode = view?.mode
     return {
       id,
@@ -1363,15 +1289,6 @@ export class SessionRuntime {
       ...(mode === undefined ? {} : { mode }),
       writable: isSteerableSubagent(mode),
     }
-  }
-
-  #pushSubagents(): void {
-    const roster = this.#subagents.snapshot()
-    if (roster === this.#publishedSubagents) return
-    this.#publishedSubagents = roster
-    this.#tui.setSubagents(roster)
-    if (this.#inspectedId === undefined) return
-    this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
   }
 
   #pushSessionInfo(): void {
@@ -1406,7 +1323,7 @@ export class SessionRuntime {
 
   #replaceTranscript(agent: Agent): void {
     const events = agent.session.snapshotEvents()
-    this.#observeCatalogChildren(agent.session, events)
+    this.#tracker.observeCatalog(agent.session, events)
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
     this.#replayLivePrefix(agent.session.id)
   }
@@ -1434,7 +1351,7 @@ export class SessionRuntime {
   async #inspectSubagent(id: string): Promise<void> {
     const request = this.#inspectEpoch + 1
     this.#inspectEpoch = request
-    if (!this.#subagents.owns(id)) {
+    if (!this.#tracker.owns(id)) {
       this.#tui.notice('That subagent is no longer available.', { level: 'error' })
       return
     }
@@ -1485,7 +1402,7 @@ export class SessionRuntime {
       return
     }
     const live = this.#ctx.get('sessions')?.get(SessionId(childId))
-    const rosterParent = this.#subagents.snapshot()?.agents.find(agent => agent.id === childId)?.parentId
+    const rosterParent = this.#tracker.snapshot()?.agents.find(agent => agent.id === childId)?.parentId
     const parentId = live?.header.parentSession ?? rosterParent
     const parent = parentId === undefined || parentId === root.id
       ? root
