@@ -32,10 +32,6 @@ function firstLine(value: string): string {
   return value.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')[0]?.trim() ?? ''
 }
 
-function contentText(content: unknown): string {
-  return blocksText(content, { kinds: ['text', 'reasoning'], join: '' })
-}
-
 /** Short fallback when a child has no descriptor label or title yet. */
 export function shortSessionLabel(id: string): string {
   return id.length <= 12 ? id : id.slice(-8)
@@ -152,7 +148,7 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
     }
     case 'user/message': {
       if (view.label !== shortSessionLabel(view.id)) return view
-      const text = firstLine(contentText(event.data.content))
+      const text = firstLine(blocksText(event.data.content, { kinds: ['text', 'reasoning'], join: '' }))
       if (text === '') return view
       return { ...view, label: text }
     }

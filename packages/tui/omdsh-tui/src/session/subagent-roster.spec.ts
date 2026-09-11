@@ -57,6 +57,12 @@ describe('summarizeToolCall', () => {
     expect(summarizeToolCall('grep', '{"pattern":"TODO"}')).toBe('grep TODO')
     expect(summarizeToolCall('unknown', '{}')).toBe('unknown')
   })
+
+  it('follows the shared TOOL_ARG_FIELDS precedence when several fields are present', () => {
+    // file_path outranks path, matching the streaming-preview order in tool-renderers.
+    expect(summarizeToolCall('edit', '{"path":"a.ts","file_path":"b.ts"}')).toBe('edit b.ts')
+    expect(summarizeToolCall('task', '{"description":"Explore auth","url":"https://x"}')).toBe('task Explore auth')
+  })
 })
 
 describe('applySubagentEvent', () => {
