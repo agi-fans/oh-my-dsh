@@ -39,4 +39,4 @@ Composer images travel with `/plan` and `/goal` when those commands accept them;
 
 When the agent records a Todo list, a compact tree appears above the queue and composer. Completed items, the current item, and pending work use distinct states. `/todo` prints the latest list into the transcript when you need a durable snapshot.
 
-Todo describes the current turn's work, while `/goal <objective>` controls a longer-running goal. Run `/goal` without arguments to inspect its current state and available actions.
+Todo describes the current turn's work, while `/goal <objective>` controls a longer-running goal. Run `/goal` without arguments to inspect its current state and available actions. Delegated children show up in the roster above the composer and in the Agent Hub; [Subagents and delegation](../subagents.md) covers the transports and how to steer a continuable child.

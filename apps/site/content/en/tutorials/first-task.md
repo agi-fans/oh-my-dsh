@@ -55,7 +55,7 @@ Run `/permission` before a task that may change files. The interactive selector 
 | Workspace write | The task may edit the current workspace, while wider access still requires approval. |
 | Full access | You trust the workspace and intentionally want unrestricted filesystem access without approval prompts. |
 
-Full access requires a second confirmation. Access is the enforcement boundary; the Plan workflow is guidance and does not replace sandbox or approval policy.
+Full access requires a second confirmation. Access is the enforcement boundary; the Plan workflow is guidance and does not replace sandbox or approval policy. The sandbox and approval behavior behind each preset is documented in [Permissions and access](../permissions.md).
 
 ### Send a concrete request
 

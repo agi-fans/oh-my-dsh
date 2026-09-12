@@ -55,7 +55,7 @@ Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；
 | Workspace write | 允许修改当前工作区，但访问更大范围时仍然需要审批。 |
 | Full access | 你信任当前工作区，并明确需要不经审批的完整文件系统访问。 |
 
-Full access 需要二次确认。Access 才是实际的执行边界；Plan Workflow 只提供工作流指导，不能代替 Sandbox 或审批策略。
+Full access 需要二次确认。Access 才是实际的执行边界；Plan Workflow 只提供工作流指导，不能代替 Sandbox 或审批策略。每个 preset 背后的沙箱与审批行为见[权限与 Access](../permissions.md)。
 
 ### 发送具体任务
 

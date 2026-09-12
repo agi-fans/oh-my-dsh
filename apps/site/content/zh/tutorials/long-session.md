@@ -14,7 +14,7 @@ description: 恢复、回退、压缩并导出长 omdsh 会话，包括两次 Ct
 omdsh --resume <session-id>
 ```
 
-在 TUI 内运行 `/resume` 会打开可搜索的会话选择器，其中包含最近一条用户消息的预览、更新时间、Event 数量和完成状态。如果已经知道会话 ID，可以使用 `/resume <session-id>` 跳过选择器。
+在 TUI 内运行 `/resume` 会打开可搜索的会话选择器，其中包含最近一条用户消息的预览、更新时间、Event 数量和完成状态。如果已经知道会话 ID，可以使用 `/resume <session-id>` 跳过选择器。会话日志、Session Library 与本地数据文件的说明见[会话与历史](../sessions.md)。
 
 ### 了解旧会话的兼容边界
 

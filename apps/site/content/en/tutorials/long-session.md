@@ -14,7 +14,7 @@ The first `Ctrl+C` clears or interrupts, and a second one exits. When the active
 omdsh --resume <session-id>
 ```
 
-Inside the TUI, `/resume` opens a searchable session selector with the latest human-message preview, age, event count, and completion state. `/resume <session-id>` skips the selector when you already know the identifier.
+Inside the TUI, `/resume` opens a searchable session selector with the latest human-message preview, age, event count, and completion state. `/resume <session-id>` skips the selector when you already know the identifier. Session logs, the Session Library, and the local data files are documented in [Sessions and history](../sessions.md).
 
 ### Understand legacy session compatibility
 

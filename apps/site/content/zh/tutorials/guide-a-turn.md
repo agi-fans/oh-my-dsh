@@ -39,4 +39,4 @@ Composer 中的图片会随 `/plan` 和 `/goal` 一起提交（当这些命令�
 
 当 Agent 写入 Todo 列表后，Composer 和队列上方会出现紧凑的任务树，分别表示已完成、当前和待处理工作。需要把当前状态固定到 Transcript 中时，运行 `/todo` 查看最新列表。
 
-Todo 描述当前回合的工作，而 `/goal <objective>` 用于控制更长时间运行的目标。不带参数运行 `/goal` 可以查看当前状态和可用操作。
+Todo 描述当前回合的工作，而 `/goal <objective>` 用于控制更长时间运行的目标。不带参数运行 `/goal` 可以查看当前状态和可用操作。被委派的子代理会出现在 composer 上方的 roster 和 Agent Hub 中；[子智能体与委派](../subagents.md)介绍了三种 transport 以及如何引导可继续的孩子。
