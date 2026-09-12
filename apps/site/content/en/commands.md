@@ -86,5 +86,8 @@ Every user-invocable Skill appears as `/skill:<name>`, with the description from
 ## Related
 
 - [Keyboard and keys](keyboard.md) — editing keys, overlays, and `keybindings.json`
+- [Settings](settings.md) — every row behind `/settings`
+- [Permissions and access](permissions.md) — the presets behind `/permission`
+- [Command line](cli.md) — the `omdsh` binary, flags, and environment variables
 - [Tutorials](tutorials.md) — task-based walkthroughs for these commands
 - [Skills and MCP](skills-and-mcp.md) — Skills discovery and MCP configuration

@@ -33,6 +33,10 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 `/tools` 按注册表暴露的方式分组列出 agent 可见的工具。`/mcp` 按 MCP 服务器分组显示已连接的工具；MCP 重连后工具列表变化时，两个视图都会自动更新。超过上下文预算的工具结果会溢写到私有文件，转录中只保留有界预览；原始内容仍可用 `read` 或 `grep` 读取。
 
+## Herdr 面板集成
+
+在 Herdr 面板中运行时，omdsh 会注册为一个一等 agent：侧边栏跟随它的 `working`、`idle` 与 `blocked` 状态（blocked 时会指出待处理的审批或问题），可恢复的会话 id 会被上报，omdsh 退出时面板会被释放。在 Herdr 之外，该集成保持静止。
+
 ## 相关
 
 - [命令](commands.md) —— `/trajectory`、`/context`、`/session`、`/diff` 及其余命令目录

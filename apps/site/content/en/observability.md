@@ -33,6 +33,10 @@ Matching scans the full ledger, so collapsed turns and hidden subtool calls stil
 
 `/tools` lists the tools visible to the agent, grouped the way the registry exposes them. `/mcp` groups connected tools by their MCP server; both views update automatically when a tool list changes after an MCP reconnect. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
 
+## Herdr pane integration
+
+Inside a Herdr pane, omdsh registers as a first-class agent: the sidebar follows its `working`, `idle`, and `blocked` state (a block names the pending approval or question), the resumable session id is reported, and the pane is released when omdsh exits. The integration stays inert outside Herdr.
+
 ## Related
 
 - [Commands](commands.md) — `/trajectory`, `/context`, `/session`, `/diff`, and the rest of the catalog

@@ -23,7 +23,7 @@ Choose `custom` to add a gateway or local server that is not in the catalog: giv
 
 ### Set Agent language and customize the interface
 
-Run `/settings` to configure the Agent's default language, theme, color output, motion, native terminal activity, default tool expansion, update checks, startup release notes, and the status line.
+Run `/settings` to configure the Agent's default language, theme, color output, motion, native terminal activity, default tool expansion, update checks, startup release notes, and the status line. Every row, its allowed values, and its default are listed in [Settings](../settings.md).
 
 Keys inside `/settings`:
 

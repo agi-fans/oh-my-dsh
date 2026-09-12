@@ -12,6 +12,11 @@ The CLI package is [@agi-fans/oh-my-dsh](https://www.npmjs.com/package/@agi-fans
 - [Sessions and history](https://omdsh.agi.fans/docs/sessions/): durable logs, the Session Library, and local data files
 - [Subagents and delegation](https://omdsh.agi.fans/docs/subagents/): transports, the Agent Hub, and background jobs
 - [Observability](https://omdsh.agi.fans/docs/observability/): the trajectory ledger, context usage, and diffs
+- [Settings](https://omdsh.agi.fans/docs/settings/): appearance, motion, notifications, and the status line
+- [Permissions and access](https://omdsh.agi.fans/docs/permissions/): access presets, sandbox, and approvals
+- [Command line](https://omdsh.agi.fans/docs/cli/): flags, subcommands, and environment variables
+- [Tools](https://omdsh.agi.fans/docs/tools/): what the model can use, grouped by capability
+- [Troubleshooting](https://omdsh.agi.fans/docs/troubleshooting/): exit, color, scrollback, and boot failures
 - [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/): reusable instructions and external tools
 - [User plugins](https://omdsh.agi.fans/docs/plugins/): install DSH bundles with `omdsh plugin`
 - [Architecture](https://omdsh.agi.fans/docs/architecture/): plugin boundaries and runtime data flow

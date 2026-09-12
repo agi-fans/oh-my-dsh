@@ -86,5 +86,8 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 ## 相关
 
 - [键盘与快捷键](keyboard.md) —— 编辑按键、浮层按键与 `keybindings.json`
+- [设置](settings.md) —— `/settings` 背后的每一行
+- [权限与 Access](permissions.md) —— `/permission` 背后的 preset
+- [命令行](cli.md) —— `omdsh` 二进制、flags 与环境变量
 - [教程](tutorials.md) —— 按任务组织的命令走查
 - [Skills 与 MCP](skills-and-mcp.md) —— Skills 发现与 MCP 配置
