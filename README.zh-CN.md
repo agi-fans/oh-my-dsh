@@ -8,7 +8,7 @@ omdsh 是一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepS
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
-[English](README.md) · 简体中文
+[官方文档](https://omdsh.agi.fans/zh/) · [English](README.md) · 简体中文
 
 </div>
 
@@ -34,16 +34,40 @@ omdsh
 - **实时运行上下文：** 无需离开 Composer，即可查看 Agent、Workflow、Access、模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤；使用 `/context` 可以在 transcript 中直接查看并保留基于 Projection 的构成明细。
 - **为响应速度而设计：** 复用已完成的 Transcript 布局、合并滚动更新、只输出发生变化的终端行，并正确处理 CJK 文本和 emoji 的显示宽度。
 
-## 学习指南
+## 文档
 
-完整文档同时发布在[官方站点](https://omdsh.agi.fans/)。
+完整文档发布在[官方站点](https://omdsh.agi.fans/zh/)；`apps/site/content/` 下的 Markdown 是它的内容源。
 
-- [教程](https://omdsh.agi.fans/zh/docs/tutorials/) — 完成第一个任务、提供精确上下文、引导队列任务、恢复长会话、定制工作环境，并编写可安装插件。
-- [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/) — 使用可复用指令和外部工具扩展项目。
+**从这里开始**
+
+- [教程](https://omdsh.agi.fans/zh/docs/tutorials/) — 完成第一个任务、提供精确的项目上下文、引导排队工作、恢复长会话、调整工作环境，并编写可安装插件。
+- [命令](https://omdsh.agi.fans/zh/docs/commands/) — 每个斜杠命令的参数与别名。
+- [键盘与快捷键](https://omdsh.agi.fans/zh/docs/keyboard/) — 编辑、转录、浮层按键与 `keybindings.json`。
+
+**参考**
+
+- [会话与历史](https://omdsh.agi.fans/zh/docs/sessions/) — 持久日志、Session Library 与本地数据文件。
+- [子智能体与委派](https://omdsh.agi.fans/zh/docs/subagents/) — 三种 transport、Agent Hub、引导与后台任务。
+- [可观测性](https://omdsh.agi.fans/zh/docs/observability/) — `/trajectory`、`/context`、`/diff`、`/tools` 与 `/mcp`。
+- [设置](https://omdsh.agi.fans/zh/docs/settings/) — 外观、动效、通知与可配置的状态栏。
+- [权限与 Access](https://omdsh.agi.fans/zh/docs/permissions/) — Access preset、沙箱与审批。
+- [命令行](https://omdsh.agi.fans/zh/docs/cli/) — flags、子命令与环境变量。
+- [工具](https://omdsh.agi.fans/zh/docs/tools/) — 模型可用的工具，按能力分组。
+- [故障排查](https://omdsh.agi.fans/zh/docs/troubleshooting/) — 退出、颜色、滚动回看与启动失败。
+
+**扩展与集成**
+
+- [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/) — 可复用指令与外部工具。
+- [语言服务器](https://omdsh.agi.fans/zh/docs/language-servers/) — 配置只读代码智能。
 - [用户插件](https://omdsh.agi.fans/zh/docs/plugins/) — 用 `omdsh plugin` 把 DSH bundle 装进 omdsh Profile。
-- [架构](https://omdsh.agi.fans/zh/docs/architecture/) — 了解插件边界与运行时数据流。
-- [性能](https://omdsh.agi.fans/zh/docs/performance/) — 查看 Benchmark、测试方法与渲染优化。
-- [报告问题或提出功能建议](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) — 使用引导表单提供版本、运行环境、复现步骤及脱敏后的上下文。
+- [插件内部机制](https://omdsh.agi.fans/zh/docs/plugin-internals/) — `ctx.tui` 表面与贡献层。
+
+**内部实现**
+
+- [架构](https://omdsh.agi.fans/zh/docs/architecture/) — 插件边界与运行时数据流。
+- [性能](https://omdsh.agi.fans/zh/docs/performance/) — Benchmark、测试方法与渲染优化。
+
+使用引导表单[报告问题或提出功能建议](https://github.com/agi-fans/oh-my-dsh/issues/new/choose)，请提供版本、运行环境、复现步骤与脱敏上下文。
 
 ## 为什么做 oh-my-dsh
 
@@ -86,7 +110,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 模型配置也可以来自 `$DSH_HOME/settings.yaml`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
 
-升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。长任务完成和等待人工输入的终端通知也在这里配置，并且默认关闭。
+升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。长任务完成和等待人工输入的终端通知也在这里配置，并且默认关闭。每一项设置、可选值与默认值见[设置](https://omdsh.agi.fans/zh/docs/settings/)。
 
 以下命令不会启动 TUI 或访问网络，可直接生成 Shell 补全脚本：
 

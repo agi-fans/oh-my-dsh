@@ -10,7 +10,7 @@ omdsh is a focused, keyboard-first DeepSeek coding agent built on the plugin arc
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE)
 
-English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README.zh-CN.md)
+[Documentation](https://omdsh.agi.fans/) · English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README.zh-CN.md)
 
 </div>
 
@@ -36,16 +36,40 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 - **Live operational context:** see Agent, Workflow, Access, model, reasoning effort, workspace, Git state, context pressure, tokens, TTFT, throughput, cache, timings, turns, and steps without leaving the composer; use `/context` for an inline projection-backed breakdown that remains in the transcript.
 - **Responsive by design:** retain settled transcript layout, coalesce scroll updates, emit row-level terminal diffs, and preserve correct display-cell alignment for CJK text and emoji.
 
-## Learn
+## Documentation
 
-The full documentation is also published on the [official site](https://omdsh.agi.fans/).
+The full documentation is published at [omdsh.agi.fans](https://omdsh.agi.fans/), and the Markdown under `apps/site/content/` is its source of truth.
 
-- [Tutorials](https://omdsh.agi.fans/docs/tutorials/) — complete a first task, add precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
-- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/) — extend a project with reusable instructions and external tools.
+**Start here**
+
+- [Tutorials](https://omdsh.agi.fans/docs/tutorials/) — complete a first task, give the agent precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
+- [Commands](https://omdsh.agi.fans/docs/commands/) — every slash command with its arguments and aliases.
+- [Keyboard and keys](https://omdsh.agi.fans/docs/keyboard/) — editing, transcript, overlay keys, and `keybindings.json`.
+
+**Reference**
+
+- [Sessions and history](https://omdsh.agi.fans/docs/sessions/) — durable logs, the Session Library, and the local data files.
+- [Subagents and delegation](https://omdsh.agi.fans/docs/subagents/) — the three transports, the Agent Hub, steering, and background jobs.
+- [Observability](https://omdsh.agi.fans/docs/observability/) — `/trajectory`, `/context`, `/diff`, `/tools`, and `/mcp`.
+- [Settings](https://omdsh.agi.fans/docs/settings/) — appearance, motion, notifications, and the configurable status line.
+- [Permissions and access](https://omdsh.agi.fans/docs/permissions/) — Access presets, sandbox, and approvals.
+- [Command line](https://omdsh.agi.fans/docs/cli/) — flags, subcommands, and environment variables.
+- [Tools](https://omdsh.agi.fans/docs/tools/) — what the model can use, grouped by capability.
+- [Troubleshooting](https://omdsh.agi.fans/docs/troubleshooting/) — exit, color, scrollback, and boot failures.
+
+**Extend and integrate**
+
+- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/) — reusable instructions and external tools.
+- [Language servers](https://omdsh.agi.fans/docs/language-servers/) — configure read-only code intelligence.
 - [User plugins](https://omdsh.agi.fans/docs/plugins/) — install DSH bundles into the omdsh Profile with `omdsh plugin`.
-- [Architecture](https://omdsh.agi.fans/docs/architecture/) — understand the plugin boundaries and runtime data flow.
-- [Performance](https://omdsh.agi.fans/docs/performance/) — inspect the benchmarks, methodology, and rendering optimizations.
-- [Report a bug or request a feature](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) — use a guided form to include the version, environment, reproduction steps, and sanitized context.
+- [Plugin internals](https://omdsh.agi.fans/docs/plugin-internals/) — the `ctx.tui` surface and the contribution layer.
+
+**Internals**
+
+- [Architecture](https://omdsh.agi.fans/docs/architecture/) — plugin boundaries and runtime data flow.
+- [Performance](https://omdsh.agi.fans/docs/performance/) — benchmarks, methodology, and rendering optimizations.
+
+[Report a bug or request a feature](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) with a guided form for the version, environment, reproduction steps, and sanitized context.
 
 ## Why oh-my-dsh
 
@@ -88,7 +112,7 @@ Run `/login` to configure a provider. DeepSeek still opens the official key dash
 
 Model settings can also come from `$DSH_HOME/settings.yaml`. Use `/model favorite` and `/model unfavorite` to maintain a small local cycle list, then use `Ctrl+P`/`Alt+P` to move through it and `Ctrl+T` to change reasoning effort. Skills and MCP configuration are documented in [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/).
 
-After an upgrade, omdsh can show release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A cached daily npm check reports newer versions without installing anything automatically; both behaviors can be customized in `/settings`. Terminal notifications for completed long turns and human prompts are also configured there and remain off by default.
+After an upgrade, omdsh can show release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A cached daily npm check reports newer versions without installing anything automatically; both behaviors can be customized in `/settings`. Terminal notifications for completed long turns and human prompts are also configured there and remain off by default. Every setting, its allowed values, and its default are listed in [Settings](https://omdsh.agi.fans/docs/settings/).
 
 Generate shell integration without starting the TUI or making network requests:
 
