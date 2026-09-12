@@ -108,6 +108,21 @@ describe('process-isolated subagent transport', () => {
     expect(row('tool-subagent').config?.backgroundMode).toBe('continuable')
   })
 
+  it('tells the model when to pick the isolated transport', () => {
+    // The tool descriptions are identical across providers, so the persona
+    // suffix is the only place that states the routing rule.
+    const prompt = row('system-prompt')
+    const suffix = prompt.config?.personaSuffix
+    expect(suffix).toBeTypeOf('string')
+    for (const tool of ['subagent_isolated', 'subagent', 'subagent_fork']) {
+      expect(String(suffix), `personaSuffix names ${tool}`).toContain(tool)
+    }
+    // The routing rule's actual content: isolated for parallel/heavy
+    // self-contained work, in-process when steering or continuation matters.
+    expect(String(suffix)).toMatch(/prefer `subagent_isolated`/iu)
+    expect(String(suffix)).toMatch(/one-shot/iu)
+  })
+
   it('configures the isolated tool for the capabilities ACP actually has', () => {
     const config = row('tool-subagent-isolated').config ?? {}
     // A numeric depth cap is refused, because the provider cannot enforce

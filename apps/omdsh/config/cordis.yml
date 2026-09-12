@@ -186,6 +186,14 @@
   # tool-skill 注册（两者都以 session 前缀消息注入，注册顺序即渲染顺序）。
   - id: system-prompt
     name: '@deepseek-ai/dsh-system-prompt'
+    config:
+      # Renders as the `deployment:persona-suffix` section — the last prompt
+      # section, right above the tool catalog. The delegation tools differ in
+      # transport, and the in-process ones share this session's event loop:
+      # without routing guidance the model has no reason to ever pick
+      # `subagent_isolated`, so heavy parallel delegation starves rendering.
+      personaSuffix: |
+        Delegation routing: `subagent` and `subagent_fork` run the child in this process — the child stays steerable through `send_message` and continuable after it settles, but every in-process child shares the interactive session's capacity. `subagent_isolated` runs the child in a separate process: one-shot, no steering, no follow-up, and the host session stays responsive under heavy or parallel delegation. Prefer `subagent_isolated` when dispatching several independent tasks at once or a single heavyweight self-contained task; use `subagent` when steering or continuation matters, and `subagent_fork` when the task builds on this conversation's completed turns.
 
   - id: tools
     name: '@deepseek-ai/dsh-tools'

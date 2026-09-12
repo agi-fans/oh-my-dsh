@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Streaming tool-call previews now recognize `description`, so a delegation call shows its task description while its arguments arrive instead of the raw JSON fragment.
 - Durable settlement events no longer repaint the screen one frame per event while a turn is running: step, tool, and assistant settlements share the stream-render timer like status updates already did, so bursts from parallel tool calls or in-process subagents cost one frame per interval instead of one per event. Control events such as command lifecycle and inbox splices still paint immediately.
 - Live tool-result presentation resolves its matching call through a streamed index instead of rescanning the whole session log, keeping per-event cost flat as sessions grow.
+- The agent is now told when to pick the process-isolated `subagent_isolated` transport: the shipped persona suffix routes heavyweight or parallel self-contained delegations there, keeping in-process `subagent`/`subagent_fork` for work that needs steering or continuation. The isolated transport already shipped in 0.16.0; it previously had no routing guidance, so the model had no reason to choose it.
 
 ## [0.16.0] - 2026-09-11
 
