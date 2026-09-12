@@ -91,6 +91,8 @@
 .tool-card {
   display: flex;
   flex-direction: column;
+  color: inherit;
+  text-decoration: none;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--bg-raise);
@@ -98,6 +100,8 @@
 }
 
 .tool-card:hover {
+  color: inherit;
+  text-decoration: none;
   border-color: var(--brand);
   transform: translateY(-2px);
   box-shadow: var(--glow);
@@ -129,20 +133,130 @@
   white-space: nowrap;
 }
 
+.tool-card .tc-arrow {
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--ink-faint);
+  transition: color 140ms ease;
+}
+
+.tool-card:hover .tc-arrow {
+  color: var(--brand-bright);
+}
+
 .tool-card .tc-body {
+  display: block;
   padding: 13px;
 }
 
 .tool-card .tc-title {
+  display: block;
   margin: 0 0 6px;
   font-size: 15.5px;
   font-weight: 650;
 }
 
 .tool-card .tc-details {
+  display: block;
   margin: 0;
   color: var(--ink-dim);
   font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* ---------- why omdsh ---------- */
+
+.why {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+.why-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.why-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raise);
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.why-card:hover {
+  color: inherit;
+  text-decoration: none;
+  border-color: var(--brand);
+  transform: translateY(-2px);
+  box-shadow: var(--glow);
+}
+
+.why-card .wc-handle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--brand-bright);
+  letter-spacing: 0.04em;
+}
+
+.why-card .wc-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.why-card .wc-details {
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* ---------- performance proof ---------- */
+
+.proof {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: 0 24px 88px;
+}
+
+.proof-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.proof-stat {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raise);
+}
+
+.proof-stat .ps-value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 26px;
+  color: var(--brand-bright);
+}
+
+.proof-stat .ps-label {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-dim);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.proof-note {
+  margin: 16px 0 0;
+  color: var(--ink-faint);
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -151,7 +265,7 @@
 .install {
   max-width: var(--shell-max);
   margin: 0 auto;
-  padding: 0 24px 88px;
+  padding: 0 24px 56px;
 }
 
 .composer-box {

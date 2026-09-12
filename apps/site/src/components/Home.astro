@@ -1,8 +1,9 @@
 ---
 import TerminalDemo from './TerminalDemo.astro'
 import { homeCopy } from '../home'
-import { repoUrl, type Locale } from '../i18n'
+import { repoUrl, localizedPath, type Locale } from '../i18n'
 import { docsHref } from '../nav'
+import { omdshVersion } from '../version'
 import '../styles/home.css'
 
 interface Props {
@@ -25,27 +26,7 @@ const installCommand = 'npm install --global @agi-fans/oh-my-dsh'
     </div>
   </div>
   <div class="hero-demo">
-    <TerminalDemo />
-  </div>
-</section>
-
-<section class="features">
-  <h2 class="section-heading">{copy.featuresHeading}</h2>
-  <div class="features-grid">
-    {
-      copy.features.map((feature) => (
-        <div class="tool-card">
-          <div class="tc-head">
-            <span class="tc-dot" />
-            <span class="tc-handle">{feature.handle}</span>
-          </div>
-          <div class="tc-body">
-            <h3 class="tc-title">{feature.title}</h3>
-            <p class="tc-details">{feature.details}</p>
-          </div>
-        </div>
-      ))
-    }
+    <TerminalDemo version={omdshVersion} />
   </div>
 </section>
 
@@ -62,6 +43,59 @@ const installCommand = 'npm install --global @agi-fans/oh-my-dsh'
   </div>
   <p class="install-note">{copy.installNote}</p>
   <p class="keyboard-hint">{copy.keyboardHint}</p>
+</section>
+
+<section class="features">
+  <h2 class="section-heading">{copy.featuresHeading}</h2>
+  <div class="features-grid">
+    {
+      copy.features.map((feature) => (
+        <a class="tool-card" href={localizedPath(feature.href, locale)}>
+          <span class="tc-head">
+            <span class="tc-dot" />
+            <span class="tc-handle">{feature.handle}</span>
+            <span class="tc-arrow" aria-hidden="true">↗</span>
+          </span>
+          <span class="tc-body">
+            <span class="tc-title">{feature.title}</span>
+            <span class="tc-details">{feature.details}</span>
+          </span>
+        </a>
+      ))
+    }
+  </div>
+</section>
+
+<section class="why">
+  <h2 class="section-heading">{copy.whyHeading}</h2>
+  <div class="why-grid">
+    {
+      copy.why.map((item) => (
+        <a class="why-card" href={localizedPath(item.href, locale)}>
+          <span class="wc-handle">{item.handle}</span>
+          <span class="wc-title">{item.title}</span>
+          <span class="wc-details">{item.details}</span>
+        </a>
+      ))
+    }
+  </div>
+</section>
+
+<section class="proof">
+  <h2 class="section-heading">{copy.proofHeading}</h2>
+  <div class="proof-grid">
+    {
+      copy.proof.map((stat) => (
+        <div class="proof-stat">
+          <span class="ps-value">{stat.value}</span>
+          <span class="ps-label">{stat.label}</span>
+        </div>
+      ))
+    }
+  </div>
+  <p class="proof-note">
+    {copy.proofNote} <a href={localizedPath(copy.proofHref, locale)}>{copy.proofLink}</a>
+  </p>
 </section>
 
 <script>

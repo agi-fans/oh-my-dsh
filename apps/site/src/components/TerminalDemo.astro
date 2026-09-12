@@ -1,4 +1,9 @@
 ---
+interface Props {
+  version: string
+}
+
+const { version } = Astro.props
 const samplePrompt = 'Hello, Oh My DSH!'
 const thinking = 'The user is saying hello. This is a casual greeting, so no tools are needed.'
 const answer = "Hello! Welcome to Oh My DSH. Tell me what you’d like to build, fix, or explore."
@@ -29,7 +34,7 @@ const logoRows = [
   </div>
   <div class="td-screen">
     <section class="td-welcome">
-      <span class="td-welcome-title">omdsh v0.11.0</span>
+      <span class="td-welcome-title">omdsh v{version}</span>
       <div class="td-identity">
         <strong>Into the Unknown</strong>
         <div class="td-logo">
@@ -41,7 +46,7 @@ const logoRows = [
             ))
           }
         </div>
-        <div class="td-model">deepseek-v4-flash</div>
+        <div class="td-model">deepseek-flash</div>
         <div class="td-reasoning">max</div>
       </div>
       <div class="td-welcome-content">
@@ -49,8 +54,8 @@ const logoRows = [
           <strong>Tips</strong>
           <div class="td-tip"><span>/</span><span>Browse available commands</span></div>
           <div class="td-tip"><span>/resume</span><span>Continue a durable session</span></div>
-          <div class="td-tip"><span>Ctrl+R</span><span>Search prompt history</span></div>
-          <div class="td-tip"><span>Shift+Enter</span><span>Insert a newline</span></div>
+          <div class="td-tip"><span>Ctrl+R</span><span>Search and reuse prompt history</span></div>
+          <div class="td-tip"><span>↓ / Alt+A</span><span>Open the keyboard-driven Agent Hub</span></div>
         </div>
         <div class="td-section td-recent">
           <strong>Recent sessions</strong>
@@ -71,7 +76,7 @@ const logoRows = [
     </div>
     <footer class="td-footer">
       <div class="td-footer-row">
-        <span><b>deepseek-v4-flash</b> · <em>max</em> · <mark>standard</mark></span>
+        <span><b>deepseek-flash</b> · <em>max</em> · <mark>standard</mark></span>
         <span>~/oh-my-dsh&nbsp; · &nbsp;main</span>
       </div>
       <div class="td-footer-row">
@@ -318,8 +323,8 @@ const logoRows = [
   padding: 0 13px;
 }
 
-.td-muted { color: #646672; }
-.td-answer { color: #d7d6d9; }
+.td-response :global(.td-muted) { color: #6b7280; font-style: italic; }
+.td-response :global(.td-answer) { color: #d7d6d9; }
 
 .td-composer {
   position: relative;
