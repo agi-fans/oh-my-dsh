@@ -1296,12 +1296,15 @@ export class SessionRuntime {
     if (active === undefined) return
     const agent = active.handle.agent
     const projection = this.#projection(active)
-    const title = explicitSessionTitle(agent.session.snapshotEvents())
+    // One snapshot feeds both folds; each append invalidates the session's
+    // cached snapshot, so a second call would pay another O(log) copy.
+    const events = agent.session.snapshotEvents()
+    const title = explicitSessionTitle(events)
     this.#tui.setSession({
       id: agent.id,
       ...(title === undefined ? {} : { title }),
       recent: this.#recent.filter(row => row.id !== agent.id),
-      stats: this.#stats(active, projection),
+      stats: sessionStats(events, active.contextWindow, projection),
       controls: this.#sessionControls(active, projection),
     })
   }

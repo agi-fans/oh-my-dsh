@@ -2099,6 +2099,34 @@ describe('LocalTui (tty)', () => {
     }
   })
 
+  it('coalesces settlement event renders while busy but keeps control events immediate', () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      tui.event(ev('turn/start', { turn: 1 }, 1))
+      const width = vi.spyOn(term, 'width')
+      for (let seq = 2; seq <= 10; seq += 1) {
+        tui.event(ev('step/start', { turn: 1, step: seq }, seq))
+        tui.event(ev('step/end', {}, seq + 100))
+      }
+      // Every settlement event coalesced into one pending stream render.
+      expect(width.mock.calls.length).toBe(0)
+      vi.advanceTimersByTime(8)
+      expect(width.mock.calls.length).toBe(1)
+      // Control events still paint at once even while the turn is running.
+      tui.event(ev('command/run', { commandId: 'c1', name: 'compact', source: { kind: 'user' } }, 200))
+      expect(width.mock.calls.length).toBe(2)
+      // turn/end flips status to idle, so the settle paint stays immediate.
+      tui.event(ev('command/done', { commandId: 'c1', kind: 'success' }, 201))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 202))
+      expect(width.mock.calls.length).toBeGreaterThanOrEqual(4)
+    } finally {
+      tui.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('coalesces roster state changes and handles input without waiting for the roster timer', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal()

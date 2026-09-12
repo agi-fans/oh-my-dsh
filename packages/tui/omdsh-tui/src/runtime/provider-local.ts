@@ -168,6 +168,21 @@ const DOUBLE_ESCAPE_MS = 500
 const STREAMING_REVEAL_MS = 1000 / 30
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
 
+/**
+ * Durable settlement events that arrive in bursts while a turn runs. Renders
+ * for these are coalesced through the stream-render timer; rarer control
+ * events (command lifecycle, inbox splices, titles, notices) render at once.
+ */
+const BURST_EVENT_TYPES = new Set([
+  'step/start',
+  'step/end',
+  'tool/call',
+  'tool/result',
+  'assistant/message',
+  'assistant/attempt',
+  'llm/retry',
+])
+
 function shortenPath(cwd: string): string {
   const home = homedir()
   if (cwd === home) return '~'
@@ -519,7 +534,14 @@ export class LocalTui implements TuiService {
     this.#syncStreamingReveal(undefined)
     this.#syncTick()
     if (this.#tty) {
-      this.#render()
+      // Settlement events arrive in bursts (parallel tool calls, in-process
+      // subagent settlements); coalesce them like setSession. Control events
+      // (user echo, command lifecycle, inbox splices) stay immediate.
+      if (this.#streamRenderMs > 0 && this.#busy() && BURST_EVENT_TYPES.has(event.type)) {
+        this.#scheduleStreamRender()
+      } else {
+        this.#render()
+      }
     } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
       this.#plain.print()
     }

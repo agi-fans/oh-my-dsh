@@ -49,6 +49,40 @@ describe('ToolPresentationBridge', () => {
     expect(get).toHaveBeenCalledWith('owned-tool', agent)
   })
 
+  it('resolves live results through the streamed call index without rescanning the log', () => {
+    const call = {
+      type: 'tool/call', seq: 1, time: 1, surfaceOp: 'append',
+      data: { turn: 1, step: 1, callId: 'c1', name: 'owned-tool', arguments: '{"path":"a.ts"}' },
+    } as unknown as SessionEvent
+    const result = {
+      type: 'tool/result', seq: 2, time: 2, surfaceOp: 'append',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'm1', role: 'user', source: { kind: 'tool', callId: 'c1' },
+          content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }],
+        },
+      },
+    } as unknown as SessionEvent
+    const snapshotEvents = vi.fn(() => [call, result])
+    const agent = { session: { snapshotEvents } } as unknown as Agent
+    const bridge = createToolPresentationBridge({
+      tools: { get: () => ({ presentCall: () => ({ card: 'generic' as const, title: 'Read', kind: 'read' as const }) }) },
+    } as unknown as Context)
+
+    bridge.event(agent, call)
+    expect(bridge.event(agent, result)).toBeDefined()
+    expect(snapshotEvents).not.toHaveBeenCalled()
+
+    // A result whose call never streamed through `event()` still resolves via
+    // the cold log scan — e.g. the call settled before the listener attached.
+    const coldSnapshot = vi.fn(() => [call, result])
+    const cold = { session: { snapshotEvents: coldSnapshot } } as unknown as Agent
+    expect(bridge.event(cold, result)).toBeDefined()
+    expect(coldSnapshot).toHaveBeenCalled()
+  })
+
   it('falls back safely when a tool has no presenter or a presenter throws', () => {
     const event = {
       type: 'tool/call', seq: 1, time: 1, surfaceOp: 'append',

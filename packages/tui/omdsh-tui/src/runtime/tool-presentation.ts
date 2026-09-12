@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 
@@ -31,12 +31,26 @@ function parsedArguments(raw: string): unknown {
 
 class HarnessToolPresentation implements ToolPresentationBridge {
   readonly #ctx: Context
+  /**
+   * Per-session live tool/call index. Live events arrive in log order through
+   * `event()`, so each tool/result resolves its call in O(1) instead of
+   * rescanning the growing session log the way `findLast` did.
+   */
+  readonly #liveCalls = new WeakMap<Session, Map<string, SessionEvent>>()
 
   constructor(ctx: Context) {
     this.#ctx = ctx
   }
 
   event(agent: Agent, event: SessionEvent): TuiToolPresentation | undefined {
+    if (event.type === 'tool/call') {
+      let calls = this.#liveCalls.get(agent.session)
+      if (calls === undefined) {
+        calls = new Map()
+        this.#liveCalls.set(agent.session, calls)
+      }
+      calls.set(event.data.callId, event)
+    }
     return this.#event(agent, event, undefined)
   }
 
@@ -58,6 +72,7 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     if (event.type !== 'tool/result') return undefined
     const callId = event.data.message.source.callId
     const callEvent = callIndex?.get(callId)
+      ?? this.#liveCalls.get(agent.session)?.get(callId)
       ?? agent.session.snapshotEvents().findLast(candidate =>
         candidate.type === 'tool/call' && candidate.data.callId === callId)
     if (callEvent?.type !== 'tool/call') return undefined
