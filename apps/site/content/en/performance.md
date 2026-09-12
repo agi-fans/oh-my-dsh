@@ -40,7 +40,7 @@ The diagnostic baseline was captured before the linear replay and projection fas
 
 Live events continue through the immutable `applyEvent` state transition, which keeps updates predictable and cache-friendly. Session restoration uses a private replay builder whose mutable block array never escapes before replay completes. This removes repeated copying of a growing transcript, changing large-session reconstruction from quadratic to linear growth.
 
-The replay builder also maintains a private `callId → block index` map. Tool-heavy sessions therefore resolve partial calls, completed calls, and results without scanning the transcript for every event.
+The replay builder also maintains a private `callId → block index` map. Tool-heavy sessions therefore resolve partial calls, completed calls, and results without scanning the transcript for every event. The live path keeps the same property: tool-result presentation resolves its matching call through a streamed index instead of rescanning the session log, so per-event cost stays flat as a session grows.
 
 ### Harness projection fast path
 
@@ -48,7 +48,7 @@ DeepSeek Harness already owns durable session statistics, token usage, and conte
 
 ### Cached transcript layout
 
-Settled transcript blocks cache their formatted Markdown and tool rows by block identity and render options. Stable transcript bodies are cached by the immutable block array. Composer edits, status updates, animation ticks, and scrolling can therefore reuse settled content instead of reformatting the complete conversation. Dense assistant deltas arriving within an 8 ms frame window are folded into state immediately but share one terminal render; user interaction, tool transitions, and turn settlement still flush synchronously.
+Settled transcript blocks cache their formatted Markdown and tool rows by block identity and render options. Stable transcript bodies are cached by the immutable block array. Composer edits, status updates, animation ticks, and scrolling can therefore reuse settled content instead of reformatting the complete conversation. Dense assistant deltas arriving within an 8 ms frame window are folded into state immediately but share one terminal render; user interaction, tool transitions, and turn settlement still flush synchronously. Settlements share that timer too: step, tool, and assistant settlements from parallel calls or in-process children cost one frame per interval instead of one frame per event, while control events such as command lifecycle and inbox splices still paint immediately.
 
 ### Native scrollback and differential terminal output
 
