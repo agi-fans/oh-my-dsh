@@ -23,6 +23,8 @@ The plugin compatibility contract is in [User plugins](plugins.md).
 
 ## Quick reference
 
+The exhaustive lists live in [Commands](commands.md) and [Keyboard and keys](keyboard.md); this table is the short path used by the walkthroughs.
+
 | Goal | Action |
 |---|---|
 | Browse commands and shortcuts | `/help` |

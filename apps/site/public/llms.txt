@@ -7,6 +7,8 @@ The CLI package is [@agi-fans/oh-my-dsh](https://www.npmjs.com/package/@agi-fans
 ## Docs
 
 - [Tutorials](https://omdsh.agi.fans/docs/tutorials/): install, first task, context, queued turns, long sessions, environment, Skills, MCP, and plugins
+- [Commands](https://omdsh.agi.fans/docs/commands/): the complete slash-command reference
+- [Keyboard and keys](https://omdsh.agi.fans/docs/keyboard/): editing, overlays, and keybindings.json
 - [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/): reusable instructions and external tools
 - [User plugins](https://omdsh.agi.fans/docs/plugins/): install DSH bundles with `omdsh plugin`
 - [Architecture](https://omdsh.agi.fans/docs/architecture/): plugin boundaries and runtime data flow
