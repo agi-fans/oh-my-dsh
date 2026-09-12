@@ -116,4 +116,3 @@ export function prettyArgs(raw: string): string {
     return raw
   }
 }
-
