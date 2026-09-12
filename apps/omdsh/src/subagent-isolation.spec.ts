@@ -148,7 +148,10 @@ describe('process-isolated subagent transport', () => {
     // that deliberately sits inside this run's temp root.
     const home = temp('omdsh-subagent-resolve-')
     const resolved = evalExpr(env.DSH_HOME, { OMDSH_HOME: home, HOME: '/home/example' })
-    expect(resolved).toBe(join(home, 'acp-child'))
+    // The expression appends '/acp-child', which Node accepts on Windows too;
+    // compare under one separator so the assertion is host-independent.
+    const posix = (value: unknown): string => String(value).replace(/\\/gu, '/')
+    expect(posix(resolved)).toBe(posix(join(home, 'acp-child')))
     // Never the parent home itself: that would defeat the isolation.
     expect(resolved).not.toBe(home)
   })
