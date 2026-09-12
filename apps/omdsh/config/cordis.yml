@@ -87,6 +87,15 @@
     config:
       backend: json
 
+  # Durable projection checkpoints — the piece that lets a cold session
+  # answer its title without reading its log. Without it the `@` session
+  # menu and the recent-session list can only label cold sessions by id.
+  - id: session-projection-cache
+    name: '@deepseek-ai/dsh-session-projection-cache'
+    config:
+      writeEveryEvents: 200
+      writeIntervalMs: 5000
+
   - id: workspace
     name: '@deepseek-ai/dsh-workspace'
 

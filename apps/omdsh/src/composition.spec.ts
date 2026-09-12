@@ -383,8 +383,8 @@ describe('dsh spine expansion', () => {
     // summarized title on the recent-session list and the harness web.
     expect(row('session-title-llm')?.name).toBe('@deepseek-ai/dsh-session-title-first-prompt-llm')
     // The registry's injects resolve through this exact mount chain; the
-    // order matters (backend before domain, domain before the registry).
-    const chain = ['session-persistence', 'storage', 'storage-json', 'storage-domain', 'workspace']
+    // order matters (backend before domain, domain before its consumers).
+    const chain = ['session-persistence', 'storage', 'storage-json', 'storage-domain', 'session-projection-cache', 'workspace']
     const positions = chain.map(id => rows.findIndex(entry => entry.id === id))
     for (const [i, id] of chain.entries()) {
       expect(positions[i], `row ${id} mounted`).toBeGreaterThanOrEqual(0)
