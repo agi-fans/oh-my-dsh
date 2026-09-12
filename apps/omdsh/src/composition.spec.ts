@@ -376,6 +376,24 @@ describe('dsh spine expansion', () => {
     expect(row('shell-env')?.config).toHaveProperty('dshHome')
   })
 
+  it('mounts the LLM title provider and the workspace storage chain', () => {
+    const rows = productRows()
+    const row = (id: string) => rows.find(entry => entry.id === id)
+    // The first-prompt provider is what turns the fallback label into a
+    // summarized title on the recent-session list and the harness web.
+    expect(row('session-title-llm')?.name).toBe('@deepseek-ai/dsh-session-title-first-prompt-llm')
+    // The registry's injects resolve through this exact mount chain; the
+    // order matters (backend before domain, domain before the registry).
+    const chain = ['session-persistence', 'storage', 'storage-json', 'storage-domain', 'workspace']
+    const positions = chain.map(id => rows.findIndex(entry => entry.id === id))
+    for (const [i, id] of chain.entries()) {
+      expect(positions[i], `row ${id} mounted`).toBeGreaterThanOrEqual(0)
+      if (i > 0) expect(positions[i], `${id} mounts after ${chain[i - 1]}`).toBeGreaterThan(positions[i - 1]!)
+    }
+    expect(row('storage-json')?.config).toHaveProperty('root')
+    expect(row('storage-domain')?.config).toEqual({ backend: 'json' })
+  })
+
   it('skips a spine-targeted home patch silently without breaking boot', () => {
     const home = temp('omdsh-spine-patch-home-')
     writeFileSync(join(home, 'cordis.patch.yml'), '- id: spine\n  config:\n    workspaceContext:\n      maxBytes: 4096\n')

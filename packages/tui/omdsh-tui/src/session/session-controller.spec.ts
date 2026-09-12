@@ -623,3 +623,96 @@ describe('SessionRuntime subagent catalog restore', () => {
     }
   })
 })
+
+describe('SessionRuntime workspace claim', () => {
+  async function harness(cwd: string | undefined, registry?: Record<string, unknown>) {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const rootId = SessionId('session-workspace-root')
+    const rootSession = ctx.sessions.create(rootId, {
+      meta: cwd === undefined ? {} : { cwd },
+    })
+    const agentCtx = new Context()
+    await agentCtx.plugin(CommandRuntime)
+    agentCtx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    agentCtx.provide('sessionProjections', { stateOf: () => 'standard' })
+    agentCtx.provide('tools', { presentAs: () => () => undefined })
+    agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
+    const rootAgent = {
+      id: rootId,
+      session: rootSession,
+      status: 'idle',
+      inbox: { nextTurn: [], nextStep: [] },
+    } as unknown as Agent
+    ctx.provide('agentPresets', {
+      defaultId: 'standard',
+      resolve: async () => ({ id: 'standard' }),
+      mount: async () => ({ id: 'standard' }),
+    })
+    ctx.provide('agents', {
+      create: async (options: { setup?: (context: typeof agentCtx, agent: Agent) => Promise<void> }) => {
+        await options.setup?.(agentCtx, rootAgent)
+        return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
+      },
+      get: () => undefined,
+    })
+    ctx.provide('agentDefaultModel', {
+      currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
+    })
+    ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
+    if (registry !== undefined) ctx.provide('workspaceRegistry', registry)
+    const tui = new Proxy(stubTui() as unknown as Record<string, unknown>, {
+      get(target, prop) {
+        return prop in target ? target[prop] : () => () => {}
+      },
+    }) as unknown as TuiService
+    return { ctx, agentCtx, runtime: new SessionRuntime(ctx, tui) }
+  }
+
+  it('adopts the cwd workspace and attaches the activated session', async () => {
+    const attachSession = vi.fn(async () => undefined)
+    const create = vi.fn(async () => ({ attachSession }))
+    const resolveByPath = vi.fn(async () => undefined)
+    const { ctx, agentCtx, runtime } = await harness('/tmp/omdsh-ws', { resolveByPath, create })
+    try {
+      await runtime.start()
+      await new Promise(resolve => { setTimeout(resolve, 0) })
+      expect(resolveByPath).toHaveBeenCalledWith('/tmp/omdsh-ws')
+      expect(create).toHaveBeenCalledWith('/tmp/omdsh-ws')
+      expect(attachSession).toHaveBeenCalledWith('session-workspace-root')
+    } finally {
+      await runtime.dispose()
+      await ctx.fiber.dispose()
+      await agentCtx.fiber.dispose()
+    }
+  })
+
+  it('starts fine with no registry and skips sessions without a cwd', async () => {
+    const attachSession = vi.fn(async () => undefined)
+    const create = vi.fn(async () => ({ attachSession }))
+    const resolveByPath = vi.fn(async () => ({ attachSession }))
+    const withRegistry = await harness(undefined, { resolveByPath, create })
+    try {
+      await withRegistry.runtime.start()
+      await new Promise(resolve => { setTimeout(resolve, 0) })
+      expect(resolveByPath).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      await withRegistry.runtime.dispose()
+      await withRegistry.ctx.fiber.dispose()
+      await withRegistry.agentCtx.fiber.dispose()
+    }
+    const without = await harness('/tmp/omdsh-ws')
+    try {
+      await without.runtime.start()
+    } finally {
+      await without.runtime.dispose()
+      await without.ctx.fiber.dispose()
+      await without.agentCtx.fiber.dispose()
+    }
+  })
+})

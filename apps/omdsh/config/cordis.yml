@@ -41,6 +41,19 @@
       fallbackMaxBytes: 80
       maxTitleBytes: 120
 
+  # LLM title provider over the first prompt — the row the harness base ships,
+  # so omdsh sessions get a summarized title instead of the deterministic
+  # fallback (first words or the cwd basename) that the recent-session list
+  # and the web sidebar currently show.
+  - id: session-title-llm
+    name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+    config:
+      targetWords: 5
+      targetCjkCharacters: 10
+      maxInputBytes: 4096
+      maxOutputTokens: 64
+      timeoutMs: 60000
+
   - id: session-stats
     name: '@deepseek-ai/dsh-session-stats'
 
@@ -55,6 +68,27 @@
 
   - id: session-reference
     name: '@deepseek-ai/dsh-session-reference'
+
+  # Durable KV stack plus the workspace registry — the same chain the harness
+  # base and web layer mount. The registry groups sessions by canonical cwd
+  # into durable workspace records; omdsh attaches each session it creates,
+  # so sessions appear grouped in the harness web instead of ungrouped. The
+  # storage root follows the session store so both read the same home.
+  - id: storage
+    name: '@deepseek-ai/dsh-storage'
+
+  - id: storage-json
+    name: '@deepseek-ai/dsh-storage-json'
+    config:
+      root: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/storages'"
+
+  - id: storage-domain
+    name: '@deepseek-ai/dsh-storage-domain'
+    config:
+      backend: json
+
+  - id: workspace
+    name: '@deepseek-ai/dsh-workspace'
 
   # Workspace @file discovery. The TUI owns mention syntax; this provider
   # ranks path-only candidates and, when `read` is visible, adds the stable

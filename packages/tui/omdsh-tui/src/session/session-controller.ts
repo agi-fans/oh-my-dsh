@@ -31,6 +31,7 @@ import type {} from '@deepseek-ai/dsh-plan-mode'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
 import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-workspace'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
@@ -1104,6 +1105,26 @@ export class SessionRuntime {
     }
   }
 
+  /**
+   * Claim the activated session into the cwd workspace so grouped session
+   * surfaces (the harness web sidebar) file it instead of leaving it
+   * ungrouped. Best-effort like `#resolveModelInfo`: the registry is an
+   * optional service and a failed claim must not disturb activation.
+   */
+  async #claimWorkspace(active: ActiveSession): Promise<void> {
+    const registry = this.#ctx.get('workspaceRegistry')
+    if (registry === undefined) return
+    try {
+      const { session } = active.handle.agent
+      const cwd = session.header.cwd
+      if (cwd === undefined) return
+      const workspace = await registry.resolveByPath(cwd) ?? await registry.create(cwd)
+      await workspace.attachSession(session.id)
+    } catch {
+      // The workspace claim is cosmetic interop; the session itself is fine.
+    }
+  }
+
   async #resolveModelInfo(selection: ModelSelection): Promise<LlmResolvedModelInfo | undefined> {
     try {
       return await this.#ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model)
@@ -1121,6 +1142,7 @@ export class SessionRuntime {
     const previous = this.#active
     const epoch = ++this.#activationEpoch
     this.#active = next
+    void this.#claimWorkspace(next)
     try {
       this.#presentAgent(next)
       const selected = this.selection(next.handle.agent)

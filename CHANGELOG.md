@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Sessions now get a summarized title from the first prompt via the harness's LLM title provider, replacing the deterministic fallback (first words or the directory name) on the recent-session list and in the harness web sidebar.
+- Sessions are claimed into a durable cwd workspace at activation, so they appear grouped under their project in the harness web instead of under ungrouped — the same membership the web's own session creation performs.
+
 ### Changed
 
 - Streaming tool-call previews now recognize `description`, so a delegation call shows its task description while its arguments arrive instead of the raw JSON fragment.
