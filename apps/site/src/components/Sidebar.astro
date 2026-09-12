@@ -11,17 +11,15 @@ const { locale, current } = Astro.props
 const guideLabel = locale === 'zh' ? '指南' : 'Guide'
 const referenceLabel = locale === 'zh' ? '参考' : 'Reference'
 const navLabel = locale === 'zh' ? '文档导航' : 'Docs navigation'
+const guideEntries = [tutorialsIndex, ...tutorialEntries]
 ---
 
 <nav aria-label={navLabel}>
   <div class="sidebar-group">
     <h2 class="sidebar-heading">{guideLabel}</h2>
-    <a href={docsHref(tutorialsIndex.slug, locale)} class:list={[{ active: current === tutorialsIndex.slug }]}>
-      {label(tutorialsIndex, locale)}
-    </a>
     {
-      tutorialEntries.map((entry) => (
-        <a href={docsHref(entry.slug, locale)} class:list={['child', { active: current === entry.slug }]}>
+      guideEntries.map((entry) => (
+        <a href={docsHref(entry.slug, locale)} class:list={[{ active: current === entry.slug }]}>
           {label(entry, locale)}
         </a>
       ))

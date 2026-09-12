@@ -66,16 +66,6 @@
   background: var(--brand-grad);
 }
 
-.sidebar a.child {
-  padding-left: 28px;
-  color: var(--ink-faint);
-  font-size: 12px;
-}
-
-.sidebar a.child.active::before {
-  left: 17px;
-}
-
 .sidebar-mobile {
   display: none;
 }
