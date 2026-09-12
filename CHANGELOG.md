@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Sessions now get a summarized title from the first prompt via the harness's LLM title provider, replacing the deterministic fallback (first words or the directory name) on the recent-session list and in the harness web sidebar.
 - Sessions are claimed into a durable cwd workspace at activation, so they appear grouped under their project in the harness web instead of under ungrouped — the same membership the web's own session creation performs.
 - Cold sessions now checkpoint their projections durably, so the `@` session menu and the session library can label them by title instead of falling back to the raw session id.
+- Running inside a Herdr pane now registers omdsh as a first-class agent there: the sidebar follows its `working`, `idle`, and `blocked` state (a block names the pending approval or question), the resumable session id is reported, and the pane is released when omdsh exits. The integration stays inert outside Herdr.
 
 ### Changed
 

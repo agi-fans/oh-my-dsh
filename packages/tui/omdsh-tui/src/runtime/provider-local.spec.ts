@@ -15,6 +15,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
+import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
 import { createHistorySearch } from '../views/history-search.ts'
 import type { DirEntry, PathSearcher, ProjectPathEntry } from '../views/path-complete.ts'
@@ -65,6 +66,17 @@ function ev(type: string, data: unknown, seq: number): SessionEvent {
 
 const press = (term: FakeTerminal, bytes: string): void => {
   term.input.write(bytes)
+}
+
+/** Herdr reporter over a recording transport, so no test touches the real socket. */
+function createHerdrRecorder(): { requests: HerdrRequest[]; reporter: HerdrAgentReporter } {
+  const requests: HerdrRequest[] = []
+  const reporter = new HerdrAgentReporter({
+    env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p2', HERDR_SOCKET_PATH: '/tmp/omdsh-herdr-test.sock' },
+    transport: () => ({ send: request => { requests.push(request) } }),
+    now: () => 1_000,
+  })
+  return { requests, reporter }
 }
 
 function emulatedScreenRows(output: string): string[] {
@@ -858,6 +870,73 @@ describe('LocalTui (tty)', () => {
 
     expect(term.captured).toContain('omdsh needs attention: Output token limit reached after 0s')
     tui.dispose()
+  })
+
+  it('reports Herdr pane lifecycle through the injected reporter', async () => {
+    const term = new FakeTerminal()
+    const recorder = createHerdrRecorder()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { herdrReporter: recorder.reporter })
+
+    expect(recorder.requests[0]?.params.state).toBe('idle')
+
+    tui.setStatus('running')
+    expect(recorder.requests.at(-1)?.params.state).toBe('working')
+
+    const answer = tui.prompt({ title: 'Approval required', question: 'Allow bash once?' })
+    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'blocked', message: 'Approval required' })
+
+    press(term, 'yes\r')
+    expect(await answer).toBe('yes')
+    expect(recorder.requests.at(-1)?.params.state).toBe('working')
+
+    tui.setSession({ id: 'herdr-session', recent: [] })
+    tui.setStatus('idle')
+    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'idle', agent_session_id: 'herdr-session' })
+
+    tui.dispose()
+    expect(recorder.requests.at(-1)?.method).toBe('pane.release_agent')
+  })
+
+  it('ignores status updates from an inspected subagent while still reporting human prompts', async () => {
+    const term = new FakeTerminal()
+    const recorder = createHerdrRecorder()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { herdrReporter: recorder.reporter })
+    tui.setStatus('running')
+    recorder.requests.length = 0
+
+    tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'running', writable: false })
+    tui.setStatus('idle')
+    expect(recorder.requests).toHaveLength(0)
+
+    // A human decision is pending even while the child transcript is shown.
+    const answer = tui.prompt({
+      title: 'Approval required',
+      question: 'Continue?',
+      options: [{ label: 'Allow once' }, { label: 'Reject' }],
+    })
+    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'blocked', message: 'Approval required' })
+    press(term, '\r')
+    expect(await answer).toBe('Allow once')
+    expect(recorder.requests.at(-1)?.params.state).toBe('working')
+
+    tui.setInspectedSubagent(undefined)
+    tui.setStatus('idle')
+    expect(recorder.requests.at(-1)?.params.state).toBe('idle')
+    tui.dispose()
+  })
+
+  it('keeps the Herdr reporter inert without a pane environment', () => {
+    const term = new FakeTerminal()
+    const requests: HerdrRequest[] = []
+    const reporter = new HerdrAgentReporter({
+      env: {},
+      transport: () => ({ send: request => { requests.push(request) } }),
+    })
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { herdrReporter: reporter })
+    tui.setStatus('running')
+    void tui.prompt({ title: 'Approval required', question: 'Continue?' })
+    tui.dispose()
+    expect(requests).toHaveLength(0)
   })
 
   it('skips a footer repaint when only non-visible session timing changes', () => {

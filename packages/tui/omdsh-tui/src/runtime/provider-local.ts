@@ -16,6 +16,7 @@ import {
   terminalNotificationSequence,
   terminalProgressSequence,
 } from './terminal-notifications.ts'
+import { HerdrAgentReporter } from './herdr-agent.ts'
 import { ComposerImages } from './composer-images.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
 
@@ -350,6 +351,12 @@ export class LocalTui implements TuiService {
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
   #notifications = new TerminalNotificationController()
+  /**
+   * Herdr lifecycle authority for this pane. The plugin entry injects the
+   * environment-aware reporter; a directly constructed instance is inert so
+   * tests running inside a Herdr pane cannot report against the live server.
+   */
+  readonly #herdr: HerdrAgentReporter
   #notificationPolicy: 'off' | 'long-running' | 'always' = 'off'
   #notificationThreshold: '15s' | '30s' | '1m' | '2m' = '30s'
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
@@ -439,6 +446,8 @@ export class LocalTui implements TuiService {
       alternateScreenOverlays?: boolean
       resizeDebounceMs?: number
       streamRenderMs?: number
+      /** Herdr lifecycle reporter; production injects an environment-aware one. */
+      herdrReporter?: HerdrAgentReporter
     } = {},
   ) {
     this.#term = term
@@ -468,6 +477,7 @@ export class LocalTui implements TuiService {
     this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
     this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
+    this.#herdr = paths.herdrReporter ?? new HerdrAgentReporter({ env: {} })
     this.#syncTrueColor()
     this.#tty = term.input.isTTY === true
     this.#plain = new PlainTui({
@@ -512,6 +522,7 @@ export class LocalTui implements TuiService {
       term.output.write('\x1b[?2004h')
     }
     this.#render()
+    this.#herdr.start()
   }
 
   /** Refresh Git workspace metadata after a turn; the footer shows realtime branch/dirty state. */
@@ -568,6 +579,9 @@ export class LocalTui implements TuiService {
   }
 
   setStatus(status: TuiStatus): void {
+    // Only the displayed top-level agent drives the Herdr pane state; an
+    // inspected child must not, and closing the inspector re-syncs the root.
+    if (this.#inspected === undefined) this.#herdr.setRunning(status === 'running')
     if (this.#state.status === 'compacting') return
     this.#state = { ...this.#state, status }
     this.#syncTick()
@@ -725,6 +739,7 @@ export class LocalTui implements TuiService {
     if (this.#prompt !== null) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
     this.#emitNotification(this.#notifications.humanPrompt())
+    this.#herdr.prompt(request.title)
     this.#editor.setText('')
     this.#ac = null
     const displaced = this.#displaceSurface()
@@ -782,6 +797,7 @@ export class LocalTui implements TuiService {
     controls?: TuiSessionControls
   }): void {
     this.#sessionId = info.id
+    this.#herdr.setSession(info.id)
     const title = info.title?.trim()
     this.#sessionTitle = title === undefined || title === '' ? undefined : title
     this.#recentSessions = info.recent.map((session) => ({ ...session }))
@@ -1007,6 +1023,7 @@ export class LocalTui implements TuiService {
     this.#offAgentBehaviorWatch = undefined
     this.#settlePending(null)
     this.#finishPrompt(null)
+    this.#herdr.release()
   }
 
   /** Settle one pending read, detaching its abort listener. */
@@ -2348,6 +2365,7 @@ export class LocalTui implements TuiService {
     const pending = this.#prompt
     if (pending === null) return
     this.#prompt = null
+    this.#herdr.promptResolved()
     pending.offAbort?.()
     pending.resolve(answer)
     this.#restoreDisplacedSurface()
@@ -2623,6 +2641,7 @@ export function apply(ctx: Context, config: Config): void {
       deferInitialRender: true,
       terminalProfile,
       alternateScreenOverlays: terminalProfile === 'direct',
+      herdrReporter: new HerdrAgentReporter(),
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
     },
