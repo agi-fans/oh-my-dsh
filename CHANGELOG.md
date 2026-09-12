@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-12
+
 ### Added
 
 - Sessions now get a summarized title from the first prompt via the harness's LLM title provider, replacing the deterministic fallback (first words or the directory name) on the recent-session list and in the harness web sidebar.
@@ -393,7 +395,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.13.0...v0.14.0

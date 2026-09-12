@@ -1,7 +1,7 @@
 {
   "name": "@agi-fans/dsh-tui",
   "description": "Library-only Cordis plugin suite for DeepSeek Harness terminal presentation and interaction",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "homepage": "https://omdsh.agi.fans/",
   "keywords": [
     "omdsh",
