@@ -19,6 +19,7 @@ The CLI package is [@agi-fans/oh-my-dsh](https://www.npmjs.com/package/@agi-fans
 - [Troubleshooting](https://omdsh.agi.fans/docs/troubleshooting/): exit, color, scrollback, and boot failures
 - [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/): reusable instructions and external tools
 - [User plugins](https://omdsh.agi.fans/docs/plugins/): install DSH bundles with `omdsh plugin`
+- [Plugin internals](https://omdsh.agi.fans/docs/plugin-internals/): the ctx.tui surface and the planned contribution layer
 - [Architecture](https://omdsh.agi.fans/docs/architecture/): plugin boundaries and runtime data flow
 - [Performance](https://omdsh.agi.fans/docs/performance/): TUI benchmarks and rendering methodology
 - [Changelog](https://omdsh.agi.fans/changelog/): user-visible releases
