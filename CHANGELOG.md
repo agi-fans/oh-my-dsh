@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- A request that a route rejects as over its image budget now sheds its oldest images locally and retries, instead of failing the turn. The session log keeps every image, so a resumed or forked session still knows what was omitted.
+
+### Changed
+
+- Updated the DeepSeek Harness runtime cohort from `0.1.5-rc.2` to the published `0.1.6-alpha.1` release. The DeepSeek route now speaks the Messages protocol by default and reuses uploaded images through the Files API; a custom gateway or a stale official base URL override must set `protocol: chat-completions` in the `llm-deepseek` settings section. PTC execution and the workflow engine move to their renamed packages, mounted as `ptc-runtime` and `workflow-ptc`.
+- `ralph` is off by default, matching the upstream base bundle: the tool description already restricted it to runs the human explicitly asked for, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false`.
+
 ## [0.17.0] - 2026-09-12
 
 ### Added

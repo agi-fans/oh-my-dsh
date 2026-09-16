@@ -6,7 +6,8 @@
 import { fork } from 'node:child_process'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { rmSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cleanOutput, omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
@@ -46,6 +47,9 @@ if (process.argv[2] === 'server') {
 const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const omdshHome = smokeHome('omdsh-stream-interrupt-')
+// This script serves a chat-completions SSE stream; the adapter now defaults
+// to Messages.
+writeFileSync(join(omdshHome, 'settings.yaml'), 'llm-deepseek:\n  protocol: chat-completions\n')
 const server = fork(fileURLToPath(import.meta.url), ['server'], {
   cwd: repoRoot,
   stdio: ['ignore', 'ignore', 'inherit', 'ipc'],

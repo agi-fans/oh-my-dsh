@@ -10,7 +10,9 @@ import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
 const omdshHome = smokeHome('omdsh-happy-smoke-')
-writeFileSync(join(omdshHome, 'settings.yaml'), 'agent-presets:\n  default: code\n')
+// The published mock server implements only the chat-completions wire
+// protocol; the adapter now defaults to Messages.
+writeFileSync(join(omdshHome, 'settings.yaml'), 'agent-presets:\n  default: code\nllm-deepseek:\n  protocol: chat-completions\n')
 
 const server = await startMockLlmServer({
   port: 8123,

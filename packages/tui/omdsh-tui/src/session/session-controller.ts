@@ -26,7 +26,7 @@ import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } f
 import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/types'
+import type { PermissionSelection } from '@deepseek-ai/dsh-permission-presets/types'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
 import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
@@ -114,7 +114,7 @@ export interface TuiStatsProjection {
   contextPressure?: ContextPressureProjection
   contextBreakdown?: ContextBreakdownProjection
   plan?: PlanProjection
-  permissions?: PermissionSelect
+  permissions?: PermissionSelection
   goal?: GoalProjection | null
   /** Last logged sandbox-mode override, or null before one; outranks the preset while set. */
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null

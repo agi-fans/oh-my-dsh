@@ -322,8 +322,8 @@
     config:
       agents: []
 
-  - id: code-runtime
-    name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+  - id: ptc-runtime
+    name: '@deepseek-ai/dsh-ptc-runtime-node'
 
   - id: cordis-host-runner
     name: '@deepseek-ai/dsh-cordis-host-runner'
@@ -418,6 +418,12 @@
       thresholdChars: 8192
       headChars: 4096
       tailChars: 1024
+
+  # When an image-capable route rejects a request as over its image budget,
+  # replace the oldest images with placeholders on the surface and retry. The
+  # route keeps its full history in the session log; only the request degrades.
+  - id: image-offload
+    name: '@deepseek-ai/dsh-compaction-image-offload'
 
   - id: compaction
     name: '@deepseek-ai/dsh-compaction-basic'
@@ -524,13 +530,13 @@
 
   # Workflow and Ralph, as the upstream base bundle mounts them.
   #
-  # The worker-thread engine is the seam provider: `dsh-workflow-worker-thread`
-  # executes model-written orchestration scripts off the host event loop, which
+  # The PTC engine is the seam provider: `dsh-workflow-ptc` executes
+  # model-written orchestration scripts through the session's PTC runtime, which
   # is the same isolation the ACP subagent transport buys for delegation.
   # Mounting `dsh-workflow` as well would double-register `workflowEngine`, so
   # it stays a dependency the engine resolves rather than a composition row.
-  - id: workflow-worker-thread
-    name: '@deepseek-ai/dsh-workflow-worker-thread'
+  - id: workflow-ptc
+    name: '@deepseek-ai/dsh-workflow-ptc'
     config:
       provider: spawn
 
@@ -545,9 +551,15 @@
 
   # Ralph iterates fresh agents over a build-time-fixed script; it reuses the
   # continuable in-process `spawn` provider, so it depends on that transport
-  # staying mounted.
+  # staying mounted. Off by default, matching the upstream base bundle: the
+  # tool description restricts `ralph` to runs the human explicitly asked for,
+  # and completion is a worker self-report rather than an independent
+  # evaluation. A home overlay restores it:
+  #   - id: tool-ralph
+  #     disabled: false
   - id: tool-ralph
     name: '@deepseek-ai/dsh-tool-ralph'
+    disabled: true
     config:
       subagentProvider: spawn
       maxRounds: 64

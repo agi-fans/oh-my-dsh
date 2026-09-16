@@ -179,9 +179,9 @@ describe('process-isolated subagent transport', () => {
 })
 
 describe('workflow and Ralph tool box', () => {
-  it('mounts the worker-thread engine as the workflowEngine provider', () => {
-    const engine = row('workflow-worker-thread')
-    expect(engine.name).toBe('@deepseek-ai/dsh-workflow-worker-thread')
+  it('mounts the PTC engine as the workflowEngine provider', () => {
+    const engine = row('workflow-ptc')
+    expect(engine.name).toBe('@deepseek-ai/dsh-workflow-ptc')
     expect(engine.disabled).toBeUndefined()
     expect(engine.config?.provider).toBe('spawn')
     // The seam package itself must NOT be mounted: it would double-register
@@ -199,10 +199,12 @@ describe('workflow and Ralph tool box', () => {
     expect(tool.config?.toolName).not.toBe('workflow')
   })
 
-  it('mounts Ralph against the continuable in-process provider', () => {
+  it('ships Ralph disabled against the continuable in-process provider', () => {
     const ralph = row('tool-ralph')
     expect(ralph.name).toBe('@deepseek-ai/dsh-tool-ralph')
-    expect(ralph.disabled).toBeUndefined()
+    // Off by default, matching the upstream base bundle: completion is a worker
+    // self-report, so the tool is an explicit opt-in through an overlay.
+    expect(ralph.disabled).toBe(true)
     // Ralph iterates fresh agents, so it needs the continuable transport the
     // in-process spawn provider supplies.
     expect(ralph.config?.subagentProvider).toBe('spawn')

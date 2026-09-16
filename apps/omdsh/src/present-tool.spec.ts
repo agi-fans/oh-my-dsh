@@ -23,7 +23,9 @@ afterEach(() => {
 describe('present delivery tool', () => {
   it('lets the model declare a deliverable and renders its card', async () => {
     const home = temp('omdsh-present-home-')
-    writeFileSync(join(home, 'settings.yaml'), 'agent-presets:\n  default: standard\n')
+    // The published mock server implements only the chat-completions wire
+    // protocol; the adapter now defaults to Messages.
+    writeFileSync(join(home, 'settings.yaml'), 'agent-presets:\n  default: standard\nllm-deepseek:\n  protocol: chat-completions\n')
     // A real empty-port bind keeps parallel suite runs from colliding.
     const server = await startMockLlmServer({
       port: 0,
