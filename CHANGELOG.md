@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `ralph` is off by default, matching the upstream base bundle: the tool description already restricted it to runs the human explicitly asked for, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false`.
 - The `code` (PTC) preset now declares its own presentation and hides `workflow_run`, matching the upstream `ptc` preset: a PTC session has exactly one model-authored orchestration surface (`run_code`) instead of a second one beside it, and other presets keep the native catalog. The presentation is fixed when the preset mounts rather than switched by the TUI per session.
 - `web_search` is now exposed by default beside the existing anonymous `web_fetch`; previously the composition mounted fetch only, so a model that needed current information had to be pointed at a URL. A deployment that wants no search turns it back off in `tool-web` through its own overlay.
+- Updated the DeepSeek Harness runtime cohort from `0.1.6-alpha.1` to the published `0.1.6-alpha.2` release.
+- Delegation is shallower and capped, matching the new upstream host defaults: a spawned subagent no longer delegates further by default (delegation depth resolves to 1 instead of the tool rows' previous 3), and at most eight continuable subagent sessions may run at once — a call past the cap is refused with `ACTIVATION_LIMIT_REACHED`. Both limits are tunable in the host's `subagent` settings section.
+- The default DeepSeek catalog dropped `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`; `deepseek-flash` and `deepseek-v4-pro` remain. A deployment that referenced a removed id must pick another model or declare its own catalog entries.
+- The `cordis` preset now exposes read-only runtime inspection (`cordis_inspect_list`, `cordis_inspect_query`); upstream removed the `cordis_define`/`cordis_run`/`cordis_stop`/`cordis_undefine` mutation tools in favor of its plugin-manager flow.
+- `@`-mentioning a subagent session now inserts its durable creation label when the runtime provides one, instead of the log title or session id.
+- A `sandbox_permissions` retry that repeats the call's current mode runs without an approval prompt; a narrower target still fails before anything executes.
 
 ## [0.17.0] - 2026-09-12
 

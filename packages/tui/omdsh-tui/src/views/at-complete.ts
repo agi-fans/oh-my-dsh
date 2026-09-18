@@ -18,6 +18,8 @@ import {
 export interface SessionMentionCandidate {
   sessionId: string
   label: string
+  /** Presentation title preferred over {@link label}, e.g. a subagent's durable creation label. */
+  displayTitle?: string
   cwd?: string
 }
 
@@ -68,9 +70,9 @@ function sessionItems(candidates: readonly SessionMentionCandidate[]): Autocompl
   return candidates.map((candidate) => ({
     value: formatSessionReferenceMention({
       sessionId: SessionId(candidate.sessionId),
-      label: candidate.label,
+      label: candidate.displayTitle ?? candidate.label,
     }),
-    label: candidate.label,
+    label: candidate.displayTitle ?? candidate.label,
     ...(candidate.cwd === undefined ? {} : { description: candidate.cwd }),
     kind: 'session',
   }))
