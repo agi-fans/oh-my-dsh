@@ -44,7 +44,6 @@ import type {} from '@deepseek-ai/dsh-goal'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
-import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
@@ -67,7 +66,6 @@ import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
 import {
   isBlankSession,
-  toolPresentationForPreset,
 } from './session-configuration.ts'
 import { stripComposerImageMarkers } from '../input/image-paste.ts'
 import type { ContextDiagnostics } from './context-diagnostics.ts'
@@ -78,27 +76,23 @@ interface ActiveSession {
   contextWindow: number | undefined
   reasoningEffort: string | undefined
   agentPreset: string
-  disposeToolPresentation: () => void
 }
 
 interface ConfiguredAgentContext {
   agentPreset: string
-  disposeToolPresentation: () => void
 }
 
 async function setupAgentContext(agentCtx: Context, agent: Agent, selection: ModelSelectionRef): Promise<ConfiguredAgentContext> {
   installModelSelection(agentCtx, selection)
   const agentPresets = agentCtx.get('agentPresets')
   const sessionProjections = agentCtx.get('sessionProjections')
-  const tools = agentCtx.get('tools')
-  if (agentPresets === undefined || sessionProjections === undefined || tools === undefined) {
+  if (agentPresets === undefined || sessionProjections === undefined) {
     throw new Error('agent configuration services are unavailable')
   }
   const agentPreset = sessionProjections.stateOf(agent.session, 'agentPreset') ?? agentPresets.defaultId
   const mounted = await agentPresets.mount(agentCtx, agentPreset)
-  const disposeToolPresentation = tools.presentAs(toolPresentationForPreset(mounted.id))
   await agentCtx.plugin(commandPermission(agent))
-  return { agentPreset: mounted.id, disposeToolPresentation }
+  return { agentPreset: mounted.id }
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -792,7 +786,6 @@ export class SessionRuntime {
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
-      disposeToolPresentation: configuration.disposeToolPresentation,
     })
     await this.refreshRecent()
   }
@@ -916,7 +909,6 @@ export class SessionRuntime {
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
-      disposeToolPresentation: configuration.disposeToolPresentation,
     })
     this.#tui.restoreInput({ text, images })
     this.#tui.notice(`Rewound to before turn ${selected.turn}. The original session remains available in /resume.`)
@@ -969,14 +961,7 @@ export class SessionRuntime {
     }
     const active = this.#requiredActive()
     if (active.agentPreset === id) return active.agentPreset
-    const previousPreset = active.agentPreset
     const preset = await this.#ctx.agentPresets.recompose(agent.ctx, id)
-    try {
-      this.#replaceToolPresentation(active, toolPresentationForPreset(preset.id))
-    } catch (error: unknown) {
-      await this.#ctx.agentPresets.recompose(agent.ctx, previousPreset)
-      throw error
-    }
     active.agentPreset = preset.id
     agent.session.append('agent-preset/selected', { agentPreset: preset.id })
     this.#pushTools()
@@ -1101,7 +1086,6 @@ export class SessionRuntime {
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
-      disposeToolPresentation: configuration.disposeToolPresentation,
     }
   }
 
@@ -1329,21 +1313,6 @@ export class SessionRuntime {
       stats: sessionStats(events, active.contextWindow, projection),
       controls: this.#sessionControls(active, projection),
     })
-  }
-
-  #replaceToolPresentation(active: ActiveSession, mode: ToolPresentationMode): void {
-    const previousMode = toolPresentationForPreset(active.agentPreset)
-    active.disposeToolPresentation()
-    try {
-      const tools = active.handle.agent.ctx.get('tools')
-      if (tools === undefined) throw new Error('tool registry is unavailable')
-      active.disposeToolPresentation = tools.presentAs(mode)
-    } catch (error: unknown) {
-      const tools = active.handle.agent.ctx.get('tools')
-      if (tools === undefined) throw error
-      active.disposeToolPresentation = tools.presentAs(previousMode)
-      throw error
-    }
   }
 
   #replaceTranscript(agent: Agent): void {

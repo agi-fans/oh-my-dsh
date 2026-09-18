@@ -3,17 +3,9 @@ import { KNOWN_SESSION_EVENT_TYPES, Session, SessionId } from '@deepseek-ai/dsh-
 import {
   formatAgentPreset,
   isBlankSession,
-  toolPresentationForPreset,
 } from './session-configuration.ts'
 
 describe('session configuration', () => {
-  it('derives tool exposure entirely from the Agent preset', () => {
-    expect(toolPresentationForPreset('standard')).toBe('native')
-    expect(toolPresentationForPreset('code')).toBe('ptc')
-    expect(toolPresentationForPreset('minimal')).toBe('native')
-    expect(toolPresentationForPreset('cordis')).toBe('native')
-  })
-
   it('keeps legacy private events readable inside omdsh', () => {
     expect(KNOWN_SESSION_EVENT_TYPES.has('omdsh/tools-selected')).toBe(true)
   })

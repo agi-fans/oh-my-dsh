@@ -465,14 +465,16 @@ describe('upstream capability adaptation rows', () => {
     expect(index('spill-policy')).toBeLessThan(index('tool-result-pruner'))
   })
 
-  it('mounts anonymous web fetch and leaves search disabled', () => {
+  it('mounts anonymous web fetch and the DeepSeek search provider', () => {
     const rows = productRows()
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
     expect(rows[index('web')]?.name).toBe('@deepseek-ai/dsh-web')
+    expect(rows[index('web-search-deepseek')]?.name).toBe('@deepseek-ai/dsh-web-search-deepseek')
     expect(rows[index('web-fetch-http')]?.name).toBe('@deepseek-ai/dsh-web-fetch-http')
     expect(rows[index('tool-web')]?.name).toBe('@deepseek-ai/dsh-tool-web')
-    expect(rows[index('tool-web')]?.config).toMatchObject({ search: false, fetch: true })
-    expect(index('web')).toBeLessThan(index('web-fetch-http'))
+    expect(rows[index('tool-web')]?.config).toMatchObject({ search: true, fetch: true, searchTimeoutMs: 60000 })
+    expect(index('web')).toBeLessThan(index('web-search-deepseek'))
+    expect(index('web-search-deepseek')).toBeLessThan(index('web-fetch-http'))
     expect(index('web-fetch-http')).toBeLessThan(index('tool-web'))
   })
 
@@ -505,5 +507,37 @@ describe('upstream capability adaptation rows', () => {
     // deliverables to the Session log, so those services mount first.
     expect(index('fs')).toBeLessThan(index('tool-present'))
     expect(index('tools')).toBeLessThan(index('tool-present'))
+  })
+
+  it('mounts MCP resource tools after the web tools', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('mcp-resources')]?.name).toBe('@deepseek-ai/dsh-mcp-resources')
+    expect(index('tool-web')).toBeLessThan(index('mcp-resources'))
+  })
+
+  it('mounts /feedback beside the command runtime', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows[index('command-feedback')]?.name).toBe('@deepseek-ai/dsh-command-feedback')
+    expect(index('commands')).toBeLessThan(index('command-feedback'))
+  })
+
+  it('declares PTC presentation in the code preset and keeps the native default', () => {
+    const rows = productRows()
+    expect(rows.find(entry => entry.id === 'tools')?.config).toMatchObject({ mode: 'native' })
+    const code = readFileSync(join(appRoot, 'config', 'agent-presets', 'code', 'agent.cordis.yml'), 'utf8')
+    expect(code).toContain('@deepseek-ai/dsh-agent-tool-presentation')
+    expect(code).toContain('mode: ptc')
+    // PTC presents the registry as an SDK over run_code; a second model-authored
+    // orchestration surface would sit beside it. Only registered global names
+    // may be denied, and `ralph` ships disabled deployment-wide.
+    expect(code).toContain('workflow_run')
+    expect(code).not.toContain('- ralph')
+    expect(code).toContain('@agi-fans/dsh-tui/agent-profile')
+    for (const preset of ['standard', 'minimal', 'cordis']) {
+      const text = readFileSync(join(appRoot, 'config', 'agent-presets', preset, 'agent.cordis.yml'), 'utf8')
+      expect(text, preset).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
+    }
   })
 })

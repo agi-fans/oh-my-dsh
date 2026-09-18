@@ -9,11 +9,16 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Added
 
 - A request that a route rejects as over its image budget now sheds its oldest images locally and retries, instead of failing the turn. The session log keeps every image, so a resumed or forked session still knows what was omitted.
+- `/feedback <text>` records a private note about the current session: the harness stores a log-only event, the model never sees it, and nothing leaves the machine. The command acknowledges the session and anonymous user ids.
+- MCP servers that publish resources now reach the model: when `mcp.json` configures at least one server, the harness's shared resource tools let the model list and read its resources on demand.
+- The model can search the web through DeepSeek's hosted search (`web_search`), using the same credential as the conversation route. A search is a complete auxiliary model request, bounded to five server-tool uses per request by default, and the endpoint, model, and token cap of the provider are tunable in its settings section; a deployment without the DeepSeek credential gets a structured error when the tool is called.
 
 ### Changed
 
 - Updated the DeepSeek Harness runtime cohort from `0.1.5-rc.2` to the published `0.1.6-alpha.1` release. The DeepSeek route now speaks the Messages protocol by default and reuses uploaded images through the Files API; a custom gateway or a stale official base URL override must set `protocol: chat-completions` in the `llm-deepseek` settings section. PTC execution and the workflow engine move to their renamed packages, mounted as `ptc-runtime` and `workflow-ptc`.
 - `ralph` is off by default, matching the upstream base bundle: the tool description already restricted it to runs the human explicitly asked for, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false`.
+- The `code` (PTC) preset now declares its own presentation and hides `workflow_run`, matching the upstream `ptc` preset: a PTC session has exactly one model-authored orchestration surface (`run_code`) instead of a second one beside it, and other presets keep the native catalog. The presentation is fixed when the preset mounts rather than switched by the TUI per session.
+- `web_search` is now exposed by default beside the existing anonymous `web_fetch`; previously the composition mounted fetch only, so a model that needed current information had to be pointed at a URL. A deployment that wants no search turns it back off in `tool-web` through its own overlay.
 
 ## [0.17.0] - 2026-09-12
 

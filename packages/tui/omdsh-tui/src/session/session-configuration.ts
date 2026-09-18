@@ -1,7 +1,6 @@
 /** Agent-preset configuration and composition guards for one session. */
 
 import { KNOWN_SESSION_EVENT_TYPES, type Session } from '@deepseek-ai/dsh-session'
-import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 
 /**
  * Releases v0.5.0 through v0.11.0 wrote this private event. Keep it readable
@@ -12,11 +11,6 @@ function registerLegacyOmdshSessionEvents(): void {
 }
 
 registerLegacyOmdshSessionEvents()
-
-/** PTC uses Code presentation; every other preset exposes native functions. */
-export function toolPresentationForPreset(agentPreset: string): ToolPresentationMode {
-  return agentPreset === 'code' ? 'ptc' : 'native'
-}
 
 /** Agent composition may change only before any model-visible history exists. */
 export function isBlankSession(session: Session): boolean {

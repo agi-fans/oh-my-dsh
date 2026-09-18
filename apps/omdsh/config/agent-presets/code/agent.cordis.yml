@@ -3,3 +3,26 @@
   config:
     prefix: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Prefer programmatic tool calling for multi-step operations when the generated tools SDK is available.
+
+# PTC presents the tool registry as a generated SDK over `run_code`, so the
+# general-purpose `workflow_run` tool would be a second model-authored
+# orchestration surface beside it. The upstream `ptc` preset disables its own
+# workflow rows for that reason; a preset cannot disable a host row, so the
+# restriction does it here. `ralph` needs no entry: the deployment ships it
+# disabled, and `tools.restrict()` rejects a name that no global tool owns — a
+# home overlay that restores it accepts a second surface in this preset.
+- id: profile
+  name: '@agi-fans/dsh-tui/agent-profile'
+  config:
+    tools:
+      deny:
+        - workflow_run
+
+# PTC for this preset alone; `standard`, `minimal`, and `cordis` inherit the
+# deployment default (`native`) from the host `tools` row. The row fails the
+# mount when no PTC runtime is composed, which is the point: the session does
+# not choose its presentation at runtime any more.
+- id: tool-presentation
+  name: '@deepseek-ai/dsh-agent-tool-presentation'
+  config:
+    mode: ptc

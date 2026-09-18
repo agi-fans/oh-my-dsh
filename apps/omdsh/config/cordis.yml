@@ -158,6 +158,12 @@
   - id: commands
     name: '@deepseek-ai/dsh-commands'
 
+  # `/feedback <text>` records one log-only `feedback/record` event: immediate,
+  # model-invisible, and no report leaves the machine. The Web feedback dialog
+  # behind the same service stays a host-plane surface omdsh does not mount.
+  - id: command-feedback
+    name: '@deepseek-ai/dsh-command-feedback'
+
   - id: user-questions
     name: '@deepseek-ai/dsh-user-questions'
 
@@ -377,13 +383,23 @@
   - id: tool-present
     name: '@deepseek-ai/dsh-tool-present'
 
-  # Anonymous public web fetch, no credential and no search provider: a fetch
-  # costs nothing and the TUI already renders web sources. Search stays off
-  # because DeepSeek's native search spends a whole model turn per query; a
-  # deployment that wants it mounts a provider in its own overlay and flips
-  # `search` on here.
+  # Web tools: the model can fetch public pages for free, and search the web
+  # through DeepSeek's hosted search. Search is on by default because the
+  # official provider ships with the base and speaks the same Messages protocol
+  # as the conversation route, so it needs no extra credential setup: the key
+  # resolves through the credentials service at each search. A search is a full
+  # auxiliary model request, so its cost is bounded by `maxUses` (and the
+  # provider's own settings section tunes model, token cap, and endpoint); a
+  # deployment that wants no search disables `tool-web`'s `search` in its own
+  # overlay.
   - id: web
     name: '@deepseek-ai/dsh-web'
+
+  - id: web-search-deepseek
+    name: '@deepseek-ai/dsh-web-search-deepseek'
+    config:
+      apiKeyEnv: DEEPSEEK_API_KEY
+      maxUses: 5
 
   - id: web-fetch-http
     name: '@deepseek-ai/dsh-web-fetch-http'
@@ -391,8 +407,16 @@
   - id: tool-web
     name: '@deepseek-ai/dsh-tool-web'
     config:
-      search: false
+      search: true
       fetch: true
+      searchTimeoutMs: 60000
+
+  # MCP resources: the three shared list/read tools appear only for callers whose
+  # scope has a connected MCP server, so a profile with no `mcp.json` pays no
+  # catalog cost. Resource text enters the conversation; binary payloads stay
+  # programmatic.
+  - id: mcp-resources
+    name: '@deepseek-ai/dsh-mcp-resources'
 
   # Spills one oversized plain-text tool result to a private file and hands the
   # model a bounded preview plus the path. The cap is deliberately far above
