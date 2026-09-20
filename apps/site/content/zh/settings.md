@@ -47,6 +47,10 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 设置通过 Harness 设置文档持久化，与会话存放在同一个 home（`$OMDSH_HOME`，否则 `$DSH_HOME`，再否则 `~/.dsh`）。模型设置也可以来自 `$DSH_HOME/settings.yaml`。完整文件清单见[会话与历史](sessions.md)。
 
+## 插件设置
+
+除浮层的三个分区之外，已挂载的 Harness 插件还会从同一份文档读取各自的设置段。其中一个决定默认路由是否能工作：`llm-deepseek` 默认使用 Messages 协议，因此自建 gateway 或过期的官方 base URL 覆盖必须在那里设置 `protocol: chat-completions`。
+
 ## 相关
 
 - [键盘与快捷键](keyboard.md) —— 设置浮层按键与键位覆盖

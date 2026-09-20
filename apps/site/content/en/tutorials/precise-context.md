@@ -33,7 +33,7 @@ Pasted images are checked on admission and normalized for storage:
 - A refused image shows an error notice and stays out of the prompt.
 - A message with several images is admitted as one ordered batch; if any image is refused, the composer text and drafts stay put.
 
-These checks apply at paste and storage time; the vision model applies its own image budget later, when the request is prepared.
+These checks apply at paste and storage time; the vision model applies its own image budget later, when the request is prepared. A route that rejects the request as over that budget drops the oldest images locally and retries instead of failing the turn, and the session log keeps every image, so a resumed or forked session still knows what was omitted.
 
 ### Write structured prompts
 

@@ -24,7 +24,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 | 命令 | 作用 |
 |---|---|
-| `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；工具暴露由 preset 决定。 |
+| `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；工具暴露由 preset 决定。`code`（PTC）preset 还会把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
 | `/workflow` | 选择 Default 或 Plan workflow。 |
 | `/permission` | 选择会话 Access 级别：Read only、Workspace write 或 Full access。 |
 | `/login` | 登录 provider：目录条目、API key，或自定义 provider（自带 id、base URL、协议与模型 id）。 |
@@ -63,6 +63,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/diff [path]` | 以按文件表格汇总工作区改动，或打印单个文件的 patch。只读 git 状态，不会暂存或提交。 |
 | `/tools` | 列出 agent 可见的工具。 |
 | `/mcp` | 显示已连接的 MCP 服务器及其工具。 |
+| `/feedback <text>` | 记录一条关于当前会话的私密备注。它追加一条模型永远看不到的 log-only 事件——不离开本机——并确认会话与匿名用户 id。 |
 
 ## 剪贴板与输出
 

@@ -19,7 +19,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Web
 
-`web_fetch` 抓取公开网页。Web 搜索保持禁用，因为 DeepSeek 原生搜索每次查询要消耗一整个模型回合。
+`web_fetch` 抓取公开网页。`web_search` 通过与对话路由相同的凭据走 DeepSeek 托管搜索；一次搜索是一次完整的辅助模型请求，默认每次请求最多使用 5 次服务端工具调用，provider 的 endpoint、model 与 token 上限可在 `web-search-deepseek` 设置段中调整。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
 
 ## 代码智能
 
@@ -29,9 +29,13 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 `todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到；`skill` 按需加载匹配的 `SKILL.md`。
 
+## 运行时检查
+
+`cordis` preset 在原生目录之外增加只读的运行时检查：`cordis_inspect_list` 发现 provider，`cordis_inspect_query` 读取精确的 Service、Event 与 Tool API。改变运行时意味着编辑组合文件，而不是调用工具。
+
 ## 委派
 
-`subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理；`workflow_run` 用脚本把工作按阶段扇出；`ralph` 用一茬茬新 agent 迭代同一个目标。见[子智能体与委派](subagents.md)。
+`subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理，`workflow_run` 用脚本把工作扇出到多个子代理。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
 
 ## 相关
 

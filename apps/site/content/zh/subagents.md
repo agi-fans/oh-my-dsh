@@ -18,6 +18,8 @@ omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私�
 
 隔离通道以功能换取隔离：它不接受 model、persona 或 tool filter，没有父级强制的递归上限，派发后也无法引导或追问。它从独立的 home 启动自己的 Harness profile，因此需要 `PATH` 上有一个能提供 `acp` profile 的 `dsh`；`OMDSH_ACP_COMMAND` 与 `OMDSH_ACP_ARGS` 可以覆盖启动方式。
 
+宿主 `subagent` 设置段限制另外两种通道：派发出的子代理起始深度为 1，因此不能再继续委派；同时最多 8 个可继续的子代理处于活动状态。超过任一上限的委派会被拒绝，而不是排队。
+
 ## 跟进与引导
 
 子代理运行时，队列与 composer 上方会显示一份 roster，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。composer 为空时按 `Down` 聚焦它、按 `Enter` 打开所选孩子，或直接按 `Alt+A`。
@@ -26,10 +28,12 @@ Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子�
 
 ## 编排工具
 
-挂载的 Harness 组合在普通委派之外还提供给模型两个编排工具：
+挂载的 Harness 组合在普通委派之外还提供两个编排工具：
 
 - `workflow_run` 接受一段 JavaScript 脚本，把工作按阶段扇出到多个子代理并收集结构化结果。脚本运行在 worker 线程而不是宿主事件循环上，因此大规模扇出不会卡住界面。
-- `ralph` 用一茬茬新 agent 迭代同一个目标，直到某个 worker 报告完成或遇到阻塞。
+- `ralph` 用一茬茬新 agent 迭代同一个目标，直到某个 worker 报告完成或遇到阻塞。它默认关闭，与上游 base bundle 一致：工具描述本身已把它限制在你明确要求的运行上，而是否完成是 worker 的自述而非独立评估。home overlay 在其行上写 `disabled: false` 即可恢复。
+
+`code`（PTC）preset 会 deny `workflow_run`：PTC 把工具注册表呈现为 `run_code` 之上的生成 SDK，否则就会暴露第二个由模型编写的编排面。
 
 `/workflow` 斜杠命令是另一回事：它选择会话的 Default 或 Plan workflow。见[命令](commands.md)。
 

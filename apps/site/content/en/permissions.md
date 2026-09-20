@@ -14,7 +14,7 @@ Every session starts with exactly one Access preset. It decides the filesystem a
 | Workspace write | `workspace-write` | Ask on escalation | Write inside the workspace; wider access requires approval. |
 | Full access | `danger-full-access` | Never prompts | Full filesystem access without approval prompts. |
 
-Workspace write is the default. The preset applies to both the filesystem seam and the shell: a mutation outside the workspace returns the shared sandbox denial instead of failing per tool, and the model may retry it once at a wider mode after approval. The composer's Access badge always reports the mode actually in force, so an approved widening is visible.
+Workspace write is the default. The preset applies to both the filesystem seam and the shell: a mutation outside the workspace returns the shared sandbox denial instead of failing per tool, and the model may retry it once at a wider mode after approval. A retry that asks for the mode already in force runs without a prompt, while a narrower target still fails before anything executes. The composer's Access badge always reports the mode actually in force, so an approved widening is visible.
 
 ## Approval prompts
 

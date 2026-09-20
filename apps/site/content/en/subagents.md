@@ -18,6 +18,8 @@ Three transports coexist and are chosen per delegation rather than configured gl
 
 The isolated transport trades features for isolation: it accepts no model, persona, or tool filter, carries no parent-enforced recursion cap, and cannot be steered or followed up after dispatch. It boots its own Harness profile from an isolated home, so it needs a `dsh` on `PATH` that can serve the `acp` profile; `OMDSH_ACP_COMMAND` and `OMDSH_ACP_ARGS` override the launcher.
 
+The host `subagent` settings section caps the other two transports: a spawned child starts at depth 1, so it cannot delegate further, and at most eight continuable children may be active at once. A delegation past either limit is refused rather than queued.
+
 ## Follow and steer
 
 While children run, a roster sits above the queue and composer with task names and lifecycle states; running, waiting, and finished children are counted separately. Press `Down` on an empty composer to focus it and `Enter` to open the selected child, or press `Alt+A` directly.
@@ -26,10 +28,12 @@ The Agent Hub is the full-screen view: the roster plus an inspector pane. `Enter
 
 ## Orchestration tools
 
-The mounted Harness composition gives the model two orchestration tools on top of plain delegation:
+The mounted Harness composition adds two orchestration tools on top of plain delegation:
 
 - `workflow_run` takes a JavaScript script that fans work out across delegated children with phases and structured results. The script runs on a worker thread rather than the host event loop, so a large fan-out does not stall the interface.
-- `ralph` iterates fresh agents toward one objective until a worker reports completion or a blocker.
+- `ralph` iterates fresh agents toward one objective until a worker reports completion or a blocker. It ships disabled, matching the upstream base bundle: its tool description already restricts it to runs you asked for explicitly, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false` on its row.
+
+The `code` (PTC) preset denies `workflow_run`, because PTC presents the registry as a generated SDK over `run_code` and would otherwise expose a second model-authored orchestration surface.
 
 The `/workflow` slash command is a different control: it chooses the session's Default or Plan workflow. See [Commands](commands.md).
 

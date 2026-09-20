@@ -14,7 +14,7 @@ description: "omdsh 的 Access preset、沙箱与审批行为、升级授权、s
 | Workspace write | `workspace-write` | 越界时询问 | 可在工作区内写入；更宽的范围需要审批。 |
 | Full access | `danger-full-access` | 从不询问 | 完整文件系统访问，无审批提示。 |
 
-默认是 Workspace write。preset 同时作用于文件系统 seam 与 shell：工作区之外的写操作会返回共享的沙箱拒绝，而不是逐个工具失败；模型可以在获得审批后以更宽模式重试一次。composer 的 Access 徽标始终显示实际生效的模式，因此获批的扩权是可见的。
+默认是 Workspace write。preset 同时作用于文件系统 seam 与 shell：工作区之外的写操作会返回共享的沙箱拒绝，而不是逐个工具失败；模型可以在获得审批后以更宽模式重试一次。重试时若请求的正是当前已生效的模式，则不再弹出审批；目标更窄时仍然会在任何执行之前失败。composer 的 Access 徽标始终显示实际生效的模式，因此获批的扩权是可见的。
 
 ## 审批提示
 

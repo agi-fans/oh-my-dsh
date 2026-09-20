@@ -47,6 +47,10 @@ Second line telemetry groups, all shown by default: Context (`Ctx 1.6% · 16.4K/
 
 Settings persist through the Harness settings document in the same home that stores sessions (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/.dsh`). Model settings can also come from `$DSH_HOME/settings.yaml`. See [Sessions and history](sessions.md) for the complete file list.
 
+## Plugin settings
+
+Beyond the overlay's three sections, mounted Harness plugins read their own sections from the same document. One decides whether the default route works at all: `llm-deepseek` speaks the Messages protocol by default, so a custom gateway or a stale official base URL override must set `protocol: chat-completions` there.
+
 ## Related
 
 - [Keyboard and keys](keyboard.md) — settings overlay keys and keybinding overrides

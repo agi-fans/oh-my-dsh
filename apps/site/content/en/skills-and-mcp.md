@@ -74,4 +74,6 @@ A Streamable HTTP server:
 
 Supported optional fields are `enabled`, `timeout` (or `toolCallTimeoutMs`), `failOnStartupError`, and the Harness `reconnect` object. Stdio entries additionally accept `cwd`; HTTP entries accept `headers`. String values support `${NAME}` and `${NAME:-default}` environment expansion, so credentials do not need to be stored directly in the JSON file. An unresolved placeholder without a default remains literal.
 
-Discovered tools use `mcp__<server>__<tool>` names and enter the normal Harness tool registry. `/mcp` groups the connected tools by server; `/tools` shows them alongside native tools. Tool-list changes after an MCP reconnect update both views automatically. MCP resources and prompts are not bridged because the current Harness MCP client supports tools only.
+Discovered tools use `mcp__<server>__<tool>` names and enter the normal Harness tool registry. `/mcp` groups the connected tools by server; `/tools` shows them alongside native tools. Tool-list changes after an MCP reconnect update both views automatically.
+
+With at least one server configured, the model can also list and read that server's resources through the shared `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource` tools, each named for the server it queries. Resource text enters the conversation history; binary payloads stay available to programmatic callers. MCP prompt templates remain unsupported.

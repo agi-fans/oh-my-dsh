@@ -24,7 +24,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 | Command | What it does |
 |---|---|
-| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; the preset decides which tools the model sees. |
+| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; the preset decides which tools the model sees. The `code` (PTC) preset also presents the registry as a generated SDK and hides `workflow_run`. |
 | `/workflow` | Choose the Default or Plan workflow. |
 | `/permission` | Choose the session Access level: Read only, Workspace write, or Full access. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, or a custom provider with its own id, base URL, protocol, and model ids. |
@@ -63,6 +63,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/diff [path]` | Summarize workspace changes as a per-file table, or print one file's patch. It only reads git state and never stages or commits. |
 | `/tools` | List the tools visible to the agent. |
 | `/mcp` | Show connected MCP servers and their tools. |
+| `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
 
 ## Clipboard and output
 
