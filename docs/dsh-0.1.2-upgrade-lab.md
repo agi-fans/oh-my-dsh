@@ -1,5 +1,7 @@
 # DeepSeek Harness 0.1.2 upgrade lab
 
+> **Historical record.** This lab ran on the `alpha` release-preparation branch. That branch was last used to prepare `v0.15.0`, every release since has shipped from `main`, and the branch has been deleted. The branch references below describe the experiment as it was run, not the current release process.
+
 ## Purpose
 
 This document records the evidence produced while moving oh-my-dsh from the published DeepSeek Harness `0.1.1-rc.2` cohort to `0.1.2-alpha.2`. The immediate goal is a correct migration on the `alpha` branch. The reusable goal is to identify decisions, checks, and failure patterns that belong in a DSH plugin-upgrade skill rather than preserving a one-off implementation diary.
