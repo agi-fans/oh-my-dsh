@@ -38,7 +38,9 @@ describe('preset tool presentation on the wire', () => {
   it('sends the native catalog for the standard preset', async () => {
     const names = await wireToolNames('standard')
     expect(names).toContain('workflow_run')
-    expect(names).toContain('bash')
+    // Exactly one shell stack mounts per host: the bash tool gates off Windows
+    // and its PowerShell twin gates off everything else.
+    expect(names).toContain(process.platform === 'win32' ? 'pwsh' : 'bash')
     expect(names).not.toContain('run_code')
   }, 180_000)
 })
