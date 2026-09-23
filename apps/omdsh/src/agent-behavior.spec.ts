@@ -5,18 +5,19 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import {
   AGENT_BEHAVIOR_VARIABLE,
   AgentBehaviorPrompt,
-  AgentBehaviorSettingsSchema,
+  Config as AgentBehaviorConfig,
   agentLanguageFragment,
 } from './agent-behavior.ts'
 
 const contextFor = (agent?: Agent): AssembleContext => ({ agent }) as AssembleContext
 
-describe('AgentBehaviorSettingsSchema', () => {
+describe('Agent behavior row config', () => {
   it('defaults to Auto and rejects unknown languages', () => {
-    const validate = AgentBehaviorSettingsSchema as unknown as (input: object) => { language: string }
-    expect(validate({})).toEqual({ language: 'auto' })
-    expect(validate({ language: 'zh-CN' })).toEqual({ language: 'zh-CN' })
-    expect(validate({ language: 'en' })).toEqual({ language: 'en' })
+    const validate = (input: object): string =>
+      (AgentBehaviorConfig(input) as { language: { get(): string } }).language.get()
+    expect(validate({})).toBe('auto')
+    expect(validate({ language: 'zh-CN' })).toBe('zh-CN')
+    expect(validate({ language: 'en' })).toBe('en')
     expect(() => validate({ language: 'fr' })).toThrow()
   })
 })
@@ -54,7 +55,7 @@ describe('Agent behavior prompt projection', () => {
     const prompt = new AgentBehaviorPrompt()
     expect(prompt.variable(contextFor(), 'en')).toBe(`\n\n${agentLanguageFragment('en')}`)
     const minimal = readFileSync(
-      new URL('../config/agent-presets/minimal/agent.cordis.yml', import.meta.url),
+      new URL('../config/presets/minimal.patch.yml', import.meta.url),
       'utf8',
     )
     const persona = 'You are a helpful software engineer assistant.'

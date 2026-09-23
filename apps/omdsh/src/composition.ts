@@ -19,7 +19,6 @@ export {
   PRODUCT_BUNDLE,
   PROFILE_NAME,
   PROFILE_PATCH_LABEL,
-  SHIPPED_PRESET_ROOT,
 } from './profile.ts'
 
 /**

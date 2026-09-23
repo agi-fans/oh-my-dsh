@@ -1,16 +1,18 @@
 /**
- * omdsh tree boot: mounts the omdsh Profile over an empty root, providing
- * the command line, the exit request, and the launch-environment snapshot
- * before any entry mounts.
+ * omdsh tree boot: mounts the omdsh Profile over an empty root, providing the
+ * command line, the profile facts, the runtime package resolution, and the
+ * launch-environment snapshot before any entry mounts.
  * @module @agi-fans/oh-my-dsh
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { boot, healProfilesModuleFallback, installFailLoud } from '@deepseek-ai/dsh-app-boot'
+import {
+  boot, createRuntimeResolution, installFailLoud, PluginPackages, type ProfileContext,
+} from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { NAME, prepareLaunchEnvironment } from './composition.ts'
-import { composeLaunch, INSTALL_ANCHOR } from './profile.ts'
+import { composeLaunch, INSTALL_ANCHOR, PROFILE_NAME } from './profile.ts'
 import { omdshHome } from './config-paths.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
@@ -38,14 +40,37 @@ export async function runOmdsh(
   installFailLoud(NAME, process, async () => { await app.current?.fiber.dispose() })
   const environment = prepareLaunchEnvironment()
   const composed = composeLaunch()
-  await healProfilesModuleFallback({
+  const home = omdshHome()
+  // The Profile facts every profile-scoped plugin reads: `dsh-settings` and
+  // `config-editor` persist edits into `patchPath`, and the composition
+  // preflight judges profile rows against the running DSH release. Overlays
+  // are the layers above the Profile patch, so a reconciliation re-derives
+  // exactly the list `composeLaunch` mounted.
+  const profileContext: ProfileContext = {
+    name: PROFILE_NAME,
+    dir: composed.profile.dir,
+    patchPath: composed.profile.patchPath,
+    installAnchor: INSTALL_ANCHOR,
+    startedBundles: composed.profile.layers.map(layer => layer.packageName),
+    cwd: process.cwd(),
+    home,
+    overlays: composed.overlays,
+    telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
+  }
+  // One immutable package table for this launch: installation packages first
+  // (every `@deepseek-ai/*` and `@agi-fans/dsh-tui` module resolves from the
+  // omdsh installation), then the Profile's own `node_modules`, then the
+  // Profile's linked roots. No fallback links are created.
+  const resolution = await createRuntimeResolution({
     installAnchor: INSTALL_ANCHOR,
     profile: composed.profile,
-    home: omdshHome(),
+    home,
   })
-  const ctx = await boot(NAME, composed.rootConfig, structuredClone(composed.patches), (hostCtx) => {
+  const ctx = await boot(NAME, composed.rootConfig, structuredClone(composed.patches), async (hostCtx) => {
     app.current = hostCtx
+    hostCtx.provide('profileContext', profileContext)
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
+    await hostCtx.plugin(PluginPackages, { resolution })
     provideCmdline(hostCtx, {
       args: resume === undefined ? prompt : ['--resume', resume],
       exit: (code) => { void shutdown.shutdown(code) },

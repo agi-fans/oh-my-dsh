@@ -41,7 +41,7 @@ Command-line flags outrank every layered environment source.
 | `OMDSH_PERMISSION_MODE` | Initial Access preset: `read-only`, `workspace-write` (default), or `danger-full-access`. `/permission` changes it per session afterwards. |
 | `NO_COLOR`, `FORCE_COLOR=0` | Disable color output unless an explicit color preference exists. See [Troubleshooting](troubleshooting.md). |
 
-Model settings can also come from `$DSH_HOME/settings.yaml`; `/model` writes the same preferences interactively.
+`/model` writes model preferences into the Profile patch, `profiles/omdsh/cordis.patch.yml`; a `settings.yaml` left by an earlier release is imported once at startup and renamed to `settings.yaml.imported`.
 
 ## Plugin and completions
 

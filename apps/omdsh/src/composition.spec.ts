@@ -14,7 +14,6 @@ import {
   prepareLaunchEnvironment,
   PRODUCT_BUNDLE,
   PROFILE_PATCH_LABEL,
-  SHIPPED_PRESET_ROOT,
   writeAll,
 } from './composition.ts'
 import { composeLaunch } from './profile.ts'
@@ -28,6 +27,43 @@ function temp(name: string): string {
   const path = mkdtempSync(join(tmpdir(), name))
   roots.push(path)
   return path
+}
+
+interface PresetPluginRow {
+  id?: string
+  name?: string
+  group?: boolean
+  isolate?: Record<string, unknown>
+  disabled?: unknown
+  /** A plain row keeps its options here; a `cordis:group` keeps its children here. */
+  config?: Record<string, unknown> | PresetPluginRow[]
+}
+
+/** The shipped `<id>` preset's top-level plugin rows, as the composition mounts them. */
+function presetPlugins(id: string): PresetPluginRow[] {
+  const patches = loadBootPatches(temp('omdsh-preset-cwd-'), { OMDSH_HOME: temp('omdsh-preset-home-') })
+  const rows = patches.flatMap(patch => (patch as { insert?: PresetPluginRow[] }).insert ?? [])
+  const declared = rows.filter(row => row.name === '@deepseek-ai/dsh-agent-preset')
+  const preset = declared.find(row => (row.config as { id?: string })?.id === id)
+  expect(preset, `shipped ${id} preset row`).toBeDefined()
+  const plugins = (preset?.config as { plugins?: PresetPluginRow[] } | undefined)?.plugins
+  expect(Array.isArray(plugins), `shipped ${id} preset plugins`).toBe(true)
+  return plugins ?? []
+}
+
+/** Every row of a preset, including the children nested in a `cordis:group`. */
+function pluginTree(plugins: PresetPluginRow[]): PresetPluginRow[] {
+  const all: PresetPluginRow[] = []
+  for (const plugin of plugins) {
+    all.push(plugin)
+    if (Array.isArray(plugin.config)) all.push(...pluginTree(plugin.config))
+  }
+  return all
+}
+
+/** Row-level `disabled` is a `!!js` expression the loader evaluates at activation. */
+function active(row: PresetPluginRow | undefined): boolean {
+  return row?.disabled === undefined || interpolate({} as Context, row.disabled) !== true
 }
 
 afterEach(() => {
@@ -47,7 +83,6 @@ describe('boot patch assembly', () => {
       PRODUCT_BUNDLE,
       PROFILE_PATCH_LABEL,
       'mcp.json',
-      'agent-presets',
     ])
     expect(loadBootPatches(cwd, { OMDSH_HOME: home })).toEqual(expect.arrayContaining([
       expect.objectContaining({ insert: expect.arrayContaining([expect.objectContaining({ id: 'tui' })]) }),
@@ -101,7 +136,6 @@ describe('boot patch assembly', () => {
       PROFILE_PATCH_LABEL,
       'mcp.json',
       'lsp.json',
-      'agent-presets',
     ])
     const lsp = loadBootPatches(cwd, { OMDSH_HOME: home })
       .flatMap(patch => (patch as { insert?: { id?: string }[] }).insert ?? [])
@@ -121,7 +155,6 @@ describe('boot patch assembly', () => {
       PROFILE_PATCH_LABEL,
       'cordis.patch.yml',
       'mcp.json',
-      'agent-presets',
     ])
     const patches = loadBootPatches(cwd, { OMDSH_HOME: home })
     const homeIndex = patches.findIndex(patch => !('insert' in patch) && (patch as { id?: string }).id === 'tui')
@@ -173,7 +206,10 @@ describe('boot patch assembly', () => {
     expect(dump).toMatch(/disabled:\s*true/u)
     expect(dump).toContain('name: \'@agi-fans/dsh-tui\'')
     expect(dump).toContain("name: '@agi-fans/oh-my-dsh/agent-behavior'")
-    expect(dump).toContain(SHIPPED_PRESET_ROOT)
+    // Presets ship as product-bundle patch rows, so the dump prints each one.
+    for (const preset of ['standard', 'code', 'minimal', 'cordis']) {
+      expect(dump, preset).toContain(`id: preset-${preset}`)
+    }
     expect(dump).not.toContain('mcp.json')
   })
 
@@ -427,15 +463,28 @@ describe('dsh spine expansion', () => {
   })
 
   it('keeps the minimal preset persistent bash inside its own cordis group', () => {
-    const minimal = readFileSync(join(appRoot, 'config', 'agent-presets', 'minimal', 'agent.cordis.yml'), 'utf8')
-    const standard = readFileSync(join(appRoot, 'config', 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8')
+    const minimal = presetPlugins('minimal')
+    const plugin = (id: string): PresetPluginRow | undefined => minimal.find(entry => entry.id === id)
     // Root composition owns the global `bash` tool (dsh-tool-bash); the Minimal
     // preset mounts persistent-bash inside a cordis:group. Per dsh-tools'
     // documented contract ("Scoped tools shadow globals"), the scoped
     // registration coexists and shadows the global for that agent scope.
-    expect(minimal).toContain('cordis:group')
-    expect(minimal).toContain('@deepseek-ai/dsh-tool-bash-persistent')
-    expect(standard).not.toContain('@deepseek-ai/dsh-tool-bash-persistent')
+    const group = plugin('persistent-shell')
+    expect(group?.name).toBe('cordis:group')
+    expect(group?.isolate).toEqual({ terminals: true })
+    const scoped = Array.isArray(group?.config) ? group.config : []
+    const scopedRow = (id: string): PresetPluginRow | undefined => scoped.find(entry => entry.id === id)
+    expect(scopedRow('persistent-bash')?.name).toBe('@deepseek-ai/dsh-tool-bash-persistent')
+    expect(scopedRow('persistent-pwsh')?.name).toBe('@deepseek-ai/dsh-tool-pwsh-persistent')
+    expect(active(scopedRow('persistent-bash'))).toBe(process.platform !== 'win32')
+    expect(active(scopedRow('terminal-bash'))).toBe(process.platform !== 'win32')
+    expect(active(scopedRow('persistent-pwsh'))).toBe(process.platform === 'win32')
+    expect(active(scopedRow('terminal-pwsh'))).toBe(process.platform === 'win32')
+    // The Minimal shape is exactly two tools: the persistent shell and the editor.
+    expect(plugin('profile')?.config).toEqual({ tools: { allow: ['shell', 'str_replace_editor'] } })
+    const standard = pluginTree(presetPlugins('standard'))
+    expect(standard.some(entry => entry.name === '@deepseek-ai/dsh-tool-bash-persistent')).toBe(false)
+    expect(standard.some(entry => entry.name === '@deepseek-ai/dsh-tool-pwsh-persistent')).toBe(false)
   })
 })
 
@@ -461,7 +510,7 @@ describe('upstream capability adaptation rows', () => {
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
     expect(rows[index('spill-local')]?.name).toBe('@deepseek-ai/dsh-spill-local')
     expect(rows[index('spill-policy')]?.name).toBe('@deepseek-ai/dsh-spill-policy')
-    expect(rows[index('spill-policy')]?.config).toMatchObject({ maxInlineBytes: 200000 })
+    expect(rows[index('spill-policy')]?.config).toMatchObject({ maxInlineTokens: 50000 })
     expect(index('spill-policy')).toBeLessThan(index('tool-result-pruner'))
   })
 
@@ -526,18 +575,19 @@ describe('upstream capability adaptation rows', () => {
   it('declares PTC presentation in the code preset and keeps the native default', () => {
     const rows = productRows()
     expect(rows.find(entry => entry.id === 'tools')?.config).toMatchObject({ mode: 'native' })
-    const code = readFileSync(join(appRoot, 'config', 'agent-presets', 'code', 'agent.cordis.yml'), 'utf8')
-    expect(code).toContain('@deepseek-ai/dsh-agent-tool-presentation')
-    expect(code).toContain('mode: ptc')
+    const code = presetPlugins('code')
+    const presentation = code.find(entry => entry.id === 'tool-presentation')
+    expect(presentation?.name).toBe('@deepseek-ai/dsh-agent-tool-presentation')
+    expect(presentation?.config).toEqual({ mode: 'ptc' })
     // PTC presents the registry as an SDK over run_code; a second model-authored
     // orchestration surface would sit beside it. Only registered global names
     // may be denied, and `ralph` ships disabled deployment-wide.
-    expect(code).toContain('workflow_run')
-    expect(code).not.toContain('- ralph')
-    expect(code).toContain('@agi-fans/dsh-tui/agent-profile')
+    const profile = code.find(entry => entry.id === 'profile')
+    expect(profile?.name).toBe('@agi-fans/dsh-tui/agent-profile')
+    expect(profile?.config).toEqual({ tools: { deny: ['workflow_run'] } })
     for (const preset of ['standard', 'minimal', 'cordis']) {
-      const text = readFileSync(join(appRoot, 'config', 'agent-presets', preset, 'agent.cordis.yml'), 'utf8')
-      expect(text, preset).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
+      const names = pluginTree(presetPlugins(preset)).map(entry => entry.name)
+      expect(names, preset).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
     }
   })
 })

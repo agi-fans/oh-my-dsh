@@ -153,7 +153,8 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   }
   ctx.provide('credentials', { describe, set, unset, describeRecord, listRecords, deleteRecord } as never)
   ctx.provide('settings', {
-    get: (namespace: unknown) => sections.get(String(namespace)),
+    // The command reads provider sections through the forms projection.
+    describe: () => [...sections.entries()].map(([ns, value]) => ({ ns, value })),
     update: settingsUpdate,
     mutate: settingsMutate,
   } as never)
@@ -727,9 +728,6 @@ describe('authorization service login', () => {
     expect(harness.deleteRecord).toHaveBeenCalledWith(FLOW_KEY)
     expect(harness.settingsMutate).not.toHaveBeenCalled()
     expect(harness.unset).not.toHaveBeenCalled()
-    expect(harness.ctx.settings.get(commandAuth.PI_AI_SETTINGS)).toEqual({
-      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } },
-    })
     expect(logout?.result).toEqual({ kind: 'success', text: 'Logged out from OpenAI.' })
     await harness.ctx.fiber.dispose()
   })

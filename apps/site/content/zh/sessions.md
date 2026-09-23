@@ -24,7 +24,7 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 
 ## 磁盘上的日志
 
-会话文件可能经过压缩并带有完整性校验，请不要手工修改；在提供显式迁移工具前，请继续使用 omdsh 打开这些旧会话。读取旧日志时会通过已发布的 v0→v3 迁移链迁移，并发布一个带版本名的后继文件（`session.v3.jsonl[.zstd]`），前驱文件保持不变。
+会话文件可能经过压缩并带有完整性校验，请不要手工修改；请继续使用 omdsh 打开这些旧会话。旧版本写入的日志会在该会话被写入时迁移，并在升级后的首次启动由后台任务按会话格式迁移一次，发布一个带版本名的后继文件（`session.v4.jsonl[.zstd]`），前驱文件保持不变。启动时会有一条提示，说明本次迁移了多少个会话。
 
 最初使用 v0.5.0 至 v0.11.0 创建的会话可能包含私有的 `omdsh/tools-selected` 事件：当前 omdsh 可以识别并恢复它们，但未经扩展的 DSH 持久化读取器会拒绝该日志。v0.12.0 及更高版本创建的会话不再写入该事件，因此新建会话可被原版 DSH 持久化读取。
 
@@ -39,9 +39,12 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 | `omdsh/keybindings.json` | 应用级键位覆盖。 |
 | `omdsh/model-favorites.json` | `Ctrl+P` 与 `Alt+P` 使用的收藏模型循环。 |
 | `omdsh/session-library.json` | 会话置顶与重命名。 |
-| `profiles/omdsh/` | 由 `omdsh plugin` 管理的用户插件 Profile。 |
+| `omdsh/recent-sessions.json` | 跨启动复用的会话库标签；删除后下次启动会重新读取每个存储日志。 |
+| `omdsh/sessions-upgraded.json` | 记录已存日志已迁移到的会话格式。 |
+| `sessions-query.sqlite` | 会话内容搜索使用的派生全文索引；删除后会在下次搜索时重建。 |
+| `profiles/omdsh/` | 由 `omdsh plugin` 管理的用户插件 Profile，其中包括持久化设置的 `cordis.patch.yml`。 |
 
-在 `/settings` 中修改的设置会持久化到 Harness 设置文件；模型设置也可以来自 `$DSH_HOME/settings.yaml`。
+在 `/settings` 中修改的设置会持久化到该 Profile 补丁，而不是单独的设置文件。
 
 ## 相关
 

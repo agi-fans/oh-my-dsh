@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
+import { writeTurnConfig } from './test-support/tui-boot.ts'
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 
@@ -23,9 +24,7 @@ afterEach(() => {
 describe('present delivery tool', () => {
   it('lets the model declare a deliverable and renders its card', async () => {
     const home = temp('omdsh-present-home-')
-    // The published mock server implements only the chat-completions wire
-    // protocol; the adapter now defaults to Messages.
-    writeFileSync(join(home, 'settings.yaml'), 'agent-presets:\n  default: standard\nllm-deepseek:\n  protocol: chat-completions\n')
+    writeTurnConfig(home, 'standard')
     // A real empty-port bind keeps parallel suite runs from colliding.
     const server = await startMockLlmServer({
       port: 0,

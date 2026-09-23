@@ -108,7 +108,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 运行 `/login` 可以配置一家提供方。DeepSeek 仍会打开官方 Key 管理页、验证 Key，并让这份存储凭据优先于继承的 `DEEPSEEK_API_KEY`。当已挂载的提供方注册了 Harness 授权流程时，`/login` 会列出该流程及其方法，终端只渲染流程要求的通知和提问。同一条命令也可以激活 catalog API Key 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。之后 `/model` 会列出所有已激活的路由。`/logout` 会删除由 omdsh 管理的选择；对 DeepSeek 而言，环境变量可用时会回退到环境变量。
 
-模型配置也可以来自 `$DSH_HOME/settings.yaml`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
+模型设置与其他插件配置都持久化到当前 Profile 的 Cordis 补丁 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 中；更早版本留下的 `settings.yaml` 会在启动时导入一次，并重命名为 `settings.yaml.imported`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
 
 升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。长任务完成和等待人工输入的终端通知也在这里配置，并且默认关闭。每一项设置、可选值与默认值见[设置](https://omdsh.agi.fans/zh/docs/settings/)。
 

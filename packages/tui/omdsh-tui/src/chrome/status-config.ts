@@ -3,6 +3,8 @@
  * @module @agi-fans/dsh-tui/status-config
  */
 
+import type { VolatileSnapshot } from '@deepseek-ai/cordis'
+
 /** Stable telemetry groups users can show, hide, and reorder. */
 export const STATUS_GROUP_IDS = ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'] as const
 export type StatusGroupId = (typeof STATUS_GROUP_IDS)[number]
@@ -66,6 +68,9 @@ export interface StatusBarConfig {
   /** Optional left/right column for each item. */
   sides?: Partial<Record<StatusItemId, StatusSide>>
 }
+
+/** Stored status-line input: a settings document value or a frozen config snapshot. */
+export type StatusBarInput = Partial<VolatileSnapshot<StatusBarConfig>>
 
 /** Normalized layout always carries complete orders, colors, and columns. */
 export interface ResolvedStatusBarConfig extends StatusBarConfig {
@@ -183,7 +188,7 @@ function resolveStatusColors(colors?: StatusBarColors): Required<StatusBarColors
  * duplicate groups disappear; legacy presets retain their previous meaning.
  */
 export function resolveStatusBarConfig(
-  config?: Partial<StatusBarConfig>,
+  config?: StatusBarInput,
   legacyPreset?: StatusPreset,
 ): ResolvedStatusBarConfig {
   if (config === undefined) {

@@ -4,15 +4,17 @@
 // Run: node scripts/happy-smoke.mjs
 
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
 const omdshHome = smokeHome('omdsh-happy-smoke-')
-// The published mock server implements only the chat-completions wire
-// protocol; the adapter now defaults to Messages.
-writeFileSync(join(omdshHome, 'settings.yaml'), 'agent-presets:\n  default: code\nllm-deepseek:\n  protocol: chat-completions\n')
+// Row configuration lives in the Profile patch; the published mock server
+// speaks the Messages wire the adapter uses.
+const profileDir = join(omdshHome, 'profiles', 'omdsh')
+mkdirSync(profileDir, { recursive: true })
+writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: agent-preset-registry\n  config:\n    default: code\n')
 
 const server = await startMockLlmServer({
   port: 8123,

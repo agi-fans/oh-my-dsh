@@ -471,23 +471,21 @@ function applyToolResult(
   mutable: boolean,
   indexes?: ReplayIndexes,
 ): TranscriptState {
-  // A tool-result message carries exactly one tool-result block; the call
-  // identity and outcome live on that inner block.
-  const inner = message.content[0]
-  if (inner?.type !== 'tool-result') return state
+  // The tool-role message carries the call identity and outcome itself.
+  const callId = message.toolCallId
   const blocks = editableBlocks(state, mutable)
-  const indexed = indexes?.toolByCallId.get(inner.toolCallId)
+  const indexed = indexes?.toolByCallId.get(callId)
   if (indexed !== undefined) {
     const block = blocks[indexed]
     if (block?.kind === 'tool') {
-      blocks[indexed] = settleTool(block, inner, error, presentation)
+      blocks[indexed] = settleTool(block, message, error, presentation)
       return { ...state, blocks }
     }
   }
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i]
-    if (block?.kind === 'tool' && block.callId === inner.toolCallId) {
-      blocks[i] = settleTool(block, inner, error, presentation)
+    if (block?.kind === 'tool' && block.callId === callId) {
+      blocks[i] = settleTool(block, message, error, presentation)
       return { ...state, blocks }
     }
   }
@@ -496,14 +494,14 @@ function applyToolResult(
 
 function settleTool(
   block: Extract<Block, { kind: 'tool' }>,
-  result: Extract<ToolResultMessage['content'][number], { type: 'tool-result' }>,
+  message: ToolResultMessage,
   error: { name: string; code: string } | undefined,
   presentation: TuiToolPresentation | undefined,
 ): Extract<Block, { kind: 'tool' }> {
   return {
     ...block,
-    status: error !== undefined || result.isError === true ? 'error' : 'ok',
-    output: contentToText(result.content),
+    status: error !== undefined || message.isError === true ? 'error' : 'ok',
+    output: contentToText(message.content),
     ...(presentation === undefined ? {} : { presentation }),
   }
 }

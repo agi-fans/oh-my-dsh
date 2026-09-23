@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
+import { writeTurnConfig } from './test-support/tui-boot.ts'
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 
@@ -26,7 +27,7 @@ afterEach(() => {
 describe('/feedback command', () => {
   it('records a log-only feedback event and acknowledges the session', async () => {
     const home = temp('omdsh-feedback-home-')
-    writeFileSync(join(home, 'settings.yaml'), 'agent-presets:\n  default: standard\n')
+    writeTurnConfig(home, 'standard')
     const command = process.platform === 'win32' ? 'cmd.exe' : 'pnpm'
     const args = process.platform === 'win32'
       ? ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']

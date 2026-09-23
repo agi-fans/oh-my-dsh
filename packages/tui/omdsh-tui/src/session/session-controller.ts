@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   installModelSelection,
@@ -16,7 +17,7 @@ import {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import type { AgentPreset } from '@deepseek-ai/dsh-agent-presets'
+import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import {
   createUserMessage,
   type LlmResolvedModelInfo,
@@ -33,11 +34,11 @@ import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError, type SessionPersistence as SessionPersistenceService } from '@deepseek-ai/dsh-session-persistence'
 import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-goal'
@@ -61,6 +62,8 @@ import type {
   TuiInputImage,
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
+import { readRecentRows, writeRecentRows, type SessionRowMemo } from './session-library.ts'
+import { readJsonFile, writeJsonAtomic } from './json-file.ts'
 import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
@@ -493,16 +496,21 @@ export class SessionRuntime {
   readonly #off: Array<() => void> = []
   readonly #tracker: SubagentTracker
   readonly #streamAttempts = new LiveAttemptTracker()
-  readonly #recentCache = new Map<string, { revision: string; row: TuiRecentSession }>()
+  readonly #recentCache = new Map<string, SessionRowMemo>()
+  readonly #recentRowsPath: string | undefined
+  readonly #upgradeMarkerPath: string | undefined
+  #recentRowsLoaded = false
   #refreshInFlight: Promise<void> | null = null
   #refreshDirty = false
   #inspectEpoch = 0
   #activationEpoch = 0
   #inspectedId: string | undefined
 
-  constructor(ctx: Context, tui: TuiService) {
+  constructor(ctx: Context, tui: TuiService, options: { stateDir?: string } = {}) {
     this.#ctx = ctx
     this.#tui = tui
+    this.#recentRowsPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'recent-sessions.json')
+    this.#upgradeMarkerPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'sessions-upgraded.json')
     this.#tracker = new SubagentTracker({
       rootId: () => this.#active?.handle.agent.id,
       depth: (session) => {
@@ -545,8 +553,12 @@ export class SessionRuntime {
     }
     const jobs = this.#ctx.get('jobs')
     if (jobs !== undefined) {
-      this.#off.push(jobs.onJobDone((snapshot, owner) => {
-        const notice = jobNoticeFor(snapshot, owner, this.#active?.handle.agent)
+      // Settlements speak session ids, so the owning Agent is resolved here;
+      // a job whose owner is gone has no notice to show.
+      this.#off.push(jobs.events.subscribe({ owners: 'scope' }, (event) => {
+        if (event.type !== 'settled') return
+        const owner = event.job.owner === undefined ? undefined : this.#ctx.get('agents')?.get(event.job.owner)
+        const notice = jobNoticeFor(event.job, owner, this.#active?.handle.agent)
         if (notice !== undefined) tui.notice(notice)
       }))
     }
@@ -623,6 +635,13 @@ export class SessionRuntime {
           || key === 'plan' || key === 'permissions' || key === 'goal') this.#pushSessionInfo()
       }))
     }
+    // One-time per session format, off the first render: stored logs an earlier
+    // release wrote get their current-format generation here rather than on the
+    // next listing or search that has to decode them.
+    ctx.inject(['sessionPersistence'], (persistenceCtx) => {
+      void this.#upgradeStoredSessions(persistenceCtx.sessionPersistence)
+        .catch((error: unknown) => { persistenceCtx.logger.warn(error) })
+    })
   }
 
   get agent(): Agent | undefined {
@@ -982,6 +1001,43 @@ export class SessionRuntime {
     return outcome
   }
 
+  /**
+   * Publish a current-format generation for every stored session an earlier
+   * release wrote. A read open never upgrades a log, so without this pass
+   * every listing and search keeps decoding the historical corpus — the pass
+   * runs once per session format, in the background, and skips a session
+   * another live process owns.
+   */
+  async #upgradeStoredSessions(persistence: SessionPersistenceService): Promise<void> {
+    const markerPath = this.#upgradeMarkerPath
+    if (markerPath === undefined) return
+    const marker = readJsonFile(markerPath) as { sessionFormat?: unknown } | undefined
+    if (typeof marker?.sessionFormat === 'number' && marker.sessionFormat >= SESSION_FORMAT_VERSION) return
+    const before = await persistence.list()
+    const revisions = new Map(before.map(snapshot => [String(snapshot.header.id), snapshot.revision]))
+    const active = this.#active?.handle.agent.id
+    for (const snapshot of before) {
+      if (this.#disposed) return
+      if (String(snapshot.header.id) === active) continue
+      try {
+        const handle = await persistence.open(snapshot.header.id, 'write')
+        await handle.close()
+      } catch (error) {
+        // Another process owns it, or the log is unreadable: leave it alone.
+        if (!(error instanceof SessionAlreadyOwnedError)) this.#ctx.logger.debug(error)
+      }
+    }
+    if (this.#disposed) return
+    let upgraded = 0
+    for (const snapshot of await persistence.list()) {
+      if (revisions.get(String(snapshot.header.id)) !== snapshot.revision) upgraded += 1
+    }
+    writeJsonAtomic(markerPath, { sessionFormat: SESSION_FORMAT_VERSION })
+    if (upgraded > 0) {
+      this.#tui.notice(`Upgraded ${upgraded} stored session${upgraded === 1 ? '' : 's'} to the current format.`)
+    }
+  }
+
   async refreshRecent(): Promise<void> {
     // Coalesce concurrent callers: the recent list is one snapshot, and a
     // burst of title/status events must not queue a read of every stored log.
@@ -1011,21 +1067,37 @@ export class SessionRuntime {
     }
     const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
       .sort((left, right) => right.header.createdAt - left.header.createdAt)
+    // A stored row stays valid while its revision holds, so a cold process
+    // renders labels for unchanged sessions without reading their logs; only a
+    // new or changed session pays a read.
+    if (!this.#recentRowsLoaded && this.#recentRowsPath !== undefined) {
+      this.#recentRowsLoaded = true
+      for (const [id, memo] of readRecentRows(this.#recentRowsPath)) this.#recentCache.set(id, memo)
+    }
     const rows: TuiRecentSession[] = []
+    let memoChanged = false
     const liveIds = new Set<string>(snapshots.map(snapshot => snapshot.header.id))
-    for (const id of this.#recentCache.keys()) if (!liveIds.has(id)) this.#recentCache.delete(id)
+    for (const id of this.#recentCache.keys()) {
+      if (liveIds.has(id)) continue
+      this.#recentCache.delete(id)
+      memoChanged = true
+    }
     for (const snapshot of snapshots) {
       const header = snapshot.header
       const cached = this.#recentCache.get(header.id)
       if (cached?.revision === snapshot.revision) {
-        rows.push(cached.row)
+        if (cached.row !== null) rows.push(cached.row)
         continue
       }
       try {
         const log = await readColdSessionLog(persistence, header.id)
         const status = recentSessionStatus(log.events)
         const content = recentSessionContent(log.events)
-        if (content === undefined) continue
+        if (content === undefined) {
+          this.#recentCache.set(header.id, { revision: snapshot.revision, row: null })
+          memoChanged = true
+          continue
+        }
         const row: TuiRecentSession = {
           id: header.id,
           ...content,
@@ -1035,11 +1107,13 @@ export class SessionRuntime {
           ...(status === undefined ? {} : { status }),
         }
         this.#recentCache.set(header.id, { revision: snapshot.revision, row })
+        memoChanged = true
         rows.push(row)
       } catch {
         rows.push({ id: header.id, title: '(unavailable session)', createdAt: header.createdAt })
       }
     }
+    if (memoChanged && this.#recentRowsPath !== undefined) writeRecentRows(this.#recentRowsPath, this.#recentCache)
     this.#recent = rows
     this.#pushSessionInfo()
   }

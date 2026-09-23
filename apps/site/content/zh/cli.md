@@ -41,7 +41,7 @@ omdsh completions bash|zsh|fish
 | `OMDSH_PERMISSION_MODE` | 初始 Access preset：`read-only`、`workspace-write`（默认）或 `danger-full-access`；之后可按会话用 `/permission` 修改。 |
 | `NO_COLOR`、`FORCE_COLOR=0` | 在没有显式颜色偏好时关闭彩色输出。见[故障排查](troubleshooting.md)。 |
 
-模型设置也可以来自 `$DSH_HOME/settings.yaml`；`/model` 会以交互方式写入同一份偏好。
+`/model` 会把模型偏好写入 Profile 补丁 `profiles/omdsh/cordis.patch.yml`；更早版本留下的 `settings.yaml` 会在启动时导入一次，并重命名为 `settings.yaml.imported`。
 
 ## Plugin 与 completions
 

@@ -102,10 +102,11 @@ export function catalogChildren(events: readonly SessionEvent[]): CatalogChild[]
   for (const event of events) {
     if (event.type !== 'subagent/catalog') continue
     const label = event.data.label?.trim()
+    const mode = event.data.mode
     children.set(event.data.childId, {
       id: event.data.childId,
       ...(label === undefined || label === '' ? {} : { label }),
-      mode: event.data.mode,
+      ...(mode === 'unknown' ? {} : { mode }),
     })
   }
   return [...children.values()]
@@ -163,8 +164,7 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
       return { ...view, phase: 'running', activity }
     }
     case 'tool/result': {
-      const inner = event.data.message.content[0]
-      const failed = event.data.error !== undefined || inner?.type === 'tool-result' && inner.isError === true
+      const failed = event.data.error !== undefined || event.data.message.isError === true
       const activity = settleRunningTool(view.activity, failed ? 'error' : 'ok')
       if (activity === view.activity) return view
       return { ...view, activity }

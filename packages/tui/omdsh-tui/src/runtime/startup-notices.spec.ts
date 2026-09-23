@@ -29,10 +29,10 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const notice = vi.fn()
-    ctx.provide('tui', { notice } as unknown as TuiService)
-    ctx.provide('settings', {
-      get: () => ({ checkUpdates: false, startupChangelog: 'summary' }),
-    } as never)
+    ctx.provide('tui', {
+      notice,
+      prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: false, startupChangelog: 'summary' }),
+    } as unknown as TuiService)
     await ctx.plugin(startupNotices, { currentVersion: '0.3.0', changelogPath, dshHome: root })
     const session = ctx.sessions.create(SessionId('startup-notices-test'))
     const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
@@ -55,10 +55,10 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const notice = vi.fn()
-    ctx.provide('tui', { notice } as unknown as TuiService)
-    ctx.provide('settings', {
-      get: () => ({ checkUpdates: true, startupChangelog: 'summary' }),
-    } as never)
+    ctx.provide('tui', {
+      notice,
+      prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: true, startupChangelog: 'summary' }),
+    } as unknown as TuiService)
     await ctx.plugin(startupNotices, {
       currentVersion: '0.3.0',
       changelogPath,
@@ -86,10 +86,11 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const commandOutput = vi.fn()
-    ctx.provide('tui', { notice: vi.fn(), commandOutput } as unknown as TuiService)
-    ctx.provide('settings', {
-      get: () => ({ checkUpdates: false, startupChangelog: 'expanded' }),
-    } as never)
+    ctx.provide('tui', {
+      notice: vi.fn(),
+      commandOutput,
+      prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: false, startupChangelog: 'expanded' }),
+    } as unknown as TuiService)
     await ctx.plugin(startupNotices, { currentVersion: '0.3.0', changelogPath, dshHome: root })
 
     await ctx.omdshStartup.afterSessionStart()

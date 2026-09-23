@@ -1,0 +1,17 @@
+# Agent preset standard: one `@deepseek-ai/dsh-agent-preset` declaration.
+# Edits saved by `omdsh plugin` or a profile patch override this row's
+# `config.plugins` by id from the profile patch.
+- insert:
+    - id: preset-standard
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: standard
+        name: Standard
+        description: Full coding agent with files, shell, search, skills, planning, goals, and delegation.
+        order: 1
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.

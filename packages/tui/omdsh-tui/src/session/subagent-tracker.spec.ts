@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentRoster } from '../definition.ts'
-import { SubagentTracker, type SubagentCatalogEntry, type SubagentTrackerDeps } from './subagent-tracker.ts'
+import { SubagentTracker, type SubagentTrackerDeps } from './subagent-tracker.ts'
 
 function ev(type: string, data: unknown, seq = 1): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
@@ -102,10 +103,13 @@ describe('SubagentTracker.observeCatalog/sync', () => {
 
   it('rebuilds from sessions then merges the durable child listing', async () => {
     const entries: SubagentCatalogEntry[] = [
-      { kind: 'child', id: 'cold-1', mode: 'one-shot', label: 'Cold task', activity: 'inactive' },
-      { kind: 'child', id: 'cold-2', mode: 'continuable', activity: 'running' },
+      { id: SessionId('cold-1'), createdAt: 1, mode: 'one-shot', label: 'Cold task' },
+      { id: SessionId('cold-2'), createdAt: 2, mode: 'continuable', label: 'Cold worker' },
     ]
-    const { tracker, published, sessions } = make({ listChildren: () => Promise.resolve(entries) })
+    const { tracker, published, sessions } = make({
+      listChildren: () => Promise.resolve(entries),
+      agentStatus: id => (id === 'cold-2' ? 'running' : undefined),
+    })
     const child = fakeSession('child-1', 'root', [ev('subagent/descriptor', { version: 2, mode: 'continuable', provider: 'spawn', label: 'Worker' }, 1)])
     sessions.set('child-1', child)
     tracker.sync()
@@ -118,7 +122,7 @@ describe('SubagentTracker.observeCatalog/sync', () => {
   })
 
   it('drops a stale listing when the root changed mid-flight', async () => {
-    const entries: SubagentCatalogEntry[] = [{ kind: 'child', id: 'cold-1', activity: 'inactive' }]
+    const entries: SubagentCatalogEntry[] = [{ id: SessionId('cold-1'), createdAt: 1, mode: 'unknown' }]
     const { tracker, published } = make({ listChildren: () => Promise.resolve(entries) })
     tracker.sync()
     tracker.reset()

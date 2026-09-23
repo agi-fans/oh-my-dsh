@@ -13,7 +13,6 @@ function contentMarkdown(content: unknown): string {
     if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
     else if (block.type === 'reasoning' && typeof block.text === 'string') parts.push(`> Reasoning: ${block.text}`)
     else if (block.type === 'tool-call') parts.push(`Tool call ${String(block.name ?? '')}\n\n\`\`\`json\n${String(block.arguments ?? '')}\n\`\`\``)
-    else if (block.type === 'tool-result') parts.push(contentMarkdown(block.content))
     else if (block.type === 'image') {
       const attachment = typeof block.attachment === 'object' && block.attachment !== null
         ? block.attachment as Record<string, unknown>

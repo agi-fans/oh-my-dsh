@@ -7,17 +7,38 @@
  */
 
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
 
-/** One captured request body's model-visible tool names. */
+/**
+ * Point one booted turn at an Agent preset. Row configuration rides the
+ * Profile patch — the layer the harness reloads and `config-editor` writes —
+ * because plugin configuration is no longer read from a settings document.
+ * @param home - the `OMDSH_HOME` the turn boots with.
+ * @param preset - Agent preset id the registry selects when none is requested.
+ */
+export function writeTurnConfig(home: string, preset: string): void {
+  const dir = join(home, 'profiles', 'omdsh')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'cordis.patch.yml'), [
+    '- id: agent-preset-registry',
+    '  config:',
+    `    default: ${preset}`,
+    '',
+  ].join('\n'))
+}
+
+/**
+ * One captured request body's model-visible tool names. The adapter speaks the
+ * Messages wire, where a tool names itself at the top level.
+ */
 export function requestToolNames(body: unknown): string[] {
-  const tools = (body as { tools?: Array<{ function?: { name?: string } }> } | undefined)?.tools
-  return (tools ?? []).map(tool => tool.function?.name ?? '').filter(name => name !== '')
+  const tools = (body as { tools?: Array<{ name?: string }> } | undefined)?.tools
+  return (tools ?? []).map(tool => tool.name ?? '').filter(name => name !== '')
 }
 
 /** Boot one turn with `preset` and return the captured request bodies plus output. */
@@ -27,12 +48,7 @@ export async function bootTuiTurn(options: {
   input?: string
   extraEnv?: Record<string, string>
 }): Promise<{ bodies: unknown[], output: string, status: number | null }> {
-  // The published mock server implements only the chat-completions wire
-  // protocol; the adapter defaults to Messages.
-  writeFileSync(
-    join(options.home, 'settings.yaml'),
-    `agent-presets:\n  default: ${options.preset}\nllm-deepseek:\n  protocol: chat-completions\n`,
-  )
+  writeTurnConfig(options.home, options.preset)
   const server = await startMockLlmServer({
     port: 0,
     sequence: ['success'],

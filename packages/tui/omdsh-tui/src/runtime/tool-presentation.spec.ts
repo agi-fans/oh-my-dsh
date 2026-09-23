@@ -16,8 +16,8 @@ describe('ToolPresentationBridge', () => {
         turn: 1,
         step: 1,
         message: {
-          id: 'm1', role: 'user', source: { kind: 'tool', callId: 'c1' },
-          content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'raw' }] }],
+          id: 'm1', role: 'tool', source: { kind: 'tool', callId: 'c1' }, toolCallId: 'c1',
+          content: [{ type: 'text', text: 'raw' }],
         },
         meta: { lines: 1 },
       },
@@ -60,8 +60,8 @@ describe('ToolPresentationBridge', () => {
         turn: 1,
         step: 1,
         message: {
-          id: 'm1', role: 'user', source: { kind: 'tool', callId: 'c1' },
-          content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }],
+          id: 'm1', role: 'tool', source: { kind: 'tool', callId: 'c1' }, toolCallId: 'c1',
+          content: [],
         },
       },
     } as unknown as SessionEvent

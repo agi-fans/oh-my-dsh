@@ -1,9 +1,9 @@
 /**
  * Cross-version persistence contract: sessions produced by the DSH
- * `0.1.2-alpha.3` runtime must survive the upgrade to the `0.1.6-alpha.2`
- * cohort through the released v0→v3 migration chain. Reads publish a
- * version-named successor (`session.v3.jsonl[.zstd]`); the checked-in v0
- * fixtures stay byte-identical. Provenance of the fixtures under
+ * `0.1.2-alpha.3` runtime must survive the upgrade to the current cohort
+ * through the released v0→v4 migration chain. A write open — resuming the
+ * session — publishes a version-named successor (`session.v4.jsonl[.zstd]`);
+ * the checked-in v0 fixtures stay byte-identical. Provenance of the fixtures under
  * `src/fixtures/dsh-alpha3-sessions/`:
  *
  * - `zstd/…/session-cfe4e182-…/session.jsonl.zstd` is the untouched zstd

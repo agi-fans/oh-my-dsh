@@ -86,10 +86,10 @@ class HarnessToolPresentation implements ToolPresentationBridge {
       call = undefined
     }
     try {
-      const block = event.data.message.content[0]
       result = definition?.presentResult?.(args, {
-        content: block.content,
-        isError: block.isError === true,
+        // The harness freezes message content; `ToolResult` declares a mutable array.
+        content: [...event.data.message.content],
+        isError: event.data.message.isError === true,
         ...(event.data.meta === undefined ? {} : { meta: event.data.meta }),
       })
     } catch {

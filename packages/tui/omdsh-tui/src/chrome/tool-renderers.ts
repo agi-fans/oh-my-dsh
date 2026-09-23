@@ -240,7 +240,6 @@ function contentLines(content: readonly ContentBlock[] | undefined): string[] {
     else if (block.type === 'image') lines.push(`[image ${block.attachment.width}×${block.attachment.height}]`)
     else if (block.type === 'file') lines.push(`[file ${block.attachment.name} · ${block.attachment.bytes} bytes]`)
     else if (block.type === 'tool-call') lines.push(`${block.name} ${block.arguments}`)
-    else if (block.type === 'tool-result') lines.push(...contentLines(block.content))
   }
   return lines
 }

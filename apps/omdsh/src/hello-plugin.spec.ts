@@ -126,7 +126,7 @@ describe('examples/hello bundle', () => {
   }, 60_000)
 
   it('ships the Loader runtime required to resolve Profile-installed bundles', () => {
-    expect(appManifest.dependencies?.['node-addon-require-builtin']).toBe('0.1.4')
+    expect(appManifest.dependencies?.['node-addon-require-builtin']).toBe('^0.1.6')
   })
 
   it('boots a Profile-installed command from the packed application', () => {

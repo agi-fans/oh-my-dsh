@@ -2,21 +2,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { JobId, type JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import { JobId, type JobView } from '@deepseek-ai/dsh-jobs'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { TuiService } from '../definition.ts'
 import * as commandJobs from './jobs.ts'
 import { jobsText } from './jobs.ts'
 
-function snapshot(overrides: Partial<JobSnapshot> = {}): JobSnapshot {
+function snapshot(overrides: Partial<JobView> = {}): JobView {
   return {
     id: JobId('bash-1'),
     kind: 'bash',
     label: 'pnpm test',
     status: 'running',
     startedAt: 1_000,
-    reported: false,
+    output: { total: 0, earliest: 0 },
     ...overrides,
   }
 }
@@ -29,7 +29,7 @@ interface JobsHarness {
   list: ReturnType<typeof vi.fn>
 }
 
-async function jobsHarness(jobs: readonly JobSnapshot[]): Promise<JobsHarness> {
+async function jobsHarness(jobs: readonly JobView[]): Promise<JobsHarness> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
@@ -68,7 +68,7 @@ describe('jobs command', () => {
     ])
     const result = await run(ctx, agent, '/jobs')
     expect(result?.kind).toBe('success')
-    expect(list).toHaveBeenCalledWith(agent)
+    expect(list).toHaveBeenCalledWith(agent.session.id)
     const text = result?.kind === 'success' ? result.text : ''
     expect(text).toContain('Jobs · 1 running · 1 finished')
     expect(text).toContain('| `bash-1` | running')
@@ -85,7 +85,7 @@ describe('jobs command', () => {
   it('stops one job by id and reports an already-finished job', async () => {
     const { ctx, agent, kill } = await jobsHarness([snapshot()])
     expect(await run(ctx, agent, '/jobs kill bash-1')).toEqual({ kind: 'success', text: 'Stopping bash-1.' })
-    expect(kill).toHaveBeenCalledWith(JobId('bash-1'), agent, 'stopped from /jobs')
+    expect(kill).toHaveBeenCalledWith(JobId('bash-1'), agent.session.id, 'stopped from /jobs')
     kill.mockReturnValueOnce('already-finished' as never)
     expect(await run(ctx, agent, '/jobs kill bash-1'))
       .toEqual({ kind: 'success', text: 'bash-1 has already finished.' })

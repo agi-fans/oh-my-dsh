@@ -6,7 +6,7 @@ description: Install and author DeepSeek Harness plugins for omdsh with omdsh pl
 
 omdsh extends through DeepSeek Harness plugins that mount in the same Cordis tree as the shipped composition. A user-installed capability is an npm package that declares `dsh.bundle.patch`, joins the omdsh Profile layer list, and starts with the rest of the tree.
 
-Boot applies the shipped [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) as the `@agi-fans/oh-my-dsh` product bundle, then user bundles from `$OMDSH_HOME/profiles/omdsh`, the Profile `cordis.patch.yml`, `$OMDSH_HOME/cordis.patch.yml`, and MCP insert patches. `omdsh plugin add` and `omdsh plugin remove` install those user bundles. `omdsh --dump-config` prints the composed tree.
+Boot applies the shipped [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) as the `@agi-fans/oh-my-dsh` product bundle, then user bundles from `$OMDSH_HOME/profiles/omdsh`, the Profile `cordis.patch.yml`, `$OMDSH_HOME/cordis.patch.yml`, and MCP and LSP insert patches. `omdsh plugin add` and `omdsh plugin remove` install those user bundles. `omdsh --dump-config` prints the composed tree.
 
 Skills and MCP remain separate deployment surfaces; see [Skills and MCP](skills-and-mcp.md). TUI richness comes from Cordis contribution services on top of that install layer, not from a TypeScript extensions folder. Theme, overlay, and keybinding registries stay closed until a second independently owned contributor needs them; see [Architecture](architecture.md) and [Plugin internals](plugin-internals.md).
 
@@ -19,7 +19,7 @@ The TUI does not keep a second command, tool, or model registry. After a plugin 
 | Slash command | `dsh-commands` metadata and handler | Appears in `/help`, autocomplete, and the runner |
 | Tool | `ToolDefinition`, including `presentCall` / `presentResult` | Renders a card, or the generic fallback |
 | Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key, run a registered authorization flow, or add a custom profile |
-| Credentials and settings | `ctx.credentials` and `ctx.settings` | Shared with `$DSH_HOME` documents the rest of the tree already reads |
+| Credentials and settings | `ctx.credentials` and `ctx.settings` | Shared with the Profile patch the rest of the tree already reads |
 | Human prompt | `ctx.tui.prompt`, approval, and questions | Terminal selectors own the answer |
 | Skill | Harness skill registry | Appears under `/skill:` |
 | MCP server | One `dsh-mcp-client` row per server | Appears in `/mcp` and `/tools` |
@@ -28,9 +28,9 @@ A plugin that only needs those seams does not require a TUI presentation adapter
 
 ## Current boot
 
-`apps/omdsh/src/boot.ts` initializes `$OMDSH_HOME/profiles/omdsh` when that Profile is missing, heals the installation module fallback, and mounts an empty Profile root. Patches apply in product → user bundles → Profile patch → home patch → MCP → shipped agent-preset overlay order. A present patch file that is empty or not a YAML list fails loud. Boot, `omdsh plugin`, and `omdsh --dump-config` share one `loadLayeredEnv` snapshot first, so project and home `.env` files change home lookup and MCP expansion the same way on every path. `--dump-config` prints that composition without starting the TUI.
+`apps/omdsh/src/boot.ts` initializes `$OMDSH_HOME/profiles/omdsh` when that Profile is missing and mounts an empty Profile root. Patches apply in product → user bundles → Profile patch → home patch → MCP → LSP order. A present patch file that is empty or not a YAML list fails loud. Boot, `omdsh plugin`, and `omdsh --dump-config` share one `loadLayeredEnv` snapshot first, so project and home `.env` files change home lookup and MCP expansion the same way on every path. `--dump-config` prints that composition without starting the TUI.
 
-A package listed in `dsh.profile.bundles` must declare `dsh.bundle.patch` and resolve from the omdsh installation or the Profile `node_modules`. Writing a provider profile in `settings.yaml` still cannot activate an adapter that the composition never mounted.
+A package listed in `dsh.profile.bundles` must declare `dsh.bundle.patch` and resolve from the omdsh installation or the Profile `node_modules`. Writing a provider profile into the Profile patch still cannot activate an adapter that the composition never mounted.
 
 `/login` already covers catalog providers and a hand-declared custom route through the shipped, dormant `@deepseek-ai/dsh-llm-pi-ai` adapter. When that adapter or another mounted plugin registers a Harness authorization flow, `/login` lists the flow and methods and the TUI renders only the generic notices and prompts. A provider whose adapter is not in the shipped tree still needs a user-mounted plugin.
 
@@ -57,10 +57,11 @@ Boot applies patches in this order:
 3. `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`.
 4. `$OMDSH_HOME/cordis.patch.yml` (machine-local overrides for every omdsh Profile).
 5. Existing MCP insert patches from user and project `mcp.json` files.
+6. LSP insert patches from user and project `lsp.json` files.
 
 A later layer wins per row id. An id-targeted patch replaces the whole `config` object; it does not deep-merge. A patch that names a missing id is skipped silently at boot (the loader logger is not wired to stderr in the TUI host), not an error.
 
-Module resolution stays two-anchored, using the published `dsh-app-boot` helpers. `@deepseek-ai/*` and `@agi-fans/dsh-tui` resolve from the omdsh installation first through `healProfilesModuleFallback`. User bundles resolve from the Profile `node_modules`. A patch that inserts a package Node cannot resolve fails loud at boot.
+Module resolution is one immutable runtime resolution per launch, computed from the omdsh installation and the Profile's ordered bundle dependency graph and installed through Node's ESM/CJS resolvers. It creates no fallback links: `@deepseek-ai/*` and `@agi-fans/dsh-tui` resolve from the omdsh installation first, user bundles resolve from the Profile `node_modules` and the Profile's linked roots, and a patch that inserts a package Node cannot resolve still fails loud at boot.
 
 omdsh implements `omdsh plugin` against those same published APIs. It does not require the official `dsh` CLI to be installed, and it does not reimplement install directories, version solving, or layer order.
 

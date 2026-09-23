@@ -6,7 +6,7 @@ description: 使用 omdsh plugin、Profile 层和 dsh.bundle.patch 约定，为 
 
 omdsh 通过 DeepSeek Harness 插件扩展，这些插件与产品自带的 composition 挂在同一棵 Cordis 树上。用户安装的能力是一个声明了 `dsh.bundle.patch` 的 npm 软件包，它加入 omdsh 的 Profile 层列表，并随其余插件一同启动。
 
-启动会把随包发布的 [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 当作 `@agi-fans/oh-my-dsh` 产品 bundle，再叠加 `$OMDSH_HOME/profiles/omdsh` 里的用户 bundle、Profile 的 `cordis.patch.yml`、`$OMDSH_HOME/cordis.patch.yml`，以及 MCP 的 insert patch。`omdsh plugin add` 和 `omdsh plugin remove` 负责安装这些用户 bundle。`omdsh --dump-config` 会打印组合后的树。
+启动会把随包发布的 [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 当作 `@agi-fans/oh-my-dsh` 产品 bundle，再叠加 `$OMDSH_HOME/profiles/omdsh` 里的用户 bundle、Profile 的 `cordis.patch.yml`、`$OMDSH_HOME/cordis.patch.yml`，以及 MCP 与 LSP 的 insert patch。`omdsh plugin add` 和 `omdsh plugin remove` 负责安装这些用户 bundle。`omdsh --dump-config` 会打印组合后的树。
 
 Skills 与 MCP 仍是独立的部署面，见 [Skills 与 MCP](skills-and-mcp.md)。TUI 的丰富度来自安装层之上的 Cordis 贡献服务，而不是某个 TypeScript extensions 目录。主题、Overlay 和按键注册表在出现第二个拥有独立所有权的贡献者之前保持关闭，见 [架构](architecture.md) 和 [插件内部机制](plugin-internals.md)。
 
@@ -19,7 +19,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 | 斜杠命令 | `dsh-commands` 的元数据与处理器 | 出现在 `/help`、自动补全和 Runner 中 |
 | 工具 | `ToolDefinition`，包括 `presentCall` / `presentResult` | 渲染为卡片，否则使用通用回退 |
 | 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥、运行已注册的授权流程，或添加自定义 profile |
-| 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 与树中其余部分已经读取的 `$DSH_HOME` 文档共用 |
+| 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 与树中其余部分已经读取的 Profile 补丁共用 |
 | 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
 | Skill | Harness Skill Registry | 出现在 `/skill:` 下 |
 | MCP Server | 每个 Server 对应一行 `dsh-mcp-client` | 出现在 `/mcp` 和 `/tools` 中 |
@@ -28,9 +28,9 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 
 ## 当前启动
 
-`apps/omdsh/src/boot.ts` 会在 `$OMDSH_HOME/profiles/omdsh` 缺失时初始化该 Profile，修复安装目录的模块回退，并挂载一个空的 Profile 根。补丁按「产品 → 用户 bundles → Profile patch → home patch → MCP → 随包 agent-preset overlay」的顺序应用。补丁文件存在但为空、或不是 YAML 列表时，启动失败并大声报错。启动、`omdsh plugin` 和 `omdsh --dump-config` 会先共用一次 `loadLayeredEnv` 快照，因此项目级和用户级 `.env` 对 home 路径以及 MCP 变量展开的影响在每条路径上相同。`--dump-config` 打印这棵组合树，但不启动 TUI。
+`apps/omdsh/src/boot.ts` 会在 `$OMDSH_HOME/profiles/omdsh` 缺失时初始化该 Profile，并挂载一个空的 Profile 根。补丁按「产品 → 用户 bundles → Profile patch → home patch → MCP → LSP」的顺序应用。补丁文件存在但为空、或不是 YAML 列表时，启动失败并大声报错。启动、`omdsh plugin` 和 `omdsh --dump-config` 会先共用一次 `loadLayeredEnv` 快照，因此项目级和用户级 `.env` 对 home 路径以及 MCP 变量展开的影响在每条路径上相同。`--dump-config` 打印这棵组合树，但不启动 TUI。
 
-列入 `dsh.profile.bundles` 的软件包必须声明 `dsh.bundle.patch`，并能从 omdsh 安装位置或 Profile 的 `node_modules` 解析。只在 `settings.yaml` 里写入提供方 profile，仍然无法激活 composition 从未挂载的 adapter。
+列入 `dsh.profile.bundles` 的软件包必须声明 `dsh.bundle.patch`，并能从 omdsh 安装位置或 Profile 的 `node_modules` 解析。只在 Profile 补丁里写入提供方 profile，仍然无法激活 composition 从未挂载的 adapter。
 
 `/login` 已经能通过随包、默认休眠的 `@deepseek-ai/dsh-llm-pi-ai` adapter 接入目录提供方和手写自定义路由。当该 adapter 或其他已挂载插件注册了 Harness 授权流程时，`/login` 会列出流程和方法，TUI 只渲染通用通知和提问。adapter 不在随包树中的提供方，仍然需要用户挂载插件。
 
@@ -57,10 +57,11 @@ Profile 目录使用 omdsh 已经用于会话、设置、凭据和 MCP 的同一
 3. `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`。
 4. `$OMDSH_HOME/cordis.patch.yml`（作用于每个 omdsh Profile 的机器级覆盖）。
 5. 现有的、来自用户级和项目级 `mcp.json` 的 MCP insert patch。
+6. 来自用户级和项目级 `lsp.json` 的 LSP insert patch。
 
 后一层按行 id 覆盖前一层。针对 id 的补丁会整份替换 `config` 对象，不做深层合并。补丁点名了一个不存在的 id 时，启动时会被静默跳过（TUI 宿主未将加载器日志接到 stderr），而不是报错。
 
-模块解析保持双锚点，并使用已发布的 `dsh-app-boot` 辅助函数。`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 通过 `healProfilesModuleFallback` 优先从 omdsh 安装位置解析。用户 bundle 从 Profile 的 `node_modules` 解析。insert 了一个 Node 无法解析的软件包时，启动失败并大声报错。
+模块解析是每次启动一次不可变的运行时解析：由 omdsh 安装位置和 Profile 中按顺序排列的 bundle 依赖图算出，并通过 Node 的 ESM/CJS 解析器安装。它不创建任何回退链接：`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 优先从 omdsh 安装位置解析，用户 bundle 从 Profile 的 `node_modules` 以及 Profile 的 linked roots 解析，insert 了 Node 无法解析的软件包时启动仍会失败并大声报错。
 
 omdsh 基于同一套已发布 API 实现 `omdsh plugin`。它不要求安装官方 `dsh` CLI，也不重新实现安装目录、版本求解或分层顺序。
 

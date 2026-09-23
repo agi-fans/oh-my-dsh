@@ -3,20 +3,18 @@
  * @module @agi-fans/oh-my-dsh/agent-behavior
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-settings'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
-import type {
-  TuiAgentBehaviorSettings,
-  TuiAgentBehaviorSettingsBinding,
-} from '@agi-fans/dsh-tui'
+import type { TuiAgentBehaviorSettingsBinding } from '@agi-fans/dsh-tui'
 
 export const name = 'omdsh-agent-behavior'
 export const inject = ['settings', 'systemPrompt']
 
-export const AGENT_BEHAVIOR_SETTINGS_NAMESPACE = 'omdsh-agent'
+/** Profile entry id whose volatile config carries the language preference. */
+export const AGENT_BEHAVIOR_ENTRY = 'agent-behavior'
 export const AGENT_BEHAVIOR_SECTION = 'omdsh:agent-behavior'
 export const AGENT_BEHAVIOR_ORDER = 30
 export const AGENT_BEHAVIOR_VARIABLE = 'omdsh_agent_behavior'
@@ -24,12 +22,13 @@ export const AGENT_BEHAVIOR_VARIABLE = 'omdsh_agent_behavior'
 export const AGENT_LANGUAGES = ['auto', 'zh-CN', 'en'] as const
 export type AgentLanguage = typeof AGENT_LANGUAGES[number]
 
-export interface AgentBehaviorSettings extends TuiAgentBehaviorSettings {
-  language: AgentLanguage
+/** Live language setting; a settings form edit commits into this reference. */
+export interface Config {
+  language: Volatile<AgentLanguage>
 }
 
-export const AgentBehaviorSettingsSchema: z<AgentBehaviorSettings> = z.object({
-  language: z.union([...AGENT_LANGUAGES]).default('auto'),
+export const Config = z.object({
+  language: z.union([...AGENT_LANGUAGES]).default('auto').volatile(),
 })
 
 const LANGUAGE_FRAGMENTS: Record<Exclude<AgentLanguage, 'auto'>, string> = {
@@ -74,15 +73,10 @@ export class AgentBehaviorPrompt {
   }
 }
 
-export function apply(ctx: Context): void {
-  const scope = ctx.settings.register(
-    AGENT_BEHAVIOR_SETTINGS_NAMESPACE,
-    AgentBehaviorSettingsSchema,
-    { applies: 'live' },
-  )
+export function apply(ctx: Context, config: Config): void {
   const prompt = new AgentBehaviorPrompt()
   ctx.on('agent/pre-step', async (payload, next) => {
-    prompt.snapshot(payload.agent, payload.turn, scope.get().language)
+    prompt.snapshot(payload.agent, payload.turn, config.language.get())
     return next()
   })
   ctx.on('agent/status', ({ agent, status }) => {
@@ -92,17 +86,18 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.systemPrompt.section({
     name: AGENT_BEHAVIOR_SECTION,
     order: AGENT_BEHAVIOR_ORDER,
-    text: context => prompt.fragment(context, scope.get().language),
+    text: context => prompt.fragment(context, config.language.get()),
   }), 'omdsh Agent behavior prompt section')
   ctx.effect(() => ctx.systemPrompt.variable(
     AGENT_BEHAVIOR_VARIABLE,
-    context => prompt.variable(context, scope.get().language),
+    context => prompt.variable(context, config.language.get()),
   ), 'omdsh Agent behavior prompt variable')
   ctx.inject(['tui'], (tuiCtx) => {
     const binding: TuiAgentBehaviorSettingsBinding = {
-      get: () => scope.get(),
-      update: next => scope.update({ language: next.language }),
-      watch: listener => scope.watch(next => { listener(next) }),
+      get: () => ({ language: config.language.get() }),
+      update: next => tuiCtx.settings.mutate(AGENT_BEHAVIOR_ENTRY, [{ op: 'set', path: ['language'], value: next.language }]),
+      // A form edit commits into the reference and reaches this fiber only.
+      watch: listener => ctx.on('loader/volatile-update', () => { listener({ language: config.language.get() }) }),
     }
     tuiCtx.effect(
       () => tuiCtx.tui.bindAgentBehaviorSettings?.(binding) ?? (() => {}),

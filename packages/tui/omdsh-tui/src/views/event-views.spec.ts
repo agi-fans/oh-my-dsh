@@ -61,10 +61,7 @@ describe('applyEvent', () => {
       }, 5),
       ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"true"}' }, 7),
       ev('tool/result', {
-        message: {
-          role: 'user',
-          content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'done' }] }],
-        },
+        message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'done' }] },
       }, 8),
       ev('todo/write', {
         todos: [{ content: 'verify replay', status: 'in_progress' }],
@@ -738,8 +735,8 @@ describe('applyEvent', () => {
     const activity = running.lines.find(line => line.includes('Ctrl+C: Interrupt')) ?? ''
     expect(activity).toContain('Deep Driving')
     expect(activity).not.toContain('read')
-    state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] }] } }, 3))
-    state = applyEvent(state, ev('tool/result', { message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] }] } }, 4))
+    state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] } }, 3))
+    state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] } }, 4))
     const tools = state.blocks.filter((block): block is Extract<typeof block, { kind: 'tool' }> => block.kind === 'tool')
     expect(tools.map((block) => block.status)).toEqual(['ok', 'error'])
     expect(tools[0]?.output).toBe('a b')
@@ -755,7 +752,7 @@ describe('applyEvent', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     state = applyEvent(state, ev('tool/result', {
-      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: lines.join('\n') }] }] },
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: lines.join('\n') }] },
     }, 2))
     const collapsed = renderView(state, {
       width: 60,
@@ -788,7 +785,7 @@ describe('applyEvent', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     state = applyEvent(state, ev('tool/result', {
-      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }] },
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] },
     }, 2))
     const frame = view(state)
     expect(frame.lines.join('\n')).not.toContain('Ctrl+O')

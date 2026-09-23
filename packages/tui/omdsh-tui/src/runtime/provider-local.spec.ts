@@ -2121,7 +2121,7 @@ describe('LocalTui (tty)', () => {
     const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
     tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     tui.event(ev('tool/result', {
-      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
     expect(term.captured).toContain('tool-line-13')
     expect(term.captured).not.toContain('Ctrl+O: Expand')
@@ -2135,7 +2135,7 @@ describe('LocalTui (tty)', () => {
     const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
     tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     tui.event(ev('tool/result', {
-      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
     expect(term.captured).toContain('tool-line-0')
     expect(term.captured).toContain('Ctrl+O: Expand')
@@ -2448,7 +2448,7 @@ describe('LocalTui (plain)', () => {
     const output = Array.from({ length: 14 }, (_, i) => 'plain-line-' + i).join('\n')
     tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     tui.event(ev('tool/result', {
-      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: output }] }] },
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
     expect(term.captured).toContain('plain-line-13')
     expect(term.captured).not.toContain('ctrl+o')

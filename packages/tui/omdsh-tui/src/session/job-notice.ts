@@ -5,7 +5,7 @@
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { JobKind, JobStatus } from '@deepseek-ai/dsh-jobs'
+import type { JobStatus, JobView } from '@deepseek-ai/dsh-jobs'
 
 /** Past- or present-tense word for one lifecycle status. */
 export const JOB_STATUS_WORD: Record<JobStatus, string> = {
@@ -36,7 +36,7 @@ export function formatJobNotice(snapshot: {
  * owned by another session is not this terminal's business.
  */
 export function jobNoticeFor(
-  snapshot: { readonly kind: JobKind; readonly id: string; readonly label: string; readonly status: JobStatus; readonly detail?: string },
+  snapshot: { readonly kind: JobView['kind']; readonly id: string; readonly label: string; readonly status: JobStatus; readonly detail?: string },
   owner: Agent | undefined,
   active: Agent | undefined,
 ): string | undefined {

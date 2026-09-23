@@ -12,6 +12,7 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { StreamDelta } from './views/event-views.ts'
+import type { TuiPrefs } from './views/settings-list.ts'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 
@@ -264,6 +265,8 @@ export interface TuiService {
   commandOutput(command: string, text: string): void
   /** Bind the product-owned Agent settings section; only one binding may be active. */
   bindAgentBehaviorSettings?(binding: TuiAgentBehaviorSettingsBinding): () => void
+  /** Currently applied preferences, for sibling rows that must honor them. */
+  prefs(): TuiPrefs
   /** Temporarily own the composer and collect one human answer. */
   prompt(request: TuiPrompt): Promise<string | null>
   /** Replace the transcript when a new or resumed session becomes active. */

@@ -45,11 +45,11 @@ Second line telemetry groups, all shown by default: Context (`Ctx 1.6% · 16.4K/
 
 ## Persistence
 
-Settings persist through the Harness settings document in the same home that stores sessions (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/.dsh`). Model settings can also come from `$DSH_HOME/settings.yaml`. See [Sessions and history](sessions.md) for the complete file list.
+Settings, model preferences, and logged-in credentials are live plugin config persisted into the active Profile's Cordis patch, `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` (with `$DSH_HOME`, then `~/.dsh`, standing in for the home itself); `/settings`, `/model`, and `/login` all write there. A `settings.yaml` left by an earlier release is imported once at startup — each section written into the Profile row with the same id — and the file is then renamed to `settings.yaml.imported`, while a section that no longer matches a row id is logged and stays only in the renamed file. See [Sessions and history](sessions.md) for the complete file list.
 
 ## Plugin settings
 
-Beyond the overlay's three sections, mounted Harness plugins read their own sections from the same document. One decides whether the default route works at all: `llm-deepseek` speaks the Messages protocol by default, so a custom gateway or a stale official base URL override must set `protocol: chat-completions` there.
+Beyond the overlay's three sections, mounted Harness plugins keep their settings in that plugin's own config on its Profile row. One decides whether the default route works at all: `llm-deepseek` is Messages-only and refuses a `protocol` key, answering `protocol is not configurable; remove it and use a Messages-compatible baseURL`. A custom gateway therefore has to expose a Messages-compatible endpoint, and the DeepSeek endpoint is selected by base URL rather than by a protocol switch.
 
 ## Related
 

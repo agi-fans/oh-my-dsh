@@ -24,7 +24,7 @@ See [Recover and manage a long session](tutorials/long-session.md) for the walkt
 
 ## Logs on disk
 
-Session files may be compressed and carry integrity checks, so do not edit them by hand; keep using omdsh for those sessions until an explicit migration tool is available. Reading an older log migrates it through the released v0→v3 chain and publishes a version-named successor (`session.v3.jsonl[.zstd]`) while the predecessor file stays unchanged.
+Session files may be compressed and carry integrity checks, so do not edit them by hand; keep using omdsh for those sessions. A log written by an earlier release is migrated when the session is written to, and once per session format by a background pass on the first launch after an upgrade, which publishes a version-named successor (`session.v4.jsonl[.zstd]`) beside the unchanged predecessor. A single startup notice reports how many sessions that pass upgraded.
 
 Sessions first created with v0.5.0 through v0.11.0 may contain the private `omdsh/tools-selected` event: current omdsh recognizes and resumes them, but an unmodified DSH persistence reader refuses that log. Sessions created with v0.12.0 and later do not write the event, so newly created sessions stay loadable by stock DSH persistence.
 
@@ -39,9 +39,12 @@ All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/
 | `omdsh/keybindings.json` | Application keybinding overrides. |
 | `omdsh/model-favorites.json` | The favorite model cycle behind `Ctrl+P` and `Alt+P`. |
 | `omdsh/session-library.json` | Session pins and renames. |
-| `profiles/omdsh/` | The user plugin Profile managed by `omdsh plugin`. |
+| `omdsh/recent-sessions.json` | Session Library labels reused across launches; delete it to re-read every stored log. |
+| `omdsh/sessions-upgraded.json` | Records the session format the stored logs were upgraded to. |
+| `sessions-query.sqlite` | Derived full-text index behind session content search; delete it to rebuild on the next search. |
+| `profiles/omdsh/` | The user plugin Profile managed by `omdsh plugin`, including the `cordis.patch.yml` that persists settings. |
 
-Settings changed in `/settings` persist through the Harness settings file; model settings can also come from `$DSH_HOME/settings.yaml`.
+Settings changed in `/settings` persist through that Profile patch, not a separate settings file.
 
 ## Related
 

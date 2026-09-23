@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { JobId, type JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import { JobId, type JobView } from '@deepseek-ai/dsh-jobs'
 import { formatJobNotice, jobNoticeFor } from './job-notice.ts'
 
 const owner = { id: 'owner' } as unknown as Agent
 const other = { id: 'other' } as unknown as Agent
 
-function snapshot(overrides: Partial<JobSnapshot> = {}): JobSnapshot {
+function snapshot(overrides: Partial<JobView> = {}): JobView {
   return {
     id: JobId('bash-1'),
     kind: 'bash',
     label: 'pnpm test',
     status: 'completed',
     startedAt: 0,
-    reported: true,
+    output: { total: 0, earliest: 0 },
     ...overrides,
   }
 }

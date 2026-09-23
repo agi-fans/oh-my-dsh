@@ -1,0 +1,22 @@
+# Agent preset cordis: one `@deepseek-ai/dsh-agent-preset` declaration.
+# Edits saved by `omdsh plugin` or a profile patch override this row's
+# `config.plugins` by id from the profile patch.
+- insert:
+    - id: preset-cordis
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: cordis
+        name: Cordis
+        description: Standard coding agent with read-only runtime inspection for authoring Harness compositions.
+        order: 4
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are a coding agent powered by the {{model}} model, running on the DeepSeek Harness. Your working directory is {{cwd}}.
+
+                You can inspect the live Cordis runtime while authoring compositions and plugins. Host composition owns shared registries and backends; an Agent preset owns one session's tools, persona, prompt sections, and isolated services. Use cordis_inspect_list to discover providers, then cordis_inspect_query to read exact Service, Event, and Tool APIs. These tools are read-only; changing the runtime means editing composition files, not calling a tool.
+
+          - id: tool-cordis
+            name: '@deepseek-ai/dsh-tool-cordis'

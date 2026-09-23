@@ -11,7 +11,6 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  composeEntries,
   initProfile,
   loadOptionalPatches,
   loadProfile,
@@ -37,14 +36,11 @@ export const PROFILE_PATCH_LABEL = 'profiles/omdsh/cordis.patch.yml'
 /** Absolute path of this installation's package.json (src/ and lib/ both sit one level under apps/omdsh). */
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 
-/** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
-export const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
-
 /** The empty root entry list every Profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# omdsh profile root — an empty entry list. The tree is composed as patches:
 # the @agi-fans/oh-my-dsh product bundle, then each extra name in
 # package.json's dsh.profile.bundles, then cordis.patch.yml, then the home
-# patch and MCP inserts. Edit cordis.patch.yml, not this file.
+# patch, MCP inserts, and LSP inserts. Edit cordis.patch.yml, not this file.
 []
 `
 
@@ -78,8 +74,8 @@ export function ensureOmdshProfile(home: string): string {
 
 /**
  * Ensure the Profile exists, load its bundles, and rewrite the empty root
- * include. Module fallback healing happens asynchronously in runOmdsh after
- * this function returns the resolved Profile.
+ * include. `runOmdsh` derives the runtime package resolution from the
+ * resolved Profile after this function returns.
  */
 export function prepareProfile(home: string, userLayer = true): Profile {
   ensureOmdshProfile(home)
@@ -94,28 +90,13 @@ export interface LaunchComposition {
   rootConfig: string
   layers: ConfigDumpLayer[]
   patches: PatchOptions[]
-}
-
-/**
- * Restate the agent-presets row with the shipped roster root. Profile
- * `baseUrl` would otherwise resolve `./agent-presets/` inside the Profile
- * directory, which does not carry the product presets.
- */
-export function agentPresetsOverlay(layerPatches: readonly PatchOptions[][]): PatchOptions | undefined {
-  const row = composeEntries([...layerPatches]).find(entry => entry.id === 'agent-presets')
-  if (row === undefined) return undefined
-  return {
-    id: 'agent-presets',
-    config: {
-      ...((row.config ?? {}) as Record<string, unknown>),
-      roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
-    },
-  }
+  /** Layers above the Profile patch; the Profile facts re-derive them for a reconciliation. */
+  overlays: PatchOptions[]
 }
 
 /**
  * Compose the live launch layers in product → user bundles → Profile patch
- * → home patch → MCP → LSP → agent-presets overlay order.
+ * → home patch → MCP → LSP order.
  */
 export function composeLaunch(
   cwd: string = process.cwd(),
@@ -138,12 +119,11 @@ export function composeLaunch(
   if (mcp.length > 0) layers.push({ label: 'mcp.json', patches: mcp })
   const lsp = loadLspPatches(cwd, environment)
   if (lsp.length > 0) layers.push({ label: 'lsp.json', patches: lsp })
-  const overlay = agentPresetsOverlay(layers.map(layer => layer.patches))
-  if (overlay !== undefined) layers.push({ label: 'agent-presets', patches: [overlay] })
   return {
     profile,
     rootConfig: join(profile.dir, PROFILE_ROOT_FILENAME),
     layers,
     patches: layers.flatMap(layer => layer.patches),
+    overlays: [...mcp, ...lsp],
   }
 }

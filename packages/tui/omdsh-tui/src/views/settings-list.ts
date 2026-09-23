@@ -16,6 +16,7 @@ import {
   itemSide,
   resolveStatusBarConfig,
   type StatusBarConfig,
+  type StatusBarInput,
   type StatusColorToken,
   type StatusGroupId,
   type StatusItemId,
@@ -54,7 +55,7 @@ export interface TuiPrefs {
   startupChangelog?: StartupChangelogMode
   notifications?: 'off' | 'long-running' | 'always'
   notificationThreshold?: '15s' | '30s' | '1m' | '2m'
-  statusBar?: StatusBarConfig
+  statusBar?: StatusBarInput
   /** Read-only migration input for settings written before status-line customization. */
   statusPreset?: StatusPreset
 }

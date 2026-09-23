@@ -8,17 +8,9 @@
  */
 
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
+import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
+import type { TuiSubagentRoster } from '../definition.ts'
 import { SubagentRoster } from './subagent-roster.ts'
-
-/** One durable catalog child, as declared by the subagents runtime listing. */
-export interface SubagentCatalogEntry {
-  readonly kind: string
-  readonly id: string
-  readonly mode?: TuiSubagentView['mode']
-  readonly label?: string
-  readonly activity?: string
-}
 
 export interface SubagentTrackerDeps {
   /** Id of the active root agent's session, if a session is active. */
@@ -134,13 +126,13 @@ export class SubagentTracker {
     void listed.then((entries) => {
       if (epoch !== this.#epoch || this.#deps.rootId() !== rootId) return
       for (const entry of entries) {
-        if (entry.kind !== 'child') continue
         this.#roster.remember({
           id: entry.id,
           depth: 1,
-          mode: entry.mode,
+          // A listing may declare that it does not know the child's mode.
+          ...(entry.mode === 'unknown' ? {} : { mode: entry.mode }),
           ...(entry.label === undefined ? {} : { label: entry.label }),
-          phase: entry.activity === 'running' ? 'running' : 'waiting',
+          phase: this.#deps.agentStatus(entry.id) === 'running' ? 'running' : 'waiting',
         })
       }
       this.#publish()

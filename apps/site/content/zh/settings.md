@@ -45,11 +45,11 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 ## 持久化
 
-设置通过 Harness 设置文档持久化，与会话存放在同一个 home（`$OMDSH_HOME`，否则 `$DSH_HOME`，再否则 `~/.dsh`）。模型设置也可以来自 `$DSH_HOME/settings.yaml`。完整文件清单见[会话与历史](sessions.md)。
+设置、模型偏好与登录写入的凭据都是实时插件配置，持久化到当前 Profile 的 Cordis 补丁 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`（home 本身依次回退到 `$DSH_HOME`、`~/.dsh`）；`/settings`、`/model` 与 `/login` 都写入这里。更早版本留下的 `settings.yaml` 会在启动时导入一次——每个设置段按同名 id 写入 Profile 行——随后文件被重命名为 `settings.yaml.imported`；已不再对应任何行 id 的设置段会被记录日志，并且只留在重命名后的文件里。完整文件清单见[会话与历史](sessions.md)。
 
 ## 插件设置
 
-除浮层的三个分区之外，已挂载的 Harness 插件还会从同一份文档读取各自的设置段。其中一个决定默认路由是否能工作：`llm-deepseek` 默认使用 Messages 协议，因此自建 gateway 或过期的官方 base URL 覆盖必须在那里设置 `protocol: chat-completions`。
+除浮层的三个分区之外，已挂载的 Harness 插件把设置保存在该插件自己 Profile 行上的 config 中。其中一个决定默认路由是否能工作：`llm-deepseek` 只支持 Messages，会拒绝 `protocol` 键，并回复 `protocol is not configurable; remove it and use a Messages-compatible baseURL`。因此自建 gateway 必须提供 Messages 兼容端点，DeepSeek 端点由 base URL 选择，而不是由协议开关选择。
 
 ## 相关
 

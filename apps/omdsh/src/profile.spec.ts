@@ -10,8 +10,8 @@ import {
   prepareProfile,
   PRODUCT_BUNDLE,
   PROFILE_NAME,
+  PROFILE_PATCH_LABEL,
   PROFILE_ROOT_FILENAME,
-  SHIPPED_PRESET_ROOT,
 } from './profile.ts'
 
 const roots: string[] = []
@@ -54,22 +54,44 @@ describe('omdsh profile', () => {
     expect(manifest.dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE, '@scope/extra'])
   })
 
-  it('rewrites the empty profile root and overlays shipped agent presets', () => {
+  it('rewrites the empty profile root and overlays only the MCP and LSP patches', () => {
+    const cwd = temp('omdsh-profile-cwd-')
     const home = temp('omdsh-profile-root-')
+    mkdirSync(join(cwd, '.dsh'), { recursive: true })
+    writeFileSync(join(cwd, '.dsh', 'mcp.json'), JSON.stringify({
+      mcpServers: { memory: { command: 'memory-server' } },
+    }))
+    writeFileSync(join(cwd, '.dsh', 'lsp.json'), JSON.stringify({
+      servers: {
+        typescript: {
+          command: 'typescript-language-server',
+          args: ['--stdio'],
+          extensionToLanguage: { '.ts': 'typescript' },
+        },
+      },
+    }))
     const profile = prepareProfile(home)
     expect(readFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), 'utf8')).toMatch(/^# omdsh profile root/u)
     expect(readFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), 'utf8')).toMatch(/\n\[\]\n$/u)
-    const composed = composeLaunch(temp('omdsh-profile-cwd-'), { OMDSH_HOME: home })
-    const overlay = composed.layers.find(layer => layer.label === 'agent-presets')
-    expect(overlay?.patches).toEqual([
-      expect.objectContaining({
-        id: 'agent-presets',
-        config: expect.objectContaining({
-          includeShippedRoot: false,
-          roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
-        }),
-      }),
+    const composed = composeLaunch(cwd, { OMDSH_HOME: home })
+    // Agent presets ship as product-bundle patch entries, so the launch has no
+    // layer above the Profile patch except the MCP inserts then the LSP ones.
+    expect(composed.layers.map(layer => layer.label)).toEqual([
+      PRODUCT_BUNDLE,
+      PROFILE_PATCH_LABEL,
+      'mcp.json',
+      'lsp.json',
     ])
+    // `overlays` is what a reconciliation re-derives from the Profile facts: the
+    // flattened tail of the layer list, unchanged and in layer order.
+    const mcp = composed.layers.at(-2)
+    const lsp = composed.layers.at(-1)
+    expect(mcp?.label).toBe('mcp.json')
+    expect(lsp?.label).toBe('lsp.json')
+    expect(composed.overlays).toEqual([...(mcp?.patches ?? []), ...(lsp?.patches ?? [])])
+    expect(composed.patches.slice(-composed.overlays.length)).toEqual(composed.overlays)
+    expect(composed.overlays.flatMap(patch => (patch as { insert?: Array<{ id?: string }> }).insert ?? [])
+      .map(row => row.id)).toEqual(['mcp-memory', 'lsp', 'lsp-stdio', 'tool-lsp'])
   })
 
   it('loads a user bundle layer after the product bundle', () => {

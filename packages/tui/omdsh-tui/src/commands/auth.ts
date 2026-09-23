@@ -191,7 +191,7 @@ function loginAuthorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
   return authorizationFlows(ctx).flatMap(flow => {
     if (!isPiAiDeepSeekFlow(flow)) return [flow]
 
-    const profile = walkPath(ctx.settings.get(PI_AI_SETTINGS), ['providers', 'deepseek'])
+    const profile = walkPath(sectionValue(ctx, PI_AI_SETTINGS), ['providers', 'deepseek'])
     if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return []
     return [{ ...flow, label: 'DeepSeek (pi-ai compatibility)' }]
   })
@@ -246,7 +246,9 @@ function loginChoiceValues(
 }
 
 function sectionValue(ctx: Context, namespace: string): unknown {
-  return ctx.settings.get(namespace)
+  // A provider's configured fields are the live volatile config of its own
+  // profile entry, so the roster reads the same values a form would show.
+  return ctx.settings.describe().find(row => String(row.ns) === namespace)?.value
 }
 
 function walkPath(root: unknown, path: readonly string[]): unknown {

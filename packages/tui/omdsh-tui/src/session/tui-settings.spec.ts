@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest'
+import z from '@deepseek-ai/schemastery'
 import { resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
-import { TuiSettingsSchema } from './tui-settings.ts'
+import { TUI_SETTINGS_FIELDS } from './tui-settings.ts'
 
-describe('TuiSettingsSchema', () => {
-  it('defaults to dark + colors and accepts light', () => {
-    const validate = TuiSettingsSchema as unknown as (input: object) => {
-      theme: string
-      colors: boolean
-      expandTools: boolean
-      statusBar?: { enabled: boolean; labels: string; groups: string[]; order?: string[] }
-      statusPreset?: string
-    }
-    expect(validate({})).toEqual({
+const RowSettings = z.object(TUI_SETTINGS_FIELDS)
+
+/** Resolve one raw row config and read what each volatile reference committed. */
+function resolve(input: object): Record<string, unknown> {
+  const parsed = RowSettings(input) as Record<string, { get(): unknown }>
+  return Object.fromEntries(Object.entries(parsed).map(([field, ref]) => [field, ref.get()]))
+}
+
+describe('TUI row settings', () => {
+  it('defaults the palette and every non-derived preference', () => {
+    expect(resolve({})).toEqual({
       theme: 'dark',
-      colors: true,
+      // Resolved against the output stream, which a schema cannot know.
+      colors: undefined,
       motion: 'full',
       terminalProgress: false,
       expandTools: false,
@@ -21,26 +24,30 @@ describe('TuiSettingsSchema', () => {
       startupChangelog: 'summary',
       notifications: 'off',
       notificationThreshold: '30s',
+      statusBar: undefined,
+      statusPreset: undefined,
     })
-    expect(validate({ theme: 'light', colors: false, expandTools: true })).toEqual({
+  })
+
+  it('accepts explicit palette, motion, and tool expansion overrides', () => {
+    expect(resolve({ theme: 'light', colors: false, motion: 'off', expandTools: true })).toMatchObject({
       theme: 'light',
       colors: false,
-      motion: 'full',
+      motion: 'off',
       terminalProgress: false,
       expandTools: true,
-      checkUpdates: true,
-      startupChangelog: 'summary',
-      notifications: 'off',
-      notificationThreshold: '30s',
     })
-    expect(validate({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
+  })
+
+  it('validates the status-line detail and drops retired display fields', () => {
+    expect(resolve({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
       statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] },
     })
-    const retiredContextDisplay = validate({
+    const retired = resolve({
       statusBar: { enabled: true, labels: 'compact', groups: ['context'], contextDisplay: 'gauge' },
     }).statusBar
-    expect(resolveStatusBarConfig(retiredContextDisplay as StatusBarConfig)).not.toHaveProperty('contextDisplay')
-    expect(validate({
+    expect(resolveStatusBarConfig(retired as StatusBarConfig)).not.toHaveProperty('contextDisplay')
+    expect(resolve({
       statusBar: {
         enabled: true,
         labels: 'compact',
@@ -57,18 +64,18 @@ describe('TuiSettingsSchema', () => {
   })
 
   it('validates startup update and release-note preferences', () => {
-    const validate = TuiSettingsSchema as unknown as (input: object) => {
-      checkUpdates: boolean
-      startupChangelog: string
-    }
-    expect(validate({ checkUpdates: false, startupChangelog: 'expanded' })).toMatchObject({
+    expect(resolve({ checkUpdates: false, startupChangelog: 'expanded' })).toMatchObject({
       checkUpdates: false,
       startupChangelog: 'expanded',
     })
   })
 
   it('keeps a legacy status preset available for runtime migration', () => {
-    const validate = TuiSettingsSchema as unknown as (input: object) => { statusPreset?: string }
-    expect(validate({ statusPreset: 'minimal' })).toMatchObject({ statusPreset: 'minimal' })
+    expect(resolve({ statusPreset: 'minimal' })).toMatchObject({ statusPreset: 'minimal' })
+  })
+
+  it('rejects values outside the declared vocabulary', () => {
+    expect(() => RowSettings({ theme: 'neon' })).toThrow()
+    expect(() => RowSettings({ motion: 'sometimes' })).toThrow()
   })
 })

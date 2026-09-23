@@ -6,16 +6,30 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-24
+
 ### Added
 
 - A request that a route rejects as over its image budget now sheds its oldest images locally and retries, instead of failing the turn. The session log keeps every image, so a resumed or forked session still knows what was omitted.
 - `/feedback <text>` records a private note about the current session: the harness stores a log-only event, the model never sees it, and nothing leaves the machine. The command acknowledges the session and anonymous user ids.
 - MCP servers that publish resources now reach the model: when `mcp.json` configures at least one server, the harness's shared resource tools let the model list and read its resources on demand.
 - The model can search the web through DeepSeek's hosted search (`web_search`), using the same credential as the conversation route. A search is a complete auxiliary model request, bounded to five server-tool uses per request by default, and the endpoint, model, and token cap of the provider are tunable in its settings section; a deployment without the DeepSeek credential gets a structured error when the tool is called.
+- The first launch of a new session format upgrades the stored sessions in the background: each log an earlier release wrote gets a current-format successor beside it, the predecessor file stays byte-identical, and one notice reports how many sessions were upgraded. Until that pass runs, every listing and content search has to decode the historical logs.
+
+### Fixed
+
+- Opening `/resume` no longer reads every stored session log on each launch. Session Library rows are memoized in `$OMDSH_HOME/omdsh/recent-sessions.json` and reused while the stored revision is unchanged, so a launch costs one listing plus a read only for sessions that are new or changed. On a 206-session store the first launch of this release spends about 9 seconds reading the historical logs once, and later launches cost about 50 ms.
 
 ### Changed
 
-- Updated the DeepSeek Harness runtime cohort from `0.1.5-rc.2` to the published `0.1.6-alpha.1` release. The DeepSeek route now speaks the Messages protocol by default and reuses uploaded images through the Files API; a custom gateway or a stale official base URL override must set `protocol: chat-completions` in the `llm-deepseek` settings section. PTC execution and the workflow engine move to their renamed packages, mounted as `ptc-runtime` and `workflow-ptc`.
+- Session content search (`/sessions <query>`) keeps its derived index in `$OMDSH_HOME/sessions-query.sqlite` instead of rebuilding it in memory on every launch, so a search reconciles only new and changed logs after the first one. The file is disposable: deleting it makes the next search rebuild from the stored logs.
+- Updated the DeepSeek Harness runtime cohort from `0.1.6-alpha.2` to the published `0.1.7-rc.1` release, with the vendored Cordis runtime at `4.0.4`, the Cordis loader at `1.0.5`, the timer at `1.1.6`, and schemastery at `3.18.4`. The DeepSeek adapter now speaks the Messages wire only, so `protocol` is refused rather than honored: a custom gateway must expose a Messages-compatible endpoint and the official endpoint is selected by base URL.
+- TUI and Agent settings are live plugin configuration persisted in the Profile patch (`$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`) instead of a `settings.yaml` document. A `settings.yaml` written by an earlier release is imported once at startup into the profile rows of the same id and renamed to `settings.yaml.imported`; a section whose row no longer exists stays only in the renamed file, so a hand-written `agent-presets` or `omdsh-tui` section should be re-applied as a Profile patch.
+- Agent presets are ordinary plugin rows now: the `agent-preset-registry` row owns the roster and each preset is an `@deepseek-ai/dsh-agent-preset` row shipped in the product bundle's `config/presets/<id>.patch.yml`. A user preset, or an override of a shipped one, is a Profile patch keyed by that row's id; the `.agent-presets` directory scan and the copy-only authoring flow that came with it are gone.
+- Module resolution is one immutable runtime resolution derived at launch from the omdsh installation and the Profile's bundle dependency graph, installed through Node's resolvers instead of materializing fallback links. `@deepseek-ai/*` and `@agi-fans/dsh-tui` still resolve from the installation first and user bundles from the Profile `node_modules`, and a package Node cannot resolve still fails loud at boot.
+- The oversized-result spill budget is configured in estimated tokens (`maxInlineTokens: 50000`) instead of bytes, keeping the same headroom over the upstream default.
+- Session logs are written in Harness session format V4. A session recorded by an earlier release is migrated when it is opened and its original generation is kept beside the new one, but a V4 log cannot be read by an older omdsh, so downgrading after a session has been opened loses access to that session's new content.
+- Updated the DeepSeek Harness runtime cohort from `0.1.5-rc.2` to the published `0.1.6-alpha.1` release. The DeepSeek route now speaks the Messages protocol by default and reuses uploaded images through the Files API. PTC execution and the workflow engine move to their renamed packages, mounted as `ptc-runtime` and `workflow-ptc`.
 - `ralph` is off by default, matching the upstream base bundle: the tool description already restricted it to runs the human explicitly asked for, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false`.
 - The `code` (PTC) preset now declares its own presentation and hides `workflow_run`, matching the upstream `ptc` preset: a PTC session has exactly one model-authored orchestration surface (`run_code`) instead of a second one beside it, and other presets keep the native catalog. The presentation is fixed when the preset mounts rather than switched by the TUI per session.
 - `web_search` is now exposed by default beside the existing anonymous `web_fetch`; previously the composition mounted fetch only, so a model that needed current information had to be pointed at a URL. A deployment that wants no search turns it back off in `tool-web` through its own overlay.
@@ -415,7 +429,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.14.0...v0.15.0

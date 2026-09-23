@@ -63,7 +63,10 @@
   - id: session-query
     name: '@deepseek-ai/dsh-session-query-sqlite'
     config:
-      path: ':memory:'
+      # Durable derived index rather than a per-process one: a cold launch then
+      # reconciles only new or changed logs instead of re-indexing the whole
+      # store, which is what made the first `/resume <query>` cost ~14s.
+      path: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/sessions-query.sqlite'"
       openAt: first-search
 
   - id: session-reference
@@ -110,14 +113,18 @@
     config:
       dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
 
-  # User settings document ($DSH_HOME/settings.yaml) and credential sources
-  # (inherited env, managed .credentials.yaml, project/user .env) — the same
-  # rows the harness base mounts, so omdsh honors the user's existing model
-  # route and API key setup out of the box.
+  # User settings and credential sources (inherited env, managed
+  # .credentials.yaml, project/user .env) — the same rows the harness base
+  # mounts, so omdsh honors the user's existing model route and API key setup
+  # out of the box. Settings are live plugin config: forms expose the volatile
+  # fields of active entries, and config-editor persists an edit into the
+  # profile patch. A settings.yaml left by an earlier release is imported once
+  # and renamed to settings.yaml.imported.
+  - id: config-editor
+    name: '@deepseek-ai/dsh-config-editor'
+
   - id: settings
-    name: '@deepseek-ai/dsh-settings-file'
-    config:
-      dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
+    name: '@deepseek-ai/dsh-settings'
 
   - id: credentials
     name: '@deepseek-ai/dsh-credentials-local'
@@ -146,14 +153,14 @@
       provider: !!js process.env.OMDSH_PROVIDER || 'deepseek-official'
       model: !!js process.env.OMDSH_MODEL || 'deepseek-flash'
 
-  - id: agent-presets
-    name: '@deepseek-ai/dsh-agent-presets'
+  # Agent presets: the registry owns the roster and the default, and every
+  # preset is an ordinary `@deepseek-ai/dsh-agent-preset` row declaring its
+  # child plugins. omdsh ships `standard`, `code`, `minimal`, and `cordis` as
+  # insert patches under `config/presets/`, applied after this file.
+  - id: agent-preset-registry
+    name: '@deepseek-ai/dsh-agent-preset-registry'
     config:
       default: standard
-      includeShippedRoot: false
-      roots:
-        - path: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('./agent-presets/', baseUrl))"
-          trust: system
 
   - id: commands
     name: '@deepseek-ai/dsh-commands'
@@ -418,17 +425,17 @@
   - id: mcp-resources
     name: '@deepseek-ai/dsh-mcp-resources'
 
-  # Spills one oversized plain-text tool result to a private file and hands the
-  # model a bounded preview plus the path. The cap is deliberately far above
-  # upstream's 50 KB: the session log carries the replacement, so a lower cap
-  # would shorten what a human can expand in the transcript.
+  # Spills one oversized tool result to a private file and hands the model a
+  # bounded preview plus the path. The cap is deliberately far above upstream's
+  # 12500 estimated tokens: the session log carries the replacement, so a lower
+  # cap would shorten what a human can expand in the transcript.
   - id: spill-local
     name: '@deepseek-ai/dsh-spill-local'
 
   - id: spill-policy
     name: '@deepseek-ai/dsh-spill-policy'
     config:
-      maxInlineBytes: 200000
+      maxInlineTokens: 50000
 
   - id: token-meter
     name: '@deepseek-ai/dsh-token-meter'
@@ -601,6 +608,11 @@
 
   - id: tui-session-runtime
     name: '@agi-fans/dsh-tui/session-runtime'
+    config:
+      # Product state this runtime owns: Session Library rows reused across
+      # launches (without them a cold process reads every stored log again) and
+      # the marker that upgrades stored sessions once per session format.
+      stateDir: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/omdsh'"
 
   - id: tui-human-interaction
     name: '@agi-fans/dsh-tui/human-interaction'

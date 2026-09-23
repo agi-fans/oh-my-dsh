@@ -8,7 +8,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { JobId, type JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import { JobId, type JobView } from '@deepseek-ai/dsh-jobs'
 import { formatDuration } from '../chrome/status-line.ts'
 import { JOB_STATUS_WORD } from '../session/job-notice.ts'
 import { registerCommands } from './registration.ts'
@@ -16,19 +16,19 @@ import { registerCommands } from './registration.ts'
 export const name = 'omdsh-command-jobs'
 export const inject = ['commands', 'jobs']
 
-function elapsed(snapshot: JobSnapshot, now: number): string {
+function elapsed(snapshot: JobView, now: number): string {
   const end = snapshot.finishedAt ?? now
   return formatDuration(Math.max(0, end - snapshot.startedAt))
 }
 
-function statusCell(snapshot: JobSnapshot, now: number): string {
+function statusCell(snapshot: JobView, now: number): string {
   const parts = [JOB_STATUS_WORD[snapshot.status], elapsed(snapshot, now)]
   if (snapshot.detail !== undefined && snapshot.detail.trim() !== '') parts.push(snapshot.detail.trim())
   return parts.join(' · ')
 }
 
 /** Markdown panel for `/jobs`; `now` is injected so the rendering stays pure. */
-export function jobsText(jobs: readonly JobSnapshot[], now: number): string {
+export function jobsText(jobs: readonly JobView[], now: number): string {
   if (jobs.length === 0) return 'No background jobs in this session.'
   const running = jobs.filter(job => job.status === 'running' || job.status === 'stopping').length
   const settled = jobs.length - running
@@ -50,7 +50,7 @@ function killJob(ctx: Context, invocation: CommandInvocation): CommandResult {
   const id = invocation.rawInput.trim()
   if (id === '') return { kind: 'error', text: 'Usage: /jobs kill <id>' }
   try {
-    const outcome = ctx.jobs.kill(JobId(id), invocation.agent, 'stopped from /jobs')
+    const outcome = ctx.jobs.kill(JobId(id), invocation.agent.session.id, 'stopped from /jobs')
     return {
       kind: 'success',
       text: outcome === 'requested' ? `Stopping ${id}.` : `${id} has already finished.`,
@@ -63,7 +63,7 @@ function killJob(ctx: Context, invocation: CommandInvocation): CommandResult {
 function showJobs(ctx: Context, invocation: CommandInvocation): CommandResult {
   const raw = invocation.rawInput.trim()
   if (raw === '') {
-    return { kind: 'success', text: jobsText(ctx.jobs.list(invocation.agent), Date.now()) }
+    return { kind: 'success', text: jobsText(ctx.jobs.list(invocation.agent.session.id), Date.now()) }
   }
   const [verb, ...rest] = raw.split(/\s+/u)
   if (verb === 'kill') {

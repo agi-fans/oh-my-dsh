@@ -6,16 +6,14 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-settings'
 import { registerCommands } from '../commands/registration.ts'
 import type { TuiService } from '../definition.ts'
 import { changelogText, resolveStartupChangelog } from '../session/release-notes.ts'
 import { APP_VERSION, PACKAGE_NAME } from '../session/package-metadata.ts'
-import { TUI_SETTINGS_NAMESPACE, type TuiSettings } from '../session/tui-settings.ts'
 import { checkForUpdate, type UpdateCheckCache } from '../session/update-check.ts'
 
 export const name = 'omdsh-startup-notices'
-export const inject = ['commands', 'settings', 'tui']
+export const inject = ['commands', 'tui']
 
 export interface Config {
   currentVersion?: string
@@ -81,21 +79,19 @@ async function fetchLatestVersion(packageName: string): Promise<string> {
 }
 
 class StartupNotices implements OmdshStartupService {
-  readonly #ctx: Context
   readonly #tui: TuiService
   readonly #config: ResolvedConfig
 
-  constructor(ctx: Context, tui: TuiService, config: ResolvedConfig) {
-    this.#ctx = ctx
+  constructor(tui: TuiService, config: ResolvedConfig) {
     this.#tui = tui
     this.#config = config
   }
 
   async afterSessionStart(): Promise<void> {
-    const prefs = this.#ctx.settings.get(TUI_SETTINGS_NAMESPACE) as TuiSettings | undefined
+    const prefs = this.#tui.prefs()
     const stateDir = join(this.#config.dshHome, 'omdsh')
     try {
-      const mode = prefs?.startupChangelog ?? 'summary'
+      const mode = prefs.startupChangelog ?? 'summary'
       const markerPath = join(stateDir, 'last-changelog-version')
       const changelog = await readFile(this.#config.changelogPath, 'utf8')
       const notice = await resolveStartupChangelog({
@@ -115,7 +111,7 @@ class StartupNotices implements OmdshStartupService {
     } catch {
       // Release notes are helpful, but must never make session startup fail.
     }
-    if (prefs?.checkUpdates === true) {
+    if (prefs.checkUpdates === true) {
       try {
         const packageName = this.#config.packageName
         const cachePath = join(stateDir, 'update-check.json')
@@ -169,5 +165,5 @@ export function apply(ctx: Context, config: Config = {}): void {
     input: { hint: '[full]' },
     handler: invocation => showChangelog(resolved, invocation),
   }], 'omdsh changelog command')
-  ctx.provide('omdshStartup', new StartupNotices(ctx, tui, resolved))
+  ctx.provide('omdshStartup', new StartupNotices(tui, resolved))
 }

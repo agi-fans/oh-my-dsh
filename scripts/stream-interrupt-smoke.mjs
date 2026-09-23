@@ -6,8 +6,7 @@
 import { fork } from 'node:child_process'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cleanOutput, omdshCommand, repoRoot, smokeEnv, smokeHome } from './smoke-lib.mjs'
 
@@ -23,8 +22,10 @@ if (process.argv[2] === 'server') {
       connection: 'keep-alive',
     })
     const reasoning = 'issuefour '.repeat(Math.ceil(REASONING_CHARS / 10)).slice(0, REASONING_CHARS)
+    response.write(`data: ${JSON.stringify({ type: 'message_start', message: { id: 'stream-interrupt', model: 'deepseek-flash', usage: { input_tokens: 1, output_tokens: 0 } } })}\n\n`)
+    response.write(`data: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } })}\n\n`)
     for (const character of reasoning) {
-      response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: character }, finish_reason: null }] })}\n\n`)
+      response.write(`data: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: character } })}\n\n`)
     }
   })
   server.on('connection', socket => {
@@ -47,9 +48,6 @@ if (process.argv[2] === 'server') {
 const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const omdshHome = smokeHome('omdsh-stream-interrupt-')
-// This script serves a chat-completions SSE stream; the adapter now defaults
-// to Messages.
-writeFileSync(join(omdshHome, 'settings.yaml'), 'llm-deepseek:\n  protocol: chat-completions\n')
 const server = fork(fileURLToPath(import.meta.url), ['server'], {
   cwd: repoRoot,
   stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
