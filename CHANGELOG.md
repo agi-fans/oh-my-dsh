@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the DeepSeek Harness runtime cohort from `0.1.7-rc.1` to the published `0.2.0-rc.1` release, with the vendored Cordis runtime, loader, timer, and schemastery unchanged at `4.0.4`, `1.0.5`, `1.1.6`, and `3.18.4`. `@deepseek-ai/dsh-llm-deepseek` is now the Messages transport library rather than a plugin, and the plugin that owns the `deepseek-official` route moved to `@deepseek-ai/dsh-llm-deepseek-api-key` (an account-token sibling owning `deepseek-account` was added beside it). omdsh mounts the api-key plugin under the unchanged `llm-deepseek` row id, so the settings section, the `/auth` and `/model` commands, `OMDSH_PROVIDER`, and existing Profile patches all keep working without edits.
+- Tool definition updates for `deepseek-flash` are now appended instead of rewritten in history (`toolUpdate: addition-only`); `deepseek-v4-pro` keeps the previous in-history behavior.
+
 ## [0.18.0] - 2026-09-24
 
 ### Added
