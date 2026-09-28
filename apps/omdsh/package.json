@@ -170,6 +170,7 @@
     "@deepseek-ai/dsh-tool-subagent": "0.2.0-rc.1",
     "@deepseek-ai/dsh-tool-subagent-control": "0.2.0-rc.1",
     "@deepseek-ai/dsh-tool-terminal": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-tool-session-query": "0.2.0-rc.1",
     "@deepseek-ai/dsh-tool-todo": "0.2.0-rc.1",
     "@deepseek-ai/dsh-tool-web": "0.2.0-rc.1",
     "@deepseek-ai/dsh-tool-workflow": "0.2.0-rc.1",

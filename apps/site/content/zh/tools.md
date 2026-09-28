@@ -29,6 +29,10 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 `todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到；`skill` 按需加载匹配的 `SKILL.md`。
 
+五个只读工具让 agent 能取到它自己早先会话里做过的工作：`session_search` 与 `session_event_search` 负责查找，`session_trace` 与 `session_event_trace` 追溯谱系与关联，`session_event_read` 返回精确的事件数据。没有它们，一个曾经解决过某问题的模型只能被重新告知一遍，因为 `/sessions` 与 `/resume` 是你才能触及的能力，而不是 agent 的。
+
+它们按工作区授权：跨会话读取只在目标会话的工作目录与调用方完全一致时才被授权，而没有工作目录的会话只能检查自己。在 home overlay 里写 `disabled: true` 关掉这一行，即可移除全部五个工具及其引导语。
+
 ## 运行时检查
 
 `cordis` preset 在原生目录之外增加只读的运行时检查：`cordis_inspect_list` 发现 provider，`cordis_inspect_query` 读取精确的 Service、Event 与 Tool API。改变运行时意味着编辑组合文件，而不是调用工具。

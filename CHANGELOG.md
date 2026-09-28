@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Added
 
 - Each turn now ends with a record of the files it changed. omdsh mounts the Harness per-turn summarizer, which diffs Git working-tree snapshots taken at turn start and turn end (and captures the files Git does not cover), and the transcript prints the file count, the turn's line totals, and each changed path with its own `+`/`-` counts. The list folds past eight files and `Ctrl+O` expands it. A turn that changed nothing says so, and binary or oversized files are marked instead of given meaningless counts.
+- The model can now reach its own earlier work: five read-only session tools (`session_search`, `session_event_search`, `session_trace`, `session_event_trace`, `session_event_read`) let it find, trace, and read prior sessions instead of having to be told again what it already did. Cross-session reads are authorized only when the target session's working directory exactly matches the caller's, so a session cannot read another workspace's history, and a session with no working directory can inspect only itself. The tools add five schemas and fixed guidance to every request; a deployment that would rather not pay that turns the `tool-session-query` row off in a home overlay.
 
 ### Changed
 

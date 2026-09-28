@@ -74,6 +74,19 @@
       path: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/sessions-query.sqlite'"
       openAt: first-search
 
+  # Model-facing session history: five read-only tools that let the agent find
+  # work it did in an earlier session. Without them a model that solved
+  # something three sessions ago can only be told again, because `/sessions`
+  # and `/resume` are human affordances it cannot reach. Cross-session reads
+  # are authorized only when the target session's cwd exactly matches the
+  # caller's, so the model cannot read another workspace's history.
+  #
+  # The cost is five tool schemas plus fixed guidance on every request. A
+  # deployment that would rather not pay it turns the row off in a home
+  # overlay with `disabled: true`.
+  - id: tool-session-query
+    name: '@deepseek-ai/dsh-tool-session-query'
+
   - id: session-reference
     name: '@deepseek-ai/dsh-session-reference'
 

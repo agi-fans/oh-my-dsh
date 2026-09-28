@@ -197,3 +197,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-util-code-language@0.2.0-rc.1'
   - '@deepseek-ai/dsh-llm-deepseek-api-key@0.2.0-rc.1'
   - '@deepseek-ai/dsh-workspace-changes@0.2.0-rc.1'
+  - '@deepseek-ai/dsh-tool-session-query@0.2.0-rc.1'
