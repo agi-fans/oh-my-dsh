@@ -107,6 +107,14 @@
   - id: workspace
     name: '@deepseek-ai/dsh-workspace'
 
+  # Per-turn changed-file summary. The plugin diffs git working-tree snapshots
+  # taken at turn start and turn end and announces each result with a
+  # `workspace/changes` event; the transcript renders the served file list, and
+  # a resumed session falls back to the turn-only form because the summaries
+  # live on the host only while the Session does.
+  - id: workspace-changes
+    name: '@deepseek-ai/dsh-workspace-changes'
+
   # Workspace @file discovery. The TUI owns mention syntax; this provider
   # ranks path-only candidates and, when `read` is visible, adds the stable
   # file-reference instruction. Selecting a row still inserts a path.

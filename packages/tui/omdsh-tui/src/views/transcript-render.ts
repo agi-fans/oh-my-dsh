@@ -51,6 +51,7 @@ import {
   paintPrefixedDiffLine,
   wrapPaintedDiffRows,
 } from '../chrome/diff-render.ts'
+import { workspaceBlockLines } from './workspace-changes.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
@@ -362,6 +363,7 @@ export function blockLines(
   }
   if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
+  if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
   if (block.framed !== true) {
     const prefix = '  '
@@ -394,6 +396,11 @@ export function blockSearchText(block: Block): string {
   if (block.kind === 'tool') return `${block.args}\n${block.output}`
   if (block.kind === 'toolCatalog') {
     return block.tools.map(tool => `${tool.name} ${tool.description}`).join('\n')
+  }
+  if (block.kind === 'workspace') {
+    // Only the served file paths are searchable; a turn whose summary the
+    // host no longer holds contributes no path text.
+    return block.summary?.files.map(file => file.display).join('\n') ?? `turn ${block.turn}`
   }
   return block.text
 }

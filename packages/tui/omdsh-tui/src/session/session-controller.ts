@@ -589,6 +589,7 @@ export class SessionRuntime {
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
         }
+        if (event.type === 'workspace/changes') this.#serveWorkspaceSummary(ctx, tui, session, event)
         if (event.type === 'subagent/catalog') this.#tracker.observeCatalog(session, [event])
         if (shouldRefreshSessionInfoAfter(event)) this.#pushSessionInfo()
         if (event.type === 'session/title') void this.refreshRecent()
@@ -999,6 +1000,38 @@ export class SessionRuntime {
     const outcome = planMode.set(agent, active)
     this.#pushSessionInfo()
     return outcome
+  }
+
+  /**
+   * Resolve and attach the changed-file summary a `workspace/changes` event
+   * announces.
+   *
+   * The Harness appends the event and only then files the summary under its
+   * sequence, so a listener running inside that append always reads
+   * `undefined`. The lookup is therefore deferred by one microtask, which runs
+   * after the recorder's own synchronous store, and enriches the turn-only
+   * block the transcript already rendered. A session without the plugin, or a
+   * recorder that has already been disposed, simply keeps the fallback.
+   *
+   * @param ctx - host context carrying the optional service.
+   * @param tui - the mounted presentation service.
+   * @param session - the Session that appended the event.
+   * @param event - the `workspace/changes` event.
+   */
+  #serveWorkspaceSummary(
+    ctx: Context,
+    tui: TuiService,
+    session: Session,
+    event: Extract<SessionEvent, { type: 'workspace/changes' }>,
+  ): void {
+    const service = ctx.get('workspaceChanges')
+    if (service === undefined) return
+    const { id } = session
+    const { seq, data } = event
+    queueMicrotask(() => {
+      const summary = service.summary(id, seq)
+      if (summary !== undefined) tui.setWorkspaceSummary(data.turn, summary)
+    })
   }
 
   /**

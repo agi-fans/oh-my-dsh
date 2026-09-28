@@ -11,6 +11,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { StreamDelta } from './views/event-views.ts'
 import type { TuiPrefs } from './views/settings-list.ts'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
@@ -233,8 +234,28 @@ export interface TuiAgentBehaviorSettingsBinding {
  * Implementations must be single-consumer: one runner owns readInput().
  */
 export interface TuiService {
-  /** Render one session-log event (streamed as recorded). */
-  event(event: SessionEvent, presentation?: TuiToolPresentation): void
+  /**
+   * Render one session-log event (streamed as recorded).
+   *
+   * @param event - the appended event.
+   * @param presentation - tool presentation resolved for this event, when any.
+   * @param workspace - changed-file summary the host serves for a
+   *   `workspace/changes` event; omitted when the plugin is unmounted or its
+   *   recorder for the Session is gone, which renders the turn-only form.
+   */
+  event(event: SessionEvent, presentation?: TuiToolPresentation, workspace?: WorkspaceChangesSummary): void
+  /**
+   * Attach a changed-file summary to a turn block that was already rendered
+   * without one.
+   *
+   * The Harness files the summary only after appending its event, so the
+   * controller resolves it on the next microtask and enriches the block here
+   * instead of replaying the event.
+   *
+   * @param turn - the turn whose block receives the summary.
+   * @param summary - the summary the host serves for that turn.
+   */
+  setWorkspaceSummary(turn: number, summary: WorkspaceChangesSummary): void
   /** Fold one live `agent/assistant-stream` chunk into the transcript. */
   streamDelta(delta: StreamDelta): void
   /** Update the status line liveness. */

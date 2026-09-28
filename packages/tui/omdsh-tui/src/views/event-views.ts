@@ -14,7 +14,9 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
+import type {} from '@deepseek-ai/dsh-workspace-changes'
 import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
+import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { formatTokens } from '../chrome/status-line.ts'
 import {
@@ -25,6 +27,7 @@ import {
   type Block,
   type StreamDelta,
   type TranscriptState,
+  type WorkspaceBlock,
 } from './transcript-types.ts'
 
 export * from './transcript-types.ts'
@@ -139,6 +142,20 @@ function editableBlocks(state: TranscriptState, mutable: boolean): Block[] {
   return mutable ? state.blocks as Block[] : state.blocks.slice()
 }
 
+/**
+ * Index of the changed-file block already appended for one turn.
+ *
+ * The Harness may re-announce a turn (a late snapshot, or a second pass over
+ * the same top-level turn), and the latest event for a turn replaces earlier
+ * ones, so the fold updates in place instead of stacking duplicates.
+ * @param blocks - current display blocks.
+ * @param turn - the turn the event names.
+ * @returns the block index, or -1 when the turn has no block yet.
+ */
+function findWorkspaceBlock(blocks: readonly Block[], turn: number): number {
+  return blocks.findIndex(block => block.kind === 'workspace' && block.turn === turn)
+}
+
 function settleAssistant(
   state: TranscriptState,
   turn: number,
@@ -232,28 +249,68 @@ export function applyStreamChunk(state: TranscriptState, delta: StreamDelta): Tr
  * Fold one session-log event into the transcript state.
  * @param state - prior state.
  * @param event - the appended session event.
+ * @param presentation - tool presentation resolved for this event, when any.
+ * @param workspace - host-served changed-file summary for a `workspace/changes`
+ *   event; absent when the plugin is not mounted or the recorder is gone.
  * @returns the next state.
  */
 export function applyEvent(
   state: TranscriptState,
   event: SessionEvent,
   presentation?: TuiToolPresentation,
+  workspace?: WorkspaceChangesSummary,
 ): TranscriptState {
-  return foldEvent(state, event, presentation, false)
+  return foldEvent(state, event, presentation, false, undefined, workspace)
+}
+
+/**
+ * Attach a host-served changed-file summary to a turn's existing block.
+ *
+ * The Harness appends `workspace/changes` and only then files the summary
+ * under the event's sequence, so a listener running inside that append cannot
+ * read it back. The caller resolves it on the next microtask and calls this to
+ * enrich the block it already rendered, which keeps the transcript truthful
+ * without replaying the event.
+ *
+ * @param state - current transcript state.
+ * @param turn - the turn whose block receives the summary.
+ * @param summary - the summary the host serves.
+ * @returns the next state, or the same state when the turn has no block.
+ */
+export function withWorkspaceSummary(
+  state: TranscriptState,
+  turn: number,
+  summary: WorkspaceChangesSummary,
+): TranscriptState {
+  const index = findWorkspaceBlock(state.blocks, turn)
+  if (index < 0) return state
+  const current = state.blocks[index] as WorkspaceBlock
+  if (current.summary !== undefined) return state
+  const blocks = state.blocks.slice()
+  blocks[index] = { kind: 'workspace', turn, summary }
+  return { ...state, blocks }
 }
 
 /**
  * Replay one immutable event log without repeatedly copying its growing block
  * array. The mutable array is private to this fold and becomes readonly when
  * the completed state escapes.
+ *
+ * @param events - the log to fold.
+ * @param presentations - tool presentations keyed by event sequence.
+ * @param workspaces - changed-file summaries keyed by event sequence. Only a
+ *   live Session still has them, so a resumed log replays turn-only blocks.
  */
 export function replayEvents(
   events: readonly SessionEvent[],
   presentations?: ReadonlyMap<number, TuiToolPresentation>,
+  workspaces?: ReadonlyMap<number, WorkspaceChangesSummary>,
 ): TranscriptState {
   let state = initialTranscript()
   const indexes: ReplayIndexes = { toolByCallId: new Map() }
-  for (const event of events) state = foldEvent(state, event, presentations?.get(event.seq), true, indexes)
+  for (const event of events) {
+    state = foldEvent(state, event, presentations?.get(event.seq), true, indexes, workspaces?.get(event.seq))
+  }
   return state
 }
 
@@ -263,6 +320,7 @@ function foldEvent(
   presentation: TuiToolPresentation | undefined,
   mutable: boolean,
   indexes?: ReplayIndexes,
+  workspace?: WorkspaceChangesSummary,
 ): TranscriptState {
   switch (event.type) {
     case 'turn/start':
@@ -393,6 +451,20 @@ function foldEvent(
         compactCommandId: undefined,
         status: state.compaction === undefined ? 'idle' : 'compacting',
       }
+    // A completed top-level turn's changed-file summary. The durable event
+    // carries only the turn; the file list stays on the Harness host and is
+    // served per live Session, so the block degrades to its turn-only form
+    // rather than inventing counts we cannot recover on a resumed log.
+    case 'workspace/changes': {
+      const blocks = editableBlocks(state, mutable)
+      const index = findWorkspaceBlock(blocks, event.data.turn)
+      const block: WorkspaceBlock = workspace === undefined
+        ? { kind: 'workspace', turn: event.data.turn }
+        : { kind: 'workspace', turn: event.data.turn, summary: workspace }
+      if (index < 0) blocks.push(block)
+      else blocks[index] = block
+      return { ...state, blocks }
+    }
     // Durable condensation. The manual `/compact` command and the automatic
     // pressure path emit the same lifecycle, so one set of cases covers both.
     case 'compaction/start':

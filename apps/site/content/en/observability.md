@@ -29,6 +29,12 @@ Matching scans the full ledger, so collapsed turns and hidden subtool calls stil
 
 `/diff` summarizes the workspace changes as a per-file table with added and removed line counts and lists untracked files; `/diff <path>` prints one file's patch. It only reads git state and never stages or commits.
 
+## Per-turn changed files
+
+Every completed turn ends with a record of the files that turn changed, with the turn's line totals and each path's own added and removed counts. It is attributed to the turn that produced it, so a long session shows which change belongs to which request rather than one cumulative total. The list folds past eight files and `Ctrl+O` expands it; a turn that changed nothing says so, and binary or oversized files are marked instead of given counts. Because the record is derived from the turn's own snapshots, a session opened later shows the turn without its file list.
+
+`/diff` and this record answer different questions: `/diff` reports the working tree as it stands now, while the per-turn record reports what one turn changed.
+
 ## Tools and integrations: `/tools` and `/mcp`
 
 `/tools` lists the tools visible to the agent, grouped the way the registry exposes them. `/mcp` groups connected tools by their MCP server; both views update automatically when a tool list changes after an MCP reconnect. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.

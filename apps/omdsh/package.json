@@ -182,6 +182,7 @@
     "@deepseek-ai/dsh-workflow": "0.2.0-rc.1",
     "@deepseek-ai/dsh-workflow-ptc": "0.2.0-rc.1",
     "@deepseek-ai/dsh-workspace": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-workspace-changes": "0.2.0-rc.1",
     "@deepseek-ai/schemastery": "3.18.4",
     "node-addon-require-builtin": "^0.1.6"
   },

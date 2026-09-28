@@ -367,6 +367,15 @@ describe('dsh spine expansion', () => {
     for (const row of expanded) expect(row.name, `row ${row.id}`).toBeTruthy()
   })
 
+  it('mounts the per-turn changed-file summarizer next to the workspace row', () => {
+    const row = productRows().find(entry => entry.id === 'workspace-changes')
+    expect(row?.name).toBe('@deepseek-ai/dsh-workspace-changes')
+    // The plugin observes turns through the `subprocess` service it injects.
+    // Row order is irrelevant: Cordis defers a row's activation until its
+    // injects are satisfied, so this only asserts the dependency is mounted.
+    expect(productRows().some(entry => entry.id === 'subprocess')).toBe(true)
+  })
+
   it('maps each expansion row id to its owning package', () => {
     const rows = productRows()
     const row = (id: string) => rows.find(entry => entry.id === id)

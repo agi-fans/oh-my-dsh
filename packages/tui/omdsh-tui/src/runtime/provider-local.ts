@@ -25,6 +25,7 @@ import { join, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import {
   TUI_SERVICE,
   type TuiAgentBehaviorSettings,
@@ -112,6 +113,7 @@ import {
   replayEvents,
   renderView,
   TRANSCRIPT_FAST_SCROLL,
+  withWorkspaceSummary,
   type Block,
   type StreamDelta,
   type TranscriptState,
@@ -542,8 +544,8 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
-  event(event: SessionEvent, presentation?: TuiToolPresentation): void {
-    this.#state = applyEvent(this.#state, event, presentation)
+  event(event: SessionEvent, presentation?: TuiToolPresentation, workspace?: WorkspaceChangesSummary): void {
+    this.#state = applyEvent(this.#state, event, presentation, workspace)
     this.#emitNotification(this.#notifications.event({
       type: event.type,
       time: event.time,
@@ -565,6 +567,14 @@ export class LocalTui implements TuiService {
     } else if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result' || event.type === 'turn/end') {
       this.#plain.print()
     }
+  }
+
+  setWorkspaceSummary(turn: number, summary: WorkspaceChangesSummary): void {
+    const next = withWorkspaceSummary(this.#state, turn, summary)
+    if (next === this.#state) return
+    this.#state = next
+    if (this.#tty) this.#render()
+    else this.#plain.print()
   }
 
   /**

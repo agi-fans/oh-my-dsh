@@ -392,6 +392,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: 0.2.0-rc.1
         version: 0.2.0-rc.1(e07f9fe66de802e32023ecacc52422ee)
+      '@deepseek-ai/dsh-workspace-changes':
+        specifier: 0.2.0-rc.1
+        version: 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-agent@0.2.0-rc.1(201341192015fb7129e7302656735e22))(@deepseek-ai/dsh-session@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-scope@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4))))(@deepseek-ai/dsh-subprocess@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-http-proxy@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-tools@0.2.0-rc.1(44958e8f826516598aa7d335d84aa068))
       '@deepseek-ai/schemastery':
         specifier: 3.18.4
         version: 3.18.4
@@ -546,6 +549,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: 0.2.0-rc.1
         version: 0.2.0-rc.1(e07f9fe66de802e32023ecacc52422ee)
+      '@deepseek-ai/dsh-workspace-changes':
+        specifier: 0.2.0-rc.1
+        version: 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-agent@0.2.0-rc.1(201341192015fb7129e7302656735e22))(@deepseek-ai/dsh-session@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-scope@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4))))(@deepseek-ai/dsh-subprocess@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-http-proxy@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-tools@0.2.0-rc.1(44958e8f826516598aa7d335d84aa068))
       '@deepseek-ai/schemastery':
         specifier: 3.18.4
         version: 3.18.4
@@ -2319,6 +2325,15 @@ packages:
       '@deepseek-ai/dsh-invariants': 0.2.0-rc.1
       '@deepseek-ai/dsh-llm': 0.2.0-rc.1
       '@deepseek-ai/dsh-session': 0.2.0-rc.1
+
+  '@deepseek-ai/dsh-workspace-changes@0.2.0-rc.1':
+    resolution: {integrity: sha512-Sei3KQvv+o1kAwI6mORToQRL4KQXM7QF1kfTEWIJF2kbkQY4WyCAYl/5XWUM460ESznQm7Mnq08YKziNPptW8Q==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.4
+      '@deepseek-ai/dsh-agent': 0.2.0-rc.1
+      '@deepseek-ai/dsh-session': 0.2.0-rc.1
+      '@deepseek-ai/dsh-subprocess': 0.2.0-rc.1
+      '@deepseek-ai/dsh-tools': 0.2.0-rc.1
 
   '@deepseek-ai/dsh-workspace@0.2.0-rc.1':
     resolution: {integrity: sha512-iEVfkxwNdNUUINTlQaalw6GXxU9lQUldBAhc1LY3l6nGk+XY53hQ9rT1bP+RN/jDi7ad6xd+i+jSbowGdLgLgA==}
@@ -8252,6 +8267,16 @@ snapshots:
       '@deepseek-ai/dsh-invariants': 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)
       '@deepseek-ai/dsh-llm': 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)
       '@deepseek-ai/dsh-session': 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-scope@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)))
+
+  '@deepseek-ai/dsh-workspace-changes@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-agent@0.2.0-rc.1(201341192015fb7129e7302656735e22))(@deepseek-ai/dsh-session@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-scope@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4))))(@deepseek-ai/dsh-subprocess@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-http-proxy@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-tools@0.2.0-rc.1(44958e8f826516598aa7d335d84aa068))':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-agent': 0.2.0-rc.1(201341192015fb7129e7302656735e22)
+      '@deepseek-ai/dsh-session': 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-scope@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)))
+      '@deepseek-ai/dsh-subprocess': 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-http-proxy@0.2.0-rc.1(@deepseek-ai/cordis@4.0.4))
+      '@deepseek-ai/dsh-tools': 0.2.0-rc.1(44958e8f826516598aa7d335d84aa068)
+      '@deepseek-ai/schemastery': 3.18.4
+      diff: 9.0.0
 
   '@deepseek-ai/dsh-workspace@0.2.0-rc.1(e07f9fe66de802e32023ecacc52422ee)':
     dependencies:

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Each turn now ends with a record of the files it changed. omdsh mounts the Harness per-turn summarizer, which diffs Git working-tree snapshots taken at turn start and turn end (and captures the files Git does not cover), and the transcript prints the file count, the turn's line totals, and each changed path with its own `+`/`-` counts. The list folds past eight files and `Ctrl+O` expands it. A turn that changed nothing says so, and binary or oversized files are marked instead of given meaningless counts.
+
 ### Changed
 
 - Updated the DeepSeek Harness runtime cohort from `0.1.7-rc.1` to the published `0.2.0-rc.1` release, with the vendored Cordis runtime, loader, timer, and schemastery unchanged at `4.0.4`, `1.0.5`, `1.1.6`, and `3.18.4`. `@deepseek-ai/dsh-llm-deepseek` is now the Messages transport library rather than a plugin, and the plugin that owns the `deepseek-official` route moved to `@deepseek-ai/dsh-llm-deepseek-api-key` (an account-token sibling owning `deepseek-account` was added beside it). omdsh mounts the api-key plugin under the unchanged `llm-deepseek` row id, so the settings section, the `/auth` and `/model` commands, `OMDSH_PROVIDER`, and existing Profile patches all keep working without edits.

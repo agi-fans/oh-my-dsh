@@ -8,6 +8,7 @@
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { ContentBlock, StreamChunk, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { blocksText } from '../session/content-text.ts'
@@ -17,6 +18,21 @@ export type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['to
 /** Display state of one tool invocation. */
 export type ToolBlockStatus = 'running' | 'ok' | 'error'
 
+/**
+ * Per-turn changed-file summary for one `workspace/changes` event.
+ *
+ * The durable event carries only the turn number; the summary itself stays on
+ * the Harness host and is served by the `workspaceChanges` service for as long
+ * as the Session lives. `summary` is therefore undefined when the plugin is
+ * not mounted and when a resumed or replayed log no longer has a live recorder,
+ * and the block degrades to its turn-only form instead of inventing counts.
+ */
+export interface WorkspaceBlock {
+  kind: 'workspace'
+  turn: number
+  summary?: WorkspaceChangesSummary
+}
+
 /** One rendered block of the transcript. */
 export type Block =
   | { kind: 'user'; text: string }
@@ -24,6 +40,7 @@ export type Block =
   | { kind: 'tool'; callId: ToolCallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
+  | WorkspaceBlock
   | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: string; framed?: boolean }
 
 /** Live session activity controlling the composer and activity row. */
