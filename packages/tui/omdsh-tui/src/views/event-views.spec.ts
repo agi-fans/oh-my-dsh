@@ -1083,7 +1083,7 @@ describe('blockLines', () => {
       streaming: true,
     }, theme, 12)
 
-    expect(reasoning).toEqual([' thought    ', '', ' answer     '])
+    expect(reasoning).toEqual([' ⋆  thought ', '', ' answer     '])
     expect(streaming).toEqual([' …          '])
   })
 

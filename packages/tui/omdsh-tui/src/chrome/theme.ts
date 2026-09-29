@@ -29,6 +29,8 @@ export const SYMBOL = {
   pending: '○',
   running: '⟳',
   done: '•',
+  /** Folded reasoning. Monochrome star operator, never emoji-presentation. */
+  reasoning: '⋆',
   bullet: '•',
   cursor: '❯',
 } as const

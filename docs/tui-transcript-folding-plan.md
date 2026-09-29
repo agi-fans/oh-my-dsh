@@ -1,6 +1,6 @@
 # TUI transcript 折叠改造方案
 
-状态：**批次一、二已实施，批次三起未实施**。v2 依据 DeepSeek Harness 官方 Web 客户端（`refs/deepseek-harness`，tag `dsh-v0.2.0-rc.1`）的实际实现重写了 v1 的两个核心决策，并引入官方采用的两级折叠模型与策略表。v3 记录批次一的实际落地结果与三处 omdsh 自主决策。
+状态：**批次一、二、三已实施，批次四起未实施**。v2 依据 DeepSeek Harness 官方 Web 客户端（`refs/deepseek-harness`，tag `dsh-v0.2.0-rc.1`）的实际实现重写了 v1 的两个核心决策，并引入官方采用的两级折叠模型与策略表。v3 记录批次一的实际落地结果与三处 omdsh 自主决策。
 
 ## omdsh 的自主立场
 
@@ -12,11 +12,13 @@
 
 **P3 · 边框只表示"你打开过它"。** `AGENTS.md` 既有规则要求"边框只在表达真实组件边界或交互状态时使用"。批次一最初让成功调用不带框、失败调用保留框，于是边框表示"这里有值得读的内容"；批次二按 DSH Web 的做法改成失败也折成一行（错误文本即那一行的事实，详见 E2），边框因此只剩下一个含义：**读者打开过它**。成功与失败一视同仁，都默认一行，唯一的差别是那行末尾写什么。
 
+**P5 · 不把 reasoning 拆成独立的 block。** 官方把 assistant 消息的内容建模成 `AssistantBlock` 五路联合（`text | reasoning | image | tool-call | other`），于是思考天然是一个可寻址、可折叠的单位。我们没有照搬这个形状：`reasoning` 仍是 assistant block 上的一个扁平字符串，折叠态用一个 `turn:step` 键挂在 provider 侧。理由是收益不成比例——拆成独立 block 会牵动 replay、resume 和旧日志兼容，而批次三要解决的是"别把思考铺满屏幕"，段落边界预览一行就够。批次四做 turn 分组时再一起决定形状，届时如果分组需要一个"一个 assistant 可以贡献 reasoning 到组、贡献回答到组外"的能力，才真的需要 `groupPart` 那种结构。
+
 **P4 · 一行就是一行，全文就是全文，没有中间态。** omdsh 原本有第三种形态：带框但输出截到 10 行，末尾挂 `… N more lines · ⟨Ctrl+O: Expand⟩`。折叠之后这条路径不可达（一个 tool block 只在 `toolsExpanded` 为真时才带框），于是整段删除。半截输出是唯一一种读者无法主动阅读的呈现——他无法知道被丢掉的是开头还是结尾。代价是打开一个 5000 行的构建日志会刷屏，由 `windowTranscript` 的窗口裁剪和滚动承担，这与终端里任何长内容的处理一致。
 
 关于折叠层级：官方是"turn 窗口 > step group"两级。omdsh 只做**一级**（turn 边界）——终端只有 35–45 行可用，再嵌一层披露会让读者多记一个层级，而 turn 本来就是他心里的单位（发一条消息、agent 干活、给出回答）。官方那条"回复内容结束过程窗口"的打断规则（`process-groups.ts:159-161`）正好支持一级折叠。
 
-## 批次一、二已实施
+## 批次一至三已实施
 
 | 文件 | 改动 |
 | --- | --- |
@@ -26,6 +28,9 @@
 | `views/transcript-render.ts` | 把 `blockStarts` 挂进 frame 的 transcript |
 | `runtime/provider-local.ts` | 新增 `#blockStarts` 与 `#viewportBlock()`；`#toggleToolExpansion` 改为瞄准视口所在的调用 |
 | `views/tool-row.spec.ts` | 新增，折叠行与失败行契约测试 |
+| `views/reasoning-row.spec.ts` | 新增，思考预览算法与折叠行契约测试 |
+| `chrome/theme.ts` | `SYMBOL.reasoning`（`⋆`，单色星号算符，非 emoji 呈现） |
+| `views/transcript-types.ts` | 新增 `reasoningKey()`，以 `turn:step` 定位某一步思考的折叠态 |
 | `views/event-views.spec.ts` | 重写折叠语义测试；框体测试改走展开路径；补"失败行显示错误、展开后恢复 diff" |
 | `runtime/provider-local.spec.ts` | 重写 Ctrl+O 折叠测试；新增滚动后可展开测试 |
 
@@ -262,14 +267,14 @@ turn 结束后整块折叠，约 1 行：
 | --- | --- | --- | --- | --- |
 | 一 | 已实施 | 工具单行折叠（复用 `renderTool` 而非移植 `deriveSummary`） | P1, P2, E6 | ~90 行 |
 | 二 | 已实施 | 失败折成一行，错误文本即事实；删除不可达的截断预览 | E2, P3, P4 | ~60 行 |
-| 三 | 未实施 | reasoning 提升为独立 block + 段落边界预览 | E4 | ~120 行 |
+| 三 | 已实施 | 思考折叠 + 段落边界预览（**不改数据结构**） | E4, P5 | ~90 行 |
 | 四 | 未实施 | process group 分组 + 类别聚合组头 | E1, E8 | ~220 行 |
 | 五 | 未实施 | 策略表 + `/settings` 密度设置 + 持久化 | E3, E9 | ~130 行 |
 | 六 | 未实施 | 折叠行光标 | E11 | ~120 行 |
 
-批次一、二已发布；三、四是完整形态；五、六是打磨。
+批次一至三已发布；四补上分组，五、六是打磨。
 
-**下一步建议做批次三**：思考目前仍是 assistant block 上的扁平字符串并全量铺开，是 transcript 里剩下的最大噪声源，也是唯一还没有 omdsh 原生答案的部分（官方用一个 `AssistantBlock` 联合解决，我们需要自己决定要不要照搬那个形状）。
+**下一步建议做批次四**：把一个 turn 内的过程归为一个组，组头是类别聚合。批次一至三已经让每个调用和每段思考各占一行，缺的是把一整段过程收成一个可折叠的单位。
 
 ## PTC 前向兼容
 

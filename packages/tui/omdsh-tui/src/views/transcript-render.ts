@@ -62,6 +62,7 @@ import type { MotionMode } from '../session/tui-settings.ts'
 import {
   contentToText,
   prettyArgs,
+  reasoningKey,
   type Block,
   type TodoItem,
   type ToolBlockStatus,
@@ -166,6 +167,8 @@ export interface ViewOptions {
   toolsExpanded?: boolean
   /** Individual tool calls expanded by the user. */
   expandedTools?: ReadonlySet<string>
+  /** Individual assistant steps whose reasoning the user opened. */
+  expandedReasoning?: ReadonlySet<string>
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -363,6 +366,57 @@ function toolBlockLines(
   return renderFramedBlock({ header, state, sections, width }, theme)
 }
 
+function firstLineOf(text: string): string {
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed !== '') return trimmed
+  }
+  return ''
+}
+
+/**
+ * One-line preview of a reasoning run.
+ *
+ * Slicing the raw text would show half a sentence and then rewrite it under the
+ * reader's eyes on the next token. A paragraph is the unit the model actually
+ * finishes, so the preview advances to the first line of the last *completed*
+ * paragraph and waits there until another one closes; before any paragraph has
+ * closed there is nothing safe to show, and the row says so. Once the block
+ * settles there is no incomplete tail to avoid, so the whole text's first line
+ * is used. Inline markers are stripped because the row is prose, not rendered
+ * markdown: leaving them reads as stray punctuation in a plain line.
+ */
+export function reasoningPreview(text: string, streaming: boolean): string {
+  const clean = text.replaceAll('**', '').replaceAll('`', '').trim()
+  if (clean === '') return ''
+  if (!streaming) return firstLineOf(clean)
+  const paragraphs = clean.split(/\n[ \t]*\n/u).map(paragraph => paragraph.trim()).filter(paragraph => paragraph !== '')
+  if (paragraphs.length < 2) return ''
+  return firstLineOf(paragraphs[paragraphs.length - 2] ?? '')
+}
+
+/**
+ * The folded form of a reasoning run: one line carrying the first line of the
+ * last finished paragraph, or a bare marker while the first paragraph is still
+ * being written. Padding matches the assistant text it sits above, so a folded
+ * thought reads as part of the reply rather than as a new component.
+ */
+function reasoningRowLine(
+  block: Extract<Block, { kind: 'assistant' }>,
+  theme: Theme,
+  width: number,
+): string[] {
+  const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
+  const preview = reasoningPreview(block.reasoning, block.streaming)
+  const marker = theme.fg('thinkingText', SYMBOL.reasoning)
+  const body = preview === '' ? marker : marker + '  ' + preview
+  return assistantContentLines(
+    [lockThinkingLine(truncateToWidth(body, Math.max(1, width - paddingX * 2)), theme)],
+    width,
+    paddingX,
+  )
+}
+
 /**
  * Render one transcript block to display lines. Pure; shared by the tty view
  * and the non-tty plain printer.
@@ -370,7 +424,8 @@ function toolBlockLines(
  * @param theme - active theme.
  * @param width - terminal width in columns.
  * @param spinnerFrame - activity spinner phase for running tools.
- * @param toolsExpanded - paint full tool output instead of the collapsed preview.
+ * @param toolsExpanded - paint full tool output instead of the one-line row.
+ * @param reasoningExpanded - paint full reasoning instead of its one-line row.
  * @returns display lines (already width-fitted).
  */
 export function blockLines(
@@ -379,12 +434,15 @@ export function blockLines(
   width: number,
   spinnerFrame = 0,
   toolsExpanded = false,
+  reasoningExpanded = false,
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
     const lines: string[] = []
     if (block.reasoning !== '') {
-      lines.push(...assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true }))
+      lines.push(...(reasoningExpanded
+        ? assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true })
+        : reasoningRowLine(block, theme, width)))
       if (block.text !== '') lines.push('')
     }
     if (block.text === '' && block.streaming) {
@@ -467,6 +525,7 @@ interface TranscriptBodyCache {
   spinnerFrame: number
   toolsExpanded: boolean
   expandedTools: string
+  expandedReasoning: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
   lines: readonly string[]
@@ -488,6 +547,7 @@ interface BlockLinesCache {
   themeName: ThemeName
   spinnerFrame: number
   expanded: boolean
+  reasoningExpanded: boolean
   lines: readonly string[]
 }
 
@@ -502,6 +562,7 @@ function cachedBlockLines(
   trueColor: boolean,
   spinnerFrame: number,
   expanded: boolean,
+  reasoningExpanded: boolean,
 ): readonly string[] {
   const animatedSpinnerFrame = block.kind === 'tool' && block.status === 'running' ? spinnerFrame : -1
   const cached = blockLinesCache.get(block)
@@ -511,8 +572,9 @@ function cachedBlockLines(
     && cached.trueColor === trueColor
     && cached.themeName === themeName
     && cached.spinnerFrame === animatedSpinnerFrame
-    && cached.expanded === expanded) return cached.lines
-  const lines = blockLines(block, theme, options.width, spinnerFrame, expanded)
+    && cached.expanded === expanded
+    && cached.reasoningExpanded === reasoningExpanded) return cached.lines
+  const lines = blockLines(block, theme, options.width, spinnerFrame, expanded, reasoningExpanded)
   blockLinesCache.set(block, {
     width: options.width,
     colors: options.colors,
@@ -520,6 +582,7 @@ function cachedBlockLines(
     themeName,
     spinnerFrame: animatedSpinnerFrame,
     expanded,
+    reasoningExpanded,
     lines,
   })
   return lines
@@ -533,6 +596,7 @@ function renderTranscriptBody(
 ): { lines: readonly string[]; blockStarts: readonly number[] } {
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
+  const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
   const trueColor = options.trueColor === true
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
@@ -551,6 +615,7 @@ function renderTranscriptBody(
     && cached.spinnerFrame === animatedSpinnerFrame
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools
+    && cached.expandedReasoning === expandedReasoning
     && cached.searchKey === searchKey) {
     return { lines: cached.lines, blockStarts: cached.blockStarts }
   }
@@ -572,7 +637,13 @@ function renderTranscriptBody(
     }
     blockStarts.push(lines.length)
     const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
-    const rendered = cachedBlockLines(block, options, theme, themeName, trueColor, spinnerFrame, expanded)
+    // Ctrl+O means "open everything", so it opens reasoning too; the per-step
+    // set is how a reader opens exactly one thought and leaves the rest folded.
+    const reasoningExpanded = toolsExpanded
+      || (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true)
+    const rendered = cachedBlockLines(
+      block, options, theme, themeName, trueColor, spinnerFrame, expanded, reasoningExpanded,
+    )
     lines.push(...(search !== undefined && matches.has(index)
       ? rendered.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
       : rendered))
@@ -586,6 +657,7 @@ function renderTranscriptBody(
     spinnerFrame: animatedSpinnerFrame,
     toolsExpanded,
     expandedTools,
+    expandedReasoning,
     searchKey,
     lines,
     blockStarts,

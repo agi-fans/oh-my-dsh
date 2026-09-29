@@ -125,6 +125,18 @@ export interface StreamDelta {
   readonly chunk: StreamChunk
 }
 
+/**
+ * Identity of one assistant step's reasoning, used to address its fold.
+ *
+ * Reasoning is a field on the assistant block rather than a block of its own,
+ * so it needs a key of its own for a per-step open/closed state. Turn and step
+ * are already unique within a transcript and survive replay, so a reader's
+ * choice is still attached to the same thought after resuming the session.
+ */
+export function reasoningKey(block: Extract<Block, { kind: 'assistant' }>): string {
+  return `${block.turn}:${block.step}`
+}
+
 /** Compact pretty-print of a tool call's raw arguments JSON. */
 export function prettyArgs(raw: string): string {
   try {

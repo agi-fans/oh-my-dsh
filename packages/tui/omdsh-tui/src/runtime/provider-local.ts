@@ -122,6 +122,7 @@ import {
   initialTranscript,
   replayEvents,
   renderView,
+  reasoningKey,
   TRANSCRIPT_FAST_SCROLL,
   withWorkspaceSummary,
   type Block,
@@ -394,6 +395,7 @@ export class LocalTui implements TuiService {
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
   #expandedToolCalls = new Set<string>()
+  #expandedReasoning = new Set<string>()
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
   #prompt: PendingPrompt | null = null
@@ -1263,6 +1265,7 @@ export class LocalTui implements TuiService {
         }),
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#expandedToolCalls,
+        expandedReasoning: this.#expandedReasoning,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
         welcomeTips: this.#welcomeTips,
@@ -2685,7 +2688,11 @@ export class LocalTui implements TuiService {
     return index
   }
 
-  /** Expand or collapse the tool call under the viewport, or the whole tool catalog. */
+  /**
+   * Open or close whatever the viewport is looking at: the tool call nearest the
+   * top of the window, else the assistant step whose reasoning is folded there,
+   * else the tool catalog or the global open-everything mode.
+   */
   #toggleToolExpansion(): void {
     const anchor = this.#viewportBlock()
     const at = anchor === undefined ? this.#state.blocks.at(-1) : this.#state.blocks[anchor]
@@ -2697,13 +2704,30 @@ export class LocalTui implements TuiService {
           block.kind === 'tool' && (anchor === undefined || index <= anchor),
       )
       if (tool?.kind === 'tool') {
-        if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
-        else this.#expandedToolCalls.add(tool.callId)
-      } else {
-        this.#toolsExpanded = !this.#toolsExpanded
+        this.#toggleSet(this.#expandedToolCalls, tool.callId)
+        this.#render()
+        return
       }
+      // A folded thought is the other thing this key can open, and a step with
+      // no reasoning is not a target — skip past it rather than expanding all.
+      const thought = this.#state.blocks.findLast(
+        (block, index): block is Extract<Block, { kind: 'assistant' }> =>
+          block.kind === 'assistant' && block.reasoning !== '' && (anchor === undefined || index <= anchor),
+      )
+      if (thought?.kind === 'assistant') {
+        this.#toggleSet(this.#expandedReasoning, reasoningKey(thought))
+        this.#render()
+        return
+      }
+      this.#toolsExpanded = !this.#toolsExpanded
     }
     this.#render()
+  }
+
+  /** Flip one key in an open/closed set, replacing it so the render cache sees a new identity. */
+  #toggleSet(set: Set<string>, key: string): void {
+    if (set.has(key)) set.delete(key)
+    else set.add(key)
   }
 
   /** Fold one event into the active transcript search. */

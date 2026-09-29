@@ -43,7 +43,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 |---|---|
 | `PgUp` / `PgDn` | 翻一页。 |
 | `Shift+Up` / `Shift+Down` | 快速滚动。 |
-| `Ctrl+O` | 展开视口所在的工具调用，或工具目录。 |
+| `Ctrl+O` | 打开视口所在的工具调用或思考，或工具目录。 |
 | `Ctrl+F` | composer 为空时搜索当前转录；`n`/`N` 在匹配间跳转。 |
 | `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
 
@@ -100,7 +100,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `cycle-model-forward` | `Ctrl+P` | 切换到下一个收藏模型。 |
 | `cycle-model-backward` | `Alt+P` | 切换到上一个收藏模型。 |
 | `cycle-reasoning` | `Ctrl+T` | 循环切换当前模型的推理强度。 |
-| `toggle-tools` | `Ctrl+O` | 展开视口所在的工具调用，或工具目录。 |
+| `toggle-tools` | `Ctrl+O` | 打开视口所在的工具调用或思考，或工具目录。 |
 | `scroll-page-up` | `PgUp` | 向上翻一页。 |
 | `scroll-page-down` | `PgDn` | 向下翻一页。 |
 | `scroll-fast-up` | `Shift+Up` | 快速向上滚动。 |

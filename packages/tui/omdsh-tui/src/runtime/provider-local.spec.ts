@@ -2173,6 +2173,35 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('opens a folded thought with ctrl+o and closes it again', () => {
+    const term = new FakeTerminal()
+    term.height = () => 40
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'first paragraph\n\nsecond paragraph with the detail' },
+          { type: 'text', text: 'the-answer' },
+        ],
+      },
+    }, 1))
+    const folded = term.captured
+    expect(folded).not.toContain('second paragraph with the detail')
+    const beforeOpen = term.captured.length
+    // A fold state that never reaches the render cache would leave the screen
+    // byte-identical here, so this asserts the repaint, not just the state.
+    press(term, '\x0f')
+    const opened = term.captured.slice(beforeOpen)
+    expect(opened).toContain('second paragraph with the detail')
+    const beforeClose = term.captured.length
+    press(term, '\x0f')
+    expect(term.captured.slice(beforeClose)).not.toContain('second paragraph with the detail')
+    tui.dispose()
+  })
+
   it('does not render background activity, but keeps its details available in the Agent Hub', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal()
