@@ -149,6 +149,29 @@ function partialArgumentLines(raw: string): string[] | undefined {
   return lines.length === 0 ? undefined : lines
 }
 
+/**
+ * One-line subject for a call whose card did not supply one.
+ *
+ * A raw argument object pretty-prints as an opening brace and one field per
+ * line, which is wrong for a single-line row, so read the same fields the
+ * preview reads and return the first one that carries the call's intent. An
+ * undecodable fragment is repaired while the call is still arriving, and falls
+ * back to the raw text once it has settled, because unparseable durable
+ * arguments are still the only description of what the call was.
+ */
+export function toolArgSubject(raw: string, partial: boolean): string {
+  if (raw.trim() === '') return ''
+  const parsed = parsedObject(raw)
+  if (parsed !== undefined) {
+    return previewFieldLines((field) => {
+      const value = parsed[field]
+      return typeof value === 'string' && value.trim() !== '' ? value : undefined
+    })[0] ?? ''
+  }
+  if (partial) return partialArgumentLines(raw)?.[0] ?? ''
+  return raw.split('\n')[0] ?? ''
+}
+
 function isSubagentToolName(name: string): boolean {
   return name === 'subagent' || name.startsWith('subagent_')
 }

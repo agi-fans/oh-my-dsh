@@ -65,4 +65,4 @@ Full access 需要二次确认。Access 才是实际的执行边界；Plan Workf
 找出用户设置无法持久化的原因，只修改负责该行为的最小模块，并运行对应测试。不要修改 refs/ 下的文件。
 ```
 
-Agent 工作时，`Deep Driving` 表示当前回合仍在运行。Tool Card 会分别展示 Input 与 Output；按 `Ctrl+O` 可以展开或折叠最近一次工具输出。两行状态栏会持续展示当前 Agent、Workflow、模型、工作区、Git 状态和 Token 遥测，Composer 边界则显示 Access；这些内容都不会被写入对话。
+Agent 工作时，`Deep Driving` 表示当前回合仍在运行。已完成的工具调用只占一行无框的记录，说明它做了什么；失败的调用会保留带边框的 Input 与 Output，因为那才是值得看的那一次。按 `Ctrl+O` 可以展开或折叠视口所在的工具调用。两行状态栏会持续展示当前 Agent、Workflow、模型、工作区、Git 状态和 Token 遥测，Composer 边界则显示 Access；这些内容都不会被写入对话。

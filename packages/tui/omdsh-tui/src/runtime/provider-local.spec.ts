@@ -2128,7 +2128,7 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('toggles truncated tool output on ctrl+o', () => {
+  it('folds a settled call to a row and toggles its output on ctrl+o', () => {
     const term = new FakeTerminal()
     term.height = () => 80
     const tui = new LocalTui(term, 'm', false)
@@ -2137,15 +2137,39 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('tool/result', {
       message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
-    expect(term.captured).toContain('tool-line-0')
-    expect(term.captured).toContain('Ctrl+O: Expand')
-    expect(term.captured).not.toContain('tool-line-13')
+    expect(term.captured).toContain('bash')
+    expect(term.captured).not.toContain('tool-line-0')
+    const beforeExpand = term.captured.length
     press(term, '\x0f')
+    expect(term.captured).toContain('tool-line-0')
     expect(term.captured).toContain('tool-line-13')
     const afterExpand = term.captured.length
     press(term, '\x0f')
-    expect(term.captured.slice(afterExpand)).toContain('Ctrl+O: Expand')
     expect(term.captured.slice(afterExpand)).not.toContain('tool-line-13')
+    expect(term.captured.slice(afterExpand)).toContain('bash')
+    expect(beforeExpand).toBeGreaterThan(0)
+    tui.dispose()
+  })
+
+  it('expands the call under the viewport, not the newest one, after scrolling back', () => {
+    const term = new FakeTerminal()
+    term.height = () => 40
+    const tui = new LocalTui(term, 'm', false)
+    for (let i = 0; i < 10; i += 1) {
+      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i * 10))
+      tui.event(ev('tool/call', { callId: `call-${i}`, name: 'bash', arguments: '{}' }, i * 10 + 1))
+      tui.event(ev('tool/result', {
+        message: { role: 'tool', toolCallId: `call-${i}`, content: [{ type: 'text', text: `payload-${i}` }] },
+      }, i * 10 + 2))
+    }
+    // A folded row has to stay reachable after the reader scrolls away from the
+    // tail. Expanding only the newest call would change rows above the window
+    // and leave the screen looking untouched, so this asserts that the press
+    // repaints something the reader can actually see.
+    press(term, '\x1b[5~')
+    const beforeExpand = term.captured.length
+    press(term, '\x0f')
+    expect(term.captured.slice(beforeExpand)).toMatch(/payload-[0-9]/u)
     tui.dispose()
   })
 

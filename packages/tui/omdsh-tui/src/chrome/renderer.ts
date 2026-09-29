@@ -19,6 +19,11 @@ export interface TranscriptScroll {
   hiddenAbove: number
   /** Body rows below the window. */
   hiddenBelow: number
+  /**
+   * Body row offset of each transcript block, so a host key binding can aim at
+   * the block the reader is actually looking at rather than the newest one.
+   */
+  blockStarts?: readonly number[]
 }
 
 /** One display frame: exact lines plus an optional final cursor position. */

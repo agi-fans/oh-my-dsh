@@ -65,4 +65,4 @@ Start with an outcome, scope, and verification target. For example:
 Find why the user settings are not persisted, fix the smallest responsible module, and run the focused tests. Do not change files under refs/.
 ```
 
-While the agent works, `Deep Driving` marks the active turn. Tool cards show separate Input and Output sections; press `Ctrl+O` to expand or collapse the latest tool result. The two-line status area keeps the current Agent, Workflow, model, workspace, Git state, and token telemetry visible, and the composer boundary shows Access. None of this status is added to the conversation.
+While the agent works, `Deep Driving` marks the active turn. A finished tool call takes one unframed line carrying what it did; a call that failed keeps its bordered Input and Output sections, because that is the one worth reading. Press `Ctrl+O` to expand or collapse the tool call under the viewport. The two-line status area keeps the current Agent, Workflow, model, workspace, Git state, and token telemetry visible, and the composer boundary shows Access. None of this status is added to the conversation.

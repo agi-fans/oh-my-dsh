@@ -52,7 +52,7 @@ import {
   wrapPaintedDiffRows,
 } from '../chrome/diff-render.ts'
 import { workspaceBlockLines } from './workspace-changes.ts'
-import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
+import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
 import type { WelcomeTip } from '../chrome/welcome-tips.ts'
@@ -258,6 +258,60 @@ function toolIcon(status: ToolBlockStatus, theme: Theme, spinnerFrame: number): 
   return theme.fg('error', SYMBOL.error)
 }
 
+/**
+ * One unframed row for a settled tool call.
+ *
+ * omdsh keeps the framed block for a call whose output is worth reading — a
+ * failure, or a row the reader asked to open — and drops the frame from the
+ * common case, so a border keeps meaning "there is something here you should
+ * read". The semantic title and trailing fact come from {@link renderTool},
+ * which already parses them per tool family; this row only lays them out.
+ * Live state belongs to the status footer, so a row records what the call did
+ * and never repeats a spinner phase or an elapsed time.
+ */
+function toolRowLine(
+  block: Extract<Block, { kind: 'tool' }>,
+  theme: Theme,
+  width: number,
+  spinnerFrame: number,
+): string[] {
+  const icon = toolIcon(block.status, theme, spinnerFrame)
+  const presentation = renderTool({
+    name: block.name,
+    arguments: prettyArgs(block.args),
+    output: block.output,
+    status: block.status,
+    expanded: false,
+    ...(block.partial === true ? { partial: true } : {}),
+    ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
+  })
+  const gap = '  '
+  const head = icon + gap
+  const room = Math.max(1, width - visibleWidth(head))
+  const title = presentation.title ?? block.name
+  // A card's own first input line is the tool's idea of what the call was. With
+  // no card, the input lines are a pretty-printed argument object whose first
+  // line is an opening brace, so read the argument fields instead.
+  const fromCard = block.presentation?.call !== undefined || block.presentation?.result !== undefined
+  const detail = fromCard
+    ? presentation.input[0] ?? ''
+    : toolArgSubject(block.args, block.partial === true)
+  const fact = presentation.summary ?? ''
+  // The trailing fact is why the row is worth a line, so reserve it first and
+  // let what is left carry the title and the detail. A title that already names
+  // the call — a path, an edit — leaves no need for the detail, and a fact that
+  // would eat the title is dropped rather than allowed to starve it.
+  const factRoom = Math.min(visibleWidth(fact), Math.floor(room / 3))
+  const afterFact = Math.max(1, room - (factRoom === 0 ? 0 : factRoom + gap.length))
+  const titleRoom = Math.min(visibleWidth(title), afterFact)
+  const detailRoom = afterFact - titleRoom
+  const titleText = truncateToWidth(title, Math.max(1, titleRoom))
+  const detailText = detail === '' || detailRoom < 8 ? '' : truncateToWidth(detail, detailRoom)
+  const tail = fact === '' || factRoom === 0 ? '' : truncateToWidth(fact, factRoom)
+  const body = (titleText + (detailText === '' ? '' : gap + detailText) + (tail === '' ? '' : gap + tail))
+  return [padToWidth(head + body, width)]
+}
+
 /** Render one tool block as an OMP framed output box. */
 function toolBlockLines(
   block: Extract<Block, { kind: 'tool' }>,
@@ -361,7 +415,14 @@ export function blockLines(
     }
     return lines
   }
-  if (block.kind === 'tool') return toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
+  if (block.kind === 'tool') {
+    // A failure keeps the frame whatever the reader asked for: the output is
+    // the reason to look, and hiding it behind a row would bury the one call
+    // that needs attention.
+    return toolsExpanded || block.status === 'error'
+      ? toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
+      : toolRowLine(block, theme, width, spinnerFrame)
+  }
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
@@ -1199,12 +1260,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // history; the renderer needs to tell them apart because only the first may
     // borrow the alternate buffer.
     ...(liveStart === 0 ? { transientSurface: hasOverlay ? 'overlay' as const : 'scroll' as const } : {}),
-    transcript: windowed ?? {
-      start: 0,
-      maxStart: 0,
-      budget,
-      hiddenAbove: 0,
-      hiddenBelow: 0,
+    transcript: {
+      ...(windowed ?? {
+        start: 0,
+        maxStart: 0,
+        budget,
+        hiddenAbove: 0,
+        hiddenBelow: 0,
+      }),
+      blockStarts: transcript.blockStarts,
     },
   }
 }

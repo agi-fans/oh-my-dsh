@@ -747,7 +747,7 @@ describe('applyEvent', () => {
     expect(frame.lines.some((line) => line.includes('╭───'))).toBe(true)
   })
 
-  it('collapses long tool output and expands it with toolsExpanded', () => {
+  it('folds a settled call to one row and restores its output on toolsExpanded', () => {
     const lines = Array.from({ length: TOOL_COLLAPSED_LINES + 4 }, (_, i) => 'out-' + i)
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
@@ -763,10 +763,12 @@ describe('applyEvent', () => {
       colors: false,
     })
     const collapsedText = collapsed.lines.join('\n')
-    expect(collapsedText).toContain('out-0')
-    expect(collapsedText).toContain('out-' + (TOOL_COLLAPSED_LINES - 1))
-    expect(collapsedText).not.toContain('out-' + TOOL_COLLAPSED_LINES)
-    expect(collapsedText).toContain('4 more lines · ⟨Ctrl+O: Expand⟩')
+    // A settled call keeps no frame and no body: the row is the whole record
+    // until the reader asks for it.
+    expect(collapsedText).toContain('bash')
+    expect(collapsedText).not.toContain('out-0')
+    const row = collapsed.lines.find(line => stripAnsi(line).includes('bash')) ?? ''
+    expect(stripAnsi(row).trimStart().startsWith('╭')).toBe(false)
     const expanded = renderView(state, {
       width: 60,
       height: 80,
@@ -777,6 +779,7 @@ describe('applyEvent', () => {
       toolsExpanded: true,
     })
     const expandedText = expanded.lines.join('\n')
+    expect(expandedText).toContain('out-0')
     expect(expandedText).toContain('out-' + (TOOL_COLLAPSED_LINES + 3))
     expect(expandedText).not.toContain('Ctrl+O: Expand')
   })
@@ -803,7 +806,7 @@ describe('applyEvent', () => {
         call: { card: 'terminal', title: 'SCOPE=/repo pnpm test', description: 'Run tests', cwd: '/repo' },
         result: { card: 'terminal', output: '42 passed', exitCode: 0 },
       },
-    }, createTheme(false), 60)
+    }, createTheme(false), 60, 0, true)
     const text = lines.map(stripAnsi).join('\n')
 
     expect(text).toContain('✔ bash')
@@ -813,18 +816,20 @@ describe('applyEvent', () => {
     expect(text.indexOf('SCOPE=/repo pnpm test')).toBeLessThan(text.indexOf('Output'))
   })
 
-  it('shows the latest terminal output rows while collapsed', () => {
+  it('shows the latest terminal output rows for a failure the reader did not expand', () => {
     const output = Array.from({ length: TOOL_COLLAPSED_LINES + 3 }, (_, index) => `line-${index}`)
+    // A failure keeps the frame and the preview cap whatever the reader asked
+    // for: the tail of the output is where the failure is.
     const lines = blockLines({
       kind: 'tool',
       callId: ToolCallId('call-terminal-tail'),
       name: 'bash',
       args: '{}',
-      status: 'ok',
+      status: 'error',
       output: output.join('\n'),
       presentation: {
         call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: output.join('\n'), exitCode: 0 },
+        result: { card: 'terminal', output: output.join('\n'), exitCode: 1 },
       },
     }, createTheme(false), 60)
     const text = lines.map(stripAnsi).join('\n')
@@ -848,7 +853,7 @@ describe('applyEvent', () => {
       status: 'ok',
       output: '',
       presentation: { result: { card: 'diff', title: 'Edit a.ts', diffs: [hunk] } },
-    }, createTheme(true, false), 60)
+    }, createTheme(true, false), 60, 0, true)
     const plain = lines.map(stripAnsi).join('\n')
     const raw = lines.join('\n')
 
@@ -1045,7 +1050,7 @@ describe('blockLines', () => {
       args: JSON.stringify({ command }),
       status: 'ok',
       output: 'Done',
-    }, createTheme(true, true), 80)
+    }, createTheme(true, true), 80, 0, true)
     const top = stripAnsi(lines[0] ?? '')
     const text = lines.map(stripAnsi).join('\n')
 

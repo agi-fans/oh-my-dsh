@@ -372,6 +372,7 @@ export class LocalTui implements TuiService {
   #scrollStart = 0
   #maxStart = 0
   #scrollBudget = 0
+  #blockStarts: readonly number[] = []
   #follow = true
   #focusBlock: number | undefined
   #expandTools = false
@@ -1298,17 +1299,19 @@ export class LocalTui implements TuiService {
     }, this.#streamRenderMs)
   }
 
-  #syncScroll(scroll: { start: number; maxStart: number; budget: number } | undefined): void {
+  #syncScroll(scroll: { start: number; maxStart: number; budget: number; blockStarts?: readonly number[] } | undefined): void {
     if (scroll === undefined) {
       this.#scrollStart = 0
       this.#maxStart = 0
       this.#scrollBudget = 0
+      this.#blockStarts = []
       this.#follow = true
       return
     }
     this.#scrollStart = scroll.start
     this.#maxStart = scroll.maxStart
     this.#scrollBudget = scroll.budget
+    this.#blockStarts = scroll.blockStarts ?? []
     if (this.#follow || this.#scrollStart >= this.#maxStart) {
       this.#follow = true
       this.#scrollStart = this.#maxStart
@@ -2667,19 +2670,38 @@ export class LocalTui implements TuiService {
     return true
   }
 
-  /** Expand or collapse the newest tool card, or the whole tool catalog. */
+  /**
+   * Block index the reader is looking at: the first one that starts at or below
+   * the top of the transcript window. A collapsed row has to stay reachable
+   * after the reader scrolls away from the tail, so the toggle aims here rather
+   * than at the newest call.
+   */
+  #viewportBlock(): number | undefined {
+    const starts = this.#blockStarts
+    if (starts.length === 0) return undefined
+    const at = this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart
+    let index = starts.findIndex(row => row >= at)
+    if (index < 0) index = starts.length - 1
+    return index
+  }
+
+  /** Expand or collapse the tool call under the viewport, or the whole tool catalog. */
   #toggleToolExpansion(): void {
-    const last = this.#state.blocks.at(-1)
-    const tool = last?.kind === 'toolCatalog'
-      ? undefined
-      : this.#state.blocks.findLast(block => block.kind === 'tool')
-    if (last?.kind === 'toolCatalog') {
+    const anchor = this.#viewportBlock()
+    const at = anchor === undefined ? this.#state.blocks.at(-1) : this.#state.blocks[anchor]
+    if (at?.kind === 'toolCatalog') {
       this.#toolsExpanded = !this.#toolsExpanded
-    } else if (tool?.kind === 'tool') {
-      if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
-      else this.#expandedToolCalls.add(tool.callId)
     } else {
-      this.#toolsExpanded = !this.#toolsExpanded
+      const tool = this.#state.blocks.findLast(
+        (block, index): block is Extract<Block, { kind: 'tool' }> =>
+          block.kind === 'tool' && (anchor === undefined || index <= anchor),
+      )
+      if (tool?.kind === 'tool') {
+        if (this.#expandedToolCalls.has(tool.callId)) this.#expandedToolCalls.delete(tool.callId)
+        else this.#expandedToolCalls.add(tool.callId)
+      } else {
+        this.#toolsExpanded = !this.#toolsExpanded
+      }
     }
     this.#render()
   }

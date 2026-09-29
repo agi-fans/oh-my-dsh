@@ -35,6 +35,8 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 ## TUI and UX Rules
 
 - Use oh-my-pi as a design reference, not as source code or a dependency. Preserve omdsh's DeepSeek identity instead of cloning branding verbatim.
+- omdsh develops its own terminal presentation system. `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are research inputs, not templates to reproduce: when all three suggest the same pattern, that is evidence and not a design. Do not ship a reference project's UI model wholesale. Absorb a borrowed idea only after deciding what omdsh's terminal constraints and existing chrome already answer, and reject the parts that duplicate or contradict them.
+- Prefer omdsh-native seams over a reference project's abstraction shape. A fold, group, or summary model belongs in the omdsh renderer unless a genuine second consumer appears.
 - The startup header uses the DeepSeek logo and the slogan `Into the Unknown`. Preserve the logo's source aspect ratio and distinctive top detail when converting it for terminal cells.
 - The composer uses `🐳` as its only label. Keep a fixed, unframed two-line status footer directly below it: model/reasoning and workspace/Git metadata on the first line, customizable session telemetry on the second.
 - Status information is English until language support exists. Design strings so they can later move behind a language layer instead of being scattered through rendering code.
