@@ -29,6 +29,7 @@ import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/w
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
 import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 
 /** One cycleable row in the overlay. */
 export interface SettingItem {
@@ -66,6 +67,8 @@ export interface SettingsState {
   prefs: TuiPrefs
   /** Product-owned Agent settings are absent when no host binding is mounted. */
   agent?: TuiAgentBehaviorSettings
+  /** Optional-feature state; absent when no feature registry was supplied. */
+  features?: FeatureStates
   /** Footer item currently attached to the up/down reorder gesture. */
   moving?: StatusItemId
 }
@@ -73,7 +76,7 @@ export interface SettingsState {
 /** Outcome of one key against the overlay. */
 export type SettingsCommand =
   | { kind: 'update'; state: SettingsState }
-  | { kind: 'apply'; domain: 'tui' | 'agent'; state: SettingsState }
+  | { kind: 'apply'; domain: 'tui' | 'agent' | 'features'; state: SettingsState }
   | { kind: 'close' }
   | { kind: 'ignore' }
 
@@ -235,14 +238,31 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
   ]
 }
 
+/**
+ * Optional-feature rows. A feature's value cycles on/off like any other row,
+ * but the write lands in the Profile patch rather than this row's volatile
+ * config, so it is applied through the `features` apply domain instead.
+ */
+function featureSettingItems(features: FeatureStates): SettingItem[] {
+  return FEATURE_TOGGLES.map(feature => ({
+    id: `feature:${feature.id}`,
+    label: feature.label,
+    description: `${feature.description} Applies on the next launch.`,
+    value: features[feature.id] === false ? 'off' : 'on',
+    values: COLOR_VALUES,
+  }))
+}
+
 /** Product-owned rows shown in `/settings` (OMP settings-list cycle widgets). */
 export function tuiSettingItems(
   prefs: TuiPrefs,
   agent?: TuiAgentBehaviorSettings,
+  features?: FeatureStates,
 ): SettingItem[] {
   return [
     ...generalSettingItems(prefs),
     ...agentSettingItems(agent),
+    ...(features === undefined ? [] : featureSettingItems(features)),
     ...statusSettingItems(prefs),
   ]
 }
@@ -346,14 +366,20 @@ export function createSettings(
   prefs: TuiPrefs,
   focusId?: string,
   agent?: TuiAgentBehaviorSettings,
+  features?: FeatureStates,
 ): SettingsState {
-  const items = tuiSettingItems(prefs, agent)
+  const items = tuiSettingItems(prefs, agent, features)
   const focused = focusId === undefined ? 0 : items.findIndex((item) => item.id === focusId)
-  return { prefs, selected: focused >= 0 ? focused : 0, ...(agent === undefined ? {} : { agent }) }
+  return {
+    prefs,
+    selected: focused >= 0 ? focused : 0,
+    ...(agent === undefined ? {} : { agent }),
+    ...(features === undefined ? {} : { features }),
+  }
 }
 
 function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
-  const id = tuiSettingItems(state.prefs, state.agent)[state.selected]?.id
+  const id = tuiSettingItems(state.prefs, state.agent, state.features)[state.selected]?.id
   if (id?.startsWith('statusItem:') !== true) return undefined
   const item = id.slice('statusItem:'.length)
   return isStatusItemId(item) ? item : undefined
@@ -426,7 +452,7 @@ function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsSta
 }
 
 interface SettingsSection {
-  id: 'general' | 'agent' | 'status'
+  id: 'general' | 'agent' | 'features' | 'status'
   label: string
   start: number
   end: number
@@ -435,10 +461,14 @@ interface SettingsSection {
 function settingSections(state: SettingsState): SettingsSection[] {
   const generalEnd = generalSettingItems(state.prefs).length
   const agentEnd = generalEnd + agentSettingItems(state.agent).length
+  const featuresEnd = agentEnd + (state.features === undefined ? 0 : FEATURE_TOGGLES.length)
   return [
     { id: 'general', label: 'General', start: 0, end: generalEnd },
     ...(agentEnd === generalEnd ? [] : [{ id: 'agent' as const, label: 'Agent', start: generalEnd, end: agentEnd }]),
-    { id: 'status', label: 'Status line', start: agentEnd, end: tuiSettingItems(state.prefs, state.agent).length },
+    ...(featuresEnd === agentEnd
+      ? []
+      : [{ id: 'features' as const, label: 'Features', start: agentEnd, end: featuresEnd }]),
+    { id: 'status', label: 'Status line', start: featuresEnd, end: tuiSettingItems(state.prefs, state.agent, state.features).length },
   ]
 }
 
@@ -464,10 +494,18 @@ function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
 }
 
 function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCommand {
-  const items = tuiSettingItems(state.prefs, state.agent)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features)
   const item = items[state.selected]
   if (item === undefined) return { kind: 'ignore' }
   const value = adjacentValue(item.value, item.values, direction)
+  if (item.id.startsWith('feature:') && state.features !== undefined) {
+    const id = item.id.slice('feature:'.length)
+    return {
+      kind: 'apply',
+      domain: 'features',
+      state: { ...state, features: { ...state.features, [id]: value === 'on' } },
+    }
+  }
   if (item.id === 'agentLanguage' && state.agent !== undefined) {
     const language = AGENT_LANGUAGE_IDS[value as typeof AGENT_LANGUAGE_VALUES[number]]
     if (language === undefined) return { kind: 'ignore' }
@@ -676,7 +714,7 @@ export function renderSettings(
   width: number,
   height: number = 24,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const items = tuiSettingItems(state.prefs, state.agent)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
   const viewState = index === state.selected ? state : { ...state, selected: index }
   const sections = settingSections(viewState)

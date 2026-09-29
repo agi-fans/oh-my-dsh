@@ -30,6 +30,21 @@ Motion controls presentation only: provider output still enters the live session
 
 A non-Auto choice applies from the next turn; code, identifiers, commands, tool arguments, logs, quotations, and file contents keep their accurate forms, and an explicit language request for the current task still wins. The preference is user-level, so a resumed session uses the current value rather than a historical snapshot.
 
+## Features
+
+Optional product features that cost context, runtime, or transcript noise. Each row turns one composition row off.
+
+| Row | Default | Effect when off |
+|---|---|---|
+| Changed-file summary | On | No per-turn changed-file record, and no Git snapshots at turn start and turn end. |
+| Session history tools | On | The model loses `session_search`, `session_event_search`, `session_trace`, `session_event_trace` and `session_event_read`. |
+| Ralph loop | Off | The loop tool stays absent until you turn it on here. |
+| Repeat-tool reminder | On | The model gets no nudge out of identical tool-call loops. |
+
+A change here applies on the next launch, and the row says so. `disabled` is a Loader option rather than plugin configuration, so the settings service cannot express it; these rows are written into a managed block in `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` instead, which is the surface the Harness reads while composing the tree. The block is delimited by comments and everything you wrote by hand around it is left alone.
+
+Rows that back a command (`session-query` backs `/sessions`, `workspace` backs `@` mentions) and rows that make the agent unusable (`tool-fs`, `tool-bash`, `todo`) are deliberately not listed. `web_search` is also absent: it shares its row with `web_fetch`, so no row-level switch can express "search off, fetch on".
+
 ## Status line
 
 | Row | Values | Default | Effect |

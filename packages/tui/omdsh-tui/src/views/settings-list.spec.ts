@@ -8,6 +8,7 @@ import {
   type TuiPrefs,
 } from './settings-list.ts'
 import { createTheme } from '../chrome/theme.ts'
+import { defaultFeatureStates } from '../session/feature-toggles.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { visibleWidth } from '../chrome/width.ts'
 
@@ -231,6 +232,60 @@ describe('applySettingsEvent', () => {
     const open = createSettings(prefs)
     expect(applySettingsEvent(open, key('ctrl+k'))).toEqual({ kind: 'ignore' })
     expect(applySettingsEvent(open, { type: 'text', value: 'x' })).toEqual({ kind: 'ignore' })
+  })
+})
+
+describe('Features section', () => {
+  const features = defaultFeatureStates()
+
+  it('appears only when a feature registry is supplied', () => {
+    expect(renderSettings(createSettings(prefs, undefined, undefined, features), theme, 80, 40).lines.join('\n'))
+      .toContain('Features')
+    expect(renderSettings(createSettings(prefs), theme, 80, 40).lines.join('\n')).not.toContain('Features')
+  })
+
+  it('lists every feature with its shipped state', () => {
+    // The overlay body is windowed, so the Features rows are only painted once
+    // selection has moved into the section.
+    const items = tuiSettingItems(prefs, undefined, features)
+    const at = items.findIndex(item => item.id === 'feature:workspace-changes')
+    const open = { ...createSettings(prefs, undefined, undefined, features), selected: at }
+    const lines = renderSettings(open, theme, 80, 40).lines.join('\n')
+    expect(lines).toContain('Changed-file summary')
+    expect(lines).toContain('Session history tools')
+    expect(lines).toContain('Ralph loop')
+    expect(lines).toContain('Repeat-tool reminder')
+    // ralph ships off; the rest ship on.
+    expect(lines).toMatch(/Ralph loop\s+off/u)
+  })
+
+  it('states that a change lands on the next launch instead of pretending to be live', () => {
+    const items = tuiSettingItems(prefs, undefined, features)
+    const at = items.findIndex(item => item.id === 'feature:workspace-changes')
+    const open = { ...createSettings(prefs, undefined, undefined, features), selected: at }
+    const lines = renderSettings(open, theme, 220, 40).lines.join('\n')
+    expect(lines).toContain('Applies on the next launch')
+  })
+
+  it('routes a feature toggle to the features apply domain, not the prefs one', () => {
+    const items = tuiSettingItems(prefs, undefined, features)
+    const start = createSettings(prefs, undefined, undefined, features)
+    const at = items.findIndex(item => item.id === 'feature:workspace-changes')
+    const command = applySettingsEvent({ ...start, selected: at }, key('right'))
+    expect(command.kind).toBe('apply')
+    expect(command.kind === 'apply' && command.domain).toBe('features')
+    expect(command.kind === 'apply' && command.state.features?.['workspace-changes']).toBe(false)
+    // The durable preferences must be untouched by a feature toggle.
+    expect(command.kind === 'apply' && command.state.prefs).toEqual(prefs)
+  })
+
+  it('turns a shipped-off feature on without touching the others', () => {
+    const items = tuiSettingItems(prefs, undefined, features)
+    const start = createSettings(prefs, undefined, undefined, features)
+    const at = items.findIndex(item => item.id === 'feature:tool-ralph')
+    const command = applySettingsEvent({ ...start, selected: at }, key('right'))
+    expect(command.kind === 'apply' && command.state.features?.['tool-ralph']).toBe(true)
+    expect(command.kind === 'apply' && command.state.features?.['workspace-changes']).toBe(true)
   })
 })
 

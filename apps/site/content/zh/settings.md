@@ -30,6 +30,21 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 非 Auto 的选择从下一个回合开始生效；代码、标识符、命令、工具参数、日志、引用与文件内容保持准确形式，当前任务的显式语言要求仍然优先。该偏好是用户级的，因此恢复的会话使用当前值而不是历史快照。
 
+## 功能
+
+可选的产品功能，各自消耗上下文、运行时间或转录噪声。每一行关闭一个组合行。
+
+| 行 | 默认 | 关闭后 |
+|---|---|---|
+| 改动文件汇总 | 开 | 不再逐回合记录改动文件，也不再在回合起止各做一次 Git 快照。 |
+| 会话历史工具 | 开 | 模型失去 `session_search`、`session_event_search`、`session_trace`、`session_event_trace` 与 `session_event_read`。 |
+| Ralph 循环 | 关 | 该循环工具保持缺席，直到你在这里打开。 |
+| 重复工具提醒 | 开 | 模型不再收到"别重复同一个工具调用"的提醒。 |
+
+这里的改动在下次启动生效，行内也写明了这一点。`disabled` 是 Loader 选项而非插件配置，settings 服务无法表达它；因此这些行改为写入 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 里一个由注释界定的托管块，那正是 Harness 组装组合树时读取的入口。该块之外你手写的内容不会被改动。
+
+支撑某个命令的行（`session-query` 支撑 `/sessions`，`workspace` 支撑 `@` 提及）以及会让 agent 不可用的行（`tool-fs`、`tool-bash`、`todo`）刻意不列出。`web_search` 同样缺席：它与 `web_fetch` 共用一行，行级开关表达不了"关搜索、留抓取"。
+
 ## Status line
 
 | 行 | 取值 | 默认 | 作用 |

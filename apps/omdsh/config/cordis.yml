@@ -625,6 +625,10 @@
     name: '@agi-fans/dsh-tui'
     config:
       model: !!js process.env.OMDSH_MODEL || 'deepseek-flash'
+      # The settings overlay edits the Profile patch for optional features;
+      # `disabled` is a Loader option the settings service cannot write, so
+      # this row carries the home whose patch the Features section owns.
+      dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh'
 
   - id: agent-behavior
     name: '@agi-fans/oh-my-dsh/agent-behavior'

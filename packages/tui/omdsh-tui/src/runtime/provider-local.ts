@@ -27,6 +27,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import {
+  defaultFeatureStates,
+  featurePatchPath,
+  featureStatesFromPatch,
+  renderFeatureBlock,
+  replaceFeatureBlock,
+  type FeatureStates,
+} from '../session/feature-toggles.ts'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import {
   TUI_SERVICE,
   type TuiAgentBehaviorSettings,
   type TuiAgentBehaviorSettingsBinding,
@@ -219,6 +229,11 @@ export interface Config extends TuiSettings {
   historyPath?: string
   /** Optional `{ key-id: action }` JSON file. */
   keybindingsPath?: string
+  /**
+   * Profile home. Feature toggles are edited in the Profile patch under it,
+   * which is why this row needs the path the composition already resolved.
+   */
+  dshHome?: string
 }
 
 /**
@@ -230,6 +245,7 @@ export const Config = z.object({
   model: z.string(),
   historyPath: z.string(),
   keybindingsPath: z.string(),
+  dshHome: z.string(),
   ...TUI_SETTINGS_FIELDS,
 })
 
@@ -306,6 +322,10 @@ export class LocalTui implements TuiService {
   #search: HistorySearchState | null = null
   #transcriptSearch: TranscriptSearchState | null = null
   #settings: SettingsState | null = null
+  /** Optional-feature state read from the Profile patch this process booted with. */
+  #features: FeatureStates | undefined
+  /** Profile patch the Features section writes; absent hides that section. */
+  #featurePatch: string | undefined
   #copySelector: CopySelectorState | null = null
   #trajectory: TrajectoryState | null = null
   #agentHub: AgentHubState | null = null
@@ -448,6 +468,11 @@ export class LocalTui implements TuiService {
       autocompleteDebounceMs?: number
       historyPath?: string
       keybindingsPath?: string
+      /**
+       * Profile patch the Features section edits. Absent leaves the section
+       * out entirely rather than presenting toggles that cannot be written.
+       */
+      featurePatch?: string
       readClipboard?: ClipboardReader
       readClipboardImage?: ClipboardImageReader
       readClipboardFiles?: ClipboardFileReader
@@ -472,6 +497,16 @@ export class LocalTui implements TuiService {
     this.#historyStore = paths.historyPath === undefined ? undefined : new HistoryStore(paths.historyPath)
     this.#history = this.#historyStore?.load() ?? []
     this.#keybindings = loadKeybindings(paths.keybindingsPath)
+    this.#featurePatch = paths.featurePatch
+    if (paths.featurePatch !== undefined) {
+      try {
+        this.#features = featureStatesFromPatch(readFileSync(paths.featurePatch, 'utf8'))
+      } catch {
+        // A patch that cannot be read still leaves the shipped defaults; the
+        // write path below reports the failure when the user toggles.
+        this.#features = defaultFeatureStates()
+      }
+    }
     const fallback = defaultPathSource()
     this.#cwd = paths.cwd ?? fallback.cwd
     this.#readImagePath = paths.readImagePath ?? (path => readImageFile(path, this.#cwd))
@@ -906,7 +941,7 @@ export class LocalTui implements TuiService {
       this.#updateAgentBehavior = undefined
       this.#agentBehavior = undefined
       this.#agentBehaviorPending = false
-      if (this.#settings !== null) this.#settings = createSettings(this.prefs())
+      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features)
       if (this.#tty && !this.#disposed) this.#render()
     }
   }
@@ -1855,6 +1890,30 @@ export class LocalTui implements TuiService {
     }
   }
 
+  /**
+   * Write the Features section's state into the Profile patch.
+   *
+   * `disabled` is a Loader option rather than plugin config, so the settings
+   * service cannot express it; the Profile patch is the documented surface
+   * that can, and the Harness reads it while composing the tree. Only the
+   * managed block is rewritten, so hand-authored rows and comments survive.
+   * A failure is reported and the overlay keeps the value it shows.
+   */
+  #writeFeaturePatch(): void {
+    const path = this.#featurePatch
+    const features = this.#features
+    if (path === undefined || features === undefined) return
+    try {
+      let current = ''
+      try { current = readFileSync(path, 'utf8') } catch { current = '' }
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, replaceFeatureBlock(current, renderFeatureBlock(features)), 'utf8')
+    } catch (error) {
+      this.notice(`Feature toggles were not saved: ${error instanceof Error ? error.message : String(error)}`)
+      this.#render()
+    }
+  }
+
   #applySettings(event: KeyEvent): void {
     if (this.#settings === null) return
     const command = applySettingsEvent(this.#settings, event)
@@ -1864,6 +1923,14 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'apply') {
+      if (command.domain === 'features') {
+        if (command.state.features === undefined) return
+        this.#settings = command.state
+        this.#features = command.state.features
+        this.#render()
+        this.#writeFeaturePatch()
+        return
+      }
       if (command.domain === 'agent') {
         if (this.#agentBehaviorPending || command.state.agent === undefined) return
         this.#agentBehaviorPending = true
@@ -2460,7 +2527,7 @@ export class LocalTui implements TuiService {
     }
     this.#search = null
     this.#ac = null
-    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior)
+    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features)
     this.#render()
   }
 
@@ -2664,6 +2731,10 @@ export function apply(ctx: Context, config: Config): void {
       herdrReporter: new HerdrAgentReporter(),
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
+      ...(() => {
+        const path = featurePatchPath(config.dshHome ?? dshHome)
+        return existsSync(path) ? { featurePatch: path } : {}
+      })(),
     },
   )
   ctx.provide(TUI_SERVICE, tui)
