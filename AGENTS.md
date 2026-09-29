@@ -71,6 +71,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - Preserve user changes in a dirty worktree and keep unrelated edits out of the current task.
 - Search with `rg` or `rg --files` first. Keep changes focused and avoid broad mechanical rewrites unless the migration itself requires them.
 - Add or update regression tests for rendering, layout, interaction, or session behavior changes. Prefer pure rendering tests plus fake-TTY contract tests for terminal behavior.
+- Assert a platform-dependent surface through `process.platform` instead of hard-coding one platform's name. The host mounts one shell stack per platform (`bash` on POSIX, `pwsh` on Windows), and the Windows CI job runs the complete suite, so a POSIX-only assumption passes locally and fails there.
 - Keep terminal rendering and event-to-view mapping pure where possible; isolate TTY ownership, raw-mode input, process signals, and filesystem access behind providers or controllers.
 - Do not add a special-case UI implementation when the behavior belongs in a reusable renderer, controller, projection, or plugin seam.
 - Use Conventional Commit messages when committing. Do not commit generated build output unless the repository explicitly tracks it.
