@@ -169,6 +169,8 @@ export interface ViewOptions {
   expandedTools?: ReadonlySet<string>
   /** Individual assistant steps whose reasoning the user opened. */
   expandedReasoning?: ReadonlySet<string>
+  /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
+  openedGroups?: ReadonlySet<string>
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -423,6 +425,39 @@ function reasoningRowLine(
 }
 
 /**
+ * The single line that stands in for a folded group.
+ *
+ * It answers the two questions a reader has when scrolling back: what kind of
+ * work this was, and whether any of it failed. A failure is stated outright
+ * rather than left for the reader to discover by opening the group, because a
+ * run that silently went wrong is the one thing worth stopping on.
+ */
+function processGroupHeader(
+  group: ProcessGroup,
+  theme: Theme,
+  width: number,
+  expanded: boolean,
+): string[] {
+  const marker = theme.fg('dim', expanded ? SYMBOL.unfolded : SYMBOL.folded)
+  const labels = group.categories.slice(0, 3).map(entry => entry.label)
+  const extra = group.categories.length - labels.length
+  const work = labels.join(', ') + (extra > 0 ? ` +${extra}` : '')
+  const gap = '  '
+  const head = marker + gap
+  const room = Math.max(1, width - visibleWidth(head))
+  const label = 'Process'
+  const factRoom = Math.min(visibleWidth(work), Math.floor(room / 2))
+  const labelRoom = Math.min(visibleWidth(label), Math.max(1, room - factRoom - gap.length))
+  const labelText = truncateToWidth(label, Math.max(1, labelRoom))
+  const factText = factRoom === 0 ? '' : truncateToWidth(work, factRoom)
+  const tail = group.failures > 0
+    ? theme.fg('error', SYMBOL.error + (group.failures > 1 ? ` ${group.failures}` : ''))
+    : theme.fg('dim', SYMBOL.success)
+  const body = labelText + gap + factText + gap + tail
+  return [padToWidth(head + body, width)]
+}
+
+/**
  * Render one transcript block to display lines. Pure; shared by the tty view
  * and the non-tty plain printer.
  * @param block - the block to render.
@@ -531,6 +566,7 @@ interface TranscriptBodyCache {
   toolsExpanded: boolean
   expandedTools: string
   expandedReasoning: string
+  openedGroups: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
   lines: readonly string[]
@@ -593,6 +629,133 @@ function cachedBlockLines(
   return lines
 }
 
+/**
+ * What a stretch of the transcript was doing, as a short English label.
+ *
+ * Status strings are English until a language layer exists, so every label a
+ * reader can see is resolved from this one table rather than spelled into the
+ * rendering code. A tool with no family is reported by its own name, which is
+ * still more informative than dropping it.
+ */
+const PROCESS_CATEGORIES: readonly (readonly [RegExp, string])[] = [
+  [/^(read|write|edit|multi_edit|notebook_edit|str_replace_editor|apply_patch)$/, 'files'],
+  [/^(grep|glob|list_dir|search)$/, 'search'],
+  [/^(bash|shell|pwsh|exec)$/, 'commands'],
+  [/^(web_search|web_fetch)$/, 'web'],
+  [/^(subagent|subagent_fork|subagent_isolated|agent|ralph|workflow_run)$/, 'agents'],
+  [/^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/, 'history'],
+  [/^(todo_write|update_goal|create_goal|get_goal)$/, 'planning'],
+  [/^skill$/, 'skills'],
+]
+
+function processCategory(name: string): string {
+  for (const [pattern, label] of PROCESS_CATEGORIES) {
+    if (pattern.test(name)) return label
+  }
+  return name
+}
+
+/** One collapsible stretch of process: the calls and thoughts between two answers. */
+export interface ProcessGroup {
+  /** Index of the first block in the group. */
+  start: number
+  /** Exclusive end index. */
+  end: number
+  /** Tool families in first-seen order, with how many calls each took. */
+  categories: { label: string; count: number }[]
+  /** How many of the group's calls failed. */
+  failures: number
+  /** True while the group still holds a call in flight or a thought still arriving. */
+  live: boolean
+  /**
+   * Identity derived from the group's first block, so a group that grows as the
+   * agent keeps working is still the same group to the reader who opened it.
+   */
+  key: string
+}
+
+/** A group has to stand for repetition; one row is not repetition. */
+const MIN_GROUP_BLOCKS = 2
+
+function blockIdentity(block: Block): string {
+  if (block.kind === 'tool') return `tool:${block.callId}`
+  if (block.kind === 'assistant') return `assistant:${reasoningKey(block)}`
+  return block.kind
+}
+
+/**
+ * Does this block belong to a run of work, or answer the reader?
+ *
+ * Only a tool call and a thought that has not yet produced its answer are work.
+ * Everything else — a message, a reply, a slash command's output, a notice, the
+ * per-turn changed-file record — is something the reader came to see, so it
+ * closes the run before it. Anything narrower would swallow a command's output
+ * into a summary of the calls that happened to precede it.
+ */
+function isProcessBlock(block: Block): boolean {
+  if (block.kind === 'tool') return true
+  return block.kind === 'assistant' && block.text === ''
+}
+
+function isLiveBlock(block: Block): boolean {
+  if (block.kind === 'tool') return block.status === 'running'
+  if (block.kind === 'assistant') return block.streaming
+  return false
+}
+
+/**
+ * Project the transcript's process stretches without touching the block list.
+ *
+ * An answer, a user message, and the per-turn changed-file record all read as a
+ * reply rather than as work, so each one closes the run before it and a fresh
+ * run starts after it. Everything between two such replies is one group.
+ *
+ * The block list is deliberately left alone: a group is a rendering decision, so
+ * search, focus, and the row offsets keep addressing real blocks, and a group
+ * that is still growing cannot invalidate anything a reader already saw.
+ */
+export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
+  const groups: ProcessGroup[] = []
+  let start = -1
+  let categories: { label: string; count: number }[] = []
+  let failures = 0
+  let live = false
+  const close = (end: number): void => {
+    if (start < 0) return
+    if (end - start >= MIN_GROUP_BLOCKS) {
+      groups.push({
+        start,
+        end,
+        categories,
+        failures,
+        live,
+        key: blockIdentity(blocks[start]!),
+      })
+    }
+    start = -1
+    categories = []
+    failures = 0
+    live = false
+  }
+  blocks.forEach((block, index) => {
+    if (!isProcessBlock(block)) {
+      close(index)
+      return
+    }
+    if (start < 0) start = index
+    if (isLiveBlock(block)) live = true
+    if (block.kind === 'tool') {
+      if (block.status === 'error') failures += 1
+      const label = processCategory(block.name)
+      const existing = categories.find(entry => entry.label === label)
+      if (existing === undefined) categories.push({ label, count: 1 })
+      else existing.count += 1
+    }
+  })
+  close(blocks.length)
+  return groups
+}
+
 function renderTranscriptBody(
   state: TranscriptState,
   options: ViewOptions,
@@ -602,6 +765,7 @@ function renderTranscriptBody(
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
+  const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
   const trueColor = options.trueColor === true
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
@@ -621,6 +785,7 @@ function renderTranscriptBody(
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools
     && cached.expandedReasoning === expandedReasoning
+    && cached.openedGroups === openedGroups
     && cached.searchKey === searchKey) {
     return { lines: cached.lines, blockStarts: cached.blockStarts }
   }
@@ -629,9 +794,53 @@ function renderTranscriptBody(
   const lines: string[] = []
   const blockStarts: number[] = []
   let previous: Block | undefined
+  // A group is a rendering decision, so a block keeps its own identity and row
+  // offset whether or not the group around it is open. A collapsed group
+  // therefore owns the rows of its first block and nothing after it, which is
+  // why anything a reader can address — a search match, the focused block — has
+  // to force its own group open.
+  const groups = processGroups(state.blocks)
+  const groupOf = new Int32Array(state.blocks.length).fill(-1)
+  const openGroups = new Set<number>()
+  groups.forEach((group, index) => {
+    for (let at = group.start; at < group.end; at += 1) groupOf[at] = index
+    const opened = toolsExpanded
+      || group.live
+      // A group summarizes routine work. One of its calls failed, the run is not
+      // routine, and hiding the failing row behind a header that only says
+      // "something failed" would undo what the row itself was made to show.
+      || group.failures > 0
+      || options.openedGroups?.has(group.key) === true
+      || [...matches].some(index => index >= group.start && index < group.end)
+      || options.focusBlock !== undefined
+        && options.focusBlock >= group.start && options.focusBlock < group.end
+    if (opened) openGroups.add(index)
+  })
   for (let index = 0; index < state.blocks.length; index += 1) {
     const block = state.blocks[index]!
-    if (lines.length > 0) {
+    const groupIndex = groupOf[index] ?? -1
+    const previousGroup = index === 0 ? -1 : groupOf[index - 1] ?? -1
+    const leadsGroup = groupIndex >= 0 && groupIndex !== previousGroup
+    if (groupIndex >= 0) {
+      if (!openGroups.has(groupIndex)) {
+        // A collapsed group owns exactly one row, the header, and hands that row
+        // to its first block. The blocks behind it keep an offset that points
+        // past the end, which is safe because anything a reader can address
+        // forces its own group open above.
+        blockStarts.push(lines.length)
+        if (leadsGroup) {
+          if (lines.length > 0) lines.push('')
+          lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, false))
+        }
+        continue
+      }
+      // An open group is a header followed by its own rows, so the block that
+      // leads it falls through and renders under the header.
+      if (leadsGroup) {
+        if (lines.length > 0) lines.push('')
+        lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, true))
+      }
+    } else if (lines.length > 0) {
       const previousCommand = commandSurfaceName(previous)
       const currentCommand = commandSurfaceName(block)
       if (previousCommand !== undefined && currentCommand !== undefined && previousCommand !== currentCommand) {
@@ -663,6 +872,7 @@ function renderTranscriptBody(
     toolsExpanded,
     expandedTools,
     expandedReasoning,
+    openedGroups,
     searchKey,
     lines,
     blockStarts,

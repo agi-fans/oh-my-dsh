@@ -43,7 +43,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 |---|---|
 | `PgUp` / `PgDn` | Scroll one page. |
 | `Shift+Up` / `Shift+Down` | Scroll quickly. |
-| `Ctrl+O` | Open the tool call or thought under the viewport, else the tool catalog. |
+| `Ctrl+O` | Open the group, call, or thought under the viewport, else the tool catalog. |
 | `Ctrl+F` | Search the current transcript when the composer is empty; `n`/`N` step across matches. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
@@ -100,7 +100,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `cycle-model-forward` | `Ctrl+P` | Cycle to the next favorite model. |
 | `cycle-model-backward` | `Alt+P` | Cycle to the previous favorite model. |
 | `cycle-reasoning` | `Ctrl+T` | Cycle the current model's reasoning effort. |
-| `toggle-tools` | `Ctrl+O` | Open the tool call or thought under the viewport, else the tool catalog. |
+| `toggle-tools` | `Ctrl+O` | Open the group, call, or thought under the viewport, else the tool catalog. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |

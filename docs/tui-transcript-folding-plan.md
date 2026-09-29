@@ -14,11 +14,20 @@
 
 **P5 · 不把 reasoning 拆成独立的 block。** 官方把 assistant 消息的内容建模成 `AssistantBlock` 五路联合（`text | reasoning | image | tool-call | other`），于是思考天然是一个可寻址、可折叠的单位。我们没有照搬这个形状：`reasoning` 仍是 assistant block 上的一个扁平字符串，折叠态用一个 `turn:step` 键挂在 provider 侧。理由是收益不成比例——拆成独立 block 会牵动 replay、resume 和旧日志兼容，而批次三要解决的是"别把思考铺满屏幕"，段落边界预览一行就够。批次四做 turn 分组时再一起决定形状，届时如果分组需要一个"一个 assistant 可以贡献 reasoning 到组、贡献回答到组外"的能力，才真的需要 `groupPart` 那种结构。
 
+**P6 · 组是渲染投影，不是新的 block。** 官方把分组做成 transcript 里的一等对象（`GroupSnapshot` + 独立位置索引 + 渲染入口列表），因为它的折叠控件活在一个 React 树里。我们没有照搬：`processGroups(blocks)` 是 `state.blocks` 上的纯投影，渲染循环据此决定哪些 block 出行、组头占掉第一个 block 的行。代价是折叠组内部的 block 不可寻址，收益是 block 列表、搜索下标、focus 下标和 `blockStarts` 全部保持原语义，不用动 `event-views.ts` 的事件折叠。
+
+代价怎么闭合：**凡是读者能寻址的 block（搜索命中、被 focus 的那个）强制展开它所在的组**。这两条规则是承重的 —— 去掉任一条，那条测试立刻失败，因为命中下标会指向一个不存在的行。组内的 block 仍保留一个合法偏移（永远小于帧高），focus 的 clamp 不会把读者送到无意义的位置。
+
+另外两条偏离参考实现的地方：
+
+- **一个组里有失败就不折叠。** 官方是按 turn 的结束原因决定整组是否强制展开。我们直接按组内是否有失败调用决定：组头只写「有东西失败了」会把批次二刚建立的那行（写着失败原因）重新藏起来，直接违背那次的决定。
+- **组在增长时键不变。** 官方用内容派生的组键并在整组连续存在时复用。我们用组内第一个 block 的身份做键，组随 agent 继续工作增长时键不变，所以读者打开过的组不会因为新调用到达而自己合上。
+
 **P4 · 一行就是一行，全文就是全文，没有中间态。** omdsh 原本有第三种形态：带框但输出截到 10 行，末尾挂 `… N more lines · ⟨Ctrl+O: Expand⟩`。折叠之后这条路径不可达（一个 tool block 只在 `toolsExpanded` 为真时才带框），于是整段删除。半截输出是唯一一种读者无法主动阅读的呈现——他无法知道被丢掉的是开头还是结尾。代价是打开一个 5000 行的构建日志会刷屏，由 `windowTranscript` 的窗口裁剪和滚动承担，这与终端里任何长内容的处理一致。
 
 关于折叠层级：官方是"turn 窗口 > step group"两级。omdsh 只做**一级**（turn 边界）——终端只有 35–45 行可用，再嵌一层披露会让读者多记一个层级，而 turn 本来就是他心里的单位（发一条消息、agent 干活、给出回答）。官方那条"回复内容结束过程窗口"的打断规则（`process-groups.ts:159-161`）正好支持一级折叠。
 
-## 批次一至三已实施
+## 批次一至四已实施
 
 | 文件 | 改动 |
 | --- | --- |
@@ -29,6 +38,7 @@
 | `runtime/provider-local.ts` | 新增 `#blockStarts` 与 `#viewportBlock()`；`#toggleToolExpansion` 改为瞄准视口所在的调用 |
 | `views/tool-row.spec.ts` | 新增，折叠行与失败行契约测试 |
 | `views/reasoning-row.spec.ts` | 新增，思考预览算法与折叠行契约测试 |
+| `views/process-groups.spec.ts` | 新增，分组投影、组头、偏移可达性契约测试 |
 | `chrome/theme.ts` | `SYMBOL.reasoning`（`⋆`，单色星号算符，非 emoji 呈现） |
 | `views/transcript-types.ts` | 新增 `reasoningKey()`，以 `turn:step` 定位某一步思考的折叠态 |
 | `views/event-views.spec.ts` | 重写折叠语义测试；框体测试改走展开路径；补"失败行显示错误、展开后恢复 diff" |
@@ -268,13 +278,13 @@ turn 结束后整块折叠，约 1 行：
 | 一 | 已实施 | 工具单行折叠（复用 `renderTool` 而非移植 `deriveSummary`） | P1, P2, E6 | ~90 行 |
 | 二 | 已实施 | 失败折成一行，错误文本即事实；删除不可达的截断预览 | E2, P3, P4 | ~60 行 |
 | 三 | 已实施 | 思考折叠 + 段落边界预览（**不改数据结构**） | E4, P5 | ~90 行 |
-| 四 | 未实施 | process group 分组 + 类别聚合组头 | E1, E8 | ~220 行 |
+| 四 | 已实施 | turn 分组 + 类别聚合组头（**只做渲染投影，不改 block 列表**） | E1, E8, P6 | ~150 行 |
 | 五 | 未实施 | 策略表 + `/settings` 密度设置 + 持久化 | E3, E9 | ~130 行 |
 | 六 | 未实施 | 折叠行光标 | E11 | ~120 行 |
 
-批次一至三已发布；四补上分组，五、六是打磨。
+批次一至四已发布；五、六是打磨。
 
-**下一步建议做批次四**：把一个 turn 内的过程归为一个组，组头是类别聚合。批次一至三已经让每个调用和每段思考各占一行，缺的是把一整段过程收成一个可折叠的单位。
+**下一步建议做批次五**：折叠密度做成 `/settings` 里的一个设置（compact / standard / detailed / verbose），让「该折多少」成为用户偏好而不是一次重设计。
 
 ## PTC 子调用（已修复）
 

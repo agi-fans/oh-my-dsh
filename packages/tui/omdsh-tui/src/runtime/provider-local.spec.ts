@@ -2202,6 +2202,32 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('opens a folded process group with ctrl+o and closes it again', () => {
+    const term = new FakeTerminal()
+    term.height = () => 40
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] }, 1))
+    for (let i = 0; i < 3; i += 1) {
+      tui.event(ev('tool/call', { callId: `c${i}`, name: 'bash', arguments: `{"command":"cmd-${i}"}` }, 2 + i * 2))
+      tui.event(ev('tool/result', {
+        message: { role: 'tool', toolCallId: `c${i}`, content: [{ type: 'text', text: `out-${i}` }] },
+      }, 3 + i * 2))
+    }
+    tui.event(ev('assistant/message', {
+      turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    }, 9))
+    expect(term.captured).toContain('Process')
+    expect(term.captured).not.toContain('cmd-1')
+    const beforeOpen = term.captured.length
+    press(term, '\x0f')
+    const opened = term.captured.slice(beforeOpen)
+    expect(opened).toMatch(/cmd-[0-2]/u)
+    const beforeClose = term.captured.length
+    press(term, '\x0f')
+    expect(term.captured.slice(beforeClose)).not.toMatch(/cmd-[0-2]/u)
+    tui.dispose()
+  })
+
   it('does not render background activity, but keeps its details available in the Agent Hub', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal()

@@ -122,6 +122,7 @@ import {
   initialTranscript,
   replayEvents,
   renderView,
+  processGroups,
   reasoningKey,
   TRANSCRIPT_FAST_SCROLL,
   withWorkspaceSummary,
@@ -396,6 +397,7 @@ export class LocalTui implements TuiService {
   #toolsExpanded = false
   #expandedToolCalls = new Set<string>()
   #expandedReasoning = new Set<string>()
+  #openedGroups = new Set<string>()
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
   #prompt: PendingPrompt | null = null
@@ -1266,6 +1268,7 @@ export class LocalTui implements TuiService {
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#expandedToolCalls,
         expandedReasoning: this.#expandedReasoning,
+        openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
         welcomeTips: this.#welcomeTips,
@@ -2601,7 +2604,7 @@ export class LocalTui implements TuiService {
     }
     if (action === 'toggle-tools') {
       if (this.#search !== null) return false
-      this.#toggleToolExpansion()
+      this.#toggleFoldTarget()
       return true
     }
     if (action === 'search-history') {
@@ -2689,38 +2692,64 @@ export class LocalTui implements TuiService {
   }
 
   /**
-   * Open or close whatever the viewport is looking at: the tool call nearest the
-   * top of the window, else the assistant step whose reasoning is folded there,
-   * else the tool catalog or the global open-everything mode.
+   * Open or close whatever the viewport is looking at.
+   *
+   * A process group is tried first. A collapsed group is a single row, so an
+   * anchor pointing into one names the group rather than whichever call happens
+   * to sit at that offset — and opening the call inside a folded group would
+   * otherwise be unreachable. Then the tool call, then the folded thought, and
+   * failing all of those the key falls through to opening everything.
    */
-  #toggleToolExpansion(): void {
+  #toggleFoldTarget(): void {
     const anchor = this.#viewportBlock()
+    const within = (index: number): boolean => anchor === undefined || index <= anchor
+    const groups = processGroups(this.#state.blocks)
+    // The group is matched at its end as well as inside it. A collapsed group
+    // occupies one row and the block that closed it is the answer sitting just
+    // below, so following the tail puts the anchor on that answer — and the
+    // thing the reader is actually looking at is the group above it.
+    const group = anchor === undefined
+      ? undefined
+      : groups.findLast(item => anchor >= item.start && anchor <= item.end)
+    if (group !== undefined) {
+      this.#toggleSet(this.#openedGroups, group.key)
+      this.#render()
+      return
+    }
+    // A block inside a group is reachable through its group, never on its own:
+    // expanding a call the reader cannot see would repaint nothing and read as
+    // a dead key.
+    const grouped = new Set<number>()
+    for (const item of groups) {
+      for (let at = item.start; at < item.end; at += 1) grouped.add(at)
+    }
     const at = anchor === undefined ? this.#state.blocks.at(-1) : this.#state.blocks[anchor]
     if (at?.kind === 'toolCatalog') {
       this.#toolsExpanded = !this.#toolsExpanded
-    } else {
-      const tool = this.#state.blocks.findLast(
-        (block, index): block is Extract<Block, { kind: 'tool' }> =>
-          block.kind === 'tool' && (anchor === undefined || index <= anchor),
-      )
-      if (tool?.kind === 'tool') {
-        this.#toggleSet(this.#expandedToolCalls, tool.callId)
-        this.#render()
-        return
-      }
-      // A folded thought is the other thing this key can open, and a step with
-      // no reasoning is not a target — skip past it rather than expanding all.
-      const thought = this.#state.blocks.findLast(
-        (block, index): block is Extract<Block, { kind: 'assistant' }> =>
-          block.kind === 'assistant' && block.reasoning !== '' && (anchor === undefined || index <= anchor),
-      )
-      if (thought?.kind === 'assistant') {
-        this.#toggleSet(this.#expandedReasoning, reasoningKey(thought))
-        this.#render()
-        return
-      }
-      this.#toolsExpanded = !this.#toolsExpanded
+      this.#render()
+      return
     }
+    const tool = this.#state.blocks.findLast(
+      (block, index): block is Extract<Block, { kind: 'tool' }> =>
+        block.kind === 'tool' && within(index) && !grouped.has(index),
+    )
+    if (tool?.kind === 'tool') {
+      this.#toggleSet(this.#expandedToolCalls, tool.callId)
+      this.#render()
+      return
+    }
+    // A folded thought is the other thing this key can open, and a step with no
+    // reasoning is not a target — skip past it rather than expanding all.
+    const thought = this.#state.blocks.findLast(
+      (block, index): block is Extract<Block, { kind: 'assistant' }> =>
+        block.kind === 'assistant' && block.reasoning !== '' && within(index) && !grouped.has(index),
+    )
+    if (thought?.kind === 'assistant') {
+      this.#toggleSet(this.#expandedReasoning, reasoningKey(thought))
+      this.#render()
+      return
+    }
+    this.#toolsExpanded = !this.#toolsExpanded
     this.#render()
   }
 

@@ -31,6 +31,9 @@ export const SYMBOL = {
   done: '•',
   /** Folded reasoning. Monochrome star operator, never emoji-presentation. */
   reasoning: '⋆',
+  /** Disclosure markers for a folded process group. */
+  folded: '▸',
+  unfolded: '▾',
   bullet: '•',
   cursor: '❯',
 } as const
