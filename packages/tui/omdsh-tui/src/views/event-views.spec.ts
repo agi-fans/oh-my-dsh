@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderTurnError, renderView, replayEvents, TOOL_COLLAPSED_LINES, windowTranscript } from './event-views.ts'
+import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInspectBanner, renderQueuedSubmissions, renderSubagents, renderTodos, renderTurnError, renderView, replayEvents, windowTranscript } from './event-views.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -748,7 +748,7 @@ describe('applyEvent', () => {
   })
 
   it('folds a settled call to one row and restores its output on toolsExpanded', () => {
-    const lines = Array.from({ length: TOOL_COLLAPSED_LINES + 4 }, (_, i) => 'out-' + i)
+    const lines = Array.from({ length: 14 }, (_, i) => 'out-' + i)
     let state = initialTranscript()
     state = applyEvent(state, ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     state = applyEvent(state, ev('tool/result', {
@@ -780,7 +780,8 @@ describe('applyEvent', () => {
     })
     const expandedText = expanded.lines.join('\n')
     expect(expandedText).toContain('out-0')
-    expect(expandedText).toContain('out-' + (TOOL_COLLAPSED_LINES + 3))
+    expect(expandedText).toContain('out-13')
+    // One line or the whole output: there is no clipped middle state to hint at.
     expect(expandedText).not.toContain('Ctrl+O: Expand')
   })
 
@@ -816,29 +817,6 @@ describe('applyEvent', () => {
     expect(text.indexOf('SCOPE=/repo pnpm test')).toBeLessThan(text.indexOf('Output'))
   })
 
-  it('shows the latest terminal output rows for a failure the reader did not expand', () => {
-    const output = Array.from({ length: TOOL_COLLAPSED_LINES + 3 }, (_, index) => `line-${index}`)
-    // A failure keeps the frame and the preview cap whatever the reader asked
-    // for: the tail of the output is where the failure is.
-    const lines = blockLines({
-      kind: 'tool',
-      callId: ToolCallId('call-terminal-tail'),
-      name: 'bash',
-      args: '{}',
-      status: 'error',
-      output: output.join('\n'),
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: output.join('\n'), exitCode: 1 },
-      },
-    }, createTheme(false), 60)
-    const text = lines.map(stripAnsi).join('\n')
-
-    expect(text).toContain('… 3 earlier lines · ⟨Ctrl+O: Expand⟩')
-    expect(text).not.toContain('line-0')
-    expect(text).toContain(`line-${TOOL_COLLAPSED_LINES + 2}`)
-  })
-
   it('paints an aligned edit diff with red deletions and green additions', () => {
     const hunk = {
       path: 'a.ts',
@@ -869,7 +847,7 @@ describe('applyEvent', () => {
   })
 
   it('keeps a generic error result visible when the call was a diff', () => {
-    const lines = blockLines({
+    const block = {
       kind: 'tool',
       callId: ToolCallId('call-edit-error'),
       name: 'edit',
@@ -880,12 +858,18 @@ describe('applyEvent', () => {
         call: { card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] },
         result: { card: 'generic', content: [{ type: 'text', text: 'old_string not found' }] },
       },
-    }, createTheme(false), 60)
-    const text = lines.map(stripAnsi).join('\n')
+    } as const
+    // A diff card must not swallow the error: folded, the row's fact is the
+    // error itself rather than the diff the call was attempting.
+    const text = blockLines(block, createTheme(false), 60).map(stripAnsi).join('\n')
 
-    expect(text).toContain('- a')
-    expect(text).toContain('+ b')
     expect(text).toContain('old_string not found')
+    expect(text).not.toContain('- a')
+    // Opening the row restores the diff the failure is about.
+    const opened = blockLines(block, createTheme(false), 60, 0, true).map(stripAnsi).join('\n')
+    expect(opened).toContain('- a')
+    expect(opened).toContain('+ b')
+    expect(opened).toContain('old_string not found')
   })
 
   it('shows the current todo list immediately above the composer', () => {

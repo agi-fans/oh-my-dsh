@@ -1,6 +1,6 @@
 # TUI transcript 折叠改造方案
 
-状态：**批次一已实施，批次二起未实施**。v2 依据 DeepSeek Harness 官方 Web 客户端（`refs/deepseek-harness`，tag `dsh-v0.2.0-rc.1`）的实际实现重写了 v1 的两个核心决策，并引入官方采用的两级折叠模型与策略表。v3 记录批次一的实际落地结果与三处 omdsh 自主决策。
+状态：**批次一、二已实施，批次三起未实施**。v2 依据 DeepSeek Harness 官方 Web 客户端（`refs/deepseek-harness`，tag `dsh-v0.2.0-rc.1`）的实际实现重写了 v1 的两个核心决策，并引入官方采用的两级折叠模型与策略表。v3 记录批次一的实际落地结果与三处 omdsh 自主决策。
 
 ## omdsh 的自主立场
 
@@ -10,21 +10,23 @@
 
 **P2 · 复用既有展示层，不新造摘要层。** 官方需要 `deriveSummary`，因为它的 `ToolCallView` 常常给不出标题，必须从原始参数里反推。omdsh 已经有完整的 `renderTool`，为每个工具族算好了语义 title 与尾部事实。批次一直接复用它，只补了一个 `toolArgSubject` 处理"无 card 时原始参数对象被 pretty-print 成 `{`"这个真实缺口——这比移植整个 `deriveSummary` 少一层概念。
 
-**P3 · 边框重新获得含义。** `AGENTS.md` 既有规则要求"边框只在表达真实组件边界或交互状态时使用"。批次一让成功调用**不带框**、失败调用**保留框**，于是边框重新表示"这里有值得读的内容"，而不是给每次调用套一层装饰。这条规则从约束变成了实现的依据。
+**P3 · 边框只表示"你打开过它"。** `AGENTS.md` 既有规则要求"边框只在表达真实组件边界或交互状态时使用"。批次一最初让成功调用不带框、失败调用保留框，于是边框表示"这里有值得读的内容"；批次二按 DSH Web 的做法改成失败也折成一行（错误文本即那一行的事实，详见 E2），边框因此只剩下一个含义：**读者打开过它**。成功与失败一视同仁，都默认一行，唯一的差别是那行末尾写什么。
+
+**P4 · 一行就是一行，全文就是全文，没有中间态。** omdsh 原本有第三种形态：带框但输出截到 10 行，末尾挂 `… N more lines · ⟨Ctrl+O: Expand⟩`。折叠之后这条路径不可达（一个 tool block 只在 `toolsExpanded` 为真时才带框），于是整段删除。半截输出是唯一一种读者无法主动阅读的呈现——他无法知道被丢掉的是开头还是结尾。代价是打开一个 5000 行的构建日志会刷屏，由 `windowTranscript` 的窗口裁剪和滚动承担，这与终端里任何长内容的处理一致。
 
 关于折叠层级：官方是"turn 窗口 > step group"两级。omdsh 只做**一级**（turn 边界）——终端只有 35–45 行可用，再嵌一层披露会让读者多记一个层级，而 turn 本来就是他心里的单位（发一条消息、agent 干活、给出回答）。官方那条"回复内容结束过程窗口"的打断规则（`process-groups.ts:159-161`）正好支持一级折叠。
 
-## 批次一已实施
+## 批次一、二已实施
 
 | 文件 | 改动 |
 | --- | --- |
-| `views/transcript-render.ts` | 新增 `toolRowLine`；tool 分派在 `!expanded && status !== 'error'` 时走行 |
+| `views/transcript-render.ts` | 新增 `toolRowLine` 与 `toolFailureFact`；tool 分派在未展开时一律走行；删除 `slicePreview` / `toolPreview` / `TOOL_COLLAPSED_LINES` 与展开提示 |
 | `chrome/tool-renderers.ts` | 新增导出 `toolArgSubject`，从原始参数里取单行主语 |
 | `chrome/renderer.ts` | `TranscriptScroll` 增加可选 `blockStarts` |
 | `views/transcript-render.ts` | 把 `blockStarts` 挂进 frame 的 transcript |
 | `runtime/provider-local.ts` | 新增 `#blockStarts` 与 `#viewportBlock()`；`#toggleToolExpansion` 改为瞄准视口所在的调用 |
-| `views/tool-row.spec.ts` | 新增，21 条折叠行契约测试 |
-| `views/event-views.spec.ts` | 重写 2 条折叠语义测试；4 条框体测试改走展开路径 |
+| `views/tool-row.spec.ts` | 新增，折叠行与失败行契约测试 |
+| `views/event-views.spec.ts` | 重写折叠语义测试；框体测试改走展开路径；补"失败行显示错误、展开后恢复 diff" |
 | `runtime/provider-local.spec.ts` | 重写 Ctrl+O 折叠测试；新增滚动后可展开测试 |
 
 实际效果（84 列，典型一回合）：
@@ -37,7 +39,15 @@
 ✔  bash  pnpm test
 ```
 
+失败的命令折成一行，事实是工具自己抱怨的第一句（跳过终端回显的命令行和空行），并用 error 颜色上色，在滚动中一眼可辨：
+
+```
+✘  bash  pnpm --filter @agi-fans/dsh-tui te…  FAIL  src/views/settings-list.spec.ts…
+```
+
 **一处必须随批次一起做的配套**：折叠后回滚到历史的老行如果无法展开，就是把内容永久藏起来了。`#toggleToolExpansion` 因此从"最后一个工具块"改为"视口所在的工具块"，需要 `blockStarts` 才能把视口行号映射回块下标。该行为有一条**已验证能捕获回归**的测试：把实现回退到旧的 `findLast` 后该测试失败（屏幕上看不到任何变化），恢复后通过。
+
+**一处实施中踩到的陷阱**：删除 `TOOL_COLLAPSED_LINES` 导出后，`event-views.spec.ts` 仍在导入它。vitest 对缺失的具名导出**静默给出 `undefined`**，于是 `Array.from({ length: undefined + 4 })` 变成空数组，测试用空数据通过了断言。`tsc` 没有拦住（spec 之外还有 re-export 链）。凡是删除导出，必须同步检查所有 import 点而不是只信类型检查。
 
 ## 相对 v1 的修订
 
@@ -171,7 +181,7 @@ reasoning 是 assistant 消息里的**独立有序 block**（`AssistantBlock` �
 
 **E1 · 采纳两级折叠。** 外层 turn process window + 内层 step group。当前 omdsh 只有"每个 tool 一个块"这一级。
 
-**E2 · 错误进摘要行，不强制展开**（推翻 v1 的 D1）。工具失败时折叠行直接显示错误首行；只有 **turn 以 error/aborted 结束**才强制展开整组。信息不丢，噪声更低，且与官方一致。
+**E2 · 错误进摘要行，不强制展开**（推翻 v1 的 D1，批次二已实施）。工具失败时折叠行直接显示错误首行，并按 error 颜色上色；展开才看完整输出。信息不丢，噪声更低，且与官方一致。turn 级的整组强制展开等批次四。
 
 **E3 · 引入策略表。** `compact | standard | detailed | verbose` → 四个布尔，渲染器只读布尔。折叠密度进 `/settings`，不再是一次性重设计——这同时回答了"这个框到底该不该存在"，答案交给用户偏好。
 
@@ -181,7 +191,7 @@ reasoning 是 assistant 消息里的**独立有序 block**（`AssistantBlock` �
 
 **E6 · 折叠时不构造内容。** 终端直接不产出行，不做"渲染后遮盖"。
 
-**E7 · 不做"偷看 N 行"。** 官方对折叠行没有任何行数上限，只有全显或全隐。我们现有的 `TOOL_COLLAPSED_LINES = 10` 是 peek 语义，与折叠语义混用会让"折叠组体显示几行"变成一个没定义过的问题。**本方案先只做全隐**；若确实需要 peek，单独设计并明确定义它与折叠的关系。
+**E7 · 不做"偷看 N 行"。**（批次二已落地，见 P4）官方对折叠行没有任何行数上限，只有全显或全隐。原来的 `TOOL_COLLAPSED_LINES = 10` 预览路径在折叠后不可达，已整段删除，现在只有一行和全文两种形态。
 
 **E8 · 运行中组标题 150ms 防抖**，避免快速工具调用把标题闪成乱码。
 
@@ -248,18 +258,18 @@ turn 结束后整块折叠，约 1 行：
 
 ### 分期
 
-| 批次 | 内容 | 依据 | 规模 |
-| --- | --- | --- | --- |
-| 一 | `deriveSummary` 纯函数 + 工具单行折叠 | E5, E6, E7 | ~90 行 |
-| 二 | 错误进摘要行 | E2 | ~40 行 |
-| 三 | reasoning 提升为独立 block + 段落边界预览 | E4 | ~120 行 |
-| 四 | process group 分组 + 类别聚合组头 | E1, E8 | ~220 行 |
-| 五 | 策略表 + `/settings` 密度设置 + 持久化 | E3, E9 | ~130 行 |
-| 六 | 折叠行光标 | E11 | ~120 行 |
+| 批次 | 状态 | 内容 | 依据 | 规模 |
+| --- | --- | --- | --- | --- |
+| 一 | 已实施 | 工具单行折叠（复用 `renderTool` 而非移植 `deriveSummary`） | P1, P2, E6 | ~90 行 |
+| 二 | 已实施 | 失败折成一行，错误文本即事实；删除不可达的截断预览 | E2, P3, P4 | ~60 行 |
+| 三 | 未实施 | reasoning 提升为独立 block + 段落边界预览 | E4 | ~120 行 |
+| 四 | 未实施 | process group 分组 + 类别聚合组头 | E1, E8 | ~220 行 |
+| 五 | 未实施 | 策略表 + `/settings` 密度设置 + 持久化 | E3, E9 | ~130 行 |
+| 六 | 未实施 | 折叠行光标 | E11 | ~120 行 |
 
-批次一、二可独立发布；三四是完整形态；五六是打磨。
+批次一、二已发布；三、四是完整形态；五、六是打磨。
 
-**建议从批次一开始**：纯函数、无结构改动、无状态迁移，失败时只影响观感。
+**下一步建议做批次三**：思考目前仍是 assistant block 上的扁平字符串并全量铺开，是 transcript 里剩下的最大噪声源，也是唯一还没有 omdsh 原生答案的部分（官方用一个 `AssistantBlock` 联合解决，我们需要自己决定要不要照搬那个形状）。
 
 ## PTC 前向兼容
 

@@ -159,46 +159,13 @@ export interface ViewOptions {
    */
   transcriptSearch?: { query: string; matches: readonly number[]; focus: number; editing: boolean }
   /**
-   * When true, tool blocks paint their full output (OMP `ctrl+o`). Default
-   * is the collapsed preview of {@link TOOL_COLLAPSED_LINES} rows.
+   * When true, tool blocks paint their full output instead of their one-line
+   * row. False is the default; there is no partially-clipped state between the
+   * two, because a half-shown output cannot be read deliberately.
    */
   toolsExpanded?: boolean
   /** Individual tool calls expanded by the user. */
   expandedTools?: ReadonlySet<string>
-}
-
-/** Collapsed tool-output preview height (OMP `DEFAULT_TERMINAL_PREVIEW_LINES`). */
-export const TOOL_COLLAPSED_LINES = 10
-export const TOOL_INPUT_COLLAPSED_LINES = 3
-
-interface ToolPreview {
-  lines: string[]
-  hidden: number
-}
-
-function slicePreview(
-  lines: readonly string[],
-  limit: number,
-  expanded: boolean,
-  direction: 'head' | 'tail',
-): ToolPreview {
-  if (expanded || lines.length <= limit) return { lines: [...lines], hidden: 0 }
-  const hidden = lines.length - limit
-  return {
-    lines: direction === 'tail' ? lines.slice(hidden) : lines.slice(0, limit),
-    hidden,
-  }
-}
-
-function toolPreview(
-  lines: readonly string[],
-  width: number,
-  limit: number,
-  expanded: boolean,
-  direction: 'head' | 'tail',
-): ToolPreview {
-  const contentWidth = Math.max(1, width - 4)
-  return slicePreview(lines.flatMap(line => wrapText(line, contentWidth)), limit, expanded, direction)
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -259,15 +226,36 @@ function toolIcon(status: ToolBlockStatus, theme: Theme, spinnerFrame: number): 
 }
 
 /**
+ * One-line fact for a failed call.
+ *
+ * The row has to answer "what failed" on its own, because that is the whole
+ * reason the reader is looking at this line. A terminal echoing the command it
+ * just ran is not the answer, so it is skipped along with blank lines; whatever
+ * comes back is the first thing the tool itself complained about. Falls back to
+ * the call's own summary when the output says nothing.
+ */
+function toolFailureFact(output: string, command: string | undefined, fact: string): string {
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    if (command !== undefined
+      && (trimmed === command || trimmed === `> ${command}` || trimmed === `$ ${command}`)) continue
+    return trimmed
+  }
+  return fact
+}
+
+/**
  * One unframed row for a settled tool call.
  *
- * omdsh keeps the framed block for a call whose output is worth reading — a
- * failure, or a row the reader asked to open — and drops the frame from the
- * common case, so a border keeps meaning "there is something here you should
- * read". The semantic title and trailing fact come from {@link renderTool},
- * which already parses them per tool family; this row only lays them out.
- * Live state belongs to the status footer, so a row records what the call did
- * and never repeats a spinner phase or an elapsed time.
+ * A call the reader has not opened carries no frame, so a border means "you
+ * opened this" and nothing else — success and failure alike stay on one line.
+ * A failure swaps its trailing fact for the first line the tool complained
+ * about, so what went wrong is legible without a keystroke. The semantic title
+ * and the rest of the fact come from {@link renderTool}, which already parses
+ * them per tool family; this row only lays them out. Live state belongs to the
+ * status footer, so a row records what the call did and never repeats a spinner
+ * phase or an elapsed time.
  */
 function toolRowLine(
   block: Extract<Block, { kind: 'tool' }>,
@@ -296,29 +284,42 @@ function toolRowLine(
   const detail = fromCard
     ? presentation.input[0] ?? ''
     : toolArgSubject(block.args, block.partial === true)
-  const fact = presentation.summary ?? ''
+  const fact = block.status === 'error'
+    ? toolFailureFact(block.output, detail, presentation.summary ?? '')
+    : presentation.summary ?? ''
   // The trailing fact is why the row is worth a line, so reserve it first and
   // let what is left carry the title and the detail. A title that already names
   // the call — a path, an edit — leaves no need for the detail, and a fact that
-  // would eat the title is dropped rather than allowed to starve it.
-  const factRoom = Math.min(visibleWidth(fact), Math.floor(room / 3))
+  // would eat the title is dropped rather than allowed to starve it. A failure
+  // gets the larger share: its fact is the reason the reader stopped, while on
+  // a successful call the fact is a nicety like a line count.
+  const factShare = block.status === 'error' ? 0.5 : 1 / 3
+  const factRoom = Math.min(visibleWidth(fact), Math.floor(room * factShare))
   const afterFact = Math.max(1, room - (factRoom === 0 ? 0 : factRoom + gap.length))
   const titleRoom = Math.min(visibleWidth(title), afterFact)
   const detailRoom = afterFact - titleRoom
   const titleText = truncateToWidth(title, Math.max(1, titleRoom))
   const detailText = detail === '' || detailRoom < 8 ? '' : truncateToWidth(detail, detailRoom)
-  const tail = fact === '' || factRoom === 0 ? '' : truncateToWidth(fact, factRoom)
-  const body = (titleText + (detailText === '' ? '' : gap + detailText) + (tail === '' ? '' : gap + tail))
+  // A failure is the one line in a run that has to stay findable while scrolling
+  // past, so its fact carries the error colour rather than the usual dim.
+  const tailText = fact === '' || factRoom === 0 ? '' : truncateToWidth(fact, factRoom)
+  const tail = tailText === '' ? '' : block.status === 'error' ? theme.fg('error', tailText) : tailText
+  const body = titleText + (detailText === '' ? '' : gap + detailText) + (tail === '' ? '' : gap + tail)
   return [padToWidth(head + body, width)]
 }
 
-/** Render one tool block as an OMP framed output box. */
+/**
+ * Render one tool block as a framed output box — the opened form of a row.
+ *
+ * There is no intermediate "framed but clipped" state: a call is one line or it
+ * is whole. A half-shown output is the one presentation that cannot be read
+ * deliberately, because the reader has no way to know which end was dropped.
+ */
 function toolBlockLines(
   block: Extract<Block, { kind: 'tool' }>,
   theme: Theme,
   width: number,
   spinnerFrame: number,
-  expanded: boolean,
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
   const presentation = renderTool({
@@ -326,7 +327,7 @@ function toolBlockLines(
     arguments: prettyArgs(block.args),
     output: block.output,
     status: block.status,
-    expanded,
+    expanded: true,
     ...(block.partial === true ? { partial: true } : {}),
     ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
   })
@@ -338,36 +339,19 @@ function toolBlockLines(
     const header = icon + ' ' + theme.bold(presentation.title ?? block.name)
       + (statsLabel === '' ? '' : ' ' + statsLabel)
     const painted = wrapPaintedDiffRows(rows, theme, width)
-    const output = slicePreview(painted, TOOL_COLLAPSED_LINES, expanded, 'head')
-    if (output.hidden > 0) {
-      output.lines.push(theme.fg('dim', `… ${output.hidden} more lines · ⟨Ctrl+O: Expand⟩`))
-    }
     const state = block.status === 'running' ? 'running' : block.status === 'ok' ? 'ok' : 'error'
-    return renderFramedBlock({ header, state, sections: [{ lines: output.lines }], width }, theme)
+    return renderFramedBlock({ header, state, sections: [{ lines: painted }], width }, theme)
   }
   const summary = presentation.summary === undefined || presentation.summary === ''
     ? ''
     : theme.fg('dim', ' ' + presentation.summary)
   const header = icon + ' ' + theme.bold(presentation.title ?? block.name) + summary
-  const input = toolPreview(presentation.input, width, TOOL_INPUT_COLLAPSED_LINES, expanded, 'head')
-  const output = toolPreview(presentation.output, width, TOOL_COLLAPSED_LINES, expanded, presentation.outputPreview)
-  const hasOutput = presentation.output.length > 0
-  const inputLines = input.lines.map(line => (
+  const inputLines = presentation.input.map(line => (
     block.presentation?.call?.card === 'diff' ? paintPrefixedDiffLine(line, theme) : theme.fg('toolOutput', line)
   ))
-  if (input.hidden > 0) {
-    const hint = hasOutput && output.hidden > 0 ? '' : ' · ⟨Ctrl+O: Expand⟩'
-    inputLines.push(theme.fg('dim', `… ${input.hidden} more input lines${hint}`))
-  }
-  const outputLines = output.lines.map(line => (
+  const outputLines = presentation.output.map(line => (
     block.presentation?.result?.card === 'diff' ? paintPrefixedDiffLine(line, theme) : theme.fg('toolOutput', line)
   ))
-  if (output.hidden > 0) {
-    const position = presentation.outputPreview === 'tail' ? 'earlier' : 'more'
-    const hint = theme.fg('dim', `… ${output.hidden} ${position} lines · ⟨Ctrl+O: Expand⟩`)
-    if (presentation.outputPreview === 'tail') outputLines.unshift(hint)
-    else outputLines.push(hint)
-  }
   const sections = [
     ...(inputLines.length === 0 ? [] : [{ lines: inputLines }]),
     ...(outputLines.length === 0 ? [] : [{
@@ -416,11 +400,8 @@ export function blockLines(
     return lines
   }
   if (block.kind === 'tool') {
-    // A failure keeps the frame whatever the reader asked for: the output is
-    // the reason to look, and hiding it behind a row would bury the one call
-    // that needs attention.
-    return toolsExpanded || block.status === 'error'
-      ? toolBlockLines(block, theme, width, spinnerFrame, toolsExpanded)
+    return toolsExpanded
+      ? toolBlockLines(block, theme, width, spinnerFrame)
       : toolRowLine(block, theme, width, spinnerFrame)
   }
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)

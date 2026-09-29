@@ -97,7 +97,66 @@ describe('folded tool row', () => {
     expect(lines[0]).not.toContain('"command"')
   })
 
-  it('keeps the frame for a failure the reader never expanded', () => {
+  it('folds a failure to one line and names what went wrong', () => {
+    const lines = plain(blockLines(tool({
+      name: 'bash',
+      status: 'error',
+      output: [
+        '> pnpm test',
+        '',
+        ' FAIL  src/views/tool-row.spec.ts > a row',
+        '   × folds a failure to one line',
+        '      → expected false to be true',
+      ].join('\n'),
+      presentation: {
+        call: { card: 'terminal', title: 'pnpm test' },
+        result: { card: 'terminal', output: 'boom', exitCode: 1 },
+      },
+    }), theme, 84))
+
+    // The echoed command is not the answer, and neither is a blank line; the
+    // first thing the tool complained about is.
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('FAIL  src/views/tool-row.spec.ts')
+    expect(lines[0]).not.toContain('> pnpm test')
+    expect(lines[0]?.startsWith('╭')).toBe(false)
+  })
+
+  it('paints a failure fact in the error colour so it stands out in a run', () => {
+    const block = tool({
+      name: 'bash',
+      status: 'error',
+      output: 'boom\nnot found',
+      presentation: {
+        call: { card: 'terminal', title: 'pnpm test' },
+        result: { card: 'terminal', output: 'boom', exitCode: 1 },
+      },
+    })
+    const painted = createTheme(true, false)
+    const row = blockLines(block, painted, 84)[0] ?? ''
+    const plainRow = blockLines(block, theme, 84)[0] ?? ''
+
+    expect(stripAnsi(plainRow)).toContain('boom')
+    expect(painted.getFgAnsi('error')).not.toBe('')
+    expect(row).not.toBe(plainRow)
+  })
+
+  it('falls back to the call summary when a failure has no readable output', () => {
+    const lines = plain(blockLines(tool({
+      name: 'bash',
+      status: 'error',
+      output: '   \n\n',
+      presentation: {
+        call: { card: 'terminal', title: 'pnpm test' },
+        result: { card: 'terminal', output: '', exitCode: 1 },
+      },
+    }), theme, 84))
+
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('pnpm test')
+  })
+
+  it('restores the frame for a failure the reader opened', () => {
     const lines = plain(blockLines(tool({
       name: 'bash',
       status: 'error',
@@ -106,7 +165,7 @@ describe('folded tool row', () => {
         call: { card: 'terminal', title: 'pnpm test' },
         result: { card: 'terminal', output: '3 failing', exitCode: 1 },
       },
-    }), theme, 80))
+    }), theme, 80, 0, true))
 
     expect(lines[0]?.startsWith('╭───')).toBe(true)
     expect(lines.join('\n')).toContain('3 failing')
