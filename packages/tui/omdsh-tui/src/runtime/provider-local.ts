@@ -149,6 +149,13 @@ import { colorDisabledByEnv, detectTrueColor, type ThemeName } from '../chrome/t
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSettings } from '../session/tui-settings.ts'
+import {
+  DEFAULT_FOLD_DENSITY,
+  foldPolicy,
+  resolveFoldDensity,
+  type FoldDensity,
+  type FoldPolicy,
+} from '../session/fold-policy.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
@@ -377,7 +384,8 @@ export class LocalTui implements TuiService {
   #blockStarts: readonly number[] = []
   #follow = true
   #focusBlock: number | undefined
-  #expandTools = false
+  #foldDensity: FoldDensity = DEFAULT_FOLD_DENSITY
+  #foldPolicy: FoldPolicy = foldPolicy(DEFAULT_FOLD_DENSITY)
   #motion: MotionMode = 'full'
   #terminalProgress = false
   #terminalProgressActive = false
@@ -908,7 +916,7 @@ export class LocalTui implements TuiService {
       colors: this.#colors,
       motion: this.#motion,
       terminalProgress: this.#terminalProgress,
-      expandTools: this.#expandTools,
+      foldDensity: this.#foldDensity,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
@@ -1266,6 +1274,7 @@ export class LocalTui implements TuiService {
           },
         }),
         toolsExpanded: this.#toolsExpanded,
+        fold: this.#foldPolicy,
         expandedTools: this.#expandedToolCalls,
         expandedReasoning: this.#expandedReasoning,
         openedGroups: this.#openedGroups,
@@ -1849,20 +1858,27 @@ export class LocalTui implements TuiService {
 
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
     const previousMotion = this.#motion
-    const expandChanged = prefs.expandTools !== this.#expandTools
+    const density = resolveFoldDensity(prefs)
+    const densityChanged = density !== this.#foldDensity
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#syncTrueColor()
     this.#motion = prefs.motion ?? 'full'
     this.#terminalProgress = prefs.terminalProgress ?? false
-    this.#expandTools = prefs.expandTools
+    this.#foldDensity = density
+    this.#foldPolicy = foldPolicy(density)
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#notificationPolicy = prefs.notifications ?? 'off'
     this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
-    if (options.forceToolsSync || expandChanged) this.#toolsExpanded = prefs.expandTools
+    // Ctrl+O is an override on top of the density, not a second resting shape,
+    // so picking a new density has to clear it. Leaving it set would pin the
+    // previous rung's answer and read as a setting that does nothing. The
+    // per-call, per-thought, and per-group sets are untouched: those are the
+    // reader's own deliberate openings, not an artifact of the old density.
+    if (options.forceToolsSync || densityChanged) this.#toolsExpanded = false
     if (previousMotion !== this.#motion) {
       this.#stopRevealTick()
       this.#reveal = undefined
@@ -2824,7 +2840,7 @@ export function apply(ctx: Context, config: Config): void {
       colors: resolveColors(config.colors.get(), term.output.isTTY === true),
       motion: config.motion.get(),
       terminalProgress: config.terminalProgress.get(),
-      expandTools: config.expandTools.get(),
+      foldDensity: config.foldDensity.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
       notifications: config.notifications.get(),

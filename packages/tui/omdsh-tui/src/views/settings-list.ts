@@ -28,6 +28,13 @@ import { BOX, SYMBOL, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, 
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
 import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
+import {
+  DEFAULT_FOLD_DENSITY,
+  FOLD_DENSITIES,
+  FOLD_DENSITY_COPY,
+  isFoldDensity,
+  type FoldDensity,
+} from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 
@@ -51,7 +58,9 @@ export interface TuiPrefs {
   colors: boolean
   motion?: MotionMode
   terminalProgress?: boolean
-  expandTools: boolean
+  foldDensity?: FoldDensity
+  /** Legacy input for a document written before the density setting existed. */
+  expandTools?: boolean
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
   notifications?: 'off' | 'long-running' | 'always'
@@ -81,7 +90,6 @@ export type SettingsCommand =
   | { kind: 'ignore' }
 
 const COLOR_VALUES = ['on', 'off'] as const
-const TOOL_DETAIL_VALUES = ['compact', 'expanded'] as const
 const STARTUP_CHANGELOG_VALUES = [...STARTUP_CHANGELOG_MODES]
 const AGENT_LANGUAGE_VALUES = ['Auto', 'Simplified Chinese', 'English'] as const
 const AGENT_LANGUAGE_LABELS: Record<TuiAgentBehaviorSettings['language'], typeof AGENT_LANGUAGE_VALUES[number]> = {
@@ -166,11 +174,11 @@ function generalSettingItems(prefs: TuiPrefs): SettingItem[] {
       values: COLOR_VALUES,
     },
     {
-      id: 'expandTools',
-      label: 'Tool details',
-      description: 'Expand tool output and catalog details (Ctrl+O)',
-      value: prefs.expandTools ? 'expanded' : 'compact',
-      values: TOOL_DETAIL_VALUES,
+      id: 'foldDensity',
+      label: 'Transcript',
+      description: FOLD_DENSITY_COPY[prefs.foldDensity ?? DEFAULT_FOLD_DENSITY],
+      value: prefs.foldDensity ?? DEFAULT_FOLD_DENSITY,
+      values: FOLD_DENSITIES,
     },
     {
       id: 'checkUpdates',
@@ -323,7 +331,7 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
   if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
-  if (id === 'expandTools') return { ...prefs, expandTools: value === 'expanded' || value === 'on' }
+  if (id === 'foldDensity' && isFoldDensity(value)) return { ...prefs, foldDensity: value }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
     return { ...prefs, startupChangelog: value as StartupChangelogMode }

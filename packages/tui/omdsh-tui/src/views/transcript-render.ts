@@ -59,6 +59,7 @@ import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
+import { DEFAULT_FOLD_DENSITY, foldPolicy, foldPolicyKey, type FoldPolicy } from '../session/fold-policy.ts'
 import {
   contentToText,
   prettyArgs,
@@ -165,6 +166,13 @@ export interface ViewOptions {
    * two, because a half-shown output cannot be read deliberately.
    */
   toolsExpanded?: boolean
+  /**
+   * What the transcript folds at rest. Absent means the shipped default, so a
+   * caller that has no preference — the plain printer, a test — keeps the
+   * current shape. The renderer reads booleans only: a reader's choice of
+   * density is resolved by the provider and never reaches this layer.
+   */
+  fold?: FoldPolicy
   /** Individual tool calls expanded by the user. */
   expandedTools?: ReadonlySet<string>
   /** Individual assistant steps whose reasoning the user opened. */
@@ -261,12 +269,17 @@ function toolFailureFact(output: string, command: string | undefined, fact: stri
  * them per tool family; this row only lays them out. Live state belongs to the
  * status footer, so a row records what the call did and never repeats a spinner
  * phase or an elapsed time.
+ *
+ * `showSubject` drops the argument clause at the quietest density, where the
+ * row is a name and a fact. The failure fact still reads the real argument
+ * value, so a dropped subject never costs the reader the error line.
  */
 function toolRowLine(
   block: Extract<Block, { kind: 'tool' }>,
   theme: Theme,
   width: number,
   spinnerFrame: number,
+  showSubject = true,
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
   const presentation = renderTool({
@@ -293,6 +306,10 @@ function toolRowLine(
   const detail = fromCard
     ? presentation.input[0] ?? ''
     : toolArgSubject(block.args, block.partial === true)
+  // The subject is what the call acted on. The quietest density drops it to
+  // leave the row a name and a fact, but the failure path still needs the real
+  // value: it is how the echoed command line gets recognized and skipped.
+  const subject = showSubject ? detail : ''
   const fact = block.status === 'error'
     ? toolFailureFact(block.output, detail, presentation.summary ?? '')
     : presentation.summary ?? ''
@@ -308,7 +325,7 @@ function toolRowLine(
   const titleRoom = Math.min(visibleWidth(title), afterFact)
   const detailRoom = afterFact - titleRoom
   const titleText = truncateToWidth(title, Math.max(1, titleRoom))
-  const detailText = detail === '' || detailRoom < 8 ? '' : truncateToWidth(detail, detailRoom)
+  const detailText = subject === '' || detailRoom < 8 ? '' : truncateToWidth(subject, detailRoom)
   // A failure is the one line in a run that has to stay findable while scrolling
   // past, so its fact carries the error colour rather than the usual dim.
   const tailText = fact === '' || factRoom === 0 ? '' : truncateToWidth(fact, factRoom)
@@ -437,9 +454,12 @@ function processGroupHeader(
   theme: Theme,
   width: number,
   expanded: boolean,
+  showDetail = true,
 ): string[] {
   const marker = theme.fg('dim', expanded ? SYMBOL.unfolded : SYMBOL.folded)
-  const labels = group.categories.slice(0, 3).map(entry => entry.label)
+  // The header is the one row a collapsed run still has, so the quietest rung
+  // shortens it to a word and a status rather than dropping the run itself.
+  const labels = showDetail ? group.categories.slice(0, 3).map(entry => entry.label) : []
   const extra = group.categories.length - labels.length
   const work = labels.join(', ') + (extra > 0 ? ` +${extra}` : '')
   const gap = '  '
@@ -453,7 +473,7 @@ function processGroupHeader(
   const tail = group.failures > 0
     ? theme.fg('error', SYMBOL.error + (group.failures > 1 ? ` ${group.failures}` : ''))
     : theme.fg('dim', SYMBOL.success)
-  const body = labelText + gap + factText + gap + tail
+  const body = factText === '' ? labelText + gap + tail : labelText + gap + factText + gap + tail
   return [padToWidth(head + body, width)]
 }
 
@@ -466,6 +486,7 @@ function processGroupHeader(
  * @param spinnerFrame - activity spinner phase for running tools.
  * @param toolsExpanded - paint full tool output instead of the one-line row.
  * @param reasoningExpanded - paint full reasoning instead of its one-line row.
+ * @param toolSubject - carry the call's argument subject on the folded row.
  * @returns display lines (already width-fitted).
  */
 export function blockLines(
@@ -475,6 +496,7 @@ export function blockLines(
   spinnerFrame = 0,
   toolsExpanded = false,
   reasoningExpanded = false,
+  toolSubject = true,
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
@@ -500,7 +522,7 @@ export function blockLines(
   if (block.kind === 'tool') {
     return toolsExpanded
       ? toolBlockLines(block, theme, width, spinnerFrame)
-      : toolRowLine(block, theme, width, spinnerFrame)
+      : toolRowLine(block, theme, width, spinnerFrame, toolSubject)
   }
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
@@ -567,6 +589,11 @@ interface TranscriptBodyCache {
   expandedTools: string
   expandedReasoning: string
   openedGroups: string
+  /**
+   * Resting fold shape. Folded rows are derived from it, so reusing rows across
+   * a density change would repaint nothing and read as a dead key.
+   */
+  foldKey: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
   lines: readonly string[]
@@ -589,6 +616,8 @@ interface BlockLinesCache {
   spinnerFrame: number
   expanded: boolean
   reasoningExpanded: boolean
+  /** The folded row's argument clause is a density choice, not an open/closed one. */
+  toolSubject: boolean
   lines: readonly string[]
 }
 
@@ -604,6 +633,7 @@ function cachedBlockLines(
   spinnerFrame: number,
   expanded: boolean,
   reasoningExpanded: boolean,
+  toolSubject: boolean,
 ): readonly string[] {
   const animatedSpinnerFrame = block.kind === 'tool' && block.status === 'running' ? spinnerFrame : -1
   const cached = blockLinesCache.get(block)
@@ -614,8 +644,9 @@ function cachedBlockLines(
     && cached.themeName === themeName
     && cached.spinnerFrame === animatedSpinnerFrame
     && cached.expanded === expanded
-    && cached.reasoningExpanded === reasoningExpanded) return cached.lines
-  const lines = blockLines(block, theme, options.width, spinnerFrame, expanded, reasoningExpanded)
+    && cached.reasoningExpanded === reasoningExpanded
+    && cached.toolSubject === toolSubject) return cached.lines
+  const lines = blockLines(block, theme, options.width, spinnerFrame, expanded, reasoningExpanded, toolSubject)
   blockLinesCache.set(block, {
     width: options.width,
     colors: options.colors,
@@ -624,6 +655,7 @@ function cachedBlockLines(
     spinnerFrame: animatedSpinnerFrame,
     expanded,
     reasoningExpanded,
+    toolSubject,
     lines,
   })
   return lines
@@ -763,6 +795,8 @@ function renderTranscriptBody(
   spinnerFrame: number,
 ): { lines: readonly string[]; blockStarts: readonly number[] } {
   const toolsExpanded = options.toolsExpanded === true
+  const fold = options.fold ?? foldPolicy(DEFAULT_FOLD_DENSITY)
+  const foldKey = foldPolicyKey(fold)
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
@@ -786,6 +820,7 @@ function renderTranscriptBody(
     && cached.expandedTools === expandedTools
     && cached.expandedReasoning === expandedReasoning
     && cached.openedGroups === openedGroups
+    && cached.foldKey === foldKey
     && cached.searchKey === searchKey) {
     return { lines: cached.lines, blockStarts: cached.blockStarts }
   }
@@ -805,6 +840,7 @@ function renderTranscriptBody(
   groups.forEach((group, index) => {
     for (let at = group.start; at < group.end; at += 1) groupOf[at] = index
     const opened = toolsExpanded
+      || !fold.groups
       || group.live
       // A group summarizes routine work. One of its calls failed, the run is not
       // routine, and hiding the failing row behind a header that only says
@@ -830,7 +866,7 @@ function renderTranscriptBody(
         blockStarts.push(lines.length)
         if (leadsGroup) {
           if (lines.length > 0) lines.push('')
-          lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, false))
+          lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, false, fold.detail))
         }
         continue
       }
@@ -838,7 +874,7 @@ function renderTranscriptBody(
       // leads it falls through and renders under the header.
       if (leadsGroup) {
         if (lines.length > 0) lines.push('')
-        lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, true))
+        lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, true, fold.detail))
       }
     } else if (lines.length > 0) {
       const previousCommand = commandSurfaceName(previous)
@@ -850,13 +886,18 @@ function renderTranscriptBody(
       }
     }
     blockStarts.push(lines.length)
-    const expanded = toolsExpanded || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
+    // Each surface folds at rest or not, per the reader's density; Ctrl+O and
+    // the per-item sets are the two ways to override that choice for one call.
+    const expanded = toolsExpanded
+      || !fold.tools
+      || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     // Ctrl+O means "open everything", so it opens reasoning too; the per-step
     // set is how a reader opens exactly one thought and leaves the rest folded.
     const reasoningExpanded = toolsExpanded
+      || !fold.reasoning
       || (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true)
     const rendered = cachedBlockLines(
-      block, options, theme, themeName, trueColor, spinnerFrame, expanded, reasoningExpanded,
+      block, options, theme, themeName, trueColor, spinnerFrame, expanded, reasoningExpanded, fold.subject,
     )
     lines.push(...(search !== undefined && matches.has(index)
       ? rendered.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
@@ -873,6 +914,7 @@ function renderTranscriptBody(
     expandedTools,
     expandedReasoning,
     openedGroups,
+    foldKey,
     searchKey,
     lines,
     blockStarts,

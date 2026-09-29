@@ -1698,7 +1698,7 @@ describe('LocalTui (tty)', () => {
       colors: false,
       motion: 'full',
       terminalProgress: false,
-      expandTools: false,
+      foldDensity: 'standard',
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
@@ -2113,11 +2113,15 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('expands tool output when expandTools pref is on', () => {
+  it('carries a legacy expandTools document into the density that says the same thing', () => {
     const term = new FakeTerminal()
     term.height = () => 80
     const tui = new LocalTui(term, 'm', false)
+    // A document written before the density existed: no foldDensity at all, and
+    // a reader who had asked for expanded tool output. The rung that now means
+    // that is `verbose`, so their transcript keeps the shape they chose.
     tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true })
+    expect(tui.prefs().foldDensity).toBe('verbose')
     const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
     tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
     tui.event(ev('tool/result', {
@@ -2125,6 +2129,93 @@ describe('LocalTui (tty)', () => {
     }, 2))
     expect(term.captured).toContain('tool-line-13')
     expect(term.captured).not.toContain('Ctrl+O: Expand')
+    tui.dispose()
+  })
+
+  it('prefers an explicit density over a leftover expandTools flag', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true, foldDensity: 'compact' })
+    expect(tui.prefs().foldDensity).toBe('compact')
+    tui.dispose()
+  })
+
+  it('repaints the transcript when the reader picks another density', () => {
+    const term = new FakeTerminal()
+    term.height = () => 80
+    const tui = new LocalTui(term, 'm', false)
+    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
+    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
+    tui.event(ev('tool/result', {
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
+    }, 2))
+    expect(term.captured).toContain('bash')
+    expect(term.captured).not.toContain('tool-line-0')
+    // The density is a resting shape, so the same settled call has to repaint
+    // the moment the reader asks for a different one — with no keystroke.
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'verbose' })
+    expect(term.captured).toContain('tool-line-0')
+    expect(term.captured).toContain('tool-line-13')
+    const afterVerbose = term.captured.length
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
+    expect(term.captured.slice(afterVerbose)).toContain('bash')
+    expect(term.captured.slice(afterVerbose)).not.toContain('tool-line-13')
+    tui.dispose()
+  })
+
+  it('keeps a call the reader opened open across a density change', () => {
+    const term = new FakeTerminal()
+    term.height = () => 80
+    const tui = new LocalTui(term, 'm', false)
+    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
+    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
+    tui.event(ev('tool/result', {
+      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
+    }, 2))
+    press(term, '\x0f')
+    expect(term.captured).toContain('tool-line-0')
+    // An opening the reader made on purpose is not an artifact of the rung they
+    // happened to be on, so choosing another density must not take it away.
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
+    expect(tui.prefs().foldDensity).toBe('compact')
+    expect(term.captured).toContain('tool-line-0')
+    tui.dispose()
+  })
+
+  it('clears the open-everything override when the density changes under it', () => {
+    const term = new FakeTerminal()
+    term.height = () => 40
+    const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
+    for (let i = 0; i < 10; i += 1) {
+      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i * 10))
+      tui.event(ev('tool/call', { callId: `call-${i}`, name: 'bash', arguments: '{}' }, i * 10 + 1))
+      tui.event(ev('tool/result', {
+        message: { role: 'tool', toolCallId: `call-${i}`, content: [{ type: 'text', text: `payload-${i}` }] },
+      }, i * 10 + 2))
+    }
+    // Above every call there is nothing this key can open one at a time, so it
+    // falls through to opening everything — and every payload showing up at
+    // once is what tells the two paths apart.
+    for (let i = 0; i < 5; i += 1) press(term, '\x1b[5~')
+    const beforeExpand = term.captured.length
+    press(term, '\x0f')
+    const opened = term.captured.slice(beforeExpand)
+    // Several calls opening in one press is what tells the fallthrough apart
+    // from the per-call toggle; the newest one is off-window and stays unseen.
+    expect(opened).toContain('payload-0')
+    expect(opened).toContain('payload-1')
+    // Leaving the override set would pin the previous rung's answer and read as
+    // a setting that does nothing. The screen has to be read, not the emitted
+    // delta: rows that did not change are not re-emitted, so an unchanged
+    // expanded box is invisible in the delta and obvious on the screen.
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'standard' })
+    // The frame is the unambiguous marker: a folded call is one unframed row,
+    // an expanded one is a box. The payload text cannot stand in for it because
+    // a folded row can carry the output's first line as its own fact.
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('✔  bash')
+    expect(screen).not.toContain('╭─── ✔ bash')
     tui.dispose()
   })
 

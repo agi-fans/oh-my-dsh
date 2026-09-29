@@ -14,7 +14,7 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
-| Tool details | compact / expanded | compact | Expand tool output and catalog details, the same as `Ctrl+O`. |
+| Transcript | compact / standard / detailed / verbose | standard | How much of the transcript stays folded. `compact` gives one bare row per run; `standard` names the kinds of work and what each call acted on; `detailed` keeps runs open and reads the thinking in full while calls stay on one line; `verbose` paints every call's full output and leaves only the thinking folded. `Ctrl+O` opens everything on top of any of them. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
 | Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |

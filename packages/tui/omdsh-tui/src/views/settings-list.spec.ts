@@ -15,7 +15,7 @@ import { visibleWidth } from '../chrome/width.ts'
 const theme = createTheme(false)
 const key = (id: string): KeyEvent => ({ type: 'key', id })
 
-const prefs = { theme: 'dark' as const, colors: true, expandTools: false }
+const prefs = { theme: 'dark' as const, colors: true }
 const agent = { language: 'auto' as const }
 
 describe('tuiSettingItems / applySettingValue', () => {
@@ -26,7 +26,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'colors',
       'motion',
       'terminalProgress',
-      'expandTools',
+      'foldDensity',
       'checkUpdates',
       'startupChangelog',
       'notifications',
@@ -49,7 +49,7 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[1]?.value).toBe('on')
     expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
     expect(items[3]).toMatchObject({ label: 'Terminal activity', value: 'off' })
-    expect(items[4]).toMatchObject({ label: 'Tool details', value: 'compact' })
+    expect(items[4]).toMatchObject({ label: 'Transcript', value: 'standard' })
     expect(items[5]).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items[6]).toMatchObject({ label: 'Release notes', value: 'summary' })
     expect(items[9]?.value).toBe('on')
@@ -58,9 +58,14 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[11]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
       .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
-    expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true, expandTools: false })
-    expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false, expandTools: false })
-    expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual({ theme: 'dark', colors: true, expandTools: true })
+    expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true })
+    expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false })
+    expect(applySettingValue(prefs, 'foldDensity', 'verbose'))
+      .toEqual({ theme: 'dark', colors: true, foldDensity: 'verbose' })
+    expect(applySettingValue(prefs, 'foldDensity', 'nope')).toEqual(prefs)
+    // The density replaced the setting this used to be, so there is no row left
+    // that could write the legacy flag back.
+    expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual(prefs)
     expect(applySettingValue(prefs, 'motion', 'reduced').motion).toBe('reduced')
     expect(applySettingValue(prefs, 'terminalProgress', 'on').terminalProgress).toBe(true)
     expect(applySettingValue(prefs, 'statusEnabled', 'off').statusBar?.enabled).toBe(false)
@@ -113,7 +118,7 @@ describe('applySettingsEvent', () => {
     expect(cycled).toEqual({
       kind: 'apply',
       domain: 'tui',
-      state: { selected: 0, prefs: { theme: 'light', colors: true, expandTools: false } },
+      state: { selected: 0, prefs: { theme: 'light', colors: true } },
     })
     const again = applySettingsEvent(cycled.kind === 'apply' ? cycled.state : open, { type: 'text', value: ' ' })
     expect(again.kind === 'apply' && again.state.prefs.theme).toBe('midnight')
@@ -299,9 +304,14 @@ describe('renderSettings', () => {
     expect(lines).toContain('on')
     expect(lines).toContain('←→ change')
     expect(lines).toContain('Color palette')
-    expect(lines).toContain('Tool details')
-    const tools = renderSettings(createSettings(prefs, 'expandTools'), theme, 50).lines.join('\n')
-    expect(tools).toContain('Expand tool output')
+    expect(lines).toContain('Transcript')
+    expect(lines).toContain('standard')
+    // The overlay only paints the selected row's prose, so the description has
+    // to be read with that row selected.
+    const folded = renderSettings(createSettings(prefs, 'foldDensity'), theme, 78).lines.join('\n')
+    expect(folded).toContain('One row per run naming the kinds of work')
+    const tools = renderSettings(createSettings({ ...prefs, foldDensity: 'verbose' }, 'foldDensity'), theme, 78).lines.join('\n')
+    expect(tools).toContain('every call paints its full output')
     const terminalActivity = renderSettings(createSettings(prefs, 'terminalProgress'), theme, 40, 12).lines.join('\n')
     expect(terminalActivity).toContain('Terminal activity')
     expect(terminalActivity).toContain('Busy/idle status in supported')

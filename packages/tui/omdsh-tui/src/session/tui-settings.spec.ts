@@ -19,6 +19,9 @@ describe('TUI row settings', () => {
       colors: undefined,
       motion: 'full',
       terminalProgress: false,
+      foldDensity: 'standard',
+      // Legacy migration input; the schema still reads it so an older document
+      // resolves, but nothing writes it any more.
       expandTools: false,
       checkUpdates: true,
       startupChangelog: 'summary',
@@ -29,13 +32,13 @@ describe('TUI row settings', () => {
     })
   })
 
-  it('accepts explicit palette, motion, and tool expansion overrides', () => {
-    expect(resolve({ theme: 'light', colors: false, motion: 'off', expandTools: true })).toMatchObject({
+  it('accepts explicit palette, motion, and transcript density overrides', () => {
+    expect(resolve({ theme: 'light', colors: false, motion: 'off', foldDensity: 'verbose' })).toMatchObject({
       theme: 'light',
       colors: false,
       motion: 'off',
       terminalProgress: false,
-      expandTools: true,
+      foldDensity: 'verbose',
     })
   })
 

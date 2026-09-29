@@ -6,6 +6,7 @@
 import type { Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from './release-notes.ts'
+import { FOLD_DENSITIES, DEFAULT_FOLD_DENSITY, type FoldDensity } from './fold-policy.ts'
 import {
   STATUS_COLOR_TOKENS,
   STATUS_GROUP_IDS,
@@ -36,6 +37,8 @@ export interface TuiSettings {
   colors: Volatile<boolean | undefined>
   motion: Volatile<MotionMode>
   terminalProgress: Volatile<boolean>
+  foldDensity: Volatile<FoldDensity>
+  /** Legacy input retained so older documents can be migrated to a density. */
   expandTools: Volatile<boolean>
   checkUpdates: Volatile<boolean>
   startupChangelog: Volatile<StartupChangelogMode>
@@ -78,7 +81,7 @@ const STATUS_BAR_SCHEMA: z<any, any, any> = z.union([z.object({
 })])
 
 /**
- * Schema: palette, SGR, tool expansion, and status-line detail. Every field is
+ * Schema: palette, SGR, transcript density, and status-line detail. Every field is
  * volatile, so a settings edit commits into these references and the provider
  * re-reads them instead of remounting. `colors` stays undefined until the
  * provider resolves it against the output stream, and the two migration inputs
@@ -89,6 +92,7 @@ export const TUI_SETTINGS_FIELDS = {
   colors: z.boolean().volatile(),
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
+  foldDensity: z.union([...FOLD_DENSITIES]).default(DEFAULT_FOLD_DENSITY).volatile(),
   expandTools: z.boolean().default(false).volatile(),
   checkUpdates: z.boolean().default(true).volatile(),
   startupChangelog: z.union([...STARTUP_CHANGELOG_MODES]).default('summary').volatile(),
