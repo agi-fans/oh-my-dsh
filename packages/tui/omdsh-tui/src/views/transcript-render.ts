@@ -277,7 +277,11 @@ function toolRowLine(
     ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
   })
   const gap = '  '
-  const head = icon + gap
+  // A PTC sub-call ran inside a program, not because the model asked for it
+  // directly. Indenting says that without a second visual vocabulary, and the
+  // width budget shrinks to match so the row still ends at the same column.
+  const nest = block.parentCallId === undefined ? '' : '  '
+  const head = nest + icon + gap
   const room = Math.max(1, width - visibleWidth(head))
   const title = presentation.title ?? block.name
   // A card's own first input line is the tool's idea of what the call was. With
@@ -325,6 +329,7 @@ function toolBlockLines(
   spinnerFrame: number,
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
+  const indent = block.parentCallId === undefined ? undefined : '  '
   const presentation = renderTool({
     name: block.name,
     arguments: prettyArgs(block.args),
@@ -343,7 +348,7 @@ function toolBlockLines(
       + (statsLabel === '' ? '' : ' ' + statsLabel)
     const painted = wrapPaintedDiffRows(rows, theme, width)
     const state = block.status === 'running' ? 'running' : block.status === 'ok' ? 'ok' : 'error'
-    return renderFramedBlock({ header, state, sections: [{ lines: painted }], width }, theme)
+    return renderFramedBlock({ header, state, sections: [{ lines: painted }], width, ...(indent === undefined ? {} : { indent }) }, theme)
   }
   const summary = presentation.summary === undefined || presentation.summary === ''
     ? ''
@@ -363,7 +368,7 @@ function toolBlockLines(
     }]),
   ]
   const state = block.status === 'running' ? 'running' : block.status === 'ok' ? 'ok' : 'error'
-  return renderFramedBlock({ header, state, sections, width }, theme)
+  return renderFramedBlock({ header, state, sections, width, ...(indent === undefined ? {} : { indent }) }, theme)
 }
 
 function firstLineOf(text: string): string {

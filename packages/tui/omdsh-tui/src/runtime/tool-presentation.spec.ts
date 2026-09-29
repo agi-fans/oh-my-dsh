@@ -5,6 +5,57 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createToolPresentationBridge } from './tool-presentation.ts'
 
 describe('ToolPresentationBridge', () => {
+  it('gives a PTC sub-call the same cards a native call of that tool gets', () => {
+    const start = {
+      type: 'tool/ptc-dispatch-start', seq: 2, time: 2, surfaceOp: 'append',
+      data: {
+        rootCallId: 'run-1', parentCallId: 'run-1', subCallId: 'run-1:ptc:1',
+        name: 'owned-tool', arguments: { path: 'a.ts' },
+      },
+    } as unknown as SessionEvent
+    const settled = {
+      type: 'tool/ptc-dispatch', seq: 3, time: 3, surfaceOp: 'append',
+      data: {
+        rootCallId: 'run-1', parentCallId: 'run-1', subCallId: 'run-1:ptc:1',
+        name: 'owned-tool', arguments: { path: 'a.ts' }, isError: false,
+        content: [{ type: 'text', text: 'raw' }],
+      },
+    } as unknown as SessionEvent
+    // The program call carries no tool/result, so a lookup by call id would
+    // find nothing; a dispatch event has to resolve from what it already holds.
+    const agent = { session: { snapshotEvents: () => [] } } as unknown as Agent
+    const presentCall = vi.fn(() => ({ card: 'generic' as const, title: 'Read a.ts', kind: 'read' as const }))
+    const presentResult = vi.fn(() => ({ card: 'read' as const, path: 'a.ts' }))
+    const get = vi.fn(() => ({ presentCall, presentResult }))
+    const bridge = createToolPresentationBridge({ tools: { get } } as unknown as Context)
+
+    expect(bridge.event(agent, start)).toEqual({ call: { card: 'generic', title: 'Read a.ts', kind: 'read' } })
+    expect(bridge.event(agent, settled)).toMatchObject({
+      call: { card: 'generic', title: 'Read a.ts' },
+      result: { card: 'read', path: 'a.ts' },
+    })
+    expect(presentCall).toHaveBeenCalledWith({ path: 'a.ts' })
+    expect(presentResult).toHaveBeenCalledWith({ path: 'a.ts' }, {
+      content: [{ type: 'text', text: 'raw' }],
+      isError: false,
+    })
+    // Replay keys presentations by sequence, exactly as it does for native calls.
+    expect(bridge.session(agent, [start, settled]).get(3)).toMatchObject({ result: { card: 'read' } })
+  })
+
+  it('survives a presenter that throws on a sub-call', () => {
+    const start = {
+      type: 'tool/ptc-dispatch-start', seq: 1, time: 1, surfaceOp: 'append',
+      data: { rootCallId: 'r', parentCallId: 'r', subCallId: 'r:ptc:1', name: 'boom', arguments: {} },
+    } as unknown as SessionEvent
+    const agent = { session: { snapshotEvents: () => [] } } as unknown as Agent
+    const get = vi.fn(() => ({ presentCall: () => { throw new Error('nope') } }))
+    const bridge = createToolPresentationBridge({ tools: { get } } as unknown as Context)
+
+    expect(bridge.event(agent, start)).toBeUndefined()
+  })
+
+
   it('uses the active scoped ToolDefinition for live calls and durable replay', () => {
     const call = {
       type: 'tool/call', seq: 1, time: 1, surfaceOp: 'append',

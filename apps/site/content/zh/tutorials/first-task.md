@@ -43,7 +43,7 @@ omdsh 将三项会话控制分别建模，而不是折叠成一个 Mode。如果
 | Workflow | `/workflow` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
 | Access | `/permission` | Read only、Workspace write 或 Full access。 |
 
-Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
+Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。PTC 的程序在自己的代码里调用工具，因此这些调用被记为子调用：每个子调用独占一行，缩进在 `run_code` 那一行之下，同样可以用 `Ctrl+O` 展开。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
 
 ### 选择安全的 Access
 

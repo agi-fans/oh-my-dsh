@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Updated the DeepSeek Harness runtime cohort from `0.1.7-rc.1` to the published `0.2.0-rc.1` release, with the vendored Cordis runtime, loader, timer, and schemastery unchanged at `4.0.4`, `1.0.5`, `1.1.6`, and `3.18.4`. `@deepseek-ai/dsh-llm-deepseek` is now the Messages transport library rather than a plugin, and the plugin that owns the `deepseek-official` route moved to `@deepseek-ai/dsh-llm-deepseek-api-key` (an account-token sibling owning `deepseek-account` was added beside it). omdsh mounts the api-key plugin under the unchanged `llm-deepseek` row id, so the settings section, the `/auth` and `/model` commands, `OMDSH_PROVIDER`, and existing Profile patches all keep working without edits.
 - Tool definition updates for `deepseek-flash` are now appended instead of rewritten in history (`toolUpdate: addition-only`); `deepseek-v4-pro` keeps the previous in-history behavior.
 
+### Fixed
+
+- The transcript no longer loses the tool calls a PTC program made. With the PTC agent selected the model writes a program instead of emitting tool calls, and the session log records each call that program made as a PTC dispatch under its `run_code` call; the transcript read only ordinary tool calls, so a round that ran twenty tools showed a single row and the rest were silently dropped — the events were in the log, they just matched no call. Sub-calls now appear as rows of their own, indented under the program so they do not read as something the model asked for directly, and they carry the same cards, output, and failure reporting a native call of the same tool gets. A sub-call whose start falls outside a replayed window is recovered from its own dispatch event rather than dropped, and `Ctrl+O` opens one the same way it opens any other call.
+
 ## [0.18.0] - 2026-09-24
 
 ### Added

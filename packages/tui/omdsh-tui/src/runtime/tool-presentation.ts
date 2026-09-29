@@ -2,8 +2,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 
 export const name = 'omdsh-tool-presentation'
@@ -21,7 +22,14 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-function parsedArguments(raw: string): unknown {
+/** The presenter payload's own type, read off the tool definition we call. */
+type PresentResultMeta = Parameters<NonNullable<ToolDefinition['presentResult']>>[1] extends infer R
+  ? R extends { meta?: infer M } ? M : never
+  : never
+
+/** Decode a `tool/call` argument string; PTC dispatch events already carry a value. */
+function parsedArguments(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw
   try {
     return JSON.parse(raw)
   } catch {
@@ -54,43 +62,34 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     return this.#event(agent, event, undefined)
   }
 
-  #event(
-    agent: Agent,
-    event: SessionEvent,
-    callIndex: ReadonlyMap<string, SessionEvent> | undefined,
-  ): TuiToolPresentation | undefined {
-    if (event.type === 'tool/call') {
-      const definition = this.#ctx.tools.get(event.data.name, agent)
-      if (definition?.presentCall === undefined) return undefined
-      try {
-        const call = definition.presentCall(parsedArguments(event.data.arguments))
-        return call === undefined ? undefined : { call }
-      } catch {
-        return undefined
-      }
+  #presentCall(agent: Agent, name: string, args: unknown): ToolCallView | undefined {
+    const definition = this.#ctx.tools.get(name, agent)
+    if (definition?.presentCall === undefined) return undefined
+    try {
+      return definition.presentCall(args)
+    } catch {
+      return undefined
     }
-    if (event.type !== 'tool/result') return undefined
-    const callId = event.data.message.source.callId
-    const callEvent = callIndex?.get(callId)
-      ?? this.#liveCalls.get(agent.session)?.get(callId)
-      ?? agent.session.snapshotEvents().findLast(candidate =>
-        candidate.type === 'tool/call' && candidate.data.callId === callId)
-    if (callEvent?.type !== 'tool/call') return undefined
-    const definition = this.#ctx.tools.get(callEvent.data.name, agent)
-    const args = parsedArguments(callEvent.data.arguments)
-    let call
+  }
+
+  /** Resolve the call and result cards for one settled invocation. */
+  #present(
+    agent: Agent,
+    name: string,
+    rawArgs: unknown,
+    content: readonly ContentBlock[],
+    isError: boolean,
+    meta: PresentResultMeta | undefined,
+  ): TuiToolPresentation | undefined {
+    const args = parsedArguments(rawArgs)
+    const call = this.#presentCall(agent, name, args)
     let result
     try {
-      call = definition?.presentCall?.(args)
-    } catch {
-      call = undefined
-    }
-    try {
-      result = definition?.presentResult?.(args, {
+      result = this.#ctx.tools.get(name, agent)?.presentResult?.(args, {
         // The harness freezes message content; `ToolResult` declares a mutable array.
-        content: [...event.data.message.content],
-        isError: event.data.message.isError === true,
-        ...(event.data.meta === undefined ? {} : { meta: event.data.meta }),
+        content: [...content],
+        isError,
+        ...(meta === undefined ? {} : { meta }),
       })
     } catch {
       result = undefined
@@ -99,6 +98,38 @@ class HarnessToolPresentation implements ToolPresentationBridge {
       ...(call === undefined ? {} : { call }),
       ...(result === undefined ? {} : { result }),
     }
+  }
+
+  #event(
+    agent: Agent,
+    event: SessionEvent,
+    callIndex: ReadonlyMap<string, SessionEvent> | undefined,
+  ): TuiToolPresentation | undefined {
+    // A PTC sub-dispatch carries the tool name and its normalized arguments on
+    // both halves of the pair, so it resolves a card without a call index — the
+    // same cards a native call of the same tool would get.
+    if (event.type === 'tool/ptc-dispatch-start') {
+      const call = this.#presentCall(agent, event.data.name, event.data.arguments)
+      return call === undefined ? undefined : { call }
+    }
+    if (event.type === 'tool/ptc-dispatch') {
+      return this.#present(agent, event.data.name, event.data.arguments, event.data.content, event.data.isError, undefined)
+    }
+    if (event.type === 'tool/call') {
+      const call = this.#presentCall(agent, event.data.name, parsedArguments(event.data.arguments))
+      return call === undefined ? undefined : { call }
+    }
+    if (event.type !== 'tool/result') return undefined
+    const callId = event.data.message.source.callId
+    const callEvent = callIndex?.get(callId)
+      ?? this.#liveCalls.get(agent.session)?.get(callId)
+      ?? agent.session.snapshotEvents().findLast(candidate =>
+        candidate.type === 'tool/call' && candidate.data.callId === callId)
+    if (callEvent?.type !== 'tool/call') return undefined
+    return this.#present(
+      agent, callEvent.data.name, callEvent.data.arguments,
+      event.data.message.content, event.data.message.isError === true, event.data.meta,
+    )
   }
 
   session(agent: Agent, events: readonly SessionEvent[]): ReadonlyMap<number, TuiToolPresentation> {

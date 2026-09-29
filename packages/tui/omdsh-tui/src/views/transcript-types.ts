@@ -37,7 +37,26 @@ export interface WorkspaceBlock {
 export type Block =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean; interrupted?: boolean }
-  | { kind: 'tool'; callId: ToolCallId; name: string; args: string; status: ToolBlockStatus; output: string; partial?: boolean; presentation?: TuiToolPresentation }
+  | {
+    kind: 'tool'
+    callId: ToolCallId
+    name: string
+    args: string
+    status: ToolBlockStatus
+    output: string
+    partial?: boolean
+    presentation?: TuiToolPresentation
+    /**
+     * The `run_code` call this one was dispatched from, in PTC mode.
+     *
+     * PTC programs call tools instead of emitting tool calls, so the durable
+     * log records the inner calls as `tool/ptc-dispatch*` under the parent's id
+     * rather than as `tool/call`. They still render through the same tool path —
+     * this only says the call was nested, so the row can show it as such
+     * instead of letting it read as something the agent asked for directly.
+     */
+    parentCallId?: ToolCallId
+  }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
   | WorkspaceBlock

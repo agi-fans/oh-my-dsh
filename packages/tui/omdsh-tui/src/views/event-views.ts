@@ -15,7 +15,8 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '@deepseek-ai/dsh-workspace-changes'
-import type { SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { formatTokens } from '../chrome/status-line.ts'
@@ -411,30 +412,40 @@ function foldEvent(
         mutable,
       )
     }
-    case 'tool/call': {
-      const block: Block = {
-        kind: 'tool',
-        callId: event.data.callId,
-        name: event.data.name,
-        args: prettyArgs(event.data.arguments),
-        status: 'running',
-        output: '',
-        ...(presentation === undefined ? {} : { presentation }),
-      }
-      const blocks = editableBlocks(state, mutable)
-      dropRetryNotice(blocks)
-      const partial = indexes === undefined
-        ? blocks.findIndex(item => item.kind === 'tool' && item.callId === event.data.callId)
-        : indexes.toolByCallId.get(event.data.callId) ?? -1
-      if (partial >= 0) blocks[partial] = block
-      else {
-        blocks.push(block)
-        indexes?.toolByCallId.set(event.data.callId, blocks.length - 1)
-      }
-      return { ...state, blocks }
-    }
+    case 'tool/call':
+      return startToolCall(state, event.data.callId, event.data.name, event.data.arguments, undefined, presentation, mutable, indexes)
+    // PTC mode records the calls a program made under its `run_code` call
+    // rather than as tool/call events, but the Harness asks UIs to render a
+    // sub-call through the same path as a native one, so it is the same block.
+    // `parentCallId` is the only difference the reader can see.
+    case 'tool/ptc-dispatch-start':
+      return startToolCall(
+        state, event.data.subCallId, event.data.name, event.data.arguments,
+        event.data.parentCallId, presentation, mutable, indexes,
+      )
+    case 'tool/ptc-dispatch':
+      return applyToolResult(
+        state,
+        event.data.subCallId,
+        event.data.content,
+        event.data.isError,
+        event.data.isError ? event.data.error ?? { name: 'ToolError', code: 'TOOL_FAILED' } : undefined,
+        presentation,
+        mutable,
+        indexes,
+        { parentCallId: event.data.parentCallId, name: event.data.name, arguments: event.data.arguments },
+      )
     case 'tool/result':
-      return applyToolResult(state, event.data.message, event.data.error, presentation, mutable, indexes)
+      return applyToolResult(
+        state,
+        event.data.message.toolCallId,
+        event.data.message.content,
+        event.data.message.isError === true,
+        event.data.error,
+        presentation,
+        mutable,
+        indexes,
+      )
     case 'todo/write':
       return { ...state, todos: event.data.todos.map(todo => ({ ...todo })) }
     case 'command/run':
@@ -534,46 +545,103 @@ function foldEvent(
   }
 }
 
-/** Fold one tool result into its tool block. */
-function applyToolResult(
+/** Push or replace the tool block for one call, by call id. */
+function startToolCall(
   state: TranscriptState,
-  message: ToolResultMessage,
-  error: { name: string; code: string } | undefined,
+  callId: ToolCallId,
+  name: string,
+  args: unknown,
+  parentCallId: ToolCallId | undefined,
   presentation: TuiToolPresentation | undefined,
   mutable: boolean,
   indexes?: ReplayIndexes,
 ): TranscriptState {
-  // The tool-role message carries the call identity and outcome itself.
-  const callId = message.toolCallId
+  const block: Block = {
+    kind: 'tool',
+    callId,
+    name,
+    args: prettyArgs(typeof args === 'string' ? args : JSON.stringify(args)),
+    status: 'running',
+    output: '',
+    ...(parentCallId === undefined ? {} : { parentCallId }),
+    ...(presentation === undefined ? {} : { presentation }),
+  }
+  const blocks = editableBlocks(state, mutable)
+  dropRetryNotice(blocks)
+  const partial = indexes === undefined
+    ? blocks.findIndex(item => item.kind === 'tool' && item.callId === callId)
+    : indexes.toolByCallId.get(callId) ?? -1
+  if (partial >= 0) blocks[partial] = block
+  else {
+    blocks.push(block)
+    indexes?.toolByCallId.set(callId, blocks.length - 1)
+  }
+  return { ...state, blocks }
+}
+
+/** Identity a settle event carries so it can stand in for a missing start. */
+interface ToolCallOrigin {
+  parentCallId: ToolCallId
+  name: string
+  arguments: unknown
+}
+
+/**
+ * Fold one tool outcome into its tool block.
+ *
+ * A native `tool/result` and a PTC sub-call's `tool/ptc-dispatch` describe the
+ * same thing in different words, so both arrive here as the three facts the
+ * block actually needs: which call, what it said, and whether it failed.
+ */
+function applyToolResult(
+  state: TranscriptState,
+  callId: ToolCallId,
+  content: readonly ContentBlock[],
+  isError: boolean,
+  error: { name: string; code: string } | undefined,
+  presentation: TuiToolPresentation | undefined,
+  mutable: boolean,
+  indexes?: ReplayIndexes,
+  origin?: ToolCallOrigin,
+): TranscriptState {
   const blocks = editableBlocks(state, mutable)
   const indexed = indexes?.toolByCallId.get(callId)
   if (indexed !== undefined) {
     const block = blocks[indexed]
     if (block?.kind === 'tool') {
-      blocks[indexed] = settleTool(block, message, error, presentation)
+      blocks[indexed] = settleTool(block, content, isError, error, presentation)
       return { ...state, blocks }
     }
   }
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i]
     if (block?.kind === 'tool' && block.callId === callId) {
-      blocks[i] = settleTool(block, message, error, presentation)
+      blocks[i] = settleTool(block, content, isError, error, presentation)
       return { ...state, blocks }
     }
   }
-  return state
+  // A log window can cut between a sub-call's start and its settle. PTC
+  // dispatch events carry the name and arguments themselves, so the call can
+  // still be shown rather than lost — dropping it would leave a hole in the
+  // record the session actually kept.
+  if (origin === undefined) return state
+  const created = startToolCall(state, callId, origin.name, origin.arguments, origin.parentCallId, undefined, mutable, indexes)
+  return applyToolResult(created, callId, content, isError, error, presentation, mutable, indexes)
 }
 
 function settleTool(
   block: Extract<Block, { kind: 'tool' }>,
-  message: ToolResultMessage,
+  content: readonly ContentBlock[],
+  isError: boolean,
   error: { name: string; code: string } | undefined,
   presentation: TuiToolPresentation | undefined,
 ): Extract<Block, { kind: 'tool' }> {
   return {
     ...block,
-    status: error !== undefined || message.isError === true ? 'error' : 'ok',
-    output: contentToText(message.content),
+    // A result can report failure on the message alone, with no structured
+    // error beside it, so both signals have to be honoured.
+    status: isError || error !== undefined ? 'error' : 'ok',
+    output: contentToText(content),
     ...(presentation === undefined ? {} : { presentation }),
   }
 }

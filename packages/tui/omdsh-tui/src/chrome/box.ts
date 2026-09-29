@@ -57,6 +57,8 @@ export interface FramedBlockOptions {
   headerMeta?: string
   state?: BoxState
   lines?: readonly string[]
+  /** Left inset for the whole frame, used to nest a call inside its parent. */
+  indent?: string
   /** Ordered body regions; labeled regions receive a full-width divider. */
   sections?: readonly { label?: string; lines: readonly string[] }[]
   width: number
@@ -67,13 +69,17 @@ export interface FramedBlockOptions {
  * OMP `renderOutputBlock`: `╭─── header ────╮` / padded body / `╰────╯`.
  */
 export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): string[] {
+  const inset = options.indent ?? ''
   const width = Math.max(0, options.width)
   const h = BOX.horizontal
   const v = BOX.vertical
   const color = borderColorFor(options.state)
   const border = (text: string): string => theme.fg(color, text)
   const bg = options.applyBg === false ? undefined : bgColorFor(options.state)
-  const paint = (line: string): string => (bg ? applyBg(line, theme, bg, width) : padToWidth(line, width))
+  const paint = (line: string): string => {
+    const indented = inset === '' ? line : inset + line
+    return bg ? applyBg(indented, theme, bg, width) : padToWidth(indented, width)
+  }
 
   const cap = h.repeat(3)
   const bar = (left: string, right: string, labelParts: readonly (string | undefined)[]): string => {

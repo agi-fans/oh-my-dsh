@@ -43,7 +43,7 @@ omdsh keeps three session controls separate instead of collapsing them into one 
 | Workflow | `/workflow` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
 | Access | `/permission` | Read only, Workspace write, or Full access. |
 
-Agent changes what the model can see, so select it before the first prompt; it is locked once model history exists. Each preset owns its tool exposure: PTC uses `run_code` with the generated TypeScript SDK, while Standard, Minimal, and Cordis expose their tools as native functions. Workflow and Access are durable session state and can change later.
+Agent changes what the model can see, so select it before the first prompt; it is locked once model history exists. Each preset owns its tool exposure: PTC uses `run_code` with the generated TypeScript SDK, while Standard, Minimal, and Cordis expose their tools as native functions. A PTC program calls tools from inside its own code, so the calls it makes are recorded as sub-calls: each one gets its own row, indented under the `run_code` row, and opens with `Ctrl+O` the same way. Workflow and Access are durable session state and can change later.
 
 ### Choose safe Access
 

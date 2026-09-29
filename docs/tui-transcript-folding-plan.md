@@ -276,24 +276,19 @@ turn 结束后整块折叠，约 1 行：
 
 **下一步建议做批次四**：把一个 turn 内的过程归为一个组，组头是类别聚合。批次一至三已经让每个调用和每段思考各占一行，缺的是把一整段过程收成一个可折叠的单位。
 
-## PTC 前向兼容
+## PTC 子调用（已修复）
 
-PTC（programmatic tool calling）模式下模型不再直接发 `tool/call`，而是发一个 `run_code`，程序里的每个工具调用记录为 `tool/ptc-dispatch-start` / `tool/ptc-dispatch`（`packages/core/tools/src/types.ts:10-25`），携带 `rootCallId` / `parentCallId` / `subCallId`。这些事件**只进日志，不进模型上下文**（`:60-62`）。
+PTC（programmatic tool calling）模式下模型不再直接发 `tool/call`，而是发一个 `run_code`，程序里的每个工具调用记录为 `tool/ptc-dispatch-start` / `tool/ptc-dispatch`（`packages/core/tools/src/types.ts:9-25`），携带 `rootCallId` / `parentCallId` / `subCallId`。这些事件**只进日志，不进模型上下文**。
 
-**这不是假设性的未来风险，omdsh 现在就有这个缺口。** `apps/omdsh/config/cordis.yml:364` 挂载 `@deepseek-ai/dsh-ptc-runtime-node`，`:595` 挂载 `@deepseek-ai/dsh-workflow-ptc`，并且 `/agent` 有一个 **PTC preset**（见 `apps/site/content/*/tutorials/first-task.md` 的 Agent 一行）。
+上游的契约给了一句决定做法的话：子调用应当 "render a sub-call through **the exact path used for a native call**"（`types.ts` 中 `tool/ptc-dispatch` 的文档）。因此**不采用官方 Web 的递归树**，而是让子调用走我们已有的 tool 路径：
 
-当前状态：
+- `tool/ptc-dispatch-start` 走与 `tool/call` 相同的 `startToolCall`，块上多一个 `parentCallId`。
+- `tool/ptc-dispatch` 走与 `tool/result` 相同的 settle 路径。
+- 渲染时缩进两格并压缩宽度预算，读者一眼能看出这不是模型直接要的工具。
+- `TuiToolPresentationBridge` 也认这两个事件：dispatch 事件自带 name 与 arguments，不需要 call 索引，所以子调用拿到的卡片和同工具的原生调用完全一样。
+- 窗口切断：dispatch 事件自带 name/arguments，settle 没有对应 start 时**自建块**而不是丢弃。官方为此专门处理了这个 case；丢掉就等于在一份确实保存了的记录里留一个洞。
 
-- `views/trajectory.ts:275,289` **已经**处理 PTC 事件，用 `parentCallId` 区分 `TOOL` / `SUBTOOL`，把 `parentCallId` 存在记录上。也就是说 `/trajectory` 检视面能看到内层调用。
-- `views/event-views.ts`（主 transcript）**完全没有**处理 `tool/ptc-dispatch*`。
-
-后果：选中 PTC preset 时，一条 PTC 回合的持久化日志里只有 1 个 `tool/call`（`run_code`），主 transcript 显示这一行，**所有内层工具调用静默消失**——事件都在，只是匹配不到任何 `tool/call` 头。折叠改造不会造成这个问题（改前改后都丢），但折叠让外层那一行更不显眼，问题更难被发现。
-
-官方为此把工具调用渲染成**递归树** `ToolCallTree` / `ToolCallBranch`（`packages/client/ui-tool/src/client/tool/ToolCallTree.tsx:90-108`），内层子调用**常驻可见**、只有正文折叠；投影前强制做**深度上限 256 与环检测**（`packages/client/ui-chat/src/client/model/tool-call-tree.ts:164-199`）。
-
-需要的是：一个 `parentCallId → children` 索引、一个带 `parentCallId` / `subCalls` 的块形状、投影前的环与深度防护、以及能容忍窗口切断 start/settle 配对的追加逻辑。
-
-**建议：这不是「可选批次」，是一个已存在的缺陷，应单独立项修复。** 但它与折叠改造无耦合，且修复规模（树形投影 + 渲染 + 索引）超过本方案任一批次，因此不并入折叠批次。`trajectory.ts` 已经有可复用的 `parentCallId` 处理与 `#toolByCallId` 索引，是修复的起点。
+修复前主 transcript 只读 `tool/call`，一条 PTC 回合只显示 1 行，内层调用全部静默丢失（`/trajectory` 检视面一直是对的，它已经处理了这两个事件并用 `parentCallId` 标为 `SUBTOOL`）。14 条新测试中 10 条在旧行为下失败，逐条覆盖了上述每一条。
 
 ## 影响面
 
@@ -353,7 +348,6 @@ PTC（programmatic tool calling）模式下模型不再直接发 `tool/call`，�
 - **Read 调用合并分组**。已被本方案批次四的 process group 覆盖——官方分组是通用的过程分组，不是 Read 专用。单独做 Read 分组会与批次四重复。
 - **配额 / 限流面板**。DSH 0.2.0-rc.1 无任何 cost 或 rate-limit API，全量扫描已发布 `.d.ts` 对 `cost|usd|price|rateLimit|quota|resetAt|remaining` 零命中；上游显式不读 provider cost 元数据（`refs/deepseek-harness/packages/llm/llm-pi-ai/src/catalog.ts:34-37`）。且 `/context` 已打印等价表格（`session/context-diagnostics.ts:39-46`）。
 - **会话分叉**。DSH 已原生提供 `SessionStore.fork()`（`node_modules/@deepseek-ai/dsh-session/lib/types/index.d.ts:469`），官方 Web 也有 `fork-mid-turn` 相关形态，值得单独立项，与折叠无耦合。
-- **PTC 树形渲染**。见前向兼容一节：omdsh 已挂载 PTC runtime 并提供 PTC preset，主 transcript 目前会静默丢掉全部内层调用。**已存在的缺陷，应单独立项**，不并入折叠批次。
 - **`presentCall` / `presentResult`**。零消费者，不投入。
 
 ## 待验证
