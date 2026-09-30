@@ -91,6 +91,19 @@ describe('folded reasoning row', () => {
     expect(lines[0]).not.toContain('gamma')
   })
 
+  it('never marks a streaming preview as finished', () => {
+    // The text continues past the right edge, so a settled row's ellipsis would
+    // be claiming an ending that has not happened — a small lie the reader has to
+    // notice and then go check. A streaming row is cut because the row is full,
+    // not because the thought ended, and the width says so on its own.
+    const long = 'alpha\n\n' + 'beta '.repeat(40) + '\n\ngamma is only half'
+    const row = plain(blockLines(assistant({ reasoning: long, streaming: true, text: '' }), theme, 40))[0] ?? ''
+
+    expect(row).toContain('beta')
+    expect(row).not.toContain('…')
+    expect(visibleWidth(row)).toBe(40)
+  })
+
   it('restores the whole thought when the reader opened it', () => {
     const block = assistant({ reasoning: 'first para\n\nsecond para with detail' })
     const folded = plain(blockLines(block, theme, 60))
@@ -102,11 +115,32 @@ describe('folded reasoning row', () => {
     expect(opened.join('\n')).toContain('answer')
   })
 
-  it('keeps the assistant padding so a folded thought reads as part of the reply', () => {
-    const lines = blockLines(assistant({ reasoning: 'thought' }), theme, 12)
+  it('puts the mark in the first column, where every other mark is', () => {
+    const lines = blockLines(assistant({ reasoning: 'thought' }), theme, 40)
 
-    expect(plain(lines)[0]).toMatch(/^ ∴/u)
-    expect(visibleWidth(lines[0]!)).toBe(12)
+    expect(plain(lines)[0]).toMatch(/^∴ /u)
+    expect(visibleWidth(lines[0]!)).toBe(40)
+  })
+
+  it('previews a whole sentence rather than a line that runs off the edge', () => {
+    // The first sentence has to end well before the right edge, or taking the
+    // first *line* would fill the row with the continuation and the two would be
+    // indistinguishable. Filling the row with the rest of the clause was what
+    // made a long turn come back as a wall of identically truncated rows.
+    const long = 'The user typed it. Then a long tail follows, and it keeps going well past the edge of this row.'
+    const row = plain(blockLines(assistant({ reasoning: long }), theme, 80))[0] ?? ''
+
+    expect(row).toContain('The user typed it.')
+    expect(row).not.toContain('long tail follows')
+    expect(row).not.toContain('…')
+  })
+
+  it('says so when a thought never closes on a sentence', () => {
+    const runOn = 'a'.repeat(200)
+    const row = plain(blockLines(assistant({ reasoning: runOn }), theme, 80))[0] ?? ''
+
+    expect(row).toContain('…')
+    expect(visibleWidth(row)).toBe(80)
   })
 
   describe('width discipline', () => {

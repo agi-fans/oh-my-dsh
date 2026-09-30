@@ -64,6 +64,44 @@
 
 **一处实施中踩到的陷阱**：删除 `TOOL_COLLAPSED_LINES` 导出后，`event-views.spec.ts` 仍在导入它。vitest 对缺失的具名导出**静默给出 `undefined`**，于是 `Array.from({ length: undefined + 4 })` 变成空数组，测试用空数据通过了断言。`tsc` 没有拦住（spec 之外还有 re-export 链）。凡是删除导出，必须同步检查所有 import 点而不是只信类型检查。
 
+## 批次五至八已实施
+
+批次一至四把单次调用折成一行。批次五起改的是"折多少"和"折出来长什么样"，因为一行工具行仍然没有回答读者真正想知道的事：这一轮到底做了什么。
+
+| 批次 | 文件 | 改动 |
+| --- | --- | --- |
+| 五（密度） | `session/fold-policy.ts` | 4 档密度改为 5 个布尔（`groups`/`tools`/`reasoning`/`detail`/`subject`）；`Tool details` 迁移到 `Transcript` 行；`resolveFoldDensity` 把旧 `expandTools` 映射到 `verbose` |
+| 五 | `views/settings-list.ts` | `/settings` 新增 **Transcript** 行，档位写成人类可读的说明而非内部枚举名 |
+| 六（scrollback） | `runtime/provider-local.ts` | 删除 `clearScrollback` 选项与全部 `\x1b[3J`；替换路径改为整体重建 block 列表 |
+| 六 | `views/transcript-render.ts` | 新增 `transcriptSeam(reason)`，渲染为带标签的分隔行 |
+| 七（过程行） | `chrome/theme.ts` | `SYMBOL.reasoning` 由 `⋆` 改为 `∴`（真机实测 1 格、EAW=A）；新增 `rail`/`railBranch`/`railEnd`/`prompt` |
+| 七 | `chrome/tool-args.ts` | `TOOL_ARG_FIELDS` 改为 `command, query, pattern, description, url, file_path, path`；拆出 `TOOL_ARG_INTENT_FIELDS` / `TOOL_ARG_SCOPE_FIELDS` / `TOOL_PREVIEW_FIELDS` |
+| 七 | `chrome/tool-renderers.ts` | `toolArgSubject` 支持复合 scope（`grep toolArgSubject in packages`）；`previewFieldLines` 参数化，框内 Input 预览与单行主语顺序分离 |
+| 七 | `views/transcript-render.ts` | 新增 `processPhrase`（动词短语表）、`groupPhrase`、`processGroupTree`；`toolStatusMark` 的 ok 改为 `''`；组头只留一个总数 |
+| 八（层级） | `views/transcript-render.ts` | `firstSentenceOf()` 取代首行截断；`∴` 与 `▸` 移到第 0 列；`userBubble` 加 `›`；`processGroupHeader` 整行 `theme.dim` |
+
+### 五条设计约束（都是被测试逼出来的，不是先想好的）
+
+- **没有档位把三面全展开**。否则 `Ctrl+O` 在那一档无事可做，键位就成了摆设。
+- **工作面单调，思考是唯一例外**。`groups`/`tools`/`detail`/`subject` 四个布尔一起动，只有 `reasoning` 独立。这样任一档位里"工作"的疏密是一句话能说完的，思考单独决定。
+- **两个安静档必须在最常见场景有别**。`compact` 与 `standard` 若在典型回合下渲染相同，档位就只是名字。
+- **计数是事实，短语是散文**。宽度压力下先牺牲短语：`countRoom` 一度限 `room/4`，把 `· 3 calls` 截成 `· 3 …`，改为 `room/2`。
+- **成功的调用不带标记**。行槽只留给"在飞"和"出错"；五个 `✔` 排成一行只说明上面的行存在，而它总是存在。
+
+### 有意不做的三件事
+
+- **逐条折叠态持久化**（E9）。与密度抢同一个问题的答案、profile 无界增长、瞬时检视不等于偏好。
+- **"全展开"档**。`verbose` 保留思考折叠，否则 `Ctrl+O` 在该档无事可做。
+- **照抄 minimax-code 的"无展开三角"**。终端没有 hover，必须有可见的行槽标记。
+
+### 实施中踩到的陷阱
+
+- **宽度探针要按显示格量，不能按 `string.length` 量**。本机（Kaku / `xterm-256color` / `LANG=en_US.UTF-8`）下 `→ · … — ─ │ • ●` 全是 1 格，`中`/`🚀` 是 2 格，宽度表没有 East Asian Ambiguous 类，对本机正确。
+- **`∴` 与 `⋆` 的选择只能真机定**。真机 DSR-CPR 探针实测 `∴` 为 1 格、EAW=A；选 `⋆` 之前未测宽度。
+- **探针写错两次**：stdout 重定向后 fd 1 非 tty；字符写进文件导致光标未动。两次都表现为"探针没反应"，不是渲染问题。
+- **一整行 dim 需要测试钉住"先关 dim 再开 error"**。两种写法在真彩终端上视觉等价，只在 palette 把 error 映射到 dim 色时失败——但那正是读者最需要那个标记跳出来的地方。断言写成字节级序列才抓得住。
+- **新增的测试自己也可能抓不住变异**。本批次有三条（首句预览、流式不带 `…`、组头整行 dim）第一版写得太松，换回旧实现照样全绿；逐条反向验证后重写才真正有约束力。**每个新测试都要先变异一次再算数。**
+
 ## 相对 v1 的修订
 
 v1 是只看 oh-my-pi 得出的结论。读过官方实现后，有两处必须推翻：

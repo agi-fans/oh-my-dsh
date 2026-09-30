@@ -32,7 +32,7 @@ import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from 
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
 import { createTheme, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
-import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { charWidth, padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
@@ -219,12 +219,24 @@ function assistantMarkdown(
   return assistantContentLines(rendered.map(line => lockThinkingLine(line, theme)), width, paddingX)
 }
 
+/**
+ * What the reader typed.
+ *
+ * The prompt was drawn flush with no mark, so the first line of a turn looked
+ * like the model's answer to it. One cell of gutter is the whole difference
+ * between "I asked" and "it said", and it is the same cell every other mark in
+ * the transcript lives in. A wrapped prompt carries the mark on its first line
+ * only, so the block still reads as one thing.
+ */
 function userBubble(text: string, theme: Theme, width: number): string[] {
-  const inner = Math.max(1, width - 2)
-  const wrapped = renderPathMentionRows(text, inner, theme)
+  const mark = `${SYMBOL.prompt} `
+  const gutter = ' '.repeat(mark.length)
+  const wrapped = renderPathMentionRows(text, Math.max(1, width - mark.length), theme)
   const rows = ['', ...wrapped, '']
-  return rows.map((row) => {
-    const content = row === '' ? padToWidth('', width) : padToWidth(' ' + row, width)
+  return rows.map((row, index) => {
+    if (row === '') return padToWidth('', width)
+    const prefix = index === 1 ? theme.fg('accent', mark) : gutter
+    const content = padToWidth(prefix + row, width)
     return theme.colors ? theme.bg('userMessageBg', content) : content
   })
 }
@@ -407,12 +419,44 @@ function toolBlockLines(
   return renderFramedBlock({ header, state, sections, width, ...(indent === undefined ? {} : { indent }) }, theme)
 }
 
+/** How wide a preview may grow before it is cut even at a sentence end. */
+const PREVIEW_CELLS = 96
+
 function firstLineOf(text: string): string {
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
     if (trimmed !== '') return trimmed
   }
   return ''
+}
+
+/**
+ * The first whole sentence of a line, or the line cut to a readable width.
+ *
+ * Taking the first *line* of a thought produced a run-on clause that always ran
+ * off the right edge and always ended in an ellipsis, so a long turn came back
+ * as a wall of identically truncated rows. A sentence is the unit a reader can
+ * hold, and it is usually short enough to fit without a mark saying it was cut.
+ * Prose that never closes on a sentence falls back to a width, and says so.
+ */
+function firstSentenceOf(line: string): string {
+  const limit = Math.min(visibleWidth(line), PREVIEW_CELLS)
+  // The running width is accumulated rather than re-measured per character. A
+  // thought paragraph runs to thousands of characters, and re-measuring the
+  // prefix on every step made looking for a sentence that is not there
+  // quadratic — the common case, since most thoughts do not close on one.
+  let widthSoFar = 0
+  for (let at = 1; at < line.length; at += 1) {
+    const char = line[at]
+    const next = line[at + 1]
+    widthSoFar += charWidth(line.charCodeAt(at))
+    const closes = char === '.' || char === '!' || char === '?'
+      || char === '\u3002' || char === '\uff01' || char === '\uff1f'
+    // A full stop inside an ellipsis, a version tag or a decimal is not an end.
+    const endsHere = closes && (next === undefined || /[\s"')\]]/u.test(next))
+    if (endsHere && widthSoFar <= limit) return line.slice(0, at + 1).trimEnd()
+  }
+  return truncateToWidth(line, Math.max(1, limit))
 }
 
 /**
@@ -430,10 +474,10 @@ function firstLineOf(text: string): string {
 export function reasoningPreview(text: string, streaming: boolean): string {
   const clean = text.replaceAll('**', '').replaceAll('`', '').trim()
   if (clean === '') return ''
-  if (!streaming) return firstLineOf(clean)
+  if (!streaming) return firstSentenceOf(firstLineOf(clean))
   const paragraphs = clean.split(/\n[ \t]*\n/u).map(paragraph => paragraph.trim()).filter(paragraph => paragraph !== '')
   if (paragraphs.length < 2) return ''
-  return firstLineOf(paragraphs[paragraphs.length - 2] ?? '')
+  return firstSentenceOf(firstLineOf(paragraphs[paragraphs.length - 2] ?? ''))
 }
 
 /**
@@ -447,24 +491,17 @@ function reasoningRowLine(
   theme: Theme,
   width: number,
 ): string[] {
-  const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
   const preview = reasoningPreview(block.reasoning, block.streaming)
   const marker = theme.fg('thinkingText', SYMBOL.reasoning)
   const body = preview === '' ? marker : marker + '  ' + preview
-  // A settled row ends in an ellipsis because it really did end there. A row
+  // A settled row may end in an ellipsis because it really did end there. A row
   // that is still being written must not: the text continues past the edge, and
   // a mark claiming an ending that has not happened is a small lie the reader
   // has to notice before scrolling to check.
-  return assistantContentLines(
-    [
-      lockThinkingLine(
-        truncateToWidth(body, Math.max(1, width - paddingX * 2), block.streaming ? '' : '…'),
-        theme,
-      ),
-    ],
+  return [padToWidth(
+    lockThinkingLine(truncateToWidth(body, Math.max(1, width - 3), block.streaming ? '' : '…'), theme),
     width,
-    paddingX,
-  )
+  )]
 }
 
 /**
@@ -539,9 +576,8 @@ function processGroupHeader(
   expanded: boolean,
   showDetail = true,
 ): string[] {
-  const marker = theme.fg('dim', expanded ? SYMBOL.unfolded : SYMBOL.folded)
   const gap = '  '
-  const head = marker + gap
+  const head = (expanded ? SYMBOL.unfolded : SYMBOL.folded) + gap
   const room = Math.max(1, width - visibleWidth(head))
   const calls = group.end - group.start
   const count = `${calls} call${calls === 1 ? '' : 's'}`
@@ -569,12 +605,16 @@ function processGroupHeader(
   const phrase = phraseRoom === 0 ? '' : truncateToWidth(groupPhrase(group), phraseRoom)
   const countText = truncateToWidth(countClause, countRoom)
   const used = visibleWidth(phrase) + (phrase === '' ? 0 : gap.length) + visibleWidth(countText)
-  const body = phrase
+  // A folded summary is background. It was competing with the answer sitting
+  // directly under it at the same weight, so the reader had to decide which
+  // line mattered by reading both. Dimming the whole row settles that by
+  // weight instead of by position; the one part that must still shout is a
+  // failure, so the tail keeps its own colour.
+  const quiet = theme.dim(head + phrase
     + (phrase === '' ? '' : gap)
     + countText
-    + ' '.repeat(Math.max(0, beforeTail - used))
-    + theme.fg('error', tail)
-  return [padToWidth(head + body, width)]
+    + ' '.repeat(Math.max(0, beforeTail - used)))
+  return [padToWidth(quiet + theme.fg('error', tail), width)]
 }
 
 /** The gutter a folded call row opens with, outside a run's tree. */

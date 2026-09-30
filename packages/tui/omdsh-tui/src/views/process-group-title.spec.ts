@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { applyEvent, initialTranscript, processGroups, renderView } from './event-views.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
+import { createTheme } from '../chrome/theme.ts'
 import { foldPolicy } from '../session/fold-policy.ts'
 
 function ev(type: string, data: unknown, seq: number): SessionEvent {
@@ -226,5 +227,54 @@ describe('the gutter carries states, not confirmations', () => {
     }).lines.map(stripAnsi).join('\n')
 
     expect(text).toContain('✘')
+  })
+})
+
+describe('a folded run is background', () => {
+  it('dims the whole header so the answer under it wins on weight', () => {
+    // Only the disclosure mark used to be dim, so the sentence describing the
+    // run carried the same weight as the model's answer one row below it. The
+    // reader had to read both rows to learn which one was the reply.
+    const color = createTheme(true, true)
+    const frame = renderView(
+      TURN.reduce(applyEvent, initialTranscript()),
+      {
+        width: 72, height: 40, model: 'm', input: '', inputCursor: 0,
+        colors: true, trueColor: true, fold: foldPolicy('standard'),
+      },
+    )
+    const header = frame.lines.find(line => stripAnsi(line).startsWith('▸')) ?? ''
+
+    expect(header).toContain(color.getFgAnsi('dim'))
+    expect(stripAnsi(header)).toContain('Read files and searched the code')
+  })
+
+  it('keeps a failure out of the dim span, because that still has to shout', () => {
+    const color = createTheme(true, true)
+    let state = initialTranscript()
+    for (const event of [
+      call('c1', 'read', { path: 'a' }, 1),
+      call('c2', 'bash', { command: 'pnpm test' }, 2),
+      ev('tool/result', {
+        message: {
+          role: 'tool', toolCallId: 'c2', isError: true,
+          content: [{ type: 'text', text: 'FAIL' }], error: { name: 'ExitCode', code: '1', message: 'FAIL' },
+        },
+      }, 3),
+      ok('c1', 'a', 4),
+    ]) state = applyEvent(state, event)
+    const frame = renderView(state, {
+      width: 72, height: 40, model: 'm', input: '', inputCursor: 0,
+      colors: true, trueColor: true, fold: foldPolicy('standard'),
+    })
+    // A run with a failure is never folded, so the header here is the open one.
+    const header = frame.lines.find(line => stripAnsi(line).startsWith('▾')) ?? ''
+
+    // The dim run has to close before the error colour opens. Leaving dim open
+    // and painting the mark over it looks the same on a true-color terminal and
+    // fails silently everywhere a palette maps error onto the dim swatch, which
+    // is exactly where a reader most needs the mark to stand out.
+    const fgReset = '\u001b[39m'
+    expect(header).toContain(`${fgReset}${color.getFgAnsi('error')}✘`)
   })
 })

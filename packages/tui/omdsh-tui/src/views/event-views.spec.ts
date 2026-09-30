@@ -947,6 +947,28 @@ describe('blockLines', () => {
     expect(lines.every(line => visibleWidth(line) === 40)).toBe(true)
   })
 
+  it('marks the reader\'s own turn in the gutter, beside the model\'s marks', () => {
+    const color = createTheme(true, true)
+    const lines = blockLines(
+      { kind: 'user', text: 'please refactor the fold policy so the default density is chosen for me' },
+      color,
+      40,
+    )
+    const rows = lines.map(stripAnsi)
+
+    // The prompt opened flush with no mark, so the first line of a turn looked
+    // like the model's answer to it. One cell of gutter is the whole difference
+    // between "I asked" and "it said", and it is the same column the reasoning
+    // mark and the run header already use.
+    expect(rows[1]).toMatch(/^› /u)
+    expect(lines[1]).toContain(color.getFgAnsi('accent') + '›')
+    // A wrapped prompt carries the mark on its first line only, so the block
+    // still reads as one thing instead of as a list of marked lines.
+    expect(rows[2]).toMatch(/^ {2}\S/u)
+    expect(rows[2]).not.toContain('›')
+    expect(lines.every(line => visibleWidth(line) === 40)).toBe(true)
+  })
+
   it('renders a one-line informational notice inline without an empty frame', () => {
     const lines = blockLines({
       kind: 'notice',
@@ -1067,7 +1089,7 @@ describe('blockLines', () => {
     expect(raw).toContain('{"command":"ls -la /tm')
   })
 
-  it('applies the same padding to reasoning and the streaming placeholder', () => {
+  it('puts reasoning and the streaming placeholder on the same column', () => {
     const reasoning = blockLines({
       kind: 'assistant',
       turn: 1,
@@ -1085,7 +1107,12 @@ describe('blockLines', () => {
       streaming: true,
     }, theme, 12)
 
-    expect(reasoning).toEqual([' ∴  thought ', '', ' answer     '])
+    // The reasoning row owns the gutter's first column, beside the work rows.
+    // Indenting it put a marked aside on a different axis from the marks around
+    // it, which is what made a turn read as one undifferentiated column.
+    // The marks share column zero and the reply stays inset behind them, so the
+    // two registers read as marked asides and prose rather than as one column.
+    expect(reasoning).toEqual(['∴  thoug…   ', '', ' answer     '])
     expect(streaming).toEqual([' …          '])
   })
 
