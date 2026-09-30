@@ -77,17 +77,20 @@ function view(density: FoldDensity | undefined, over: Record<string, unknown> = 
 }
 
 describe('transcript density', () => {
-  it('folds the whole run to one header at the default rung', () => {
+  it('folds the calls away but keeps the thought at the default rung', () => {
     const screen = view('standard')
     expect(screen).toContain('All done.')
-    // The three calls and the thought are behind the header, so none of their
-    // facts reach the screen.
+    // The calls are behind the header, so none of their facts reach the screen.
     expect(screen).not.toContain('the whole manifest body')
     expect(screen).not.toContain('package.json')
-    expect(screen).not.toContain('I should read the manifests first')
-    // What the header itself keeps is the kinds of work, not the files.
-    expect(screen).toContain('Process')
-    expect(screen).toContain('files')
+    // The thought is not part of that summary. It is the one part of a turn that
+    // reads as a person explaining themselves, and folding it into a list of
+    // file reads is what made this look like a machine ticking boxes.
+    expect(screen).toContain('I should read the manifests first')
+    expect(screen).not.toContain('Then check the lockfile')
+    // The header says what was done, not what kind of tool did it.
+    expect(screen).toContain('Read a file')
+    expect(screen).not.toContain('Process')
   })
 
   it('keeps the same shape when no policy is supplied at all', () => {
@@ -98,12 +101,15 @@ describe('transcript density', () => {
 
   it('drops the header specifics at the quietest rung, where the run still shows', () => {
     // This is the difference a reader meets most: a run is one row either way,
-    // and the quiet rung makes that row a word and a status.
+    // and the quiet rung keeps only what the row is for — how much there was,
+    // and whether it broke.
     const quiet = view('compact')
     const loud = view('standard')
-    expect(quiet).toContain('Process')
-    expect(quiet).not.toContain('files')
-    expect(loud).toContain('files')
+    expect(quiet).toMatch(/3 calls/u)
+    expect(quiet).not.toContain('Read a file')
+    expect(loud).toContain('Read a file')
+    // The thought survives both rungs, because it is not part of the run.
+    expect(quiet).toContain('I should read the manifests first')
   })
 
   it('shows each call and its argument only once the run opens', () => {

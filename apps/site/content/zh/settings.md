@@ -14,7 +14,7 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言，
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Terminal activity | on / off | off | 支持的终端标签页与任务栏中的忙碌/空闲状态。 |
-| Transcript | compact / standard / detailed / verbose | standard | transcript 保持折叠的程度。`compact` 每个工作段只留一行空壳；`standard` 标出工作种类以及每个调用做了什么；`detailed` 展开工作段、完整展示思考，调用仍占一行；`verbose` 展示每个调用的完整输出，只保留思考折叠。任意档位下 `Ctrl+O` 都能全部展开。 |
+| Transcript | compact / standard / detailed / verbose | standard | transcript 保持折叠的程度。一段完成的调用会折成一行，写明做了什么事——`Read files, searched the code and ran a command · 3 calls`——`Ctrl+O` 展开成树：每个类别一行，下挂它的调用。模型的思考不属于这个摘要：在任何档位下它都是自己的一行（`∴`），因为它是整轮里像「解释」而不像「干活」的那部分。任意档位下 `Ctrl+O` 都能全部展开。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
 | Notifications | off / long-running / always | off | 回合结束或需要输入时通知。 |

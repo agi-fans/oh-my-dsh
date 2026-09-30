@@ -742,7 +742,9 @@ describe('applyEvent', () => {
     expect(tools[0]?.output).toBe('a b')
     const frame = view(state)
     expect(frame.lines.some((line) => line.includes('bash'))).toBe(true)
-    expect(frame.lines.some((line) => line.includes('✔'))).toBe(true)
+    // A settled successful call carries no gutter mark any more: the mark said
+    // "the row exists", which it always did. The failure is what still marks.
+    expect(frame.lines.some((line) => line.includes('✔'))).toBe(false)
     expect(frame.lines.some((line) => line.includes('✘'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('╭───'))).toBe(true)
   })
@@ -1083,7 +1085,7 @@ describe('blockLines', () => {
       streaming: true,
     }, theme, 12)
 
-    expect(reasoning).toEqual([' ⋆  thought ', '', ' answer     '])
+    expect(reasoning).toEqual([' ∴  thought ', '', ' answer     '])
     expect(streaming).toEqual([' …          '])
   })
 

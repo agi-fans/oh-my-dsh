@@ -112,8 +112,11 @@ describe('PTC sub-calls in the transcript', () => {
     const subRow = plain(blockLines(read, theme, 60))[0] ?? ''
     const rootRow = plain(blockLines(root, theme, 60))[0] ?? ''
 
-    expect(subRow.startsWith('  ✔')).toBe(true)
-    expect(rootRow.startsWith('✔')).toBe(true)
+    // The indent is the whole signal now: a settled call carries no mark, so
+    // nesting is the only thing separating a sub-call from a top-level one.
+    expect(subRow.startsWith('  ')).toBe(true)
+    expect(subRow).not.toBe(rootRow)
+    expect(rootRow.startsWith('run_code') || rootRow.startsWith('code')).toBe(true)
   })
 
   it('keeps a sub-call row exactly one terminal line wide', () => {

@@ -105,7 +105,7 @@ describe('folded reasoning row', () => {
   it('keeps the assistant padding so a folded thought reads as part of the reply', () => {
     const lines = blockLines(assistant({ reasoning: 'thought' }), theme, 12)
 
-    expect(plain(lines)[0]).toMatch(/^ ⋆/u)
+    expect(plain(lines)[0]).toMatch(/^ ∴/u)
     expect(visibleWidth(lines[0]!)).toBe(12)
   })
 

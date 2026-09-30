@@ -14,7 +14,7 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
-| Transcript | compact / standard / detailed / verbose | standard | How much of the transcript stays folded. `compact` gives one bare row per run; `standard` names the kinds of work and what each call acted on; `detailed` keeps runs open and reads the thinking in full while calls stay on one line; `verbose` paints every call's full output and leaves only the thinking folded. `Ctrl+O` opens everything on top of any of them. |
+| Transcript | compact / standard / detailed / verbose | standard | How much of the transcript stays folded. A finished run of calls folds to one row saying what was done — `Read files, searched the code and ran a command · 3 calls` — and `Ctrl+O` opens it into a tree with one line per category and its calls under it. The model's thinking is not part of that summary: it is its own `∴` row at every rung, because it is the part of a turn that reads as an explanation rather than as work. `Ctrl+O` opens everything on top of any rung. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
 | Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |

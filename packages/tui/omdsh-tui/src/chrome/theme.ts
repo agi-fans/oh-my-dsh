@@ -29,11 +29,24 @@ export const SYMBOL = {
   pending: '○',
   running: '⟳',
   done: '•',
-  /** Folded reasoning. Monochrome star operator, never emoji-presentation. */
-  reasoning: '⋆',
+  /**
+   * The model's thinking, in the gutter. Three stacked dots read as a deduction
+   * and collide with no status mark, which is what `⋆` did: it looked like a
+   * stray speck and a `✔` column beside it carried the real weight anyway.
+   */
+  reasoning: '∴',
   /** Disclosure markers for a folded process group. */
   folded: '▸',
   unfolded: '▾',
+  /**
+   * Tree rail. A run's shape is carried by the rail rather than by indentation
+   * alone, so a reader can tell where one run ends and the next begins.
+   */
+  rail: '│',
+  railBranch: '├',
+  railEnd: '└',
+  /** The reader's own prompt. */
+  prompt: '›',
   bullet: '•',
   cursor: '❯',
 } as const

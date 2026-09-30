@@ -76,10 +76,12 @@ describe('processGroups', () => {
   it('tallies each tool family once, in first-seen order', () => {
     const groups = processGroups(fold(oneTurn()).blocks)
 
-    expect(groups[0]?.categories).toEqual([
-      { label: 'files', count: 1 },
-      { label: 'search', count: 1 },
-      { label: 'commands', count: 1 },
+    // Categories are phrases, not labels: a collapsed title is a sentence about
+    // what happened, and a list of family names is not one.
+    expect(groups[0]?.categories.map(entry => [entry.phrase(entry.count), entry.count])).toEqual([
+      ['Read a file', 1],
+      ['Searched the code', 1],
+      ['Ran a command', 1],
     ])
   })
 
@@ -91,8 +93,8 @@ describe('processGroups', () => {
       result('c2', 'ok', 4),
     ])
 
-    expect(processGroups(state.blocks)[0]?.categories)
-      .toEqual([{ label: 'strange_tool', count: 1 }, { label: 'other_tool', count: 1 }])
+    expect(processGroups(state.blocks)[0]?.categories.map(entry => entry.phrase(entry.count)))
+      .toEqual(['strange_tool', 'other_tool'])
   })
 
   it('counts a group with a single call out', () => {
@@ -132,8 +134,7 @@ describe('folded group row', () => {
   it('replaces the run of calls with one row and leaves the replies alone', () => {
     const text = body(fold(oneTurn()))
 
-    expect(text).toContain('▸  Process')
-    expect(text).toContain('files, search, commands')
+    expect(text).toContain('▸  Read a file, searched the code and ran a command')
     expect(text).toContain('do the thing')
     expect(text).toContain('The cohort is current.')
     expect(text).not.toContain('pnpm test')
@@ -148,7 +149,9 @@ describe('folded group row', () => {
       call('c5', 'session_search', { query: 'q' }, 9), result('c5', 'ok', 10),
     ])
 
-    expect(body(state)).toMatch(/files, search, commands \+2/u)
+    // Three phrases read as a sentence; a fourth is counted rather than listed,
+    // so the row never pretends the summary is the whole of the run.
+    expect(body(state)).toMatch(/Read a file, searched the code and ran a command and 2 more/u)
   })
 
   it('states that a call in the group failed rather than hiding the row', () => {
@@ -160,13 +163,25 @@ describe('folded group row', () => {
 
     // A group summarizes routine work. One that failed is not routine, and a
     // header saying only "something failed" would undo the row it replaced.
-    expect(text).not.toContain('▸  Process')
+    expect(text).not.toContain('▸  Read a file')
     expect(text).toContain('pnpm test')
     expect(text).toContain('FAIL')
   })
 
-  it('marks a settled group as done', () => {
-    expect(body(fold(oneTurn()))).toMatch(/Process[^\n]*✔/u)
+  it('marks a run that failed', () => {
+    const state = fold([
+      call('c1', 'read', { path: 'a' }, 1), result('c1', 'ok', 2),
+      call('c2', 'bash', { command: 'ls' }, 3), result('c2', 'FAIL', 4, true),
+    ])
+
+    expect(body(state)).toMatch(/ran a command[^\n]*✘/u)
+  })
+
+  it('says how big the run was, and no more than that', () => {
+    // One total, not a count per category: the number answers "is there more in
+    // here than this row shows", and one number is the whole of that question.
+    expect(body(fold(oneTurn()))).toMatch(/3 calls/u)
+    expect(body(fold(oneTurn()))).not.toMatch(/Read a file · /u)
   })
 
   it('fills exactly the terminal width', () => {
@@ -181,10 +196,10 @@ describe('folded group row', () => {
   it('opens a group under ctrl+o and closes it again', () => {
     const state = fold(oneTurn())
     const collapsed = body(state)
-    expect(collapsed).toContain('▸  Process')
+    expect(collapsed).toContain('▸  Read a file')
     const opened = body(state, { openedGroups: new Set(processGroups(state.blocks).map(group => group.key)) })
 
-    expect(opened).toContain('▾  Process')
+    expect(opened).toContain('▾  Read a file')
     expect(opened).toContain('pnpm test')
   })
 
@@ -256,7 +271,7 @@ describe('row offsets other features depend on', () => {
     // The call the reader searched for is inside a collapsed group. Finding it
     // has to open the group, or the match index would point at a hidden row.
     expect(withSearch).toContain('pnpm test')
-    expect(withSearch).toContain('▾  Process')
+    expect(withSearch).toContain('▾  Read a file')
   })
 
   it('opens the group the focused block sits in', () => {

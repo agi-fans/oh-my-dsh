@@ -2249,7 +2249,7 @@ describe('LocalTui (tty)', () => {
     // an expanded one is a box. The payload text cannot stand in for it because
     // a folded row can carry the output's first line as its own fact.
     const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
-    expect(screen).toContain('✔  bash')
+    expect(screen).toContain('bash')
     expect(screen).not.toContain('╭─── ✔ bash')
     tui.dispose()
   })
@@ -2342,7 +2342,7 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('assistant/message', {
       turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
     }, 9))
-    expect(term.captured).toContain('Process')
+    expect(term.captured).toContain('Ran commands')
     expect(term.captured).not.toContain('cmd-1')
     const beforeOpen = term.captured.length
     press(term, '\x0f')

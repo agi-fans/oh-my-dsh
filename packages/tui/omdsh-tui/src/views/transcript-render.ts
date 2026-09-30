@@ -239,6 +239,20 @@ function toolIcon(status: ToolBlockStatus, theme: Theme, spinnerFrame: number): 
 }
 
 /**
+ * The gutter mark for a call, or nothing at all.
+ *
+ * A settled successful call used to carry a checkmark, and a run of five calls
+ * put five identical checkmarks in a column — a signal that says only "the row
+ * above exists", which it always did. The gutter is for states a reader has to
+ * act on: in flight, or wrong. A run of successes is legible by its shape, and
+ * the marks that remain mean something.
+ */
+function toolStatusMark(status: ToolBlockStatus, theme: Theme, spinnerFrame: number): string {
+  if (status === 'ok') return ''
+  return toolIcon(status, theme, spinnerFrame)
+}
+
+/**
  * One-line fact for a failed call.
  *
  * The row has to answer "what failed" on its own, because that is the whole
@@ -280,6 +294,7 @@ function toolRowLine(
   width: number,
   spinnerFrame: number,
   showSubject = true,
+  prefix?: string,
 ): string[] {
   const icon = toolIcon(block.status, theme, spinnerFrame)
   const presentation = renderTool({
@@ -296,7 +311,9 @@ function toolRowLine(
   // directly. Indenting says that without a second visual vocabulary, and the
   // width budget shrinks to match so the row still ends at the same column.
   const nest = block.parentCallId === undefined ? '' : '  '
-  const head = nest + icon + gap
+  // The tree supplies its own head so the rail, the branch and the status mark
+  // share one gutter. Outside the tree the row keeps a mark of its own.
+  const head = prefix ?? nest + icon + gap
   const room = Math.max(1, width - visibleWidth(head))
   const title = presentation.title ?? block.name
   // A card's own first input line is the tool's idea of what the call was. With
@@ -434,8 +451,17 @@ function reasoningRowLine(
   const preview = reasoningPreview(block.reasoning, block.streaming)
   const marker = theme.fg('thinkingText', SYMBOL.reasoning)
   const body = preview === '' ? marker : marker + '  ' + preview
+  // A settled row ends in an ellipsis because it really did end there. A row
+  // that is still being written must not: the text continues past the edge, and
+  // a mark claiming an ending that has not happened is a small lie the reader
+  // has to notice before scrolling to check.
   return assistantContentLines(
-    [lockThinkingLine(truncateToWidth(body, Math.max(1, width - paddingX * 2)), theme)],
+    [
+      lockThinkingLine(
+        truncateToWidth(body, Math.max(1, width - paddingX * 2), block.streaming ? '' : '…'),
+        theme,
+      ),
+    ],
     width,
     paddingX,
   )
@@ -449,6 +475,63 @@ function reasoningRowLine(
  * rather than left for the reader to discover by opening the group, because a
  * run that silently went wrong is the one thing worth stopping on.
  */
+/**
+ * A run's calls, grouped under what they did.
+ *
+ * The flat list these replace repeated the verb on every row and made a reader
+ * scan five lines to learn that two of them were the same read. A category
+ * heading plus its own calls says the same thing in fewer rows, and the rail
+ * carries which calls belong to the run above them — so the shape of the work
+ * survives being scrolled past.
+ *
+ * An expanded call keeps its full output and simply breaks the rail's
+ * indentation, rather than being drawn inside it: a framed block is a different
+ * surface, and pretending otherwise buys nothing.
+ */
+function processGroupTree(
+  group: ProcessGroup,
+  context: {
+    blocks: readonly Block[]
+    theme: Theme
+    width: number
+    fold: FoldPolicy
+    toolsExpanded: boolean
+    expandedTools?: ReadonlySet<string>
+    spinnerFrame: number
+  },
+): string[] {
+  const { blocks, theme, width } = context
+  const rail = theme.fg('border', SYMBOL.rail)
+  const buckets: { phrase: (count: number) => string; calls: Extract<Block, { kind: 'tool' }>[] }[] = []
+  for (let at = group.start; at < group.end; at += 1) {
+    const block = blocks[at]
+    if (block?.kind !== 'tool') continue
+    const phrase = processPhrase(block.name)
+    const bucket = buckets.find(entry => entry.phrase(1) === phrase(1))
+    if (bucket === undefined) buckets.push({ phrase, calls: [block] })
+    else bucket.calls.push(block)
+  }
+  const lines: string[] = ['']
+  for (const bucket of buckets) {
+    const heading = `${bucket.phrase(bucket.calls.length)} · ${bucket.calls.length}`
+    lines.push(padToWidth(`${rail} ${truncateToWidth(heading, Math.max(1, width - 2))}`, width))
+    bucket.calls.forEach((block, position) => {
+      const last = position === bucket.calls.length - 1
+      const branch = theme.fg('border', last ? SYMBOL.railEnd : SYMBOL.railBranch)
+      const mark = toolStatusMark(block.status, theme, context.spinnerFrame)
+      const head = `${rail} ${branch}${mark === '' ? '  ' : ` ${mark} `}`
+      const expanded = context.toolsExpanded
+        || !context.fold.tools
+        || context.expandedTools?.has(block.callId) === true
+      lines.push(...(expanded
+        ? toolBlockLines(block, theme, Math.max(1, width - 2), context.spinnerFrame)
+          .map(line => `${rail}  ${line}`)
+        : toolRowLine(block, theme, width, context.spinnerFrame, context.fold.subject, head)))
+    })
+  }
+  return lines
+}
+
 function processGroupHeader(
   group: ProcessGroup,
   theme: Theme,
@@ -457,24 +540,48 @@ function processGroupHeader(
   showDetail = true,
 ): string[] {
   const marker = theme.fg('dim', expanded ? SYMBOL.unfolded : SYMBOL.folded)
-  // The header is the one row a collapsed run still has, so the quietest rung
-  // shortens it to a word and a status rather than dropping the run itself.
-  const labels = showDetail ? group.categories.slice(0, 3).map(entry => entry.label) : []
-  const extra = group.categories.length - labels.length
-  const work = labels.join(', ') + (extra > 0 ? ` +${extra}` : '')
   const gap = '  '
   const head = marker + gap
   const room = Math.max(1, width - visibleWidth(head))
-  const label = 'Process'
-  const factRoom = Math.min(visibleWidth(work), Math.floor(room / 2))
-  const labelRoom = Math.min(visibleWidth(label), Math.max(1, room - factRoom - gap.length))
-  const labelText = truncateToWidth(label, Math.max(1, labelRoom))
-  const factText = factRoom === 0 ? '' : truncateToWidth(work, factRoom)
-  const tail = group.failures > 0
-    ? theme.fg('error', SYMBOL.error + (group.failures > 1 ? ` ${group.failures}` : ''))
-    : theme.fg('dim', SYMBOL.success)
-  const body = factText === '' ? labelText + gap + tail : labelText + gap + factText + gap + tail
+  const calls = group.end - group.start
+  const count = `${calls} call${calls === 1 ? '' : 's'}`
+  // The count is a clause hanging off the sentence, so it keeps its leading dot
+  // only when there is a sentence for it to hang from. The quietest rung has no
+  // sentence, and a row that opens with a dot reads as a broken row.
+  const countClause = showDetail ? `· ${count}` : count
+  // A failure is stated outright rather than left for the reader to find by
+  // opening the run, so the tail is reserved before the sentence is laid out:
+  // it is the only part of this row that says the run went wrong.
+  const tail = group.failures === 0
+    ? ''
+    : SYMBOL.error + (group.failures > 1 ? ` ${group.failures}` : '')
+  const tailRoom = Math.min(visibleWidth(tail), Math.floor(room / 4))
+  const beforeTail = Math.max(1, room - tailRoom)
+  // The count is a fact and the phrase is prose, so under width pressure the
+  // phrase is what gives way. Capping the count at a quarter of the row — which
+  // is where it started — truncated `· 3 calls` to `· 3 …` and then ran the
+  // failure mark into it. Half the row is the point where the sentence can no
+  // longer carry anything, and the count is still whole.
+  const countRoom = Math.min(visibleWidth(countClause), Math.max(1, Math.floor(room / 2)))
+  // Everything the row spends beyond the sentence is the gap and the count
+  // clause, so the phrase gets what is left of the width before the tail.
+  const phraseRoom = showDetail ? Math.max(0, beforeTail - countRoom - gap.length) : 0
+  const phrase = phraseRoom === 0 ? '' : truncateToWidth(groupPhrase(group), phraseRoom)
+  const countText = truncateToWidth(countClause, countRoom)
+  const used = visibleWidth(phrase) + (phrase === '' ? 0 : gap.length) + visibleWidth(countText)
+  const body = phrase
+    + (phrase === '' ? '' : gap)
+    + countText
+    + ' '.repeat(Math.max(0, beforeTail - used))
+    + theme.fg('error', tail)
   return [padToWidth(head + body, width)]
+}
+
+/** The gutter a folded call row opens with, outside a run's tree. */
+function toolRowHead(block: Extract<Block, { kind: 'tool' }>, theme: Theme, spinnerFrame: number): string {
+  const nest = block.parentCallId === undefined ? '' : '  '
+  const mark = toolStatusMark(block.status, theme, spinnerFrame)
+  return nest + (mark === '' ? '' : mark + '  ')
 }
 
 /**
@@ -522,7 +629,7 @@ export function blockLines(
   if (block.kind === 'tool') {
     return toolsExpanded
       ? toolBlockLines(block, theme, width, spinnerFrame)
-      : toolRowLine(block, theme, width, spinnerFrame, toolSubject)
+      : toolRowLine(block, theme, width, spinnerFrame, toolSubject, toolRowHead(block, theme, spinnerFrame))
   }
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
@@ -708,22 +815,81 @@ function cachedBlockLines(
  * rendering code. A tool with no family is reported by its own name, which is
  * still more informative than dropping it.
  */
-const PROCESS_CATEGORIES: readonly (readonly [RegExp, string])[] = [
-  [/^(read|write|edit|multi_edit|notebook_edit|str_replace_editor|apply_patch)$/, 'files'],
-  [/^(grep|glob|list_dir|search)$/, 'search'],
-  [/^(bash|shell|pwsh|exec)$/, 'commands'],
-  [/^(web_search|web_fetch)$/, 'web'],
-  [/^(subagent|subagent_fork|subagent_isolated|agent|ralph|workflow_run)$/, 'agents'],
-  [/^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/, 'history'],
-  [/^(todo_write|update_goal|create_goal|get_goal)$/, 'planning'],
-  [/^skill$/, 'skills'],
+/**
+ * A work category, phrased as what happened rather than as what kind of tool
+ * it was.
+ *
+ * The reference client composes its collapsed titles from verb phrases — "read
+ * files", "searched code", "ran commands" — and joins them into a sentence. A
+ * list of category nouns does not: `files, search, commands` is metadata about
+ * the tools, and a reader scrolling back wants to know what the agent did.
+ * Counts choose the form here but are not printed in the title, the same way the
+ * reference ranks by count and then shows only the labels.
+ */
+interface ProcessCategory {
+  /** What the category contributes to a title or a tree heading. */
+  phrase: (count: number) => string
+  match: RegExp
+}
+
+/** A phrase that does not inflect reads the same at one and at many. */
+const flat = (phrase: string): ProcessCategory['phrase'] => () => phrase
+/** The only inflection a title needs: one call, or more than one. */
+const plural = (one: string, many: string): ProcessCategory['phrase'] =>
+  (count: number) => (count === 1 ? one : many)
+
+const PROCESS_CATEGORIES: readonly ProcessCategory[] = [
+  { match: /^read$/, phrase: plural('Read a file', 'Read files') },
+  { match: /^(read_image|readImage)$/, phrase: plural('Looked at an image', 'Looked at images') },
+  { match: /^(write|notebook_edit|apply_patch)$/, phrase: plural('Wrote a file', 'Wrote files') },
+  { match: /^(edit|multi_edit|str_replace_editor)$/, phrase: plural('Edited a file', 'Edited files') },
+  { match: /^(grep|glob|list_dir|search)$/, phrase: flat('Searched the code') },
+  { match: /^(bash|shell|pwsh|exec|write_stdin)$/, phrase: plural('Ran a command', 'Ran commands') },
+  { match: /^(run_code)$/, phrase: flat('Ran code') },
+  { match: /^(web_search)$/, phrase: flat('Searched the web') },
+  { match: /^(web_fetch)$/, phrase: plural('Visited a page', 'Visited pages') },
+  {
+    match: /^(subagent|subagent_fork|subagent_isolated|agent|ralph|workflow_run)$/,
+    phrase: plural('Coordinated a subagent', 'Coordinated subagents'),
+  },
+  { match: /^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/, phrase: flat('Searched past sessions') },
+  { match: /^(todo_write|update_goal|create_goal|get_goal)$/, phrase: flat('Updated the plan') },
+  { match: /^skill$/, phrase: plural('Loaded a skill', 'Loaded skills') },
 ]
 
-function processCategory(name: string): string {
-  for (const [pattern, label] of PROCESS_CATEGORIES) {
-    if (pattern.test(name)) return label
+/**
+ * The phrase for one tool, or the tool's own name when it belongs to no
+ * category. An unknown tool still says what it is, which is honest; inventing a
+ * category for it would not be.
+ */
+function processPhrase(name: string): ProcessCategory['phrase'] {
+  for (const category of PROCESS_CATEGORIES) {
+    if (category.match.test(name)) return category.phrase
   }
-  return name
+  return () => name
+}
+
+/**
+ * The one line that stands in for a run of work.
+ *
+ * It is a sentence rather than a bracketed list, and the join is what makes it
+ * read as one: two phrases join with `and`, three with a comma and an `and`, and
+ * a run with more kinds than that says how many it hid rather than pretending
+ * the summary is the whole of it.
+ */
+function groupPhrase(group: ProcessGroup): string {
+  const shown = group.categories.slice(0, 3)
+    .map(entry => entry.phrase(entry.count))
+    // Only the first phrase is a sentence opener. "Read files and searched the
+    // code" is one claim; capitalizing both makes it read as two.
+    .map((phrase, index) => (index === 0 ? phrase : phrase.charAt(0).toLowerCase() + phrase.slice(1)))
+  const head = shown.length === 0
+    ? ''
+    : shown.length === 1
+      ? shown[0]!
+      : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]!}`
+  const rest = group.categories.length - shown.length
+  return rest > 0 ? `${head} and ${rest} more` : head
 }
 
 /** One collapsible stretch of process: the calls and thoughts between two answers. */
@@ -733,7 +899,7 @@ export interface ProcessGroup {
   /** Exclusive end index. */
   end: number
   /** Tool families in first-seen order, with how many calls each took. */
-  categories: { label: string; count: number }[]
+  categories: { phrase: (count: number) => string; count: number }[]
   /** How many of the group's calls failed. */
   failures: number
   /** True while the group still holds a call in flight or a thought still arriving. */
@@ -745,7 +911,7 @@ export interface ProcessGroup {
   key: string
 }
 
-/** A group has to stand for repetition; one row is not repetition. */
+/** A group has to stand for repetition; one call is not repetition. */
 const MIN_GROUP_BLOCKS = 2
 
 function blockIdentity(block: Block): string {
@@ -757,21 +923,19 @@ function blockIdentity(block: Block): string {
 /**
  * Does this block belong to a run of work, or answer the reader?
  *
- * Only a tool call and a thought that has not yet produced its answer are work.
- * Everything else — a message, a reply, a slash command's output, a notice, the
- * per-turn changed-file record — is something the reader came to see, so it
- * closes the run before it. Anything narrower would swallow a command's output
- * into a summary of the calls that happened to precede it.
+ * Only a tool call is. A thought used to count, which meant a whole turn's
+ * reasoning folded away behind a header describing file reads — the one part of
+ * a turn that reads as a person explaining themselves disappeared, and the part
+ * that reads as a machine ticking boxes got the row. A thought closes the run
+ * before it and renders itself, the way a reply does. It is not summarizable:
+ * there is no category of "thinking" that tells a reader anything.
  */
-function isProcessBlock(block: Block): boolean {
-  if (block.kind === 'tool') return true
-  return block.kind === 'assistant' && block.text === ''
+function isProcessBlock(block: Block): block is Extract<Block, { kind: 'tool' }> {
+  return block.kind === 'tool'
 }
 
 function isLiveBlock(block: Block): boolean {
-  if (block.kind === 'tool') return block.status === 'running'
-  if (block.kind === 'assistant') return block.streaming
-  return false
+  return block.kind === 'tool' && block.status === 'running'
 }
 
 /**
@@ -788,12 +952,11 @@ function isLiveBlock(block: Block): boolean {
 export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
   const groups: ProcessGroup[] = []
   let start = -1
-  let categories: { label: string; count: number }[] = []
+  let categories: { phrase: (count: number) => string; count: number }[] = []
   let failures = 0
   let live = false
   const close = (end: number): void => {
-    if (start < 0) return
-    if (end - start >= MIN_GROUP_BLOCKS) {
+    if (start >= 0 && end - start >= MIN_GROUP_BLOCKS) {
       groups.push({
         start,
         end,
@@ -815,13 +978,11 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
     }
     if (start < 0) start = index
     if (isLiveBlock(block)) live = true
-    if (block.kind === 'tool') {
-      if (block.status === 'error') failures += 1
-      const label = processCategory(block.name)
-      const existing = categories.find(entry => entry.label === label)
-      if (existing === undefined) categories.push({ label, count: 1 })
-      else existing.count += 1
-    }
+    if (block.status === 'error') failures += 1
+    const phrase = processPhrase(block.name)
+    const existing = categories.find(entry => entry.phrase(1) === phrase(1))
+    if (existing === undefined) categories.push({ phrase, count: 1 })
+    else existing.count += 1
   })
   close(blocks.length)
   return groups
@@ -909,11 +1070,30 @@ function renderTranscriptBody(
         }
         continue
       }
-      // An open group is a header followed by its own rows, so the block that
-      // leads it falls through and renders under the header.
+      // An open group is a header followed by its own tree, so the block that
+      // leads it is rendered by the tree rather than falling through.
       if (leadsGroup) {
         if (lines.length > 0) lines.push('')
-        lines.push(...processGroupHeader(groups[groupIndex]!, theme, options.width, true, fold.detail))
+        const group = groups[groupIndex]!
+        const headerRow = lines.length
+        const tree = processGroupTree(group, {
+          blocks: state.blocks,
+          theme,
+          width: options.width,
+          fold,
+          toolsExpanded,
+          spinnerFrame,
+          ...(options.expandedTools === undefined ? {} : { expandedTools: options.expandedTools }),
+        })
+        lines.push(...processGroupHeader(group, theme, options.width, true, fold.detail), ...tree)
+        // The tree painted the whole run, so the loop skips those blocks and
+        // their offsets come from here. The call that leads the group is the
+        // header's row, exactly as it is for a collapsed run; the rest start
+        // where the tree starts, which is the first row it owns.
+        blockStarts.push(headerRow)
+        for (let at = group.start + 1; at < group.end; at += 1) blockStarts.push(headerRow + 1)
+        index = group.end - 1
+        continue
       }
     } else if (lines.length > 0) {
       const previousCommand = commandSurfaceName(previous)

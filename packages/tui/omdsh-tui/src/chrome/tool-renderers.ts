@@ -3,7 +3,13 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FileDiff, ToolCallView, ToolResultView, WebSource } from '@deepseek-ai/dsh-tools'
 import { alignFileDiffs, countDiffStats, formatDiffRows, formatDiffStats } from './diff-render.ts'
-import { TOOL_ARG_FIELDS, toolArgsObject } from './tool-args.ts'
+import {
+  TOOL_ARG_FIELDS,
+  TOOL_ARG_INTENT_FIELDS,
+  TOOL_ARG_SCOPE_FIELDS,
+  TOOL_PREVIEW_FIELDS,
+  toolArgsObject,
+} from './tool-args.ts'
 
 export interface TuiToolPresentation {
   readonly call?: ToolCallView
@@ -68,10 +74,13 @@ function stringField(value: Record<string, unknown>, key: string): string {
  * command is the whole intent, so it stops the scan rather than letting the
  * remaining fields stack around it.
  */
-function previewFieldLines(read: (field: string) => string | undefined): string[] {
+function previewFieldLines(
+  read: (field: string) => string | undefined,
+  fields: readonly string[] = TOOL_ARG_FIELDS,
+): string[] {
   const lines: string[] = []
   const seen = new Set<string>()
-  for (const field of TOOL_ARG_FIELDS) {
+  for (const field of fields) {
     const value = read(field)
     if (value === undefined || value.trim() === '' || seen.has(value)) continue
     seen.add(value)
@@ -142,10 +151,10 @@ function partialArgumentLines(raw: string): string[] | undefined {
     const lines = previewFieldLines((field) => {
       const value = parsed[field]
       return typeof value === 'string' ? value : undefined
-    })
+    }, TOOL_PREVIEW_FIELDS)
     return lines.length === 0 ? undefined : lines
   }
-  const lines = previewFieldLines(field => extractedStringField(raw, field))
+  const lines = previewFieldLines(field => extractedStringField(raw, field), TOOL_PREVIEW_FIELDS)
   return lines.length === 0 ? undefined : lines
 }
 
@@ -163,13 +172,37 @@ export function toolArgSubject(raw: string, partial: boolean): string {
   if (raw.trim() === '') return ''
   const parsed = parsedObject(raw)
   if (parsed !== undefined) {
-    return previewFieldLines((field) => {
+    const subject = previewFieldLines((field) => {
       const value = parsed[field]
       return typeof value === 'string' && value.trim() !== '' ? value : undefined
     })[0] ?? ''
+    if (subject === '') return ''
+    // A search names what it looked for and where. Showing only the first half
+    // is a worse summary than either: `grep 0.2.0` without the tree it was
+    // searched is ambiguous, and `grep packages` is the same row for every
+    // search in the run.
+    if (!TOOL_ARG_INTENT_FIELDS.includes(subjectField(parsed, subject))) return subject
+    const scope = scopeOf(parsed)
+    return scope === '' || subject === scope ? subject : `${subject} in ${scope}`
   }
   if (partial) return partialArgumentLines(raw)?.[0] ?? ''
   return raw.split('\n')[0] ?? ''
+}
+
+/** Which declared key produced this subject, so the scope can be read beside it. */
+function subjectField(parsed: Record<string, unknown>, subject: string): string {
+  for (const field of TOOL_ARG_FIELDS) {
+    if (parsed[field] === subject) return field
+  }
+  return ''
+}
+
+function scopeOf(parsed: Record<string, unknown>): string {
+  for (const field of TOOL_ARG_SCOPE_FIELDS) {
+    const value = parsed[field]
+    if (typeof value === 'string' && value.trim() !== '') return value
+  }
+  return ''
 }
 
 function isSubagentToolName(name: string): boolean {
