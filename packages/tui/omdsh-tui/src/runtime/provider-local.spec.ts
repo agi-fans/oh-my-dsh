@@ -174,9 +174,7 @@ describe('LocalTui (tty)', () => {
   it('keeps the welcome card when a durable transcript replaces the startup frame', () => {
     const term = new FakeTerminal()
     term.rows = 12
-    // ED3 is a direct-terminal behavior; conpty and multiplexer profiles skip it.
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { terminalProfile: 'direct' })
-    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(1)
 
     const restored = Array.from({ length: 30 }, (_, index) => `restored-${index}`).join('\n')
     tui.replaceSession([
@@ -189,8 +187,11 @@ describe('LocalTui (tty)', () => {
       }, 2),
     ])
 
-    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(2)
+    // The replacement appends below a seam and leaves the welcome card's own
+    // output in the terminal's history. It used to erase it.
+    expect(term.captured).not.toContain('\x1b[3J')
     const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('session opened · earlier output retained')
     expect(screen).toContain('resumed prompt')
     expect(screen).toContain('restored-0')
     expect(screen).toContain('restored-15')
@@ -216,7 +217,8 @@ describe('LocalTui (tty)', () => {
     ], undefined, 'idle')
     expect(term.captured).toContain('Into the Unknown')
     expect(term.captured).toContain('initial session')
-    expect(term.captured.match(/\x1b\[3J/gu)).toHaveLength(1)
+    expect(term.captured).toContain('session opened · earlier output retained')
+    expect(term.captured).not.toContain('\x1b[3J')
     tui.dispose()
   })
 
@@ -1938,6 +1940,39 @@ describe('LocalTui (tty)', () => {
     press(term, '/clear\r')
     press(term, 'next\r')
     expect(await pending).toBe('next')
+    tui.dispose()
+  })
+
+  it('keeps the cleared transcript in the terminal history, behind a seam', async () => {
+    const term = new FakeTerminal()
+    term.height = () => 24
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'before-the-clear' }] }, 1))
+    // Exchanges, not tool calls: a run of calls folds into one header, and a
+    // folded row never reaches scrollback, which is the only place "retained"
+    // can be observed from.
+    for (let i = 0; i < 20; i += 1) {
+      tui.event(ev('assistant/message', {
+        turn: i + 1,
+        step: 1,
+        message: { role: 'assistant', content: [{ type: 'text', text: `answer-number-${i}` }] },
+      }, 10 + i * 2))
+    }
+    press(term, '/clear\r')
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'after-the-clear' }] }, 900))
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('transcript cleared · earlier output retained')
+    expect(screen).toContain('after-the-clear')
+    expect(screen).not.toContain('before-the-clear')
+    // What the reader scrolled past is still there to scroll back into, and the
+    // escape that would have destroyed it is never emitted.
+    expect(term.captured).not.toContain('\x1b[3J')
+    expect(term.captured).toContain('answer-number-19')
+    // `/clear` re-arms the composer with an empty prompt, so the readline this
+    // test opened is settled by the next submit rather than by the clear.
+    press(term, '\r')
+    expect(await pending).toBe('')
     tui.dispose()
   })
 

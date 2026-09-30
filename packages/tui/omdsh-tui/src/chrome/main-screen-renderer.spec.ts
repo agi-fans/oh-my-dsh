@@ -849,22 +849,24 @@ describe('MainScreenRenderer', () => {
     expect(emu.visible()).toEqual(old.slice(10, 15))
 
     // A long discontinuous replacement session (> 2 * height) with finalized
-    // prefix that extends well above the visible tail. replaceSession/clear are
-    // signaled explicitly so stale native history is erased first.
+    // prefix that extends well above the visible tail. The epoch lays the new
+    // frame out in a fresh index space and appends it; the old document stays
+    // in the terminal's history above, because erasing it would also take the
+    // reader's shell output with it.
     const replacement = Array.from({ length: 20 }, (_, i) => `new-${i}`)
     renderer.startEpoch()
     // A restored durable log can retain an orphaned pending seam near its
     // beginning. Replacement still replays every historical row.
     renderer.render(frame(replacement, 2))
-    // The full off-screen prefix must have been written once and the visible
-    // tail (new-15..new-19) must be on screen.
-    expect(emu.scrollback).toEqual(replacement.slice(0, 15))
+    // The full off-screen prefix must have been written once, after — not over
+    // — the old document, and the visible tail (new-15..new-19) must be up.
+    expect(emu.scrollback).toEqual([...old.slice(0, 10), ...replacement.slice(0, 15)])
     expect(emu.visible()).toEqual(replacement.slice(15, 20))
 
     // Append within the new epoch must continue from the new baseline, not
     // replay the new frozen prefix.
     renderer.render(frame([...replacement, 'new-20', 'new-21'], 20))
-    expect(emu.scrollback).toEqual(replacement.slice(0, 17))
+    expect(emu.scrollback).toEqual([...old.slice(0, 10), ...replacement.slice(0, 17)])
     expect(emu.visible()).toEqual(['new-17', 'new-18', 'new-19', 'new-20', 'new-21'])
   })
 
@@ -921,18 +923,38 @@ describe('MainScreenRenderer', () => {
     expect(emu.visible()).toEqual(['', '', 'c', 'd', 'E'])
   })
 
-  it('clears stale native history before replaying a replacement epoch', () => {
+  it('retains native history across a replacement epoch instead of erasing it', () => {
     const emu = new Emulator(4)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 4, synchronized: false })
 
-    renderer.render(frame(['HEADER', 'composer'], 0))
-    expect(emu.scrollback).toEqual([])
+    // Fill some history the way a live session would, so the replacement has
+    // something destructive to do and declines to.
+    renderer.render(frame(['SEAM', 'earlier-1', 'earlier-2', 'earlier-3', 'composer'], 4))
+    expect(emu.scrollback).toEqual(['SEAM'])
 
     renderer.startEpoch()
-    renderer.render(frame(['HEADER', 'message-1', 'message-2', 'message-3', 'composer'], 5))
-    expect(emu.captured).toContain('\x1b[3J')
-    expect(emu.scrollback).toEqual(['HEADER'])
+    renderer.render(frame(['SEAM', 'message-1', 'message-2', 'message-3', 'composer'], 5))
+    // The old document is still there to scroll into, and the replacement is
+    // labelled rather than silently swapped in.
+    expect(emu.captured).not.toContain('\x1b[3J')
+    expect(emu.scrollback).toEqual(['SEAM', 'SEAM'])
     expect(emu.visible()).toEqual(['message-1', 'message-2', 'message-3', 'composer'])
+  })
+
+  it('never erases native scrollback, on any path', () => {
+    const writes: string[] = []
+    const renderer = new MainScreenRenderer(
+      { write: chunk => { writes.push(chunk) } },
+      { width: 40, height: 4, synchronized: false },
+    )
+    // The escape that purges scrollback is destructive to output this process
+    // did not produce, so the renderer has no path that reaches it — and the
+    // option that used to ask for one is gone rather than left as a default.
+    renderer.startEpoch()
+    renderer.render(frame(['a', 'b', 'c', 'd', 'e'], 4))
+    renderer.reset()
+    renderer.render(frame(['f', 'g', 'h', 'i', 'j'], 5))
+    expect(writes.join('')).not.toContain('\x1b[3J')
   })
 
   it('borrows the alternate screen for transient full-screen surfaces', () => {

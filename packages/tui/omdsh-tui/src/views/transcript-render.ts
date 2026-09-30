@@ -30,7 +30,7 @@ import {
 } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
-import { createTheme, SPINNER, SYMBOL, type Theme, type ThemeName } from '../chrome/theme.ts'
+import { createTheme, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
 import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type {
@@ -527,6 +527,7 @@ export function blockLines(
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
+  if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.framed !== true) {
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
@@ -548,6 +549,44 @@ export function blockLines(
     lines: wrapped.slice(1).map(paint),
     applyBg: false,
   }, theme)
+}
+
+/** Why the transcript was replaced. */
+export type TranscriptSeam = 'session-opened' | 'cleared'
+
+/**
+ * Seam labels live in one table with the row that draws them, so a later
+ * language layer moves the strings in one edit rather than chasing them through
+ * the runtime. English until that layer exists.
+ */
+const SEAM_LABELS: Record<TranscriptSeam, string> = {
+  'session-opened': 'session opened · earlier output retained',
+  cleared: 'transcript cleared · earlier output retained',
+}
+
+/** The row that separates two documents in the terminal's history. */
+export function transcriptSeam(reason: TranscriptSeam): Block {
+  return { kind: 'notice', level: 'info', text: SEAM_LABELS[reason], boundary: true }
+}
+
+/**
+ * The seam where the transcript was replaced.
+ *
+ * This row exists because the earlier output is still in the terminal's own
+ * scrollback and stays there. Without it, scrolling up walks into rows that
+ * describe a document the live view no longer holds and nothing says why. The
+ * label names the cause; the rules are chrome, not a message about anything.
+ */
+function renderTranscriptBoundary(label: string, theme: Theme, width: number): string {
+  if (width <= 0) return ''
+  const labelText = theme.fg('dim', label)
+  const rule = theme.fg('border', BOX.horizontal)
+  // A terminal too narrow for a rule on either side still gets the label, since
+  // the label is the part that carries the fact.
+  const room = width - visibleWidth(label) - 2
+  if (room < 2) return truncateToWidth(labelText, Math.max(1, width))
+  const left = Math.floor(room / 2)
+  return rule.repeat(left) + ' ' + labelText + ' ' + rule.repeat(room - left)
 }
 
 /** Plain text of one block, used by transcript search and match painting. */

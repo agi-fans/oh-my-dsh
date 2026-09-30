@@ -60,7 +60,19 @@ export type Block =
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
   | WorkspaceBlock
-  | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: string; framed?: boolean }
+  | {
+    kind: 'notice'
+    level: 'info' | 'warning' | 'error'
+    text: string
+    framed?: boolean
+    /**
+     * This row is a seam, not a message: it marks where the transcript was
+     * replaced and the earlier output stayed in the terminal's history above.
+     * The replacement paths each rebuild the whole block list, so there is
+     * exactly one seam per replacement without any de-duplication.
+     */
+    boundary?: true
+  }
 
 /** Live session activity controlling the composer and activity row. */
 export type SessionStatus = 'idle' | 'running' | 'compacting'

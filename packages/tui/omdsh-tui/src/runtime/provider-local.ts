@@ -124,6 +124,7 @@ import {
   renderView,
   processGroups,
   reasoningKey,
+  transcriptSeam,
   TRANSCRIPT_FAST_SCROLL,
   withWorkspaceSummary,
   type Block,
@@ -553,7 +554,6 @@ export class LocalTui implements TuiService {
         width: this.#term.width(),
         height: this.#term.height(),
         synchronized: this.#tty,
-        clearScrollback: this.#terminalProfile === 'direct',
         alternateScreenOverlays: paths.alternateScreenOverlays === true,
       },
     )
@@ -847,7 +847,9 @@ export class LocalTui implements TuiService {
   ): void {
     this.#trajectory = null
     const state = replayEvents(events, presentations)
-    this.#state = { ...state, status, compactCommandId: undefined }
+    // The earlier document stays in the terminal's scrollback, so the seam
+    // between the two is content rather than a clear.
+    this.#state = { ...state, status, compactCommandId: undefined, blocks: [transcriptSeam('session-opened'), ...state.blocks] }
     this.#plain.resetPrinted()
     this.#followTail()
     this.#deferInitialRender = false
@@ -2395,7 +2397,7 @@ export class LocalTui implements TuiService {
       // Presentation-only reset: the agent may still own an active turn with
       // live status, todos, and queued inbox state. Clearing those would make
       // the next Ctrl-C (or follow-up) behave as if the session had finished.
-      this.#state = { ...this.#state, blocks: [] }
+      this.#state = { ...this.#state, blocks: [transcriptSeam('cleared')] }
       this.#followTail()
       this.#renderer.startEpoch()
       this.#render()

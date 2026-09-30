@@ -18,7 +18,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/session` | Show the current session's details. |
 | `/retry` | Run the most recent human prompt again. |
 | `/todo` | Print the current session todo list into the transcript. |
-| `/clear` | Clear the visible transcript. The running turn, status, todos, and queued follow-ups keep their state. |
+| `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
 
 ## Session configuration
 

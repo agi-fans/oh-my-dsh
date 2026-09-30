@@ -3,8 +3,9 @@
  *
  * The terminal owns native scrollback. This renderer owns only the current
  * screen and a logical boundary for rows already frozen above it. Routine
- * updates treat native history as append-only. Explicit transcript epochs
- * clear it once and replay the replacement frame from a clean origin.
+ * updates treat native history as append-only, and so does a transcript epoch:
+ * replacing the document replays the new frame into a fresh index space and
+ * leaves the earlier output above, where the terminal keeps it.
  *
  * Finalized rows cross the boundary by being painted at the top of the screen
  * immediately before a newline scrolls them into history. Pending rows remain
@@ -14,8 +15,14 @@
  * again.
  *
  * reset() repairs the visible screen without replaying history. A logical
- * conversation replacement must call startEpoch() so stale native history is
- * cleared before the replacement transcript is replayed.
+ * conversation replacement must call startEpoch() so the replacement frame is
+ * laid out from a clean index space rather than diffed against rows that
+ * described a different document.
+ *
+ * Nothing here erases native scrollback. It holds the reader's shell output
+ * from before this process started, and a routine replacement has no business
+ * destroying it; the seam between the two documents is content, and the
+ * transcript renders it.
  *
  * The renderer never enables mouse tracking (1000/1006) and wraps every paint
  * in one DEC 2026 synchronized write.
@@ -31,7 +38,6 @@ const HIDE_CURSOR = '\x1b[?25l'
 const SHOW_CURSOR = '\x1b[?25h'
 const ENTER_ALT_SCREEN = '\x1b[?1049h'
 const EXIT_ALT_SCREEN = '\x1b[?1049l'
-const CLEAR_SCROLLBACK = '\x1b[3J'
 const CLEAR_SCREEN = '\x1b[2J\x1b[H'
 const CLEAR_LINE = '\x1b[2K'
 
@@ -46,8 +52,6 @@ export interface MainScreenRendererOptions {
   width?: number
   /** Wrap the paint in synchronized output (DEC 2026). */
   synchronized?: boolean
-  /** Whether explicit transcript replacement may erase native scrollback. */
-  clearScrollback?: boolean
   /** Borrow the alternate buffer for transient full-screen surfaces. */
   alternateScreenOverlays?: boolean
 }
@@ -77,7 +81,6 @@ interface ResizeBaseline {
 export class MainScreenRenderer {
   readonly #sink: RenderSink
   readonly #synchronized: boolean
-  readonly #canClearScrollback: boolean
   readonly #alternateScreenOverlays: boolean
   #width: number
   #height: number
@@ -86,7 +89,6 @@ export class MainScreenRenderer {
   #reanchor = false
   #newEpoch = false
   #fullReplayOnNextEpoch = true
-  #clearScrollbackOnNextRender = false
   #adoptPhysicalAfterTransient = false
   /** First logical row not frozen above the screen in the current epoch. */
   #physical = 0
@@ -106,7 +108,6 @@ export class MainScreenRenderer {
     this.#screen = this.#blankScreen()
     this.#altScreen = this.#blankScreen()
     this.#synchronized = options.synchronized === true
-    this.#canClearScrollback = options.clearScrollback !== false
     this.#alternateScreenOverlays = options.alternateScreenOverlays === true
   }
 
@@ -130,7 +131,6 @@ export class MainScreenRenderer {
   startEpoch(options: EpochOptions = {}): void {
     this.#newEpoch = true
     this.#fullReplayOnNextEpoch = options.replay !== 'pinned'
-    this.#clearScrollbackOnNextRender = true
     this.#reanchor = true
     this.#adoptPhysicalAfterTransient = false
   }
@@ -387,14 +387,12 @@ export class MainScreenRenderer {
     const visibilityChanged = cursorVisible !== this.#cursorVisible
     const cursorOut = body !== '' || moved || visibilityChanged ? csi(targetRow, targetCol) : ''
 
-    const clearScrollback = this.#clearScrollbackOnNextRender && this.#canClearScrollback
-    this.#clearScrollbackOnNextRender = false
     this.#cursorRow = targetRow
     this.#cursorCol = targetCol
     this.#cursorVisible = cursorVisible
     this.#screen = target.rows
     this.#hasFrame = true
-    return this.#wrap((clearScrollback ? CLEAR_SCROLLBACK : '') + body + cursorOut + hide + show)
+    return this.#wrap(body + cursorOut + hide + show)
   }
 
   #screenRow(logicalRow: number, target: ScreenTarget, length: number): number {

@@ -20,7 +20,9 @@ Sessions first created with v0.5.0 through v0.11.0 may contain a private event t
 
 ## Scrollback and multiplexers
 
-omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` resets the terminal display.
+omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. It also keeps it when the transcript is replaced: `/clear`, a session switch, and `--resume` all append the new document below a labelled seam instead of erasing what is above, because that history holds the output your shell printed before omdsh started. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` resets the terminal display.
+
+Rows that have scrolled into that history are snapshots of what was shown at the time, and nothing rewrites them. Scrolling up past a seam therefore shows calls that have since finished, or a run that has since folded, laid out as they were when the terminal received them. The seam is the only thing that marks the change, and the live view below it is the source of truth for the current transcript.
 
 ## Plugins fail at boot
 
