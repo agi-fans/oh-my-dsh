@@ -63,11 +63,21 @@ describe('renderMarkdown', () => {
     expect(text).toContain('╰')
   })
 
-  it('labels a fenced code block with its language', () => {
+  it('sets a fenced code block behind a rail, without its fences', () => {
+    // The fences are syntax, not content; printed, they made every block look
+    // like a render that had not finished.
     const text = plain('```ts\nconst x = 1\n```')
-    expect(text).toContain('```ts')
-    expect(text).toContain('const x = 1')
-    expect(text.trim().endsWith('```')).toBe(true)
+    expect(text).toContain('│ const x = 1')
+    expect(text).not.toContain('```')
+  })
+
+  it('keeps the rail on every wrapped row of a long code line', () => {
+    const lines = renderMarkdown('```\n' + 'x'.repeat(40) + '\n```', theme, 20).map(stripAnsi)
+    expect(lines.length).toBeGreaterThan(1)
+    for (const line of lines) {
+      expect(line.startsWith('  │ ')).toBe(true)
+      expect(visibleWidth(line)).toBeLessThanOrEqual(20)
+    }
   })
 
   it('keeps every table and list line inside the width', () => {

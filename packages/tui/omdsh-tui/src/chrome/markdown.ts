@@ -438,26 +438,35 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
   return lines
 }
 
+/**
+ * A fenced code block: its lines behind a rail, with no fences.
+ *
+ * The fences are markdown's syntax, not the reader's content, and printing them
+ * made every code block look like a render that had not finished. A rail in the
+ * block-border ink says "this is code" in one column and holds for every
+ * wrapped row, so a long line that wraps still reads as part of the block.
+ */
 function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: MarkdownStyle): string[] {
   const lang = (token.lang ?? '').trim()
   const rows = token.text.split('\n')
-  const fence = ink(style, 'mdCodeBlockBorder')
-  const lines = [...wrapStyled(theme.fg(fence, '  ```' + lang), width)]
+  const rail = theme.fg(ink(style, 'mdCodeBlockBorder'), '  \u2502 ')
+  const inner = Math.max(1, width - CODE_GUTTER)
   if (lang.toLowerCase() === 'mermaid') {
-    lines.push(...renderMermaid(rows, theme, width, style))
-  } else {
-    const highlighted = highlightCodeLines(rows, lang, theme, style)
-    for (let i = 0; i < rows.length; i += 1) {
-      const body = highlighted[i] ?? ''
-      // The two-space gutter is added before wrapping, so a tab inside the code
-      // block has to resolve against the column that gutter already occupies.
-      const text = body === '' ? '  ' : '  ' + expandTabs(body, 8, 2)
-      lines.push(...wrapStyled(text, width))
-    }
+    return renderMermaid(rows, theme, inner, style).map(line => rail + line)
   }
-  lines.push(...wrapStyled(theme.fg(fence, '  ```'), width))
+  const highlighted = highlightCodeLines(rows, lang, theme, style)
+  const lines: string[] = []
+  for (let i = 0; i < rows.length; i += 1) {
+    const body = highlighted[i] ?? ''
+    // Tabs resolve against the column the rail already occupies.
+    const wrapped = body === '' ? [''] : wrapStyled(expandTabs(body, 8, CODE_GUTTER), inner)
+    for (const line of wrapped) lines.push(rail + line)
+  }
   return lines
 }
+
+/** Cells a code block's rail takes before the code: two of margin, the rail, one of gap. */
+const CODE_GUTTER = 4
 
 function renderList(token: Tokens.List, theme: Theme, width: number, level: number, style?: MarkdownStyle, depth = 0): string[] {
   const lines: string[] = []

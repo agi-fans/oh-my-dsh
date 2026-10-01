@@ -64,7 +64,7 @@ function ev(type: string, data: unknown, seq: number): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
 }
 
-const press = (term: FakeTerminal, bytes: string): void => {
+const press = (term: { input: PassThrough }, bytes: string): void => {
   term.input.write(bytes)
 }
 
@@ -130,6 +130,390 @@ function shortenedWorkspaceRoot(): string {
   if (root.startsWith(`${home}/`)) return `~${root.slice(home.length)}`
   return root
 }
+
+/**
+ * A terminal that scrolls: rows pushed off the top land in `history`, the way a
+ * real terminal's native scrollback does. The plain emulator above keeps every
+ * row it was ever told about, so it cannot show a fold blanking the screen or
+ * a transcript replayed into history.
+ */
+class ScrollingTerminal implements TerminalLike {
+  captured = ''
+  screen: string[]
+  history: string[] = []
+  #row = 0
+  #col = 0
+  output = { isTTY: true, write: (chunk: string): void => this.#write(chunk) }
+  input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: (): void => {}, destroy: (): void => {} })
+  constructor(readonly columns: number, readonly rows: number) {
+    this.screen = Array.from({ length: rows }, () => '')
+  }
+  width(): number { return this.columns }
+  height(): number { return this.rows }
+  visible(): string[] { return this.screen.map(row => stripAnsi(row)) }
+  scrollback(): string[] { return this.history.map(row => stripAnsi(row)) }
+  #write(chunk: string): void {
+    this.captured += chunk
+    for (const token of chunk.match(/\x1b\[[?0-9;]*[ -/]*[@-~]|\r\n|\r|\n|[^\r\n\x1b]+/gu) ?? []) {
+      if (token === '\r\n' || token === '\n') {
+        if (this.#row === this.rows - 1) {
+          this.history.push(this.screen.shift() ?? '')
+          this.screen.push('')
+        } else this.#row += 1
+        if (token === '\r\n') this.#col = 0
+      } else if (token === '\r') this.#col = 0
+      else if (token.startsWith('\x1b[')) {
+        const final = token.at(-1)
+        const params = token.slice(2, -1).replace(/^\?/u, '').split(';').map(value => Number(value || '1'))
+        if (final === 'H') {
+          this.#row = Math.min(this.rows - 1, (params[0] ?? 1) - 1)
+          this.#col = (params[1] ?? 1) - 1
+        } else if (final === 'K') this.screen[this.#row] = (params[0] ?? 0) === 2 ? '' : (this.screen[this.#row] ?? '').slice(0, this.#col)
+        else if (final === 'J' && (params[0] === 2 || params[0] === 3)) this.screen = this.screen.map(() => '')
+      } else {
+        const current = (this.screen[this.#row] ?? '').padEnd(this.#col)
+        this.screen[this.#row] = current.slice(0, this.#col) + token + current.slice(this.#col + token.length)
+        this.#col += token.length
+      }
+    }
+  }
+}
+
+/** One turn with many steps, each a thought and two reads, then an answer. */
+function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true, turn = 1): void {
+  const tag = turn === 1 ? 'c' : `t${turn}c`
+  let seq = turn * 1000
+  tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: `map the project ${turn}` }] }, seq++))
+  tui.event(ev('turn/start', { turn }, seq++))
+  for (let step = 1; step <= steps; step += 1) {
+    tui.event(ev('assistant/message', {
+      turn, step, message: { role: 'assistant', content: [{ type: 'reasoning', text: `Step ${step} reads two more files.` }] },
+    }, seq++))
+    for (const part of ['a', 'b']) {
+      const id = `${tag}${step}${part}`
+      tui.event(ev('tool/call', { turn, step, callId: id, name: 'read', arguments: `{"path":"src/${id}.ts"}` }, seq++))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: id, content: [{ type: 'text', text: 'x' }] } }, seq++))
+    }
+    // Settlements coalesce into one paint while a turn runs; a status change
+    // paints at once, which is what puts a frame between steps as a real
+    // terminal would have.
+    tui.setStatus('running')
+  }
+  const answer = Array.from({ length: answerLines }, (_, i) => `answer ${turn} line ${i}`).join('\n\n')
+  if (answer !== '') {
+    tui.event(ev('assistant/message', {
+      turn, step: steps + 1, message: { role: 'assistant', content: [{ type: 'text', text: answer }] },
+    }, seq++))
+    tui.setStatus('running')
+  }
+  if (end) {
+    tui.event(ev('turn/end', { turn, reason: { kind: 'completed' } }, seq++))
+    tui.setStatus('idle')
+  }
+}
+
+describe('LocalTui folds against a scrolling terminal', () => {
+  it.each([false, true].flatMap(color => [false, true].map(browsing => ({ color, browsing }))))('does not recommit frozen prompts after a density shrink and later growth (color=$color, browsing=$browsing)', ({ color, browsing }) => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', color)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: color, foldDensity: 'verbose' })
+      longTurn(tui, 30, 1)
+      expect(term.scrollback().filter(row => row.includes('map the project 1'))).toHaveLength(1)
+      const frozen = term.scrollback()
+      if (browsing) press(term as never, '\x1b[5~')
+      tui.applyStoredPrefs({ theme: 'dark', colors: color, foldDensity: 'standard' })
+      longTurn(tui, 1, 30, true, 2)
+      if (browsing) {
+        expect(term.scrollback()).toEqual(frozen)
+        for (let page = 0; page < 24; page += 1) press(term as never, '\x1b[6~')
+      }
+      expect(term.scrollback().filter(row => row.includes('map the project 1'))).toHaveLength(1)
+      expect(term.visible().join('\n')).toContain('answer 2 line 29')
+      longTurn(tui, 1, 30, true, 3)
+      expect(term.scrollback().slice(0, frozen.length)).toEqual(frozen)
+      expect(term.scrollback().filter(row => row.includes('map the project 1'))).toHaveLength(1)
+      expect(term.scrollback().filter(row => row.includes('answer 2 line 29'))).toHaveLength(1)
+      expect(term.scrollback().filter(row => row.includes('answer 3 line 7'))).toHaveLength(1)
+      expect(term.visible().join('\n')).toContain('answer 3 line 29')
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true].flatMap(color => (['trajectory', 'agentHub', 'settings', 'fullscreen-list', 'plan-review'] as const).map(surface => ({ color, surface }))))(
+    'restores the inspected run after closing $surface (color=$color)', async ({ surface, color }) => {
+      const term = new ScrollingTerminal(80, 20)
+      const tui = new LocalTui(term, 'm', color)
+      try {
+        const input = tui.readInput()
+        if (surface === 'trajectory') tui.setCommands([{ name: 'trajectory', description: 'Inspect session trajectory' }])
+        if (surface === 'agentHub') tui.setSubagents({ agents: [{ id: 'child', label: 'Review', depth: 1, phase: 'running', activity: [] }] })
+        longTurn(tui, 30, 30)
+        press(term, '\x0f')
+        press(term, '\x1b[5~')
+        const screen = term.visible()
+        const history = term.scrollback()
+        const mark = term.captured.length
+        let answer: Promise<unknown> | undefined
+        if (surface === 'trajectory') {
+          press(term, '/trajectory\r')
+          expect(await input).toEqual({ text: '/trajectory', images: [] })
+          tui.openTrajectory([])
+        }
+        else if (surface === 'agentHub') press(term, '\x1ba')
+        else if (surface === 'settings') press(term, '/settings\r')
+        else answer = tui.prompt({
+          title: 'Choose', question: 'Continue?', presentation: surface,
+          detail: '# Plan\n\n- Read the project',
+          options: [{ label: 'Approve' }, { label: 'Cancel' }], allowCustom: false,
+          ...(surface === 'plan-review' ? { approveValue: 'Approve' } : {}),
+        })
+        expect(term.visible()).not.toEqual(screen)
+        expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+        const restore = term.captured.length
+        press(term, '\x1b[27u')
+        if (answer !== undefined) expect(await answer).toBeNull()
+        expect(term.visible()).toEqual(screen)
+        expect(term.scrollback()).toEqual(history)
+        expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
+        // The restored frame must still accept wheel input, not only look right.
+        press(term, '\x1b[<64;5;5M')
+        expect(term.visible()).not.toEqual(screen)
+        press(term, '\x0f')
+        expect(term.captured).toContain('\x1b[?1000l')
+      } finally { tui.dispose() }
+    },
+  )
+
+  it.each([false, true])('keeps background output in inspection and reveals requested command output (color=%s)', (color) => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', color)
+    try {
+      longTurn(tui, 30, 40)
+      press(term, '\x0f\x1b[5~')
+      const content = () => term.visible().filter(line => line.includes('"path"') || line.includes('Step '))
+      const before = content()
+      expect(before.length).toBeGreaterThan(0)
+      const history = term.scrollback()
+      const mark = term.captured.length
+      tui.commandOutput("What's New", 'background release notes')
+      tui.notice('background notice')
+      expect(content()).toEqual(before)
+      expect(term.visible().join('\n')).not.toContain('background release notes')
+      expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
+      expect(term.scrollback()).toEqual(history)
+      tui.commandOutput('session', 'requested command result', { focus: true })
+      expect(term.visible().join('\n')).toContain('requested command result')
+      expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+      expect(term.scrollback().slice(0, history.length)).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it('opens a long finished run at its newest work and lets the reader scroll upwards', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 30)
+    const history = term.scrollback()
+    press(term as never, '\x0f')
+
+    const opened = term.visible().join('\n')
+    expect(opened).toContain('src/c30b.ts')
+    expect(opened).not.toContain('src/c1a.ts')
+    press(term as never, '\x1b[5~')
+    expect(term.visible().join('\n')).toContain('src/c29b.ts')
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('scrolls an opened run with the mouse wheel without changing native history', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 1)
+    press(term as never, '\x0f')
+    const before = term.visible()
+    const history = term.scrollback()
+    press(term as never, '\x1b[<64;10;5M')
+    expect(term.visible()).not.toEqual(before)
+    press(term as never, '\x1b[<65;10;5M')
+    expect(term.visible()).toEqual(before)
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('opens a long tool result at its last lines and returns to the folded view after wheel browsing', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('tool/call', { callId: 'long-result', name: 'bash', arguments: '{}' }, 1))
+    tui.event(ev('tool/result', {
+      message: { role: 'tool', toolCallId: 'long-result', content: [{
+        type: 'text', text: Array.from({ length: 60 }, (_, i) => `result line ${i}`).join('\n'),
+      }] },
+    }, 2))
+    const screen = term.visible()
+    const history = term.scrollback()
+    press(term as never, '\x0f')
+    expect(term.visible().join('\n')).toContain('result line 59')
+    expect(term.visible().join('\n')).not.toContain('result line 0')
+    press(term as never, '\x1b[<64;10')
+    press(term as never, ';5M'.concat('\x1b[<64;10;5M'.repeat(30)))
+    expect(term.visible().join('\n')).toContain('Into the Unknown')
+    press(term as never, '\x1b[<65;10;5M'.repeat(4))
+    expect(term.visible().join('\n')).toContain('result line 0')
+    press(term as never, '\x1b[<65;10;5M'.repeat(40))
+    expect(term.visible()).toEqual(screen)
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('opens a long thought at its latest paragraph', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('assistant/message', {
+      turn: 1, step: 1, message: { role: 'assistant', content: [
+        { type: 'reasoning', text: Array.from({ length: 40 }, (_, i) => `Reasoning paragraph ${i}.`).join('\n\n') },
+        { type: 'text', text: 'A short answer.' },
+      ] },
+    }, 1))
+    press(term as never, '\x0f')
+    expect(term.visible().join('\n')).toContain('Reasoning paragraph 39.')
+    expect(term.visible().join('\n')).not.toContain('Reasoning paragraph 0.')
+    tui.dispose()
+  })
+
+  it('opens a call inside a live turn and returns to the turn as it was', () => {
+    // A live turn has no header to open, so the key reads the row under the
+    // viewport. Closing it used to leave only the composer's last edge and the
+    // footer over a blank screen.
+    const term = new ScrollingTerminal(80, 30)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 20, 0, false)
+    tui.event(ev('assistant/message', {
+      turn: 1, step: 21, message: { role: 'assistant', content: [{ type: 'reasoning', text: 'Still going.' }] },
+    }, 900))
+    tui.setStatus('running')
+    const screen = term.visible()
+    const history = term.scrollback()
+    expect(screen.join('\n')).not.toMatch(/^[▸▾]/mu)
+    expect(screen.join('\n')).toContain('∴ Thought · Still going.')
+    press(term as never, '\x0f')
+    expect(term.visible().join('\n')).toMatch(/╭─── ✔ read/u)
+    press(term as never, '\x0f')
+
+    expect(term.visible()).toEqual(screen)
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('never freezes a run that is still at work into history', () => {
+    // A live run's newest rows scroll and it folds when the turn ends; a row of
+    // it frozen mid-turn would sit in history in a shape that never settled.
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 30, false)
+
+    expect(term.scrollback().some(row => row.includes('Working'))).toBe(false)
+    expect(term.scrollback().some(row => row.includes('Read file ·'))).toBe(false)
+    tui.dispose()
+  })
+
+  it('commits a finished turn to history once, folded, with its answer once', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 30)
+    const all = [...term.scrollback(), ...term.visible()]
+
+    expect(all.filter(row => /^▸ Worked for/u.test(row))).toHaveLength(1)
+    expect(all.filter(row => row.includes('answer 1 line 7'))).toHaveLength(1)
+    expect(all.some(row => row.includes('Read file ·'))).toBe(false)
+    tui.dispose()
+  })
+
+  it('opens the finished run on ctrl+o, not every call in the session', () => {
+    // Following the tail aims past the answer, at the changed-file record; the
+    // key fell through to opening every call's full output.
+    const term = new ScrollingTerminal(80, 120)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 1, 1)
+    longTurn(tui, 3, 2, true, 2)
+    tui.event(ev('workspace/changes', { turn: 2 }, 2950))
+    press(term as never, '\x0f')
+    const screen = term.visible().join('\n')
+
+    expect(screen).toMatch(/^▾ Worked for/mu)
+    expect(screen).toContain('src/t2c3b.ts')
+    // The previous turn remains folded; only this turn's calls read in full.
+    expect(screen).toMatch(/╭─── [✔✘⟳•]/u)
+    expect(screen).not.toContain('src/c1a.ts')
+    tui.dispose()
+  })
+
+  it('reads the last run in a browsing frame even when it opens at the very end', () => {
+    // Opening the newest run from the tail focuses a row that is already at the
+    // end, which read as "back at the tail" and put the opened run in the flow;
+    // closing it then shrank rows history already held.
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 12, 12)
+    longTurn(tui, 2, 1, true, 2)
+    const screen = term.visible()
+    const history = term.scrollback()
+    press(term as never, '\x0f')
+    // Any later paint — a spinner tick, a status change — must still be a
+    // browsing frame, not the flow with the run opened in it.
+    tui.setStatus('idle')
+    expect(term.visible().join('\n')).toContain('src/t2c2b.ts')
+    expect(term.scrollback()).toEqual(history)
+    press(term as never, '\x0f')
+
+    expect(term.visible()).toEqual(screen)
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('keeps an opened run open when the whole transcript fits on the screen', () => {
+    // With nothing to scroll, the browsing frame sits at the end and read as
+    // "back at the tail", which dropped the opening before it was ever seen.
+    const term = new ScrollingTerminal(80, 60)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 2, 1)
+    press(term as never, '\x0f')
+
+    expect(term.visible().join('\n')).toContain('src/c1a.ts')
+    tui.setStatus('idle')
+    expect(term.visible().join('\n')).toContain('src/c1a.ts')
+    tui.dispose()
+  })
+
+  it('leaves the screen and history exactly as they were after an inspection', () => {
+    // Opening a run is reading it: it happens in a browsing frame, so closing
+    // it has nothing in the flow to undo — no blank screen, nothing repeated.
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 12, 12)
+    const screen = term.visible()
+    const history = term.scrollback()
+    press(term as never, '\x0f')
+    expect(term.visible().join('\n')).toContain('src/c12b.ts')
+    press(term as never, '\x0f')
+
+    expect(term.visible()).toEqual(screen)
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('writes nothing to history a second time when a finished run opens and closes', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 30)
+    const settled = term.scrollback()
+    press(term as never, '\x0f')
+    press(term as never, '\x0f')
+
+    expect(term.scrollback()).toEqual(settled)
+    expect(term.visible().join('\n')).toContain('answer 1 line 29')
+    expect(term.visible().join('\n')).toContain('🐳')
+    tui.dispose()
+  })
+})
 
 describe('LocalTui (tty)', () => {
   it('repaints the footer when the live Agent control changes', () => {
@@ -214,11 +598,65 @@ describe('LocalTui (tty)', () => {
 
     tui.replaceSession([
       ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'initial session' }] }, 1),
-    ], undefined, 'idle')
+    ], undefined, 'idle', 'initial')
     expect(term.captured).toContain('Into the Unknown')
     expect(term.captured).toContain('initial session')
-    expect(term.captured).toContain('session opened · earlier output retained')
+    expect(term.captured).not.toContain('session opened · earlier output retained')
     expect(term.captured).not.toContain('\x1b[3J')
+    tui.dispose()
+  })
+
+  it.each([false, true])('refreshes the same transcript without a seam and preserves native history (color=%s)', (color) => {
+    const term = new ScrollingTerminal(80, 20)
+    term.history.push('shell output before omdsh')
+    const tui = new LocalTui(term, 'm', color, 'dark', copyToClipboard, { deferInitialRender: true })
+    const events = [ev('user/message', {
+      source: { kind: 'user' }, content: [{ type: 'text', text: Array.from({ length: 40 }, (_, i) => `old prompt ${i}`).join('\n') }],
+    }, 1)]
+    tui.replaceSession(events, undefined, 'idle', 'initial')
+    const history = term.scrollback()
+    tui.replaceSession(events, undefined, 'idle', 'refresh')
+
+    expect(term.scrollback()).toEqual(history)
+    tui.replaceSession(events, undefined, 'idle', 'refresh')
+    expect(term.scrollback()).toEqual(history)
+    expect([...term.scrollback(), ...term.visible()].join('\n')).not.toContain('session opened')
+    expect(term.visible().join('\n')).toContain('old prompt 39')
+    tui.dispose()
+  })
+
+  it('refreshes different projections without replaying or retaining a stale row index', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    const events = [ev('user/message', { source: { kind: 'user' }, content: [{
+      type: 'text', text: Array.from({ length: 40 }, (_, index) => `parent prompt ${index}`).join('\n'),
+    }] }, 1)]
+    tui.replaceSession(events, undefined, 'idle', 'initial')
+    const history = term.scrollback()
+    tui.replaceSession([ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'child prompt' }] }, 1)], undefined, 'idle', 'refresh')
+    expect(term.visible().join('\n')).toContain('child prompt')
+    expect(term.visible().join('\n')).not.toContain('parent prompt')
+    expect(term.scrollback()).toEqual(history)
+    tui.replaceSession(events, undefined, 'idle', 'refresh')
+    expect(term.visible().join('\n')).toContain('parent prompt 39')
+    expect(term.scrollback()).toEqual(history)
+    tui.dispose()
+  })
+
+  it('retains frozen transcript rows above the boundary when /new opens an empty session', () => {
+    const term = new ScrollingTerminal(80, 20)
+    term.history.push('shell output before omdsh')
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    tui.replaceSession([ev('user/message', {
+      source: { kind: 'user' }, content: [{ type: 'text', text: Array.from({ length: 40 }, (_, i) => `earlier prompt ${i}`).join('\n') }],
+    }, 1)], undefined, 'idle', 'initial')
+    const history = term.scrollback()
+    tui.replaceSession([], undefined, 'idle', 'new')
+
+    expect(term.scrollback().slice(0, history.length)).toEqual(history)
+    expect(history.join('\n')).toContain('earlier prompt 0')
+    expect(term.visible().join('\n')).toContain('session opened · earlier output retained')
+    expect(term.scrollback()[0]).toBe('shell output before omdsh')
     tui.dispose()
   })
 
@@ -291,6 +729,73 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('\x1b[?2004l')
     expect(term.raw).toBe(false)
     expect(term.destroyed).toBe(true)
+  })
+
+  it('keeps mouse scrolling with the terminal while browsing a folded transcript with PgUp', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 12, 30)
+    press(term, '\x1b[5~')
+    expect(term.captured).not.toContain('\x1b[?1000h')
+    const mark = term.captured.length
+    press(term, '\x1b[<64;10;5M\x1b[<65;10;5M')
+    expect(term.captured.length).toBe(mark)
+    tui.dispose()
+  })
+
+  it.each(['close', 'tail', 'clear', 'dispose'])('restores native mouse scrolling after leaving an inspection via %s', (exit) => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 30, 1)
+    expect(term.captured).not.toContain('\x1b[?1000h')
+    press(term, '\x0f')
+    expect(term.captured).toContain('\x1b[?1000h\x1b[?1006h')
+    const mark = term.captured.length
+    if (exit === 'close') press(term, '\x0f')
+    else if (exit === 'tail') press(term, '\x1b[6~'.repeat(6))
+    else if (exit === 'clear') press(term, '/clear\r')
+    else tui.dispose()
+    expect(term.captured.slice(mark)).toContain('\x1b[?1000l\x1b[?1006l')
+    tui.dispose()
+  })
+
+  it('releases inspection mouse tracking before handing the tty to an external editor', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 12, 1)
+    press(term, '\x0f')
+    let modesAtHandoff = ''
+    term.input.setRawMode = (on: boolean): void => {
+      term.raw = on
+      if (!on) modesAtHandoff = term.captured
+    }
+    vi.stubEnv('VISUAL', '')
+    try {
+      press(term, '\x18')
+      expect(modesAtHandoff).toContain('\x1b[?1000l\x1b[?1006l')
+      expect(term.raw).toBe(true)
+      expect(term.captured.slice(modesAtHandoff.length)).toContain('\x1b[?1000h\x1b[?1006h')
+    } finally {
+      vi.unstubAllEnvs()
+      tui.dispose()
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('releases inspection mouse tracking before suspending to the shell', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    longTurn(tui, 12, 1)
+    press(term, '\x0f')
+    let modesAtSuspend = ''
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { modesAtSuspend = term.captured; return true })
+    try {
+      press(term, '\x1a')
+      expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTSTP')
+      expect(modesAtSuspend).toContain('\x1b[?1000l\x1b[?1006l')
+    } finally {
+      kill.mockRestore()
+      tui.dispose()
+    }
   })
 
   it('clears and fully repaints after the terminal is resized', () => {
@@ -2184,7 +2689,7 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('tool/result', {
       message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
-    expect(term.captured).toContain('bash')
+    expect(term.captured).toContain('Run command')
     expect(term.captured).not.toContain('tool-line-0')
     // The density is a resting shape, so the same settled call has to repaint
     // the moment the reader asks for a different one — with no keystroke.
@@ -2193,7 +2698,7 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('tool-line-13')
     const afterVerbose = term.captured.length
     tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
-    expect(term.captured.slice(afterVerbose)).toContain('bash')
+    expect(term.captured.slice(afterVerbose)).toContain('Run command')
     expect(term.captured.slice(afterVerbose)).not.toContain('tool-line-13')
     tui.dispose()
   })
@@ -2249,8 +2754,36 @@ describe('LocalTui (tty)', () => {
     // an expanded one is a box. The payload text cannot stand in for it because
     // a folded row can carry the output's first line as its own fact.
     const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
-    expect(screen).toContain('bash')
+    expect(screen).toContain('Run command')
     expect(screen).not.toContain('╭─── ✔ bash')
+    tui.dispose()
+  })
+
+  it('folds a background job that settles mid-turn into the turn, and not one that settles after', () => {
+    const term = new FakeTerminal()
+    term.height = () => 60
+    const tui = new LocalTui(term, 'm', false)
+    const read = (id: string, seq: number): void => {
+      tui.event(ev('tool/call', { turn: 1, step: 1, callId: id, name: 'read', arguments: `{"path":"${id}"}` }, seq))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: id, content: [{ type: 'text', text: 'x' }] } }, seq + 1))
+    }
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    read('a', 3)
+    tui.notice('Background job bash-1 completed', { process: true })
+    read('b', 5)
+    tui.event(ev('assistant/message', {
+      turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'All done.' }] },
+    }, 7))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 8))
+    tui.notice('Background job bash-2 completed', { process: true })
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+
+    // One run for the whole turn: the mid-turn notice is one of its rows.
+    expect(screen.match(/^▸ /gmu)).toHaveLength(1)
+    expect(screen).not.toContain('bash-1')
+    // With no turn running, a notice speaks to the reader and stays visible.
+    expect(screen).toContain('bash-2')
     tui.dispose()
   })
 
@@ -2263,7 +2796,7 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('tool/result', {
       message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
     }, 2))
-    expect(term.captured).toContain('bash')
+    expect(term.captured).toContain('Run command')
     expect(term.captured).not.toContain('tool-line-0')
     const beforeExpand = term.captured.length
     press(term, '\x0f')
@@ -2272,7 +2805,7 @@ describe('LocalTui (tty)', () => {
     const afterExpand = term.captured.length
     press(term, '\x0f')
     expect(term.captured.slice(afterExpand)).not.toContain('tool-line-13')
-    expect(term.captured.slice(afterExpand)).toContain('bash')
+    expect(term.captured.slice(afterExpand)).toContain('Run command')
     expect(beforeExpand).toBeGreaterThan(0)
     tui.dispose()
   })
@@ -2296,6 +2829,37 @@ describe('LocalTui (tty)', () => {
     const beforeExpand = term.captured.length
     press(term, '\x0f')
     expect(term.captured.slice(beforeExpand)).toMatch(/payload-[0-9]/u)
+    tui.dispose()
+  })
+
+  it.each(['standard', 'verbose'] as const)('reads thinking inside a finished run in %s density', (foldDensity) => {
+    const term = new ScrollingTerminal(100, 40)
+    const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity })
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    tui.event(ev('assistant/message', {
+      turn: 1, step: 1, message: { role: 'assistant', content: [
+        { type: 'reasoning', text: 'first thought paragraph\n\nsecond thought paragraph with detail' },
+      ] },
+    }, 3))
+    tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'thought-read', name: 'read', arguments: '{"path":"src/file.ts"}' }, 4))
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'thought-read', content: [{ type: 'text', text: 'payload first line\nfull tool detail' }] } }, 5))
+    tui.event(ev('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', content: [
+      { type: 'reasoning', text: 'answer thought start\n\nanswer thought detail' },
+      { type: 'text', text: 'all done' },
+    ] } }, 6))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 7))
+    tui.setStatus('idle')
+    expect(term.visible().join('\n')).not.toContain('second thought paragraph with detail')
+    const history = term.scrollback()
+    press(term, '\x0f')
+    expect(term.visible().join('\n')).toContain('second thought paragraph with detail')
+    expect(term.visible().join('\n')).toContain('full tool detail')
+    expect(term.visible().join('\n')).toContain('answer thought detail')
+    press(term, '\x0f')
+    expect(term.visible().join('\n')).not.toContain('second thought paragraph with detail')
+    expect(term.scrollback()).toEqual(history)
     tui.dispose()
   })
 

@@ -94,6 +94,50 @@ if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_ed
   process.exit(1)
 }
 mark = out.length
+term.write('\x0f')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection mouse tracking', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[<64;10;5M')
+mark = out.length
+term.write('/settings\r')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends inspection mouse tracking', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection restored after settings', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/trajectory\r')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command opens over inspection', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection restored after trajectory command', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x0f')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l'), 'native mouse scrolling restored', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[5~')
+mark = out.length
+term.write('/session\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Details'), 'plugin command result after scrolling back', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
 term.write('/agent\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Minimal Agent selector', deadline))) {
   term.kill()
@@ -128,8 +172,10 @@ if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'permi
   term.kill()
   process.exit(1)
 }
+mark = out.length
 term.write('hi\r')
-if (!(await waitFor(() => out.includes('error'), 'rendered turn error', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('error:'), 'rendered turn error', deadline))) {
+  console.error(cleanOutput(out.slice(mark)).slice(-2000))
   term.kill()
   process.exit(1)
 }
@@ -142,6 +188,12 @@ if (!(await waitFor(() => cleanOutput(out).includes('Rewind Conversation'), 'rew
 }
 term.write('\r')
 if (!(await waitFor(() => cleanOutput(out).includes('Rewound to before turn 1.'), 'rewound session fork', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x0f')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection before exit', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -159,6 +211,7 @@ term.kill()
 
 const clean = cleanOutput(out)
 const ok = exitCode === 0
+  && out.slice(mark).includes('\x1b[?1000l\x1b[?1006l')
   && clean.includes('Recent sessions')
   && clean.includes('Recent header seed')
   && clean.includes('hi')

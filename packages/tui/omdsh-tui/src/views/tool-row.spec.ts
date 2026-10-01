@@ -1,7 +1,7 @@
 /**
- * Folded tool row contract: a settled call is one unframed line, a failure or
- * an explicit expansion keeps the frame. Every assertion is on display cells
- * and on what a terminal shows, not on internal layout.
+ * Folded tool row contract: a settled call is one unframed `label · subject`
+ * line, and only an explicit expansion brings the frame back. Every assertion
+ * is on display cells and on what a terminal shows, not on internal layout.
  */
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -24,7 +24,7 @@ function tool(over: Partial<Parameters<typeof blockLines>[0]> & { name: string }
 }
 
 describe('folded tool row', () => {
-  it('gives a settled read one unframed line carrying the path and the line count', () => {
+  it('gives a settled read one unframed line naming the work and the path', () => {
     const lines = plain(blockLines(tool({
       name: 'read',
       output: 'x',
@@ -39,8 +39,11 @@ describe('folded tool row', () => {
     }), theme, 80))
 
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('event-views.ts')
-    expect(lines[0]).toContain('1/581')
+    expect(lines[0]).toContain('Read file · packages/tui')
+    // The card's `Read <path>` title under a `Read file` label would say it twice.
+    expect(lines[0]).not.toContain('Read packages')
+    // A line count is not what a reader scrolls back for.
+    expect(lines[0]).not.toContain('1/581')
     expect(lines[0]?.startsWith('╭')).toBe(false)
   })
 
@@ -54,15 +57,38 @@ describe('folded tool row', () => {
     }), theme, 80))
 
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('pnpm --filter @agi-fans/dsh-tui test')
-    expect(lines[0]).toContain('exit 0')
+    expect(lines[0]).toContain('Run command · pnpm --filter @agi-fans/dsh-tui test')
+    expect(lines[0]).not.toContain('exit 0')
   })
 
-  it('drops a shell call to its name when nothing identifies the call', () => {
+  it('names the work alone when nothing identifies the call', () => {
     const lines = plain(blockLines(tool({ name: 'todo_write', args: '{}' }), theme, 80))
 
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('todo_write')
+    expect(lines[0]?.trimEnd()).toBe(`${SYMBOL.done} Update plan`)
+  })
+
+  it('names an unknown tool by its own name rather than inventing a kind', () => {
+    const lines = plain(blockLines(tool({ name: 'frobnicate', args: '{}' }), theme, 80))
+
+    expect(lines[0]?.trimEnd()).toBe(`${SYMBOL.done} frobnicate`)
+  })
+
+  it('reads any string argument when no known field names the call', () => {
+    const lines = plain(blockLines(tool({ name: 'skill', args: JSON.stringify({ name: 'dsh-upgrade' }) }), theme, 80))
+
+    expect(lines[0]).toContain('Load skill · dsh-upgrade')
+  })
+
+  it('keeps the diff counts on an edit, the one fact a successful row carries', () => {
+    const lines = plain(blockLines(tool({
+      name: 'edit',
+      args: JSON.stringify({ file_path: 'a.ts' }),
+      presentation: { result: { card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] } },
+    }), theme, 80))
+
+    expect(lines[0]).toContain('Edit file · a.ts')
+    expect(lines[0]).toMatch(/\+1/u)
   })
 
   it('reads the subject out of raw arguments instead of printing the opening brace', () => {
@@ -76,13 +102,23 @@ describe('folded tool row', () => {
     expect(lines[0]).not.toContain('{')
   })
 
-  it('leads a shell row with the command, not a prose description', () => {
+  it('leads a shell row with what the command was for, not the plumbing', () => {
     const lines = plain(blockLines(tool({
       name: 'bash',
       args: JSON.stringify({ command: 'pnpm check:md', description: 'check the docs' }),
     }), theme, 80))
 
-    expect(lines[0]).toContain('pnpm check:md')
+    expect(lines[0]).toContain('Run command · check the docs')
+    expect(lines[0]).not.toContain('pnpm check:md')
+  })
+
+  it('reads the description a live terminal card carries', () => {
+    const lines = plain(blockLines(tool({
+      name: 'bash',
+      presentation: { call: { card: 'terminal', title: 'git status --short', description: 'Show status' } },
+    }), theme, 80))
+
+    expect(lines[0]).toContain('Run command · Show status')
   })
 
   it('decodes a streamed argument prefix so a running row already names the call', () => {
@@ -248,21 +284,16 @@ describe('folded tool row', () => {
       expect(visibleWidth(lines[0]!)).toBe(40)
     })
 
-    it('keeps the trailing fact when the title has to truncate', () => {
+    it('keeps the failure fact when the subject has to truncate', () => {
       const lines = plain(blockLines(tool({
         name: 'read',
-        presentation: {
-          result: {
-            card: 'read',
-            path: `src/${'nested/'.repeat(30)}file.ts`,
-            lines: [{ number: 1, text: 'a' }],
-            totalLines: 581,
-          },
-        },
+        status: 'error',
+        args: JSON.stringify({ file_path: `src/${'nested/'.repeat(30)}file.ts` }),
+        output: 'ENOENT',
       }), theme, 40))
 
       expect(lines).toHaveLength(1)
-      expect(lines[0]).toContain('1/581')
+      expect(lines[0]).toContain('ENOENT')
     })
   })
 })

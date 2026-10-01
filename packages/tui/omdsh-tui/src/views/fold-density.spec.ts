@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { applyEvent, initialTranscript, processGroups, renderView } from './event-views.ts'
 import { stripAnsi } from '../chrome/width.ts'
+import type { TranscriptState } from './transcript-types.ts'
 import { foldPolicy, type FoldDensity } from '../session/fold-policy.ts'
 
 function ev(type: string, data: unknown, seq: number): SessionEvent {
@@ -54,7 +55,7 @@ const TURN: SessionEvent[] = [
   }, 9),
 ]
 
-function transcript(): ReturnType<typeof initialTranscript> {
+function transcript(): TranscriptState {
   let state = initialTranscript()
   for (const event of TURN) state = applyEvent(state, event)
   return state
@@ -77,17 +78,15 @@ function view(density: FoldDensity | undefined, over: Record<string, unknown> = 
 }
 
 describe('transcript density', () => {
-  it('folds the calls away but keeps the thought at the default rung', () => {
+  it('folds the calls and the thinking into one row at the default rung', () => {
     const screen = view('standard')
     expect(screen).toContain('All done.')
     // The calls are behind the header, so none of their facts reach the screen.
     expect(screen).not.toContain('the whole manifest body')
     expect(screen).not.toContain('package.json')
-    // The thought is not part of that summary. It is the one part of a turn that
-    // reads as a person explaining themselves, and folding it into a list of
-    // file reads is what made this look like a machine ticking boxes.
-    expect(screen).toContain('I should read the manifests first')
-    expect(screen).not.toContain('Then check the lockfile')
+    // The thought is a row of the run. Closing the run on every thought split
+    // a turn into one run per step and left nothing folded.
+    expect(screen).not.toContain('I should read the manifests first')
     // The header says what was done, not what kind of tool did it.
     expect(screen).toContain('Read a file')
     expect(screen).not.toContain('Process')
@@ -108,8 +107,6 @@ describe('transcript density', () => {
     expect(quiet).toMatch(/3 calls/u)
     expect(quiet).not.toContain('Read a file')
     expect(loud).toContain('Read a file')
-    // The thought survives both rungs, because it is not part of the run.
-    expect(quiet).toContain('I should read the manifests first')
   })
 
   it('shows each call and its argument only once the run opens', () => {
@@ -123,7 +120,7 @@ describe('transcript density', () => {
     // The run is collapsed at both rungs, so the clause is best read off a run
     // that a failure forces open — which is the same place a reader meets it.
     const screen = view('compact', { openedGroups: new Set([RUN_KEY]) })
-    expect(screen).toContain('read')
+    expect(screen).toContain('Read file')
     expect(screen).not.toContain('package.json')
     const loud = view('standard', { openedGroups: new Set([RUN_KEY]) })
     expect(loud).toContain('package.json')
@@ -179,5 +176,81 @@ describe('transcript density', () => {
       const screen = view(density, { openedGroups: new Set([RUN_KEY]), expandedTools: new Set(['c1']) })
       expect(screen).toContain('the whole manifest body')
     }
+  })
+})
+
+describe('the render cache and a turn that is still running', () => {
+  // A running turn's trailing run is painted flat, ungrouped, and becomes a
+  // group when the turn ends. That projection reads `state.status`, which
+  // lives outside the block array: `setStatus` changes only the status and
+  // leaves the blocks' identity alone. The cache is keyed on the block array,
+  // so without the status in the key the second of two status changes reused
+  // the first one's rows — a live turn came back folded, or a finished one
+  // came back flat with no header and no elapsed time.
+  const finished = transcript()
+  const running: TranscriptState = { ...finished, status: 'running' }
+
+  const at = (state: TranscriptState): string => renderView(state, {
+    width: 74, height: 60, model: 'm', input: '', inputCursor: 0, colors: false, fold: foldPolicy('standard'),
+  }).lines.map(stripAnsi).join('\n')
+
+  it('paints a finished run folded and the same run flat while it is still running', () => {
+    // Both renderings are driven from one block array; only the status differs.
+    expect(finished.blocks).toBe(running.blocks)
+    expect(at(finished)).toContain('Read a file')
+    expect(at(running)).not.toContain('Read a file')
+  })
+
+  it('does not reuse the other status\'s rows when the status flips', () => {
+    // The first status primes the cache for this exact block array.
+    const settledFirst = at(finished)
+    const runningAfter = at(running)
+    expect(runningAfter).not.toContain('Read a file')
+
+    const runningFirst = at(running)
+    const settledAfter = at(finished)
+    expect(settledAfter).toBe(settledFirst)
+    expect(runningFirst).not.toBe(settledFirst)
+  })
+})
+
+describe('the render cache and a turn that finished while the blocks stayed', () => {
+  // A run's header says how long its turn took, and that number lives in
+  // `turnSpans` — outside the block array the cache is keyed on. Settling a
+  // turn replaces that object without touching a single block, so a cache that
+  // did not compare it would keep rendering the old duration over the same
+  // blocks forever.
+  const settled = (turnSpans: TranscriptState['turnSpans']): TranscriptState => ({
+    ...initialTranscript(), turn: 1, status: 'idle',
+    blocks: [
+      { kind: 'user', text: 'go' },
+      { kind: 'tool', callId: 'c1', name: 'read', args: '{"path":"a"}', status: 'ok', output: 'x', turn: 1 },
+      { kind: 'tool', callId: 'c2', name: 'read', args: '{"path":"b"}', status: 'ok', output: 'x', turn: 1 },
+      { kind: 'assistant', turn: 1, step: 2, text: 'All done.', reasoning: '' },
+    ],
+    turnSpans,
+  })
+  const screen = (state: TranscriptState): string => renderView(state, {
+    width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
+    fold: foldPolicy('standard'),
+  }).lines.map(stripAnsi).join('\n')
+
+  it('redraws the elapsed time when only the turn span changes', () => {
+    const running = settled({ 1: { start: 0 } })
+    expect(screen(running)).not.toContain('Worked for')
+
+    // The turn ended: the same block array, a new span object.
+    const done = { ...running, turnSpans: { 1: { start: 0, end: 125_000 } } }
+    expect(done.blocks).toBe(running.blocks)
+    expect(screen(done)).toContain('Worked for 2m 5s')
+  })
+
+  it('redraws when the duration itself changes', () => {
+    // A span rewritten with a different end — a resumed or re-replayed turn.
+    const first = settled({ 1: { start: 0, end: 60_000 } })
+    expect(screen(first)).toContain('Worked for 1m 0s')
+
+    const second = { ...first, turnSpans: { 1: { start: 0, end: 600_000 } } }
+    expect(screen(second)).toContain('Worked for 10m 0s')
   })
 })

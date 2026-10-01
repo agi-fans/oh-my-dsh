@@ -41,6 +41,7 @@ import {
   type TuiAgentBehaviorSettings,
   type TuiAgentBehaviorSettingsBinding,
   type TuiCommand,
+  type TuiOutputOptions,
   type TuiPrompt,
   type TuiNoticeOptions,
   type TuiRecentSession,
@@ -48,6 +49,7 @@ import {
   type TuiSessionControls,
   type TuiSessionStats,
   type TuiStatus,
+  type TuiTranscriptReplacement,
   type TuiInputImage,
   type TuiInspectedSubagent,
   type TuiLoopStatus,
@@ -122,7 +124,8 @@ import {
   initialTranscript,
   replayEvents,
   renderView,
-  processGroups,
+  turnGroups,
+  type ProcessGroup,
   reasoningKey,
   transcriptSeam,
   TRANSCRIPT_FAST_SCROLL,
@@ -144,7 +147,7 @@ import {
   streamingAssistantUnits,
 } from '../views/streaming-reveal.ts'
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
-import { type RenderSink } from '../chrome/renderer.ts'
+import { type FoldMark, type RenderSink } from '../chrome/renderer.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { colorDisabledByEnv, detectTrueColor, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
@@ -309,6 +312,22 @@ function resolveColors(preference: boolean | undefined, isTty: boolean): boolean
   return isTty && !colorDisabledByEnv()
 }
 
+/**
+ * The first body row whose shape changed between two frames: the earliest
+ * surface that opened, closed, or changed how it is open. Rows above it are
+ * the same in both frames, which is what lets the renderer keep history that
+ * is still true and repair only what moved.
+ */
+function firstReshapedRow(before: readonly FoldMark[], after: readonly FoldMark[]): number {
+  const keys = (marks: readonly FoldMark[]): Set<string> => new Set(marks.map(mark => mark.key))
+  const was = keys(before)
+  const now = keys(after)
+  let row = Number.POSITIVE_INFINITY
+  for (const mark of before) if (!now.has(mark.key)) row = Math.min(row, mark.row)
+  for (const mark of after) if (!was.has(mark.key)) row = Math.min(row, mark.row)
+  return Number.isFinite(row) ? row : 0
+}
+
 export class LocalTui implements TuiService {
   #deferInitialRender = false
   readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
@@ -383,8 +402,13 @@ export class LocalTui implements TuiService {
   #maxStart = 0
   #scrollBudget = 0
   #blockStarts: readonly number[] = []
+  /** Last frame's {@link TranscriptScroll.foldShape}, to notice a fold change. */
+  #foldShape: string | undefined
+  /** Last frame's open surfaces, to find where a fold change starts. */
+  #foldMarks: readonly FoldMark[] | undefined
   #follow = true
   #focusBlock: number | undefined
+  #focusBlockEdge: 'start' | 'end' | undefined
   #foldDensity: FoldDensity = DEFAULT_FOLD_DENSITY
   #foldPolicy: FoldPolicy = foldPolicy(DEFAULT_FOLD_DENSITY)
   #motion: MotionMode = 'full'
@@ -404,6 +428,20 @@ export class LocalTui implements TuiService {
   #notificationThreshold: '15s' | '30s' | '1m' | '2m' = '30s'
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
+  /**
+   * The reader opened something with Ctrl+O and is reading it.
+   *
+   * Openings are shown in a browsing frame, never in the flow that follows the
+   * tail: every opening starts an inspection, and returning to the tail ends it
+   * and closes them all. The flow's rows cross into the terminal's history, which can only be
+   * appended to: opening a run in place pushed rows that closing it could not
+   * take back, so the screen either went blank where they had been or painted
+   * rows history already held, and the transcript read twice. A browsing frame
+   * repaints the screen and nothing above it, so reading an opened run leaves
+   * the flow — and the history — exactly as it was.
+   */
+  #inspecting = false
+  #mouseTracking = false
   #expandedToolCalls = new Set<string>()
   #expandedReasoning = new Set<string>()
   #openedGroups = new Set<string>()
@@ -785,19 +823,25 @@ export class LocalTui implements TuiService {
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
+    const running = options.process === true && this.#state.status !== 'idle' && this.#state.turn > 0
     const block: Block = {
       kind: 'notice',
       level: options.level ?? 'info',
       text,
       ...(options.framed === true ? { framed: true } : {}),
+      ...(running
+        ? { process: { turn: this.#state.turn, ...(options.processSource === undefined ? {} : { source: options.processSource }) } }
+        : {}),
     }
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
+    if (options.focus === true) this.#followTail()
     if (this.#tty) this.#render()
     else this.#plain.print()
   }
 
-  commandOutput(command: string, text: string): void {
+  commandOutput(command: string, text: string, options: TuiOutputOptions = {}): void {
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'commandOutput', command, text }] }
+    if (options.focus === true) this.#followTail()
     if (this.#tty) this.#render()
     else this.#plain.print()
   }
@@ -844,16 +888,20 @@ export class LocalTui implements TuiService {
     events: readonly SessionEvent[],
     presentations?: ReadonlyMap<number, TuiToolPresentation>,
     status: TuiStatus = 'idle',
+    reason: TuiTranscriptReplacement = 'open',
   ): void {
     this.#trajectory = null
     const state = replayEvents(events, presentations)
-    // The earlier document stays in the terminal's scrollback, so the seam
-    // between the two is content rather than a clear.
-    this.#state = { ...state, status, compactCommandId: undefined, blocks: [transcriptSeam('session-opened'), ...state.blocks] }
+    // Notices and tool catalogs do not turn a blank session into a document
+    // that /new needs to separate. Refreshes are the same document.
+    const boundary = reason === 'open' || (reason === 'new' && this.#state.blocks.some(block =>
+      block.kind !== 'notice' && block.kind !== 'toolCatalog'))
+    const blocks = boundary ? [transcriptSeam('session-opened'), ...state.blocks] : state.blocks
+    this.#state = { ...state, status, compactCommandId: undefined, blocks }
     this.#plain.resetPrinted()
     this.#followTail()
     this.#deferInitialRender = false
-    this.#renderer.startEpoch({ replay: status === 'idle' ? 'full' : 'pinned' })
+    this.#renderer.startEpoch({ replay: reason === 'refresh' ? 'viewport' : status === 'idle' ? 'full' : 'pinned' })
     if (this.#tty) this.#render()
     else this.#plain.print()
   }
@@ -1088,6 +1136,7 @@ export class LocalTui implements TuiService {
     if (this.#tty) {
       this.#offData?.()
       this.#offResize?.()
+      this.#setMouseTracking(false)
       this.#term.input.setRawMode?.(false)
       // Leave the cursor on a fresh line below the last frame so the shell
       // prompt does not overwrite the transcript. Disable bracketed paste
@@ -1266,7 +1315,7 @@ export class LocalTui implements TuiService {
         trueColor: this.#trueColor,
         themeName: this.#themeName,
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
-        ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock }),
+        ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
         ...(this.#transcriptSearch === null ? {} : {
           transcriptSearch: {
             query: this.#transcriptSearch.query,
@@ -1303,8 +1352,21 @@ export class LocalTui implements TuiService {
       })
       : { lines: [] }
     this.#focusBlock = undefined
+    this.#focusBlockEdge = undefined
     this.#promptDocument = frame.promptDocument
     this.#syncScroll(frame.transcript)
+    this.#setMouseTracking(this.#inspecting && frame.transientSurface === 'scroll')
+    // A run opening or folding reshapes rows above the screen in place; the
+    // renderer's frozen boundary is a row index and has to be told, or a fold
+    // blanks the screen and a large one replays the transcript into history.
+    const scroll = frame.transcript
+    if (scroll?.foldShape !== undefined && scroll.foldMarks !== undefined) {
+      if (this.#foldMarks !== undefined && scroll.foldShape !== this.#foldShape) {
+        this.#renderer.reflow((scroll.bodyRow ?? 0) + firstReshapedRow(this.#foldMarks, scroll.foldMarks))
+      }
+      this.#foldShape = scroll.foldShape
+      this.#foldMarks = scroll.foldMarks
+    }
     this.#renderer.render(frame)
   }
 
@@ -1318,18 +1380,17 @@ export class LocalTui implements TuiService {
 
   #syncScroll(scroll: { start: number; maxStart: number; budget: number; blockStarts?: readonly number[] } | undefined): void {
     if (scroll === undefined) {
-      this.#scrollStart = 0
-      this.#maxStart = 0
-      this.#scrollBudget = 0
-      this.#blockStarts = []
-      this.#follow = true
+      // Full-screen surfaces temporarily cover the transcript. They carry no
+      // scroll projection and must not replace the reader's return position.
       return
     }
     this.#scrollStart = scroll.start
     this.#maxStart = scroll.maxStart
     this.#scrollBudget = scroll.budget
     this.#blockStarts = scroll.blockStarts ?? []
-    if (this.#follow || this.#scrollStart >= this.#maxStart) {
+    // An inspection stays a browsing frame even when everything fits: resuming
+    // the follow would drop the openings the reader just asked for.
+    if (!this.#inspecting && (this.#follow || this.#scrollStart >= this.#maxStart)) {
       this.#follow = true
       this.#scrollStart = this.#maxStart
     }
@@ -1341,6 +1402,13 @@ export class LocalTui implements TuiService {
 
   #scrollBy(delta: number): void {
     if (delta === 0 && this.#maxStart === 0) return
+    // Scrolling past the end of an inspection is how a reader goes back to
+    // the live tail, the same as scrolling to the end of history does.
+    if (this.#inspecting && delta > 0 && this.#scrollStart >= this.#maxStart) {
+      this.#followTail()
+      this.#render()
+      return
+    }
     this.#follow = false
     this.#scrollStart += delta
     if (this.#scrollStart <= 0) this.#scrollStart = 0
@@ -1350,6 +1418,49 @@ export class LocalTui implements TuiService {
   #followTail(): void {
     this.#follow = true
     this.#scrollStart = this.#maxStart
+    this.#endInspection()
+  }
+
+  /** Close every opening the reader made; they belong to one inspection. */
+  #endInspection(): void {
+    if (!this.#inspecting) return
+    this.#inspecting = false
+    this.#setMouseTracking(false)
+    this.#toolsExpanded = false
+    this.#openedGroups.clear()
+    this.#expandedToolCalls.clear()
+    this.#expandedReasoning.clear()
+  }
+
+  /** Borrow wheel reports only while reading an opened transcript. */
+  #setMouseTracking(enabled: boolean): void {
+    if (!this.#tty || enabled === this.#mouseTracking) return
+    this.#mouseTracking = enabled
+    this.#term.output.write(enabled ? '\x1b[?1000h\x1b[?1006h' : '\x1b[?1000l\x1b[?1006l')
+  }
+
+  /**
+   * After a Ctrl+O toggle: read what is open in a browsing frame at `target`,
+   * or go back to the live tail once nothing is open any more.
+   */
+  #inspect(target: number | undefined): void {
+    const open = this.#toolsExpanded || this.#openedGroups.size > 0
+      || this.#expandedToolCalls.size > 0 || this.#expandedReasoning.size > 0
+    if (!open) {
+      this.#inspecting = false
+      this.#followTail()
+      return
+    }
+    if (this.#inspecting) return
+    this.#inspecting = true
+    this.#follow = false
+    // Opening from the tail with nothing in particular under the viewport
+    // keeps the reader at the end of the transcript, now in a browsing frame.
+    if (target === undefined) this.#scrollStart = Number.MAX_SAFE_INTEGER
+    else {
+      this.#focusBlock = target
+      this.#focusBlockEdge = 'end'
+    }
   }
 
   readonly #utf8 = new StringDecoder('utf8')
@@ -1473,6 +1584,12 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    if (event.type === 'wheel') {
+      if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
+        this.#scrollBy(event.direction === 'up' ? -3 : 3)
+      }
+      return
+    }
     if (this.#state.status === 'compacting') {
       if (event.type === 'key' && event.id === 'pageUp') {
         this.#scrollBy(-this.#pageSize())
@@ -2220,6 +2337,10 @@ export class LocalTui implements TuiService {
     }
     if (command.kind === 'suspend') {
       if (process.platform !== 'win32') {
+        if (this.#inspecting) {
+          this.#followTail()
+          this.#render()
+        }
         try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
       }
       return
@@ -2322,7 +2443,6 @@ export class LocalTui implements TuiService {
     this.#copySelector = null
     this.#trajectory = null
     this.#agentHub = null
-    this.#followTail()
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
     // them only to detect and execute Harness commands.
@@ -2332,6 +2452,7 @@ export class LocalTui implements TuiService {
       this.#runSlash(slash.name, slash.args)
       return
     }
+    this.#followTail()
     const pending = this.#pending
     if (pending !== null) {
       pending.offAbort?.()
@@ -2363,12 +2484,12 @@ export class LocalTui implements TuiService {
     this.#images.clear()
     this.#ac = null
     this.#search = null
-    this.#followTail()
     const slash = images.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       this.#runSlash(slash.name, slash.args)
       return
     }
+    this.#followTail()
     if (submittedText === '' && images.length === 0) {
       this.#render()
       return
@@ -2384,25 +2505,13 @@ export class LocalTui implements TuiService {
     }
     const command = resolveSlashCommand(name, this.#commands())
     if (command === undefined) {
+      this.#followTail()
       this.#notice('unknown command: /' + name)
       this.#render()
       return
     }
-    if (command.name === 'quit') {
-      this.#render()
-      this.#quit()
-      return
-    }
-    if (command.name === 'clear') {
-      // Presentation-only reset: the agent may still own an active turn with
-      // live status, todos, and queued inbox state. Clearing those would make
-      // the next Ctrl-C (or follow-up) behave as if the session had finished.
-      this.#state = { ...this.#state, blocks: [transcriptSeam('cleared')] }
-      this.#followTail()
-      this.#renderer.startEpoch()
-      this.#render()
-      return
-    }
+    // Reading controls cover the current view; submitting a command that
+    // opens one must preserve the same return position as a keyboard action.
     if (command.name === 'settings') {
       this.#runSettings(args)
       return
@@ -2411,11 +2520,8 @@ export class LocalTui implements TuiService {
       void this.#runCopy(args)
       return
     }
-    if (command.name === 'tools') {
-      this.#toolCatalog()
-      this.#render()
-      return
-    }
+    // A plugin decides whether its command opens a reading surface or changes
+    // the document. Forwarding alone must not discard the return position.
     if (!BUILTIN_SLASH_COMMANDS.some((entry) => entry.name === command.name)) {
       if (this.#inspected !== undefined) {
         this.#notice('Return to the parent session to run /' + command.name + '.')
@@ -2431,6 +2537,27 @@ export class LocalTui implements TuiService {
       } else {
         this.#queuedSubmissions.push({ text: raw, images: [] })
       }
+      this.#render()
+      return
+    }
+    this.#followTail()
+    if (command.name === 'quit') {
+      this.#render()
+      this.#quit()
+      return
+    }
+    if (command.name === 'clear') {
+      // Presentation-only reset: the agent may still own an active turn with
+      // live status, todos, and queued inbox state. Clearing those would make
+      // the next Ctrl-C (or follow-up) behave as if the session had finished.
+      this.#state = { ...this.#state, blocks: [transcriptSeam('cleared')] }
+      this.#followTail()
+      this.#renderer.startEpoch()
+      this.#render()
+      return
+    }
+    if (command.name === 'tools') {
+      this.#toolCatalog()
       this.#render()
       return
     }
@@ -2679,6 +2806,7 @@ export class LocalTui implements TuiService {
       return true
     }
     try {
+      this.#setMouseTracking(false)
       this.#term.input.setRawMode?.(false)
       const text = editExternally(this.#editor.text)
       this.#editor.setText(text)
@@ -2719,18 +2847,73 @@ export class LocalTui implements TuiService {
    * failing all of those the key falls through to opening everything.
    */
   #toggleFoldTarget(): void {
+    // The anchor is read off the last painted frame's row offsets. A burst of
+    // settlements may still be waiting for its coalesced paint, and aiming with
+    // the older offsets misses the run the reader is looking at and falls
+    // through to opening every call; paint first so both describe one state.
+    if (this.#streamRenderTimer !== null) this.#render()
+    // Inside an inspection the key is the way back out: it closes what was
+    // opened and returns to the live tail, wherever the reader has scrolled.
+    if (this.#inspecting) {
+      this.#followTail()
+      this.#render()
+      return
+    }
     const anchor = this.#viewportBlock()
     const within = (index: number): boolean => anchor === undefined || index <= anchor
-    const groups = processGroups(this.#state.blocks)
+    // A live run is not a group yet — it has no header to open — so the key
+    // aims at the call or thought under the viewport inside it instead.
+    const groups = turnGroups(this.#state).filter(item => !item.live)
     // The group is matched at its end as well as inside it. A collapsed group
     // occupies one row and the block that closed it is the answer sitting just
     // below, so following the tail puts the anchor on that answer — and the
     // thing the reader is actually looking at is the group above it.
+    // A finished turn ends on its answer and then, often, the record of the
+    // files it changed; following the tail aims at that record. It is still the
+    // turn the reader is looking at, so the run above it is the target — not
+    // the fallthrough that opens every call in the session.
+    // The run's trailing work is painted after its answer and after the
+    // changed-file record, so following the tail aims past all of it. Reaching
+    // only as far as the run's own end would aim the key at a notice the
+    // reader is looking at and fall through to opening every call instead.
+    const reach = (group: ProcessGroup): number => {
+      let at = group.until
+      const blocks = this.#state.blocks
+      while (at < blocks.length) {
+        const block = blocks[at]
+        if (block?.kind === 'workspace' || (block?.kind === 'notice' && block.boundary !== true)) {
+          at += 1
+          continue
+        }
+        break
+      }
+      return at - 1
+    }
     const group = anchor === undefined
       ? undefined
-      : groups.findLast(item => anchor >= item.start && anchor <= item.end)
+      : groups.findLast(item => anchor >= item.start && anchor <= reach(item))
     if (group !== undefined) {
       this.#toggleSet(this.#openedGroups, group.key)
+      // Opening a run is its one reading surface. Ctrl+O inside it exits, so
+      // folded thoughts and calls must open with it rather than remain hidden.
+      // The stretch already covers the answer — it sits inside [start, until) —
+      // so there is nothing to add, and work that settled behind the answer is
+      // covered by the same range.
+      const members = Array.from({ length: group.until - group.start }, (_, index) => group.start + index)
+      for (const index of members) {
+        const block = this.#state.blocks[index]
+        if (block?.kind === 'assistant' && block.reasoning !== '') {
+          this.#expandedReasoning.add(reasoningKey(block))
+        } else if (block?.kind === 'tool') {
+          this.#expandedToolCalls.add(block.callId)
+        }
+      }
+      // Open at the run's newest work, which is its last member: the answer
+      // that closed it is not part of the run, and trailing work is a notice
+      // rather than something to land on.
+      // The run's newest work is its last member: the answer that closed it
+      // is not part of the run, and work that settled behind it is a notice.
+      this.#inspect((group.answer ?? group.until) - 1)
       this.#render()
       return
     }
@@ -2739,11 +2922,12 @@ export class LocalTui implements TuiService {
     // a dead key.
     const grouped = new Set<number>()
     for (const item of groups) {
-      for (let at = item.start; at < item.end; at += 1) grouped.add(at)
+      for (let at = item.start; at < (item.answer ?? item.until); at += 1) grouped.add(at)
     }
     const at = anchor === undefined ? this.#state.blocks.at(-1) : this.#state.blocks[anchor]
     if (at?.kind === 'toolCatalog') {
       this.#toolsExpanded = !this.#toolsExpanded
+      this.#inspect(anchor)
       this.#render()
       return
     }
@@ -2753,6 +2937,7 @@ export class LocalTui implements TuiService {
     )
     if (tool?.kind === 'tool') {
       this.#toggleSet(this.#expandedToolCalls, tool.callId)
+      this.#inspect(this.#state.blocks.indexOf(tool))
       this.#render()
       return
     }
@@ -2764,10 +2949,12 @@ export class LocalTui implements TuiService {
     )
     if (thought?.kind === 'assistant') {
       this.#toggleSet(this.#expandedReasoning, reasoningKey(thought))
+      this.#inspect(this.#state.blocks.indexOf(thought))
       this.#render()
       return
     }
     this.#toolsExpanded = !this.#toolsExpanded
+    this.#inspect(this.#follow ? undefined : anchor)
     this.#render()
   }
 

@@ -72,7 +72,7 @@ export function foldPolicy(density: FoldDensity): FoldPolicy {
 
 /** What a density changes, in the words `/settings` shows next to it. */
 export const FOLD_DENSITY_COPY: Record<FoldDensity, string> = {
-  compact: 'One row per run with no details, and a call names only the tool',
+  compact: 'One row per run with its length and size only, and a call names only its kind of work',
   standard: 'One row per run naming the kinds of work, and a call says what it acted on',
   detailed: 'Runs stay open so every call keeps its place, thoughts read in full, calls stay on one line',
   verbose: 'Runs stay open and every call paints its full output; the thinking stays folded until Ctrl+O',

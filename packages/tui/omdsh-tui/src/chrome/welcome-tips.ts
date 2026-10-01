@@ -12,7 +12,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Tab', text: 'Complete commands and paths' },
   { key: 'Ctrl+R', text: 'Search and reuse prompt history' },
   { key: 'Ctrl+F', text: 'Search the current transcript' },
-  { key: 'Ctrl+O', text: 'Expand or collapse tool output' },
+  { key: 'Ctrl+O', text: 'Inspect a run, call, thought, or tool catalog' },
   { key: '↓ / Alt+A', text: 'Open the keyboard-driven Agent Hub' },
   { key: 'PgUp/PgDn', text: 'Scroll through the transcript' },
   { key: 'Shift+Enter/Ctrl+J', text: 'Insert a newline in the composer' },

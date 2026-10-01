@@ -85,6 +85,7 @@ describe('background subagent status routing', () => {
       expect(f.calls.streamDelta).not.toHaveBeenCalled()
       const child = f.children[0]!
       f.inspect(child.id)
+      expect(f.calls.replaceSession.mock.lastCall?.[3]).toBe('refresh')
       expect(f.calls.streamDelta).toHaveBeenCalledTimes(40)
       expect(f.calls.streamDelta.mock.calls.map(([delta]) => delta.chunk.text).join(''))
         .toBe(Array.from({ length: 40 }, (_, index) => `${child.id}:${index};`).join(''))
@@ -94,6 +95,7 @@ describe('background subagent status routing', () => {
       })
       expect(f.calls.streamDelta).toHaveBeenCalledTimes(41)
       f.closeInspect()
+      expect(f.calls.replaceSession.mock.lastCall?.[3]).toBe('refresh')
       f.calls.streamDelta.mockClear()
       f.emit(child, {
         type: 'chunk', attemptId, revision: 42, index: 41, time: 42,

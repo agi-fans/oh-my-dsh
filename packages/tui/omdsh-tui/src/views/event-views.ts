@@ -238,7 +238,7 @@ export function applyStreamChunk(state: TranscriptState, delta: StreamDelta): Tr
     } else {
       blocks.push({
         kind: 'tool', callId: chunk.id, name: chunk.name ?? 'tool',
-        args: chunk.argumentsDelta, status: 'running', output: '', partial: true,
+        args: chunk.argumentsDelta, status: 'running', output: '', partial: true, turn,
       })
     }
     return { ...state, blocks }
@@ -325,11 +325,34 @@ function foldEvent(
 ): TranscriptState {
   switch (event.type) {
     case 'turn/start':
-      return { ...state, status: 'running', turn: event.data.turn, todos: [], compactCommandId: undefined, compaction: undefined }
+      return {
+        ...state,
+        status: 'running',
+        turn: event.data.turn,
+        todos: [],
+        compactCommandId: undefined,
+        compaction: undefined,
+        turnSpans: { ...state.turnSpans, [event.data.turn]: { start: event.time } },
+      }
     case 'llm/retry': {
       const blocks = editableBlocks(state, mutable)
       hideFailedAttempt(blocks, event.data.turn, event.data.step, indexes)
-      const notice: Block = { kind: 'notice', level: 'info', text: formatRetryNotice(event) }
+      const notice: Block = {
+        kind: 'notice',
+        level: 'info',
+        text: formatRetryNotice(event),
+        // The retry id is what tells two of these apart when a run begins with
+        // one, but the harness reuses one id along a retry chain — a chain that
+        // spans several attempts is one id — so the attempt number is part of
+        // the key as well. An older log without either still renders; it just
+        // cannot be keyed by them, and the run falls back to its position.
+        process: {
+          turn: event.data.turn,
+          ...(event.data.retryId === undefined
+            ? {}
+            : { source: `${event.data.retryId}:${event.data.retry}` }),
+        },
+      }
       if (isRetryNotice(blocks[blocks.length - 1])) blocks[blocks.length - 1] = notice
       else blocks.push(notice)
       return { ...state, blocks, status: 'running', turn: event.data.turn }
@@ -374,6 +397,7 @@ function foldEvent(
       }
       // A compaction still open here cannot be the turn's own: clear it so a
       // late `compaction/end` cannot restore a stale running status.
+      const span = state.turnSpans?.[event.data.turn]
       return {
         ...state,
         blocks,
@@ -381,6 +405,9 @@ function foldEvent(
         compactCommandId: undefined,
         compaction: undefined,
         turnError: failure,
+        ...(span === undefined
+          ? {}
+          : { turnSpans: { ...state.turnSpans, [event.data.turn]: { start: span.start, end: event.time } } }),
       }
     }
     case 'user/message': {
@@ -413,7 +440,10 @@ function foldEvent(
       )
     }
     case 'tool/call':
-      return startToolCall(state, event.data.callId, event.data.name, event.data.arguments, undefined, presentation, mutable, indexes)
+      return startToolCall(
+        state, event.data.callId, event.data.name, event.data.arguments, undefined, presentation, mutable, indexes,
+        event.data.turn,
+      )
     // PTC mode records the calls a program made under its `run_code` call
     // rather than as tool/call events, but the Harness asks UIs to render a
     // sub-call through the same path as a native one, so it is the same block.
@@ -555,6 +585,7 @@ function startToolCall(
   presentation: TuiToolPresentation | undefined,
   mutable: boolean,
   indexes?: ReplayIndexes,
+  turn: number = state.turn,
 ): TranscriptState {
   const block: Block = {
     kind: 'tool',
@@ -563,6 +594,7 @@ function startToolCall(
     args: prettyArgs(typeof args === 'string' ? args : JSON.stringify(args)),
     status: 'running',
     output: '',
+    ...(turn > 0 ? { turn } : {}),
     ...(parentCallId === undefined ? {} : { parentCallId }),
     ...(presentation === undefined ? {} : { presentation }),
   }

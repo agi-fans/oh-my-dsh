@@ -84,7 +84,7 @@ Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。`om
 
 - 布局以终端显示单元格为准，正确处理 ANSI 序列、CJK 文本、emoji、组合字符和不可断行的长内容。
 - Composer 和两行状态 Footer 固定在底部，Transcript Viewport 可以独立滚动。
-- `MainScreenRenderer` 在普通更新期间将终端原生 scrollback 作为追加式冻结视觉记录。在终端尺寸稳定时，已最终化的行会在离开实时屏幕前以最终内容重写。仅追加的 assistant reasoning 和 text 不固定在 viewport，其滚出屏幕的头部会进入原生历史，让 viewport 自然跟随实时尾部；可变的 running-tool preview 则固定到完成为止。生产启动会等待初始 session projection，不再先绘制临时 Header。idle session replacement 会完整重放逻辑帧；running replacement 重放已稳定前缀，从缓冲的 `agent/assistant-stream` 帧重建当前活跃尝试，并仅固定其可变 preview 区域。转录替换会把新文档重放进一个全新的索引空间，并追加在接缝之下；原生 scrollback 永不擦除，因为里面还有本进程并未产生的内容。direct terminal 为临时全屏界面借用 alternate screen。multiplexer 与 ConPTY 会保留宿主 scrollback，multiplexer 的 resize 突发会先合并再重新锚定。Renderer 不启用 1000/1006 鼠标跟踪，并将每帧包在一次 DEC 2026 同步写入中。
+- `MainScreenRenderer` 将终端原生 scrollback 视为不可改写的视觉快照。在终端尺寸稳定时，已最终化的行会在离开实时屏幕前完成绘制。进行中的回合保持可变且不成组，结束后实时投影将过程折成一段。生产启动等待初始 session projection。打开或替换文档时采用新的行索引：idle 恢复完整重放快照，running 恢复保留可变尾部，并从缓冲事件重建流式内容。preset、工具列表更新和子 agent 检视等投影刷新只采用当前视口，不重放历史。resume、会话切换、fork 和 `/clear` 添加带标签的分界线，`/new` 仅在此前转录存在实际正文时添加；首次启动和投影刷新不需要分界线。原生 scrollback 永不擦除。direct terminal 为全屏界面借用 alternate screen；multiplexer 与 ConPTY 保留宿主 scrollback，multiplexer 的 resize 突发先合并再重新锚定。终端 provider 仅在展开转录的滚动帧中开启 1000/1006 鼠标报告，全屏界面暂时关闭报告，返回后恢复原来的检视位置。用户命令返回文本时回到实时底部显示结果，后台通知和更新说明保留阅读位置。报告开启期间无法使用原生拖选，键盘复制路径仍可用。Renderer 负责绘制，每帧包在一次 DEC 2026 同步写入中。
 - 已完成的 Transcript 布局会被缓存，Renderer 只输出发生变化的行，而不重绘整个屏幕。
 - Modal Selector 在交互结束前独占输入和光标可见性，结束后恢复 Composer；Prompt 会暂时移开并恢复它所打断的全屏 Overlay，任何确认都不可能在被遮挡的旧屏幕背后被接受。
 - 第一次 Ctrl-C 清空输入或中断任务，第二次 Ctrl-C 退出。Ctrl-D 直接退出；存在持久会话时会输出 `omdsh --resume <session-id>` 提示。

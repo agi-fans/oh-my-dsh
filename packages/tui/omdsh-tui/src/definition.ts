@@ -23,6 +23,9 @@ export const TUI_SERVICE = 'tui'
 /** Whole-agent liveness, mirroring the SDK session.status vocabulary. */
 export type TuiStatus = 'idle' | 'running'
 
+/** Why the controller is replacing the visible transcript. */
+export type TuiTranscriptReplacement = 'initial' | 'new' | 'open' | 'refresh'
+
 /** Command metadata contributed by the active agent's plugin scope. */
 export interface TuiCommand {
   name: string
@@ -30,11 +33,29 @@ export interface TuiCommand {
   inputHint?: string
 }
 
+/** Whether direct output should interrupt transcript browsing. */
+export interface TuiOutputOptions {
+  /** Reveal a requested result at the live tail, ending any inspection. */
+  focus?: boolean
+}
+
 /** Presentation intent for a direct, non-session notice. */
-export interface TuiNoticeOptions {
+export interface TuiNoticeOptions extends TuiOutputOptions {
   level?: 'info' | 'error'
   /** Reserve a component frame for callers that explicitly own a panel. */
   framed?: boolean
+  /**
+   * The notice reports work inside the running turn — a background job
+   * settling — so it folds into the turn's run instead of splitting it. It is
+   * ignored when no turn is running: then it speaks to the reader directly.
+   */
+  process?: boolean
+  /**
+   * Durable id of what a process notice reports on — a job id, a retry id.
+   * A run is keyed by its first block, so notices sharing a run need to be
+   * told apart or two runs in one document collide on one key.
+   */
+  processSource?: string
 }
 
 /** One terminal-owned human prompt used by approval and question adapters. */
@@ -282,19 +303,24 @@ export interface TuiService {
   toolCallContext(callId: string): string | undefined
   /** Append a direct UI/command result without fabricating a session event. */
   notice(text: string, options?: TuiNoticeOptions): void
-  /** Append one successful plugin command result using the command-output surface. */
-  commandOutput(command: string, text: string): void
+  /** Append command output; preserve the viewport unless focus is requested. */
+  commandOutput(command: string, text: string, options?: TuiOutputOptions): void
   /** Bind the product-owned Agent settings section; only one binding may be active. */
   bindAgentBehaviorSettings?(binding: TuiAgentBehaviorSettingsBinding): () => void
   /** Currently applied preferences, for sibling rows that must honor them. */
   prefs(): TuiPrefs
   /** Temporarily own the composer and collect one human answer. */
   prompt(request: TuiPrompt): Promise<string | null>
-  /** Replace the transcript when a new or resumed session becomes active. */
+  /**
+   * Replace the transcript while retaining earlier terminal output. Opening a
+   * session adds a boundary; /new adds one only after transcript content.
+   * Initial presentation and refreshes omit it. Defaults to opening a session.
+   */
   replaceSession(
     events: readonly SessionEvent[],
     presentations?: ReadonlyMap<number, TuiToolPresentation>,
     status?: TuiStatus,
+    reason?: TuiTranscriptReplacement,
   ): void
   /** Update session identity, recent rows, projected controls, and aggregate figures. */
   setSession(info: {

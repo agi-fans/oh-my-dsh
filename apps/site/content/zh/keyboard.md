@@ -43,9 +43,12 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 |---|---|
 | `PgUp` / `PgDn` | 翻一页。 |
 | `Shift+Up` / `Shift+Down` | 快速滚动。 |
-| `Ctrl+O` | 打开视口所在的组、工具调用或思考，或工具目录。 |
+| 鼠标滚轮 | 在 `Ctrl+O` 打开的浏览视图中上下滚动；离开该视图后由终端处理滚动。 |
+| `Ctrl+O` | 从最新内容开始阅读视口所在的过程、工具调用或思考全文，或打开工具目录；再按一次回到实时底部。 |
 | `Ctrl+F` | composer 为空时搜索当前转录；`n`/`N` 在匹配间跳转。 |
 | `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
+
+在展开的转录滚动视图里，omdsh 会接管鼠标输入，因此无法用终端原生拖选。可以用 `/copy` 选择代码块或命令，用 `/copy code` 或 `/copy cmd` 复制最近的对应条目，用 `Ctrl+Alt+C` 复制当前输入行。关闭检视后恢复终端自身的鼠标处理。全屏界面暂时关闭滚轮接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
 
 ## 会话
 
@@ -100,7 +103,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `cycle-model-forward` | `Ctrl+P` | 切换到下一个收藏模型。 |
 | `cycle-model-backward` | `Alt+P` | 切换到上一个收藏模型。 |
 | `cycle-reasoning` | `Ctrl+T` | 循环切换当前模型的推理强度。 |
-| `toggle-tools` | `Ctrl+O` | 打开视口所在的组、工具调用或思考，或工具目录。 |
+| `toggle-tools` | `Ctrl+O` | 从最新内容开始阅读视口所在的过程、工具调用或思考全文，或打开工具目录；再按一次回到实时底部。 |
 | `scroll-page-up` | `PgUp` | 向上翻一页。 |
 | `scroll-page-down` | `PgDn` | 向下翻一页。 |
 | `scroll-fast-up` | `Shift+Up` | 快速向上滚动。 |

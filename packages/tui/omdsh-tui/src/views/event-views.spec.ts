@@ -9,13 +9,14 @@ import { applyEvent, applyStreamChunk, blockLines, initialTranscript, renderInsp
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
+import type { TranscriptState } from './transcript-types.ts'
 
 /** Fixture builder: a session event with a sequence number. */
 function ev(type: string, data: unknown, seq: number): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
 }
 
-const view = (state: ReturnType<typeof initialTranscript>, input = '') =>
+const view = (state: TranscriptState, input = '') =>
   renderView(state, {
     width: 60,
     height: 24,
@@ -96,7 +97,7 @@ describe('applyEvent', () => {
     expect(live.blocks).toEqual([
       { kind: 'user', text: 'hello' },
       { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: 'thinking', streaming: false },
-      { kind: 'tool', callId: 'call-1', name: 'bash', args: '{"command":"true"}', status: 'ok', output: 'done' },
+      { kind: 'tool', callId: 'call-1', name: 'bash', args: '{"command":"true"}', status: 'ok', output: 'done', turn: 1 },
     ])
   })
 
@@ -492,7 +493,7 @@ describe('applyEvent', () => {
       failure: { message: 'busy one', code: 'SERVER' },
     }, 3))
     expect(state.blocks).toEqual([
-      { kind: 'notice', level: 'info', text: 'retrying SERVER (1/2)' },
+      { kind: 'notice', level: 'info', text: 'retrying SERVER (1/2)', process: { turn: 1, source: 'retry-1:1' } },
     ])
     state = applyEvent(state, ev('llm/retry-started', {
       retryId: 'retry-1', turn: 1, step: 1, retry: 1,
@@ -646,7 +647,7 @@ describe('applyEvent', () => {
       failure: { message: 'empty', code: 'EMPTY_RESPONSE' },
     }, 2))
     expect(state.blocks).toEqual([
-      { kind: 'notice', level: 'info', text: 'retrying EMPTY_RESPONSE (1/5)' },
+      { kind: 'notice', level: 'info', text: 'retrying EMPTY_RESPONSE (1/5)', process: { turn: 1, source: 'retry-1:1' } },
     ])
     state = applyEvent(state, ev('assistant/message', {
       turn: 1, step: 1, message: { content: [{ type: 'text', text: 'recovered' }] }, stream: [],
@@ -654,6 +655,27 @@ describe('applyEvent', () => {
     expect(state.blocks).toEqual([
       { kind: 'assistant', turn: 1, step: 1, text: 'recovered', reasoning: '', streaming: false },
     ])
+  })
+
+  it('gives each attempt on a retry chain its own process source', () => {
+    // The harness reuses one retry id along a chain, so keying the run on the
+    // id alone gave two attempts of the same chain the same key — and a chain
+    // broken by another notice would then key two stretches of blocks alike.
+    let state = initialTranscript()
+    state = applyEvent(state, ev('llm/retry', {
+      retryId: 'retry-1', turn: 1, step: 1, provider: 'mock', mode: 'normal', policyKey: 'normal',
+      retry: 1, maxRetries: 3, delayMs: 10, failure: { message: 'busy', code: 'SERVER' },
+    }, 1))
+    state = applyEvent(state, ev('llm/retry', {
+      retryId: 'retry-1', turn: 1, step: 1, provider: 'mock', mode: 'normal', policyKey: 'normal',
+      retry: 2, maxRetries: 3, delayMs: 10, failure: { message: 'busy', code: 'SERVER' },
+    }, 2))
+    const notices = state.blocks.filter(block => block.kind === 'notice')
+    // A later attempt replaces the notice it supersedes, so one is on screen;
+    // its source carries the attempt number, which is what separates the runs
+    // two attempts of one chain would otherwise give the same key for.
+    expect(notices).toHaveLength(1)
+    expect((notices[0] as Extract<Block, { kind: 'notice' }>).process?.source).toBe('retry-1:2')
   })
 
   it('drops the retry notice when a recovered tool-call-delta arrives', () => {
@@ -674,7 +696,7 @@ describe('applyEvent', () => {
       failure: { message: 'stream closed', code: 'TRANSPORT' },
     }, 2))
     expect(state.blocks).toEqual([
-      { kind: 'notice', level: 'info', text: 'retrying TRANSPORT (1/5)' },
+      { kind: 'notice', level: 'info', text: 'retrying TRANSPORT (1/5)', process: { turn: 1, source: 'retry-1:1' } },
     ])
     state = applyStreamChunk(state, {
       turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'bash', argumentsDelta: '{"cmd":"true"}' },
@@ -688,6 +710,7 @@ describe('applyEvent', () => {
         status: 'running',
         output: '',
         partial: true,
+        turn: 1,
       },
     ])
   })
@@ -730,20 +753,22 @@ describe('applyEvent', () => {
     const running = renderView({ ...state, status: 'running' }, {
       width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors: false,
     })
-    expect(running.lines.join('\n')).toContain('read')
+    expect(running.lines.join('\n')).toContain('Read file')
     expect(running.lines.join('\n')).toContain('Ctrl+C: Interrupt')
     const activity = running.lines.find(line => line.includes('Ctrl+C: Interrupt')) ?? ''
     expect(activity).toContain('Deep Driving')
-    expect(activity).not.toContain('read')
+    expect(activity).not.toContain('Read file')
     state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] } }, 3))
     state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] } }, 4))
     const tools = state.blocks.filter((block): block is Extract<typeof block, { kind: 'tool' }> => block.kind === 'tool')
     expect(tools.map((block) => block.status)).toEqual(['ok', 'error'])
     expect(tools[0]?.output).toBe('a b')
     const frame = view(state)
-    expect(frame.lines.some((line) => line.includes('bash'))).toBe(true)
-    // A settled successful call carries no gutter mark any more: the mark said
-    // "the row exists", which it always did. The failure is what still marks.
+    // The two calls fold into one run; the failed one keeps its row under it.
+    expect(frame.lines.some((line) => line.includes('Ran a command and read a file'))).toBe(true)
+    expect(frame.lines.some((line) => line.includes('✘ Read file'))).toBe(true)
+    // A settled successful call carries no checkmark: the mark said "the row
+    // exists", which it always did. The failure is what still marks.
     expect(frame.lines.some((line) => line.includes('✔'))).toBe(false)
     expect(frame.lines.some((line) => line.includes('✘'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('╭───'))).toBe(true)
@@ -767,9 +792,9 @@ describe('applyEvent', () => {
     const collapsedText = collapsed.lines.join('\n')
     // A settled call keeps no frame and no body: the row is the whole record
     // until the reader asks for it.
-    expect(collapsedText).toContain('bash')
+    expect(collapsedText).toContain('Run command')
     expect(collapsedText).not.toContain('out-0')
-    const row = collapsed.lines.find(line => stripAnsi(line).includes('bash')) ?? ''
+    const row = collapsed.lines.find(line => stripAnsi(line).includes('Run command')) ?? ''
     expect(stripAnsi(row).trimStart().startsWith('╭')).toBe(false)
     const expanded = renderView(state, {
       width: 60,
@@ -1035,7 +1060,19 @@ describe('blockLines', () => {
     expect(expanded.join('\n')).toContain('Ctrl+O: Collapse descriptions')
   })
 
-  it('matches oh-my-pi assistant padding and wraps inside both margins', () => {
+  it('paints the prompt as one tinted slab, padding rows included', () => {
+    // Unpainted padding rows read as two extra blank lines around every prompt,
+    // doubling the gap it sat in compared with anything else on the screen.
+    const color = createTheme(true, true)
+    const lines = blockLines({ kind: 'user', text: 'hello' }, color, 20)
+    const tint = color.getBgAnsi('userMessageBg')
+
+    expect(tint).not.toBe('')
+    expect(lines).toHaveLength(3)
+    for (const line of lines) expect(line).toContain(tint)
+  })
+
+  it('sets a reply on the content column and wraps inside both margins', () => {
     const lines = blockLines({
       kind: 'assistant',
       turn: 1,
@@ -1045,7 +1082,9 @@ describe('blockLines', () => {
       streaming: false,
     }, theme, 8)
 
-    expect(lines).toEqual([' abcdef ', ' ghijkl '])
+    // Two cells each side: the reply's words start on the same column as a
+    // prompt's after its mark, and a run header's after its disclosure mark.
+    expect(lines).toEqual(['  abcd  ', '  efgh  ', '  ijkl  '])
     expect(lines.every((line) => visibleWidth(line) === 8)).toBe(true)
   })
 
@@ -1112,8 +1151,8 @@ describe('blockLines', () => {
     // it, which is what made a turn read as one undifferentiated column.
     // The marks share column zero and the reply stays inset behind them, so the
     // two registers read as marked asides and prose rather than as one column.
-    expect(reasoning).toEqual(['∴  thoug…   ', '', ' answer     '])
-    expect(streaming).toEqual([' …          '])
+    expect(reasoning).toEqual(['∴ Thought ·…', '', '  answer    '])
+    expect(streaming).toEqual(['  …         '])
   })
 
   it('paints reasoning in thinkingText italic without a rail, and keeps prose off default ink', () => {
@@ -1281,7 +1320,7 @@ describe('renderView', () => {
         { kind: 'commandOutput', command: 'session', text: 'Session Details\n\nfirst' },
         { kind: 'commandOutput', command: 'export', text: 'Export complete\n\nsecond' },
       ],
-    } as ReturnType<typeof initialTranscript>
+    } as TranscriptState
     const frame = renderView(state, {
       width: 60,
       height: 24,
@@ -1963,7 +2002,7 @@ describe('renderView', () => {
 })
 
 describe('turn failure row', () => {
-  const failed = (): ReturnType<typeof initialTranscript> => {
+  const failed = (): TranscriptState => {
     let state = initialTranscript()
     state = applyEvent(state, ev('turn/start', { turn: 1 }, 1))
     return applyEvent(state, ev('turn/end', {
@@ -2014,6 +2053,31 @@ describe('turn failure row', () => {
     expect(narrow).toHaveLength(1)
     expect(visibleWidth(narrow[0]!)).toBe(20)
     expect(stripAnsi(narrow[0]!)).not.toContain('Alt+R')
+  })
+})
+
+describe('focused transcript edges', () => {
+  it.each([false, true])('shows the end of an opened call ahead of a long answer (colors=%s)', (colors) => {
+    const state = {
+      ...initialTranscript(),
+      blocks: [
+        { kind: 'tool' as const, callId: ToolCallId('focused-call'), name: 'bash', args: '{}', status: 'ok' as const,
+          output: Array.from({ length: 30 }, (_, i) => `输出 🐳 ${i}`).join('\n') },
+        { kind: 'assistant' as const, turn: 1, step: 1, reasoning: '', streaming: false,
+          text: Array.from({ length: 30 }, (_, i) => `answer ${i}`).join('\n') },
+      ],
+    }
+    const options = {
+      width: 40, height: 15, model: 'm', input: '', inputCursor: 0, colors,
+      focusBlock: 0, expandedTools: new Set(['focused-call']),
+    }
+    const start = renderView(state, options).lines.map(stripAnsi).join('\n')
+    const end = renderView(state, { ...options, focusBlockEdge: 'end' }).lines.map(stripAnsi).join('\n')
+    expect(start).toContain('输出 🐳 0')
+    expect(start).not.toContain('输出 🐳 29')
+    expect(end).toContain('输出 🐳 29')
+    expect(end).not.toContain('输出 🐳 0')
+    expect(end).not.toContain('answer 29')
   })
 })
 

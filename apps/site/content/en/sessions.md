@@ -16,6 +16,8 @@ Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back 
 
 See [Recover and manage a long session](tutorials/long-session.md) for the walkthrough.
 
+The terminal's native scrollback stays available when you clear the transcript, resume or switch sessions, or fork through rewind. A labelled boundary marks the replacement. A fresh launch, preset or tool-catalog changes, and entering or leaving subagent inspection omit this boundary. `/new` shows it only when the previous transcript has content beyond notices and tool catalogs.
+
 ## Session Library
 
 `/sessions` opens the Session Library, the resume list with pin and rename actions: `p` pins a session and `r` renames it. Pins and names are stored in `$OMDSH_HOME/omdsh/session-library.json`.

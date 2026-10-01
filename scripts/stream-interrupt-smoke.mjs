@@ -89,7 +89,9 @@ try {
       submitted = true
       term.write('exercise streaming interruption\r')
     }
-    if (submitted && ctrlCAt === undefined && out.includes('issuefour')) {
+    // The burst is one unfinished paragraph, so a folded thought shows its
+    // row and not the text; the row is the signal the burst is rendering.
+    if (submitted && ctrlCAt === undefined && out.includes('Thinking')) {
       ctrlCAt = performance.now()
       term.write('\x03')
     }

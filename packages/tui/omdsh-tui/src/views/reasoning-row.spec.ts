@@ -1,17 +1,17 @@
 /**
- * Folded reasoning contract: a thought is one line carrying the first line of
- * the last finished paragraph, or a bare marker while the first paragraph is
- * still being written. Every assertion is on display cells and on what a
- * terminal shows.
+ * Folded reasoning contract: a thought is one `∴  Thought · …` row carrying the
+ * first telling sentence of the last finished paragraph, or `∴  Thinking` while
+ * the first paragraph is still being written. Every assertion is on display
+ * cells and on what a terminal shows.
  */
 import { describe, expect, it } from 'vitest'
 import { blockLines, reasoningPreview } from './event-views.ts'
-import { SYMBOL } from '../chrome/theme.ts'
+import { createTheme, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import type { Block } from './transcript-types.ts'
 
 const plain = (lines: readonly string[]): string[] => lines.map(stripAnsi)
-const theme = { getFgAnsi: () => '', fg: (t: string, s: string) => s, italic: (s: string) => s } as never
+const theme = createTheme(false)
 
 function assistant(over: { reasoning: string; streaming?: boolean; text?: string }): Block {
   return {
@@ -50,6 +50,27 @@ describe('reasoningPreview', () => {
     expect(reasoningPreview('run `pwd` then **bold**', false)).toBe('run pwd then bold')
   })
 
+  it('skips an acknowledgement to reach the sentence it introduces', () => {
+    // A preview that stops at `Good.` is a row of noise down the run.
+    expect(reasoningPreview('Good. The lockfile pins rc.1 everywhere.', false))
+      .toBe('The lockfile pins rc.1 everywhere.')
+    expect(reasoningPreview('Hmm. OK. Now the real work starts here.', false))
+      .toBe('Now the real work starts here.')
+  })
+
+  it('keeps an acknowledgement that is the whole thought', () => {
+    expect(reasoningPreview('Good.', false)).toBe('Good.')
+  })
+
+  it('takes a closing quote with the sentence that ends inside it', () => {
+    expect(reasoningPreview('The user asks: "is it done?" Then more follows here.', false))
+      .toBe('The user asks: "is it done?"')
+  })
+
+  it('ends a CJK sentence at its own stop, with no space after it', () => {
+    expect(reasoningPreview('先确认版本。然后再看锁文件。', false)).toBe('先确认版本。')
+  })
+
   it('is empty for empty or whitespace-only reasoning', () => {
     expect(reasoningPreview('', false)).toBe('')
     expect(reasoningPreview('   \n\n  ', true)).toBe('')
@@ -60,22 +81,22 @@ describe('folded reasoning row', () => {
   it('renders one line for a settled thought and the answer below it', () => {
     const lines = plain(blockLines(assistant({
       reasoning: 'The user asks whether the cohort needs updating.\n\nAnd more detail here.',
-    }), theme, 60))
+    }), theme, 72))
 
     expect(lines[0]).toContain(SYMBOL.reasoning)
-    expect(lines[0]).toContain('The user asks whether the cohort needs updating.')
+    expect(lines[0]).toContain('Thought · The user asks whether the cohort needs updating.')
     expect(lines[0]).not.toContain('And more detail here.')
     expect(lines.join('\n')).toContain('answer')
   })
 
-  it('shows a bare marker while the first paragraph is still being written', () => {
+  it('says it is thinking while the first paragraph is still being written', () => {
     const lines = plain(blockLines(assistant({
       reasoning: 'One paragraph with no break yet',
       streaming: true,
       text: '',
     }), theme, 60))
 
-    expect(stripAnsi(lines[0] ?? '').trim()).toBe(SYMBOL.reasoning)
+    expect(stripAnsi(lines[0] ?? '').trim()).toBe(`${SYMBOL.reasoning} Thinking`)
     // No half sentence is shown, only the streaming placeholder for the answer.
     expect(lines.join('\n')).not.toContain('One paragraph')
   })

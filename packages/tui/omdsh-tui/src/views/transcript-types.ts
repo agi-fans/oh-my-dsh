@@ -56,6 +56,8 @@ export type Block =
      * instead of letting it read as something the agent asked for directly.
      */
     parentCallId?: ToolCallId
+    /** The turn that made the call, so two turns with no prompt between them still read as two runs. */
+    turn?: number
   }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
@@ -68,10 +70,21 @@ export type Block =
     /**
      * This row is a seam, not a message: it marks where the transcript was
      * replaced and the earlier output stayed in the terminal's history above.
-     * The replacement paths each rebuild the whole block list, so there is
-     * exactly one seam per replacement without any de-duplication.
+     * Document switches rebuild the whole block list with one seam; initial
+     * presentation and refreshes omit it.
      */
     boundary?: true
+    /**
+     * This notice reports work inside a running turn — a retry, a background
+     * job settling — rather than speaking to the reader, so it belongs to the
+     * turn's run instead of splitting it. It carries the turn it arrived in.
+     *
+     * `source` is the durable id of the thing it reports on, which is what
+     * makes two such notices in one document tellable apart. A run is keyed by
+     * its first block, so a run led by a notice would otherwise be keyed by
+     * kind alone and every one of them in the session would share one key.
+     */
+    process?: { turn: number; source?: string }
   }
 
 /** Live session activity controlling the composer and activity row. */
@@ -106,6 +119,15 @@ export interface TranscriptState {
    * apparently idle screen behind.
    */
   turnError: string | undefined
+  /**
+   * When each turn started and, once settled, ended, in session-log time.
+   *
+   * A finished run is summarized by how long the turn took — the one number a
+   * reader wants when a whole turn has folded to a row — and the durable
+   * `turn/start` and `turn/end` events are the only honest source of it: a
+   * replayed session reports the time it originally took, not the replay's.
+   */
+  turnSpans?: Readonly<Record<number, { start: number; end?: number }>>
 }
 
 /** Empty starting state. */

@@ -1,8 +1,8 @@
 /**
  * Transcript seam contract.
  *
- * Replacing the transcript is the one moment where the live view and the
- * terminal's history describe different documents, and the older rows stay in
+ * Switching transcript documents makes the live view and the terminal's
+ * history describe different documents, and the older rows stay in
  * that history rather than being erased. The seam is the only thing that tells
  * a reader scrolling upwards why the rows above stopped matching, so its row
  * has to fit every width, and it has to be chrome rather than a message.

@@ -11,6 +11,7 @@ export type KeyEvent =
   | { type: 'text'; value: string }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
+  | { type: 'wheel'; direction: 'up' | 'down' }
 
 const CTRL: Record<number, string> = {
   0x01: 'ctrl+a',
@@ -103,11 +104,17 @@ function kittyEvent(code: number, modifier: number): KeyEvent {
   return { type: 'key', id: withMods(`code${code}`, modifier) }
 }
 
-/** Consume a complete SGR mouse report (`\x1b[<button;col;rowM`) without emitting an event. */
-function parseSgr(body: string): { used: number } | 'partial' | null {
+/** Decode vertical wheel presses; consume other SGR mouse reports without typing them. */
+function parseSgr(body: string): { used: number; event?: KeyEvent } | 'partial' | null {
   // body is the CSI payload after '['
   const match = /^<(\d+);(\d+);(\d+)([Mm])/.exec(body)
-  if (match !== null) return { used: 1 + match[0].length }
+  if (match !== null) {
+    const button = Number(match[1]) & ~28 // Ignore Shift, Alt and Ctrl modifiers.
+    const event: KeyEvent | undefined = match[4] === 'M' && (button === 64 || button === 65)
+      ? { type: 'wheel', direction: button === 64 ? 'up' : 'down' }
+      : undefined
+    return { used: 1 + match[0].length, ...(event === undefined ? {} : { event }) }
+  }
   if (body.length < 32 && /^<\d*(?:;\d*){0,2}$/.test(body)) return 'partial'
   return null
 }
@@ -120,7 +127,7 @@ function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 
     const parsed = parseSgr(body)
     if (parsed === 'partial') return 'partial'
     if (parsed === null) return null
-    return { event: undefined, used: parsed.used }
+    return { event: parsed.event, used: parsed.used }
   }
   const match = /^(?:(\d+)?(?:;(\d+))?(?:;(\d+))?)?([A-Za-z~u])/.exec(body)
   if (match === null) {

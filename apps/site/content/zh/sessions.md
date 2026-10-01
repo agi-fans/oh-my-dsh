@@ -16,6 +16,8 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 
 走查见[恢复并管理长会话](tutorials/long-session.md)。
 
+清空 transcript、恢复或切换会话，以及通过回退分叉会话时，终端原生 scrollback 会继续保留，并用带标签的分界线标记这次替换。普通启动、更换 preset、刷新工具列表，以及进入或退出子 agent 检视时，不显示这条分界线。`/new` 只有在上一份 transcript 中存在通知和工具列表以外的内容时才显示分界线。
+
 ## Session Library
 
 `/sessions` 打开 Session Library，即带置顶与重命名操作的恢复列表：按 `p` 置顶会话，按 `r` 重命名。置顶与名称保存在 `$OMDSH_HOME/omdsh/session-library.json`。

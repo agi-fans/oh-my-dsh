@@ -60,6 +60,7 @@ import type {
   TuiSessionStats,
   TuiSubmission,
   TuiInputImage,
+  TuiTranscriptReplacement,
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
 import { readRecentRows, writeRecentRows, type SessionRowMemo } from './session-library.ts'
@@ -559,7 +560,7 @@ export class SessionRuntime {
         if (event.type !== 'settled') return
         const owner = event.job.owner === undefined ? undefined : this.#ctx.get('agents')?.get(event.job.owner)
         const notice = jobNoticeFor(event.job, owner, this.#active?.handle.agent)
-        if (notice !== undefined) tui.notice(notice)
+        if (notice !== undefined) tui.notice(notice, { process: true, processSource: `job:${event.job.id}` })
       }))
     }
     this.#off.push(ctx.on('agent/status', (payload) => {
@@ -668,7 +669,7 @@ export class SessionRuntime {
     const defaults = this.#ctx.get('agentDefaultModel')?.currentSelection()
     if (defaults === undefined) throw new Error('agent default model is unavailable')
     await this.refreshRecent()
-    await this.#activate(await this.#create(defaults))
+    await this.#activate(await this.#create(defaults), 'initial')
   }
 
   /** Submit one human composer value; active turns retain it as a later follow-up. */
@@ -731,8 +732,8 @@ export class SessionRuntime {
     const result = execution.result
     if (result.kind === 'error' && images.length > 0) this.#tui.restoreInput({ text: line, images })
     if (result.text !== undefined) {
-      if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error' })
-      else this.#tui.commandOutput(parsed.name, result.text)
+      if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error', focus: true })
+      else this.#tui.commandOutput(parsed.name, result.text, { focus: true })
     }
     return true
   }
@@ -779,7 +780,7 @@ export class SessionRuntime {
   /** Start a new top-level session with the current model selection. */
   async newSession(agent: Agent): Promise<void> {
     this.assertActive(agent)
-    await this.#activate(await this.#create(this.selection(agent)))
+    await this.#activate(await this.#create(this.selection(agent)), 'new')
     await this.refreshRecent()
   }
 
@@ -1224,7 +1225,7 @@ export class SessionRuntime {
     }
   }
 
-  async #activate(next: ActiveSession): Promise<void> {
+  async #activate(next: ActiveSession, reason: TuiTranscriptReplacement = 'open'): Promise<void> {
     // Reject a late create before it publishes UI on a disposed tree.
     if (this.#disposed) {
       this.#releaseHandle(next.handle)
@@ -1235,7 +1236,7 @@ export class SessionRuntime {
     this.#active = next
     void this.#claimWorkspace(next)
     try {
-      this.#presentAgent(next)
+      this.#presentAgent(next, reason)
       const selected = this.selection(next.handle.agent)
       const info = await this.#resolveModelInfo(selected)
       if (this.#disposed || this.#activationEpoch !== epoch) {
@@ -1288,7 +1289,7 @@ export class SessionRuntime {
   }
 
   /** Show one active session on the terminal: transcript, tools, controls, model. */
-  #presentAgent(active: ActiveSession): void {
+  #presentAgent(active: ActiveSession, reason: TuiTranscriptReplacement = 'open'): void {
     const agent = active.handle.agent
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
@@ -1297,7 +1298,7 @@ export class SessionRuntime {
     // Seed welcome metadata before replaceSession commits the startup header to
     // native scrollback; later updates cannot rewrite that frozen first frame.
     this.#pushSessionInfo()
-    this.#replaceTranscript(agent)
+    this.#replaceTranscript(agent, reason)
     this.#pushTools()
     this.#pushCommands()
     const selected = this.selection(agent)
@@ -1422,10 +1423,10 @@ export class SessionRuntime {
     })
   }
 
-  #replaceTranscript(agent: Agent): void {
+  #replaceTranscript(agent: Agent, reason: TuiTranscriptReplacement = 'refresh'): void {
     const events = agent.session.snapshotEvents()
     this.#tracker.observeCatalog(agent.session, events)
-    this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status)
+    this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status, reason)
     this.#replayLivePrefix(agent.session.id)
   }
 
@@ -1480,6 +1481,7 @@ export class SessionRuntime {
       events,
       child === undefined ? undefined : this.#ctx.get('tuiToolPresentation')?.session(child, events),
       child?.status ?? 'idle',
+      'refresh',
     )
     this.#replayLivePrefix(id)
     this.#tui.setInspectedSubagent(this.#inspectView(
