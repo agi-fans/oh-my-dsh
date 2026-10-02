@@ -12,9 +12,7 @@ omdsh 是一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepS
 
 </div>
 
-![oh-my-dsh 终端界面](apps/site/public/screenshot.webp)
-
-截图来自 v0.5.1。当前回合展示与导航方式见[键盘与快捷键](https://omdsh.agi.fans/zh/docs/keyboard/)。
+[![Hello Oh My DSH — v0.19.0 终端录屏](apps/site/public/screenshot.webp)](apps/site/public/hello-oh-my-dsh.mp4)
 
 ## 快速开始
 

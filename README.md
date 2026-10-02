@@ -12,9 +12,7 @@ omdsh is a focused, keyboard-first DeepSeek coding agent built on the plugin arc
 
 </div>
 
-![oh-my-dsh terminal interface](apps/site/public/screenshot.webp)
-
-Screenshot from v0.5.1. See [Keyboard and keys](https://omdsh.agi.fans/docs/keyboard/) for the current turn presentation and navigation.
+[![Hello Oh My DSH — v0.19.0 terminal recording](apps/site/public/screenshot.webp)](apps/site/public/hello-oh-my-dsh.mp4)
 
 ## Quick start
 

@@ -5,21 +5,22 @@ description: Record or capture a truthful, reproducible oh-my-dsh terminal demon
 
 # Record an oh-my-dsh TUI Demo
 
-Demonstrate the real built application and one coherent interaction story. Recording is read-only evidence unless the user separately authorizes publishing or repository edits.
+Capture the real application in the user's terminal emulator, preserving its appearance and one coherent interaction story. Recording is read-only evidence unless the user separately authorizes publishing or repository edits.
 
 ## Establish provenance
 
-1. Read [`AGENTS.md`](../../../AGENTS.md) and require a clean worktree for commit-specific evidence. Record `git rev-parse HEAD` and `git status --short --branch`.
-2. Build the recorded tree with `pnpm build`. Use the built `omdsh` entry rather than a mocked renderer or manually composed ANSI output.
-3. Create isolated temporary `OMDSH_HOME`, workspace, and session roots with `mktemp -d`. Never reuse or expose personal session history, credentials, clipboard data, or unrelated terminal panes.
-4. Record the terminal dimensions, theme, color mode, model/transport, and whether a real model round ran. Never imply a fixture proves provider behavior.
+1. Read [`AGENTS.md`](../../../AGENTS.md). Record `git rev-parse HEAD` and `git status --short --branch`; disclose any relevant uncommitted product changes. Separately authorized skill edits do not invalidate footage of an installed release.
+2. When the user asks to record an installed release, verify `command -v omdsh` and `omdsh --version` and record that installation. For a source-tree demo, build with `pnpm build` and use its built entry. Never substitute a mocked renderer or manually composed ANSI output.
+3. Use a dedicated terminal window and isolated temporary workspace and session roots. Preserve the user's normal terminal profile and TUI appearance. Reuse the normal provider configuration through the application without reading or printing credential values; preserve custom credential references as well as provider and model selection. Keep personal history, clipboard data, and unrelated panes out of the recording.
+4. Record the terminal app, dimensions, font/profile, theme, color mode, model/transport, and whether a real model round ran. Never imply a fixture proves provider behavior.
 
 ## Choose the format
 
-- Prefer a short GIF or terminal-native recording when an installed recorder is available.
-- Use a small set of screenshots when motion adds no evidence.
-- Check for `vhs`, `asciinema`, `agg`, `ffmpeg`, `tmux`, or an available computer-control capability. Do not install a recorder without user authorization.
-- If the requested format cannot be produced with available tools, report the missing prerequisite instead of fabricating frames.
+- Default to native screen recording of the actual terminal window, delivered as MP4 or MOV. Keep the user's font, font size, line spacing, theme, padding, and window appearance; do not replace them with recorder defaults or modify global terminal preferences for the demo.
+- Do not use ANSI re-rendering such as `asciinema` → `agg`, a browser terminal, or a VHS-controlled replacement terminal for visual demos unless the user explicitly requests that format. Those paths change font metrics, glyph fallback, colors, and layout. An optional `.cast` is a replay/debug artifact, not visual evidence of the user's terminal.
+- A requested GIF must be encoded from the native screen recording, preserving aspect ratio and readable resolution. Prefer the video as the fidelity reference; never redraw text or add a fake terminal frame.
+- Inspect a native preview before the full take. Use window capture or a stable crop that excludes unrelated desktop content. Use screenshots when motion adds no evidence.
+- Check installed native capture tools and `ffmpeg`; do not install a recorder without authorization. If native capture is unavailable, report the concrete prerequisite and do not silently fall back to re-rendering.
 
 ## Stage one story
 
@@ -33,7 +34,7 @@ Wait for concrete state before capture: a unique label, completed tool card, set
 
 Store temporary frames and artifacts under a gitignored scratch directory or a `mktemp -d` path. Keep lexical frame names and hold the settled final state longest. If encoding a GIF, use the installed encoder without overwriting an existing artifact unexpectedly.
 
-Inspect the final artifact itself. Confirm frame order, readable text, stable dimensions, sufficient final hold, accurate colors, and absence of secrets. Run `git status --short` and confirm the recording did not modify tracked files or either reference repository.
+Inspect the encoded artifact itself against the native preview. Confirm matching font and glyph rendering, readable text, stable dimensions, sufficient final hold, accurate colors, and absence of secrets. Run `git status --short` and confirm the recording did not modify tracked files or reference repositories beyond separately authorized edits.
 
 ## Publish only with authority
 
