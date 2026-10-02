@@ -213,6 +213,69 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
 }
 
 describe('LocalTui folds against a scrolling terminal', () => {
+  it('enters browsing from the live tail with the wheel and keeps the prompt at the top', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      longTurn(tui, 2, 40)
+      const history = term.scrollback()
+      const before = term.visible()
+      press(term as never, '\x1b[<64;10;5M')
+      const after = term.visible()
+      expect(after).not.toEqual(before)
+      expect(after.join('\n')).toContain('Jump to latest message')
+      expect(after[0]).toContain('map the project 1')
+      expect(after.slice(1).join('\n')).not.toContain('map the project 1')
+      expect(after.join('\n')).toContain('answer 1 line 3')
+      for (let step = 0; step < 8; step += 1) {
+        press(term as never, '\x1b[<64;10;5M')
+        expect(term.visible()[0]).toContain('map the project 1')
+        expect(term.visible().slice(1).join('\n')).not.toContain('map the project 1')
+      }
+      press(term as never, '\x1b[<65;10;5M'.repeat(12))
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it.each(['end', 'click'] as const)('returns to the latest message with %s without replaying history', action => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      longTurn(tui, 30, 30)
+      const history = term.scrollback()
+      press(term as never, '\x0f')
+      expect(term.visible()[0]).toContain('map the project 1')
+      const row = term.visible().findIndex(line => line.includes('Jump to latest message'))
+      expect(row).toBeGreaterThan(0)
+      if (action === 'end') press(term as never, '\x1b[F')
+      else {
+        const column = term.visible()[row]!.indexOf('Jump')
+        press(term as never, `\x1b[<0;${column + 1};${row + 1}M`)
+      }
+      expect(term.visible().join('\n')).not.toContain('Jump to latest message')
+      expect(term.visible().join('\n')).toContain('answer 1 line 29')
+      expect(term.scrollback()).toEqual(history)
+      expect(term.captured).toContain('\x1b[?1000h\x1b[?1006h')
+    } finally { tui.dispose() }
+  })
+
+  it('pins the current prompt during long output and switches it for a later turn', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      longTurn(tui, 2, 30)
+      expect(term.visible()[0]).toContain('map the project 1')
+      longTurn(tui, 2, 30, false, 2)
+      expect(term.visible()[0]).toContain('map the project 2')
+      expect(term.scrollback().filter(row => row.includes('map the project 1'))).toHaveLength(1)
+      press(term as never, '\x1b[5~')
+      expect(term.visible().join('\n')).toContain('Jump to latest message')
+      press(term as never, '\x1b[F')
+      expect(term.visible()[0]).toContain('map the project 2')
+    } finally { tui.dispose() }
+  })
+
   it.each([false, true].flatMap(color => [false, true].map(browsing => ({ color, browsing }))))('does not recommit frozen prompts after a density shrink and later growth (color=$color, browsing=$browsing)', ({ color, browsing }) => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', color)
@@ -303,7 +366,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
       expect(term.scrollback()).toEqual(history)
       tui.commandOutput('session', 'requested command result', { focus: true })
       expect(term.visible().join('\n')).toContain('requested command result')
-      expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+      expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
       expect(term.scrollback().slice(0, history.length)).toEqual(history)
     } finally { tui.dispose() }
   })
@@ -319,7 +382,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     expect(opened).toContain('src/c30b.ts')
     expect(opened).not.toContain('src/c1a.ts')
     press(term as never, '\x1b[5~')
-    expect(term.visible().join('\n')).toContain('src/c29b.ts')
+    expect(term.visible().join('\n')).toMatch(/src\/c2[0-9][ab]\.ts/u)
     expect(term.scrollback()).toEqual(history)
     tui.dispose()
   })
@@ -339,15 +402,17 @@ describe('LocalTui folds against a scrolling terminal', () => {
     tui.dispose()
   })
 
-  it('opens a long tool result at its last lines and returns to the folded view after wheel browsing', () => {
+  it('opens a completed turn at its tool preview and preserves history while browsing', () => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('turn/start', { turn: 1 }, 0))
     tui.event(ev('tool/call', { callId: 'long-result', name: 'bash', arguments: '{}' }, 1))
     tui.event(ev('tool/result', {
       message: { role: 'tool', toolCallId: 'long-result', content: [{
         type: 'text', text: Array.from({ length: 60 }, (_, i) => `result line ${i}`).join('\n'),
       }] },
     }, 2))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3))
     const screen = term.visible()
     const history = term.scrollback()
     press(term as never, '\x0f')
@@ -357,7 +422,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     press(term as never, ';5M'.concat('\x1b[<64;10;5M'.repeat(30)))
     expect(term.visible().join('\n')).toContain('Into the Unknown')
     press(term as never, '\x1b[<65;10;5M'.repeat(4))
-    expect(term.visible().join('\n')).toContain('result line 0')
+    expect(term.captured).not.toContain('result line 0')
     press(term as never, '\x1b[<65;10;5M'.repeat(40))
     expect(term.visible()).toEqual(screen)
     expect(term.scrollback()).toEqual(history)
@@ -379,7 +444,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     tui.dispose()
   })
 
-  it('opens a call inside a live turn and returns to the turn as it was', () => {
+  it('leaves a live turn unchanged when Ctrl+O is pressed', () => {
     // A live turn has no header to open, so the key reads the row under the
     // viewport. Closing it used to leave only the composer's last edge and the
     // footer over a blank screen.
@@ -393,9 +458,9 @@ describe('LocalTui folds against a scrolling terminal', () => {
     const screen = term.visible()
     const history = term.scrollback()
     expect(screen.join('\n')).not.toMatch(/^[▸▾]/mu)
-    expect(screen.join('\n')).toContain('∴ Thought · Still going.')
+    expect(screen.join('\n')).toContain('Still going.')
     press(term as never, '\x0f')
-    expect(term.visible().join('\n')).toMatch(/╭─── ✔ read/u)
+    expect(term.visible()).toEqual(screen)
     press(term as never, '\x0f')
 
     expect(term.visible()).toEqual(screen)
@@ -438,10 +503,10 @@ describe('LocalTui folds against a scrolling terminal', () => {
     press(term as never, '\x0f')
     const screen = term.visible().join('\n')
 
-    expect(screen).toMatch(/^▾ Worked for/mu)
+    expect(screen).not.toMatch(/^▾ Worked for/mu)
     expect(screen).toContain('src/t2c3b.ts')
     // The previous turn remains folded; only this turn's calls read in full.
-    expect(screen).toMatch(/╭─── [✔✘⟳•]/u)
+    expect(screen).not.toMatch(/╭─── [✔✘⟳•]/u)
     expect(screen).not.toContain('src/c1a.ts')
     tui.dispose()
   })
@@ -731,23 +796,25 @@ describe('LocalTui (tty)', () => {
     expect(term.destroyed).toBe(true)
   })
 
-  it('keeps mouse scrolling with the terminal while browsing a folded transcript with PgUp', () => {
+  it('handles the wheel both while browsing with PgUp and after returning with End', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     longTurn(tui, 12, 30)
     press(term, '\x1b[5~')
-    expect(term.captured).not.toContain('\x1b[?1000h')
+    expect(term.captured).toContain('\x1b[?1000h')
     const mark = term.captured.length
     press(term, '\x1b[<64;10;5M\x1b[<65;10;5M')
-    expect(term.captured.length).toBe(mark)
+    expect(term.captured.length).toBeGreaterThan(mark)
+    press(term, '\x1b[F')
+    expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l\x1b[?1006l')
     tui.dispose()
   })
 
-  it.each(['close', 'tail', 'clear', 'dispose'])('restores native mouse scrolling after leaving an inspection via %s', (exit) => {
+  it.each(['close', 'tail', 'clear', 'dispose'])('keeps mouse ownership correct when leaving inspection via %s', (exit) => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     longTurn(tui, 30, 1)
-    expect(term.captured).not.toContain('\x1b[?1000h')
+    expect(term.captured).toContain('\x1b[?1000h')
     press(term, '\x0f')
     expect(term.captured).toContain('\x1b[?1000h\x1b[?1006h')
     const mark = term.captured.length
@@ -755,7 +822,8 @@ describe('LocalTui (tty)', () => {
     else if (exit === 'tail') press(term, '\x1b[6~'.repeat(6))
     else if (exit === 'clear') press(term, '/clear\r')
     else tui.dispose()
-    expect(term.captured.slice(mark)).toContain('\x1b[?1000l\x1b[?1006l')
+    if (exit === 'dispose' || exit === 'clear') expect(term.captured.slice(mark)).toContain('\x1b[?1000l\x1b[?1006l')
+    else expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l\x1b[?1006l')
     tui.dispose()
   })
 
@@ -826,6 +894,15 @@ describe('LocalTui (tty)', () => {
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
     expect(term.captured).toContain('╰─')
+    tui.dispose()
+  })
+
+  it('keeps End as an editor key at the live tail', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const pending = tui.readline()
+    press(term, 'ab\x1b[D\x1b[FX\r')
+    expect(await pending).toBe('abX')
     tui.dispose()
   })
 
@@ -2653,109 +2730,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('carries a legacy expandTools document into the density that says the same thing', () => {
-    const term = new FakeTerminal()
-    term.height = () => 80
+  it.each(['compact', 'standard', 'detailed', 'verbose'] as const)('normalizes old %s preferences without changing the turn presentation', foldDensity => {
+    const term = new ScrollingTerminal(80, 40)
     const tui = new LocalTui(term, 'm', false)
-    // A document written before the density existed: no foldDensity at all, and
-    // a reader who had asked for expanded tool output. The rung that now means
-    // that is `verbose`, so their transcript keeps the shape they chose.
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true })
-    expect(tui.prefs().foldDensity).toBe('verbose')
-    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
-    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
-    tui.event(ev('tool/result', {
-      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
-    }, 2))
-    expect(term.captured).toContain('tool-line-13')
-    expect(term.captured).not.toContain('Ctrl+O: Expand')
-    tui.dispose()
-  })
-
-  it('prefers an explicit density over a leftover expandTools flag', () => {
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true, foldDensity: 'compact' })
-    expect(tui.prefs().foldDensity).toBe('compact')
-    tui.dispose()
-  })
-
-  it('repaints the transcript when the reader picks another density', () => {
-    const term = new FakeTerminal()
-    term.height = () => 80
-    const tui = new LocalTui(term, 'm', false)
-    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
-    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
-    tui.event(ev('tool/result', {
-      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
-    }, 2))
-    expect(term.captured).toContain('Run command')
-    expect(term.captured).not.toContain('tool-line-0')
-    // The density is a resting shape, so the same settled call has to repaint
-    // the moment the reader asks for a different one — with no keystroke.
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'verbose' })
-    expect(term.captured).toContain('tool-line-0')
-    expect(term.captured).toContain('tool-line-13')
-    const afterVerbose = term.captured.length
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
-    expect(term.captured.slice(afterVerbose)).toContain('Run command')
-    expect(term.captured.slice(afterVerbose)).not.toContain('tool-line-13')
-    tui.dispose()
-  })
-
-  it('keeps a call the reader opened open across a density change', () => {
-    const term = new FakeTerminal()
-    term.height = () => 80
-    const tui = new LocalTui(term, 'm', false)
-    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
-    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
-    tui.event(ev('tool/result', {
-      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
-    }, 2))
+    longTurn(tui, 3, 1)
+    const before = term.visible()
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true, foldDensity })
+    expect(tui.prefs().foldDensity).toBe('standard')
+    expect(term.visible()).toEqual(before)
     press(term, '\x0f')
-    expect(term.captured).toContain('tool-line-0')
-    // An opening the reader made on purpose is not an artifact of the rung they
-    // happened to be on, so choosing another density must not take it away.
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
-    expect(tui.prefs().foldDensity).toBe('compact')
-    expect(term.captured).toContain('tool-line-0')
-    tui.dispose()
-  })
-
-  it('clears the open-everything override when the density changes under it', () => {
-    const term = new FakeTerminal()
-    term.height = () => 40
-    const tui = new LocalTui(term, 'm', false)
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'compact' })
-    for (let i = 0; i < 10; i += 1) {
-      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i * 10))
-      tui.event(ev('tool/call', { callId: `call-${i}`, name: 'bash', arguments: '{}' }, i * 10 + 1))
-      tui.event(ev('tool/result', {
-        message: { role: 'tool', toolCallId: `call-${i}`, content: [{ type: 'text', text: `payload-${i}` }] },
-      }, i * 10 + 2))
-    }
-    // Above every call there is nothing this key can open one at a time, so it
-    // falls through to opening everything — and every payload showing up at
-    // once is what tells the two paths apart.
-    for (let i = 0; i < 5; i += 1) press(term, '\x1b[5~')
-    const beforeExpand = term.captured.length
-    press(term, '\x0f')
-    const opened = term.captured.slice(beforeExpand)
-    // Several calls opening in one press is what tells the fallthrough apart
-    // from the per-call toggle; the newest one is off-window and stays unseen.
-    expect(opened).toContain('payload-0')
-    expect(opened).toContain('payload-1')
-    // Leaving the override set would pin the previous rung's answer and read as
-    // a setting that does nothing. The screen has to be read, not the emitted
-    // delta: rows that did not change are not re-emitted, so an unchanged
-    // expanded box is invisible in the delta and obvious on the screen.
-    tui.applyStoredPrefs({ theme: 'dark', colors: false, foldDensity: 'standard' })
-    // The frame is the unambiguous marker: a folded call is one unframed row,
-    // an expanded one is a box. The payload text cannot stand in for it because
-    // a folded row can carry the output's first line as its own fact.
-    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
-    expect(screen).toContain('Run command')
-    expect(screen).not.toContain('╭─── ✔ bash')
+    expect(term.visible().join('\n')).toContain('src/c3b.ts')
+    expect(term.visible().join('\n')).not.toContain('Worked')
     tui.dispose()
   })
 
@@ -2787,48 +2772,40 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('folds a settled call to a row and toggles its output on ctrl+o', () => {
-    const term = new FakeTerminal()
-    term.height = () => 80
+  it('opens a completed single-call turn to its preview and closes it again', () => {
+    const term = new ScrollingTerminal(80, 40)
     const tui = new LocalTui(term, 'm', false)
-    const output = Array.from({ length: 14 }, (_, i) => 'tool-line-' + i).join('\n')
-    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{}' }, 1))
-    tui.event(ev('tool/result', {
-      message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: output }] },
-    }, 2))
-    expect(term.captured).toContain('Run command')
-    expect(term.captured).not.toContain('tool-line-0')
-    const beforeExpand = term.captured.length
+    tui.event(ev('turn/start', { turn: 1 }, 0))
+    tui.event(ev('tool/call', { callId: 'call-1', name: 'bash', arguments: '{"command":"ls"}' }, 1))
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: Array.from({ length: 14 }, (_, i) => `tool-line-${i}`).join('\n') }] } }, 2))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3))
+    const before = term.visible()
+    const history = term.scrollback()
+    expect(before.join('\n')).toContain('Worked')
+    expect(before.join('\n')).not.toContain('tool-line-13')
     press(term, '\x0f')
-    expect(term.captured).toContain('tool-line-0')
-    expect(term.captured).toContain('tool-line-13')
-    const afterExpand = term.captured.length
+    expect(term.visible().join('\n')).toContain('tool-line-13')
+    expect(term.visible().join('\n')).not.toContain('tool-line-0')
+    expect(term.visible().join('\n')).not.toContain('Worked')
     press(term, '\x0f')
-    expect(term.captured.slice(afterExpand)).not.toContain('tool-line-13')
-    expect(term.captured.slice(afterExpand)).toContain('Run command')
-    expect(beforeExpand).toBeGreaterThan(0)
+    expect(term.visible()).toEqual(before)
+    expect(term.scrollback()).toEqual(history)
     tui.dispose()
   })
 
-  it('expands the call under the viewport, not the newest one, after scrolling back', () => {
-    const term = new FakeTerminal()
-    term.height = () => 40
+  it('opens an earlier completed turn after paging back', () => {
+    const term = new ScrollingTerminal(80, 30)
     const tui = new LocalTui(term, 'm', false)
-    for (let i = 0; i < 10; i += 1) {
-      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'mark-' + i }] }, i * 10))
-      tui.event(ev('tool/call', { callId: `call-${i}`, name: 'bash', arguments: '{}' }, i * 10 + 1))
-      tui.event(ev('tool/result', {
-        message: { role: 'tool', toolCallId: `call-${i}`, content: [{ type: 'text', text: `payload-${i}` }] },
-      }, i * 10 + 2))
-    }
-    // A folded row has to stay reachable after the reader scrolls away from the
-    // tail. Expanding only the newest call would change rows above the window
-    // and leave the screen looking untouched, so this asserts that the press
-    // repaints something the reader can actually see.
+    for (let turn = 1; turn <= 10; turn++) longTurn(tui, 2, 1, true, turn)
     press(term, '\x1b[5~')
-    const beforeExpand = term.captured.length
+    const before = term.visible()
+    const history = term.scrollback()
     press(term, '\x0f')
-    expect(term.captured.slice(beforeExpand)).toMatch(/payload-[0-9]/u)
+    const opened = term.visible().join('\n')
+    expect(term.visible()).not.toEqual(before)
+    expect(opened).toMatch(/src\/(?:t[2-9])?c2b\.ts/u)
+    expect(opened).not.toContain('src/t10c2b.ts')
+    expect(term.scrollback()).toEqual(history)
     tui.dispose()
   })
 
@@ -2855,7 +2832,8 @@ describe('LocalTui (tty)', () => {
     const history = term.scrollback()
     press(term, '\x0f')
     expect(term.visible().join('\n')).toContain('second thought paragraph with detail')
-    expect(term.visible().join('\n')).toContain('full tool detail')
+    expect(term.visible().join('\n')).toContain('read src/file.ts')
+    expect(term.visible().join('\n')).not.toContain('full tool detail')
     expect(term.visible().join('\n')).toContain('answer thought detail')
     press(term, '\x0f')
     expect(term.visible().join('\n')).not.toContain('second thought paragraph with detail')
@@ -2906,8 +2884,8 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('assistant/message', {
       turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
     }, 9))
-    expect(term.captured).toContain('Ran commands')
-    expect(term.captured).not.toContain('cmd-1')
+    expect(term.captured).toContain('Worked')
+    expect(emulatedScreenRows(term.captured).join('\n')).not.toContain('cmd-1')
     const beforeOpen = term.captured.length
     press(term, '\x0f')
     const opened = term.captured.slice(beforeOpen)

@@ -77,104 +77,25 @@ function view(density: FoldDensity | undefined, over: Record<string, unknown> = 
   }).lines.map(stripAnsi).join('\n')
 }
 
-describe('transcript density', () => {
-  it('folds the calls and the thinking into one row at the default rung', () => {
-    const screen = view('standard')
-    expect(screen).toContain('All done.')
-    // The calls are behind the header, so none of their facts reach the screen.
-    expect(screen).not.toContain('the whole manifest body')
-    expect(screen).not.toContain('package.json')
-    // The thought is a row of the run. Closing the run on every thought split
-    // a turn into one run per step and left nothing folded.
-    expect(screen).not.toContain('I should read the manifests first')
-    // The header says what was done, not what kind of tool did it.
-    expect(screen).toContain('Read a file')
-    expect(screen).not.toContain('Process')
-  })
-
-  it('keeps the same shape when no policy is supplied at all', () => {
-    // The plain printer and older callers pass no density, so the default has
-    // to be the shipped one rather than "everything open".
-    expect(view(undefined)).toBe(view('standard'))
-  })
-
-  it('drops the header specifics at the quietest rung, where the run still shows', () => {
-    // This is the difference a reader meets most: a run is one row either way,
-    // and the quiet rung keeps only what the row is for — how much there was,
-    // and whether it broke.
-    const quiet = view('compact')
-    const loud = view('standard')
-    expect(quiet).toMatch(/3 calls/u)
-    expect(quiet).not.toContain('Read a file')
-    expect(loud).toContain('Read a file')
-  })
-
-  it('shows each call and its argument only once the run opens', () => {
-    expect(view('standard')).not.toContain('pnpm test')
-    for (const density of ['detailed', 'verbose'] as const) {
-      expect(view(density)).toContain('pnpm test')
+describe('legacy density rendering', () => {
+  it('uses the same folded presentation for every old density', () => {
+    for (const density of ['compact', 'standard', 'detailed', 'verbose'] as const) {
+      expect(view(density)).toBe(view(undefined))
+      expect(view(density)).toContain('▸ Worked')
+      expect(view(density)).toContain('All done.')
+      expect(view(density)).not.toContain('Then check the lockfile.')
     }
   })
-
-  it('drops the argument clause at the quietest rung but keeps the tool name', () => {
-    // The run is collapsed at both rungs, so the clause is best read off a run
-    // that a failure forces open — which is the same place a reader meets it.
-    const screen = view('compact', { openedGroups: new Set([RUN_KEY]) })
-    expect(screen).toContain('Read file')
-    expect(screen).not.toContain('package.json')
-    const loud = view('standard', { openedGroups: new Set([RUN_KEY]) })
-    expect(loud).toContain('package.json')
-  })
-
-  it('paints full call output only at the top rung', () => {
-    // `detailed` opens the run but still folds each call; `verbose` is the rung
-    // that trades a screenful of output for the transcript being complete.
-    expect(view('detailed')).not.toContain('the whole manifest body')
-    expect(view('verbose')).toContain('the whole manifest body')
-  })
-
-  it('reads the thinking in full only at the detailed rung', () => {
-    // The second paragraph is the marker: the first line is also what a folded
-    // preview shows, so it cannot tell the two states apart.
-    expect(view('detailed')).toContain('Then check the lockfile')
-    expect(view('standard')).not.toContain('Then check the lockfile')
-    expect(view('verbose')).not.toContain('Then check the lockfile')
-  })
-
-  it('keeps an opened run folded call by call, except at the top rung', () => {
-    for (const density of ['compact', 'standard', 'detailed'] as const) {
-      expect(view(density, { openedGroups: new Set([RUN_KEY]) })).not.toContain('the whole manifest body')
-    }
-    expect(view('verbose', { openedGroups: new Set([RUN_KEY]) })).toContain('the whole manifest body')
-  })
-
-  it('repaints when only the density changes, against the same transcript', () => {
-    // Formatted rows are cached by block-array identity, so this has to ask for
-    // both rungs from one state: a second state would miss the cache for
-    // unrelated reasons and pass even with the density missing from its key.
-    const state = transcript()
-    const at = (density: FoldDensity): string => renderView(state, {
-      width: 74, height: 60, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy(density),
-    }).lines.map(stripAnsi).join('\n')
-    const standard = at('standard')
-    expect(at('standard')).toBe(standard)
-    expect(at('detailed')).not.toBe(standard)
-    expect(at('compact')).not.toBe(standard)
-    expect(at('verbose')).not.toBe(standard)
-  })
-
-  it('keeps Ctrl+O above the density', () => {
-    // The key opens everything regardless of the rung, which is the one way to
-    // see the thinking at `verbose` without changing any preference.
-    expect(view('verbose', { toolsExpanded: true })).toContain('I should read the manifests first')
-    expect(view('compact', { toolsExpanded: true })).toContain('the whole manifest body')
-  })
-
-  it('leaves a call the reader opened open at every folding rung', () => {
-    for (const density of ['compact', 'standard', 'detailed'] as const) {
-      const screen = view(density, { openedGroups: new Set([RUN_KEY]), expandedTools: new Set(['c1']) })
-      expect(screen).toContain('the whole manifest body')
+  it('opens a turn with the same previews regardless of legacy density', () => {
+    const over = { openedGroups: new Set([RUN_KEY]) }
+    for (const density of ['compact', 'standard', 'detailed', 'verbose'] as const) {
+      const screen = view(density, over)
+      expect(screen).toBe(view(undefined, over))
+      expect(screen).toContain('Then check the lockfile.')
+      expect(screen).toContain('read package.json')
+      expect(screen).not.toContain('the whole manifest body')
+      expect(screen).toContain('$ pnpm test')
+      expect(screen).not.toContain('Worked')
     }
   })
 })
@@ -197,15 +118,15 @@ describe('the render cache and a turn that is still running', () => {
   it('paints a finished run folded and the same run flat while it is still running', () => {
     // Both renderings are driven from one block array; only the status differs.
     expect(finished.blocks).toBe(running.blocks)
-    expect(at(finished)).toContain('Read a file')
-    expect(at(running)).not.toContain('Read a file')
+    expect(at(finished)).toContain('▸ Worked')
+    expect(at(running)).not.toContain('▸ Worked')
   })
 
   it('does not reuse the other status\'s rows when the status flips', () => {
     // The first status primes the cache for this exact block array.
     const settledFirst = at(finished)
     const runningAfter = at(running)
-    expect(runningAfter).not.toContain('Read a file')
+    expect(runningAfter).not.toContain('▸ Worked')
 
     const runningFirst = at(running)
     const settledAfter = at(finished)

@@ -12,6 +12,7 @@ export type KeyEvent =
   | { type: 'paste-start' }
   | { type: 'paste-end' }
   | { type: 'wheel'; direction: 'up' | 'down' }
+  | { type: 'click'; row: number; column: number }
 
 const CTRL: Record<number, string> = {
   0x01: 'ctrl+a',
@@ -104,7 +105,7 @@ function kittyEvent(code: number, modifier: number): KeyEvent {
   return { type: 'key', id: withMods(`code${code}`, modifier) }
 }
 
-/** Decode vertical wheel presses; consume other SGR mouse reports without typing them. */
+/** Decode wheel and left-button presses; consume other SGR mouse reports. */
 function parseSgr(body: string): { used: number; event?: KeyEvent } | 'partial' | null {
   // body is the CSI payload after '['
   const match = /^<(\d+);(\d+);(\d+)([Mm])/.exec(body)
@@ -112,6 +113,8 @@ function parseSgr(body: string): { used: number; event?: KeyEvent } | 'partial' 
     const button = Number(match[1]) & ~28 // Ignore Shift, Alt and Ctrl modifiers.
     const event: KeyEvent | undefined = match[4] === 'M' && (button === 64 || button === 65)
       ? { type: 'wheel', direction: button === 64 ? 'up' : 'down' }
+      : match[4] === 'M' && button === 0
+        ? { type: 'click', row: Number(match[3]) - 1, column: Number(match[2]) - 1 }
       : undefined
     return { used: 1 + match[0].length, ...(event === undefined ? {} : { event }) }
   }

@@ -442,7 +442,7 @@ function foldEvent(
     case 'tool/call':
       return startToolCall(
         state, event.data.callId, event.data.name, event.data.arguments, undefined, presentation, mutable, indexes,
-        event.data.turn,
+        event.data.turn, event.time,
       )
     // PTC mode records the calls a program made under its `run_code` call
     // rather than as tool/call events, but the Harness asks UIs to render a
@@ -451,7 +451,7 @@ function foldEvent(
     case 'tool/ptc-dispatch-start':
       return startToolCall(
         state, event.data.subCallId, event.data.name, event.data.arguments,
-        event.data.parentCallId, presentation, mutable, indexes,
+        event.data.parentCallId, presentation, mutable, indexes, state.turn, event.time,
       )
     case 'tool/ptc-dispatch':
       return applyToolResult(
@@ -586,10 +586,12 @@ function startToolCall(
   mutable: boolean,
   indexes?: ReplayIndexes,
   turn: number = state.turn,
+  startedAt?: number,
 ): TranscriptState {
   const block: Block = {
     kind: 'tool',
     callId,
+    ...(startedAt === undefined ? {} : { startedAt }),
     name,
     args: prettyArgs(typeof args === 'string' ? args : JSON.stringify(args)),
     status: 'running',
@@ -672,7 +674,7 @@ function settleTool(
     ...block,
     // A result can report failure on the message alone, with no structured
     // error beside it, so both signals have to be honoured.
-    status: isError || error !== undefined ? 'error' : 'ok',
+    status: isError || error !== undefined || (block.job !== undefined && block.job.status !== 'completed') ? 'error' : 'ok',
     output: contentToText(content),
     ...(presentation === undefined ? {} : { presentation }),
   }

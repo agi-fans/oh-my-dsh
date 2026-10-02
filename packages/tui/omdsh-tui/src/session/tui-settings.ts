@@ -37,8 +37,9 @@ export interface TuiSettings {
   colors: Volatile<boolean | undefined>
   motion: Volatile<MotionMode>
   terminalProgress: Volatile<boolean>
+  /** Legacy configuration, accepted without changing the turn presentation. */
   foldDensity: Volatile<FoldDensity>
-  /** Legacy input retained so older documents can be migrated to a density. */
+  /** Legacy configuration; no longer changes transcript presentation. */
   expandTools: Volatile<boolean>
   checkUpdates: Volatile<boolean>
   startupChangelog: Volatile<StartupChangelogMode>
@@ -81,7 +82,7 @@ const STATUS_BAR_SCHEMA: z<any, any, any> = z.union([z.object({
 })])
 
 /**
- * Schema: palette, SGR, transcript density, and status-line detail. Every field is
+ * Schema: palette, SGR, and status-line detail, plus legacy transcript inputs. Every field is
  * volatile, so a settings edit commits into these references and the provider
  * re-reads them instead of remounting. `colors` stays undefined until the
  * provider resolves it against the output stream, and the two migration inputs

@@ -56,6 +56,8 @@ export interface TuiNoticeOptions extends TuiOutputOptions {
    * told apart or two runs in one document collide on one key.
    */
   processSource?: string
+  /** Job settlement to merge into its visible originating tool call when identifiable. */
+  job?: { id: string; label: string; startedAt: number; status: 'completed' | 'failed' | 'killed'; detail?: string }
 }
 
 /** One terminal-owned human prompt used by approval and question adapters. */

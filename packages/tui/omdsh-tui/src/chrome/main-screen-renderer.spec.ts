@@ -5628,12 +5628,12 @@ describe('a pull that reaches past the proven suffix', () => {
   })
 })
 
-describe('a pending reverse move that a later move disturbs', () => {
-  /**
-   * A second move lands after the plan was made, so the rows it was waiting to return can no
-   * longer be shown to sit at the top of the screen. The plan must not run as if they still did.
-   */
-  it('does not execute a plan a later move has invalidated', () => {
+describe('consecutive grows while a reverse move is pending', () => {
+  it.each([
+    { extraHeights: [], paintBetween: false },
+    { extraHeights: [20, 22], paintBetween: false },
+    { extraHeights: [21, 24], paintBetween: true },
+  ])('preserves every row across $extraHeights (paintBetween=$paintBetween)', ({ extraHeights, paintBetween }) => {
     const lines = Array.from({ length: 30 }, (_, i) => `line-${i}`)
     const external = Array.from({ length: 10 }, (_, i) => `shell-${i}`)
     const emu = new Emulator(5, external.slice(0, 6))
@@ -5696,16 +5696,28 @@ describe('a pending reverse move that a later move disturbs', () => {
     ])
     expect(emu.normalCursorRow()).toBe(18)
 
-    // Back to the document: every row is held exactly once, wherever it currently sits.
+    for (const height of extraHeights) {
+      emu.resize(height)
+      renderer.resize(80, height)
+      if (paintBetween) renderer.render({ lines: ['overlay', 'resized'], liveStart: 0 } as never)
+    }
+    const finalHeight = extraHeights.at(-1) ?? 19
+
+    // Back to the document: committed rows stay in history exactly once. A taller
+    // live viewport may also show those immutable snapshots' current counterparts.
     const grown = [...lines, ...Array.from({ length: 20 }, (_, i) => `more-${i}`)]
     renderer.render({
       lines: grown, liveStart: 33, livePinned: true,
       documentRows: { documentStart: 0, documentEnd: 50, frameStart: 0 },
     } as never)
-    // Nineteen rows now, so the window reaches one row further than the seventeen-row case.
-    expect(emu.normalScreen().filter(row => row !== '')).toEqual(grown.slice(31, 50))
+    expect(emu.normalScreen().filter(row => row !== '')).toEqual(grown.slice(50 - finalHeight))
     for (const row of [...external.slice(0, 6), ...lines, 'more-0', 'more-1', 'more-2']) {
-      expect({ row, count: holds(row) }).toEqual({ row, count: 1 })
+      const documentRow = grown.indexOf(row)
+      const inHistory = documentRow < 0 || documentRow < 50 - finalHeight
+        || (documentRow >= 25 && documentRow < 30)
+      const onScreen = documentRow >= 50 - finalHeight
+      expect(emu.scrollback.filter(entry => entry === row)).toHaveLength(inHistory ? 1 : 0)
+      expect({ row, count: holds(row) }).toEqual({ row, count: Number(inHistory) + Number(onScreen) })
     }
   })
 })
@@ -5803,5 +5815,41 @@ describe('a protection scroll and a rewritten document row', () => {
     // and the row it holds is not erased by a later edit.
     expect(emu.scrollback.filter(entry => entry === 'replacement-0').length).toBe(1)
     expect(emu.scrollback.filter(entry => entry === 'line-0').length).toBe(1)
+  })
+})
+
+
+describe('viewport prompt labels', () => {
+  it('retains covered document rows when a pinned viewport shrinks', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
+    const rows = Array.from({ length: 30 }, (_, index) => `document-${index}`)
+    const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }]
+    renderer.render({ ...frame(rows.slice(0, 20), 20), stickyHeaders })
+    emu.resize(6)
+    renderer.resize(80, 6)
+    renderer.render({ ...frame(rows.slice(0, 20), 20), stickyHeaders })
+    renderer.render({ ...frame(rows, 30), stickyHeaders })
+    const held = [...emu.scrollback, ...emu.normalScreen()]
+    for (const row of rows.slice(0, 24)) expect(held.filter(value => value === row), row).toHaveLength(1)
+  })
+
+  it('paints labels over the viewport without committing them as document rows', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
+    const rows = Array.from({ length: 30 }, (_, index) => `document-${index}`)
+    const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }]
+    const first = { ...frame(rows.slice(0, 20), 20), stickyHeaders }
+    renderer.render(first)
+    expect(emu.normalScreen()[0]).toBe('Pinned prompt')
+    const history = [...emu.scrollback]
+    renderer.render(first)
+    expect(emu.scrollback).toEqual(history)
+    renderer.render({ ...frame(rows, 30), stickyHeaders })
+    expect(emu.normalScreen()[0]).toBe('Pinned prompt')
+    expect(emu.scrollback).not.toContain('Pinned prompt')
+    for (const row of rows.slice(0, 22)) expect(emu.scrollback.filter(value => value === row)).toHaveLength(1)
+    renderer.render(frame(rows, 30))
+    expect(emu.normalScreen()[0]).toBe('document-22')
   })
 })

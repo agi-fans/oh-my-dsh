@@ -1,10 +1,10 @@
 ---
-description: "omdsh 的全部设置：外观、动效、通知、Agent 语言，以及可配置的两行状态栏，含默认值与持久化位置。"
+description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、可选功能，以及可配置的两行状态栏，含默认值与持久化位置。"
 ---
 
 # 设置
 
-`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Agent、Status line 三个分区之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。完整浮层按键见[键盘与快捷键](keyboard.md)。
+`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Agent、Features、Status line 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
 ## General
 
@@ -14,11 +14,12 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言，
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Terminal activity | on / off | off | 支持的终端标签页与任务栏中的忙碌/空闲状态。 |
-| Transcript | compact / standard / detailed / verbose | standard | transcript 保持折叠的程度。从你的提示词到回答之间的一切——模型的思考、它的调用，以及它中途写给你的回复——是同一段过程，完成后折成一行，写明这一轮用了多久、做了什么事——`Worked for 2m 5s · Read files, searched the code and ran a command · 3 calls`。`Ctrl+O` 把它按发生顺序展开成一个列表，从最新的工作开始阅读；用鼠标滚轮或 `PgUp` 向上查看早期工作，再按一次 `Ctrl+O` 回到实时底部；每行是一个标记、工作类别和作用对象：思考是 `∴ Thought · …`，调用是 `• Run command · …`。这一整行会调暗、作为背景呈现，不与下面一行的回答抢分量；其中失败标记是唯一保留自己颜色的部分，失败的那次调用会留在它下面可见。回合还在进行时不做折叠：它的每一行和模型中途写给你的回复都按顺序显示，回合结束后才折起来。你输入的提示词以 `›` 开头，与它们同在第一列，于是整轮的几种内容靠一个标记区分，而不是靠缩进。任意档位下 `Ctrl+O` 都能全部展开。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
 | Notifications | off / long-running / always | off | 回合结束或需要输入时通知。 |
 | Long turn | 15s / 30s / 1m / 2m | 30s | 触发长任务通知的最短时长。 |
+
+工具预览使用当前主题的背景色，四周保留内边距。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 
 Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具边界或已落定的助手消息会立即冲刷可见流，不等待动画。
 
@@ -56,7 +57,7 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 第一行默认顺序：Model（`deepseek`）、Effort（`max`）、Path（`~/project`）、Git（`main *1`）与 Session；Session 默认关闭，因为终端窗口标题无论如何都会显示会话标题。
 
-第二行的遥测分组默认全部显示：Context（`Ctx 1.6% · 16.4K/1M`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。终端较窄时按优先级从低到高降级：cache、tokens、latency、时长、活动计数。
+第二行的遥测分组默认全部显示：Context（`Ctx 1.6% · 16.4K/1M`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。终端较窄时，按配置顺序选择能完整放下的分组。默认优先保留上下文、缓存、Token 和延迟，再考虑时长和活动计数；放不下的分组会被跳过，后续较小的分组仍有机会显示。
 
 ## 持久化
 
@@ -64,7 +65,7 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 ## 插件设置
 
-除浮层的三个分区之外，已挂载的 Harness 插件把设置保存在该插件自己 Profile 行上的 config 中。其中一个决定默认路由是否能工作：`llm-deepseek` 只支持 Messages，会拒绝 `protocol` 键，并回复 `protocol is not configurable; remove it and use a Messages-compatible baseURL`。因此自建 gateway 必须提供 Messages 兼容端点，DeepSeek 端点由 base URL 选择，而不是由协议开关选择。
+已挂载的 Harness 插件把设置保存在各自 Profile 行的 config 中。`llm-deepseek` 路由只接受 Messages 兼容端点，配置 `protocol` 键时会报错 `protocol is not configurable; remove it and use a Messages-compatible baseURL`。自建 gateway 需要设置兼容的 `baseURL`；DeepSeek 端点由 base URL 选择。
 
 ## 相关
 

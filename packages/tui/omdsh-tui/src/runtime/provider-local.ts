@@ -18,6 +18,7 @@ import {
 } from './terminal-notifications.ts'
 import { HerdrAgentReporter } from './herdr-agent.ts'
 import { ComposerImages } from './composer-images.ts'
+import { mergeJobSettlement } from '../session/job-notice.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
 
 import { homedir } from 'node:os'
@@ -126,7 +127,6 @@ import {
   renderView,
   turnGroups,
   type ProcessGroup,
-  reasoningKey,
   transcriptSeam,
   TRANSCRIPT_FAST_SCROLL,
   withWorkspaceSummary,
@@ -442,8 +442,7 @@ export class LocalTui implements TuiService {
    */
   #inspecting = false
   #mouseTracking = false
-  #expandedToolCalls = new Set<string>()
-  #expandedReasoning = new Set<string>()
+  #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
@@ -631,6 +630,13 @@ export class LocalTui implements TuiService {
   }
 
   event(event: SessionEvent, presentation?: TuiToolPresentation, workspace?: WorkspaceChangesSummary): void {
+    // Paint any coalesced results and remaining streamed text before the turn's
+    // end changes the live work into its folded summary.
+    if (event.type === 'turn/end' && this.#tty && this.#state.status !== 'idle'
+      && turnGroups(this.#state).some(group => group.live)) {
+      this.#syncStreamingReveal(undefined)
+      this.#render()
+    }
     this.#state = applyEvent(this.#state, event, presentation, workspace)
     this.#emitNotification(this.#notifications.event({
       type: event.type,
@@ -823,6 +829,18 @@ export class LocalTui implements TuiService {
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
+    const merged = options.job === undefined ? undefined : mergeJobSettlement(this.#state, options.job)
+    if (merged !== undefined && this.#tty) {
+      const origin = merged.blocks.find((block, index) => block !== this.#state.blocks[index])
+      this.#state = merged
+      // A previous turn may already be in native history. Keep its new outcome
+      // visible at the tail as well as updating the live transcript's tool.
+      if (origin?.kind === 'tool' && (origin.turn === undefined || origin.turn === this.#state.turn)) {
+        if (options.focus === true) this.#followTail()
+        this.#render()
+        return
+      }
+    }
     const running = options.process === true && this.#state.status !== 'idle' && this.#state.turn > 0
     const block: Block = {
       kind: 'notice',
@@ -1326,8 +1344,6 @@ export class LocalTui implements TuiService {
         }),
         toolsExpanded: this.#toolsExpanded,
         fold: this.#foldPolicy,
-        expandedTools: this.#expandedToolCalls,
-        expandedReasoning: this.#expandedReasoning,
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
@@ -1355,7 +1371,9 @@ export class LocalTui implements TuiService {
     this.#focusBlockEdge = undefined
     this.#promptDocument = frame.promptDocument
     this.#syncScroll(frame.transcript)
-    this.#setMouseTracking(this.#inspecting && frame.transientSurface === 'scroll')
+    this.#jumpToLatest = frame.jumpToLatest
+    this.#setMouseTracking(frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+      && (this.#inspecting || this.#maxStart > 0))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
     // blanks the screen and a large one replays the transcript into history.
@@ -1378,7 +1396,7 @@ export class LocalTui implements TuiService {
     }, this.#streamRenderMs)
   }
 
-  #syncScroll(scroll: { start: number; maxStart: number; budget: number; blockStarts?: readonly number[] } | undefined): void {
+  #syncScroll(scroll: { start: number; maxStart: number; budget: number; blockStarts?: readonly number[]; bodyRow?: number } | undefined): void {
     if (scroll === undefined) {
       // Full-screen surfaces temporarily cover the transcript. They carry no
       // scroll projection and must not replace the reader's return position.
@@ -1387,7 +1405,7 @@ export class LocalTui implements TuiService {
     this.#scrollStart = scroll.start
     this.#maxStart = scroll.maxStart
     this.#scrollBudget = scroll.budget
-    this.#blockStarts = scroll.blockStarts ?? []
+    this.#blockStarts = scroll.blockStarts?.map(row => row + (scroll.bodyRow ?? 0)) ?? []
     // An inspection stays a browsing frame even when everything fits: resuming
     // the follow would drop the openings the reader just asked for.
     if (!this.#inspecting && (this.#follow || this.#scrollStart >= this.#maxStart)) {
@@ -1401,7 +1419,13 @@ export class LocalTui implements TuiService {
   }
 
   #scrollBy(delta: number): void {
+    if (this.#follow && delta > 0) return
     if (delta === 0 && this.#maxStart === 0) return
+    if (!this.#inspecting && delta > 0 && this.#scrollStart + delta >= this.#maxStart) {
+      this.#followTail()
+      this.#render()
+      return
+    }
     // Scrolling past the end of an inspection is how a reader goes back to
     // the live tail, the same as scrolling to the end of history does.
     if (this.#inspecting && delta > 0 && this.#scrollStart >= this.#maxStart) {
@@ -1425,14 +1449,11 @@ export class LocalTui implements TuiService {
   #endInspection(): void {
     if (!this.#inspecting) return
     this.#inspecting = false
-    this.#setMouseTracking(false)
     this.#toolsExpanded = false
     this.#openedGroups.clear()
-    this.#expandedToolCalls.clear()
-    this.#expandedReasoning.clear()
   }
 
-  /** Borrow wheel reports only while reading an opened transcript. */
+  /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
   #setMouseTracking(enabled: boolean): void {
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
@@ -1445,7 +1466,6 @@ export class LocalTui implements TuiService {
    */
   #inspect(target: number | undefined): void {
     const open = this.#toolsExpanded || this.#openedGroups.size > 0
-      || this.#expandedToolCalls.size > 0 || this.#expandedReasoning.size > 0
     if (!open) {
       this.#inspecting = false
       this.#followTail()
@@ -1584,6 +1604,15 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    if (event.type === 'click') {
+      const target = this.#jumpToLatest
+      if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0 && target !== undefined
+        && event.row === target.row && event.column >= target.column && event.column < target.column + target.width) {
+        this.#followTail()
+        this.#render()
+      }
+      return
+    }
     if (event.type === 'wheel') {
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
         this.#scrollBy(event.direction === 'up' ? -3 : 3)
@@ -1591,6 +1620,11 @@ export class LocalTui implements TuiService {
       return
     }
     if (this.#state.status === 'compacting') {
+      if (event.type === 'key' && event.id === 'end' && this.#jumpToLatest !== undefined) {
+        this.#followTail()
+        this.#render()
+        return
+      }
       if (event.type === 'key' && event.id === 'pageUp') {
         this.#scrollBy(-this.#pageSize())
         return
@@ -1656,6 +1690,12 @@ export class LocalTui implements TuiService {
     }
     if (this.#transcriptSearch !== null) {
       this.#applyTranscriptSearch(event)
+      return
+    }
+    if (event.type === 'key' && event.id === 'end' && this.#jumpToLatest !== undefined
+      && this.#settings === null && this.#copySelector === null && this.#search === null) {
+      this.#followTail()
+      this.#render()
       return
     }
     if (event.type === 'key') {
@@ -1978,7 +2018,6 @@ export class LocalTui implements TuiService {
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
     const previousMotion = this.#motion
     const density = resolveFoldDensity(prefs)
-    const densityChanged = density !== this.#foldDensity
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#syncTrueColor()
@@ -1992,12 +2031,7 @@ export class LocalTui implements TuiService {
     this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
-    // Ctrl+O is an override on top of the density, not a second resting shape,
-    // so picking a new density has to clear it. Leaving it set would pin the
-    // previous rung's answer and read as a setting that does nothing. The
-    // per-call, per-thought, and per-group sets are untouched: those are the
-    // reader's own deliberate openings, not an artifact of the old density.
-    if (options.forceToolsSync || densityChanged) this.#toolsExpanded = false
+    if (options.forceToolsSync) this.#toolsExpanded = false
     if (previousMotion !== this.#motion) {
       this.#stopRevealTick()
       this.#reveal = undefined
@@ -2341,6 +2375,7 @@ export class LocalTui implements TuiService {
           this.#followTail()
           this.#render()
         }
+        this.#setMouseTracking(false)
         try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
       }
       return
@@ -2837,20 +2872,9 @@ export class LocalTui implements TuiService {
     return index
   }
 
-  /**
-   * Open or close whatever the viewport is looking at.
-   *
-   * A process group is tried first. A collapsed group is a single row, so an
-   * anchor pointing into one names the group rather than whichever call happens
-   * to sit at that offset — and opening the call inside a folded group would
-   * otherwise be unreachable. Then the tool call, then the folded thought, and
-   * failing all of those the key falls through to opening everything.
-   */
+  /** Restore the completed turn under the viewport, or close its inspection. */
   #toggleFoldTarget(): void {
-    // The anchor is read off the last painted frame's row offsets. A burst of
-    // settlements may still be waiting for its coalesced paint, and aiming with
-    // the older offsets misses the run the reader is looking at and falls
-    // through to opening every call; paint first so both describe one state.
+    // Flush coalesced events so hit testing uses the blocks that are on screen.
     if (this.#streamRenderTimer !== null) this.#render()
     // Inside an inspection the key is the way back out: it closes what was
     // opened and returns to the live tail, wherever the reader has scrolled.
@@ -2860,22 +2884,9 @@ export class LocalTui implements TuiService {
       return
     }
     const anchor = this.#viewportBlock()
-    const within = (index: number): boolean => anchor === undefined || index <= anchor
-    // A live run is not a group yet — it has no header to open — so the key
-    // aims at the call or thought under the viewport inside it instead.
     const groups = turnGroups(this.#state).filter(item => !item.live)
-    // The group is matched at its end as well as inside it. A collapsed group
-    // occupies one row and the block that closed it is the answer sitting just
-    // below, so following the tail puts the anchor on that answer — and the
-    // thing the reader is actually looking at is the group above it.
-    // A finished turn ends on its answer and then, often, the record of the
-    // files it changed; following the tail aims at that record. It is still the
-    // turn the reader is looking at, so the run above it is the target — not
-    // the fallthrough that opens every call in the session.
-    // The run's trailing work is painted after its answer and after the
-    // changed-file record, so following the tail aims past all of it. Reaching
-    // only as far as the run's own end would aim the key at a notice the
-    // reader is looking at and fall through to opening every call instead.
+    // The answer, changed-file record, and following notices still address
+    // their turn when the reader is following the tail.
     const reach = (group: ProcessGroup): number => {
       let at = group.until
       const blocks = this.#state.blocks
@@ -2891,74 +2902,24 @@ export class LocalTui implements TuiService {
     }
     const group = anchor === undefined
       ? undefined
-      : groups.findLast(item => anchor >= item.start && anchor <= reach(item))
+      : groups.findLast(item => {
+        const first = this.#state.blocks[item.start - 1]?.kind === 'user' ? item.start - 1 : item.start
+        return anchor >= first && anchor <= reach(item)
+      })
     if (group !== undefined) {
       this.#toggleSet(this.#openedGroups, group.key)
-      // Opening a run is its one reading surface. Ctrl+O inside it exits, so
-      // folded thoughts and calls must open with it rather than remain hidden.
-      // The stretch already covers the answer — it sits inside [start, until) —
-      // so there is nothing to add, and work that settled behind the answer is
-      // covered by the same range.
-      const members = Array.from({ length: group.until - group.start }, (_, index) => group.start + index)
-      for (const index of members) {
-        const block = this.#state.blocks[index]
-        if (block?.kind === 'assistant' && block.reasoning !== '') {
-          this.#expandedReasoning.add(reasoningKey(block))
-        } else if (block?.kind === 'tool') {
-          this.#expandedToolCalls.add(block.callId)
-        }
-      }
-      // Open at the run's newest work, which is its last member: the answer
-      // that closed it is not part of the run, and trailing work is a notice
-      // rather than something to land on.
-      // The run's newest work is its last member: the answer that closed it
-      // is not part of the run, and work that settled behind it is a notice.
       this.#inspect((group.answer ?? group.until) - 1)
       this.#render()
       return
     }
-    // A block inside a group is reachable through its group, never on its own:
-    // expanding a call the reader cannot see would repaint nothing and read as
-    // a dead key.
-    const grouped = new Set<number>()
-    for (const item of groups) {
-      for (let at = item.start; at < (item.answer ?? item.until); at += 1) grouped.add(at)
-    }
-    const at = anchor === undefined ? this.#state.blocks.at(-1) : this.#state.blocks[anchor]
-    if (at?.kind === 'toolCatalog') {
+    if (anchor !== undefined && this.#state.blocks[anchor]?.kind === 'toolCatalog') {
       this.#toolsExpanded = !this.#toolsExpanded
       this.#inspect(anchor)
       this.#render()
-      return
     }
-    const tool = this.#state.blocks.findLast(
-      (block, index): block is Extract<Block, { kind: 'tool' }> =>
-        block.kind === 'tool' && within(index) && !grouped.has(index),
-    )
-    if (tool?.kind === 'tool') {
-      this.#toggleSet(this.#expandedToolCalls, tool.callId)
-      this.#inspect(this.#state.blocks.indexOf(tool))
-      this.#render()
-      return
-    }
-    // A folded thought is the other thing this key can open, and a step with no
-    // reasoning is not a target — skip past it rather than expanding all.
-    const thought = this.#state.blocks.findLast(
-      (block, index): block is Extract<Block, { kind: 'assistant' }> =>
-        block.kind === 'assistant' && block.reasoning !== '' && within(index) && !grouped.has(index),
-    )
-    if (thought?.kind === 'assistant') {
-      this.#toggleSet(this.#expandedReasoning, reasoningKey(thought))
-      this.#inspect(this.#state.blocks.indexOf(thought))
-      this.#render()
-      return
-    }
-    this.#toolsExpanded = !this.#toolsExpanded
-    this.#inspect(this.#follow ? undefined : anchor)
-    this.#render()
+    // A live turn already has the open presentation. There is no deeper state.
   }
 
-  /** Flip one key in an open/closed set, replacing it so the render cache sees a new identity. */
   #toggleSet(set: Set<string>, key: string): void {
     if (set.has(key)) set.delete(key)
     else set.add(key)

@@ -139,7 +139,7 @@ describe('a search that opens a thought the run took', () => {
     // The mark reports the thought's own row — the `∴ Thought` label the run
     // paints above the opened text — not the reply below it, which is where a
     // query matching both would navigate to.
-    const label = both.lines.findIndex(line => line.includes('∴ Thought'))
+    const label = both.lines.findIndex(line => line.includes('lockfile shared 0'))
     expect(label).toBeGreaterThan(-1)
     expect(both.markRows.thought).toBe(label - both.bodyRow)
   })
@@ -169,7 +169,7 @@ describe('a search that opens a thought the run took', () => {
     // anchor is independent of why the thought is open.
     const state = transcript()
     const rendered = view(state, undefined, { expandedReasoning: new Set(['1:2']) })
-    const label = rendered.lines.findIndex(line => line.includes('∴ Thought'))
+    const label = rendered.lines.findIndex(line => line.includes('lockfile shared 0'))
 
     expect(label).toBeGreaterThan(-1)
     expect(rendered.markRows.thought).toBe(label - rendered.bodyRow)

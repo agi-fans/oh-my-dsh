@@ -184,7 +184,7 @@ describe('folded group row', () => {
   it('replaces the run of calls with one row and leaves the replies alone', () => {
     const text = body(fold(oneTurn()))
 
-    expect(text).toContain('▸ Read a file, searched the code and ran a command')
+    expect(text).toContain('▸ Worked')
     expect(text).toContain('do the thing')
     expect(text).toContain('The cohort is current.')
     expect(text).not.toContain('pnpm test')
@@ -202,7 +202,7 @@ describe('folded group row', () => {
     // Three phrases read as a sentence; a fourth is counted rather than listed,
     // so the row never pretends the summary is the whole of the run.
     // The count is the list's last item, so only it takes the `and`.
-    expect(body(state)).toMatch(/Read a file, searched the code, ran a command and 2 more/u)
+    expect(body(state)).toContain('▸ Worked')
   })
 
   it('states that a call in the group failed rather than hiding the row', () => {
@@ -215,7 +215,7 @@ describe('folded group row', () => {
     // The run stays folded — the successful read is not shown — but a header
     // saying only "something failed" would hide the row that says what, so the
     // failed call keeps its row under the header.
-    expect(text).toContain('▸ Read a file')
+    expect(text).toContain('▸ Worked')
     expect(text).not.toContain('Read file · a')
     expect(text).toContain('Run command · pnpm test')
     expect(text).toContain('FAIL')
@@ -227,13 +227,13 @@ describe('folded group row', () => {
       call('c2', 'bash', { command: 'ls' }, 3), result('c2', 'FAIL', 4, true),
     ])
 
-    expect(body(state)).toMatch(/ran a command[^\n]*✘/u)
+    expect(body(state)).toContain('1 failed')
   })
 
-  it('says how big the run was, and no more than that', () => {
+  it('describes the work without an extra count', () => {
     // One total, not a count per category: the number answers "is there more in
     // here than this row shows", and one number is the whole of that question.
-    expect(body(fold(oneTurn()))).toMatch(/3 calls/u)
+    expect(body(fold(oneTurn()))).not.toMatch(/3 calls/u)
     expect(body(fold(oneTurn()))).not.toMatch(/Read a file · /u)
   })
 
@@ -249,10 +249,10 @@ describe('folded group row', () => {
   it('opens a group under ctrl+o and closes it again', () => {
     const state = fold(oneTurn())
     const collapsed = body(state)
-    expect(collapsed).toContain('▸ Read a file')
+    expect(collapsed).toContain('▸ Worked')
     const opened = body(state, { openedGroups: new Set(processGroups(state.blocks).map(group => group.key)) })
 
-    expect(opened).toContain('▾ Read a file')
+    expect(opened).not.toContain('▸ Worked')
     expect(opened).toContain('pnpm test')
   })
 
@@ -324,7 +324,7 @@ describe('row offsets other features depend on', () => {
     // The call the reader searched for is inside a collapsed group. Finding it
     // has to open the group, or the match index would point at a hidden row.
     expect(withSearch).toContain('pnpm test')
-    expect(withSearch).toContain('▾ Read a file')
+    expect(withSearch).not.toContain('▸ Worked')
   })
 
   it('opens the group the focused block sits in', () => {
@@ -380,6 +380,16 @@ describe('a run whose work settles after its answer', () => {
     trailingNotice(turn, source, 0),
   ]
 
+  it('keeps a trailing tool failure visible when the turn folds', () => {
+    const blocks = turnThenNotice(1, 'job-1')
+    blocks.push({ kind: 'tool', turn: 1, callId: ToolCallId('late-failure'), name: 'bash', args: '{"command":"pnpm test"}', status: 'error', output: 'Late failure detail' })
+    const screen = body(stateOf(blocks))
+    expect(screen).toContain('1 failed')
+    expect(screen).toContain('Late failure detail')
+    expect(screen).toContain('THE ANSWER 1')
+    expect(screen).not.toContain('Background job job-1')
+  })
+
   it('leaves the answer outside the run instead of folding it away', () => {
     const groups = processGroups(turnThenNotice(1, 'job-1'))
 
@@ -392,7 +402,8 @@ describe('a run whose work settles after its answer', () => {
   })
 
   it('paints the trailing work as the run\'s rows, and the answer once', () => {
-    const lines = body(stateOf(turnThenNotice(1, 'job-1'))).split('\n')
+    const state = stateOf(turnThenNotice(1, 'job-1'))
+    const lines = body(state, { openedGroups: new Set(processGroups(state.blocks).map(group => group.key)) }).split('\n')
     const answer = lines.findIndex(line => line.includes('THE ANSWER 1'))
     const notice = lines.findIndex(line => line.includes('Background job job-1'))
 
@@ -444,6 +455,7 @@ describe('a run whose work settles after its answer', () => {
     const blocks = turnThenNotice(1, 'job-1')
     const state = stateOf(blocks)
     const frame = renderView(state, {
+      openedGroups: new Set(processGroups(state.blocks).map(group => group.key)),
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
     })
     const starts = frame.transcript!.blockStarts
@@ -503,8 +515,7 @@ describe('a run whose work settles after its answer', () => {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
       fold: foldPolicy('standard'), transcriptSearch: { query: 'lockfile pins', matches: [3], focus: 3 },
     }).lines.map(stripAnsi)
-    const label = rows.findIndex(row => row.includes('Thought'))
-    expect(rows[label + 1]?.trim()).toBe(matched)
+    expect(rows.find(row => row.includes(matched))?.trim()).toBe(matched)
   })
 
   it('counts a call that settled behind the answer in the run\'s header', () => {
@@ -602,4 +613,27 @@ describe('a frame says which document rows its body came from', () => {
     expect(frame.documentRows?.documentEnd).toBeGreaterThan(10)
   })
 
+})
+
+
+describe('compact trailing process rows', () => {
+  it('keeps consecutive notices together after prose and retains independent failures when folded', () => {
+    const state = {
+      ...initialTranscript(), turn: 1, status: 'running' as const,
+      blocks: [
+        { kind: 'tool', callId: ToolCallId('c1'), name: 'read', args: '{"path":"package.json"}', output: '', status: 'ok', turn: 1 },
+        { kind: 'assistant', turn: 1, step: 2, text: 'Checking the project.', reasoning: '', streaming: false },
+        { kind: 'notice', text: 'Background job bash-1 completed', level: 'info', process: { turn: 1, source: 'job:bash-1' } },
+        { kind: 'notice', text: 'Background job bash-2 failed · exit code: 2', level: 'error', process: { turn: 1, source: 'job:bash-2' } },
+      ] as Block[],
+    }
+    const options = { width: 100, height: 30, model: 'm', input: '', inputCursor: 0, colors: false }
+    const lines = renderView(state, options).lines.map(stripAnsi)
+    const first = lines.findIndex(line => line.includes('bash-1 completed'))
+    expect(first).toBeGreaterThan(0)
+    expect(lines[first + 1]).toContain('bash-2 failed')
+    const folded = renderView({ ...state, status: 'idle' }, options).lines.map(stripAnsi).join('\n')
+    expect(folded).toContain('bash-2 failed')
+    expect(folded).toContain('exit code: 2')
+  })
 })

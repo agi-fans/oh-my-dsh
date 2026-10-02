@@ -193,7 +193,7 @@ describe('session transcript boundaries', () => {
       expect(f.terminal!.visible().join('\n')).toContain('COMMAND_RESULT_VISIBLE')
       expect(f.output().slice(mark)).toContain('COMMAND_RESULT_VISIBLE')
       expect(f.terminal!.scrollback().slice(0, history.length)).toEqual(history)
-      if (inspection) expect(f.output().slice(mark)).toContain('\x1b[?1000l')
+      expect(f.output().slice(mark)).not.toContain('\x1b[?1000l')
     } finally { await f.dispose() }
   })
 

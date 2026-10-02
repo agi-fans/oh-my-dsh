@@ -527,7 +527,7 @@ export class MainScreenRenderer {
    * to be on the screen top but cannot be named, so the honest restoration is to scroll them back
    * down before the next overwrite, by count, in screen order.
    */
-  #pendingReverse: { count: number; known: PushedRow[] } | undefined
+  #pendingReverse: { count: number; height: number } | undefined
 
   /**
    * Set while a caller has already written the alternate-buffer exit as part of its own plan, so
@@ -694,10 +694,6 @@ export class MainScreenRenderer {
       // The rows coming back are again positions beyond the proven suffix — native history holds
       // them once more — so the counted front grows by exactly what this move returns.
       this.#unknownFront += restore.count
-      // Known gap: those rows are the ones the pull took out of the unknown front, that is the
-      // protection copies that lost their membership proof. Restoring **their** membership is what
-      // is still missing; the instances recorded beside the count are the ones the suffix gave up,
-      // which is a different set.
       // The reverse move is this event's answer to the risk its own pull raised, so that risk is
       // spent: leaving it standing would make the next frame scroll the whole window out over
       // rows that have already been put back.
@@ -958,9 +954,10 @@ export class MainScreenRenderer {
     // thing entirely and must clear the document range rather than leave the
     // previous one standing. An alternate-buffer frame is a different buffer and
     // is filtered inside the recorder, not here.
+    const header = this.#paintStickyHeader(frame, target)
     this.#screenRows = target.rows
     this.#recordSource(frame, target)
-    return this.#finishPaint(exitAlt + body + flush, target, next.length, cursor, cursorVisible)
+    return this.#finishPaint(exitAlt + body + flush + header, target, next.length, cursor, cursorVisible)
   }
 
   #paintFollow(
@@ -1243,6 +1240,7 @@ export class MainScreenRenderer {
     }
 
     this.#transient = false
+    const header = this.#paintStickyHeader(frame, target)
     this.#screenRows = target.rows
     this.#recordSource(frame, target)
     this.#reflowFrom = undefined
@@ -1250,7 +1248,22 @@ export class MainScreenRenderer {
     this.#followRows = next
     this.#followEnd = Math.max(liveStart, this.#physical)
     this.#followTranscript = transcript
-    return this.#finishPaint(exitAlt + body, target, next.length, cursor, cursorVisible)
+    return this.#finishPaint(exitAlt + body + header, target, next.length, cursor, cursorVisible)
+  }
+
+  #stickyHeader(frame: Frame, target: ScreenTarget): string | undefined {
+    const range = frame.documentRows
+    if (range === undefined || range === null || target.offset > 0) return undefined
+    const document = range.documentStart + Math.max(0, target.start - range.frameStart)
+    return frame.stickyHeaders?.findLast(header => document >= header.start && document < header.end)?.text
+  }
+
+  /** Paint after document flushes so the label never becomes a transcript row. */
+  #paintStickyHeader(frame: Frame, target: ScreenTarget): string {
+    const header = this.#stickyHeader(frame, target)
+    if (header === undefined) return ''
+    target.rows[0] = sanitizeDisplayLine(header)
+    return this.#writeRun(target.rows, 0, 0)
   }
 
   /** Map a frozen row index across a changed span, keeping its suffix aligned. */
@@ -1434,10 +1447,12 @@ export class MainScreenRenderer {
     this.#screenRowSource = []
     let lowest: number | undefined
     let highest: number | undefined
+    const pinned = this.#stickyHeader(frame, target) !== undefined
     for (let at = 0; at < target.rows.length; at += 1) {
       const frameRow = target.start + at - target.offset
       const document = range.documentStart + (frameRow - range.frameStart)
-      const inside = frameRow >= range.frameStart && document >= range.documentStart && document < range.documentEnd
+      const inside = !(at === 0 && pinned)
+        && frameRow >= range.frameStart && document >= range.documentStart && document < range.documentEnd
       this.#screenRowSource[at] = inside ? document : undefined
       if (!inside) continue
       lowest = lowest === undefined ? document : Math.min(lowest, document)
@@ -1631,6 +1646,24 @@ export class MainScreenRenderer {
     // an unrelated pending plan.
     if (record.stackApplied) return
     record.stackApplied = true
+    const pending = this.#pendingReverse
+    const heights = [record.transition.oldHeight, ...record.transition.intermediateHeights, record.newHeight]
+    const growth = record.newHeight - record.transition.oldHeight
+    // Consecutive same-width grows prepend rows without disturbing their order. The
+    // unknown front proves these additional rows exist even though their text is unknown.
+    // Return the combined prefix when leaving the overlay, rather than forgetting that
+    // its earlier rows were already committed before the terminal pulled them back.
+    if (pending !== undefined && pending.height === record.transition.oldHeight
+      && !record.transition.widthChanged && !this.#tailStale && this.#provenTail === 0
+      && growth > 0 && growth <= this.#unknownFront
+      && heights.every((height, index) => index === 0 || height >= heights[index - 1]!)) {
+      this.#pendingReverse = { count: pending.count + growth, height: record.newHeight }
+      this.#unknownFront -= growth
+      record.pulledBack = growth
+      record.pushedRows = []
+      record.after = undefined
+      return
+    }
     // A later move disturbs the rows a pending reverse move was waiting to return: what they are
     // cannot be shown to still sit at the top of the screen. The plan is dropped here, before the
     // geometry guard, because a move that cannot be followed at all is exactly the case where that
@@ -1751,7 +1784,7 @@ export class MainScreenRenderer {
           // move that arrives on top of another's rows leaves both as unknown counts rather than
           // claiming either.
           if (this.#pendingReverse === undefined) {
-            this.#pendingReverse = { count: unknownCount, known: knownTaken }
+            this.#pendingReverse = { count: unknownCount, height: record.newHeight }
           }
           this.#unknownFront -= unknownCount
         }
@@ -2010,15 +2043,16 @@ export class MainScreenRenderer {
     frame: Frame | undefined,
     record: ParkedMove,
   ): { confirmed: ConfirmedRow[]; remaining: 'unresolved' | undefined; pushed?: (number | undefined)[] } {
+    // An accounted grow can prove it pushed nothing without knowing the rows it pulled.
+    if (record.pushedRows?.length === 0) return { confirmed: [], remaining: undefined }
     // Everything the comparison needs comes from the record: the cursor as it stood
     // before the terminal's move, and the source as it stood then. Reading the live
     // fields instead is how a parked move became unreadable — an overlay or a browse
     // window has already replaced them, and a live source of `null` is exactly what
     // a browse records.
     //
-    // The source check comes **before** the push count, so a record with no usable
-    // source is unresolved whatever the count turns out to be; a record that does
-    // have one and pushed nothing is resolved, with an empty answer.
+    // Without an accounted empty push above, check the source before inferring a
+    // push count from geometry: an untracked move may have intermediate shrinks.
     // A record whose rows cannot be tied to document rows at all is **unresolved**,
     // not resolved-to-nothing. An empty mapping that reads as "known, nothing to
     // credit" would settle the record and let the flush send rows the terminal has

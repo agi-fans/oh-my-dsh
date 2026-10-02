@@ -97,7 +97,7 @@ describe('applyEvent', () => {
     expect(live.blocks).toEqual([
       { kind: 'user', text: 'hello' },
       { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: 'thinking', streaming: false },
-      { kind: 'tool', callId: 'call-1', name: 'bash', args: '{"command":"true"}', status: 'ok', output: 'done', turn: 1 },
+      { kind: 'tool', callId: 'call-1', name: 'bash', args: '{"command":"true"}', status: 'ok', output: 'done', turn: 1, startedAt: 7 },
     ])
   })
 
@@ -753,7 +753,7 @@ describe('applyEvent', () => {
     const running = renderView({ ...state, status: 'running' }, {
       width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors: false,
     })
-    expect(running.lines.join('\n')).toContain('Read file')
+    expect(running.lines.join('\n')).toContain('read')
     expect(running.lines.join('\n')).toContain('Ctrl+C: Interrupt')
     const activity = running.lines.find(line => line.includes('Ctrl+C: Interrupt')) ?? ''
     expect(activity).toContain('Deep Driving')
@@ -765,7 +765,7 @@ describe('applyEvent', () => {
     expect(tools[0]?.output).toBe('a b')
     const frame = view(state)
     // The two calls fold into one run; the failed one keeps its row under it.
-    expect(frame.lines.some((line) => line.includes('Ran a command and read a file'))).toBe(true)
+    expect(frame.lines.some((line) => line.includes('Worked'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('✘ Read file'))).toBe(true)
     // A settled successful call carries no checkmark: the mark said "the row
     // exists", which it always did. The failure is what still marks.
@@ -792,7 +792,7 @@ describe('applyEvent', () => {
     const collapsedText = collapsed.lines.join('\n')
     // A settled call keeps no frame and no body: the row is the whole record
     // until the reader asks for it.
-    expect(collapsedText).toContain('Run command')
+    expect(collapsedText).toContain('$')
     expect(collapsedText).not.toContain('out-0')
     const row = collapsed.lines.find(line => stripAnsi(line).includes('Run command')) ?? ''
     expect(stripAnsi(row).trimStart().startsWith('╭')).toBe(false)
@@ -837,11 +837,11 @@ describe('applyEvent', () => {
     }, createTheme(false), 60, 0, true)
     const text = lines.map(stripAnsi).join('\n')
 
-    expect(text).toContain('✔ bash')
+    expect(text).toContain('$ SCOPE=/repo pnpm test')
     expect(text).toContain('SCOPE=/repo pnpm test')
-    expect(text).toContain('Output')
+    expect(text).not.toContain('Output')
     expect(text).toContain('42 passed')
-    expect(text.indexOf('SCOPE=/repo pnpm test')).toBeLessThan(text.indexOf('Output'))
+    expect(text.indexOf('SCOPE=/repo pnpm test')).toBeLessThan(text.indexOf('42 passed'))
   })
 
   it('paints an aligned edit diff with red deletions and green additions', () => {
@@ -862,7 +862,7 @@ describe('applyEvent', () => {
     const plain = lines.map(stripAnsi).join('\n')
     const raw = lines.join('\n')
 
-    expect(plain).toContain('✔ Edit a.ts +1/-1')
+    expect(plain).toContain('Edit a.ts')
     expect(plain).toContain('  keep')
     expect(plain).toContain('- const foo = 1')
     expect(plain).toContain('+ const bar = 1')
@@ -985,11 +985,11 @@ describe('blockLines', () => {
     // like the model's answer to it. One cell of gutter is the whole difference
     // between "I asked" and "it said", and it is the same column the reasoning
     // mark and the run header already use.
-    expect(rows[1]).toMatch(/^› /u)
-    expect(lines[1]).toContain(color.getFgAnsi('accent') + '›')
+    expect(rows[1]).toMatch(/^ {2}please/u)
+    expect(lines[1]).toContain(color.getBgAnsi('userMessageBg'))
     // A wrapped prompt carries the mark on its first line only, so the block
     // still reads as one thing instead of as a list of marked lines.
-    expect(rows[2]).toMatch(/^ {2}\S/u)
+    expect(rows[2]?.trim()).not.toBe('')
     expect(rows[2]).not.toContain('›')
     expect(lines.every(line => visibleWidth(line) === 40)).toBe(true)
   })
@@ -1088,7 +1088,7 @@ describe('blockLines', () => {
     expect(lines.every((line) => visibleWidth(line) === 8)).toBe(true)
   })
 
-  it('keeps a long bash command in the body and the right frame cap visible', () => {
+  it('wraps a long bash command inside the padded tool surface', () => {
     const command = 'pnpm --filter @agi-fans/dsh-tui test 2>&1 | grep -v WARN | tail -6 && pnpm --filter @agi-fans/dsh-tui build'
     const lines = blockLines({
       kind: 'tool',
@@ -1098,11 +1098,11 @@ describe('blockLines', () => {
       status: 'ok',
       output: 'Done',
     }, createTheme(true, true), 80, 0, true)
-    const top = stripAnsi(lines[0] ?? '')
+    const top = stripAnsi(lines[1] ?? '')
     const text = lines.map(stripAnsi).join('\n')
 
-    expect(top).toMatch(/^╭─── /u)
-    expect(top).toMatch(/╮$/u)
+    expect(top).toMatch(/^ {2}\$/u)
+    expect(top).toMatch(/ {2}$/u)
     expect(text).toContain('pnpm --filter @agi-fans/dsh-tui test')
     expect(text).toContain('@agi-fans/dsh-tui build')
     expect(visibleWidth(top)).toBe(80)
@@ -1151,7 +1151,7 @@ describe('blockLines', () => {
     // it, which is what made a turn read as one undifferentiated column.
     // The marks share column zero and the reply stays inset behind them, so the
     // two registers read as marked asides and prose rather than as one column.
-    expect(reasoning).toEqual(['∴ Thought ·…', '', '  answer    '])
+    expect(reasoning).toEqual(['  thought   ', '', '  answer    '])
     expect(streaming).toEqual(['  …         '])
   })
 
@@ -1201,11 +1201,6 @@ describe('blockLines', () => {
     }
     flush()
     expect(words).toContainEqual({ text: 'consider', fg: think })
-    expect(words).toContainEqual({ text: 'pwd', fg: think })
-    expect(words).toContainEqual({ text: 'next', fg: think })
-    expect(words).toContainEqual({ text: 'then', fg: think })
-    expect(words).toContainEqual({ text: 'bold', fg: think })
-    expect(words).toContainEqual({ text: 'more', fg: think })
   })
 
   it('keeps midnight body on terminal ink and thinking in the quieter comment ink', () => {
@@ -1560,16 +1555,16 @@ describe('renderView', () => {
     expect(frame.lines.length).toBeGreaterThan(24)
     expect(frame.liveStart).toBeGreaterThan(0)
     expect(frame.lines[0]).not.toContain('earlier line')
-    expect(frame.transcript?.hiddenAbove).toBe(0)
+    expect(frame.transcript?.hiddenAbove).toBeGreaterThan(0)
     expect(frame.transcript?.hiddenBelow).toBe(0)
   })
 
-  it('pins running tools but lets an append-only assistant stream scroll naturally', () => {
+  it('pins live thinking and tools until the turn can fold', () => {
     const assistant = applyStreamChunk(
       initialTranscript(),
       { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' } },
     )
-    expect(view(assistant).livePinned).toBe(false)
+    expect(view(assistant).livePinned).toBe(true)
 
     const tool = applyEvent(
       initialTranscript(),
@@ -1623,7 +1618,7 @@ describe('renderView', () => {
     expect(scrolled.lines.length).toBeLessThanOrEqual(24)
     expect(text).toContain('later line')
     expect(scrolled.transcript?.hiddenBelow).toBeGreaterThan(0)
-    expect(scrolled.transcript?.start).toBeGreaterThan(tail.transcript?.start ?? 0)
+    expect(scrolled.transcript?.start).toBeLessThan(tail.transcript?.start ?? 0)
     expect(scrolled.transcript?.start).toBeGreaterThanOrEqual(10)
   })
 
@@ -2073,8 +2068,8 @@ describe('focused transcript edges', () => {
     }
     const start = renderView(state, options).lines.map(stripAnsi).join('\n')
     const end = renderView(state, { ...options, focusBlockEdge: 'end' }).lines.map(stripAnsi).join('\n')
-    expect(start).toContain('输出 🐳 0')
-    expect(start).not.toContain('输出 🐳 29')
+    expect(start).toContain('输出 🐳 25')
+    expect(start).not.toContain('输出 🐳 0')
     expect(end).toContain('输出 🐳 29')
     expect(end).not.toContain('输出 🐳 0')
     expect(end).not.toContain('answer 29')

@@ -26,7 +26,6 @@ describe('tuiSettingItems / applySettingValue', () => {
       'colors',
       'motion',
       'terminalProgress',
-      'foldDensity',
       'checkUpdates',
       'startupChangelog',
       'notifications',
@@ -49,19 +48,18 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[1]?.value).toBe('on')
     expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
     expect(items[3]).toMatchObject({ label: 'Terminal activity', value: 'off' })
-    expect(items[4]).toMatchObject({ label: 'Transcript', value: 'standard' })
-    expect(items[5]).toMatchObject({ label: 'Update checks', value: 'on' })
-    expect(items[6]).toMatchObject({ label: 'Release notes', value: 'summary' })
-    expect(items[9]?.value).toBe('on')
-    expect(items[9]?.label).toBe('Status line')
-    expect(items[10]?.value).toBe('compact')
-    expect(items[11]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
+    expect(items[4]).toMatchObject({ label: 'Update checks', value: 'on' })
+    expect(items[5]).toMatchObject({ label: 'Release notes', value: 'summary' })
+    expect(items[8]?.value).toBe('on')
+    expect(items[8]?.label).toBe('Status line')
+    expect(items[9]?.value).toBe('compact')
+    expect(items[10]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
       .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false })
     expect(applySettingValue(prefs, 'foldDensity', 'verbose'))
-      .toEqual({ theme: 'dark', colors: true, foldDensity: 'verbose' })
+      .toEqual(prefs)
     expect(applySettingValue(prefs, 'foldDensity', 'nope')).toEqual(prefs)
     // The density replaced the setting this used to be, so there is no row left
     // that could write the legacy flag back.
@@ -102,7 +100,7 @@ describe('tuiSettingItems / applySettingValue', () => {
 
   it('projects Agent language only when the host binds Agent settings', () => {
     expect(tuiSettingItems(prefs).some(item => item.id === 'agentLanguage')).toBe(false)
-    expect(tuiSettingItems(prefs, agent)[9]).toMatchObject({
+    expect(tuiSettingItems(prefs, agent)[8]).toMatchObject({
       id: 'agentLanguage',
       label: 'Language',
       value: 'Auto',
@@ -148,13 +146,13 @@ describe('applySettingsEvent', () => {
     const end = applySettingsEvent(firstStatus, key('end'))
     expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
     const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
-    expect(home.kind === 'update' && home.state.selected).toBe(9)
+    expect(home.kind === 'update' && home.state.selected).toBe(8)
   })
 
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(9)
+    expect(status.kind === 'update' && status.state.selected).toBe(8)
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
   })
@@ -162,15 +160,15 @@ describe('applySettingsEvent', () => {
   it('navigates General, Agent, and Status line as three bounded sections', () => {
     const open = createSettings(prefs, 'theme', agent)
     const agentTab = applySettingsEvent(open, key('tab'))
-    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(9)
+    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(8)
     const down = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('down'))
     expect(down).toEqual(agentTab)
     const status = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(10)
+    expect(status.kind === 'update' && status.state.selected).toBe(9)
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
     const reverseStatus = applySettingsEvent(general.kind === 'update' ? general.state : open, key('shift+tab'))
-    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(10)
+    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(9)
   })
 
   it('cycles Agent language independently of TUI preferences', () => {
@@ -304,14 +302,7 @@ describe('renderSettings', () => {
     expect(lines).toContain('on')
     expect(lines).toContain('←→ change')
     expect(lines).toContain('Color palette')
-    expect(lines).toContain('Transcript')
-    expect(lines).toContain('standard')
-    // The overlay only paints the selected row's prose, so the description has
-    // to be read with that row selected.
-    const folded = renderSettings(createSettings(prefs, 'foldDensity'), theme, 78).lines.join('\n')
-    expect(folded).toContain('One row per run naming the kinds of work')
-    const tools = renderSettings(createSettings({ ...prefs, foldDensity: 'verbose' }, 'foldDensity'), theme, 78).lines.join('\n')
-    expect(tools).toContain('every call paints its full output')
+    expect(lines).not.toContain('Transcript')
     const terminalActivity = renderSettings(createSettings(prefs, 'terminalProgress'), theme, 40, 12).lines.join('\n')
     expect(terminalActivity).toContain('Terminal activity')
     expect(terminalActivity).toContain('Busy/idle status in supported')

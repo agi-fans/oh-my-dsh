@@ -95,7 +95,19 @@ if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_ed
 }
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection mouse tracking', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'inspection jump label', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[F')
+if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'End returns to latest', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x0f')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'reopen after End', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -126,7 +138,7 @@ if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'i
 }
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l'), 'native mouse scrolling restored', deadline))) {
+if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'inspection closed', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -191,9 +203,28 @@ if (!(await waitFor(() => cleanOutput(out).includes('Rewound to before turn 1.')
   term.kill()
   process.exit(1)
 }
+// Rewinding leaves no completed turn to open. Ctrl+O must not enter an
+// unrelated full-output mode; use the catalog to exercise cleanup on exit.
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection before exit', deadline))) {
+await sleep(200)
+if (out.slice(mark).includes('\x1b[?1000h\x1b[?1006h')) {
+  console.error('FAIL: Ctrl+O opened an empty transcript after rewind')
+  term.kill()
+  process.exit(1)
+}
+// Rewind restores the original prompt in the composer.
+term.write('\x15')
+term.write('/tools\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Available Tools'), 'tool catalog before exit', deadline))) {
+  console.error(cleanOutput(out.slice(mark)).slice(-2000))
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x0f')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Collapse descriptions'), 'inspection before exit', deadline))) {
+  console.error(cleanOutput(out.slice(mark)).slice(-3000))
   term.kill()
   process.exit(1)
 }

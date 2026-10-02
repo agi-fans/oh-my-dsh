@@ -1,299 +1,100 @@
-/**
- * Folded tool row contract: a settled call is one unframed `label · subject`
- * line, and only an explicit expansion brings the frame back. Every assertion
- * is on display cells and on what a terminal shows, not on internal layout.
- */
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { blockLines } from './event-views.ts'
-import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
+import { createTheme, THEME_NAMES } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
+import type { Block } from './transcript-types.ts'
 
-const plain = (lines: readonly string[]): string[] => lines.map(stripAnsi)
-const theme = createTheme(false)
+type Tool = Extract<Block, { kind: 'tool' }>
+const tool = (over: Partial<Tool> = {}): Tool => ({ kind: 'tool', callId: ToolCallId('call'), name: 'bash', status: 'ok', args: '{}', output: '', ...over })
+const render = (block: Tool, width = 80, colors = false, full = false) => blockLines(block, createTheme(colors), width, 0, full)
+const text = (block: Tool, full = false) => render(block, 80, false, full).map(stripAnsi).join('\n')
 
-function tool(over: Partial<Parameters<typeof blockLines>[0]> & { name: string } = { name: 'bash' }) {
-  return {
-    kind: 'tool' as const,
-    callId: ToolCallId('call-1'),
-    status: 'ok' as const,
-    args: '{}',
-    output: '',
-    ...over,
-  } as Parameters<typeof blockLines>[0]
-}
-
-describe('folded tool row', () => {
-  it('gives a settled read one unframed line naming the work and the path', () => {
-    const lines = plain(blockLines(tool({
-      name: 'read',
-      output: 'x',
-      presentation: {
-        result: {
-          card: 'read',
-          path: 'packages/tui/omdsh-tui/src/views/event-views.ts',
-          lines: [{ number: 1, text: 'a' }],
-          totalLines: 581,
-        },
-      },
-    }), theme, 80))
-
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('Read file · packages/tui')
-    // The card's `Read <path>` title under a `Read file` label would say it twice.
-    expect(lines[0]).not.toContain('Read packages')
-    // A line count is not what a reader scrolls back for.
-    expect(lines[0]).not.toContain('1/581')
-    expect(lines[0]?.startsWith('╭')).toBe(false)
-  })
-
-  it('carries the command itself, not just the tool name, for a shell call', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm --filter @agi-fans/dsh-tui test' },
-        result: { card: 'terminal', output: 'ok', exitCode: 0 },
-      },
-    }), theme, 80))
-
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('Run command · pnpm --filter @agi-fans/dsh-tui test')
-    expect(lines[0]).not.toContain('exit 0')
-  })
-
-  it('names the work alone when nothing identifies the call', () => {
-    const lines = plain(blockLines(tool({ name: 'todo_write', args: '{}' }), theme, 80))
-
-    expect(lines).toHaveLength(1)
-    expect(lines[0]?.trimEnd()).toBe(`${SYMBOL.done} Update plan`)
-  })
-
-  it('names an unknown tool by its own name rather than inventing a kind', () => {
-    const lines = plain(blockLines(tool({ name: 'frobnicate', args: '{}' }), theme, 80))
-
-    expect(lines[0]?.trimEnd()).toBe(`${SYMBOL.done} frobnicate`)
-  })
-
-  it('reads any string argument when no known field names the call', () => {
-    const lines = plain(blockLines(tool({ name: 'skill', args: JSON.stringify({ name: 'dsh-upgrade' }) }), theme, 80))
-
-    expect(lines[0]).toContain('Load skill · dsh-upgrade')
-  })
-
-  it('keeps the diff counts on an edit, the one fact a successful row carries', () => {
-    const lines = plain(blockLines(tool({
-      name: 'edit',
-      args: JSON.stringify({ file_path: 'a.ts' }),
-      presentation: { result: { card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] } },
-    }), theme, 80))
-
-    expect(lines[0]).toContain('Edit file · a.ts')
-    expect(lines[0]).toMatch(/\+1/u)
-  })
-
-  it('reads the subject out of raw arguments instead of printing the opening brace', () => {
-    const lines = plain(blockLines(tool({
-      name: 'read',
-      args: JSON.stringify({ path: 'src/views/tool-row.spec.ts', offset: 10 }),
-    }), theme, 80))
-
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('src/views/tool-row.spec.ts')
-    expect(lines[0]).not.toContain('{')
-  })
-
-  it('leads a shell row with what the command was for, not the plumbing', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      args: JSON.stringify({ command: 'pnpm check:md', description: 'check the docs' }),
-    }), theme, 80))
-
-    expect(lines[0]).toContain('Run command · check the docs')
-    expect(lines[0]).not.toContain('pnpm check:md')
-  })
-
-  it('reads the description a live terminal card carries', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      presentation: { call: { card: 'terminal', title: 'git status --short', description: 'Show status' } },
-    }), theme, 80))
-
-    expect(lines[0]).toContain('Run command · Show status')
-  })
-
-  it('decodes a streamed argument prefix so a running row already names the call', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      args: '{"command":"ls -la /tm',
-      status: 'running',
-      partial: true,
-    }), theme, 60))
-
-    expect(lines[0]).toContain('ls -la /tm')
-    expect(lines[0]).not.toContain('"command"')
-  })
-
-  it('folds a failure to one line and names what went wrong', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      status: 'error',
-      output: [
-        '> pnpm test',
-        '',
-        ' FAIL  src/views/tool-row.spec.ts > a row',
-        '   × folds a failure to one line',
-        '      → expected false to be true',
-      ].join('\n'),
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: 'boom', exitCode: 1 },
-      },
-    }), theme, 84))
-
-    // The echoed command is not the answer, and neither is a blank line; the
-    // first thing the tool complained about is.
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('FAIL  src/views/tool-row.spec.ts')
-    expect(lines[0]).not.toContain('> pnpm test')
-    expect(lines[0]?.startsWith('╭')).toBe(false)
-  })
-
-  it('paints a failure fact in the error colour so it stands out in a run', () => {
-    const block = tool({
-      name: 'bash',
-      status: 'error',
-      output: 'boom\nnot found',
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: 'boom', exitCode: 1 },
-      },
-    })
-    const painted = createTheme(true, false)
-    const row = blockLines(block, painted, 84)[0] ?? ''
-    const plainRow = blockLines(block, theme, 84)[0] ?? ''
-
-    expect(stripAnsi(plainRow)).toContain('boom')
-    expect(painted.getFgAnsi('error')).not.toBe('')
-    expect(row).not.toBe(plainRow)
-  })
-
-  it('falls back to the call summary when a failure has no readable output', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      status: 'error',
-      output: '   \n\n',
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: '', exitCode: 1 },
-      },
-    }), theme, 84))
-
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('pnpm test')
-  })
-
-  it('restores the frame for a failure the reader opened', () => {
-    const lines = plain(blockLines(tool({
-      name: 'bash',
-      status: 'error',
-      output: '3 failing',
-      presentation: {
-        call: { card: 'terminal', title: 'pnpm test' },
-        result: { card: 'terminal', output: '3 failing', exitCode: 1 },
-      },
-    }), theme, 80, 0, true))
-
-    expect(lines[0]?.startsWith('╭───')).toBe(true)
-    expect(lines.join('\n')).toContain('3 failing')
-  })
-
-  it('restores the frame for a settled call under toolsExpanded', () => {
-    const block = tool({
-      name: 'bash',
-      output: 'done',
-      presentation: { result: { card: 'terminal', output: 'done', exitCode: 0 } },
-    })
-
-    expect(plain(blockLines(block, theme, 80))).toHaveLength(1)
-    const expanded = plain(blockLines(block, theme, 80, 0, true))
-    expect(expanded[0]?.startsWith('╭───')).toBe(true)
-    expect(expanded.join('\n')).toContain('done')
-  })
-
-  it('folds a running call to a row and leaves activity to the status footer', () => {
-    const lines = plain(blockLines(tool({ name: 'bash', status: 'running' }), theme, 80))
-
-    expect(lines).toHaveLength(1)
-    // The transcript records what the call was; the footer already owns the
-    // spinner phase and the elapsed time.
-    expect(lines[0]).not.toMatch(/\d+\.\d+s/u)
-    expect(lines[0]).not.toMatch(/running|pending/iu)
-  })
-
-  it('uses the spinner glyph for a running row', () => {
-    const lines = plain(blockLines(tool({ name: 'bash', status: 'running' }), theme, 80, 0))
-
-    expect(lines[0]).toContain(SPINNER[0])
-  })
-
-  it('marks a running row with the running symbol when animation is off', () => {
-    const lines = plain(blockLines(tool({ name: 'bash', status: 'running' }), theme, 80, -1))
-
-    expect(lines[0]).toContain(SYMBOL.running)
-  })
-
-  describe('width discipline', () => {
-    for (const width of [20, 40, 80, 120]) {
-      it(`fills exactly ${width} display cells for a settled shell call`, () => {
-        const lines = blockLines(tool({
-          name: 'bash',
-          presentation: {
-            call: { card: 'terminal', title: 'pnpm --filter @agi-fans/dsh-tui test 2>&1 | tail -6' },
-            result: { card: 'terminal', output: 'ok', exitCode: 0 },
-          },
-        }), theme, width)
-
-        expect(lines).toHaveLength(1)
-        expect(visibleWidth(lines[0]!)).toBe(width)
-      })
+describe('tool content', () => {
+  it.each(['running', 'ok', 'error'] as const)('pads the entire %s surface with the active theme background', status => {
+    const block = tool({ status, args: '{"command":"pwd"}', output: 'workspace' })
+    const background = status === 'running' ? 'toolPendingBg' : status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
+    for (const name of THEME_NAMES) {
+      for (const colors of [false, true]) {
+        for (const trueColor of [false, true]) {
+          const theme = createTheme(colors, trueColor, name)
+          const rows = blockLines(block, theme, 40)
+          const blank = theme.bg(background, ' '.repeat(40))
+          expect(rows[0]).toBe(blank)
+          expect(rows.at(-1)).toBe(blank)
+          expect(stripAnsi(rows[1]!)).toMatch(/^  \$ pwd +$/u)
+          expect(rows.every(row => visibleWidth(row) === 40)).toBe(true)
+          if (colors) expect(rows.every(row => row.startsWith(theme.getBgAnsi(background)))).toBe(true)
+          else expect(rows.join('')).not.toContain('\x1b[')
+        }
+      }
     }
+  })
 
-    it('truncates a long unbroken command by display cell, not string length', () => {
-      const command = 'pnpm ' + 'a'.repeat(400)
-      const lines = blockLines(tool({
-        name: 'bash',
-        presentation: {
-          call: { card: 'terminal', title: command },
-          result: { card: 'terminal', output: 'ok', exitCode: 0 },
-        },
-      }), theme, 40)
-
-      expect(visibleWidth(lines[0]!)).toBe(40)
-      expect(lines[0]).toContain('…')
-    })
-
-    it('keeps CJK and emoji from collapsing the right edge', () => {
-      const lines = blockLines(tool({
-        name: 'bash',
-        presentation: {
-          call: { card: 'terminal', title: '读取配置并运行测试 🎉' },
-          result: { card: 'terminal', output: 'ok', exitCode: 0 },
-        },
-      }), theme, 40)
-
-      expect(visibleWidth(lines[0]!)).toBe(40)
-    })
-
-    it('keeps the failure fact when the subject has to truncate', () => {
-      const lines = plain(blockLines(tool({
-        name: 'read',
-        status: 'error',
-        args: JSON.stringify({ file_path: `src/${'nested/'.repeat(30)}file.ts` }),
-        output: 'ENOENT',
-      }), theme, 40))
-
-      expect(lines).toHaveLength(1)
-      expect(lines[0]).toContain('ENOENT')
-    })
+  it('shows read paths and omits successful file contents', () => {
+    const block = tool({ name: 'read', args: '{"path":"src/main.ts"}', output: 'private contents' })
+    expect(text(block)).toContain('read src/main.ts')
+    expect(text(block)).not.toContain('private contents')
+    expect(text(block, true)).toContain('private contents')
+  })
+  it('uses a read presentation when arguments are absent', () => {
+    expect(text(tool({ name: 'read', presentation: { result: { card: 'read', path: 'file.ts', lines: [], totalLines: 0 } } }))).toContain('read file.ts')
+  })
+  it.each(['running', 'ok'] as const)('keeps the last five visual shell lines while %s', status => {
+    const block = tool({ status, args: '{"command":"pnpm test","description":"Test project"}', output: Array.from({ length: 20 }, (_, i) => `row-${i}`).join('\n') })
+    const output = text(block)
+    expect(output).toContain('$ pnpm test')
+    expect(output).not.toContain('Test project')
+    expect(output).not.toContain('row-14')
+    expect(output).toContain('row-15')
+    expect(output).toContain('row-19')
+    expect(output).toContain('15 earlier lines')
+    expect(output).not.toMatch(/[╭╰│]/u)
+  })
+  it.each([['grep', 15], ['find', 20], ['ls', 20], ['custom', 10]] as const)('previews %s results from the start', (name, limit) => {
+    const output = text(tool({ name, output: Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n') }))
+    expect(output).toContain('row-0')
+    expect(output).toContain(`row-${limit - 1}`)
+    expect(output).not.toContain(`row-${limit}\n`)
+    expect(output).toContain(`${30 - limit} more lines`)
+  })
+  it('decodes incomplete command arguments', () => {
+    expect(text(tool({ status: 'running', partial: true, args: '{"command":"ls /tm' }))).toContain('$ ls /tm')
+  })
+  it('uses semantic titles for plugin calls', () => {
+    expect(text(tool({ name: 'custom', presentation: { call: { card: 'generic', title: 'Inspect account' } } }))).toContain('Inspect account')
+  })
+  it('preserves deliverable names and paths from the tool presentation', () => {
+    const output = text(tool({ name: 'present', args: JSON.stringify({ files: [{ path: 'report.md', description: 'Results' }] }), output: 'Presented report.md' }))
+    expect(output).toContain('Deliverables')
+    expect(output).toContain('report.md — Results')
+    expect(output).not.toContain('Presented report.md')
+  })
+  it('keeps errors visible even for read calls', () => {
+    const block = tool({ name: 'read', status: 'error', args: '{"path":"missing"}', output: 'No such file' })
+    expect(text(block)).toContain('No such file')
+    expect(text(block)).toContain('Tool failed')
+    expect(render(block, 80, true).join('\n')).toContain(createTheme(true).getFgAnsi('error'))
+  })
+  it('renders edit diffs without a frame or a duplicate raw result', () => {
+    const output = text(tool({ name: 'edit', args: '{"path":"a.ts"}', output: 'raw output', presentation: { result: { card: 'diff', diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }] } } }))
+    expect(output).toContain('old')
+    expect(output).toContain('new')
+    expect(output).not.toContain('raw output')
+    expect(output).not.toMatch(/[╭╰]/u)
+  })
+  it('preserves generic errors after a diff call', () => {
+    const output = text(tool({ name: 'edit', status: 'error', output: 'permission denied', presentation: { call: { card: 'diff', title: 'Edit a', diffs: [] }, result: { card: 'generic', content: [{ type: 'text', text: 'permission denied' }] } } }))
+    expect(output).toContain('permission denied')
+  })
+  it.each([false, true])('wraps commands and pads output in display cells (colors=%s)', colors => {
+    for (const width of [8, 20, 40, 80, 120]) {
+      const block = tool({ args: JSON.stringify({ command: '检查🐳é'.repeat(40) + 'COMMAND_END' }), output: '检查🐳é'.repeat(40) + 'OUTPUT_END' })
+      const rows = render(block, width, colors)
+      expect(rows.every(row => visibleWidth(row) === width)).toBe(true)
+      expect(rows.every(row => stripAnsi(row).endsWith('  '))).toBe(true)
+      expect(rows.map(stripAnsi).join('').replaceAll(' ', '')).toContain('COMMAND_END')
+      expect(rows.map(stripAnsi).join('').replaceAll(' ', '')).toContain('OUTPUT_END')
+    }
   })
 })

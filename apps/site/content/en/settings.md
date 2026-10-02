@@ -1,10 +1,10 @@
 ---
-description: "Every omdsh setting: appearance, motion, notifications, Agent language, and the configurable two-line status footer, with defaults and persistence."
+description: "Every omdsh setting: appearance, motion, notifications, Agent language, optional features, and the configurable two-line status footer, with defaults and persistence."
 ---
 
 # Settings
 
-`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between the General, Agent, and Status line sections; `↑`/`↓` move between rows and `←`/`→` change a value. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Agent, Features, and Status line; `↑`/`↓` move between rows and `←`/`→` change a value. The complete overlay keys are in [Keyboard and keys](keyboard.md).
 
 ## General
 
@@ -14,11 +14,12 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
-| Transcript | compact / standard / detailed / verbose | standard | How much of the transcript stays folded. Everything between your prompt and the answer — the model's thinking, its calls, and any reply it wrote on the way — is one run, and a finished run folds to one row saying how long the turn took and what was done — `Worked for 2m 5s · Read files, searched the code and ran a command · 3 calls`. `Ctrl+O` opens the list in chronological order at its latest work. Scroll up with the mouse wheel or `PgUp` to read earlier work; pressing `Ctrl+O` again returns to the live tail; each row a mark, the kind of work, and what it acted on: `∴ Thought · …` for a thought, `• Run command · …` for a call. That summary row is dimmed end to end as background, so it does not compete with the answer one row below it; a failure is the one part of it that keeps its own colour, and the failed call's row stays visible under it. While a turn is still running nothing is folded: its rows and any reply the model writes on the way appear in order, and the turn folds once it ends. Your own prompt opens with `›` in the same first column, so a turn's registers are told apart by a mark rather than by indentation. `Ctrl+O` opens everything on top of any rung. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
 | Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |
 | Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
+
+Tool previews use the active theme's background colors with padding on every side. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
 
 Motion controls presentation only: provider output still enters the live session immediately, and a tool boundary or settled assistant message flushes the visible stream without waiting for the animation.
 
@@ -56,7 +57,7 @@ Status items are reordered and restyled in place: `Space` shows or hides an item
 
 First line, in default order: Model (`deepseek`), Effort (`max`), Path (`~/project`), Git (`main *1`), and Session, which is off by default because the terminal window title carries the session title regardless.
 
-Second line telemetry groups, all shown by default: Context (`Ctx 1.6% · 16.4K/1M`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`). When the terminal is narrow, groups degrade from the lowest priority: cache, then tokens, then latency, then durations, then activity counts.
+Second line telemetry groups, all shown by default: Context (`Ctx 1.6% · 16.4K/1M`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`). When the terminal is narrow, complete groups are selected in configured order. The default order prioritizes context, cache, tokens, and latency before durations and activity counts; a group that does not fit is skipped so a smaller later group can still appear.
 
 ## Persistence
 
@@ -64,7 +65,7 @@ Settings, model preferences, and logged-in credentials are live plugin config pe
 
 ## Plugin settings
 
-Beyond the overlay's three sections, mounted Harness plugins keep their settings in that plugin's own config on its Profile row. One decides whether the default route works at all: `llm-deepseek` is Messages-only and refuses a `protocol` key, answering `protocol is not configurable; remove it and use a Messages-compatible baseURL`. A custom gateway therefore has to expose a Messages-compatible endpoint, and the DeepSeek endpoint is selected by base URL rather than by a protocol switch.
+Mounted Harness plugins keep their settings in their own Profile row config. The `llm-deepseek` route accepts only Messages-compatible endpoints and rejects a `protocol` key with `protocol is not configurable; remove it and use a Messages-compatible baseURL`. Set a compatible `baseURL` for a custom gateway; the DeepSeek endpoint is selected by base URL.
 
 ## Related
 

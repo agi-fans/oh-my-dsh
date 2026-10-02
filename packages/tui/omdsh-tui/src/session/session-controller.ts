@@ -560,7 +560,16 @@ export class SessionRuntime {
         if (event.type !== 'settled') return
         const owner = event.job.owner === undefined ? undefined : this.#ctx.get('agents')?.get(event.job.owner)
         const notice = jobNoticeFor(event.job, owner, this.#active?.handle.agent)
-        if (notice !== undefined) tui.notice(notice, { process: true, processSource: `job:${event.job.id}` })
+        if (notice !== undefined) {
+          const job = event.job
+          tui.notice(notice, {
+            process: true, processSource: `job:${job.id}`,
+            ...(/^(bash|pwsh)$/u.test(job.kind) && (job.status === 'completed' || job.status === 'failed' || job.status === 'killed')
+              ? { job: { id: job.id, label: job.label, status: job.status, startedAt: job.startedAt, ...(job.detail === undefined ? {} : { detail: job.detail }) } }
+              : {}),
+            ...(job.status === 'failed' || job.status === 'killed' ? { level: 'error' as const } : {}),
+          })
+        }
       }))
     }
     this.#off.push(ctx.on('agent/status', (payload) => {

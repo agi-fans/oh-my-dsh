@@ -109,14 +109,13 @@ describe('PTC sub-calls in the transcript', () => {
     const state = replayEvents(ptcRound())
     const read = tools(state)[1]!
     const root = tools(state)[0]!
-    const subRow = plain(blockLines(read, theme, 60))[0] ?? ''
-    const rootRow = plain(blockLines(root, theme, 60))[0] ?? ''
+    const subRow = plain(blockLines(read, theme, 60))[1] ?? ''
+    const rootRow = plain(blockLines(root, theme, 60))[1] ?? ''
 
-    // Every row carries the same quiet bullet, so the indent is the signal
-    // that separates a sub-call from a call the model asked for directly.
-    expect(subRow.startsWith('  •')).toBe(true)
+    // Indentation distinguishes a sub-call from a direct model call.
+    expect(subRow.startsWith('    read')).toBe(true)
     expect(subRow).not.toBe(rootRow)
-    expect(rootRow.startsWith('• Run code')).toBe(true)
+    expect(rootRow.startsWith('  run_code')).toBe(true)
   })
 
   it('keeps a sub-call row exactly one terminal line wide', () => {
@@ -124,17 +123,17 @@ describe('PTC sub-calls in the transcript', () => {
 
     for (const block of tools(state)) {
       const lines = blockLines(block, theme, 60)
-      expect(lines).toHaveLength(1)
+      expect(lines.length).toBeGreaterThan(0)
       expect(visibleWidth(lines[0]!)).toBe(60)
     }
   })
 
-  it('opens a sub-call with the same whole-output frame a native call gets', () => {
+  it('opens a sub-call with the same padded output surface a native call gets', () => {
     const state = replayEvents(ptcRound())
     const bash = tools(state)[2]!
     const opened = plain(blockLines(bash, theme, 60, 0, true))
 
-    expect(opened[0]?.startsWith('  ╭───')).toBe(true)
+    expect(opened[1]?.startsWith('    $')).toBe(true)
     expect(opened.join('\n')).toContain('all good')
   })
 

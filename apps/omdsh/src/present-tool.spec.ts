@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,8 @@ describe('present delivery tool', () => {
   it('lets the model declare a deliverable and renders its card', async () => {
     const home = temp('omdsh-present-home-')
     writeTurnConfig(home, 'standard')
+    // Title generation must not consume the scripted tool response.
+    appendFileSync(join(home, 'profiles', 'omdsh', 'cordis.patch.yml'), '- id: session-title-llm\n  disabled: true\n')
     // A real empty-port bind keeps parallel suite runs from colliding.
     const server = await startMockLlmServer({
       port: 0,
@@ -68,6 +70,8 @@ describe('present delivery tool', () => {
       expect(clean).toContain('package.json — Probe deliverable')
       // The durable result only echoes the path, so the card must not repeat it.
       expect(clean).not.toContain('Presented package.json')
+      expect(clean).toContain('delivered')
+      expect(clean).not.toContain('mock script exhausted')
     } finally {
       await server.close()
     }

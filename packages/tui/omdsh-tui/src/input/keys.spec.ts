@@ -60,7 +60,7 @@ describe('parseKeys', () => {
     expect(parseKeys('\x1b[<81;10;5M').events).toEqual([{ type: 'wheel', direction: 'down' }])
     expect(parseKeys('\x1b[<64;10;5m').events).toEqual([])
     expect(parseKeys('\x1b[<66;10;5M').events).toEqual([])
-    expect(parseKeys('\x1b[<0;4;8M').events).toEqual([])
+    expect(parseKeys('\x1b[<0;4;8M').events).toEqual([{ type: 'click', row: 7, column: 3 }])
     expect(parseKeys('\x1b[<0;4;8m').events).toEqual([])
     expect(parseKeys('\x1b[<64;10')).toEqual({ events: [], rest: '\x1b[<64;10' })
     expect(parseKeys('\x1b[<64;10' + ';5Mok').events).toEqual([
@@ -68,6 +68,7 @@ describe('parseKeys', () => {
     ])
     expect(parseKeys('before\x1b[<0;4;8Mafter').events).toEqual([
       { type: 'text', value: 'before' },
+      { type: 'click', row: 7, column: 3 },
       { type: 'text', value: 'after' },
     ])
   })

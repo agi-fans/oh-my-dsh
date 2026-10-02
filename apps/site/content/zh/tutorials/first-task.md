@@ -43,7 +43,7 @@ omdsh 将三项会话控制分别建模，而不是折叠成一个 Mode。如果
 | Workflow | `/workflow` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
 | Access | `/permission` | Read only、Workspace write 或 Full access。 |
 
-Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。PTC 的程序在自己的代码里调用工具，因此这些调用被记为子调用：每个子调用独占一行，缩进在 `run_code` 那一行之下，同样可以用 `Ctrl+O` 展开。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
+Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。PTC 的程序在自己的代码里调用工具，因此这些调用被记为子调用：每个子调用独立展示，缩进在 `run_code` 之下；`Ctrl+O` 展开已完成回合时会一并展示。Workflow 与 Access 是持久化的会话状态，之后仍可切换。
 
 ### 选择安全的 Access
 
@@ -65,4 +65,6 @@ Full access 需要二次确认。Access 才是实际的执行边界；Plan Workf
 找出用户设置无法持久化的原因，只修改负责该行为的最小模块，并运行对应测试。不要修改 refs/ 下的文件。
 ```
 
-Agent 工作时，`Deep Driving` 表示当前回合仍在运行，它做的事按发生顺序一行行出现，每行是一个标记、工作类别和作用对象，例如 `∴ Thought · …` 或 `• Run command · …`；模型中途写给你的回复按普通正文显示。失败的调用在行尾写出工具自己抱怨的第一句，并用错误色上色。回合结束后，从你的提示词到回答之间的一切会折成一行，写明这一轮用了多久、做了什么、有没有失败。按 `Ctrl+O` 可以完整阅读视口所在的那段过程：视图会从这段过程的最新工作开始展开，可以用鼠标滚轮或 `PgUp` 向上查看早期工作；再按一次 `Ctrl+O`，或向下滚过末尾，就回到实时底部，transcript 保持原样。两行状态栏会持续展示当前 Agent、Workflow、模型、工作区、Git 状态和 Token 遥测，Composer 边界则显示 Access；这些内容都不会被写入对话。
+Agent 工作时，`Deep Driving` 表示当前回合仍在运行。思考、中途回复和工具预览保留到回合结束，随后折叠为 `Worked for 16s` 这样的耗时摘要和完整的最终答复，失败信息也保持可见。按 `Ctrl+O` 重看已完成回合的处理过程，再按一次回到折叠视图。
+
+两种视图中都可以用鼠标滚轮或 `PgUp` 查看早期消息。当前阅读回合的请求滚出视口后，会固定在顶部；按 `End` 或点击 `Jump to latest message` 返回实时底部。两行 footer 持续展示模型、工作区、Git 状态和 Token 遥测。预览限制、工具结果检查、搜索与鼠标行为见[键盘与快捷键](../keyboard.md#转录)。

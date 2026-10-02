@@ -36,14 +36,26 @@ export interface WorkspaceBlock {
 /** One rendered block of the transcript. */
 export type Block =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; turn: number; step: number; text: string; reasoning: string; streaming: boolean; interrupted?: boolean }
+  | {
+    kind: 'assistant'
+    turn: number
+    step: number
+    text: string
+    reasoning: string
+    streaming: boolean
+    interrupted?: boolean
+
+  }
   | {
     kind: 'tool'
     callId: ToolCallId
+    startedAt?: number
     name: string
     args: string
     status: ToolBlockStatus
     output: string
+    /** Settlement of the background job started by this call. */
+    job?: { id: string; status: 'completed' | 'failed' | 'killed'; detail?: string }
     partial?: boolean
     presentation?: TuiToolPresentation
     /**
@@ -128,6 +140,7 @@ export interface TranscriptState {
    * replayed session reports the time it originally took, not the replay's.
    */
   turnSpans?: Readonly<Record<number, { start: number; end?: number }>>
+
 }
 
 /** Empty starting state. */

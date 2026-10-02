@@ -28,13 +28,7 @@ import { BOX, SYMBOL, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, 
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
 import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
-import {
-  DEFAULT_FOLD_DENSITY,
-  FOLD_DENSITIES,
-  FOLD_DENSITY_COPY,
-  isFoldDensity,
-  type FoldDensity,
-} from '../session/fold-policy.ts'
+import type { FoldDensity } from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 
@@ -59,7 +53,7 @@ export interface TuiPrefs {
   motion?: MotionMode
   terminalProgress?: boolean
   foldDensity?: FoldDensity
-  /** Legacy input for a document written before the density setting existed. */
+  /** Legacy input; ignored by the turn presentation. */
   expandTools?: boolean
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
@@ -172,13 +166,6 @@ function generalSettingItems(prefs: TuiPrefs): SettingItem[] {
     description: 'Busy/idle status in supported terminal tabs and taskbars',
       value: prefs.terminalProgress === true ? 'on' : 'off',
       values: COLOR_VALUES,
-    },
-    {
-      id: 'foldDensity',
-      label: 'Transcript',
-      description: FOLD_DENSITY_COPY[prefs.foldDensity ?? DEFAULT_FOLD_DENSITY],
-      value: prefs.foldDensity ?? DEFAULT_FOLD_DENSITY,
-      values: FOLD_DENSITIES,
     },
     {
       id: 'checkUpdates',
@@ -331,7 +318,6 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
   if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
-  if (id === 'foldDensity' && isFoldDensity(value)) return { ...prefs, foldDensity: value }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
     return { ...prefs, startupChangelog: value as StartupChangelogMode }

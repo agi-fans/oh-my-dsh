@@ -63,6 +63,73 @@ const ok = (id: string, seq: number): SessionEvent =>
 const screen = (t: ScrollingTerminal): string => t.visible().join('\n')
 
 describe('the repaired defects, on a real terminal', () => {
+  it('paints queued tool output before folding the completed turn without replaying native history', () => {
+    const term = new ScrollingTerminal(100, 30)
+    term.history.push('existing shell output')
+    const tui = new LocalTui(term, 'model', false, 'dark', undefined, { streamRenderMs: 60_000 })
+    tui.event(ev('turn/start', { turn: 1 }, 1000))
+    tui.setStatus('running')
+    tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"cat README.md"}' }, 2000))
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'LAST_TOOL_OUTPUT' }] } }, 3000))
+    tui.event(ev('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'FINAL_ANSWER' }] } }, 4000))
+    expect(term.captured).not.toContain('LAST_TOOL_OUTPUT')
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 17000))
+    const painted = stripAnsi(term.captured)
+    expect(painted.indexOf('LAST_TOOL_OUTPUT')).toBeGreaterThan(-1)
+    expect(painted.indexOf('Worked for 16s')).toBeGreaterThan(painted.indexOf('LAST_TOOL_OUTPUT'))
+    expect(screen(term)).toContain('Worked for 16s')
+    expect(screen(term)).toContain('FINAL_ANSWER')
+    expect(screen(term)).not.toContain('LAST_TOOL_OUTPUT')
+    expect(term.scrollback()[0]).toBe('existing shell output')
+    expect(term.captured).not.toContain('\x1b[3J')
+    const rows = term.visible()
+    expect(rows[rows.length - 2]).toContain('model')
+    tui.dispose()
+  })
+
+  it('merges job outcomes in the live view while preserving terminal history and the footer', () => {
+    const term = new ScrollingTerminal(100, 24)
+    term.history.push('shell output before omdsh')
+    const tui = new LocalTui(term, 'test-model', false)
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'check the project' }] }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    tui.setStatus('running')
+    tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'shell-1', name: 'bash', arguments: JSON.stringify({ command: 'pnpm test', description: 'Run project tests' }) }, 3))
+    const history = [...term.scrollback()]
+    tui.notice('Background job bash-1 failed · pnpm test · exit code: 3', {
+      process: true, processSource: 'job:bash-1',
+      job: { id: 'bash-1', label: 'pnpm test', status: 'failed', startedAt: 3, detail: 'exit code: 3' },
+    })
+    // The later tool acknowledgement must not erase the job's failure.
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'shell-1', content: [{ type: 'text', text: 'started background job bash-1' }] } }, 4))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
+    tui.setStatus('idle')
+    expect(screen(term)).toContain('Run project tests')
+    expect(screen(term)).toContain('exit code: 3')
+    expect(screen(term)).not.toContain('Background job')
+    expect(term.scrollback().slice(0, history.length)).toEqual(history)
+    expect(term.captured).not.toContain('\x1b[3J')
+    const rows = term.visible()
+    expect(rows[rows.length - 2]).toContain('test-model')
+    tui.dispose()
+  })
+
+  it('still announces a job from an earlier turn whose row may be in history', () => {
+    const term = new ScrollingTerminal(100, 24)
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('turn/start', { turn: 1 }, 1))
+    tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'old-call', name: 'bash', arguments: '{"command":"pnpm test","description":"Run tests"}' }, 2))
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'old-call', content: [{ type: 'text', text: 'started background job bash-1' }] } }, 3))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4))
+    tui.event(ev('turn/start', { turn: 2 }, 5))
+    tui.notice('Background job bash-1 failed · exit code: 2', {
+      process: true, level: 'error', processSource: 'job:bash-1',
+      job: { id: 'bash-1', label: 'pnpm test', status: 'failed', startedAt: 2, detail: 'exit code: 2' },
+    })
+    expect(screen(term)).toContain('Background job bash-1 failed')
+    tui.dispose()
+  })
+
   it('still shows the answer when the turn\'s work settles after it', () => {
     const term = new ScrollingTerminal(80, 24)
     const tui = new LocalTui(term, 'm', false)
@@ -84,8 +151,8 @@ describe('the repaired defects, on a real terminal', () => {
     // The reply is the one thing a reader scrolling back must find.
     expect(screen(term)).toContain('THE FINAL ANSWER')
     // The run is still folded, and the trailing notice is on screen with it.
-    expect(screen(term)).toContain('Read file')
-    expect(screen(term)).toContain('Background job bash-1')
+    expect(screen(term)).toContain('▸ Worked')
+    expect(screen(term)).not.toContain('Background job bash-1')
     tui.dispose()
   })
 
@@ -101,7 +168,6 @@ describe('the repaired defects, on a real terminal', () => {
     tui.event(ev('assistant/message', {
       turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'all done' }] },
     }, 7))
-    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 8))
 
     // Running: the run is not grouped, so its calls are laid out as they happen.
     tui.setStatus('running')
