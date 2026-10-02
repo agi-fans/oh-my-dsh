@@ -20,6 +20,7 @@ describe('loadKeybindings', () => {
   it('ships configurable scroll, tool, and history actions', () => {
     const bindings = loadKeybindings(undefined)
     expect(bindings['ctrl+o']).toBe('toggle-tools')
+    expect(bindings['alt+o']).toBe('toggle-tool-details')
     expect(bindings['pageup']).toBe('scroll-page-up')
     expect(bindings['pagedown']).toBe('scroll-page-down')
     expect(bindings['shift+up']).toBe('scroll-fast-up')

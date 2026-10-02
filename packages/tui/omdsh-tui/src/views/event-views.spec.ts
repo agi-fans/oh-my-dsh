@@ -2068,8 +2068,8 @@ describe('focused transcript edges', () => {
     }
     const start = renderView(state, options).lines.map(stripAnsi).join('\n')
     const end = renderView(state, { ...options, focusBlockEdge: 'end' }).lines.map(stripAnsi).join('\n')
-    expect(start).toContain('输出 🐳 25')
-    expect(start).not.toContain('输出 🐳 0')
+    expect(start).toContain('Input')
+    expect(start).not.toContain('输出 🐳 25')
     expect(end).toContain('输出 🐳 29')
     expect(end).not.toContain('输出 🐳 0')
     expect(end).not.toContain('answer 29')

@@ -429,6 +429,82 @@ describe('LocalTui folds against a scrolling terminal', () => {
     tui.dispose()
   })
 
+  it.each(['\x0f', '\x1b[F'])('resets Alt+O details on return via %j without touching history', close => {
+    const term = new ScrollingTerminal(90, 34)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      tui.event(ev('turn/start', { turn: 1 }, 0))
+      tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'details', name: 'read', arguments: '{"path":"a.ts","offset":42}' }, 1))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'details', content: [{ type: 'text', text: 'HIDDEN_FIRST\nHIDDEN_LAST' }] } }, 2))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3))
+      const screen = term.visible()
+      const history = term.scrollback()
+      press(term, '\x0f')
+      expect(term.visible().join('\n')).not.toContain('HIDDEN_FIRST')
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).toContain('HIDDEN_FIRST')
+      expect(term.visible().join('\n')).toContain('"offset": 42')
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).not.toContain('HIDDEN_FIRST')
+      expect(term.visible().join('\n')).toContain('read a.ts')
+      press(term, '\x1bo')
+      press(term, close)
+      expect(term.visible()).toEqual(screen)
+      expect(term.scrollback()).toEqual(history)
+      press(term, '\x0f')
+      expect(term.visible().join('\n')).not.toContain('HIDDEN_FIRST')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps new calls detailed while a live turn grows and settles', () => {
+    const term = new ScrollingTerminal(90, 50)
+    const tui = new LocalTui(term, 'm', false)
+    const read = (id: string, step: number): void => {
+      tui.event(ev('tool/call', { turn: 1, step, callId: id, name: 'read', arguments: `{"path":"${id}"}` }, step * 2))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: id, content: [{ type: 'text', text: `BODY_${id}` }] } }, step * 2 + 1))
+    }
+    try {
+      tui.event(ev('turn/start', { turn: 1 }, 0))
+      read('first', 1)
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).toContain('BODY_first')
+      read('second', 2)
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 6))
+      expect(term.visible().join('\n')).toContain('BODY_second')
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).not.toContain('BODY_')
+      press(term, '\x1b[F')
+      expect(term.visible().join('\n')).toContain('Worked for')
+    } finally { tui.dispose() }
+  })
+
+  it('targets the turn being read rather than expanding every turn', () => {
+    const term = new ScrollingTerminal(90, 30)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      for (const turn of [1, 2]) {
+        tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: `question ${turn}` }] }, turn * 10))
+        tui.event(ev('turn/start', { turn }, turn * 10 + 1))
+        tui.event(ev('tool/call', { turn, step: 1, callId: `read-${turn}`, name: 'read', arguments: '{"path":"file"}' }, turn * 10 + 2))
+        tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: `read-${turn}`, content: [{ type: 'text', text: `BODY_TURN_${turn}` }] } }, turn * 10 + 3))
+        tui.event(ev('assistant/message', { turn, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'Answer paragraph.\n\n'.repeat(15) }] } }, turn * 10 + 4))
+        tui.event(ev('turn/end', { turn, reason: { kind: 'completed' } }, turn * 10 + 5))
+      }
+      const history = term.scrollback()
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).toContain('BODY_TURN_2')
+      expect(term.visible().join('\n')).not.toContain('BODY_TURN_1')
+      press(term, '\x1b[F')
+      press(term, '\x1b[5~'.repeat(10))
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).toContain('BODY_TURN_1')
+      expect(term.visible().join('\n')).not.toContain('BODY_TURN_2')
+      press(term, '\x1bo')
+      expect(term.visible().join('\n')).not.toContain('BODY_TURN_1')
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
   it('opens a long thought at its latest paragraph', () => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false)

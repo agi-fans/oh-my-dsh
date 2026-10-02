@@ -376,6 +376,11 @@ describe('dsh spine expansion', () => {
     expect(productRows().some(entry => entry.id === 'subprocess')).toBe(true)
   })
 
+  it('keeps user questions blocking until the TUI supports timed replies', () => {
+    const row = productRows().find(entry => entry.id === 'tool-ask-user')
+    expect(row?.config).toEqual({ mode: 'legacy' })
+  })
+
   it('maps each expansion row id to its owning package', () => {
     const rows = productRows()
     const row = (id: string) => rows.find(entry => entry.id === id)

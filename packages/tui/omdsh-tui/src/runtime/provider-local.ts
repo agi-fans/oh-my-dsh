@@ -176,7 +176,7 @@ import {
 } from '../views/prompt-selector.ts'
 import { refreshProjectContext, resolveProjectContext } from '../session/project-context.ts'
 import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
-import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount } from '../views/hotkeys.ts'
+import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
   imagePathCandidates,
   stripComposerImageMarkers,
@@ -429,7 +429,7 @@ export class LocalTui implements TuiService {
   #statusBar: StatusBarConfig = defaultStatusBarConfig()
   #toolsExpanded = false
   /**
-   * The reader opened something with Ctrl+O and is reading it.
+   * The reader opened something with Ctrl+O or Alt+O and is reading it.
    *
    * Openings are shown in a browsing frame, never in the flow that follows the
    * tail: every opening starts an inspection, and returning to the tail ends it
@@ -444,6 +444,8 @@ export class LocalTui implements TuiService {
   #mouseTracking = false
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
+  /** Turn scopes whose tools stay detailed as new calls arrive during inspection. */
+  #detailedTurns = new Set<string>()
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
   #prompt: PendingPrompt | null = null
@@ -1343,6 +1345,8 @@ export class LocalTui implements TuiService {
           },
         }),
         toolsExpanded: this.#toolsExpanded,
+        expandedTools: this.#detailedToolIds(),
+        toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         fold: this.#foldPolicy,
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
@@ -1451,6 +1455,7 @@ export class LocalTui implements TuiService {
     this.#inspecting = false
     this.#toolsExpanded = false
     this.#openedGroups.clear()
+    this.#detailedTurns.clear()
   }
 
   /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
@@ -2787,6 +2792,11 @@ export class LocalTui implements TuiService {
       this.#toggleFoldTarget()
       return true
     }
+    if (action === 'toggle-tool-details') {
+      if (this.#search !== null) return false
+      this.#toggleToolDetails()
+      return true
+    }
     if (action === 'search-history') {
       if (this.#images.count > 0) return false
       this.#search = createHistorySearch(this.#history)
@@ -2917,7 +2927,56 @@ export class LocalTui implements TuiService {
       this.#inspect(anchor)
       this.#render()
     }
-    // A live turn already has the open presentation. There is no deeper state.
+    // A live turn already has the process presentation; Alt+O owns tool details.
+  }
+
+  #detailScope(group: ProcessGroup): string {
+    return group.turn === undefined ? group.key : `turn:${group.turn}`
+  }
+
+  #detailedToolIds(): ReadonlySet<string> {
+    const calls = new Set<string>()
+    if (this.#detailedTurns.size === 0) return calls
+    for (const group of turnGroups(this.#state)) {
+      if (!this.#detailedTurns.has(this.#detailScope(group))) continue
+      for (let at = group.start; at < group.until; at++) {
+        const block = this.#state.blocks[at]
+        if (block?.kind === 'tool') calls.add(block.callId)
+      }
+    }
+    return calls
+  }
+
+  #toggleToolDetails(): void {
+    if (this.#streamRenderTimer !== null) this.#render()
+    // A long tool can fill the viewport. Target the block containing its top,
+    // rather than the next block starting below it (possibly another turn).
+    const anchor = this.#follow ? this.#state.blocks.length - 1
+      : Math.max(0, this.#blockStarts.findLastIndex(row => row <= this.#scrollStart))
+    const groups = turnGroups(this.#state)
+    const group = groups.findLast(item => {
+      const first = this.#state.blocks[item.start - 1]?.kind === 'user' ? item.start - 1 : item.start
+      let end = item.until
+      while (end < this.#state.blocks.length) {
+        const block = this.#state.blocks[end]
+        if (block?.kind !== 'workspace' && !(block?.kind === 'notice' && block.boundary !== true)) break
+        end++
+      }
+      return anchor >= first && anchor < end
+    })
+    if (group === undefined) return
+    const scope = this.#detailScope(group)
+    const members = groups.filter(item => this.#detailScope(item) === scope)
+    if (members.every(member => member.calls === 0)) return
+    this.#toggleSet(this.#detailedTurns, scope)
+    for (const member of members) this.#openedGroups.add(member.key)
+    const tools = members.flatMap(member => this.#state.blocks.slice(member.start, member.until)
+      .flatMap((block, offset) => block.kind === 'tool' ? [member.start + offset] : []))
+    const target = tools.includes(anchor) ? anchor : tools[0]
+    this.#inspect(target)
+    this.#focusBlock = target
+    this.#focusBlockEdge = 'start'
+    this.#render()
   }
 
   #toggleSet(set: Set<string>, key: string): void {

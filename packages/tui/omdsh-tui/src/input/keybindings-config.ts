@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 export type TuiAction = 'external-editor' | 'retry' | 'paste-clipboard' | 'copy-prompt' | 'copy-line' | 'inspect-subagent'
   | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-reasoning'
   | 'toggle-tools' | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down' | 'search-history'
-  | 'search-transcript'
+  | 'search-transcript' | 'toggle-tool-details'
 
 export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.freeze({
   'ctrl+x': 'external-editor',
@@ -18,6 +18,7 @@ export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.f
   'alt+p': 'cycle-model-backward',
   'ctrl+t': 'cycle-reasoning',
   'ctrl+o': 'toggle-tools',
+  'alt+o': 'toggle-tool-details',
   'pageup': 'scroll-page-up',
   'pagedown': 'scroll-page-down',
   'shift+up': 'scroll-fast-up',
@@ -30,7 +31,7 @@ const ACTIONS: readonly TuiAction[] = [
   'external-editor', 'retry', 'paste-clipboard', 'copy-prompt', 'copy-line', 'inspect-subagent',
   'cycle-model-forward', 'cycle-model-backward', 'cycle-reasoning',
   'toggle-tools', 'scroll-page-up', 'scroll-page-down', 'scroll-fast-up', 'scroll-fast-down', 'search-history',
-  'search-transcript',
+  'search-transcript', 'toggle-tool-details',
 ]
 
 /** Load `{ "key-id": "action" }`; invalid rows are ignored independently. */

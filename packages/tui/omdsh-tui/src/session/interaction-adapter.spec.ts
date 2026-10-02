@@ -44,7 +44,7 @@ describe('approvalDetail', () => {
 })
 
 describe('bindHumanInteraction', () => {
-  it('answers through the 0.1.2 user-question waterfall', async () => {
+  it('answers through the legacy user-question waterfall', async () => {
     const ctx = new Context()
     await ctx.plugin(UserQuestionService)
     const prompt = vi.fn(async () => '1')

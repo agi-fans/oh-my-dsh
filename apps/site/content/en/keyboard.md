@@ -41,7 +41,9 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 
 While a turn runs, thinking appears as quiet italic text, replies use ordinary Markdown, and tools show padded result previews in the active theme. Shell output keeps its last five visual lines; successful file reads show the call without the file body. Completed steps stay visible until the turn ends. The process then folds to a duration summary such as `Worked for 16s`, followed by the complete final answer; failures remain visible.
 
-`Ctrl+O` restores that process view for a completed turn. Tool results still use previews in this view: for full tool inputs and results, open `/trajectory`, select the record, and press `Enter`. `Ctrl+F` also searches content outside the previews and reveals matches. There is currently no separate shortcut for expanding full tool output in the transcript.
+`Ctrl+O` restores that process view for a completed turn. `Alt+O` opens complete tool Input and Output sections for the turn being read, including PTC sub-calls; pressing it again restores previews while leaving the process view open. It also works during a running turn, and new calls in that turn inherit the detailed view. On a folded turn it opens the process and tool details together. `Ctrl+O`, `End`, or scrolling past the end closes inspection and resets tool details. Opening details never rewrites native terminal history.
+
+Details show all text received by the TUI; they cannot recover content already truncated or spilled to a file by a tool. `/trajectory` provides event-level inspection, and `Ctrl+F` searches content outside the previews and reveals matches.
 
 When earlier messages are in view, a `Jump to latest message · End` label appears above the composer area. Once a user prompt scrolls out of view, a one-line summary stays at the top while its reply is visible. The pinned prompt follows the turn being read. These labels are viewport controls, not conversation content.
 
@@ -52,6 +54,7 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | Mouse wheel | Scroll the transcript from the live tail or while inspecting a turn; expanding a turn is not required. |
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
 | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
+| `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
 | `Ctrl+F` | Search the current transcript when the composer is empty; `n`/`N` step across matches. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
@@ -111,6 +114,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `cycle-model-backward` | `Alt+P` | Cycle to the previous favorite model. |
 | `cycle-reasoning` | `Ctrl+T` | Cycle the current model's reasoning effort. |
 | `toggle-tools` | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
+| `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |

@@ -52,7 +52,8 @@ function displayKey(key: string): string {
   }).join('+')
 }
 
-function keysForAction(bindings: HotkeyBindings, action: TuiAction): string {
+/** Human-readable effective keys, or `Disabled` when no binding names the action. */
+export function keysForAction(bindings: HotkeyBindings, action: TuiAction): string {
   const keys = Object.entries(bindings)
     .filter(([, value]) => value === action)
     .map(([key]) => displayKey(key))
@@ -103,6 +104,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: keysForActions(bindings, 'scroll-fast-up', 'scroll-fast-down'), action: 'Scroll quickly' },
         { keys: 'End / click jump label', action: 'Return to the latest message while browsing' },
         { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
+        { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
         { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript; n/N step across matches' },
         { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],
@@ -156,6 +158,7 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KE
     { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript' },
     { keys: keysForActions(bindings, 'scroll-page-up', 'scroll-page-down'), action: 'Scroll the transcript' },
     { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
+    { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
     { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
   ]
   return rows.map(row => `- \`${tableCell(row.keys)}\` — ${tableCell(row.action)}`).join('\n')

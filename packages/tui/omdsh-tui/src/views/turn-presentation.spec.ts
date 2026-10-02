@@ -167,6 +167,8 @@ describe('transcript navigation chrome', () => {
       const headers = following.stickyHeaders!
       expect(headers).toHaveLength(2)
       expect(headers.every(header => visibleWidth(header.text) === width)).toBe(true)
+      expect(stripAnsi(headers[0]!.text).trimStart()).toMatch(/^检/)
+      if (width >= 20) expect(stripAnsi(headers[1]!.text).trim()).toBe('Second question')
       expect(headers[0]!.end).toBeLessThan(headers[1]!.start)
       const browsing = renderView(state, { ...options, scrollStart: headers[0]!.start + 2 })
       expect(browsing.jumpToLatest).toBeDefined()
@@ -176,5 +178,75 @@ describe('transcript navigation chrome', () => {
       const range = browsing.documentRows!
       expect(jump.row).toBeGreaterThanOrEqual(range.frameStart + range.documentEnd - range.documentStart)
     }
+  })
+})
+
+describe('full tool details', () => {
+  it('preserves a colored call diff alongside its received result', () => {
+    const state: TranscriptState = { ...initialTranscript(), blocks: [{
+      kind: 'tool', callId: 'edit', name: 'edit', args: '{}', status: 'ok', output: 'Changed one file',
+      presentation: { call: { card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }] } },
+    }] }
+    const frame = renderView(state, { width: 80, height: 60, colors: true, trueColor: false, input: '', inputCursor: 0, model: 'm', expandedTools: new Set(['edit']) })
+    const text = frame.lines.map(stripAnsi).join('\n')
+    expect(text).toContain('- old')
+    expect(text).toContain('+ new')
+    expect(text).toContain('Changed one file')
+    expect(frame.lines.join('\n')).toContain('\x1b[31m')
+    expect(frame.lines.join('\n')).toContain('\x1b[32m')
+  })
+
+  it('preserves a terminal result card and its distinct raw result', () => {
+    const state: TranscriptState = { ...initialTranscript(), blocks: [{
+      kind: 'tool', callId: 'terminal', name: 'bash', args: '{"command":"test"}', status: 'ok', output: 'Raw test report',
+      presentation: { result: { card: 'terminal', output: '42 passed', exitCode: 0 } },
+    }] }
+    const text = renderView(state, { width: 80, height: 60, colors: false, input: '', inputCursor: 0, model: 'm', expandedTools: new Set(['terminal']) }).lines.join('\n')
+    expect(text).toContain('42 passed')
+    expect(text).toContain('Raw result')
+    expect(text).toContain('Raw test report')
+  })
+
+  it.each(['bash', 'write', 'custom'])('preserves raw details for %s failures and PTC children', name => {
+    const output = Array.from({ length: 40 }, (_, index) => `OUTPUT_${index}`).join('\n')
+    let state = result(call(start(), 'child', name, { command: 'run', content: 'INPUT_START\nINPUT_END', extra: 123 }), 'child', output)
+    state = { ...state, blocks: state.blocks.map(block => block.kind === 'tool' ? { ...block, parentCallId: 'parent', status: 'error' } : block) }
+    const options = { width: 90, height: 160, colors: false, input: '', inputCursor: 0, model: 'm' }
+    const full = renderView(state, { ...options, expandedTools: new Set(['child']) }).lines.map(stripAnsi)
+    expect(full.join('\n')).toContain('"extra": 123')
+    expect(full.join('\n')).toContain('INPUT_END')
+    expect(full.join('\n')).toContain('Tool failed')
+    for (let index = 0; index < 40; index++) expect(full.join('\n')).toContain(`OUTPUT_${index}`)
+    expect(full.find(line => line.includes('OUTPUT_0'))).toMatch(/^    OUTPUT_0/)
+    expect(full.join('\n')).not.toContain('Alt+O: Expand')
+  })
+
+  it.each([false, true])('shows all arguments and output without changing another turn (colors=%s)', colors => {
+    const state: TranscriptState = { ...initialTranscript(), blocks: [
+      { kind: 'tool', turn: 1, callId: 'old', name: 'read', args: '{"path":"old"}', output: 'OLD_BODY', status: 'ok' },
+      { kind: 'user', text: 'Inspect the new file' },
+      { kind: 'tool', turn: 2, callId: 'new', name: 'read', args: JSON.stringify({ path: 'new', offset: 42, limit: 80 }), output: 'FIRST\n' + '检查 🐳 é '.repeat(60) + '\nLAST', status: 'ok' },
+    ] }
+    for (const width of [20, 80]) {
+      const options = { width, height: 300, colors, input: '', inputCursor: 0, model: 'm' }
+      const full = renderView(state, { ...options, expandedTools: new Set(['new']) })
+      const text = full.lines.map(stripAnsi).join('\n')
+      expect(text).toContain('FIRST')
+      expect(text).toContain('LAST')
+      expect(text).toContain('"offset": 42')
+      expect(text).toContain('"limit": 80')
+      expect(text).not.toContain('OLD_BODY')
+      expect(full.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+      expect(renderView(state, options).lines.join('\n')).not.toContain('FIRST')
+    }
+  })
+
+  it('updates cached preview hints when the details binding changes', () => {
+    const state = result(call(start(), 'c', 'bash', { command: 'ls' }), 'c', Array.from({ length: 20 }, (_, i) => `row-${i}`).join('\n'))
+    const options = { width: 100, height: 80, colors: false, input: '', inputCursor: 0, model: 'm' }
+    expect(renderView(state, { ...options, toolDetailsKey: 'Alt+O' }).lines.join('\n')).toContain('Alt+O: Expand')
+    const rebound = renderView(state, { ...options, toolDetailsKey: 'Alt+D' }).lines.join('\n')
+    expect(rebound).toContain('Alt+D: Expand')
+    expect(rebound).not.toContain('Alt+O')
   })
 })

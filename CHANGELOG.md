@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- `Alt+O` toggles complete tool inputs and results for the turn being read, including running turns and PTC sub-calls. New calls in an inspected live turn inherit the setting. `Ctrl+O` or returning to the live tail resets tool details; the shortcut is configurable as `toggle-tool-details`.
 - Scroll the transcript with the mouse wheel in both folded and expanded views. A clickable `Jump to latest message · End` control returns to the live tail, and the user prompt stays pinned at the top while its reply is being read.
 - Each completed turn reports its changed files and added/removed line counts, including untracked files. Lists fold after eight files; `Ctrl+O` opens the turn and its file list. Empty, binary, and oversized changes are labelled. Restored sessions retain the turn record but do not recover its file list.
 - Five read-only session-history tools let the model find and inspect earlier work in the same workspace. Cross-session access requires exactly matching working directories; a session without one can inspect only itself.
@@ -16,10 +17,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Running turns show thinking text, Markdown replies, and tool previews with theme-aware backgrounds and padding. Completed work folds to a duration summary such as `Worked for 16s`, followed by the complete final answer; failures remain visible.
-- `Ctrl+O` restores the completed turn under the viewport to its process preview and toggles back to the folded live tail. Running turns are unchanged. Tool results remain previews; full inputs and results are available through `/trajectory`.
+- `Ctrl+O` restores the completed turn under the viewport to its process preview and toggles back to the folded live tail. Running turns keep their process presentation; `Alt+O` independently opens their tool details.
 - Transcript replacement preserves native terminal history. `/clear`, session switches, resume, and forks append a labelled boundary; `/new` adds one after substantive transcript content. Startup and projection refreshes omit it. Previously printed rows remain immutable snapshots, while the live view reflects current folding and results.
 - Searches show both the query and scope, such as `Search code · toolArgSubject in packages`. Code blocks use a rail instead of displaying Markdown fences, including on wrapped lines.
-- Upgraded the published DeepSeek Harness runtime from `0.1.7-rc.1` to `0.2.0-rc.1`. The API-key route uses `dsh-llm-deepseek-api-key` under the existing `llm-deepseek` configuration row, preserving current Profile patches and login/model commands. Cordis, loader, timer, and schemastery versions are unchanged.
+- Upgraded the published DeepSeek Harness runtime from `0.1.7-rc.1` to `0.2.0-rc.2`. The API-key route uses `dsh-llm-deepseek-api-key` under the existing `llm-deepseek` configuration row, preserving current Profile patches and login/model commands. Cordis, loader, timer, and schemastery versions are unchanged. Questions retain the blocking `legacy` mode; the experimental timed mode is not supported by this TUI.
+- Updated the third-party model catalog and adapters to pi-ai `0.87.1`; saved selections using removed model IDs may need to be selected again. Bash and PowerShell guidance now asks the model to verify resolved paths before deleting or moving files.
+- Pinned turn prompts show only the message text, without a leading chevron.
 - Tool definition updates for `deepseek-flash` are appended to model history (`toolUpdate: addition-only`); `deepseek-v4-pro` retains in-history updates.
 
 ### Removed
@@ -28,6 +31,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Persistent PowerShell recognizes completion status lines with trailing spaces, preserving exit codes and hiding internal markers.
 - Opening and closing a completed turn, refreshing the transcript, and returning from overlays preserve the live viewport without blank screens or duplicated history.
 - Terminal resizing preserves rows pulled back from native history and avoids resending committed rows, including consecutive height increases while an overlay is open.
 - Command results and errors become visible immediately after transcript browsing; background notices preserve the reading position.

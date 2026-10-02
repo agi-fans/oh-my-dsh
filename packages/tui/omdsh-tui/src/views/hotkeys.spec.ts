@@ -116,7 +116,8 @@ describe('formatHotkeysText', () => {
 
   it('keeps the default help subset compact and honors the paste binding', () => {
     const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
-    expect(text.split('\n')).toHaveLength(9)
+    expect(text.split('\n')).toHaveLength(10)
+    expect(text).toContain('Alt+O')
     expect(text).toContain('Ctrl+V / Ctrl+G')
     expect(text).toContain('Esc twice')
     expect(text).not.toContain('Ctrl+A')

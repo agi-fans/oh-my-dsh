@@ -374,6 +374,8 @@
 
   - id: tool-ask-user
     name: '@deepseek-ai/dsh-tool-ask-user'
+    config:
+      mode: legacy
 
   - id: plan-mode
     name: '@deepseek-ai/dsh-plan-mode'

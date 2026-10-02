@@ -167,8 +167,10 @@ export interface ViewOptions {
   toolsExpanded?: boolean
   /** @deprecated Accepted for compatibility; all turns use the same layout. */
   fold?: FoldPolicy
-  /** Legacy direct-caller tool openings. Ctrl+O opens complete turns. */
+  /** Tool calls whose complete inputs and results are visible. */
   expandedTools?: ReadonlySet<string>
+  /** Effective application binding used in preview hints. */
+  toolDetailsKey?: string
   /** Legacy reasoning anchors retained for search and scroll mapping. */
   expandedReasoning?: ReadonlySet<string>
   /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
@@ -446,8 +448,10 @@ function toolBlockLines(
   block: Extract<Block, { kind: 'tool' }>,
   theme: Theme,
   width: number,
-  full = false,
+  mode: 'preview' | 'full' | 'details' = 'preview',
+  detailsKey = 'Alt+O',
 ): string[] {
+  const full = mode !== 'preview'
   const presentation = renderTool({
     name: block.name, arguments: prettyArgs(block.args), output: block.output,
     status: block.status, expanded: full,
@@ -475,7 +479,27 @@ function toolBlockLines(
   const head = theme.bold(theme.fg(block.status === 'error' ? 'error' : 'toolTitle', title))
   const rows = wrapText(head, room)
   let body: string[] = []
-  if (diffs !== undefined) {
+  if (mode === 'details') {
+    let input = block.args
+    try { input = JSON.stringify(JSON.parse(input), undefined, 2) } catch { /* Partial arguments retain their received text. */ }
+    const output = presentation.output.length > 0 ? presentation.output : block.output.split('\n')
+    const outputRows = diffs === undefined
+      ? output.flatMap(line => wrapText(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
+      : wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
+    body = [
+      ...wrapText(theme.fg('dim', 'Input'), room),
+      ...input.split('\n').flatMap(line => wrapText(theme.fg('toolOutput', line), room)),
+      '', ...wrapText(theme.fg('dim', 'Output'), room),
+      ...outputRows,
+    ]
+    // Keep the tool's rich presentation, but expose received text it replaced.
+    if (block.output !== '' && (diffs !== undefined || block.output !== output.join('\n'))) {
+      body.push('', ...wrapText(theme.fg('dim', 'Raw result'), room))
+      for (const line of block.output.split('\n')) {
+        body.push(...wrapText(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
+      }
+    }
+  } else if (diffs !== undefined) {
     body = wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
   } else if (full || !read || block.status === 'error') {
     const output = presentation.output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
@@ -493,12 +517,19 @@ function toolBlockLines(
   const omitted = Math.max(0, body.length - limit)
   if (omitted > 0) {
     body = shell ? body.slice(-limit) : body.slice(0, limit)
-    const hint = theme.fg('dim', `… ${omitted} ${shell ? 'earlier' : 'more'} lines`)
+    const shortcut = detailsKey === 'Disabled' ? '' : ` · ${detailsKey}: Expand`
+    const hint = theme.fg('dim', `… ${omitted} ${shell ? 'earlier' : 'more'} lines${shortcut}`)
     if (shell) body.unshift(...wrapText(hint, room))
     else body.push(...wrapText(hint, room))
   }
+  if (!full && read && block.status !== 'error' && block.output !== '' && detailsKey !== 'Disabled') {
+    body.push(...wrapText(theme.fg('dim', `${detailsKey}: Expand result`), room))
+  }
   if (full && block.status === 'error' && call?.card === 'diff') rows.push('', ...wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
-  if (body.length > 0) rows.push('', ...body)
+  if (body.length > 0) {
+    rows.push('')
+    for (const row of body) rows.push(row)
+  }
   if (block.status === 'error') rows.push(...wrapText(theme.fg('error', 'Tool failed'), room))
   if (block.job !== undefined) rows.push(...wrapText(theme.fg(
     block.status === 'error' ? 'error' : 'muted',
@@ -638,13 +669,13 @@ function groupMemberLines(
   const { blocks, options, theme, width } = context
   const block = blocks[index]!
   // Search must reveal a match even when it falls outside a tool's normal preview.
-  const full = block.kind === 'tool' && context.matches.has(index)
-  const signature = [width, options.colors, context.trueColor, context.themeName, thoughtOnly, full].join('\0')
+  const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
+  const signature = [width, options.colors, context.trueColor, context.themeName, thoughtOnly, full, options.toolDetailsKey].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
   else {
-    lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full)
+    lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey)
       : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width)
         : blockLines(block, theme, width, 0, false, true)
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
@@ -679,7 +710,7 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
     const rows = groupMemberLines(index, context, index === group.answer && group.tookThought)
     if (rows.length > 0 && lines.length > 0) lines.push('')
     offsets.set(index, lines.length)
-    lines.push(...rows)
+    for (const row of rows) lines.push(row)
   }
   return { lines, offsets }
 }
@@ -715,6 +746,7 @@ export function blockLines(
   _reasoningExpanded = false,
   _toolSubject = true,
   omitReasoning = false,
+  toolDetailsKey = 'Alt+O',
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
@@ -736,7 +768,7 @@ export function blockLines(
     return lines
   }
   if (block.kind === 'tool') {
-    return toolBlockLines(block, theme, width, toolsExpanded)
+    return toolBlockLines(block, theme, width, toolsExpanded ? 'full' : 'preview', toolDetailsKey)
   }
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
@@ -834,6 +866,7 @@ function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
 }
 
 interface TranscriptBodyCache {
+  toolDetailsKey: string | undefined
   width: number
   colors: boolean
   trueColor: boolean
@@ -884,6 +917,8 @@ interface TranscriptBodyCache {
 const transcriptBodyCache = new WeakMap<readonly Block[], TranscriptBodyCache>()
 
 interface BlockLinesCache {
+  toolDetailsKey: string | undefined
+  toolDetails: boolean
   width: number
   colors: boolean
   trueColor: boolean
@@ -924,11 +959,18 @@ function cachedBlockLines(
     && cached.expanded === expanded
     && cached.reasoningExpanded === reasoningExpanded
     && cached.toolSubject === toolSubject
-    && cached.omitReasoning === omitReasoning) return cached.lines
-  const lines = blockLines(
-    block, theme, options.width, spinnerFrame, expanded, reasoningExpanded, toolSubject, omitReasoning,
+    && cached.omitReasoning === omitReasoning
+    && cached.toolDetailsKey === options.toolDetailsKey
+    && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)) return cached.lines
+  const toolDetails = block.kind === 'tool' && options.expandedTools?.has(block.callId) === true
+  const lines = block.kind === 'tool' && toolDetails
+    ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
+    : blockLines(
+    block, theme, options.width, spinnerFrame, expanded, reasoningExpanded, toolSubject, omitReasoning, options.toolDetailsKey,
   )
   blockLinesCache.set(block, {
+    toolDetailsKey: options.toolDetailsKey,
+    toolDetails,
     width: options.width,
     colors: options.colors,
     trueColor,
@@ -1325,6 +1367,7 @@ function renderTranscriptBody(
     && cached.expandedTools === expandedTools
     && cached.expandedReasoning === expandedReasoning
     && cached.openedGroups === openedGroups
+    && cached.toolDetailsKey === options.toolDetailsKey
     && cached.foldKey === foldKey
     && cached.turnSpans === state.turnSpans
     && cached.searchKey === searchKey
@@ -1385,6 +1428,7 @@ function renderTranscriptBody(
     const asked = toolsExpanded
       || !fold.groups
       || options.openedGroups?.has(group.key) === true
+      || state.blocks.slice(group.start, group.until).some(block => block.kind === 'tool' && options.expandedTools?.has(block.callId))
       || reasoningHit
       || [...matches].some(index => index >= group.start && index < group.until)
       || options.focusBlock !== undefined
@@ -1437,7 +1481,7 @@ function renderTranscriptBody(
       let offsets = new Map<number, number>()
       if (group.live || opened) {
         const body = processGroupBody(group, context)
-        lines.push(...body.lines)
+        for (const line of body.lines) lines.push(line)
         offsets = body.offsets
       } else {
         for (let at = group.start; at < (group.answer ?? group.until); at += 1) {
@@ -1578,6 +1622,7 @@ function renderTranscriptBody(
   // this; opening, folding, or a run settling at turn end do.
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
+    toolDetailsKey: options.toolDetailsKey,
     blockDrawStarts,
     width: options.width,
     colors: options.colors,
@@ -2306,7 +2351,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       const previous = stickyHeaders.at(-1)
       if (previous !== undefined) previous.end = transcriptStart + transcript.blockStarts[at]!
       const padding = width > 4 ? 2 : 0
-      const label = truncateToWidth('› ' + promptSummary(block), Math.max(1, width - padding * 2))
+      const label = truncateToWidth(promptSummary(block), Math.max(1, width - padding * 2))
       stickyHeaders.push({
         start: transcriptStart + (transcript.blockStarts[at + 1] ?? transcript.lines.length),
         end: body.length,
