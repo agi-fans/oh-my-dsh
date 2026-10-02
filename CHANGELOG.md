@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-03
+
 ### Added
 
 - `Alt+O` toggles complete tool inputs and results for the turn being read, including running turns and PTC sub-calls. New calls in an inspected live turn inherit the setting. `Ctrl+O` or returning to the live tail resets tool details; the shortcut is configurable as `toggle-tool-details`.
@@ -460,7 +462,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.15.0...v0.16.0
