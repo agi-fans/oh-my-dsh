@@ -33,6 +33,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- A resize no longer re-sends rows the terminal already holds, and no longer drops rows the window pulled back into view. The renderer kept more than one answer about where native history ended — the stack it tracks and the moves the terminal makes for itself — so a growth, a shrink, or a return from an overlay could credit rows that had never left the screen or send committed rows a second time. The boundary now follows only what was actually sent or actually pulled back, a preserved screen is its own commit with its own confirmation lifecycle, and a return from the overlay scrolls back down the rows it took before anything else is drawn.
+
 - Changing transcript density after a long turn no longer repeats earlier prompts or answer rows in native history.
 - Plugin command results and errors are immediately visible after scrolling back or inspecting a run; background notices keep the reading position.
 - Transcript refreshes no longer append duplicate history. Inspecting a run reveals its full thinking and tool output, and closing settings, Agent Hub, `/trajectory`, or a full-screen prompt restores the inspected position and mouse scrolling.
