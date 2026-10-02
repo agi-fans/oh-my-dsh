@@ -23,12 +23,12 @@ description: 切换 omdsh 模型与推理强度，添加额外提供方，并设
 
 ### 设置 Agent 语言与界面
 
-运行 `/settings` 可以配置 Agent 默认语言、主题、颜色输出、动态效果、终端原生活动提示、默认 Tool 展开状态、更新检查、启动时 Release Notes，以及状态栏。每一行、可选值与默认值见[设置](../settings.md)。
+运行 `/settings` 可以配置 Agent 默认语言、主题、颜色输出、动态效果、终端原生活动提示、可选功能、更新检查、启动时 Release Notes，以及状态栏。每一行、可选值与默认值见[设置](../settings.md)。
 
 `/settings` 内的按键：
 
 - `Up` / `Down` 在行间移动，`Left` / `Right` 修改当前值。
-- `Tab` 和 `Shift+Tab` 在 General、Agent 与 Status line 三个分区之间切换。
+- `Tab` 和 `Shift+Tab` 在 General、Agent、Features、Status line 之间切换。
 - 在 Status 项上按 `Space` 可以显示或隐藏它。
 - 按 `Enter` 开始移动 Status 项：`Up` / `Down` 调整顺序，`Left` / `Right` 切换左右栏，再按 `Enter` 或 `Esc` 完成移动。
 

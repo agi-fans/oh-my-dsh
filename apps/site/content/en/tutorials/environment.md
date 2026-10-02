@@ -23,12 +23,12 @@ Choose `custom` to add a gateway or local server that is not in the catalog: giv
 
 ### Set Agent language and customize the interface
 
-Run `/settings` to configure the Agent's default language, theme, color output, motion, native terminal activity, default tool expansion, update checks, startup release notes, and the status line. Every row, its allowed values, and its default are listed in [Settings](../settings.md).
+Run `/settings` to configure the Agent's default language, theme, color output, motion, native terminal activity, optional features, update checks, startup release notes, and the status line. Every row, its allowed values, and its default are listed in [Settings](../settings.md).
 
 Keys inside `/settings`:
 
 - `Up` / `Down` move between rows, and `Left` / `Right` change the current value.
-- `Tab` and `Shift+Tab` switch between the General, Agent, and Status line sections.
+- `Tab` and `Shift+Tab` switch between General, Agent, Features, and Status line.
 - On a status item, `Space` shows or hides it.
 - `Enter` starts moving a status item: `Up` / `Down` reorder it, `Left` / `Right` change its column, and `Enter` or `Esc` finishes.
 

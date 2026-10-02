@@ -16,6 +16,8 @@ omdsh is a focused, keyboard-first DeepSeek coding agent built on the plugin arc
 
 ![oh-my-dsh terminal interface](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/screenshot.webp)
 
+Screenshot from v0.5.1. See [Keyboard and keys](https://omdsh.agi.fans/docs/keyboard/) for the current turn presentation and navigation.
+
 ## Quick start
 
 Requirements: Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek API key for live model turns.
@@ -32,7 +34,8 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 - **Durable conversations:** search, pin, rename, and resume sessions in `/sessions`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
 - **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
 - **Rich terminal input:** mention project files and other sessions with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
-- **Readable tool activity:** follow streaming calls and live subagent progress, press Down on an empty composer then Enter (or use Alt+A directly) to select a child in the keyboard-driven Agent Hub, steer a continuable child from its transcript, inspect distinct Input and Output sections, expand long results, and keep domain-specific presentation owned by tool plugins.
+- **Readable turns:** follow thinking, replies, and tool previews while the agent works. Completed work folds to a duration summary and the full final answer; `Ctrl+O` restores the process view. Scroll through either view, keep the current prompt pinned, and jump back to the latest message with `End`.
+- **Inspectable work:** use `/trajectory` for tool inputs and results, see the files changed by each turn, and let the model search its earlier sessions in the same workspace. Open the Agent Hub with `Alt+A` to follow child agents and steer continuable tasks.
 - **Live operational context:** see Agent, Workflow, Access, model, reasoning effort, workspace, Git state, context pressure, tokens, TTFT, throughput, cache, timings, turns, and steps without leaving the composer; use `/context` for an inline projection-backed breakdown that remains in the transcript.
 - **Responsive by design:** retain settled transcript layout, coalesce scroll updates, emit row-level terminal diffs, and preserve correct display-cell alignment for CJK text and emoji.
 
@@ -102,7 +105,7 @@ The TUI package is split into a service definition, local terminal Provider, ses
 
 ## Performance
 
-Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. On the documented Apple M5 Pro environment, restoring 10,000 conversation turns takes a median 2.62 ms, 10,000 tool calls take 22.71 ms, and rendering cached frames over a 5,000-turn surface averages 0.35 ms per frame.
+Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. The documented Apple M5 Pro measurements from August 2026 recorded a median 2.62 ms for restoring 10,000 conversation turns, 22.71 ms for 10,000 tool calls, and 0.35 ms per cached frame over a 5,000-turn surface. These are historical measurements, not a benchmark of the latest version.
 
 See the reproducible [TUI performance report](https://omdsh.agi.fans/docs/performance/) or run `pnpm benchmark:tui` locally.
 

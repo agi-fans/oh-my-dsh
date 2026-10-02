@@ -8,9 +8,9 @@ oh-my-dsh treats responsiveness as part of the terminal architecture rather than
 
 ## Highlights
 
-The current implementation was measured on a 10,000-turn synthetic conversation, a 10,000-tool-call transcript, and a 5,000-turn cached render surface.
+The measurements below were recorded on 2026-08-20 using a 10,000-turn synthetic conversation, a 10,000-tool-call transcript, and a 5,000-turn cached render surface. They document that optimization baseline and have not been rerun for the current turn presentation.
 
-| Workload | Diagnostic baseline | Current median | Improvement |
+| Workload | Diagnostic baseline | Recorded median | Improvement |
 | --- | ---: | ---: | ---: |
 | Resume 10,000 conversation turns | 323.6 ms | 2.62 ms | 123.5× |
 | Resume 10,000 tool calls | 307.6 ms | 22.71 ms | 13.5× |
@@ -52,7 +52,7 @@ Settled transcript blocks cache their formatted Markdown and tool rows by block 
 
 ### Native scrollback and differential terminal output
 
-In follow mode the `MainScreenRenderer` appends finalized rows and uses row-level diffs for the mutable viewport. A physical boundary prevents finalized rows from being replayed during a stable geometry epoch. Append-only assistant streams may advance that boundary as their head leaves the screen, preserving natural terminal scrolling; running-tool previews remain pinned because their earlier rows can collapse or change. Native scrollback remains an append-only frozen visual record during ordinary updates. Production startup emits one initial session frame. Idle replacement performs a complete replay, while running replacement keeps only mutable preview regions pinned until settlement. Native scrollback is never erased on any profile, so a transcript replacement appends rather than purges; alternate-screen overlays are limited to direct terminals, and multiplexer resize bursts are coalesced before repaint. Large resumed transcripts are replayed completely rather than truncated. At a stable width, finalized rows also form a prepared prefix: frame fitting validates only the mutable suffix instead of measuring the complete transcript again for streaming, status, or composer updates.
+In follow mode the `MainScreenRenderer` appends finalized rows and uses row-level diffs for the mutable viewport. A physical boundary prevents finalized rows from being replayed during a stable geometry epoch. A running turn remains mutable until it settles, so its process can fold without rewriting native history. Native scrollback remains an append-only frozen visual record during ordinary updates. Production startup emits one initial session frame. Idle replacement performs a complete replay, while running replacement keeps the active turn mutable until settlement. Native scrollback is never erased on any profile, so a transcript replacement appends rather than purges; alternate-screen overlays are limited to direct terminals, and multiplexer resize bursts are coalesced before repaint. Large resumed transcripts are replayed completely rather than truncated. At a stable width, finalized rows also form a prepared prefix: frame fitting validates only the mutable suffix instead of measuring the complete transcript again for streaming, status, or composer updates.
 
 Every frame is compared by visible row against the previous frame. The terminal writer rewrites only changed rows, clears only stale rows, and preserves the requested cursor position. All width calculations use terminal display cells so ANSI styling, CJK text, emoji, and combining characters do not trigger corrective repaints caused by broken layout.
 
@@ -81,9 +81,9 @@ Terminal output for 200 streaming frames      200 writes · 43.00 KiB
 
 The benchmark intentionally imports the source implementation and avoids physical terminal I/O. In addition to CPU timings, it runs the real differential renderer against an in-memory sink and reports terminal write count and ANSI byte volume for the streaming workload. This makes it useful for detecting algorithmic and output-amplification regressions, but absolute numbers will vary with hardware, Node.js versions, background activity, and runtime warm-up.
 
-## Current limits and next steps
+## Measured limits and next steps
 
-The remaining measurable growth is formatting the currently streaming assistant block: the active Markdown block must be reconsidered as text arrives because later syntax can change earlier presentation. In the same environment, an update to a 2,500-character response took about 0.19 ms, a 5,000-character response about 0.29 ms, and an extreme 25,000-character response about 1.30 ms. These values remain below the current frame budget. The short coalescing window reduces redundant work under dense token delivery without introducing a perceptible frame delay.
+In the recorded benchmark, the remaining growth came from formatting the streaming assistant block: later Markdown syntax can change earlier presentation, so appended text requires formatting the active block again. An update to a 2,500-character response took about 0.19 ms, a 5,000-character response about 0.29 ms, and an extreme 25,000-character response about 1.30 ms. These measurements were below the frame budget at the time. A short coalescing window reduces repeated work when tokens arrive rapidly.
 
 If real-world profiling shows pressure beyond those ranges, the next candidate is incremental parsing of syntactically stable Markdown prefixes. That change should be driven by terminal traces rather than microbenchmark numbers alone.
 

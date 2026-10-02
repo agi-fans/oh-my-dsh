@@ -8,9 +8,9 @@ oh-my-dsh 将响应速度视为终端架构的一部分，而不是开发结束�
 
 ## 性能亮点
 
-当前实现使用 10,000 轮模拟对话、10,000 次工具调用记录和包含 5,000 轮对话的缓存渲染界面进行测量。
+以下数据记录于 2026-08-20，使用 10,000 轮模拟对话、10,000 次工具调用记录和包含 5,000 轮对话的缓存渲染界面。它们保留当时的优化基线，尚未针对当前回合展示方式重新测量。
 
-| 工作负载 | 诊断基线 | 当前中位数 | 提升 |
+| 工作负载 | 诊断基线 | 记录的中位数 | 提升 |
 | --- | ---: | ---: | ---: |
 | 恢复 10,000 轮对话 | 323.6 ms | 2.62 ms | 123.5× |
 | 恢复 10,000 次工具调用 | 307.6 ms | 22.71 ms | 13.5× |
@@ -52,7 +52,7 @@ oh-my-dsh 将响应速度视为终端架构的一部分，而不是开发结束�
 
 ### 原生 scrollback 与终端差分输出
 
-在跟随模式下，`MainScreenRenderer` 追加已最终化的行，并对可变视口执行行级差分。物理边界可防止已最终化行在终端尺寸稳定的 epoch 内被重复写入。仅追加的 assistant stream 在头部离开屏幕时可以推进该边界，从而保留终端的自然滚动；running-tool preview 因早期行可能折叠或变化而继续固定。普通更新期间，原生 scrollback 保持为追加式冻结视觉记录。生产启动只输出一个初始 session frame。idle replacement 会完整重放，running replacement 只把可变 preview 区域固定到完成为止。任何 profile 都不会擦除原生 scrollback，因此转录替换是追加而不是清除；alternate-screen overlay 仅用于 direct terminal，multiplexer 的 resize 突发会在重绘前合并。大型 resume transcript 会完整重放而不是截断。在终端宽度稳定时，已最终化行也构成 prepared prefix：frame fitting 只校验可变后缀，不会因 streaming、状态或 composer 更新而再次测量完整 transcript。
+在跟随模式下，`MainScreenRenderer` 追加已最终化的行，并对可变视口执行行级差分。物理边界可防止已最终化行在终端尺寸稳定的 epoch 内被重复写入。运行中的整个回合在结束前保持可变，因此过程折叠无需改写原生历史。普通更新期间，原生 scrollback 保持为追加式冻结视觉记录。生产启动只输出一个初始 session frame。idle replacement 会完整重放，running replacement 将活跃回合保持为可变状态，直到结束。任何 profile 都不会擦除原生 scrollback，因此转录替换是追加而不是清除；alternate-screen overlay 仅用于 direct terminal，multiplexer 的 resize 突发会在重绘前合并。大型 resume transcript 会完整重放而不是截断。在终端宽度稳定时，已最终化行也构成 prepared prefix：frame fitting 只校验可变后缀，不会因 streaming、状态或 composer 更新而再次测量完整 transcript。
 
 每个帧都会按可见行与上一帧比较。终端写入器只重写发生变化的行，只清理失效的旧行，并保持目标光标位置。所有宽度都按终端显示单元计算，因此 ANSI 样式、中文、Emoji 和组合字符不会因为布局错误触发额外的修正绘制。
 
@@ -81,9 +81,9 @@ Terminal output for 200 streaming frames      200 writes · 43.00 KiB
 
 该 Benchmark 会直接导入源码实现并刻意排除物理终端 I/O。除了 CPU 耗时，它还会让真实差分 renderer 写入内存 sink，并报告流式工作负载的终端 write 次数和 ANSI 字节量。因此它既能发现算法复杂度回退，也能发现输出放大；绝对数值仍会随硬件、Node.js 版本、后台负载和运行时预热状态变化。
 
-## 当前边界与后续方向
+## 实测边界与后续方向
 
-目前仍然可以测量到的增长来自正在流式生成的 Assistant Markdown 区块：文本追加后，后续语法可能改变此前内容的表现形式，因此活动区块需要重新参与格式化。在相同环境中，2,500 字符回复的一次更新约为 0.19 ms，5,000 字符约为 0.29 ms，极端的 25,000 字符约为 1.30 ms。这些数据仍低于当前帧预算。短合并窗口能在 token 密集到达时减少重复工作，又不会引入可感知的帧延迟。
+当时测量到的剩余增长来自流式生成的 Assistant 区块：后续 Markdown 语法可能改变此前内容的表现形式，因此追加文本需要重新格式化活动区块。2,500 字符回复的一次更新约为 0.19 ms，5,000 字符约为 0.29 ms，极端的 25,000 字符约为 1.30 ms。这些测量值低于当时的帧预算。短合并窗口能在 Token 密集到达时减少重复工作。
 
 如果真实使用中的性能追踪表明响应已经超过这些范围，下一步候选方案是增量解析语法已经稳定的 Markdown 前缀。这项优化应由真实终端 Trace 驱动，而不是只依据微基准数字。
 
