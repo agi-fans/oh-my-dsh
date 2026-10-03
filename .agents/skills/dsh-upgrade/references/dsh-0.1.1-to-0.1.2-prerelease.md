@@ -4,7 +4,7 @@
 
 These cards were observed while moving a host composition from published `0.1.1-rc.2` packages to published `0.1.2-alpha.2` packages. They are prerelease evidence, not a promise about the final `0.1.2` RC. Re-read the selected package metadata, exports, declarations, official release notes, and tagged source before applying a card to a later prerelease.
 
-Primary evidence: [DSH 0.1.2-alpha.2 release](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-alpha.2) and the [oh-my-dsh migration lab](../../../../docs/dsh-0.1.2-upgrade-lab.md).
+Primary evidence: [DSH 0.1.2-alpha.2 release](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-alpha.2) and the [oh-my-dsh migration lab](../../../../docs/history/dsh-0.1.2-upgrade-lab.md).
 
 ## V012-PRE-01 · Resolve the package and foundation graph together
 

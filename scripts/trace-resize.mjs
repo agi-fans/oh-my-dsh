@@ -9,7 +9,7 @@
 // Run: node scripts/trace-resize.mjs
 //
 // The probe lives in the repository because the calibration is evidence, not a
-// throwaway: the summary table in docs/tui-transcript-folding-plan.md is not enough to
+// throwaway: the contract in docs/design/tui-rendering.md is not enough to
 // rebuild a sequence. It reads @xterm/headless out of the pnpm store because the
 // package is a transitive dependency of the terminal plugin, not a declared one — if
 // this probe becomes a permanent regression it belongs in the test package's

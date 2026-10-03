@@ -1,5 +1,7 @@
 # DSH 0.1.5-alpha.2 → 0.1.5-rc.1 升级记录
 
+历史证据：本文的版本、配置、挂载状态和验证数量只描述该次升级，不是当前待办。保留用于[升级技能的预发布证据卡](../../.agents/skills/dsh-upgrade/references/dsh-0.1.5-rc.1-prerelease.md)；当前决策见 [Harness 集成](../integrations/deepseek-harness.md)。
+
 模式：**Harness cohort migration**。走廊极窄，但暴露出一个真实的发布缺陷，本记录把证据和判定一起留档。上游发布：`dsh-v0.1.5-rc.1`（2026-09-10，npm `latest`/`next` 均指向它）；基线 `dsh-v0.1.5-alpha.2`（2026-09-09）恰是它的前一个 alpha。
 
 ## 基线与目标

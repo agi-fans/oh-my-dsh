@@ -4,7 +4,7 @@
 
 These cards were observed while moving a TUI host composition from published `0.1.5-alpha.2` packages to published `0.1.5-rc.1` packages. The corridor spans one day and 17 commits, so the cards cover a narrow, prerelease-only situation: a consumer that already sat on the immediately preceding alpha. Re-read the selected package metadata, exports, declarations, official release notes, and tagged source before applying a card to a later prerelease.
 
-Primary evidence: [DSH 0.1.5-rc.1 release](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.1) and the [oh-my-dsh upgrade record](../../../../docs/dsh-0.1.5-rc.1-upgrade.md).
+Primary evidence: [DSH 0.1.5-rc.1 release](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.1) and the [oh-my-dsh upgrade record](../../../../docs/history/dsh-0.1.5-rc.1-upgrade.md).
 
 ## V015RC-01 · A prerelease peer range silently absorbs the next prerelease cohort
 

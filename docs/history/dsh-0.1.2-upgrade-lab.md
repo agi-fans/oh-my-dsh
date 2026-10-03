@@ -1,5 +1,7 @@
 # DeepSeek Harness 0.1.2 upgrade lab
 
+Retained as primary evidence for the [upgrade skill's prerelease card](../../.agents/skills/dsh-upgrade/references/dsh-0.1.1-to-0.1.2-prerelease.md). Current integration decisions live in [DeepSeek Harness integration](../integrations/deepseek-harness.md).
+
 > **Historical record.** This lab ran on the `alpha` release-preparation branch. That branch was last used to prepare `v0.15.0`, every release since has shipped from `main`, and the branch has been deleted. The branch references below describe the experiment as it was run, not the current release process.
 
 ## Purpose
