@@ -1,13 +1,14 @@
 /**
  * Align Harness FileDiff hunks and paint them as a terminal edit card.
- * Line LCS recovers context that the presenter stores on both sides; a 1:1
+ * Line alignment recovers context that the presenter stores on both sides; a 1:1
  * replacement also marks changed tokens with inverse video.
  */
 
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
+import { diffArrays } from 'diff'
 import { highlightCodeLines, languageFromPath } from './code-highlight.ts'
 import type { Theme } from './theme.ts'
-import { expandTabs, wrapTextStable } from './width.ts'
+import { expandTabs, wrapCode } from './width.ts'
 
 /** One painted role inside an aligned diff. */
 export type DiffKind = 'path' | 'gap' | 'ctx' | 'del' | 'add'
@@ -31,24 +32,35 @@ export interface DiffStats {
   readonly removed: number
 }
 
-/** Skip Myers/LCS when a side is this long; dump old then new instead. */
-const ALIGN_LINE_LIMIT = 200
+/** Bound work by edit distance so large, mostly unchanged hunks still align. */
+const MAX_LINE_EDITS = 400
+const ALIGN_LINE_LIMIT = 10_000
 
-/**
- * Skip the quadratic intra-line alignment when either side tokenizes this
- * long. The table costs time and memory in the product of both sides, so one
- * minified source line measured 63 ms and roughly 18 MB of temporary storage at
- * 3 000 tokens, and the running tool card re-renders on every spinner frame.
- * Past this ceiling the row keeps its added/removed marking and loses only the
- * intra-line highlighting.
- */
-const TOKEN_ALIGN_LIMIT = 400
+/** Minified or extensively rewritten lines keep their red/green row marking. */
+const INTRA_LINE_CHAR_LIMIT = 8_192
+const MAX_WORD_EDITS = 200
 
 /** Inverse-off after each wrapped visual row so frame padding cannot inherit it. */
 const INVERSE_OFF = '\x1b[27m'
 
 /** Foreground-off after each wrapped visual row so syntax colors cannot leak into borders. */
 const FG_RESET = '\x1b[39m'
+
+const diffSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/** Keep identifiers and spacing intact, with punctuation as separate tokens.
+ * Emoji and combining sequences must not acquire ANSI inside one grapheme. */
+function wordTokens(text: string): string[] {
+  const tokens: string[] = []
+  let previousKind = ''
+  for (const { segment } of diffSegmenter.segment(text)) {
+    const kind = /^[\p{L}\p{M}\p{N}_]+$/u.test(segment) ? 'word' : /^\s+$/u.test(segment) ? 'space' : 'punctuation'
+    if (kind !== 'punctuation' && previousKind === kind) tokens[tokens.length - 1] += segment
+    else tokens.push(segment)
+    previousKind = kind
+  }
+  return tokens
+}
 
 function plainRow(kind: DiffKind, text: string): DiffRow {
   return { kind, tokens: [{ text }] }
@@ -71,80 +83,23 @@ export function rowText(row: DiffRow): string {
   return row.tokens.map(token => token.text).join('')
 }
 
-/**
- * Longest common subsequence walk. Equal remaining scores prefer a deletion so
- * replacements emit as a deleted run followed by an added run.
- */
-function alignSequences(oldItems: readonly string[], newItems: readonly string[]): { kind: 'ctx' | 'del' | 'add'; text: string }[] {
-  const oldCount = oldItems.length
-  const newCount = newItems.length
-  const table: Uint16Array[] = Array.from({ length: oldCount + 1 }, () => new Uint16Array(newCount + 1))
-  for (let oldIndex = oldCount - 1; oldIndex >= 0; oldIndex -= 1) {
-    const oldRow = table[oldIndex]
-    const nextRow = table[oldIndex + 1]
-    if (oldRow === undefined || nextRow === undefined) continue
-    for (let newIndex = newCount - 1; newIndex >= 0; newIndex -= 1) {
-      oldRow[newIndex] = oldItems[oldIndex] === newItems[newIndex]
-        ? (nextRow[newIndex + 1] ?? 0) + 1
-        : Math.max(nextRow[newIndex] ?? 0, oldRow[newIndex + 1] ?? 0)
-    }
-  }
-
-  const rows: { kind: 'ctx' | 'del' | 'add'; text: string }[] = []
-  let oldIndex = 0
-  let newIndex = 0
-  while (oldIndex < oldCount && newIndex < newCount) {
-    if (oldItems[oldIndex] === newItems[newIndex]) {
-      rows.push({ kind: 'ctx', text: oldItems[oldIndex] ?? '' })
-      oldIndex += 1
-      newIndex += 1
-      continue
-    }
-    const down = table[oldIndex + 1]?.[newIndex] ?? 0
-    const right = table[oldIndex]?.[newIndex + 1] ?? 0
-    if (down >= right) {
-      rows.push({ kind: 'del', text: oldItems[oldIndex] ?? '' })
-      oldIndex += 1
-    } else {
-      rows.push({ kind: 'add', text: newItems[newIndex] ?? '' })
-      newIndex += 1
-    }
-  }
-  while (oldIndex < oldCount) {
-    rows.push({ kind: 'del', text: oldItems[oldIndex] ?? '' })
-    oldIndex += 1
-  }
-  while (newIndex < newCount) {
-    rows.push({ kind: 'add', text: newItems[newIndex] ?? '' })
-    newIndex += 1
-  }
-  return rows
-}
-
-function tokenize(text: string): string[] {
-  return text.split(/(\s+)/u).filter(part => part !== '')
-}
-
 function highlightPair(oldText: string, newText: string): { removed: DiffRow; added: DiffRow } {
-  const oldTokens = tokenize(oldText)
-  const newTokens = tokenize(newText)
-  if (oldTokens.length === 0 && newTokens.length === 0) {
+  if (oldText.length > INTRA_LINE_CHAR_LIMIT || newText.length > INTRA_LINE_CHAR_LIMIT) {
     return { removed: plainRow('del', oldText), added: plainRow('add', newText) }
   }
-  if (oldTokens.length > TOKEN_ALIGN_LIMIT || newTokens.length > TOKEN_ALIGN_LIMIT) {
-    return { removed: plainRow('del', oldText), added: plainRow('add', newText) }
-  }
-  const aligned = alignSequences(oldTokens, newTokens)
+  const aligned = diffArrays(wordTokens(oldText), wordTokens(newText), { maxEditLength: MAX_WORD_EDITS })
+  if (aligned === undefined) return { removed: plainRow('del', oldText), added: plainRow('add', newText) }
   const removed: DiffToken[] = []
   const added: DiffToken[] = []
   for (const part of aligned) {
-    if (part.kind === 'ctx') {
-      removed.push({ text: part.text })
-      added.push({ text: part.text })
-    } else if (part.kind === 'del') {
-      removed.push({ text: part.text, changed: true })
+    const text = part.value.join('')
+    if (part.removed) {
+      removed.push({ text, changed: true })
+    } else if (part.added) {
+      added.push({ text, changed: true })
     } else {
-      added.push({ text: part.text, changed: true })
+      removed.push({ text })
+      added.push({ text })
     }
   }
   return {
@@ -189,15 +144,18 @@ function alignHunk(oldText: string | null, newText: string, language: string | u
   if (oldText === null) return contentLines(newText).map(line => plainRow('add', line))
   const oldLines = contentLines(oldText)
   const newLines = contentLines(newText)
-  if (oldLines.length > ALIGN_LINE_LIMIT || newLines.length > ALIGN_LINE_LIMIT) {
+  const changes = oldLines.length > ALIGN_LINE_LIMIT || newLines.length > ALIGN_LINE_LIMIT
+    ? undefined
+    : diffArrays(oldLines, newLines, { maxEditLength: MAX_LINE_EDITS })
+  if (changes === undefined) {
     return [
       ...oldLines.map(line => plainRow('del', line)),
       ...newLines.map(line => plainRow('add', line)),
     ]
   }
-  const aligned = alignSequences(oldLines, newLines).map(part =>
-    part.kind === 'ctx' ? ctxRow(part.text, language) : plainRow(part.kind, part.text),
-  )
+  const aligned = changes.flatMap(part => part.value.map(text =>
+    part.removed ? plainRow('del', text) : part.added ? plainRow('add', text) : ctxRow(text, language),
+  ))
   return applyIntraLine(aligned)
 }
 
@@ -356,7 +314,7 @@ export function wrapPaintedDiffRows(rows: readonly DiffRow[], theme: Theme, widt
     const ctxBody = ctxBodies.get(i)
     const painted = ctxBody === undefined ? paintDiffRow(row, theme) : paintContextRow(ctxBody, theme)
     const expanded = expandTabs(painted, 8, 2)
-    for (const segment of wrapTextStable(expanded, inner)) {
+    for (const segment of wrapCode(expanded, inner)) {
       lines.push(theme.colors ? segment + INVERSE_OFF + FG_RESET : segment)
     }
   }

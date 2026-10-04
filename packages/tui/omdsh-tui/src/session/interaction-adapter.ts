@@ -8,11 +8,15 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
-import type {
-  AskUserQuestionAnswer,
-  AskUserQuestionItem,
-  AskUserQuestionRequest,
+import {
+  UserQuestionError,
+  type UserQuestionService,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionItem,
+  type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
 import type { TuiService } from '../definition.ts'
 
@@ -39,29 +43,108 @@ export function parsePromptAnswer(
   }
 }
 
-async function askQuestions(tui: TuiService, request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
-  const answers: AskUserQuestionAnswer['answers'] = []
-  for (const question of request.questions) {
-    const raw = await tui.prompt({
-      title: question.intent?.kind === 'plan-review' ? 'Plan review' : (question.header ?? 'Question'),
-      question: question.question,
-      ...(question.detail === undefined ? {} : { detail: question.detail }),
-      ...(question.options === undefined ? {} : { options: question.options }),
-      ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
-      ...(question.intent?.kind === 'plan-review'
-        ? { presentation: 'plan-review' as const, approveValue: question.intent.approve }
-        : {}),
-      allowCustom: true,
-      ...(request.signal === undefined ? {} : { signal: request.signal }),
-    })
-    if (raw === null) {
-      answers.push({ id: question.id, selected: [] })
-      continue
+/** Collect a complete batch under one Harness wait, including PTC sub-calls. */
+async function askQuestions(
+  tui: TuiService,
+  request: AskUserQuestionRequest,
+  service?: UserQuestionService,
+): Promise<AskUserQuestionAnswer> {
+  const lifetime = new AbortController()
+  const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let claim: AsyncIterator<{ remainingMs: number }> | undefined
+  let claimEnded: Promise<IteratorResult<{ remainingMs: number }>> | undefined
+  let wait: { deadline: number; hold(): void } | undefined
+  const timedOut = (): UserQuestionError => new UserQuestionError('The question is still awaiting an answer.', 'ASK_TIMED_OUT')
+  try {
+    signal.throwIfAborted()
+    if (request.wait?.timed === true) {
+      if (service === undefined || request.agent === undefined) throw timedOut()
+      claim = service.attachWait(request.agent, request.wait.callId, signal)[Symbol.asyncIterator]()
+      const first = await claim.next()
+      signal.throwIfAborted()
+      if (first.done) throw timedOut()
+      claimEnded = claim.next()
+      // A remote/business stream can also fail independently of its parent.
+      void claimEnded.catch(error => { lifetime.abort(error) })
+      wait = {
+        deadline: Date.now() + first.value.remainingMs,
+        hold: () => { clearTimeout(timer); timer = undefined; wait = undefined },
+      }
+      timer = setTimeout(() => { lifetime.abort(timedOut()) }, first.value.remainingMs)
     }
-    const parsed = parsePromptAnswer(raw, question)
-    answers.push({ id: question.id, ...parsed })
+    const answers: AskUserQuestionAnswer['answers'] = []
+    for (const [index, question] of request.questions.entries()) {
+      signal.throwIfAborted()
+      const raw = await tui.prompt({
+        title: question.intent?.kind === 'plan-review' ? 'Plan review' : (question.header ?? 'Question'),
+        question: question.question,
+        ...(question.detail === undefined ? {} : { detail: question.detail }),
+        ...(question.options === undefined ? {} : { options: question.options }),
+        ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
+        ...(question.intent?.kind === 'plan-review'
+          ? { presentation: 'plan-review' as const, approveValue: question.intent.approve }
+          : {}),
+        ...(request.questions.length > 1 ? { title: `${question.header ?? 'Question'} · ${index + 1}/${request.questions.length}` } : {}),
+        ...(wait === undefined ? {} : { wait }),
+        ...(request.wait?.timed === true ? { dismissLabel: 'Later' } : {}),
+        skippable: question.intent === undefined,
+        allowCustom: true,
+        interrupt: () => { lifetime.abort(new UserQuestionError('The user interrupted the question.', 'ASK_ABORTED')) },
+        signal,
+      })
+      signal.throwIfAborted()
+      if (raw === null) {
+        if (request.wait?.timed === true) throw timedOut()
+        throw new UserQuestionError('The user dismissed the question.', 'ASK_CANCELLED')
+      }
+      answers.push({ id: question.id, ...parsePromptAnswer(raw, question) })
+    }
+    return { answers }
+  } finally {
+    clearTimeout(timer)
+    lifetime.abort()
+    if (claimEnded !== undefined) await claimEnded.catch(() => {})
+    await claim?.return?.()
   }
-  return { answers }
+}
+
+/** Reopen continued questions from the public projection; the original tool stays settled. */
+async function answerPendingQuestions(
+  ctx: Context,
+  tui: TuiService,
+  agent: Agent,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const read = () => ctx.get('sessionProjections')?.snapshot(agent.session).values.userQuestions?.active ?? []
+  const continued = read().filter(question => question.state === 'continued')
+  if (continued.length === 0) return 'No pending questions in this session.'
+  const id = continued.length === 1 ? continued[0]?.callId : await tui.prompt({
+    title: 'Pending questions',
+    question: 'Choose a question to answer.',
+    options: continued.map(question => ({
+      label: question.questions.map(item => item.header ?? item.question).join(' · '),
+      value: question.callId,
+      preview: question.questions.map(item => item.question).join(' / '),
+    })),
+    presentation: 'fullscreen-list',
+    filterable: true,
+    allowCustom: false,
+    signal,
+  })
+  if (id === null || id === undefined || signal.aborted) return undefined
+  const question = read().find(item => item.callId === id && item.state === 'continued')
+  if (question === undefined) return 'This question has already been answered.'
+  let answer: AskUserQuestionAnswer
+  try {
+    answer = await askQuestions(tui, { agent, questions: [...question.questions], signal })
+  } catch (error) {
+    if (signal.aborted || (error instanceof UserQuestionError && error.code === 'ASK_CANCELLED')) return undefined
+    throw error
+  }
+  signal.throwIfAborted()
+  const accepted = ctx.userQuestions.answer(agent, question.callId, answer)
+  return accepted ? 'Answer queued for the next model step.' : 'This question has already been answered.'
 }
 
 /**
@@ -102,22 +185,65 @@ export function bindHumanInteraction(
   ctx: Context,
   tui: TuiService,
   activeAgent: () => Agent | undefined,
-): () => void {
+): () => Promise<void> {
   const disposers: Array<() => void> = []
+  const lifetime = new AbortController()
+  let queue: Promise<unknown> = Promise.resolve()
+  const enqueue = <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {
+    const pending = queue.then(() => { signal.throwIfAborted(); return operation() })
+    queue = pending.catch(() => {})
+    // An unattended queued wait must settle at its Host deadline, even while
+    // an earlier prompt is held. Its eventual queue slot cannot open a stale UI.
+    return new Promise((resolve, reject) => {
+      const abort = (): void => { reject(signal.reason) }
+      if (signal.aborted) abort()
+      else signal.addEventListener('abort', abort, { once: true })
+      void pending.then(resolve, reject).finally(() => { signal.removeEventListener('abort', abort) })
+    })
+  }
   const questions = ctx.get('userQuestions')
   if (questions !== undefined) {
     disposers.push(ctx.on('user-questions/request', (request, next) => {
       if (request.agent !== undefined && request.agent !== activeAgent()) return next()
-      return askQuestions(tui, request)
+      const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
+      return enqueue(signal, () => askQuestions(tui, { ...request, signal }, questions))
+    }))
+  }
+  const commands = ctx.get('commands')
+  if (questions !== undefined && commands !== undefined) {
+    disposers.push(commands.register({
+      name: 'questions',
+      description: 'Answer questions left pending in this session',
+      handler: invocation => enqueue(AbortSignal.any([invocation.signal, lifetime.signal]), async () => {
+        if (invocation.rawInput.trim() !== '') return { kind: 'error' as const, text: 'Usage: /questions' }
+        if (invocation.agent !== activeAgent()) return { kind: 'error' as const, text: 'Questions belong to the active session.' }
+        const operation = new AbortController()
+        const off = ctx.on('session/disposed', (session) => {
+          if (session === invocation.agent.session) operation.abort()
+        })
+        try {
+          const signal = AbortSignal.any([invocation.signal, lifetime.signal, operation.signal])
+          const text = await answerPendingQuestions(ctx, tui, invocation.agent, signal)
+          return { kind: 'success' as const, ...(text === undefined ? {} : { text }) }
+        } catch (error) {
+          if (operation.signal.aborted || invocation.signal.aborted || lifetime.signal.aborted) return { kind: 'success' as const }
+          return { kind: 'error' as const, text: error instanceof Error ? error.message : String(error) }
+        } finally {
+          off()
+        }
+      }),
     }))
   }
   if (ctx.get('approval') !== undefined) {
     disposers.push(ctx.on('approval/request', async (request, next) => {
       if (request.agent !== activeAgent()) return next()
-      return askApproval(tui, request)
+      const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
+      return enqueue(signal, () => askApproval(tui, { ...request, signal }))
     }))
   }
-  return () => {
-    for (const dispose of disposers.reverse()) dispose()
+  return async () => {
+    lifetime.abort(new UserQuestionError('The question interface was unloaded.', 'ASK_ABORTED'))
+    for (const dispose of disposers.splice(0).reverse()) dispose()
+    await queue
   }
 }

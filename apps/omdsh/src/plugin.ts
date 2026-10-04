@@ -11,7 +11,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { dirname, join, resolve } from 'node:path'
 import {
   readProfileManifest,
@@ -40,8 +41,9 @@ Usage:
 The Profile lives at $OMDSH_HOME/profiles/omdsh (else $DSH_HOME, else ~/.dsh).
 Filesystem specs such as ./examples/hello are relative to the invoking
 directory. A missing ./path walks parent directories for the same relative
-path and fails if nothing exists. pnpm must be on PATH. Restart omdsh after
-a successful add or remove.
+path and fails if nothing exists. pnpm must be on PATH. Restart after CLI
+package operations. Use /plugins to apply changes in the running profile with
+cancellation and explicit application results.
 `.trim()
 
 export interface PluginRunOptions {
@@ -389,7 +391,7 @@ function spawnPnpm(args: readonly string[], dir: string): { status: number | nul
  * Run one `omdsh plugin` invocation: init if needed, forward to pnpm, check
  * peers, reconcile.
  */
-export function runPlugin(args: readonly string[], options: PluginRunOptions = {}): number {
+export async function runPlugin(args: readonly string[], options: PluginRunOptions = {}): Promise<number> {
   const write = options.write ?? ((text: string) => { process.stderr.write(text) })
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
     writeLine(write, PLUGIN_USAGE)
@@ -412,48 +414,51 @@ export function runPlugin(args: readonly string[], options: PluginRunOptions = {
   }
   const home = omdshHome(environment)
   const dir = resolveProfileDir(PROFILE_NAME, home)
-  const created = !existsSync(join(dir, 'package.json'))
-  ensureOmdshProfile(home)
-  if (created) writeLine(write, `${NAME}: initialized profile ${PROFILE_NAME} at ${dir}`)
-  const before = readProfileManifest(NAME, dir)
-  const forwarded = resolved.map(item => item.argument)
-  const runPnpm = options.runPnpm ?? spawnPnpm
-  const result = runPnpm(forwarded, dir)
-  if (result.error !== undefined) {
-    if (result.error.code === 'ENOENT') {
-      writeLine(write, `${NAME}: pnpm not found on PATH — install pnpm to manage profile plugins`)
-      return 127
-    }
-    throw result.error
-  }
-  const exitCode = result.status ?? 1
-  if (exitCode !== 0) {
-    writeLine(write, `${NAME}: pnpm failed in profile directory ${dir}`)
-    if (args.some(argument => /^git\+|^github:|\.git(?:#|$)/u.test(argument))) {
-      writeLine(write,
-        `${NAME}: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — `
-        + `add the exact key pnpm printed above under allowBuilds in ${join(dir, 'pnpm-workspace.yaml')}, then re-run`,
-      )
-    }
-    return exitCode
-  }
-  const incompatible = incompatiblePeerMessage(dir)
-  if (incompatible !== undefined) {
-    writeLine(write, incompatible)
-    const verb = firstVerb(args)
-    const added = Object.keys(readProfileManifest(NAME, dir).dependencies ?? {})
-      .filter(name => !(before.dependencies ?? {})[name])
-    if (verb === 'add' && added.length > 0) {
-      const rollback = runPnpm(['remove', ...added], dir)
-      if ((rollback.status ?? 1) !== 0) {
-        writeLine(write, `${NAME}: failed to roll back incompatible packages: ${added.join(', ')}`)
-      } else {
-        writeLine(write, `${NAME}: removed incompatible packages: ${added.join(', ')}`)
+  mkdirSync(dir, { recursive: true })
+  return withFileLock(join(dir, 'package.json'), async () => {
+    const created = !existsSync(join(dir, 'package.json'))
+    ensureOmdshProfile(home)
+    if (created) writeLine(write, `${NAME}: initialized profile ${PROFILE_NAME} at ${dir}`)
+    const before = readProfileManifest(NAME, dir)
+    const forwarded = resolved.map(item => item.argument)
+    const runPnpm = options.runPnpm ?? spawnPnpm
+    const result = runPnpm(forwarded, dir)
+    if (result.error !== undefined) {
+      if (result.error.code === 'ENOENT') {
+        writeLine(write, `${NAME}: pnpm not found on PATH — install pnpm to manage profile plugins`)
+        return 127
       }
+      throw result.error
     }
-    return 1
-  }
-  for (const warning of bundlelessWarnings(before, dir)) writeLine(write, warning)
-  reconcilePlugins(before, dir)
-  return 0
+    const exitCode = result.status ?? 1
+    if (exitCode !== 0) {
+      writeLine(write, `${NAME}: pnpm failed in profile directory ${dir}`)
+      if (args.some(argument => /^git\+|^github:|\.git(?:#|$)/u.test(argument))) {
+        writeLine(write,
+          `${NAME}: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — `
+          + `add the exact key pnpm printed above under allowBuilds in ${join(dir, 'pnpm-workspace.yaml')}, then re-run`,
+        )
+      }
+      return exitCode
+    }
+    const incompatible = incompatiblePeerMessage(dir)
+    if (incompatible !== undefined) {
+      writeLine(write, incompatible)
+      const verb = firstVerb(args)
+      const added = Object.keys(readProfileManifest(NAME, dir).dependencies ?? {})
+        .filter(name => !(before.dependencies ?? {})[name])
+      if (verb === 'add' && added.length > 0) {
+        const rollback = runPnpm(['remove', ...added], dir)
+        if ((rollback.status ?? 1) !== 0) {
+          writeLine(write, `${NAME}: failed to roll back incompatible packages: ${added.join(', ')}`)
+        } else {
+          writeLine(write, `${NAME}: removed incompatible packages: ${added.join(', ')}`)
+        }
+      }
+      return 1
+    }
+    for (const warning of bundlelessWarnings(before, dir)) writeLine(write, warning)
+    reconcilePlugins(before, dir)
+    return 0
+  }, { waitMs: 120_000 })
 }

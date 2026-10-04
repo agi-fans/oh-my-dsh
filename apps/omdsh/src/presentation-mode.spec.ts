@@ -26,6 +26,32 @@ async function wireToolNames(preset: string): Promise<string[]> {
 }
 
 describe('preset tool presentation on the wire', () => {
+  it('samples child model selection into new-session tools while fork keeps its parent route', async () => {
+    const turn = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-subagent-routes-'), toolCall: { name: 'list_subagent_models', arguments: '{}' }, patch: [
+      '- id: subagent-model-selection-settings', '  config:', '    enabled: true', '    allowedModels:',
+      '      - provider: deepseek-official', '        model: deepseek-flash', '',
+    ].join('\n') })
+    expect(turn.status, turn.output.slice(-2000)).toBe(0)
+    const tools = (turn.bodies[0] as { tools: Array<{ name: string; input_schema: { properties: Record<string, unknown> } }> }).tools
+    const spawn = tools.find(tool => tool.name === 'subagent')!
+    expect(spawn.input_schema.properties).toHaveProperty('model')
+    expect(requestToolNames(turn.bodies[0])).toContain('list_subagent_models')
+    expect(JSON.stringify(turn.bodies.at(-1))).toContain('deepseek-flash')
+    const fork = tools.find(tool => tool.name === 'subagent_fork')!
+    expect(fork.input_schema.properties).not.toHaveProperty('model')
+  }, 180_000)
+
+  it('exposes Cordis management and published authoring skills', async () => {
+    const turn = await bootTuiTurn({ preset: 'cordis', home: temp('omdsh-cordis-skills-') })
+    expect(turn.status, turn.output.slice(-2000)).toBe(0)
+    expect(requestToolNames(turn.bodies[0])).toContain('plugin_manager')
+    const body = JSON.stringify(turn.bodies[0])
+    expect(body).toContain('cordis-plugin-development')
+    expect(body).toContain('editing-cordis-compositions')
+    expect(body).toContain('cordis-composition-reference')
+    expect(turn.output).not.toContain('did not activate')
+  }, 180_000)
+
   it('sends the PTC SDK form and no native orchestration tool for the code preset', async () => {
     const names = await wireToolNames('code')
     expect(names).toContain('run_code')

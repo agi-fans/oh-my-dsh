@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, stripAnsi, truncateToWidth, visibleWidth, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
+import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
 
 describe('visibleWidth', () => {
   it('ignores SGR sequences', () => {
@@ -95,6 +95,41 @@ describe('restabilizeWrapSegments', () => {
   it('is a no-op for unstyled or single-row output', () => {
     expect(restabilizeWrapSegments(['only one'])).toEqual(['only one'])
     expect(restabilizeWrapSegments(['plain', 'plain two'])).toEqual(['plain', 'plain two'])
+  })
+
+  it('restores underline, strike, and hyperlinks without carrying them past their closing escapes', () => {
+    const link = '\x1b]8;;https://example.com\x07'
+    const lines = restabilizeWrapSegments([
+      link + '\x1b[4;9mfirst',
+      'second\x1b[24;29m\x1b]8;;\x07',
+      'plain',
+    ])
+    expect(lines[1]).toBe(link + '\x1b[4m\x1b[9msecond\x1b[24;29m\x1b]8;;\x07')
+    expect(lines[2]).toBe('plain')
+  })
+
+  it('processes every attribute in a combined reset', () => {
+    const lines = restabilizeWrapSegments(['\x1b[4;9;31mstyled\x1b[39;24;29m', 'plain'])
+    expect(lines[1]).toBe('plain')
+  })
+})
+
+describe('wrapCode', () => {
+  it('preserves indentation, repeated and trailing spaces across cell wraps', () => {
+    const source = '    const  label = "中文🐳e\u0301";  '
+    for (const width of [8, 16, 24]) {
+      const lines = wrapCode(source, width)
+      expect(lines.join('')).toBe(source)
+      expect(lines.every(line => visibleWidth(line) <= width)).toBe(true)
+    }
+  })
+
+  it('reopens token colors on every continuation and preserves empty rows', () => {
+    const source = 'x'.repeat(35)
+    const lines = wrapCode('\x1b[32m' + source + '\x1b[39m', 10)
+    expect(lines.every(line => line.startsWith('\x1b[32m'))).toBe(true)
+    expect(lines.map(stripAnsi).join('')).toBe(source)
+    expect(wrapCode('one\n\nthree\n', 20)).toEqual(['one', '', 'three', ''])
   })
 })
 

@@ -3,6 +3,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { EDITOR_IDS, type EditorId } from '../input/editor-discovery.ts'
 import type { Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from './release-notes.ts'
@@ -36,6 +37,7 @@ export interface TuiSettings {
   theme: Volatile<ThemeName>
   colors: Volatile<boolean | undefined>
   motion: Volatile<MotionMode>
+  editor: Volatile<EditorId>
   terminalProgress: Volatile<boolean>
   /** Legacy configuration, accepted without changing the turn presentation. */
   foldDensity: Volatile<FoldDensity>
@@ -92,6 +94,7 @@ export const TUI_SETTINGS_FIELDS = {
   theme: z.union([...THEME_NAMES]).default('dark').volatile(),
   colors: z.boolean().volatile(),
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
+  editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
   foldDensity: z.union([...FOLD_DENSITIES]).default(DEFAULT_FOLD_DENSITY).volatile(),
   expandTools: z.boolean().default(false).volatile(),

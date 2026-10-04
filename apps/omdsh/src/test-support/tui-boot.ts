@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
@@ -47,11 +47,18 @@ export async function bootTuiTurn(options: {
   home: string
   input?: string
   extraEnv?: Record<string, string>
+  toolCall?: { name: string; arguments: string }
+  patch?: string
 }): Promise<{ bodies: unknown[], output: string, status: number | null }> {
   writeTurnConfig(options.home, options.preset)
+  if (options.patch !== undefined) appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), options.patch)
+  if (options.toolCall !== undefined) {
+    appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), '- id: session-title-llm\n  disabled: true\n')
+  }
   const server = await startMockLlmServer({
     port: 0,
-    sequence: ['success'],
+    sequence: options.toolCall === undefined ? ['success'] : ['tool_call_success', 'success'],
+    ...(options.toolCall === undefined ? {} : { toolName: options.toolCall.name, toolArguments: options.toolCall.arguments }),
     successText: 'ok',
     chunkSize: 32,
     chunkDelayMs: 1,

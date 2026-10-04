@@ -36,8 +36,8 @@ cd greet-plugin
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-commands": "0.2.0-rc.2"
+    "@deepseek-ai/cordis": "~4.0.5-alpha.1",
+    "@deepseek-ai/dsh-commands": "0.2.1-alpha.1"
   }
 }
 ```
@@ -100,7 +100,7 @@ omdsh --dump-config
 分两步检查结果：
 
 1. `--dump-config` 会在 `@agi-fans/oh-my-dsh` 之后列出 `greet-plugin`，并出现 `id: greet`。
-2. 重启 omdsh——安装或移除 bundle 不会热替换模块——然后运行 `/greet`、`/greet Ada` 和 `/help`。新命令出现在 Agent Commands 下。
+2. 这次 CLI 安装后重启 omdsh，然后运行 `/greet`、`/greet Ada` 和 `/help`。新命令出现在 Agent Commands 下。
 
 ### 修改插件
 

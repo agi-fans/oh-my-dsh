@@ -4,6 +4,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import type { EditorChoice, EditorId } from '../input/editor-discovery.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from '../session/release-notes.ts'
 import {
@@ -46,11 +47,19 @@ export interface SettingItem {
   hidden?: boolean
 }
 
+/** Active plugin configuration available through the Settings overlay. */
+export interface PluginSettingsEntry {
+  id: string
+  label: string
+  description: string
+}
+
 /** Session-local TUI prefs the overlay can change. */
 export interface TuiPrefs {
   theme: ThemeName
   colors: boolean
   motion?: MotionMode
+  editor?: EditorId
   terminalProgress?: boolean
   /** Legacy input; ignored by the turn presentation. */
   foldDensity?: FoldDensity
@@ -73,6 +82,8 @@ export interface SettingsState {
   agent?: TuiAgentBehaviorSettings
   /** Optional-feature state; absent when no feature registry was supplied. */
   features?: FeatureStates
+  plugins?: readonly PluginSettingsEntry[]
+  editors?: readonly EditorChoice[]
   /** Footer item currently attached to the up/down reorder gesture. */
   moving?: StatusItemId
 }
@@ -82,6 +93,7 @@ export type SettingsCommand =
   | { kind: 'update'; state: SettingsState }
   | { kind: 'apply'; domain: 'tui' | 'agent' | 'features'; state: SettingsState }
   | { kind: 'close' }
+  | { kind: 'open-plugin'; id: string }
   | { kind: 'ignore' }
 
 const COLOR_VALUES = ['on', 'off'] as const
@@ -138,7 +150,7 @@ function statusItemRow(config: StatusBarConfig, id: StatusItemId): SettingItem {
   }
 }
 
-function generalSettingItems(prefs: TuiPrefs): SettingItem[] {
+function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] = [{ id: 'auto', label: 'Auto' }]): SettingItem[] {
   return [
     {
       id: 'theme',
@@ -160,6 +172,13 @@ function generalSettingItems(prefs: TuiPrefs): SettingItem[] {
       description: 'Full adds smooth streaming and a working shimmer; Reduced keeps smooth streaming without the shimmer; Off follows provider chunks with static activity marks',
       value: prefs.motion ?? 'full',
       values: MOTION_MODES,
+    },
+    {
+      id: 'editor',
+      label: 'Editor',
+      description: 'Open files and edit prompts with this app. Save and close the file to return.',
+      value: editors.find(editor => editor.id === (prefs.editor ?? 'auto'))?.label ?? prefs.editor ?? 'Auto',
+      values: editors.map(editor => editor.label),
     },
     {
       id: 'terminalProgress',
@@ -243,7 +262,7 @@ function featureSettingItems(features: FeatureStates): SettingItem[] {
   return FEATURE_TOGGLES.map(feature => ({
     id: `feature:${feature.id}`,
     label: feature.label,
-    description: `${feature.description} Applies on the next launch.`,
+    description: `${feature.description} Saved in profile; applies live when supported.`,
     value: features[feature.id] === false ? 'off' : 'on',
     values: COLOR_VALUES,
   }))
@@ -254,12 +273,15 @@ export function tuiSettingItems(
   prefs: TuiPrefs,
   agent?: TuiAgentBehaviorSettings,
   features?: FeatureStates,
+  plugins?: readonly PluginSettingsEntry[],
+  editors?: readonly EditorChoice[],
 ): SettingItem[] {
   return [
-    ...generalSettingItems(prefs),
+    ...generalSettingItems(prefs, editors),
     ...agentSettingItems(agent),
     ...(features === undefined ? [] : featureSettingItems(features)),
     ...statusSettingItems(prefs),
+    ...(plugins ?? []).map(plugin => ({ ...plugin, id: `plugin:${plugin.id}`, value: 'Edit', values: [] })),
   ]
 }
 
@@ -362,19 +384,23 @@ export function createSettings(
   focusId?: string,
   agent?: TuiAgentBehaviorSettings,
   features?: FeatureStates,
+  plugins?: readonly PluginSettingsEntry[],
+  editors?: readonly EditorChoice[],
 ): SettingsState {
-  const items = tuiSettingItems(prefs, agent, features)
+  const items = tuiSettingItems(prefs, agent, features, plugins, editors)
   const focused = focusId === undefined ? 0 : items.findIndex((item) => item.id === focusId)
   return {
     prefs,
     selected: focused >= 0 ? focused : 0,
     ...(agent === undefined ? {} : { agent }),
     ...(features === undefined ? {} : { features }),
+    ...(plugins === undefined ? {} : { plugins }),
+    ...(editors === undefined ? {} : { editors }),
   }
 }
 
 function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
-  const id = tuiSettingItems(state.prefs, state.agent, state.features)[state.selected]?.id
+  const id = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)[state.selected]?.id
   if (id?.startsWith('statusItem:') !== true) return undefined
   const item = id.slice('statusItem:'.length)
   return isStatusItemId(item) ? item : undefined
@@ -385,7 +411,7 @@ function startMoving(state: SettingsState, item: StatusItemId): SettingsState {
   const prefs = statusItemVisible(config, item)
     ? state.prefs
     : { ...state.prefs, statusBar: toggleStatusItem(config, item) }
-  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${item}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${item}`)
   return { ...state, prefs, selected: Math.max(0, selected), moving: item }
 }
 
@@ -423,7 +449,7 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
       direction,
     )
     const prefs = { ...state.prefs, statusBar: { ...config, meta: reordered.visible.concat(config.meta.filter(id => itemSide(config, id) !== side)), metaOrder: reordered.order } }
-    const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+    const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
     return { ...state, prefs, selected, moving }
   }
   const reordered = reorderVisible(
@@ -433,7 +459,7 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
     direction,
   )
   const prefs = { ...state.prefs, statusBar: { ...config, groups: reordered.visible.concat(config.groups.filter(id => itemSide(config, id) !== side)), order: reordered.order } }
-  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
   return { ...state, prefs, selected, moving }
 }
 
@@ -442,28 +468,30 @@ function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsSta
   if (moving === undefined) return state
   const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
   const prefs = { ...state.prefs, statusBar: assignItemSide(config, moving, side) }
-  const selected = tuiSettingItems(prefs, state.agent).findIndex(row => row.id === `statusItem:${moving}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
   return { ...state, prefs, selected, moving }
 }
 
 interface SettingsSection {
-  id: 'general' | 'agent' | 'features' | 'status'
+  id: 'general' | 'agent' | 'features' | 'status' | 'plugins'
   label: string
   start: number
   end: number
 }
 
 function settingSections(state: SettingsState): SettingsSection[] {
-  const generalEnd = generalSettingItems(state.prefs).length
+  const generalEnd = generalSettingItems(state.prefs, state.editors).length
   const agentEnd = generalEnd + agentSettingItems(state.agent).length
   const featuresEnd = agentEnd + (state.features === undefined ? 0 : FEATURE_TOGGLES.length)
+  const statusEnd = featuresEnd + statusSettingItems(state.prefs).length
   return [
     { id: 'general', label: 'General', start: 0, end: generalEnd },
     ...(agentEnd === generalEnd ? [] : [{ id: 'agent' as const, label: 'Agent', start: generalEnd, end: agentEnd }]),
     ...(featuresEnd === agentEnd
       ? []
       : [{ id: 'features' as const, label: 'Features', start: agentEnd, end: featuresEnd }]),
-    { id: 'status', label: 'Status line', start: featuresEnd, end: tuiSettingItems(state.prefs, state.agent, state.features).length },
+    { id: 'status', label: 'Status line', start: featuresEnd, end: statusEnd },
+    ...(!state.plugins?.length ? [] : [{ id: 'plugins' as const, label: 'Plugins', start: statusEnd, end: statusEnd + state.plugins.length }]),
   ]
 }
 
@@ -489,10 +517,15 @@ function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
 }
 
 function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCommand {
-  const items = tuiSettingItems(state.prefs, state.agent, state.features)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)
   const item = items[state.selected]
   if (item === undefined) return { kind: 'ignore' }
+  if (item.id.startsWith('plugin:')) return { kind: 'ignore' }
   const value = adjacentValue(item.value, item.values, direction)
+  if (item.id === 'editor') {
+    const editor = state.editors?.find(choice => choice.label === value)?.id ?? 'auto'
+    return { kind: 'apply', domain: 'tui', state: { ...state, prefs: { ...state.prefs, editor } } }
+  }
   if (item.id.startsWith('feature:') && state.features !== undefined) {
     const id = item.id.slice('feature:'.length)
     return {
@@ -515,6 +548,10 @@ function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCom
 
 /** Apply one decoded event to the overlay. */
 export function applySettingsEvent(state: SettingsState, event: KeyEvent): SettingsCommand {
+  if ((event.type === 'key' && event.id === 'enter') || (event.type === 'text' && event.value === ' ')) {
+    const selected = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)[state.selected]
+    if (selected?.id.startsWith('plugin:')) return { kind: 'open-plugin', id: selected.id.slice('plugin:'.length) }
+  }
   if (state.moving !== undefined) {
     if (event.type !== 'key') return { kind: 'ignore' }
     if (event.id === 'up' || event.id === 'down') {
@@ -584,7 +621,7 @@ export const SETTINGS_ITEM_ROW = 3
 const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate rows' }
 const HOTKEY_CHANGE: HotkeyRow = { keys: '←→', action: 'Change the selected value' }
 const HOTKEY_TOGGLE: HotkeyRow = { keys: 'Space', action: 'Toggle — show or hide a status item, or cycle other rows' }
-const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — move a status item, or cycle other rows' }
+const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — move a status item, edit a plugin, or cycle other rows' }
 const HOTKEY_SECTION: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Switch section' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the section edges' }
 const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc', action: 'Close the overlay' }
@@ -655,7 +692,8 @@ function renderSectionTabs(
   const tab = (id: SettingsSection['id'], label: string): string => id === active
     ? theme.bold(theme.fg('accent', `● ${label}`))
     : theme.fg('muted', `○ ${label}`)
-  return framedRow(theme, ' ' + sections.map(section => tab(section.id, section.label)).join('    '), width)
+  const all = ' ' + sections.map(section => tab(section.id, section.label)).join('    ')
+  return framedRow(theme, visibleWidth(all) <= width - 4 ? all : ' ' + tab(active, sections.find(section => section.id === active)?.label ?? active), width)
 }
 
 const STATUS_PREVIEW_STATS = {
@@ -709,7 +747,7 @@ export function renderSettings(
   width: number,
   height: number = 24,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const items = tuiSettingItems(state.prefs, state.agent, state.features)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
   const viewState = index === state.selected ? state : { ...state, selected: index }
   const sections = settingSections(viewState)
@@ -767,7 +805,7 @@ export function renderSettings(
     const text = descriptionLines[row] ?? ''
     lines.push(framedRow(theme, text === '' ? '' : '  ' + theme.fg('muted', text), width))
   }
-  const hints = theme.fg('dim', settingsHints(state.moving !== undefined))
+  const hints = theme.fg('dim', active === 'plugins' ? '↑↓ navigate · enter edit · tab section · esc close' : settingsHints(state.moving !== undefined))
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))
   return {
     lines,

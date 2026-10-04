@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
@@ -80,5 +84,84 @@ describe('collect-only diff command', () => {
     await fiber.dispose()
     expect(ctx.commands.list(agent)).toEqual([])
     await ctx.fiber.dispose()
+  })
+})
+
+describe('interactive turn comparison', () => {
+  it('uses the retained turn snapshot, not the current working tree', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const session = ctx.sessions.create(SessionId('turn-diff'))
+    session.append('workspace/changes', { turn: 4, cwd: '/snapshot', files: [] } as never)
+    const retained = session.snapshotEvents().at(-1)!
+    const requests: import('../definition.ts').TuiPrompt[] = []
+    const answers = ['0', null, null]
+    ctx.provide('tui', { interactive: true, notice: () => {}, prompt: async (request: import('../definition.ts').TuiPrompt) => { requests.push(request); return answers.shift() ?? null } } as never)
+    const calls: unknown[][] = []
+    ctx.provide('workspaceChanges', {
+      summary: () => ({ turn: 4, cwd: '/snapshot', files: [{ path: 'removed.txt', display: 'removed.txt', added: 0, deleted: 1 }] }),
+      diff: async (...args: unknown[]) => { calls.push(args); return { kind: 'text', hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 0, lines: ['-original'] }] } },
+    } as never)
+    await ctx.plugin(commandDiff)
+    try {
+      const result = await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/diff turn 4', [], new AbortController().signal)
+      expect(result?.result).toEqual({ kind: 'success' })
+      expect(requests[1]!.detail).toContain('-original')
+      expect(calls[0]!.slice(0, 3)).toEqual([session.id, retained.seq, 0])
+    } finally { await ctx.fiber.dispose() }
+  })
+})
+
+describe('interactive workspace comparison from a subdirectory', () => {
+  const cases = ['unstaged', 'staged', 'untracked', 'unborn'].flatMap(state =>
+    ['CHANGELOG.md', 'apps/omdsh/local.txt'].map(path => ({ state, path, target: '' })))
+  cases.push({ state: 'unstaged', path: 'CHANGELOG.md', target: '../../CHANGELOG.md' },
+    { state: 'unstaged', path: 'apps/omdsh/local.txt', target: 'local.txt' })
+  it.each(cases)('previews and edits $state file $path (target "$target") at its actual location', async ({ state, path, target }) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'omdsh-diff-')))
+    const cwd = join(root, 'apps', 'omdsh')
+    const ctx = new Context()
+    try {
+      await mkdir(cwd, { recursive: true })
+      execFileSync('git', ['init', '--quiet'], { cwd: root })
+      if (state !== 'unborn') {
+        if (state !== 'untracked') {
+          await writeFile(join(root, 'CHANGELOG.md'), 'Before\n')
+          await writeFile(join(cwd, 'local.txt'), 'Before\n')
+          execFileSync('git', ['add', '.'], { cwd: root })
+        }
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root })
+      }
+      await writeFile(join(root, 'CHANGELOG.md'), 'Root changelog contents')
+      await writeFile(join(cwd, 'local.txt'), 'Nested file contents')
+      if (state === 'staged' || state === 'unborn') execFileSync('git', ['add', '.'], { cwd: root })
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(CommandRuntime)
+      const session = ctx.sessions.create(SessionId('nested-diff'), { meta: { cwd } })
+      const requests: import('../definition.ts').TuiPrompt[] = []
+      const openFileInEditor = vi.fn()
+      const expected = path === 'CHANGELOG.md' ? 'Root changelog contents' : 'Nested file contents'
+      ctx.provide('tui', { interactive: true, notice: () => {}, openFileInEditor,
+        prompt: async (request: import('../definition.ts').TuiPrompt) => {
+          requests.push(request)
+          const documentStart = target === '' ? 2 : 1
+          if (target === '' && requests.length === 1) return request.options?.find(option => option.label === path)?.value ?? null
+          if (requests.length === documentStart) return 'preview'
+          if (requests.length === documentStart + 1) return 'editor'
+          return null
+        },
+      } as never)
+      await ctx.plugin(commandDiff)
+      const result = await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, `/diff ${target}`, [], new AbortController().signal)
+      expect(result?.result).toEqual({ kind: 'success' })
+      const documentStart = target === '' ? 1 : 0
+      expect(requests[documentStart]?.detail).toContain(expected)
+      expect(requests[documentStart + 1]?.detail).toContain(expected)
+      expect(openFileInEditor).toHaveBeenCalledWith(join(root, path))
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

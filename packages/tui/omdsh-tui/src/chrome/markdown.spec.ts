@@ -63,6 +63,46 @@ describe('renderMarkdown', () => {
     expect(text).toContain('╰')
   })
 
+  it.each([false, true])('aligns table columns in display cells (colors=%s)', (colors) => {
+    const source = '| Left | Middle | Right |\n| :--- | :---: | ---: |\n| a | x | 9 |\n| 中 | 🐳 | 100 |'
+    const lines = renderMarkdown(source, createTheme(colors), 40).map(stripAnsi)
+    const row = lines.find(line => line.includes('│ a '))!
+    expect(row.split('│').slice(1, -1)).toEqual([' a    ', '   x    ', '     9 '])
+    const wide = lines.find(line => line.includes('│ 中 '))!
+    expect(wide.split('│').slice(1, -1)).toEqual([' 中   ', '   🐳   ', '   100 '])
+  })
+
+  it.each([false, true])('keeps wide graphemes, multiline cells, and links within table columns (colors=%s)', (colors) => {
+    const source = '| 中文 | Emoji | Link |\n| --- | :---: | ---: |\n| 长内容<br>短 | 🐳👩‍💻e\u0301 | [documentation](https://example.com) |'
+    for (let width = 12; width <= 45; width += 1) {
+      const lines = renderMarkdown(source, createTheme(colors), width)
+      expect(lines.every(line => oracleWidth(line) <= width), `width=${width}`).toBe(true)
+      expect(stripAnsi(lines.join('\n'))).toContain('🐳')
+      // A bordered table has equally wide borders and wrapped data rows.
+      if (stripAnsi(lines[0] ?? '').startsWith('╭')) {
+        const tableWidth = oracleWidth(lines[0]!)
+        expect(lines.every(line => oracleWidth(line) === tableWidth), `width=${width}`).toBe(true)
+      }
+    }
+  })
+
+  it('closes styles and hyperlinks before table padding and restores them on continuation rows', () => {
+    const lines = renderMarkdown('| Link | Plain |\n| --- | --- |\n| [abcdefghijk](https://example.com) | x |', color, 18)
+    const linkRows = lines.filter(line => /^[a-k]+$/u.test(stripAnsi(line).split('│')[1]?.trim() ?? ''))
+    expect(linkRows.length).toBeGreaterThan(1)
+    for (const line of linkRows) {
+      expect(line).toContain('\x1b]8;;https://example.com\x07')
+      expect(line).toContain('\x1b[4m')
+      expect(line).toContain('\x1b[22;23;24;27;29;39m\x1b]8;;\x07')
+    }
+  })
+
+  it('keeps the original table delimiters in the narrow-screen fallback', () => {
+    const text = plain('| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |', 12)
+    expect(text.replaceAll('\n', '')).toContain(':---:')
+    expect(text.replaceAll('\n', '')).toContain('---:')
+  })
+
   it('sets a fenced code block behind a rail, without its fences', () => {
     // The fences are syntax, not content; printed, they made every block look
     // like a render that had not finished.

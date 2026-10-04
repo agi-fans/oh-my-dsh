@@ -50,6 +50,28 @@ describe('applyEvent', () => {
     }
   })
 
+  it('renders late question replies identically live and after replay', () => {
+    const reply = ev('user/message', {
+      source: { kind: 'user-question-reply', callId: 'ask-1', outcome: 'answered' },
+      content: [{ type: 'text', text: JSON.stringify({
+        questions: [{ id: 'scope', question: 'Which scope?' }, { id: 'extra', question: 'Anything else?' }],
+        answers: [{ id: 'scope', selected: ['Project'], custom: '中文备注' }, { id: 'extra', selected: [] }],
+      }) }],
+    }, 1)
+    const state = applyEvent(initialTranscript(), reply)
+    expect(state.blocks).toEqual([{ kind: 'user', text: 'Answer to pending question\n\nWhich scope?\nProject, 中文备注\n\nAnything else?\nSkipped' }])
+    expect(replayEvents([reply]).blocks).toEqual(state.blocks)
+    expect(view(state).lines.join('\n')).toContain('中文备注')
+  })
+
+  it('preserves malformed late answer text instead of dropping the user reply', () => {
+    const state = applyEvent(initialTranscript(), ev('user/message', {
+      source: { kind: 'user-question-reply', callId: 'ask-1', outcome: 'answered' },
+      content: [{ type: 'text', text: 'unreadable reply' }],
+    }, 1))
+    expect(state.blocks).toEqual([{ kind: 'user', text: 'unreadable reply' }])
+  })
+
   it('replays a complete log with the same state as immutable live folding', () => {
     const settled = [
       ev('turn/start', { turn: 1 }, 1),
@@ -1335,6 +1357,22 @@ describe('renderView', () => {
     for (const line of frame.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(60)
   })
 
+  it.each([false, true])('shows pending questions above the composer within the fixed footer (colors=%s)', (colors) => {
+    const options = { width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors,
+      sessionControls: { pendingQuestions: 2 },
+    }
+    const frame = renderView(initialTranscript(), options)
+    const rows = frame.lines.map(stripAnsi)
+    const pending = rows.findIndex(row => row.includes('2 pending questions'))
+    expect(pending).toBeGreaterThanOrEqual(0)
+    expect(pending).toBeLessThan(rows.findIndex(row => row.includes('🐳')))
+    expect(rows[pending]).toContain('/questions to answer')
+    expect(frame.lines.length).toBe(24)
+    expect(frame.lines.every(row => visibleWidth(row) <= 60)).toBe(true)
+    const cleared = renderView(initialTranscript(), { ...options, sessionControls: { pendingQuestions: 0 } })
+    expect(cleared.lines.join('\n')).not.toContain('pending questions')
+  })
+
   it('docks the goal bar below the activity row and above the composer, and hides it while inspecting', () => {
     const state = { ...initialTranscript(), status: 'running' as const }
     const goal = { phase: 'active' as const, objective: 'Land batch 2', roundsStarted: 2, maxGoalRounds: 12 }
@@ -2122,4 +2160,16 @@ describe('windowTranscript', () => {
     expect(win.start).toBe(win.maxStart)
     expect(win.hiddenBelow).toBe(0)
   })
+})
+
+
+it('keeps successful hooks silent and replays blocking and failed results with their turn', () => {
+  const state = initialTranscript()
+  const base = { turn: 2, point: 'PreToolUse', handlerId: 'test', durationMs: 10 }
+  expect(applyEvent(state, ev('hook/result', { ...base, decision: 'pass', exitCode: 0 }, 1))).toBe(state)
+  const blocked = applyEvent(state, ev('hook/result', { ...base, decision: 'block', exitCode: 2, stderrSummary: 'Command blocked' }, 2))
+  expect(blocked.blocks.at(-1)).toMatchObject({ kind: 'notice', level: 'error', process: { turn: 2 } })
+  expect(blocked.blocks.at(-1)).toHaveProperty('text', expect.stringContaining('Command blocked'))
+  const result = applyEvent(state, ev('hook/result', { ...base, decision: 'stop' }, 3))
+  expect(result.blocks.at(-1)).toMatchObject({ kind: 'notice', level: 'warning' })
 })

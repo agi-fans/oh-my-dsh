@@ -61,7 +61,7 @@ Boot applies patches in this order:
 
 A later layer wins per row id. An id-targeted patch replaces the whole `config` object; it does not deep-merge. A patch that names a missing id is skipped silently at boot (the loader logger is not wired to stderr in the TUI host), not an error.
 
-Module resolution is one immutable runtime resolution per launch, computed from the omdsh installation and the Profile's ordered bundle dependency graph and installed through Node's ESM/CJS resolvers. It creates no fallback links: `@deepseek-ai/*` and `@agi-fans/dsh-tui` resolve from the omdsh installation first, user bundles resolve from the Profile `node_modules` and the Profile's linked roots, and a patch that inserts a package Node cannot resolve still fails loud at boot.
+The initial runtime resolution is computed from the omdsh installation and the Profile's ordered bundle dependency graph and installed through Node's ESM/CJS resolvers. Runtime plugin transactions publish refreshed resolution tables after successful changes; retained Agent compositions keep their revision. This creates no fallback links: `@deepseek-ai/*` and `@agi-fans/dsh-tui` resolve from the omdsh installation first, user bundles resolve from the Profile `node_modules` and the Profile's linked roots, and a patch that inserts a package Node cannot resolve still fails loud at boot.
 
 omdsh implements `omdsh plugin` against those same published APIs. It does not require the official `dsh` CLI to be installed, and it does not reimplement install directories, version solving, or layer order.
 
@@ -95,7 +95,11 @@ Not promised:
 
 A version mismatch, missing `dsh.bundle` declaration on a listed bundle, or unresolved package name fails at startup through the existing `boot()` / `assertEntriesActivated` path. The largest remaining risk is a user bundle that brings a second copy of Cordis or an incompatible DSH release: service tokens then split, and a plugin can look active while it cannot inject or dispose correctly. Core `@deepseek-ai/*` and `@agi-fans/dsh-tui` packages stay peers of the shipped release; `omdsh plugin` rejects an incompatible range at install time, and boot fails loud if two copies resolve.
 
-Installing or removing a bundle requires a restart; live HMR of `node_modules` is out of scope. Watching `cordis.patch.yml` is not shipped.
+`/plugins` inspects live entry enablement and lifecycle state, manages bundles, and installs with progress, cancellation, diagnostic logs, and an explicit pending-build-script approval step. It uses the published Harness Plugin Manager and shares the Profile write lock with `omdsh plugin`. Terminal owners and management infrastructure are read-only in this picker. Installation is offered only after the current turn ends.
+
+Profile and home `cordis.patch.yml` changes are watched by HMR. New bundles and configuration changes can apply live; replacing code in an already installed package requires a restart. Keep restarting after CLI package operations; the runtime picker reports whether its change applied, was overridden, failed, or needs a restart. Module-source watching is off by default (`hmr.config.root: []`); a Profile patch can opt into explicit source roots.
+
+Cordis adds the published Harness composition and plugin-development Skills, runtime inspection tools, and `plugin_manager`. That tool retains upstream full-host-access/approval requirements, and build scripts require separate explicit approval. `/agent inspect [preset-id]` reports the current declaration and the exact module composition retained by this session, including activation and isolation failures. Existing sessions do not silently switch to a newly declared preset revision.
 
 ## User workflow
 
@@ -109,9 +113,9 @@ From an omdsh checkout, [`examples/hello`](https://github.com/agi-fans/oh-my-dsh
 
 `omdsh plugin` initializes `$OMDSH_HOME/profiles/omdsh` on first use, runs `pnpm` in that directory, and reconciles `dsh.profile.bundles` against installed packages that declare `dsh.bundle.patch`. Template / product bundles that are not Profile dependencies stay on the list. A plain library dependency is installed but does not become a layer; a later version that gains `dsh.bundle.patch` joins the list on the next successful `omdsh plugin` run.
 
-`--dump-config` prints the composed entry list through `renderConfigDump`, with comments that name each contributing layer. That dump is the supported way to inspect the live composition.
+`--dump-config` prints the composed entry list through `renderConfigDump`, with comments that name each contributing layer. That dump shows a fresh composition from the saved files; `/plugins` and `/agent inspect` show running observations.
 
-After a successful add, restart omdsh. New LLM routes appear in `/model`. New commands appear in `/help`. Auth that needs a browser or device-code step owns that lifecycle inside its plugin and uses `ctx.tui.prompt` for any terminal question.
+After a successful CLI add, restart omdsh; the runtime picker reports live application separately. New LLM routes appear in `/model`. New commands appear in `/help`. Auth that needs a browser or device-code step owns that lifecycle inside its plugin and uses `ctx.tui.prompt` for any terminal question.
 
 ## Authoring a bundle
 

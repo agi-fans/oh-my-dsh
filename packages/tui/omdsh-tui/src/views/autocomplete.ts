@@ -6,6 +6,7 @@
 
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
+import { subsequencePenalty } from '../input/fuzzy-search.ts'
 
 /** One argument token a slash command can complete. */
 export interface SlashArgument {
@@ -84,13 +85,7 @@ export function leadingSlashCommandNameRange(text: string): { start: number; end
 
 /** Subsequence match (`wig` hits `skill:wig`). */
 export function fuzzyMatch(query: string, target: string): boolean {
-  if (query.length === 0) return true
-  if (query.length > target.length) return false
-  let qi = 0
-  for (let ti = 0; ti < target.length && qi < query.length; ti += 1) {
-    if (query[qi] === target[ti]) qi += 1
-  }
-  return qi === query.length
+  return subsequencePenalty(query, target) !== undefined
 }
 
 /**
@@ -101,18 +96,8 @@ export function fuzzyScore(query: string, target: string): number {
   if (target === query) return 100
   if (target.startsWith(query)) return 80
   if (target.includes(query)) return 60
-  let qi = 0
-  let gaps = 0
-  let last = -1
-  for (let ti = 0; ti < target.length && qi < query.length; ti += 1) {
-    if (query[qi] === target[ti]) {
-      if (last >= 0 && ti - last > 1) gaps += 1
-      last = ti
-      qi += 1
-    }
-  }
-  if (qi !== query.length) return 0
-  return Math.max(1, 40 - gaps * 5)
+  const penalty = subsequencePenalty(query, target)
+  return penalty === undefined ? 0 : Math.max(1, 40 - penalty)
 }
 
 /**
@@ -123,7 +108,7 @@ export function scoreCommandTextMatch(lowerPrefix: string, lowerTarget: string):
   if (lowerPrefix.length === 0) return 1
   if (lowerPrefix === lowerTarget) return 1000
   if (lowerTarget.startsWith(lowerPrefix)) return 900
-  return fuzzyMatch(lowerPrefix, lowerTarget) ? fuzzyScore(lowerPrefix, lowerTarget) : 0
+  return fuzzyScore(lowerPrefix, lowerTarget)
 }
 
 function namesOf(value: string, aliases?: readonly string[]): string[] {

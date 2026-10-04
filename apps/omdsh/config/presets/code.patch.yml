@@ -10,6 +10,9 @@
         description: Standard coding agent optimized for programmatic tool calling through the generated TypeScript SDK.
         order: 2
         plugins:
+          - id: subagent-model-selection
+            name: '@agi-fans/dsh-tui/subagent-model-selection'
+
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:

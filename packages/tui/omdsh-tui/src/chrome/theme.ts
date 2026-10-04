@@ -83,6 +83,10 @@ export type ThemeColor =
   | 'mdCodeBlock'
   | 'mdCodeBlockBorder'
   | 'mdKeyword'
+  | 'syntaxString'
+  | 'syntaxNumber'
+  | 'syntaxFunction'
+  | 'syntaxType'
   | 'mdQuote'
   | 'mdListBullet'
   | 'thinkingText'
@@ -120,6 +124,10 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#9cdcfe',
   mdCodeBlockBorder: '#3d424a',
   mdKeyword: '#569cd6',
+  syntaxString: '#ce9178',
+  syntaxNumber: '#b5cea8',
+  syntaxFunction: '#dcdcaa',
+  syntaxType: '#4ec9b0',
   mdQuote: '#777d88',
   mdListBullet: '#febc38',
   thinkingText: '#6b7280',
@@ -155,6 +163,10 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#5a8080',
   mdCodeBlockBorder: '#6c6c6c',
   mdKeyword: '#0451a5',
+  syntaxString: '#a31515',
+  syntaxNumber: '#098658',
+  syntaxFunction: '#795e26',
+  syntaxType: '#267f99',
   mdQuote: '#6c6c6c',
   mdListBullet: '#588458',
   thinkingText: '#6c6c6c',
@@ -188,6 +200,10 @@ const MIDNIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#9aa5ce',
   mdCodeBlockBorder: '#3d424a',
   mdKeyword: '#bb9af7',
+  syntaxString: '#9ece6a',
+  syntaxNumber: '#ff9e64',
+  syntaxFunction: '#7aa2f7',
+  syntaxType: '#2ac3de',
   mdQuote: '#777d88',
   mdListBullet: '#7aa2f7',
   thinkingText: '#6a7394',
@@ -221,6 +237,10 @@ const SOLARIZED_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#2aa198',
   mdCodeBlockBorder: '#073642',
   mdKeyword: '#859900',
+  syntaxString: '#2aa198',
+  syntaxNumber: '#d33682',
+  syntaxFunction: '#268bd2',
+  syntaxType: '#b58900',
   mdQuote: '#839496',
   mdListBullet: '#b58900',
   thinkingText: '#586e75',
@@ -255,6 +275,10 @@ const CATPPUCCIN_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#cdd6f4',
   mdCodeBlockBorder: '#313244',
   mdKeyword: '#cba6f7',
+  syntaxString: '#a6e3a1',
+  syntaxNumber: '#fab387',
+  syntaxFunction: '#89b4fa',
+  syntaxType: '#f9e2af',
   mdQuote: '#7f849c',
   mdListBullet: '#fab387',
   thinkingText: '#6c7086',
@@ -289,6 +313,10 @@ const DRACULA_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#f8f8f2',
   mdCodeBlockBorder: '#44475a',
   mdKeyword: '#ff79c6',
+  syntaxString: '#f1fa8c',
+  syntaxNumber: '#bd93f9',
+  syntaxFunction: '#50fa7b',
+  syntaxType: '#8be9fd',
   mdQuote: '#6272a4',
   mdListBullet: '#ff79c6',
   thinkingText: '#6272a4',
@@ -323,6 +351,10 @@ const NORD_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#d8dee9',
   mdCodeBlockBorder: '#434c5e',
   mdKeyword: '#81a1c1',
+  syntaxString: '#a3be8c',
+  syntaxNumber: '#b48ead',
+  syntaxFunction: '#88c0d0',
+  syntaxType: '#8fbcbb',
   mdQuote: '#7b88a1',
   mdListBullet: '#81a1c1',
   thinkingText: '#6b768d',
@@ -357,6 +389,10 @@ const GRUVBOX_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#ebdbb2',
   mdCodeBlockBorder: '#504945',
   mdKeyword: '#d3869b',
+  syntaxString: '#b8bb26',
+  syntaxNumber: '#d3869b',
+  syntaxFunction: '#fabd2f',
+  syntaxType: '#8ec07c',
   mdQuote: '#928374',
   mdListBullet: '#fe8019',
   thinkingText: '#7c6f64',
@@ -391,6 +427,10 @@ const ROSE_PINE_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#e0def4',
   mdCodeBlockBorder: '#403d52',
   mdKeyword: '#31748f',
+  syntaxString: '#f6c177',
+  syntaxNumber: '#ebbcba',
+  syntaxFunction: '#9ccfd8',
+  syntaxType: '#c4a7e7',
   mdQuote: '#6e6a86',
   mdListBullet: '#c4a7e7',
   thinkingText: '#6e6a86',
@@ -425,6 +465,10 @@ const MONO_PALETTE: Record<ThemeColor, Swatch> = {
   mdCodeBlock: '#c0c0c0',
   mdCodeBlockBorder: '#444444',
   mdKeyword: '#b8b8b8',
+  syntaxString: '#c0c0c0',
+  syntaxNumber: '#a0a0a0',
+  syntaxFunction: '#e8e8e8',
+  syntaxType: '#b8b8b8',
   mdQuote: '#888888',
   mdListBullet: '#b8b8b8',
   thinkingText: '#767676',
@@ -450,6 +494,10 @@ const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
  * shift in {@link ANSI16_BG} yields the intended background SGR.
  */
 const DARK_ANSI16: Record<ThemeColor, string> = {
+  syntaxString: '32',
+  syntaxNumber: '35',
+  syntaxFunction: '33',
+  syntaxType: '36',
   accent: '33',
   border: '36',
   borderAccent: '36',
@@ -486,6 +534,10 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
 }
 
 const LIGHT_ANSI16: Record<ThemeColor, string> = {
+  syntaxString: '31',
+  syntaxNumber: '32',
+  syntaxFunction: '33',
+  syntaxType: '36',
   accent: '36',
   border: '34',
   borderAccent: '36',
@@ -606,6 +658,10 @@ const ROSE_PINE_ANSI16: Record<ThemeColor, string> = {
 
 const MONO_ANSI16: Record<ThemeColor, string> = {
   ...DARK_ANSI16,
+  syntaxString: '37',
+  syntaxNumber: '37',
+  syntaxFunction: '97',
+  syntaxType: '37',
   accent: '97',
   border: '37',
   borderAccent: '97',

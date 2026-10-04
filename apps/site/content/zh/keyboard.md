@@ -35,7 +35,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `Alt+C` | 复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
-| `Ctrl+X` | 在 `$VISUAL` 或 `$EDITOR` 中编辑提示。 |
+| `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 
 ## 转录
 
@@ -55,6 +55,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `End` / 点击跳转浮层 | 回到最新消息并关闭回合详情。在实时底部，`End` 仍移动到 composer 当前行末尾。 |
 | `Ctrl+O` | 将视口所在的已完成回合恢复为运行时的展示；再按一次回到折叠的实时底部。运行中的回合保持不变；在工具目录上则切换描述详略。 |
 | `Alt+O` | 切换当前阅读回合的完整工具输入和结果，运行中的回合也可使用。 |
+| `Alt+V` | 审查当前阅读回合的文件改动；没有回合摘要时查看当前工作区。 |
 | `Ctrl+F` | composer 为空时搜索当前转录；`n`/`N` 在匹配间跳转。 |
 | `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
 
@@ -81,13 +82,15 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 | 浮层 | 按键 |
 |---|---|
-| 设置（`/settings`） | `↑`/`↓` 移动行，`←`/`→` 修改值，`Space` 显示或隐藏状态项，`Enter` 修改值或开始移动状态项，`Tab`/`Shift+Tab` 切换分区，`Home`/`End` 跳到两端，`Esc`/`Ctrl+C` 关闭。 |
+| 设置（`/settings`） | `↑`/`↓` 移动行，`←`/`→` 修改值，`Space` 显示或隐藏状态项，`Enter` 编辑插件、修改值或开始移动状态项，`Tab`/`Shift+Tab` 切换分区，`Home`/`End` 跳到两端，`Esc`/`Ctrl+C` 关闭。 |
 | 复制选择器（`/copy`） | `↑`/`↓` 或 `Tab` 导航，`PgUp`/`PgDn` 翻页，`Home`/`End` 到两端，`Enter`/`Space` 复制，`Esc`/`Ctrl+C` 关闭。 |
 | Agent Hub（`Alt+A`，或 composer 为空时按 `↓`） | `↑`/`↓` 导航，`Home`/`End` 到两端，`Enter` 打开子转录，`Tab`/`←`/`→` 切换检查面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图，`Esc`/`Ctrl+C` 关闭。 |
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `↑`/`↓`、`Home`/`End`、`PgUp`/`PgDn` 导航，`Enter` 打开详情，`Tab`/`←`/`→` 切换分区，`/` 搜索，`n`/`N` 与 `Ctrl+N`/`Ctrl+P` 跳转匹配，`t` 折叠回合，`c` 折叠调用，`Esc`/`Ctrl+C` 关闭。 |
 | 交互选择器（resume、permission、model、agent、workflow、login、rewind） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
+
+可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/sessions <query>` 保留各自的搜索规则。
 
 ## 自定义键位
 
@@ -104,7 +107,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 
 | Action id | 默认键 | 作用 |
 |---|---|---|
-| `external-editor` | `Ctrl+X` | 在 `$VISUAL` 或 `$EDITOR` 中编辑提示。 |
+| `external-editor` | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 重试最近一条人类提示。 |
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `copy-prompt` | `Alt+C` | 复制当前提示。 |
@@ -115,6 +118,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `cycle-reasoning` | `Ctrl+T` | 循环切换当前模型的推理强度。 |
 | `toggle-tools` | `Ctrl+O` | 将视口所在的已完成回合恢复为运行时的展示；再按一次回到折叠的实时底部。运行中的回合保持不变；在工具目录上则切换描述详略。 |
 | `toggle-tool-details` | `Alt+O` | 切换当前阅读回合的完整工具输入和结果。 |
+| `review-changes` | `Alt+V` | 审查当前回合的文件。 |
 | `scroll-page-up` | `PgUp` | 向上翻一页。 |
 | `scroll-page-down` | `PgDn` | 向下翻一页。 |
 | `scroll-fast-up` | `Shift+Up` | 快速向上滚动。 |

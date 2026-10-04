@@ -48,6 +48,12 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 
 在 `/settings` 中修改的设置会持久化到该 Profile 补丁，而不是单独的设置文件。
 
+## 可携带归档
+
+`/export archive [path]` 创建 ZIP，包含逻辑 header/event JSONL、后代子 Agent 会话，以及经过校验的原始图片和文件附件。`manifest.json` 把不透明的会话与附件 ID 映射到安全的归档路径。导出使用公开 persistence read handles，无需手动复制压缩或迁移后的日志。
+
+归档的未压缩内容上限为 64 MiB；目标已存在时拒绝写入，写入失败或取消时删除本次的残缺文件。日志与原始附件不脱敏。运行中的会话分别取样，不是跨会话的原子快照。ZIP 用于备份和检查，不提供自动会话导入；Markdown 和 HTML 仍是转录格式。
+
 ## 相关
 
 - [命令](commands.md) —— `/sessions`、`/resume`、`/retry`、`/new` 与 `/export`

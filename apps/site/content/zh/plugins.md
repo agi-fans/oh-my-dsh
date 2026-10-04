@@ -61,7 +61,7 @@ Profile 目录使用 omdsh 已经用于会话、设置、凭据和 MCP 的同一
 
 后一层按行 id 覆盖前一层。针对 id 的补丁会整份替换 `config` 对象，不做深层合并。补丁点名了一个不存在的 id 时，启动时会被静默跳过（TUI 宿主未将加载器日志接到 stderr），而不是报错。
 
-模块解析是每次启动一次不可变的运行时解析：由 omdsh 安装位置和 Profile 中按顺序排列的 bundle 依赖图算出，并通过 Node 的 ESM/CJS 解析器安装。它不创建任何回退链接：`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 优先从 omdsh 安装位置解析，用户 bundle 从 Profile 的 `node_modules` 以及 Profile 的 linked roots 解析，insert 了 Node 无法解析的软件包时启动仍会失败并大声报错。
+初始运行时解析由 omdsh 安装位置和 Profile 中按顺序排列的 bundle 依赖图算出，并通过 Node 的 ESM/CJS 解析器安装。运行中的插件事务在成功修改后发布更新的解析表；已有 Agent composition 保留原 revision。该过程不创建任何回退链接：`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 优先从 omdsh 安装位置解析，用户 bundle 从 Profile 的 `node_modules` 以及 Profile 的 linked roots 解析，insert 了 Node 无法解析的软件包时启动仍会失败并大声报错。
 
 omdsh 基于同一套已发布 API 实现 `omdsh plugin`。它不要求安装官方 `dsh` CLI，也不重新实现安装目录、版本求解或分层顺序。
 
@@ -95,7 +95,11 @@ omdsh 不会从某个 extensions 目录加载 TypeScript 文件。那是另一�
 
 版本不匹配、已列入列表的 bundle 缺少 `dsh.bundle` 声明，或软件包名称无法解析时，沿用现有的 `boot()` / `assertEntriesActivated` 路径在启动阶段失败。剩下最大的风险是用户 bundle 再带一份 Cordis，或带上不兼容的 DSH 版本：service token 会分裂，插件看起来已激活，却无法注入或正确 dispose。核心 `@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 保持为随包发布版本的 peer；`omdsh plugin` 在安装时拒绝不兼容的版本范围，若解析出两份拷贝，启动失败并大声报错。
 
-安装或移除 bundle 后需要重启；对 `node_modules` 做热替换不在范围内。监视 `cordis.patch.yml` 尚未提供。
+`/plugins` 查看运行中插件的启用状态与生命周期，管理 bundle，并提供安装进度、取消、诊断日志及待运行构建脚本的显式授权步骤。它使用已发布的 Harness Plugin Manager，与 `omdsh plugin` 共用 Profile 写锁。终端自身及管理基础设施在该选择器中只读。当前回合结束后才能进入安装管理。
+
+HMR 会监视 Profile 和主目录的 `cordis.patch.yml`。新 bundle 与配置修改可以实时应用；替换已安装包的代码仍需重启。CLI 包操作后仍应重启；运行中选择器会明确报告修改是已应用、被覆盖、失败还是需要重启。源码监视默认关闭（`hmr.config.root: []`），可通过 Profile 补丁指定源码目录。
+
+Cordis 增加已发布的 Harness 组合与插件开发 Skills、运行时只读查询工具及 `plugin_manager`。该工具保留上游的完整宿主访问或逐次审批要求，构建脚本另需显式授权。`/agent inspect [preset-id]` 查看当前声明及此会话保留的实际模块组成，包含激活失败和隔离错误。已有会话不会静默切换到新声明的 preset revision。
 
 ## 用户流程
 
@@ -109,9 +113,9 @@ omdsh --dump-config
 
 `omdsh plugin` 在首次使用时初始化 `$OMDSH_HOME/profiles/omdsh`，在该目录运行 `pnpm`，并对照已安装且声明了 `dsh.bundle.patch` 的软件包，调和 `dsh.profile.bundles`。不属于 Profile 依赖的模板 / 产品 bundle 留在列表中。普通库依赖会被安装，但不会成为一层；后续版本若增加 `dsh.bundle.patch`，会在下一次成功的 `omdsh plugin` 运行时加入列表。
 
-`--dump-config` 通过 `renderConfigDump` 打印组合后的入口列表，并用注释标出每一层的来源。该转储是查看实际 composition 的受支持方式。
+`--dump-config` 通过 `renderConfigDump` 打印组合后的入口列表，并用注释标出每一层的来源。该转储展示按已保存文件重新组合的结果；`/plugins` 与 `/agent inspect` 展示运行中观察值。
 
-成功添加后，重启 omdsh。新的 LLM 路由出现在 `/model`。新命令出现在 `/help`。需要浏览器或 device-code 步骤的 Auth 由插件自己拥有该生命周期，并使用 `ctx.tui.prompt` 提出任何终端问题。
+CLI 成功添加后重启 omdsh；运行中选择器会单独报告实时应用结果。新的 LLM 路由出现在 `/model`。新命令出现在 `/help`。需要浏览器或 device-code 步骤的 Auth 由插件自己拥有该生命周期，并使用 `ctx.tui.prompt` 提出任何终端问题。
 
 ## 编写 bundle
 

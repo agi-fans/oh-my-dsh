@@ -6,6 +6,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { cleanOutput, omdshCommand, repoRoot, sleep, smokeEnv, smokeHome, waitFor } from './smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
@@ -50,7 +52,128 @@ if (!(await waitFor(() => hasReasoningEffort(out), 'effective reasoning effort',
   term.kill()
   process.exit(1)
 }
+// File viewing and attachment staging use the same raw TTY owner as chat.
+const reviewDirectory = join(omdshHome, 'file-review')
+mkdirSync(reviewDirectory, { recursive: true })
+const attachmentPath = join(reviewDirectory, 'a.txt')
+writeFileSync(attachmentPath, 'Hello file preview\n')
+writeFileSync(join(reviewDirectory, 'b.txt'), 'Hello sibling preview\n')
+let featureMark = out.length
+term.write(`/files "${attachmentPath}"\r`)
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello file preview'), 'file document page', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\t\t\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello sibling preview'), 'Next file via Tab and Enter', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('P')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello file preview'), 'Previous file via uppercase shortcut', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('F')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('b.txt'), 'Files action', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('../'), 'directory after file review', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+featureMark = out.length
+term.write('/terminal\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal picker', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('session sandbox'), 'terminal document', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('i')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Send a line'), 'terminal input', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('echo OMDSH_TERMINAL_READY\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_TERMINAL_READY'), 'terminal input output', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+// Detach, then return to prove the registry still owns the shell.
+term.write('\x1b[27u')
+await sleep(100)
+featureMark = out.length
+term.write('/terminal\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('running'), 'persistent shell after detach', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+// Close the fixture shell explicitly before testing Access changes.
+featureMark = out.length
+term.write('/terminal\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal picker before close', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('session sandbox'), 'terminal document before close', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\t\t\t\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Terminate this shell'), 'terminal close confirmation', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\x1b[B\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal registry after close', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+featureMark = out.length
+term.write(`/attach "${attachmentPath}"\r`)
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Attached ' + basename(attachmentPath)), 'file attachment receipt', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+if (!cleanOutput(out.slice(featureMark)).includes('[File:')) {
+  console.error('FAIL: file reference marker missing'); term.kill(); process.exit(1)
+}
+// Clear the staged draft before subsequent command and exit contracts.
+term.write('\x03')
+await sleep(100)
 let mark = out.length
+term.write('/settings\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('General'), 'settings sections', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[Z')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Plugins'), 'plugin settings section', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('text filter'), 'plugin field form', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Plugins'), 'return to Settings after plugin fields', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+mark = out.length
 term.write('/agent\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Agent selector', deadline))) {
   term.kill()
@@ -180,7 +303,8 @@ if (!(await waitFor(() => cleanOutput(out).includes('Choose how omdsh may access
 }
 term.write('\x1b[A')
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'permission switch', deadline))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Access: Read only'), 'permission switch', Math.min(deadline, Date.now() + 15000)))) {
+  console.error(cleanOutput(out).slice(-3500))
   term.kill()
   process.exit(1)
 }

@@ -4,7 +4,27 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 
 # Settings
 
-`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Agent, Features, and Status line; `↑`/`↓` move between rows and `←`/`→` change a value. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Agent, Features, Status line, and Plugins; `↑`/`↓` move between rows and `←`/`→` change a value. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+
+## Plugin configuration
+
+Open `/settings`, switch to **Plugins**, and press `Enter` on a plugin to edit its fields. `Esc` returns to the same Settings row. This section lists active plugins with editable configuration; the field list supports filtering. Fields come from the plugin's published live schema, including Shell timeout/output limits, Subagent depth/concurrency/model policies, Agent loop parallelism, and Web search endpoint/model/token/use limits.
+
+Each field shows its effective value and whether it is inherited or overridden in this Profile. **Reset to inherited** removes only that field's override; **Set value** validates against the plugin schema and saves with the revision read by the form. A concurrent change refuses the write rather than overwriting it. Strings use plain input; arrays, dictionaries, and other structured fields use JSON. Hidden or disabled schema fields are omitted. Compound fields containing secrets remain protected; use `/auth` or their owning configuration instead.
+
+Secret inputs are masked and are never shown in notices. Setting an `apiKey` beside `apiKeyEnv` saves the key through Harness credentials and writes only its reference into the Profile. Resetting that key removes both Profile fields so inheritance applies again; it does not revoke an inherited credential or erase a key from the credential store. Credential-reference fields retain the Harness environment and credential-source inheritance.
+
+Edits apply live and affect every session using this Profile. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
+
+In **Plugins**, select **Subagent model selection settings** (`subagent-model-selection-settings`) to configure optional child-model selection. Set `allowedModels` to a JSON list such as `[{"provider":"deepseek-official","model":"deepseek-flash"}]` before setting `enabled` to `true`. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
+
+Plugin names use readable labels; the namespace remains in the description. Schema help appears beside each field.
+
+### Command hooks
+
+In Plugins, choose **Hook settings** (`hook-settings`). Set `configPath` first, then `bridge` to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
+
+The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
 
 ## General
 
@@ -13,6 +33,7 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 | Theme | dark, light, midnight, solarized, catppuccin, dracula, nord, gruvbox, rose-pine, mono | dark | Color palette. |
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
+| Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
@@ -20,6 +41,8 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 | Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
 
 Tool previews use the active theme's background colors with padding on every side. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
+
+Editor choices include installed VS Code, Cursor, VSCodium, Neovim, Vim, Nano, and Vi. Auto honors an existing `$VISUAL` or `$EDITOR` value, then prefers a detected graphical code editor before terminal editors. macOS app bundles and standard Windows installation locations are checked even when their launcher is absent from PATH. A manual selection applies immediately and persists across launches. Save and close the opened file to return; a missing saved editor is shown as unavailable so you can select another app. If no editor is found, install one and reopen Settings.
 
 Motion controls presentation only: provider output still enters the live session immediately, and a tool boundary or settled assistant message flushes the visible stream without waiting for the animation.
 
@@ -42,7 +65,7 @@ Optional product features that cost context, runtime, or transcript noise. Each 
 | Ralph loop | Off | The loop tool stays absent until you turn it on here. |
 | Repeat-tool reminder | On | The model gets no nudge out of identical tool-call loops. |
 
-A change here applies on the next launch, and the row says so. `disabled` is a Loader option rather than plugin configuration, so the settings service cannot express it; these rows are written into a managed block in `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` instead, which is the surface the Harness reads while composing the tree. The block is delimited by comments and everything you wrote by hand around it is left alone.
+The running profile watches this patch and applies changes after the write settles; a host with HMR disabled applies them on the next launch. `disabled` is a Loader option rather than plugin configuration, so the settings service cannot express it; these rows are written into a managed block in `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` instead, which is the surface the Harness reads while composing the tree. The block is delimited by comments and everything you wrote by hand around it is left alone.
 
 Rows that back a command (`session-query` backs `/sessions`, `workspace` backs `@` mentions) and rows that make the agent unusable (`tool-fs`, `tool-bash`, `todo`) are deliberately not listed. `web_search` is also absent: it shares its row with `web_fetch`, so no row-level switch can express "search off, fetch on".
 

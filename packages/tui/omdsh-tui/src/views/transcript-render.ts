@@ -1916,7 +1916,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  if (options.promptSelector?.request.presentation === 'plan-review') {
+  if (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document') {
     const review = renderPlanReviewPage(
       options.promptSelector,
       theme,
@@ -2041,6 +2041,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const goal = editor === undefined || options.inspected !== undefined || options.sessionControls?.goal === undefined
     ? []
     : renderGoalBar(options.sessionControls.goal, theme, width)
+  const pendingCount = options.sessionControls?.pendingQuestions ?? 0
+  const questions = editor === undefined || options.inspected !== undefined || pendingCount === 0
+    ? []
+    : [truncateToWidth(theme.fg('warning', ` ${pendingCount} pending ${pendingCount === 1 ? 'question' : 'questions'} · /questions to answer`), width)]
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
   const subagents = editor === undefined
     ? []
@@ -2052,7 +2056,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusIndex = options.focusBlock === undefined
     ? undefined
@@ -2086,11 +2090,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const jumpToLatest = showJump ? { row: lines.length, column: jumpColumn, width: visibleWidth(jumpText) } : undefined
   if (visible.length > 0) lines.push(showJump
     ? ' '.repeat(jumpColumn) + theme.inverse(jumpText) : '')
-  const bottomRows = working.length + goal.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
   lines.push(...goal)
+  lines.push(...questions)
   lines.push(...inspect)
   lines.push(...subagents)
   lines.push(...todos)

@@ -1,6 +1,7 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
 import type { TuiPrompt } from '../definition.ts'
+import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
@@ -16,6 +17,8 @@ export interface PromptSelectorState {
   documentScroll?: number
   /** Whether a rejected plan is collecting optional revision feedback. */
   feedback?: boolean
+  /** Editing or Take time paused this local countdown. */
+  waitHeld?: boolean
 }
 
 export interface PromptSelectorFrame {
@@ -44,6 +47,8 @@ const HOTKEY_SUBMIT_NEWLINE: HotkeyRow = { keys: 'Ctrl+J', action: 'Submit — s
 const HOTKEY_BACK: HotkeyRow = { keys: 'Esc', action: 'Back — leave revision feedback' }
 const HOTKEY_CANCEL: HotkeyRow = { keys: 'Esc', action: 'Cancel — dismiss the prompt' }
 const HOTKEY_CANCEL_CTRL: HotkeyRow = { keys: 'Ctrl+C', action: 'Cancel — dismiss the prompt at any step' }
+const HOTKEY_TAKE_TIME: HotkeyRow = { keys: 'Ctrl+T', action: 'Take time — pause the question countdown' }
+const HOTKEY_SKIP: HotkeyRow = { keys: 'Ctrl+S', action: 'Skip this question explicitly' }
 
 /** Keys the prompt selector accepts; `/help` and its bottom hints read this list. */
 export const PROMPT_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
@@ -60,6 +65,8 @@ export const PROMPT_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_BACK,
   HOTKEY_CANCEL,
   HOTKEY_CANCEL_CTRL,
+  HOTKEY_TAKE_TIME,
+  HOTKEY_SKIP,
 ]
 
 type PromptOption = NonNullable<TuiPrompt['options']>[number]
@@ -72,10 +79,10 @@ export function maskPromptSecret(input: string): string {
 /** Options matching the current full-screen selector query. */
 export function filteredPromptOptions(request: TuiPrompt, query: string): readonly PromptOption[] {
   const options = request.options ?? []
-  const needle = query.trim().toLocaleLowerCase()
-  if (request.filterable !== true || needle === '') return options
-  return options.filter((option) => [option.label, option.value, option.preview, option.description, option.badge?.label]
-    .some(value => value?.toLocaleLowerCase().includes(needle) === true))
+  if (request.filterable !== true) return options
+  return rankSearchResults(options, query, option =>
+    [option.label, option.value, option.preview, option.description, option.badge?.label]
+      .filter((value): value is string => value !== undefined))
 }
 
 /** Visible option window centered around the selected row. */
@@ -236,7 +243,21 @@ export function renderPromptSelectorPage(
   }
 }
 
-/** Render a bounded, scrollable Markdown plan with fixed review actions. */
+const documentCache = new WeakMap<TuiPrompt, Map<string, string[]>>()
+
+function documentRows(request: TuiPrompt, theme: Theme, width: number): string[] {
+  let cache = documentCache.get(request)
+  if (cache === undefined) { cache = new Map(); documentCache.set(request, cache) }
+  const key = `${width}:${theme.name}:${theme.getFgAnsi('accent')}`
+  const cached = cache.get(key)
+  if (cached !== undefined) return cached
+  const lines = renderMarkdown(request.detail ?? '', theme, width)
+  if (cache.size >= 4) cache.clear()
+  cache.set(key, lines)
+  return lines
+}
+
+/** Render a bounded, scrollable Markdown document with fixed actions. */
 export function renderPlanReviewPage(
   state: PromptSelectorState,
   theme: Theme,
@@ -251,17 +272,36 @@ export function renderPlanReviewPage(
     return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
   }
   const feedback = state.feedback === true
-  const footerRows = feedback ? 5 : 4
+  const actionRows: string[] = []
+  let actionRow = ''
+  const actionWidth = Math.max(1, width - 5)
+  for (const [index, option] of (state.request.options ?? []).entries()) {
+    const label = truncateToWidth(`${index === state.selected ? '› ' : '  '}[ ${option.label} ]`, actionWidth)
+    if (actionRow !== '' && visibleWidth(actionRow) + 3 + visibleWidth(label) > actionWidth) {
+      actionRows.push(actionRow)
+      actionRow = ''
+    }
+    const painted = index === state.selected ? theme.bold(theme.fg('accent', label)) : theme.fg('muted', label)
+    actionRow += (actionRow === '' ? '' : theme.fg('dim', '   ')) + painted
+  }
+  actionRows.push(actionRow)
+  if (actionRows.length > Math.max(1, pageHeight - 9)) {
+    const selected = state.request.options?.[state.selected]
+    actionRows.splice(0, actionRows.length, selected === undefined ? ''
+      : theme.bold(theme.fg('accent', truncateToWidth(`› [ ${selected.label} ]`, actionWidth))))
+  }
+  const footerRows = feedback ? 5 : actionRows.length + 3
   const bodyRows = Math.max(1, pageHeight - 5 - footerRows)
   const markdownWidth = Math.max(1, width - 6)
-  const document = renderMarkdown(state.request.detail ?? '', theme, markdownWidth)
+  const document = documentRows(state.request, theme, markdownWidth)
   const maxStart = Math.max(0, document.length - bodyRows)
   const start = Math.max(0, Math.min(state.documentScroll ?? 0, maxStart))
   const visible = document.slice(start, start + bodyRows)
   while (visible.length < bodyRows) visible.push('')
-  if (start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier plan lines`)
+  const subject = state.request.presentation === 'document' ? 'document' : 'plan'
+  if (start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier ${subject} lines`)
   if (start + bodyRows < document.length) {
-    visible[Math.max(0, visible.length - 1)] = theme.fg('dim', `… ↓ ${document.length - start - bodyRows} later plan lines`)
+    visible[Math.max(0, visible.length - 1)] = theme.fg('dim', `… ↓ ${document.length - start - bodyRows} later ${subject} lines`)
   }
 
   const lines = [
@@ -292,15 +332,11 @@ export function renderPlanReviewPage(
       column: Math.min(Math.max(1, width - 3), 5 + visibleWidth(displayBeforeCursor)),
     }
   } else {
-    const options = state.request.options ?? []
-    const actions = options.map((option, index) => {
-      const label = `[ ${option.label} ]`
-      return index === state.selected
-        ? theme.bold(theme.fg('accent', label))
-        : theme.fg('muted', label)
-    }).join(theme.fg('dim', '   '))
-    lines.push(pageRow(theme, ' ' + actions, width))
-    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])}]`), width))
+    lines.push(...actionRows.map(row => pageRow(theme, ' ' + row, width)))
+    const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
+      ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
+      : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])
+    lines.push(pageRow(theme, theme.fg('dim', `[${shortcuts}]`), width))
     lines.push(pageBottom(theme, width))
   }
 
@@ -324,6 +360,12 @@ export function renderPromptSelector(
   const options = state.request.options ?? []
   const contentWidth = Math.max(1, width - 4)
   const body = [state.request.question]
+  if (state.request.wait !== undefined) {
+    const remaining = Math.max(0, Math.ceil((state.request.wait.deadline - Date.now()) / 1_000))
+    body.push(theme.fg('dim', state.waitHeld === true
+      ? 'Take your time · waiting for your answer'
+      : `Continues in ${remaining}s · ${formatHotkeyKeys(HOTKEY_TAKE_TIME)} take time`))
+  }
   if (state.request.detail !== undefined && state.request.detail !== '') body.push('', state.request.detail)
   if (options.length > 0) {
     const { start, end } = promptSelectorVisibleRange(options.length, state.selected, maxVisible)
@@ -342,7 +384,12 @@ export function renderPromptSelector(
     : state.request.multiSelect === true
       ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
       : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
-  body.push('', theme.fg('dim', navigation))
+  const dismiss = state.request.dismissLabel
+  const hints = [
+    dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL]), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
+    ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP])] : []),
+  ]
+  body.push('', theme.fg('dim', hints.join(' · ')))
 
   const card = renderFramedBlock({
     header: state.request.title,

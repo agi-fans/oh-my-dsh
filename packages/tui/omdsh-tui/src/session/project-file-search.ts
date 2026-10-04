@@ -3,6 +3,7 @@
 import { execFile } from 'node:child_process'
 import { opendir } from 'node:fs/promises'
 import path from 'node:path'
+import { subsequencePenalty } from '../input/fuzzy-search.ts'
 
 const DEFAULT_CACHE_TTL_MS = 2_000
 const DEFAULT_MAX_RESULTS = 100
@@ -122,22 +123,6 @@ export async function loadProjectPaths(root: string, signal?: AbortSignal): Prom
   return walkedProjectPaths(root, signal)
 }
 
-function subsequenceScore(query: string, target: string): number | undefined {
-  let queryIndex = 0
-  let first = -1
-  let previous = -1
-  let gaps = 0
-  for (let index = 0; index < target.length && queryIndex < query.length; index += 1) {
-    if (target[index] !== query[queryIndex]) continue
-    if (first < 0) first = index
-    if (previous >= 0) gaps += Math.max(0, index - previous - 1)
-    previous = index
-    queryIndex += 1
-  }
-  if (queryIndex !== query.length) return undefined
-  return Math.max(0, first) * 2 + gaps * 3 + target.length - query.length
-}
-
 /** Lower scores are better; undefined means the query does not match. */
 export function fuzzyProjectPathScore(query: string, candidate: string): number | undefined {
   const needle = query.trim().toLowerCase().replaceAll('\\', '/')
@@ -151,9 +136,9 @@ export function fuzzyProjectPathScore(query: string, candidate: string): number 
   if (basenameContains >= 0) return 60 + basenameContains + depthPenalty
   const targetContains = target.indexOf(needle)
   if (targetContains >= 0) return 100 + targetContains + depthPenalty
-  const basenameFuzzy = subsequenceScore(needle, basename)
+  const basenameFuzzy = subsequencePenalty(needle, basename)
   if (basenameFuzzy !== undefined) return 160 + basenameFuzzy + depthPenalty
-  const pathFuzzy = subsequenceScore(needle, target)
+  const pathFuzzy = subsequencePenalty(needle, target)
   if (pathFuzzy !== undefined) return 260 + pathFuzzy + depthPenalty
   return undefined
 }

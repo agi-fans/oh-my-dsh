@@ -10,6 +10,9 @@
         description: Full coding agent with files, shell, search, skills, planning, goals, and delegation.
         order: 1
         plugins:
+          - id: subagent-model-selection
+            name: '@agi-fans/dsh-tui/subagent-model-selection'
+
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:

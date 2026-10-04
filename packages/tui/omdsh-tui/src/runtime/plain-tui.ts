@@ -78,7 +78,7 @@ export class PlainTui {
     if (request !== undefined && line !== null) {
       const value = line.trim()
       if (value === '') {
-        this.#deps.finishPrompt(null)
+        this.#deps.finishPrompt(request.skippable === true ? '' : null)
       } else if (request.allowCustom === false) {
         const options = request.options ?? []
         const numeric = /^\d+$/u.test(value) ? Number(value) - 1 : -1

@@ -35,7 +35,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+V` | Paste clipboard text or an image. |
 | `Alt+C` | Copy the current prompt. |
 | `Ctrl+Alt+C` | Copy the current line. |
-| `Ctrl+X` | Edit the prompt in `$VISUAL` or `$EDITOR`. |
+| `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 
 ## Transcript
 
@@ -55,6 +55,7 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
 | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
+| `Alt+V` | Review changed files for the Turn being read; use the current workspace when no Turn summary is available. |
 | `Ctrl+F` | Search the current transcript when the composer is empty; `n`/`N` step across matches. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
@@ -81,13 +82,15 @@ When the transcript can scroll, omdsh handles mouse input, so native click-and-d
 
 | Overlay | Keys |
 |---|---|
-| Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` show or hide a status item, `Enter` change a value or start moving a status item, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `Esc`/`Ctrl+C` close. |
+| Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` show or hide a status item, `Enter` edit a plugin, change a value, or start moving a status item, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `Esc`/`Ctrl+C` close. |
 | Copy picker (`/copy`) | `↑`/`↓` or `Tab` navigate, `PgUp`/`PgDn` page, `Home`/`End` edges, `Enter`/`Space` copy, `Esc`/`Ctrl+C` close. |
 | Agent Hub (`Alt+A`, or `↓` on an empty composer) | `↑`/`↓` navigate, `Home`/`End` edges, `Enter` open the child transcript, `Tab`/`←`/`→` switch the inspector pane, `PgUp`/`PgDn` scroll, `T` toggle the tree, `Esc`/`Ctrl+C` close. |
 | History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
 | Transcript search (`Ctrl+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `↑`/`↓`, `Home`/`End`, `PgUp`/`PgDn` navigate, `Enter` open details, `Tab`/`←`/`→` switch sections, `/` search, `n`/`N` and `Ctrl+N`/`Ctrl+P` step matches, `t` collapse turns, `c` collapse calls, `Esc`/`Ctrl+C` close. |
 | Prompts (resume, permission, model, agent, workflow, login, rewind) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
+
+Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/sessions <query>` retain their own search rules.
 
 ## Custom keybindings
 
@@ -104,7 +107,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 | Action id | Default key | Effect |
 |---|---|---|
-| `external-editor` | `Ctrl+X` | Edit the prompt in `$VISUAL` or `$EDITOR`. |
+| `external-editor` | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Run the most recent human prompt again. |
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
 | `copy-prompt` | `Alt+C` | Copy the current prompt. |
@@ -115,6 +118,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `cycle-reasoning` | `Ctrl+T` | Cycle the current model's reasoning effort. |
 | `toggle-tools` | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
+| `review-changes` | `Alt+V` | Review the current Turn’s files. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |

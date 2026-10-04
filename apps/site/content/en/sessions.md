@@ -48,6 +48,12 @@ All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/
 
 Settings changed in `/settings` persist through that Profile patch, not a separate settings file.
 
+## Portable archive
+
+`/export archive [path]` creates a ZIP with logical header/event JSONL, descendant subagent sessions, and verified original image/file attachments. `manifest.json` maps opaque session and attachment ids to safe archive paths. Export uses public persistence read handles, so compressed or migrated logs do not need to be copied by hand.
+
+The archive has a 64 MiB uncompressed limit, refuses an existing destination and removes a partial output on write failure or cancellation. Logs and original attachments are not redacted. Running sessions are captured individually, not as one atomic snapshot. The ZIP supports backup and inspection; it is not an automatic session-import format. Markdown and HTML exports remain transcript formats.
+
 ## Related
 
 - [Commands](commands.md) — `/sessions`, `/resume`, `/retry`, `/new`, and `/export`

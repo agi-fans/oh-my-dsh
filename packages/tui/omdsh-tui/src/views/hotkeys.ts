@@ -94,7 +94,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste the clipboard verbatim' },
         { keys: keysForAction(bindings, 'copy-prompt'), action: 'Copy the current prompt' },
         { keys: keysForAction(bindings, 'copy-line'), action: 'Copy the current line' },
-        { keys: keysForAction(bindings, 'external-editor'), action: 'Edit the prompt in $VISUAL or $EDITOR' },
+        { keys: keysForAction(bindings, 'external-editor'), action: 'Edit the prompt in the selected editor' },
       ],
     },
     {
@@ -105,6 +105,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'End / click jump label', action: 'Return to the latest message while browsing' },
         { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
         { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
+        { keys: keysForAction(bindings, 'review-changes'), action: 'Review the current turn’s changed files' },
         { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript; n/N step across matches' },
         { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],

@@ -8,6 +8,18 @@ import type { SessionRuntime } from '../session/session-controller.ts'
 import * as commandSessionConfiguration from './session-configuration.ts'
 
 describe('session configuration commands', () => {
+  it('reports failed declarations alongside the session’s retained composition', async () => {
+    const registry = {
+      compositionInventory: async () => [{ id: 'cordis', name: 'Cordis', isDefault: false, broken: 'missing dependency: demo', rows: [] }],
+      inspectCompositions: () => [{ id: 'cordis', modules: [{ moduleName: 'previous-plugin' }], leakedServices: ['unsafe-service'] }],
+    }
+    const text = await commandSessionConfiguration.presetDiagnostics(registry as never, { ctx: {} } as Agent)
+    expect(text).toContain('missing dependency: demo')
+    expect(text).toContain('previous-plugin')
+    expect(text).toContain('Isolation errors: unsafe-service')
+    expect(text).toContain('Existing sessions retain their mounted revision')
+  })
+
   it('routes Agent and Workflow selectors through their owning runtime seams', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

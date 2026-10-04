@@ -84,10 +84,10 @@ describe('examples/hello bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('installs through omdsh plugin add and appears in the dump', () => {
+  it('installs through omdsh plugin add and appears in the dump', async () => {
     const home = temp('omdsh-hello-add-')
     const lines: string[] = []
-    const code = runPlugin(['add', './examples/hello'], {
+    const code = await runPlugin(['add', './examples/hello'], {
       cwd: repoRoot,
       environment: { ...process.env, OMDSH_HOME: home },
       write: line => { lines.push(line) },
@@ -105,9 +105,9 @@ describe('examples/hello bundle', () => {
     expect(dump).toContain('id: omdsh-hello')
   }, 60_000)
 
-  it('prints the example layer from the bin after a real add', () => {
+  it('prints the example layer from the bin after a real add', async () => {
     const home = temp('omdsh-hello-bin-')
-    const added = runPlugin(['add', exampleDir], {
+    const added = await runPlugin(['add', exampleDir], {
       cwd: repoRoot,
       environment: { ...process.env, OMDSH_HOME: home },
       write: () => undefined,

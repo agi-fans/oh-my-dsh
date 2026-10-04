@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { WorkflowProjection } from './workflow-projection.ts'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -43,6 +44,7 @@ import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-goal'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
+import type { UserQuestionProjectionView } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { StreamDelta } from '../views/event-views.ts'
@@ -114,6 +116,7 @@ export interface TuiStatsProjection {
   plan?: PlanProjection
   permissions?: PermissionSelection
   goal?: GoalProjection | null
+  userQuestions?: UserQuestionProjectionView
   /** Last logged sandbox-mode override, or null before one; outranks the preset while set. */
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null
 }
@@ -129,6 +132,9 @@ export function sessionControls(projection?: TuiStatsProjection): TuiSessionCont
       ? (projection?.permissions === undefined ? {} : { permission: projection.permissions.currentValue })
       : { permission: override }),
     ...goalControl(projection?.goal),
+    ...(projection?.userQuestions === undefined ? {} : {
+      pendingQuestions: projection.userQuestions.active.filter(question => question.state === 'continued').length,
+    }),
   }
 }
 
@@ -441,6 +447,7 @@ export async function createSubmissionMessage(
   const content = [
     ...(submission.text === '' ? [] : [{ type: 'text' as const, text: submission.text }]),
     ...refs.map(attachment => ({ type: 'image' as const, attachment })),
+    ...(submission.files ?? []).map(attachment => ({ type: 'file' as const, attachment })),
   ]
   if (content.length === 0) throw new Error('Cannot submit an empty message.')
   return createUserMessage({ content, source: { kind: 'user' } })
@@ -479,11 +486,13 @@ export async function restoreSubmissionMessage(
       height: stored.ref.height,
     }
   }))
-  return { text, images }
+  const files = message.content.filter((block): block is Extract<(typeof message.content)[number], { type: 'file' }> => block.type === 'file').map(block => block.attachment)
+  return { text, images, ...(files.length === 0 ? {} : { files }) }
 }
 
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
+  readonly #workflows = new WorkflowProjection()
   readonly #ctx: Context
   readonly #tui: TuiService
   #active: ActiveSession | undefined
@@ -522,7 +531,7 @@ export class SessionRuntime {
       sessions: () => this.#ctx.get('sessions')?.list() ?? [],
       listChildren: rootId => this.#ctx.get('subagents')?.listChildren(SessionId(rootId)),
       publish: (roster) => {
-        this.#tui.setSubagents(roster)
+        this.#tui.setSubagents(this.#workflows.roster(roster))
         if (this.#inspectedId === undefined) return
         this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
       },
@@ -596,6 +605,7 @@ export class SessionRuntime {
         return
       }
       if (session === active.handle.agent.session) {
+        if (this.#workflows.apply(event)) tui.setSubagents(this.#workflows.roster(this.#tracker.snapshot()))
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
         }
@@ -643,7 +653,7 @@ export class SessionRuntime {
       this.#off.push(projections.onChanged((session, key) => {
         if (session !== this.#active?.handle.agent.session) return
         if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure' || key === 'contextBreakdown'
-          || key === 'plan' || key === 'permissions' || key === 'goal') this.#pushSessionInfo()
+          || key === 'plan' || key === 'permissions' || key === 'goal' || key === 'userQuestions') this.#pushSessionInfo()
       }))
     }
     // One-time per session format, off the first render: stored logs an earlier
@@ -940,7 +950,8 @@ export class SessionRuntime {
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
     })
-    this.#tui.restoreInput({ text, images })
+    const files = message.data.content.filter((block): block is Extract<(typeof message.data.content)[number], { type: 'file' }> => block.type === 'file').map(block => block.attachment)
+    this.#tui.restoreInput({ text, images, ...(files.length === 0 ? {} : { files }) })
     this.#tui.notice(`Rewound to before turn ${selected.turn}. The original session remains available in /resume.`)
     await this.#disposeRetired()
     await this.refreshRecent()
@@ -1299,11 +1310,13 @@ export class SessionRuntime {
 
   /** Show one active session on the terminal: transcript, tools, controls, model. */
   #presentAgent(active: ActiveSession, reason: TuiTranscriptReplacement = 'open'): void {
+    this.#workflows.reset(active.handle.agent.session.snapshotEvents())
     const agent = active.handle.agent
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setStatus(agent.status)
     this.#tracker.sync()
+    this.#tui.setSubagents(this.#workflows.roster(this.#tracker.snapshot()))
     // Seed welcome metadata before replaceSession commits the startup header to
     // native scrollback; later updates cannot rewrite that frozen first frame.
     this.#pushSessionInfo()

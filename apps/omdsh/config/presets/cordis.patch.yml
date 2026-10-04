@@ -7,16 +7,30 @@
       config:
         id: cordis
         name: Cordis
-        description: Standard coding agent with read-only runtime inspection for authoring Harness compositions.
+        description: Coding agent with runtime inspection, development skills, and plugin management for Harness compositions.
         order: 4
         plugins:
+          - id: subagent-model-selection
+            name: '@agi-fans/dsh-tui/subagent-model-selection'
+
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
                 You are a coding agent powered by the {{model}} model, running on the DeepSeek Harness. Your working directory is {{cwd}}.
 
-                You can inspect the live Cordis runtime while authoring compositions and plugins. Host composition owns shared registries and backends; an Agent preset owns one session's tools, persona, prompt sections, and isolated services. Use cordis_inspect_list to discover providers, then cordis_inspect_query to read exact Service, Event, and Tool APIs. These tools are read-only; changing the runtime means editing composition files, not calling a tool.
+                You can inspect the live Cordis runtime while authoring compositions and plugins. Host composition owns shared registries and backends; an Agent preset owns one session's tools, persona, prompt sections, and isolated services. Use cordis_inspect_list to discover providers, then cordis_inspect_query to read exact Service, Event, and Tool APIs. Use the development skills for composition and plugin authoring. The plugin_manager tool manages this profile; it requires full host access or explicit approval, and dependency scripts require separate approval.
 
           - id: tool-cordis
             name: '@deepseek-ai/dsh-tool-cordis'
+
+          - id: cordis-skills
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: cordis-authoring
+              includeDefaultRoots: false
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
+
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'

@@ -15,6 +15,7 @@ import {
   runPlugin,
 } from './plugin.ts'
 import { PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 
 const roots: string[] = []
 
@@ -59,9 +60,30 @@ describe('plugin version ranges', () => {
 })
 
 describe('omdsh plugin', () => {
-  it('prints usage when invoked without pnpm arguments', () => {
+  it('waits for the shared profile write lock before starting pnpm', async () => {
+    const home = temp('omdsh-plugin-lock-')
+    const dir = resolveProfileDir(PROFILE_NAME, home)
+    mkdirSync(dir, { recursive: true })
+    const held = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const owner = withFileLock(join(dir, 'package.json'), async () => {
+      held.resolve()
+      await release.promise
+    })
+    await held.promise
+    let calls = 0
+    const operation = runPlugin(['list'], { environment: { OMDSH_HOME: home }, write: () => {}, runPnpm: () => { calls += 1; return { status: 0 } } })
+    await new Promise(resolve => { setTimeout(resolve, 30) })
+    expect(calls).toBe(0)
+    release.resolve()
+    await owner
+    expect(await operation).toBe(0)
+    expect(calls).toBe(1)
+  })
+
+  it('prints usage when invoked without pnpm arguments', async () => {
     const lines: string[] = []
-    expect(runPlugin([], { write: line => { lines.push(line) } })).toBe(0)
+    expect(await runPlugin([], { write: line => { lines.push(line) } })).toBe(0)
     expect(lines.join('')).toContain(PLUGIN_USAGE)
   })
 
@@ -85,12 +107,12 @@ describe('omdsh plugin', () => {
       .toBe(join(repoRoot, 'apps', 'missing-plugin'))
   })
 
-  it('forwards the checkout example when add runs from apps/omdsh', () => {
+  it('forwards the checkout example when add runs from apps/omdsh', async () => {
     const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
     const home = temp('omdsh-plugin-from-app-')
     const lines: string[] = []
     const forwarded: string[] = []
-    expect(runPlugin(['add', './examples/hello'], {
+    expect(await runPlugin(['add', './examples/hello'], {
       cwd: join(repoRoot, 'apps', 'omdsh'),
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
@@ -113,11 +135,11 @@ describe('omdsh plugin', () => {
       .toEqual([PRODUCT_BUNDLE, '@agi-fans/omdsh-plugin-hello'])
   })
 
-  it('rejects a missing filesystem spec before calling pnpm', () => {
+  it('rejects a missing filesystem spec before calling pnpm', async () => {
     const home = temp('omdsh-plugin-missing-')
     const calls: string[][] = []
     const lines: string[] = []
-    expect(runPlugin(['add', './no-such-plugin'], {
+    expect(await runPlugin(['add', './no-such-plugin'], {
       cwd: temp('omdsh-plugin-missing-cwd-'),
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
@@ -131,11 +153,11 @@ describe('omdsh plugin', () => {
     expect(existsSync(join(resolveProfileDir(PROFILE_NAME, home), 'package.json'))).toBe(false)
   })
 
-  it('initializes the profile, installs a bundle, and leaves the product layer first', () => {
+  it('initializes the profile, installs a bundle, and leaves the product layer first', async () => {
     const home = temp('omdsh-plugin-add-')
     const dir = resolveProfileDir(PROFILE_NAME, home)
     const lines: string[] = []
-    const code = runPlugin(['add', '@scope/dsh-example'], {
+    const code = await runPlugin(['add', '@scope/dsh-example'], {
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
       runPnpm: (args, cwd) => {
@@ -158,11 +180,11 @@ describe('omdsh plugin', () => {
     expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE, '@scope/dsh-example'])
   })
 
-  it('installs a plain library without adding it as a layer', () => {
+  it('installs a plain library without adding it as a layer', async () => {
     const home = temp('omdsh-plugin-lib-')
     const dir = resolveProfileDir(PROFILE_NAME, home)
     const lines: string[] = []
-    expect(runPlugin(['add', 'left-pad'], {
+    expect(await runPlugin(['add', 'left-pad'], {
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
       runPnpm: (_args, cwd) => {
@@ -179,10 +201,10 @@ describe('omdsh plugin', () => {
     expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
   })
 
-  it('removes a user bundle and keeps the product bundle', () => {
+  it('removes a user bundle and keeps the product bundle', async () => {
     const home = temp('omdsh-plugin-remove-')
     const dir = resolveProfileDir(PROFILE_NAME, home)
-    runPlugin(['add', '@scope/dsh-example'], {
+    await runPlugin(['add', '@scope/dsh-example'], {
       environment: { OMDSH_HOME: home },
       write: () => undefined,
       runPnpm: (_args, cwd) => {
@@ -198,7 +220,7 @@ describe('omdsh plugin', () => {
         return { status: 0 }
       },
     })
-    expect(runPlugin(['remove', '@scope/dsh-example'], {
+    expect(await runPlugin(['remove', '@scope/dsh-example'], {
       environment: { OMDSH_HOME: home },
       write: () => undefined,
       runPnpm: (_args, cwd) => {
@@ -213,12 +235,12 @@ describe('omdsh plugin', () => {
     expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
   })
 
-  it('rejects an incompatible DSH peer and rolls back a failed add', () => {
+  it('rejects an incompatible DSH peer and rolls back a failed add', async () => {
     const home = temp('omdsh-plugin-peer-')
     const dir = resolveProfileDir(PROFILE_NAME, home)
     const lines: string[] = []
     const verbs: string[][] = []
-    expect(runPlugin(['add', '@scope/old-bundle'], {
+    expect(await runPlugin(['add', '@scope/old-bundle'], {
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
       runPnpm: (args, cwd) => {
@@ -259,11 +281,11 @@ describe('omdsh plugin', () => {
     expect(result.stdout).not.toContain('Into the Unknown')
   })
 
-  it('reports a missing pnpm as exit 127', () => {
+  it('reports a missing pnpm as exit 127', async () => {
     const home = temp('omdsh-plugin-pnpm-')
     const error = Object.assign(new Error('not found'), { code: 'ENOENT' })
     const lines: string[] = []
-    expect(runPlugin(['add', '@scope/x'], {
+    expect(await runPlugin(['add', '@scope/x'], {
       environment: { OMDSH_HOME: home },
       write: line => { lines.push(line) },
       runPnpm: () => ({ status: null, error }),
@@ -271,10 +293,10 @@ describe('omdsh plugin', () => {
     expect(lines.join('')).toContain('pnpm not found')
   })
 
-  it('does not treat the product bundle as a removable dependency', () => {
+  it('does not treat the product bundle as a removable dependency', async () => {
     const home = temp('omdsh-plugin-product-')
     const dir = resolveProfileDir(PROFILE_NAME, home)
-    runPlugin(['add', '@scope/dsh-example'], {
+    await runPlugin(['add', '@scope/dsh-example'], {
       environment: { OMDSH_HOME: home },
       write: () => undefined,
       runPnpm: (_args, cwd) => {

@@ -2,7 +2,7 @@
 
 本目录保留维护 omdsh 时需要的设计约束、兼容决策和调查证据。用户使用说明以[中文站点文档](../apps/site/content/zh/)和[英文站点文档](../apps/site/content/en/)为准；发布变化见 [CHANGELOG](../CHANGELOG.md)，开发与验证规则见 [AGENTS.md](../AGENTS.md)。
 
-当前设计按 omdsh `0.19.0`、DSH `0.2.0-rc.2` 的实现核对，核对日期为 2026-10-03。版本事实仍以 manifest、lockfile 和组合配置为准。
+当前设计按 omdsh `0.19.0`、DSH `0.2.1-alpha.1` 的实现核对，核对日期为 2026-10-04。版本事实仍以 manifest、lockfile 和组合配置为准。
 
 ## 当前设计
 
@@ -12,6 +12,7 @@
 | [会话收尾与子 Agent](design/session-lifecycle.md) | 截断工具预览、未知执行结果、后台流式更新与性能调查边界 |
 | [Agent 行为设置](design/agent-behavior.md) | Language 的 Profile 配置、turn 快照与 complete persona 兼容 |
 | [DeepSeek Harness 集成](integrations/deepseek-harness.md) | 当前依赖基线、问答兼容、组合决策与后续接入条件 |
+| [上游功能支持盘点](integrations/upstream-feature-support.md) | 核心缺口、可选扩展、独立宿主及逐项补齐条件 |
 | [Herdr 集成](integrations/herdr.md) | 已实现的 lifecycle reporter、传输限制与尚未验证的集成面 |
 
 ## 历史证据

@@ -356,24 +356,35 @@ interface SgrState {
   inverse: boolean
   bold: boolean
   italic: boolean
+  underline: boolean
+  strike: boolean
+  link: string
 }
 
-const SGR_PARAM_RE = /\x1b\[([0-9;]*)m/g
+const WRAP_STYLE_RE = /\x1b\[([0-9;]*)m|\x1b\]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)/g
+
+function emptySgr(): SgrState {
+  return { fg: '', inverse: false, bold: false, italic: false, underline: false, strike: false, link: '' }
+}
 
 /** Apply one SGR escape to `state`, returning the new state. */
 function applySgr(state: SgrState, params: string): SgrState {
-  if (params === '') return { fg: '', inverse: false, bold: false, italic: false }
+  if (params === '') return { ...emptySgr(), link: state.link }
   const codes = params.split(';').map(Number)
   for (let i = 0; i < codes.length; i += 1) {
     const code = codes[i] ?? 0
-    if (code === 0) return { fg: '', inverse: false, bold: false, italic: false }
-    if (code === 39) return { ...state, fg: '' }
-    if (code === 7) state = { ...state, inverse: true }
+    if (code === 0) state = { ...emptySgr(), link: state.link }
+    else if (code === 39) state = { ...state, fg: '' }
+    else if (code === 7) state = { ...state, inverse: true }
     else if (code === 27) state = { ...state, inverse: false }
     else if (code === 1) state = { ...state, bold: true }
     else if (code === 22) state = { ...state, bold: false }
     else if (code === 3) state = { ...state, italic: true }
     else if (code === 23) state = { ...state, italic: false }
+    else if (code === 4) state = { ...state, underline: true }
+    else if (code === 24) state = { ...state, underline: false }
+    else if (code === 9) state = { ...state, strike: true }
+    else if (code === 29) state = { ...state, strike: false }
     else if (code === 38) {
       // 38;...m foreground sequence (256-color or truecolor): consume the rest.
       state = { ...state, fg: `\x1b[${params}m` }
@@ -387,15 +398,17 @@ function applySgr(state: SgrState, params: string): SgrState {
 
 /** Build the reopen sequence that restores `state` at a continuation start. */
 function reopenSgr(state: SgrState): string {
-  let out = state.fg
+  let out = state.link + state.fg
   if (state.bold) out += '\x1b[1m'
   if (state.italic) out += '\x1b[3m'
+  if (state.underline) out += '\x1b[4m'
+  if (state.strike) out += '\x1b[9m'
   if (state.inverse) out += '\x1b[7m'
   return out
 }
 
 /**
- * Reopen active SGR (foreground, inverse, bold, italic) at the start of each
+ * Reopen active text attributes and hyperlinks at the start of each
  * continuation row. `wrapText` keeps ANSI attached to the following glyph but
  * does not synthesize a reopening sequence when a row closes an attribute and
  * the next row begins with plain text — so narrow wrapped styled rows lose
@@ -406,7 +419,7 @@ function reopenSgr(state: SgrState): string {
 export function restabilizeWrapSegments(segments: readonly string[]): string[] {
   if (segments.length <= 1) return [...segments]
   const out: string[] = [segments[0] ?? '']
-  let state: SgrState = { fg: '', inverse: false, bold: false, italic: false }
+  let state = emptySgr()
   for (let i = 0; i < segments.length; i += 1) {
     const seg = segments[i] ?? ''
     // Reopen the state accumulated from *prior* rows before this row's own
@@ -416,20 +429,29 @@ export function restabilizeWrapSegments(segments: readonly string[]): string[] {
       const reopen = reopenSgr(state)
       out.push(reopen === '' ? seg : reopen + seg)
     }
-    SGR_PARAM_RE.lastIndex = 0
-    for (const match of seg.matchAll(SGR_PARAM_RE)) {
-      state = applySgr(state, match[1] ?? '')
+    WRAP_STYLE_RE.lastIndex = 0
+    for (const match of seg.matchAll(WRAP_STYLE_RE)) {
+      state = match[1] === undefined
+        ? { ...state, link: match[2] === '' ? '' : match[0] }
+        : applySgr(state, match[1])
     }
   }
   return out
 }
 
 /**
- * Word-wrap styled `text` to `width` and restabilize SGR at every continuation
- * row so foreground, inverse, bold, and italic attributes survive line breaks.
+ * Word-wrap styled `text` to `width`, restoring attributes and hyperlinks at
+ * every continuation row.
  */
 export function wrapTextStable(text: string, width: number): string[] {
   return restabilizeWrapSegments(wrapText(text, width))
+}
+
+/** Wrap source code in display cells without collapsing indentation or spaces. */
+export function wrapCode(text: string, width: number): string[] {
+  if (width <= 0) return ['']
+  const expanded = text.includes('\t') ? expandTabs(text, 8, 0) : text
+  return restabilizeWrapSegments(expanded.split('\n').flatMap(line => hardWrapAnsi(line, width)))
 }
 
 /** One wrapped row with its source-index span in the original (unstyled) string. */

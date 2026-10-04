@@ -36,8 +36,8 @@ The package needs three files: `package.json`, `cordis.patch.yml`, and `index.js
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-commands": "0.2.0-rc.2"
+    "@deepseek-ai/cordis": "~4.0.5-alpha.1",
+    "@deepseek-ai/dsh-commands": "0.2.1-alpha.1"
   }
 }
 ```
@@ -100,7 +100,7 @@ A `./path` is relative to the invoking directory; if that path is missing, omdsh
 Check the result in two steps:
 
 1. `--dump-config` lists `greet-plugin` after `@agi-fans/oh-my-dsh` and shows `id: greet`.
-2. Restart omdsh — installing or removing a bundle does not hot-reload modules — then run `/greet`, `/greet Ada`, and `/help`. The new command appears under Agent Commands.
+2. Restart omdsh after this CLI installation, then run `/greet`, `/greet Ada`, and `/help`. The new command appears under Agent Commands.
 
 ### Change the plugin
 

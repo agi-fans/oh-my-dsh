@@ -26,6 +26,8 @@ While children run, a roster sits above the queue and composer with task names a
 
 The Agent Hub is the full-screen view: the roster plus an inspector pane. `Enter` opens a child's transcript in place, `Tab` and the arrow keys switch panes, `PgUp`/`PgDn` scroll, and `T` toggles the tree. A child transcript stays live while the child runs, and a continuable child accepts your next composer message or `/steer <message>`, so you can redirect running work without cancelling it. One-shot and isolated runs are read-only views. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
 
+Agent Hub also shows the three most recent recorded Workflow runs, their result and latest recorded phase. Each available child’s inspector shows its Workflow, phase and member outcome separately from its live lifecycle state. Records are replayed after resume; Enter still opens the child transcript for detailed errors. The complete event history remains available through `/trajectory`; this view does not provide a topology editor or worker script logs.
+
 ## Orchestration tools
 
 The mounted Harness composition adds two orchestration tools on top of plain delegation:

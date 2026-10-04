@@ -89,8 +89,8 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       if (submission === null) break
       // Re-check after the read: an unmount may have aborted while it awaited.
       if (cancelled.aborted) break
-      if (submission.text.trim() === '' && submission.images.length === 0) continue
-      if (looksLikeSlashCommand(submission.text, submission.images)) {
+      if (submission.text.trim() === '' && submission.images.length === 0 && !submission.files?.length) continue
+      if (!submission.files?.length && looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
         try {
           const handled = await controller.execute(submission.text, operation.signal, submission.images)

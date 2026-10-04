@@ -6,8 +6,40 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Settings includes a persistent Editor choice shared by file previews and `Ctrl+X`, with automatic detection of installed editors and compatibility with existing `$VISUAL` or `$EDITOR` preferences.
+- Timed questions show a countdown, pause while editing or with `Ctrl+T`, and remain answerable through `/questions` after the wait ends. `Ctrl+S` skips one question; `Esc` leaves a finite timed question pending, and `Ctrl+C` interrupts. Resumed sessions retain pending questions and display late answers in the transcript.
+- `/plugins` manages running-profile entries and bundles, with installation progress, cancellation, diagnostic logs, and explicit dependency-script approval. Configuration patches are watched; replacing installed package code still requires a restart.
+- `/settings` includes a Plugins section for live configuration, inheritance, resetting overrides, and rejecting stale writes. Enter opens the selected plugin; Esc returns to Settings. API keys with a credential-reference field use the Harness credential store.
+- Subagent model selection can be enabled with an exact provider/model allowlist for new sessions. It defaults off; forked delegation continues to inherit its parent route.
+- Cordis includes the published Harness authoring Skills and permission-gated `plugin_manager` tool. `/agent` shows unavailable presets, and `/agent inspect [preset-id]` reports declarations, failures, and the composition retained by the current session.
+
+- Interactive `/diff` reviews staged, unstaged, untracked, and retained Turn changes with per-file navigation, previews, and external opening; `Alt+V` opens the current Turn’s review.
+- `/terminal` lists session-owned persistent shells with live output, line input, interruption, and confirmed closure. Leaving the console keeps the shell running.
+- `/attach` stages general files in the composer; `/attachments` previews stored originals and `/files` browses the workspace and session deliverables.
+- Agent Hub displays recent Workflow runs, recorded phases, member outcomes, and links to available child transcripts, including after resume.
+- Settings offers opt-in Codex or Claude Code command hooks with a configurable JSON path. Hook failures and blocking decisions appear in the transcript.
+- `/export archive [path]` writes a ZIP containing logical session logs, descendant sessions, and verified original attachments without overwriting existing files.
+
+### Changed
+
+- Searchable choice lists prioritize exact names and prefixes and support multiword queries and short word abbreviations. Command and project-path completion favor compact matches at word boundaries.
+- File-edit tool previews highlight changed identifiers, punctuation, and spacing more precisely, preserve emoji and combining sequences, and retain context in large hunks with small edits.
+- Code previews, fenced replies, and tool diff context use Prism syntax grammars with theme-aware colors, including multiline comments and strings, TSX, configuration files, and PowerShell. Diff documents color added and removed lines.
+- Upgrade the published DeepSeek Harness runtime to `0.2.1-alpha.1` with its matching Cordis, loader, timer, and schemastery releases. Plugin consumers must use Cordis `~4.0.5-alpha.1`. Goal cancellation now withdraws queued follow-up messages so subsequent input can proceed.
+- The default PTC execution budget is 180 seconds, leaving time for the default 120-second question wait and its result. Taking time on a question does not pause the outer program deadline.
+- CLI and runtime plugin operations share the profile write lock. Feature toggles apply after the running profile reloads its patch; existing sessions retain their Agent preset revision.
+
 ### Fixed
 
+- Folding a completed Turn or returning from expanded tool details no longer leaves a large blank gap above the reply when the prompt has entered terminal scrollback.
+
+- Markdown tables honor left, center, and right alignment, keep wide characters within column budgets, and isolate wrapped cell styles and hyperlinks from neighboring cells and borders. Very narrow views retain the original Markdown table syntax.
+- File browsing reviews sibling files, accepts uppercase document shortcuts, keeps all action buttons visible at narrow widths, and shows external-open and editor results in the preview. User-initiated file navigation no longer emits attention notifications.
+- Wrapped code preserves indentation, repeated spaces, and syntax colors across continuation rows.
+- Interactive `/diff` resolves listed changes from the Git repository root when launched in a subdirectory, keeping patches, previews, and external file actions on the same file.
+- Persistent terminal tools use PowerShell on Windows and Bash on POSIX.
 - Enabling the Ralph loop in `/settings` now persists across launches. Feature overrides support both enabling a default-off tool and disabling a default-on feature.
 
 ## [0.19.0] - 2026-10-03

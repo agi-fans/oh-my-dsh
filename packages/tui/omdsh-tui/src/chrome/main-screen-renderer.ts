@@ -977,6 +977,10 @@ export class MainScreenRenderer {
     }
     const viewStart = Math.max(0, next.length - this.#height)
     const candidatePhysical = livePinned ? Math.min(liveStart, viewStart) : viewStart
+    // A fold can start exactly at the frozen boundary: its unchanged prefix
+    // remains in history, but now fits in the live viewport again.
+    const reshaped = this.#reflowFrom !== undefined && (this.#reflowFrom < this.#physical
+      || (this.#reflowFrom === this.#physical && candidatePhysical < this.#physical))
     let effectiveStart = viewStart
     let target = this.#target(next, effectiveStart, 'bottom')
     let body = ''
@@ -1021,7 +1025,6 @@ export class MainScreenRenderer {
       // shape against itself and skip the rows between the stale boundary and
       // the real one — rows that had never been shown and never committed.
       // So the mapping happens here, and this frame counts as the reflow.
-      const reshaped = this.#reflowFrom !== undefined && this.#reflowFrom < this.#physical
       // The move's physical effect on history happens **once**, before the branches
       // decide anything, and whichever branch this frame then takes works from the
       // same history. Applying it inside one branch meant a frame that took another
@@ -1160,7 +1163,7 @@ export class MainScreenRenderer {
       // `render`, before the comparison ran. Keeping a second copy from the follow path would
       // leave two records for one move and two chances to confirm it.
       this.#resize = undefined
-    } else if (this.#reflowFrom !== undefined && this.#reflowFrom < this.#physical) {
+    } else if (reshaped) {
       body = this.#paintScreen(target.rows, this.#screen, true)
       // Preserve unchanged frozen rows in their new index space. A shrink may
       // bring them onto screen; repainting them does not make them unfrozen.

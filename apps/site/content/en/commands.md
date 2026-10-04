@@ -24,12 +24,13 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 | Command | What it does |
 |---|---|
-| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; the preset decides which tools the model sees. The `code` (PTC) preset also presents the registry as a generated SDK and hides `workflow_run`. |
+| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
 | `/workflow` | Choose the Default or Plan workflow. |
 | `/permission` | Choose the session Access level: Read only, Workspace write, or Full access. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove an omdsh-managed provider choice. |
-| `/settings` | Open the settings overlay. Alias: `/set`. |
+| `/settings` | Open appearance, Agent, feature, status-line, and plugin settings. Alias: `/set`. |
+| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them. Installation can be cancelled before application. |
 
 ### `/model`
 
@@ -48,6 +49,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | Command | What it does |
 |---|---|
 | `/steer <message>` | Guide the active turn before its next model step. |
+| `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
@@ -60,17 +62,36 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/trajectory` | Open the event ledger: Turn and Step grouping, live following, search, folding, timings, token usage, and tool payloads. Requires an interactive terminal. |
-| `/diff [path]` | Summarize workspace changes as a per-file table, or print one file's patch. It only reads git state and never stages or commits. |
+| `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
 | `/tools` | List the tools visible to the agent. |
 | `/mcp` | Show connected MCP servers and their tools. |
 | `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
+
+## Files and terminals
+
+| Command | What it does |
+|---|---|
+| `/files [path]` | Browse directories or preview a file. `Shift+P` in the directory picker opens this session’s deliverables. |
+| `/attach [path]` | Stream a file into durable storage and stage a reference in the composer. Without a path, ask for one. It does not submit a message. |
+| `/attachments` | Preview or externally open original file and image attachments from this session’s user messages. |
+| `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
+
+File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, and `E` uses the editor selected in Settings. Esc returns to the picker. Text previews are capped at 128 KiB; binary formats open in their application. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
+
+Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`; Markdown files render as documents. Multiline comments and strings retain their syntax colors across lines. Unknown languages remain plain, and disabling colors preserves the source text.
+
+Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. `/files` previews include sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **General → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
+
+`/attach` displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. A draft containing files treats slash-prefixed text as a model message rather than executing a command. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
+
+The terminal console shows the newest 300 retained lines and refreshes while open. Up/PageUp stop following; End follows new output again. `I` sends a line and `C` interrupts. Esc detaches without killing the shell; **Close terminal** requires confirmation. Busy terminals retain exclusive input ownership. This is a line-input console, not raw PTY attachment for fullscreen programs.
 
 ## Clipboard and output
 
 | Command | What it does |
 |---|---|
 | `/copy [text\|code\|cmd]` | Copy the last assistant reply, the last fenced code block, or the last bash command; without an argument, open the copy picker. `command` is accepted for `cmd`. |
-| `/export [html\|markdown] [path]` | Export the complete transcript as Markdown or standalone HTML. |
+| `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
 | `/changelog [full]` | Show recent release notes, or the complete packaged release history with `full`. |
 
 ## Skills

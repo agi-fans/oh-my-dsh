@@ -29,7 +29,9 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 `todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到；`skill` 按需加载匹配的 `SKILL.md`。
 
-omdsh 将 `ask_user_question` 配置为阻塞式 `legacy` 模式。Harness `0.2.0-rc.2` 也提供实验性的 `timed` 模式，但 TUI 尚未支持其倒计时与超时后补答流程；Profile 覆盖配置中的 `tool-ask-user.config.mode` 应保持为 `legacy`。
+omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T` 会暂停问答倒计时；`Ctrl+S` 明确跳过单题，`Esc` 将有限时等待的问题留为待答。等待结束后，模型可以继续独立工作，但超时不代表批准。待答提示和 `/questions` 可用于之后补答，恢复会话后也能使用。补答会显示在转录中，并进入下一个模型步骤。`Ctrl+C` 表示中断，不会提交空答案。行输入模式下，空答案行明确跳过单题；EOF 取消回答界面。
+
+模型可在必须一直等待时设置 `timeout: -1`，Profile 也仍可选择 `legacy` 模式。PTC 有独立的执行预算，默认 180 秒；Take time 不会让 `run_code` 程序无限存活。若 PTC 程序在记录问答结果前结束，该问题就无法恢复用于补答。
 
 五个只读工具让 agent 能取到它自己早先会话里做过的工作：`session_search` 与 `session_event_search` 负责查找，`session_trace` 与 `session_event_trace` 追溯谱系与关联，`session_event_read` 返回精确的事件数据。没有它们，一个曾经解决过某问题的模型只能被重新告知一遍，因为 `/sessions` 与 `/resume` 是你才能触及的能力，而不是 agent 的。
 
@@ -37,7 +39,7 @@ omdsh 将 `ask_user_question` 配置为阻塞式 `legacy` 模式。Harness `0.2.
 
 ## 运行时检查
 
-`cordis` preset 在原生目录之外增加只读的运行时检查：`cordis_inspect_list` 发现 provider，`cordis_inspect_query` 读取精确的 Service、Event 与 Tool API。改变运行时意味着编辑组合文件，而不是调用工具。
+`cordis` preset 在原生目录之外增加只读的运行时检查：`cordis_inspect_list` 发现 provider，`cordis_inspect_query` 读取精确的 Service、Event 与 Tool API。它还增加已发布的 Harness 开发 Skills 和用于 Profile 管理的 `plugin_manager` 工具。该工具要求完整宿主访问或逐次审批，依赖脚本另需显式授权。人类管理入口为 `/plugins`。
 
 ## 委派
 

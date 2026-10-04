@@ -56,3 +56,21 @@ describe('Agent Hub', () => {
     }
   })
 })
+
+
+it('presents Workflow outcomes separately from live child state within display-cell bounds', () => {
+  const workflows = [{ id: 'review', name: '审查 🐳', status: 'error', phase: '测试', members: [] }]
+  const workflow = { name: '审查 🐳', phase: '测试', outcome: 'failed' as const }
+  for (const color of [false, true]) for (const width of [32, 80]) {
+    const state = createAgentHub({ workflows, agents: [{ ...roster.agents[0]!, workflow }] })
+    const frame = renderAgentHub(state, createTheme(color), width, 22, 5000)
+    expect(frame.lines).toHaveLength(22)
+    expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+    expect(frame.lines.join('\n')).toContain('Workflow')
+    if (width === 80) {
+      const inspector = renderAgentHub({ ...state, inspector: true }, createTheme(color), width, 22, 5000)
+      expect(inspector.lines.join('\n')).toContain('failed')
+      expect(inspector.lines.join('\n')).toContain('running')
+    }
+  }
+})

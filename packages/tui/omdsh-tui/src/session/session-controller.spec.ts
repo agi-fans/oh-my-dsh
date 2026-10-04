@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { createUserMessage, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
@@ -75,6 +75,17 @@ describe('sessionControls', () => {
       plan: { active: true, pending: false },
       permission: 'workspace-write',
     })
+  })
+
+  it('counts only continued questions from the Harness projection', () => {
+    const questions = [{ id: 'scope', question: 'Which scope?' }]
+    expect(sessionControls({ userQuestions: {
+      active: [
+        { callId: ToolCallId('open'), state: 'open', questions },
+        { callId: ToolCallId('continued'), state: 'continued', questions },
+      ], settled: [],
+    } }).pendingQuestions).toBe(1)
+    expect(sessionControls({ userQuestions: { active: [], settled: [] } }).pendingQuestions).toBe(0)
   })
 
   it('reports the logged sandbox override ahead of the standing preset', () => {
@@ -217,6 +228,16 @@ describe('createSubmissionMessage', () => {
       text: 'edit me',
       images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'queued.png', width: 1, height: 1 }],
     })
+  })
+})
+
+describe('durable file submissions', () => {
+  it('submits and restores original file references without buffering or re-uploading bytes', async () => {
+    const ref = { attachmentId: AttachmentId('file:test'), name: 'report.txt', bytes: 4096 }
+    const message = await createSubmissionMessage({ text: 'Review this', images: [], files: [ref] })
+    expect(message.content).toEqual([{ type: 'text', text: 'Review this' }, { type: 'file', attachment: ref }])
+    await expect(restoreSubmissionMessage(message)).resolves.toEqual({ text: 'Review this', images: [], files: [ref] })
+    expect((await createSubmissionMessage({ text: '', images: [], files: [ref] })).content).toEqual([{ type: 'file', attachment: ref }])
   })
 })
 

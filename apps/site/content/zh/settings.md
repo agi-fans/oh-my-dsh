@@ -4,7 +4,27 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 
 # 设置
 
-`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Agent、Features、Status line 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。完整浮层按键见[键盘与快捷键](keyboard.md)。
+`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Agent、Features、Status line 和 Plugins 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。完整浮层按键见[键盘与快捷键](keyboard.md)。
+
+## 插件配置
+
+打开 `/settings`，切换到 **Plugins**，选中插件后按 `Enter` 编辑字段。`Esc` 返回 Settings 并保留原来的选中行。该分区列出当前已激活且有可编辑配置的插件，字段列表支持筛选。字段来自插件已发布的实时 schema，包括 Shell 超时与输出限制、Subagent 深度/并发/模型策略、Agent loop 工具并行度，以及 Web search 的端点/模型/token/调用次数限制。
+
+每个字段显示有效值及其来自继承还是当前 Profile 覆盖。**Reset to inherited** 只移除该字段的覆盖；**Set value** 按插件 schema 校验，并带上表单读取时的版本保存。若期间配置发生变化，写入会被拒绝，避免覆盖并发修改。字符串直接输入；数组、字典等结构化字段使用 JSON。schema 中隐藏或禁用的字段不显示。包含密钥的复合字段保持受保护，请使用 `/auth` 或其所属配置入口。
+
+密钥输入会被遮蔽，也不会出现在 notice 中。为带有 `apiKeyEnv` 的 `apiKey` 设置值时，密钥通过 Harness credentials 保存，Profile 只记录引用。重置该密钥会同时移除这两个 Profile 字段，恢复继承规则；不会撤销继承凭据或删除凭据库中的密钥。凭据引用字段继续遵循 Harness 的环境变量与凭据源继承规则。
+
+修改实时生效，影响使用同一 Profile 的所有会话。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
+
+在 **Plugins** 中选择 **Subagent model selection settings**（`subagent-model-selection-settings`），可配置子代理模型选择。先把 `allowedModels` 设为 JSON 列表，例如 `[{"provider":"deepseek-official","model":"deepseek-flash"}]`，再把 `enabled` 设为 `true`。新会话读取该白名单，只向 `subagent` 暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父代理路由。默认关闭。
+
+插件名称使用易读标签，说明中仍保留 namespace；字段旁显示 schema 的帮助文字。
+
+### 命令 Hooks
+
+在 Plugins 中选择 **Hook settings**（`hook-settings`）。先设置 `configPath`，再把 `bridge` 改为 `codex` 或 `claude-code`；默认 `off` 不执行 Hooks。路径为空时，使用进程工作目录下的 `.codex/hooks.json` 或 `.claude/settings.json`。可以指向已有兼容配置；修改文件内容后，需要重启或将 bridge 关闭再开启。
+
+所选的已发布 bridge 执行其支持的同步 command hooks。Codex 映射 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse 和 Stop；Claude Code 遵循其已发布事件子集。不执行不受支持的 async、prompt 和 agent hooks。阻断决定和失败显示在转录中并保留日志；启用后不会为已有会话补跑 SessionStart。一次只启用一个 bridge。
 
 ## General
 
@@ -13,6 +33,7 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Theme | dark、light、midnight、solarized、catppuccin、dracula、nord、gruvbox、rose-pine、mono | dark | 配色方案。 |
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
+| Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Terminal activity | on / off | off | 支持的终端标签页与任务栏中的忙碌/空闲状态。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
@@ -20,6 +41,8 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Long turn | 15s / 30s / 1m / 2m | 30s | 触发长任务通知的最短时长。 |
 
 工具预览使用当前主题的背景色，四周保留内边距。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
+
+Editor 列出已安装的 VS Code、Cursor、VSCodium、Neovim、Vim、Nano 和 Vi。Auto 兼容已有的 `$VISUAL` 或 `$EDITOR` 配置，否则优先使用探测到的图形代码编辑器，再选择终端编辑器。即使命令不在 PATH 中，也会检查 macOS 应用包和 Windows 的标准安装位置。手动选择立即生效，并在下次启动时保留；保存并关闭打开的文件即可返回。已保存但不再可用的编辑器会标为 unavailable，方便重新选择；若未发现编辑器，安装后重新打开 Settings 即可。
 
 Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具边界或已落定的助手消息会立即冲刷可见流，不等待动画。
 
@@ -42,7 +65,7 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 | Ralph 循环 | 关 | 该循环工具保持缺席，直到你在这里打开。 |
 | 重复工具提醒 | 开 | 模型不再收到"别重复同一个工具调用"的提醒。 |
 
-这里的改动在下次启动生效，行内也写明了这一点。`disabled` 是 Loader 选项而非插件配置，settings 服务无法表达它；因此这些行改为写入 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 里一个由注释界定的托管块，那正是 Harness 组装组合树时读取的入口。该块之外你手写的内容不会被改动。
+运行中的 Profile 会监视该补丁，在写入稳定后应用修改；关闭 HMR 的宿主在下次启动生效。`disabled` 是 Loader 选项而非插件配置，settings 服务无法表达它；因此这些行改为写入 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 里一个由注释界定的托管块，那正是 Harness 组装组合树时读取的入口。该块之外你手写的内容不会被改动。
 
 支撑某个命令的行（`session-query` 支撑 `/sessions`，`workspace` 支撑 `@` 提及）以及会让 agent 不可用的行（`tool-fs`、`tool-bash`、`todo`）刻意不列出。`web_search` 同样缺席：它与 `web_fetch` 共用一行，行级开关表达不了"关搜索、留抓取"。
 

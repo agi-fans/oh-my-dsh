@@ -19,12 +19,27 @@ const prefs = { theme: 'dark' as const, colors: true }
 const agent = { language: 'auto' as const }
 
 describe('tuiSettingItems / applySettingValue', () => {
+  it('keeps plugin entries in their own section and opens them without cycling a preference', () => {
+    const plugins = [{ id: 'shell', label: 'Shell', description: 'Live plugin settings' }]
+    const state = createSettings(prefs, 'plugin:shell', undefined, undefined, plugins)
+    expect(applySettingsEvent(state, { type: 'key', id: 'enter' })).toEqual({ kind: 'open-plugin', id: 'shell' })
+    expect(applySettingsEvent(state, { type: 'text', value: ' ' })).toEqual({ kind: 'open-plugin', id: 'shell' })
+    expect(applySettingsEvent(state, { type: 'key', id: 'right' })).toEqual({ kind: 'ignore' })
+    for (const width of [32, 80]) {
+      const rendered = renderSettings(state, createTheme(false, 'dark'), width, 20)
+      expect(rendered.lines.join('\n')).toContain('● Plugins')
+      expect(rendered.lines.join('\n')).toContain('Shell')
+      for (const row of rendered.lines) expect(visibleWidth(row)).toBeLessThanOrEqual(width)
+    }
+  })
+
   it('exposes theme and color cycle rows', () => {
     const items = tuiSettingItems(prefs)
     expect(items.map((item) => item.id)).toEqual([
       'theme',
       'colors',
       'motion',
+      'editor',
       'terminalProgress',
       'checkUpdates',
       'startupChangelog',
@@ -47,13 +62,13 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
     expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
-    expect(items[3]).toMatchObject({ label: 'Terminal activity', value: 'off' })
-    expect(items[4]).toMatchObject({ label: 'Update checks', value: 'on' })
-    expect(items[5]).toMatchObject({ label: 'Release notes', value: 'summary' })
-    expect(items[8]?.value).toBe('on')
-    expect(items[8]?.label).toBe('Status line')
-    expect(items[9]?.value).toBe('compact')
-    expect(items[10]).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
+    expect(items.find(item => item.id === 'terminalProgress')).toMatchObject({ label: 'Terminal activity', value: 'off' })
+    expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ label: 'Update checks', value: 'on' })
+    expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ label: 'Release notes', value: 'summary' })
+    expect(items.find(item => item.id === 'statusEnabled')?.value).toBe('on')
+    expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Status line')
+    expect(items.find(item => item.id === 'statusLabels')?.value).toBe('compact')
+    expect(items.find(item => item.id === 'statusItem:model')).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
       .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true })
@@ -71,6 +86,22 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(applySettingValue(prefs, 'statusItem:model', 'accent').statusBar?.colors?.model).toBe('accent')
     expect(applySettingValue(prefs, 'statusItem:cache', 'warning').statusBar?.colors?.cache).toBe('warning')
     expect(applySettingValue(prefs, 'theme', 'nope')).toEqual(prefs)
+  })
+
+  it('cycles detected editors and saves stable ids rather than display labels', () => {
+    const editors = [{ id: 'auto' as const, label: 'Auto (VS Code)' }, { id: 'code' as const, label: 'VS Code' }, { id: 'vim' as const, label: 'Vim' }]
+    const state = createSettings(prefs, 'editor', undefined, undefined, undefined, editors)
+    const next = applySettingsEvent(state, key('enter'))
+    expect(next.kind === 'apply' && next.state.prefs.editor).toBe('code')
+    const again = applySettingsEvent(next.kind === 'apply' ? next.state : state, key('right'))
+    expect(again.kind === 'apply' && again.state.prefs.editor).toBe('vim')
+    const auto = applySettingsEvent(again.kind === 'apply' ? again.state : state, key('right'))
+    expect(auto.kind === 'apply' && auto.state.prefs.editor).toBe('auto')
+    for (const colors of [true, false]) {
+      const view = renderSettings(next.kind === 'apply' ? next.state : state, createTheme(colors), 40, 12)
+      expect(view.lines.join('\n')).toContain('VS Code')
+      for (const line of view.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40)
+    }
   })
 
   it('hides and reorders individual status groups without duplicate positions', () => {
@@ -100,7 +131,7 @@ describe('tuiSettingItems / applySettingValue', () => {
 
   it('projects Agent language only when the host binds Agent settings', () => {
     expect(tuiSettingItems(prefs).some(item => item.id === 'agentLanguage')).toBe(false)
-    expect(tuiSettingItems(prefs, agent)[8]).toMatchObject({
+    expect(tuiSettingItems(prefs, agent).find(item => item.id === 'agentLanguage')).toMatchObject({
       id: 'agentLanguage',
       label: 'Language',
       value: 'Auto',
@@ -146,13 +177,13 @@ describe('applySettingsEvent', () => {
     const end = applySettingsEvent(firstStatus, key('end'))
     expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
     const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
-    expect(home.kind === 'update' && home.state.selected).toBe(8)
+    expect(home.kind === 'update' && home.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
   })
 
   it('uses tab to jump between General and Status line sections', () => {
     const open = createSettings(prefs, 'theme')
     const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(8)
+    expect(status.kind === 'update' && status.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
   })
@@ -160,15 +191,15 @@ describe('applySettingsEvent', () => {
   it('navigates General, Agent, and Status line as three bounded sections', () => {
     const open = createSettings(prefs, 'theme', agent)
     const agentTab = applySettingsEvent(open, key('tab'))
-    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(8)
+    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
     const down = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('down'))
     expect(down).toEqual(agentTab)
     const status = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(9)
+    expect(status.kind === 'update' && status.state.selected).toBe(tuiSettingItems(prefs, agent).findIndex(item => item.id === 'statusEnabled'))
     const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
     expect(general.kind === 'update' && general.state.selected).toBe(0)
     const reverseStatus = applySettingsEvent(general.kind === 'update' ? general.state : open, key('shift+tab'))
-    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(9)
+    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(tuiSettingItems(prefs, agent).findIndex(item => item.id === 'statusEnabled'))
   })
 
   it('cycles Agent language independently of TUI preferences', () => {
@@ -262,12 +293,12 @@ describe('Features section', () => {
     expect(lines).toMatch(/Ralph loop\s+off/u)
   })
 
-  it('states that a change lands on the next launch instead of pretending to be live', () => {
+  it('states that live application depends on the profile host', () => {
     const items = tuiSettingItems(prefs, undefined, features)
     const at = items.findIndex(item => item.id === 'feature:workspace-changes')
     const open = { ...createSettings(prefs, undefined, undefined, features), selected: at }
     const lines = renderSettings(open, theme, 220, 40).lines.join('\n')
-    expect(lines).toContain('Applies on the next launch')
+    expect(lines).toContain('Saved in profile; applies live when supported')
   })
 
   it('routes a feature toggle to the features apply domain, not the prefs one', () => {

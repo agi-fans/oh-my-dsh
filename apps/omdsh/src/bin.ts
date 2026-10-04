@@ -33,7 +33,7 @@ if (invocation.completions !== undefined) {
   const { runPlugin } = await import('./plugin.ts')
   try {
     prepareLaunchEnvironment()
-    process.exitCode = runPlugin(invocation.pluginArgs)
+    process.exitCode = await runPlugin(invocation.pluginArgs)
   } catch (error) {
     process.stderr.write(dumpErrorMessage(error) + '\n')
     process.exitCode = 1

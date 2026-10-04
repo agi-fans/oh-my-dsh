@@ -10,7 +10,7 @@
  * The writes therefore maintain one clearly delimited block in the Profile
  * patch and touch nothing else in the file, so hand-written rows, `!!js`
  * expressions, and comments all survive a toggle. Toggling takes effect on the
- * next launch: the Harness reads the patch once while composing the tree.
+ * next launch, or after the host's configuration watcher recomposes the tree.
  * @module @agi-fans/dsh-tui
  */
 

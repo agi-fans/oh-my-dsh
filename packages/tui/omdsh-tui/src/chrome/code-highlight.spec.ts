@@ -8,7 +8,7 @@ import {
   languageFromPath,
   normalizeLanguage,
 } from './code-highlight.ts'
-import { createTheme } from './theme.ts'
+import { createTheme, THEME_NAMES } from './theme.ts'
 import { stripAnsi } from './width.ts'
 
 const color = createTheme(true, true)
@@ -36,8 +36,7 @@ describe('languageFromPath', () => {
 
   it('returns undefined for unknown or unsupported extensions', () => {
     expect(languageFromPath('README.md')).toBeUndefined()
-    expect(languageFromPath('style.yaml')).toBeUndefined()
-    expect(languageFromPath('Makefile')).toBeUndefined()
+    expect(languageFromPath('archive.unknown')).toBeUndefined()
     expect(languageFromPath('no_extension')).toBeUndefined()
   })
 
@@ -52,7 +51,7 @@ describe('isSupportedLanguage / normalizeLanguage', () => {
     expect(isSupportedLanguage('ts')).toBe(true)
     expect(isSupportedLanguage('TypeScript')).toBe(true)
     expect(isSupportedLanguage('  python ')).toBe(true)
-    expect(isSupportedLanguage('ruby')).toBe(false)
+    expect(isSupportedLanguage('unknown-language')).toBe(false)
     expect(isSupportedLanguage('')).toBe(false)
     expect(normalizeLanguage('  TS ')).toBe('ts')
   })
@@ -63,7 +62,7 @@ describe('highlightCodeLines', () => {
     const lines = highlightCodeLines(['const x = 1', 'return "hi"'], 'ts', color)
     expect(lines).toHaveLength(2)
     expect(lines[0]).toContain(keyword + 'const')
-    expect(lines[0]).toContain(codeBlock + '1')
+    expect(lines[0]).toContain(color.getFgAnsi('syntaxNumber') + '1')
     expect(lines[1]).toContain(keyword + 'return')
     expect(lines[1]).toContain('"hi"')
     expect(stripAnsi(lines.join('\n'))).toBe('const x = 1\nreturn "hi"')
@@ -74,12 +73,12 @@ describe('highlightCodeLines', () => {
     expect(lines).toHaveLength(3)
     for (const line of lines) {
       expect(line).toContain(keyword + 'const')
-      expect(line).toContain(codeBlock)
+      expect(line).toContain(color.getFgAnsi('syntaxNumber'))
     }
   })
 
   it('paints unsupported languages as a single block color', () => {
-    const lines = highlightCodeLines(['def f(): pass'], 'ruby', color)
+    const lines = highlightCodeLines(['def f(): pass'], 'unknown-language', color)
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain(codeBlock)
     expect(lines[0]).not.toContain(keyword + 'def')
@@ -103,6 +102,59 @@ describe('highlightCodeLines', () => {
     clearHighlightCache()
     const b = highlightCodeLines(['const x = 1'.repeat(20)], 'ts', color)
     expect(a).toEqual(b)
+  })
+
+  it('keeps keywords inside multiline comments and strings on their own syntax colors', () => {
+    const lines = highlightCodeLines(['/* start', 'const hidden = 1', '*/', 'const message = `start', 'return text', '`'], 'ts', color)
+    expect(lines[1]).not.toContain(keyword)
+    expect(lines[1]).toContain(color.getFgAnsi('mdQuote'))
+    expect(lines[4]).not.toContain(keyword)
+    expect(stripAnsi(lines.join('\n'))).toBe('/* start\nconst hidden = 1\n*/\nconst message = `start\nreturn text\n`')
+  })
+
+  it('recognizes configuration, shell and diff grammars', () => {
+    for (const lang of ['yaml', 'toml', 'powershell', 'docker', 'makefile', 'diff', 'tsx']) expect(isSupportedLanguage(lang)).toBe(true)
+    expect(languageFromPath('config.yml')).toBe('yaml')
+    expect(languageFromPath('Cargo.toml')).toBe('toml')
+    expect(languageFromPath('script.ps1')).toBe('powershell')
+    expect(languageFromPath('Dockerfile')).toBe('docker')
+    expect(languageFromPath('Makefile')).toBe('makefile')
+    const diff = highlightCodeLines(['@@ -1 +1 @@', '-old', '+new'], 'diff', color)
+    expect(diff[1]).toContain(color.getFgAnsi('toolDiffRemoved'))
+    expect(diff[2]).toContain(color.getFgAnsi('toolDiffAdded'))
+  })
+
+  it('preserves TSX text and nested template interpolation without HTML encoding', () => {
+    const source = ['const label = `Hello ${name.toUpperCase()}`;', 'const view = <Button title="const & <中文>">{label}</Button>;']
+    const lines = highlightCodeLines(source, 'tsx', color)
+    expect(lines.map(stripAnsi)).toEqual(source)
+    expect(lines[0]).toContain(color.getFgAnsi('syntaxFunction') + 'toUpperCase')
+    expect(lines[1]).not.toContain(keyword + 'const &')
+  })
+
+  it('uses each theme palette and preserves plain text in every color mode', () => {
+    const source = ['/* const hidden */', 'const label = "中文 🐳 e\u0301"; const count = 42;']
+    for (const name of THEME_NAMES) {
+      for (const trueColor of [true, false]) {
+        const theme = createTheme(true, trueColor, name)
+        const lines = highlightCodeLines(source, 'ts', theme)
+        expect(lines.map(stripAnsi)).toEqual(source)
+        expect(lines[0]).not.toContain(theme.getFgAnsi('mdKeyword') + 'const')
+        expect(lines[1]).toContain(theme.getFgAnsi('syntaxString'))
+        expect(lines[1]).toContain(theme.getFgAnsi('syntaxNumber'))
+        expect(lines[1]).not.toContain('NaN')
+      }
+      expect(highlightCodeLines(source, 'ts', createTheme(false, true, name))).toEqual(source)
+    }
+  })
+
+  it('bounds synchronous work on very large code and leaves unknown language metadata inert', () => {
+    const source = ['const value = ' + 'x'.repeat(300 * 1024)]
+    expect(highlightCodeLines(source, 'ts', color).map(stripAnsi)).toEqual(source)
+    expect(highlightCacheSize()).toBe(0)
+    expect(isSupportedLanguage('toString')).toBe(false)
+    expect(isSupportedLanguage('__proto__')).toBe(false)
+    expect(normalizeLanguage('TypeScript title="example.ts"')).toBe('ts')
   })
 })
 
@@ -129,7 +181,7 @@ describe('highlight cache', () => {
 
   it('does not cache no-color or unsupported-language output', () => {
     highlightCodeLines(['const x = 1'], 'ts', plain)
-    highlightCodeLines(['def f'], 'ruby', color)
+    highlightCodeLines(['def f'], 'unknown-language', color)
     expect(highlightCacheSize()).toBe(0)
   })
 

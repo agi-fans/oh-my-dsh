@@ -4,6 +4,8 @@
  * scroll, Ctrl-O tool expand, submit), double-Escape rewind, double Ctrl-C exit, Ctrl-D quit and the
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
+import * as editorDiscovery from '../input/editor-discovery.ts'
+import * as externalEditor from '../input/external-editor.ts'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -11,6 +13,7 @@ import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
@@ -213,6 +216,29 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
 }
 
 describe('LocalTui folds against a scrolling terminal', () => {
+  it.each([false, true])('keeps a short folded turn compact after expanding tool details (colors=%s)', colors => {
+    const term = new ScrollingTerminal(127, 58)
+    const tui = new LocalTui(term, 'm', colors)
+    try {
+      longTurn(tui, 6, 8)
+      expect(term.visible().findIndex(row => row.trim() !== '')).toBeLessThanOrEqual(2)
+      const history = term.scrollback()
+      press(term as never, '\x0f')
+      press(term as never, '\x1bo')
+      press(term as never, '\x0f')
+      const screen = term.visible()
+      const summary = screen.findIndex(row => row.includes('Worked for'))
+      const prompt = screen.findIndex(row => row.includes('map the project 1'))
+      const firstContent = screen.findIndex(row => row.trim() !== '')
+      expect(summary).toBeGreaterThanOrEqual(0)
+      expect(prompt).toBeGreaterThanOrEqual(0)
+      expect(summary - prompt).toBeLessThanOrEqual(4)
+      expect(firstContent).toBeLessThanOrEqual(2)
+      expect(screen.join('\n')).toContain('answer 1 line 7')
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
   it('enters browsing from the live tail with the wheel and keeps the prompt at the top', () => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false)
@@ -302,7 +328,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     } finally { tui.dispose() }
   })
 
-  it.each([false, true].flatMap(color => (['trajectory', 'agentHub', 'settings', 'fullscreen-list', 'plan-review'] as const).map(surface => ({ color, surface }))))(
+  it.each([false, true].flatMap(color => (['trajectory', 'agentHub', 'settings', 'fullscreen-list', 'plan-review', 'document'] as const).map(surface => ({ color, surface }))))(
     'restores the inspected run after closing $surface (color=$color)', async ({ surface, color }) => {
       const term = new ScrollingTerminal(80, 20)
       const tui = new LocalTui(term, 'm', color)
@@ -913,7 +939,7 @@ describe('LocalTui (tty)', () => {
       term.raw = on
       if (!on) modesAtHandoff = term.captured
     }
-    vi.stubEnv('VISUAL', '')
+    vi.stubEnv('VISUAL', '/omdsh-missing-editor-command')
     try {
       press(term, '\x18')
       expect(modesAtHandoff).toContain('\x1b[?1000l\x1b[?1006l')
@@ -982,6 +1008,86 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it.each(['text', 'take-time', 'paste'] as const)('holds a timed prompt while editing (%s)', async (gesture) => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, { motion: 'off' })
+    const line = tui.readline()
+    const hold = vi.fn()
+    const answer = tui.prompt({
+      title: 'Question', question: 'Choose', options: [{ label: 'Project' }],
+      wait: { deadline: Date.now() + 2_000, hold }, skippable: true, dismissLabel: 'Later',
+    })
+    expect(stripAnsi(term.captured)).toContain('Continues in 2s')
+    expect(stripAnsi(term.captured)).toContain('esc later')
+    if (gesture === 'text') press(term, 'custom')
+    else if (gesture === 'take-time') press(term, '\x14')
+    else { press(term, '\x1b[200~中文答案\x1b[201~'); await flushAsyncPaste() }
+    expect(hold).toHaveBeenCalledOnce()
+    expect(stripAnsi(term.captured)).toContain('Take your time')
+    press(term, '\r')
+    expect(await answer).toBe(gesture === 'text' ? 'custom' : gesture === 'paste' ? '中文答案' : 'Project')
+    press(term, 'next\r')
+    expect(await line).toBe('next')
+    tui.dispose()
+  })
+
+  it('interrupts a question with Ctrl+C and keeps the second-press exit contract', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const line = tui.readline()
+    tui.setStatus('running')
+    const interrupted = vi.fn()
+    const domainInterrupt = vi.fn()
+    tui.onInterrupt(interrupted)
+    const answer = tui.prompt({ title: 'Question', question: 'Choose', interrupt: domainInterrupt })
+    press(term, '\x03')
+    expect(await answer).toBeNull()
+    expect(domainInterrupt).toHaveBeenCalledOnce()
+    expect(interrupted).toHaveBeenCalledOnce()
+    press(term, '\x03')
+    expect(await line).toBeNull()
+    tui.dispose()
+  })
+
+  it('keeps Skip distinct from Later and restores the displaced composer draft', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const line = tui.readline()
+    press(term, 'unfinished draft')
+    const first = tui.prompt({ title: 'Question', question: 'Choose', skippable: true, dismissLabel: 'Later' })
+    press(term, '\x13')
+    expect(await first).toBe('')
+    const second = tui.prompt({ title: 'Question', question: 'Choose', skippable: true, dismissLabel: 'Later' })
+    press(term, '\x1b')
+    await new Promise<void>(resolve => { setTimeout(resolve, 40) })
+    expect(await second).toBeNull()
+    press(term, '\r')
+    expect(await line).toBe('unfinished draft')
+    tui.dispose()
+  })
+
+  it('repaints a countdown even with motion disabled and restores input on timeout', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, { motion: 'off' })
+    const line = tui.readline()
+    press(term, 'preserved draft')
+    const expiry = new AbortController()
+    const answer = tui.prompt({ title: 'Question', question: 'Choose', signal: expiry.signal,
+      wait: { deadline: Date.now() + 2_000, hold: () => {} },
+    })
+    const before = term.captured.length
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(stripAnsi(term.captured.slice(before))).toContain('Continues in 1s')
+    expiry.abort()
+    expect(await answer).toBeNull()
+    press(term, '\r')
+    expect(await line).toBe('preserved draft')
+    tui.dispose()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
+
   it('interactively selects a prompt option with arrow keys and Enter', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -1004,6 +1110,35 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it.each([false, true])('clears nested plugin selectors before restoring the blank composer (color=%s)', async color => {
+    const term = new ScrollingTerminal(160, 30)
+    const tui = new LocalTui(term, 'deepseek-flash', color)
+    try {
+      tui.setCommands([{ name: 'plugins', description: 'Manage profile plugins and bundles' }])
+      const line = tui.readInput()
+      press(term, '/plugins\r')
+      expect(await line).toEqual({ text: '/plugins', images: [] })
+      const menu = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'fullscreen-list', filterable: true,
+        options: [{ label: 'Plugin entries', value: 'entries' }, { label: 'Bundles', value: 'bundles' }], allowCustom: false })
+      expect(term.visible().join('\n')).toContain('Plugins')
+      press(term, '\r')
+      expect(await menu).toBe('entries')
+      const entries = tui.prompt({ title: 'Plugin entries', question: 'Choose an entry to inspect or toggle', presentation: 'fullscreen-list', filterable: true,
+        options: Array.from({ length: 80 }, (_, index) => ({ label: `plugin-${index}`, value: String(index), description: 'Enabled · active' })), allowCustom: false })
+      expect(term.visible().join('\n')).toContain('plugin-0')
+      press(term, '\x1b[27u')
+      expect(await entries).toBeNull()
+      const parent = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'fullscreen-list', filterable: true,
+        options: [{ label: 'Plugin entries', value: 'entries' }], allowCustom: false })
+      press(term, '\x1b[27u')
+      expect(await parent).toBeNull()
+      const restored = term.visible()
+      expect(restored.filter(row => row.includes('🐳'))).toHaveLength(1)
+      expect(restored.join('\n')).not.toContain('plugin-0')
+      expect(restored.join('\n')).not.toContain('Plugins')
+    } finally { tui.dispose() }
+  })
+
   it('filters a full-screen prompt and returns the hidden option value', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -1024,6 +1159,28 @@ describe('LocalTui (tty)', () => {
     expect(stripAnsi(term.captured)).toContain('Beta session')
     expect(await answer).toBe('session-beta')
     tui.dispose()
+  })
+
+  it.each([false, true])('selects the ranked fuzzy option through Tab and Enter (colors=%s)', async (colors) => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', colors)
+    try {
+      const answer = tui.prompt({
+        title: 'Model', question: '', presentation: 'fullscreen-list',
+        filterable: true, allowCustom: false,
+        options: [
+          { label: 'Other', value: 'other', description: 'Official flash route' },
+          { label: 'Flash', value: 'flash', description: 'Official provider' },
+          { label: 'Pro', value: 'pro', description: 'Official provider' },
+        ],
+      })
+      press(term, 'flsh official')
+      expect(term.visible().join('\n')).not.toContain('› Pro')
+      // Flash ranks ahead of the description-only hit; Tab selects that hit.
+      press(term, '\t\r')
+      expect(await answer).toBe('other')
+      expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
+    } finally { tui.dispose() }
   })
 
   it('renders a fixed-choice prompt without a custom-answer editor', async () => {
@@ -2292,6 +2449,60 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it.each([false, true])('opens plugin fields from Settings and returns to the selected row (color=%s)', async color => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', color)
+    const edit = vi.fn(async (id: string, signal: AbortSignal) => {
+      await tui.prompt({ title: id, question: 'Choose a field', presentation: 'fullscreen-list',
+        options: [{ label: 'timeout', value: 'timeout' }], allowCustom: false, signal })
+    })
+    const unbind = tui.bindPluginSettings({ entries: () => ['shell', 'subagent'].map(id => ({ id, label: id, description: 'Editable configuration' })), edit })
+    try {
+      const input = tui.readInput()
+      press(term, '/settings\r\x1b[Z\x1b[B\r')
+      await flushAsyncPaste()
+      expect(edit).toHaveBeenCalledWith('subagent', expect.any(AbortSignal))
+      expect(term.visible().join('\n')).toContain('timeout')
+      // A live preference write while the form covers Settings must survive returning.
+      tui.applyStoredPrefs({ theme: 'light', colors: color })
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('● Plugins')
+      expect(term.visible().join('\n')).toContain('❯ subagent')
+      press(term, '\t')
+      expect(term.visible().join('\n')).toContain('light')
+      press(term, '\x1b[27u')
+      expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
+      press(term, 'next prompt\r')
+      expect(await input).toEqual({ text: 'next prompt', images: [] })
+    } finally { await unbind(); tui.dispose() }
+  })
+
+  it('aborts and drains an active plugin form when its Settings binding disappears', async () => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    const settled = Promise.withResolvers<void>()
+    const unbind = tui.bindPluginSettings({ entries: () => [{ id: 'shell', label: 'shell', description: 'Configuration' }],
+      edit: async (_id, signal) => {
+        await tui.prompt({ title: 'shell', question: 'Choose a field', options: [{ label: 'timeout' }], signal })
+        await settled.promise
+      } })
+    try {
+      press(term, '/settings\r\x1b[Z\r')
+      await flushAsyncPaste()
+      const closed = unbind()
+      let drained = false
+      void closed.then(() => { drained = true })
+      await flushAsyncPaste()
+      expect(drained).toBe(false)
+      settled.resolve()
+      await closed
+      expect(term.visible().join('\n')).not.toContain('Plugins')
+      press(term, '\x1b[27u')
+      expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
+    } finally { settled.resolve(); await unbind(); tui.dispose() }
+  })
+
   it('opens the settings overlay on /settings and cycles theme', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
@@ -2357,6 +2568,7 @@ describe('LocalTui (tty)', () => {
       theme: 'light',
       colors: false,
       motion: 'full',
+      editor: 'auto',
       terminalProgress: false,
       checkUpdates: true,
       startupChangelog: 'summary',
@@ -3305,4 +3517,157 @@ describe('LocalTui (plain)', () => {
     expect(term.captured).not.toContain('ctrl+o')
     tui.dispose()
   })
+})
+
+
+describe('document and file interaction', () => {
+  it('keeps browsing quiet while attention notifications remain enabled for questions', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, motion: 'off', terminalProgress: false, expandTools: false,
+        notifications: 'always', notificationThreshold: '30s' })
+      const before = term.captured.length
+      const document = tui.prompt({ title: 'File', question: 'File', presentation: 'document', notify: false, options: [{ label: 'Files' }] })
+      press(term, '\r')
+      await document
+      expect(term.captured.slice(before)).not.toContain('\x1b]9;')
+      const question = tui.prompt({ title: 'Question', question: 'Input required', options: [{ label: 'Yes' }] })
+      expect(term.captured.slice(before)).toContain('\x1b]9;')
+      press(term, '\r')
+      await question
+    } finally { tui.dispose() }
+  })
+  it.each(['Files', 'Previous', 'Next', 'Open', 'Editor'])('activates the document %s button with Tab and Enter', async label => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      const labels = ['Files', 'Previous', 'Next', 'Open', 'Editor']
+      const answer = tui.prompt({ title: 'File', question: 'test.txt', presentation: 'document', detail: 'Content',
+        options: labels.map(label => ({ label, value: label.toLowerCase() })) })
+      press(term, '\t'.repeat(labels.indexOf(label)) + '\r')
+      expect(await answer).toBe(label.toLowerCase())
+    } finally { tui.dispose() }
+  })
+
+  it.each(['N', 'P', 'O', 'E'])('accepts the displayed uppercase document shortcut %s', async key => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const settled = vi.fn()
+    try {
+      const answer = tui.prompt({ title: 'File', question: 'test.txt', presentation: 'document', detail: 'Content',
+        options: [{ label: 'Files', value: 'files' }], actions: [{ key: key.toLowerCase(), label: 'Action', valuePrefix: 'action' }] })
+      void answer.then(settled)
+      press(term, key)
+      await flushAsyncPaste()
+      expect(settled).toHaveBeenCalledWith('action')
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('returns document actions directly and restores the composer (color=%s)', async color => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', color)
+    try {
+      press(term, 'draft')
+      const answer = tui.prompt({ title: 'Review', question: 'File', presentation: 'document', detail: '# File\n\nContent',
+        options: [{ label: 'Files', value: 'files' }, { label: 'Open', value: 'open' }], allowCustom: false })
+      press(term, '\t\r')
+      expect(await answer).toBe('open')
+      expect(stripAnsi(term.captured)).not.toContain('Revision feedback')
+      const submission = tui.readInput()
+      press(term, '\r')
+      expect(await submission).toEqual({ text: 'draft', images: [] })
+    } finally { tui.dispose() }
+  })
+
+  it('refreshes live documents and releases the refresh timer on cancellation', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), abort = new AbortController()
+    let text = 'Before'
+    const refresh = vi.fn(() => text)
+    try {
+      const answer = tui.prompt({ title: 'Terminal', question: 'Shell', presentation: 'document', detail: text, refreshDocument: refresh,
+        documentTail: true, signal: abort.signal, options: [{ label: 'Input' }] })
+      text = 'After'
+      await vi.advanceTimersByTimeAsync(250)
+      expect(stripAnsi(term.captured)).toContain('After')
+      abort.abort()
+      expect(await answer).toBeNull()
+      const count = refresh.mock.calls.length
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(refresh).toHaveBeenCalledTimes(count)
+      expect(term.raw).toBe(true)
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+
+  it('stages a reference-only file draft and preserves it through a document prompt', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const ref = { attachmentId: AttachmentId('file:test'), name: 'report.txt', bytes: 12 }
+    try {
+      tui.stageFileAttachment(ref)
+      const answer = tui.prompt({ title: 'Review', question: 'File', presentation: 'document', detail: 'Content', options: [{ label: 'Back' }] })
+      press(term, '\x1b')
+      expect(await answer).toBeNull()
+      const submission = tui.readInput()
+      press(term, 'Review this\r')
+      expect(await submission).toEqual({ text: 'Review this', images: [], files: [ref] })
+    } finally { tui.dispose() }
+  })
+})
+
+it('restores raw input after a file editor fails without erasing terminal history', () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const raw = vi.spyOn(term.input, 'setRawMode')
+  vi.stubEnv('VISUAL', '/omdsh-missing-editor-command')
+  try {
+    const before = term.captured.length
+    expect(() => tui.openFileInEditor('/unused/file.txt')).toThrow()
+    expect(raw.mock.calls).toEqual([[false], [true]])
+    expect(term.raw).toBe(true)
+    expect(term.captured.slice(before)).not.toContain('\x1b[3J')
+  } finally { tui.dispose(); vi.unstubAllEnvs() }
+})
+
+it('lets lowercase filename filtering coexist with Shift+P deliverable navigation', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    const answer = tui.prompt({ title: 'Files · /workspace', question: '/workspace', presentation: 'fullscreen-list', optionLayout: 'compact',
+      filterable: true, allowCustom: false, options: [{ label: '../', value: '/above' }, { label: 'package.json', value: '/workspace/package.json' }],
+      actions: [{ key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
+    press(term, 'p\r')
+    expect(await answer).toBe('/workspace/package.json')
+    const deliverables = tui.prompt({ title: 'Files', question: '/workspace', presentation: 'fullscreen-list', filterable: true,
+      options: [{ label: '../', value: '/above' }], actions: [{ key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
+    press(term, 'P')
+    expect(await deliverables).toBe('present:/above')
+  } finally { tui.dispose() }
+})
+
+it('persists the selected editor and uses it for both file and prompt editing', async () => {
+  const choices = vi.spyOn(editorDiscovery, 'discoverEditors').mockReturnValue([
+    { id: 'auto', label: 'Auto (VS Code)' }, { id: 'code', label: 'VS Code' },
+  ])
+  const fileEditor = vi.spyOn(externalEditor, 'editFileExternally').mockImplementation(() => {})
+  const promptEditor = vi.spyOn(externalEditor, 'editExternally').mockReturnValue('saved prompt')
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const persist = vi.fn()
+  tui.setPrefsPersist(persist)
+  const pending = tui.readline()
+  try {
+    press(term, '/settings\r')
+    press(term, '\x1b[B'.repeat(3) + '\r')
+    expect(persist.mock.calls[0]?.[0].editor).toBe('code')
+    press(term, '\x1b')
+    tui.openFileInEditor('/workspace/a.ts')
+    expect(fileEditor).toHaveBeenCalledWith('/workspace/a.ts', 'code')
+    press(term, '\x18')
+    expect(promptEditor).toHaveBeenCalledWith('', 'code')
+    expect(term.raw).toBe(true)
+    press(term, '\r')
+    expect(await pending).toBe('saved prompt')
+    expect(term.captured).not.toContain('\x1b[3J')
+    const second = new LocalTui(new FakeTerminal(), 'm', false)
+    try {
+      second.applyStoredPrefs(persist.mock.calls[0]?.[0])
+      expect(second.prefs().editor).toBe('code')
+      second.openFileInEditor('/workspace/b.ts')
+      expect(fileEditor).toHaveBeenLastCalledWith('/workspace/b.ts', 'code')
+    } finally { second.dispose() }
+  } finally { tui.dispose(); choices.mockRestore(); fileEditor.mockRestore(); promptEditor.mockRestore() }
 })

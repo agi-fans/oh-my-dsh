@@ -5,7 +5,7 @@
  * @module @agi-fans/oh-my-dsh
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { FiberState, Context } from '@deepseek-ai/cordis'
 import {
   boot, createRuntimeResolution, installFailLoud, PluginPackages, type ProfileContext,
 } from '@deepseek-ai/dsh-app-boot'
@@ -57,15 +57,18 @@ export async function runOmdsh(
     overlays: composed.overlays,
     telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
   }
-  // One immutable package table for this launch: installation packages first
+  // Initial package table: installation packages first
   // (every `@deepseek-ai/*` and `@agi-fans/dsh-tui` module resolves from the
   // omdsh installation), then the Profile's own `node_modules`, then the
-  // Profile's linked roots. No fallback links are created.
+  // Profile's linked roots. Runtime plugin operations publish later tables;
+  // already retained compositions keep their revisions. No fallback links are created.
   const resolution = await createRuntimeResolution({
     installAnchor: INSTALL_ANCHOR,
     profile: composed.profile,
     home,
   })
+  let ready = false
+  const readyListeners = new Set<() => void>()
   const ctx = await boot(NAME, composed.rootConfig, structuredClone(composed.patches), async (hostCtx) => {
     app.current = hostCtx
     hostCtx.provide('profileContext', profileContext)
@@ -74,8 +77,19 @@ export async function runOmdsh(
     provideCmdline(hostCtx, {
       args: resume === undefined ? prompt : ['--resume', resume],
       exit: (code) => { void shutdown.shutdown(code) },
+      ready: { onReady(listener) {
+        if (ready) { listener(); return () => {} }
+        readyListeners.add(listener)
+        return () => { readyListeners.delete(listener) }
+      } },
     })
   })
   app.current = ctx
+  // FiberState is a published const enum, absent from native ESM exports.
+  if (ctx.fiber.state === (2 as FiberState.ACTIVE) && ctx.get('loader') !== undefined) {
+    ready = true
+    for (const listener of readyListeners) listener()
+  }
+  readyListeners.clear()
   return { ctx, shutdown }
 }

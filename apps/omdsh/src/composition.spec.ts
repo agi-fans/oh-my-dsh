@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { spawnPnpm } from './test-support/pnpm.ts'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -343,8 +344,7 @@ describe('boot patch assembly', () => {
 describe('dsh spine expansion', () => {
   const EXPANDED_IDS = [
     'system-prompt', 'tools', 'skill', 'skill-filesystem', 'llm-retry', 'goal', 'tool-goal',
-    'goal-round-driver', 'jobs', 'invariants', 'session-invariant', 'agent-invariant',
-    'scope-invariant', 'agent-loop-invariant', 'shell-env', 'tool-bash', 'agent-instructions',
+    'goal-round-driver', 'jobs', 'shell-env', 'tool-bash', 'agent-instructions',
     'tool-skill', 'tool-jobs', 'agent-loop',
   ]
   const FOUNDATION_IDS = ['timer', 'llm', 'session', 'session-projection', 'session-title', 'agent']
@@ -354,6 +354,18 @@ describe('dsh spine expansion', () => {
     const product = patches[0] as { insert?: Array<{ id?: string; name?: string; config?: unknown }> }
     return product.insert ?? []
   }
+
+  it('resolves every shipped DeepSeek plugin to an existing published entry', () => {
+    const require = createRequire(import.meta.url)
+    const rows = [...productRows(), ...['minimal', 'standard', 'code', 'cordis'].flatMap(presetPlugins)]
+    const names = new Set(pluginTree(rows as PresetPluginRow[])
+      .map(row => row.name)
+      .filter((name): name is string => name?.startsWith('@deepseek-ai/') === true))
+    expect(names.size).toBeGreaterThan(0)
+    for (const name of names) {
+      expect(existsSync(require.resolve(name)), name).toBe(true)
+    }
+  })
 
   it('replaces the spine row with exactly the explicit expansion rows', () => {
     const rows = productRows()
@@ -376,9 +388,11 @@ describe('dsh spine expansion', () => {
     expect(productRows().some(entry => entry.id === 'subprocess')).toBe(true)
   })
 
-  it('keeps user questions blocking until the TUI supports timed replies', () => {
+  it('offers timed questions with an explicit default wait', () => {
     const row = productRows().find(entry => entry.id === 'tool-ask-user')
-    expect(row?.config).toEqual({ mode: 'legacy' })
+    expect(row?.config).toEqual({ mode: 'timed', timeout: 120 })
+    const runtime = productRows().find(entry => entry.id === 'ptc-runtime')
+    expect((runtime?.config as { timeoutMs?: number })?.timeoutMs).toBeGreaterThan(120_000)
   })
 
   it('maps each expansion row id to its owning package', () => {
@@ -394,11 +408,6 @@ describe('dsh spine expansion', () => {
       'tool-goal': '@deepseek-ai/dsh-tool-goal',
       'goal-round-driver': '@deepseek-ai/dsh-goal-round-driver',
       'jobs': '@deepseek-ai/dsh-jobs-local',
-      'invariants': '@deepseek-ai/dsh-invariants',
-      'session-invariant': '@deepseek-ai/dsh-session/invariant',
-      'agent-invariant': '@deepseek-ai/dsh-agent/invariant',
-      'scope-invariant': '@deepseek-ai/dsh-scope/invariant',
-      'agent-loop-invariant': '@deepseek-ai/dsh-agent-loop/invariant',
       'shell-env': '@deepseek-ai/dsh-shell-env',
       'tool-bash': '@deepseek-ai/dsh-tool-bash',
       'agent-instructions': '@deepseek-ai/dsh-agent-instructions',
@@ -555,6 +564,9 @@ describe('upstream capability adaptation rows', () => {
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
     expect(rows[index('terminal')]?.name).toBe('@deepseek-ai/dsh-terminal')
     expect(rows[index('terminal-bash')]?.name).toBe('@deepseek-ai/dsh-terminal-bash')
+    expect(interpolate({} as Context, rows[index('terminal-bash')]?.config)).toEqual({
+      shellDialect: process.platform === 'win32' ? 'pwsh' : 'bash',
+    })
     expect(rows[index('tool-terminal')]?.name).toBe('@deepseek-ai/dsh-tool-terminal')
     // Background sends need the jobs service, so tool-terminal follows it.
     expect(index('tool-jobs')).toBeLessThan(index('terminal'))

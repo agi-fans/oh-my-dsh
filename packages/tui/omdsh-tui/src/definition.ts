@@ -14,7 +14,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { StreamDelta } from './views/event-views.ts'
 import type { TuiPrefs } from './views/settings-list.ts'
-import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 
 /** Context service name providers publish under. */
@@ -96,7 +96,13 @@ export interface TuiPrompt {
   /** Option value selected when a fixed-choice prompt opens. */
   initialValue?: string
   /** Full-height searchable list instead of the default prompt card. */
-  presentation?: 'fullscreen-list' | 'plan-review'
+  presentation?: 'fullscreen-list' | 'plan-review' | 'document'
+  /** Suppress attention notifications for user-initiated browsing surfaces. */
+  notify?: boolean
+  /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
+  refreshDocument?: () => string
+  /** Open a live document at its latest rows. */
+  documentTail?: boolean
   /** Row density for full-screen lists; compact rows keep short choices together. */
   optionLayout?: 'compact' | 'spacious'
   /** Choice that approves a dedicated review; other choices may collect feedback. */
@@ -105,6 +111,14 @@ export interface TuiPrompt {
   filterable?: boolean
   /** Verb shown after Enter in selector navigation, such as "run". */
   submitLabel?: string
+  /** Dismissing an answerable question leaves it pending rather than cancelling it. */
+  dismissLabel?: string
+  /** Ctrl+S submits an explicit empty answer for this question. */
+  skippable?: boolean
+  /** Local countdown for a claimed Harness wait; editing or Ctrl+T holds the wait. */
+  wait?: { deadline: number; hold(): void }
+  /** Distinguish Ctrl+C interruption from dismissing an answerable question. */
+  interrupt?(): void
   signal?: AbortSignal
 }
 
@@ -118,6 +132,8 @@ export interface TuiSessionControls {
   permission?: string
   /** Current durable goal; absent before the first goal and after a clear or completion. */
   goal?: TuiGoalStatus
+  /** Unanswered continued questions from the Harness projection. */
+  pendingQuestions?: number
 }
 
 /**
@@ -171,11 +187,22 @@ export interface TuiSubagentView {
   /** First durable event and latest hydrated or changed activity/state timestamps. */
   readonly startedAt?: number
   readonly updatedAt?: number
+  readonly workflow?: { name: string; phase?: string; outcome?: 'completed' | 'failed' | 'cancelled' }
+}
+
+export interface TuiWorkflowRun {
+  readonly id: string
+  readonly name: string
+  /** Open is a durable record without an end, not proof a restored worker is running. */
+  readonly status: string
+  readonly phase?: string
+  readonly members: readonly { seq: number; childId: string; label: string; phase?: string; outcome?: 'completed' | 'failed' | 'cancelled' }[]
 }
 
 /** Live descendant roster for the active root session. */
 export interface TuiSubagentRoster {
   readonly agents: readonly TuiSubagentView[]
+  readonly workflows?: readonly TuiWorkflowRun[]
 }
 
 /** The descendant whose own transcript currently replaces the parent view. */
@@ -238,6 +265,7 @@ export interface TuiInputImage {
 export interface TuiSubmission {
   text: string
   images: readonly TuiInputImage[]
+  files?: readonly FileAttachmentRef[]
 }
 
 /** Product-owned language preference projected into the settings overlay. */
@@ -257,6 +285,12 @@ export interface TuiAgentBehaviorSettingsBinding {
  * Implementations must be single-consumer: one runner owns readInput().
  */
 export interface TuiService {
+  /** True when the provider owns a keyboard-driven terminal viewport. */
+  readonly interactive?: boolean
+  /** Hand the terminal to the configured editor, then restore the live viewport. */
+  openFileInEditor?(path: string): void
+  /** Add a durably stored file to the editable composer; sending remains explicit. */
+  stageFileAttachment?(file: FileAttachmentRef): void
   /**
    * Render one session-log event (streamed as recorded).
    *

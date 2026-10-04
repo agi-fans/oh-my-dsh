@@ -8,7 +8,7 @@ import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtens
 import { BOX, SYMBOL, type Theme } from './theme.ts'
 import { highlightCodeLines } from './code-highlight.ts'
 import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
-import { expandTabs, padToWidth, visibleWidth, wrapText } from './width.ts'
+import { expandTabs, graphemeWidth, stripAnsi, visibleWidth, wrapCode, wrapText, wrapTextStable } from './width.ts'
 
 export type { MarkdownStyle } from './md-style.ts'
 
@@ -337,41 +337,41 @@ function flowLines(token: Token, theme: Theme, width: number, style?: MarkdownSt
   return renderBlock(token, theme, width, 0, style, depth)
 }
 
+const tableSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 function renderTable(token: Tokens.Table, theme: Theme, width: number): string[] {
-  const header = token.header.map(cell => theme.bold(renderInlineTokens(cell.tokens, theme)))
-  const rows = token.rows.map(row => row.map(cell => renderInlineTokens(cell.tokens, theme)))
+  const renderCell = (cell: Tokens.TableCell): string => expandTabs(renderInlineTokens(cell.tokens, theme), 8, 0)
+  const header = token.header.map(renderCell)
+  const rows = token.rows.map(row => row.map(renderCell))
   const cols = header.length
   if (cols === 0) return []
   const borderOverhead = 3 * cols + 1
   const available = width - borderOverhead
-  if (available < cols) {
-    const raw = [
-      '| ' + token.header.map(cell => cell.text).join(' | ') + ' |',
-      ...token.rows.map(row => '| ' + row.map(cell => cell.text).join(' | ') + ' |'),
-    ]
-    return raw.flatMap(line => wrapStyled(theme.fg('dim', line), width))
-  }
+  const fallback = (): string[] => wrapTextStable(theme.fg('dim', token.raw.trimEnd()), width)
+  if (available < cols) return fallback()
 
-  const natural = Array.from({ length: cols }, (_, i) => {
-    let max = visibleWidth(header[i] ?? '')
-    for (const row of rows) max = Math.max(max, visibleWidth(row[i] ?? ''))
-    return Math.max(1, max)
-  })
+  const columns = Array.from({ length: cols }, (_, i) => [header[i] ?? '', ...rows.map(row => row[i] ?? '')])
+  // A wide grapheme cannot be split into a one-cell column.
+  const floors = columns.map(cells => Math.max(1, ...cells.map(text => {
+    let widest = 1
+    for (const { segment } of tableSegmenter.segment(stripAnsi(text))) widest = Math.max(widest, graphemeWidth(segment))
+    return widest
+  })))
+  const floorTotal = floors.reduce((total, value) => total + value, 0)
+  if (available < floorTotal) return fallback()
+
+  const natural = columns.map(cells => Math.max(1, ...cells.flatMap(text => text.split('\n').map(visibleWidth))))
   const longestWord = (text: string): number => Math.min(
     30,
     Math.max(1, ...text.split(/\s+/u).filter(Boolean).map(word => visibleWidth(word))),
   )
-  let minimums = Array.from({ length: cols }, (_, i) => {
-    let max = longestWord(header[i] ?? '')
-    for (const row of rows) max = Math.max(max, longestWord(row[i] ?? ''))
-    return max
-  })
+  let minimums = columns.map((cells, i) => Math.max(floors[i] ?? 1, ...cells.map(longestWord)))
   let minimumTotal = minimums.reduce((total, value) => total + value, 0)
   if (minimumTotal > available) {
-    const remaining = available - cols
-    const weight = minimums.reduce((total, value) => total + Math.max(0, value - 1), 0)
-    minimums = minimums.map(value => 1 + (weight > 0
-      ? Math.floor((Math.max(0, value - 1) / weight) * remaining)
+    const remaining = available - floorTotal
+    const weight = minimums.reduce((total, value, i) => total + Math.max(0, value - (floors[i] ?? 1)), 0)
+    minimums = minimums.map((value, i) => (floors[i] ?? 1) + (weight > 0
+      ? Math.floor((Math.max(0, value - (floors[i] ?? 1)) / weight) * remaining)
       : 0))
     let leftover = available - minimums.reduce((total, value) => total + value, 0)
     for (let i = 0; leftover > 0 && i < cols; i += 1, leftover -= 1) {
@@ -406,15 +406,21 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
   const v = theme.fg('borderMuted', BOX.vertical)
   const join = (left: string, fill: string[], mid: string, right: string): string =>
     theme.fg('borderMuted', left + h + fill.join(h + mid + h) + h + right)
-  const wrapCell = (text: string, col: number): string[] => wrapText(text, widths[col] ?? 1)
+  const wrapCell = (text: string, col: number): string[] => wrapTextStable(text, widths[col] ?? 1)
   const paintRow = (cells: string[][], emphasize: boolean): string[] => {
     const height = Math.max(1, ...cells.map(parts => parts.length))
     const out: string[] = []
     for (let row = 0; row < height; row += 1) {
       const parts = cells.map((parts, i) => {
         const text = parts[row] ?? ''
-        const padded = padToWidth(text, widths[i] ?? 1)
-        return emphasize ? theme.bold(padded) : padded
+        const gap = Math.max(0, (widths[i] ?? 1) - visibleWidth(text))
+        const align = token.align[i]
+        const left = align === 'right' ? gap : align === 'center' ? Math.floor(gap / 2) : 0
+        const ink = emphasize ? theme.bold(text) : text
+        // Each wrapped cell ends before padding and borders; the next segment
+        // reopens its own style and hyperlink instead of inheriting a neighbor.
+        const reset = theme.colors ? '\x1b[22;23;24;27;29;39m\x1b]8;;\x07' : ''
+        return ' '.repeat(left) + ink + reset + ' '.repeat(gap - left)
       })
       out.push(v + ' ' + parts.join(' ' + v + ' ') + ' ' + v)
     }
@@ -459,8 +465,8 @@ function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: Mar
   for (let i = 0; i < rows.length; i += 1) {
     const body = highlighted[i] ?? ''
     // Tabs resolve against the column the rail already occupies.
-    const wrapped = body === '' ? [''] : wrapStyled(expandTabs(body, 8, CODE_GUTTER), inner)
-    for (const line of wrapped) lines.push(rail + line)
+    const wrapped = wrapCode(expandTabs(body, 8, CODE_GUTTER), inner)
+    for (const line of wrapped) lines.push(rail + line + (theme.colors ? '\x1b[39m' + openBase(theme, style) : ''))
   }
   return lines
 }

@@ -27,6 +27,8 @@ import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { ComposerFiles } from '../input/composer-files.ts'
 import {
   defaultFeatureStates,
   featurePatchPath,
@@ -102,8 +104,10 @@ import {
   applySettingsEvent,
   createSettings,
   type SettingsState,
+  type PluginSettingsEntry,
   type TuiPrefs,
 } from '../views/settings-list.ts'
+import { editPluginSettings, pluginSettingsEntries } from './plugin-settings.ts'
 import {
   appendTrajectoryEvent,
   applyTrajectoryEvent,
@@ -156,7 +160,8 @@ import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSetti
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
-import { editExternally } from '../input/external-editor.ts'
+import { discoverEditors, type EditorId } from '../input/editor-discovery.ts'
+import { editExternally, editFileExternally } from '../input/external-editor.ts'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -274,6 +279,13 @@ export interface TerminalLike {
 type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
+  offTick?: () => void
+  savedInput: { text: string; cursor: number }
+}
+
+interface PluginSettingsBinding {
+  entries(): readonly PluginSettingsEntry[]
+  edit(id: string, signal: AbortSignal): Promise<void>
 }
 
 /** One overlay surface displaced by an in-flight human prompt. */
@@ -322,6 +334,22 @@ function firstReshapedRow(before: readonly FoldMark[], after: readonly FoldMark[
 }
 
 export class LocalTui implements TuiService {
+  get interactive(): boolean { return this.#tty }
+
+  openFileInEditor(path: string): void {
+    if (!this.#tty) throw new Error('Opening an editor requires an interactive terminal.')
+    try {
+      this.#setMouseTracking(false)
+      this.#term.input.setRawMode?.(false)
+      editFileExternally(path, this.#externalEditor)
+    } finally {
+      if (!this.#disposed) {
+        this.#term.input.setRawMode?.(true)
+        this.#renderer.reset()
+        this.#render()
+      }
+    }
+  }
   #deferInitialRender = false
   readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
   readonly #resizeDebounceMs: number
@@ -337,6 +365,14 @@ export class LocalTui implements TuiService {
   readonly #renderer: MainScreenRenderer
   #state: TranscriptState = initialTranscript()
   readonly #editor = new InputEditor()
+  readonly #files = new ComposerFiles({ text: () => this.#editor.text,
+    append: marker => { const text = this.#editor.text; this.#editor.setText(text + (text === '' ? '' : ' ') + marker) } })
+
+  stageFileAttachment(file: FileAttachmentRef): void {
+    this.#files.add(file)
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
   #history: string[] = []
   #historyIndex = 0
   #draft = ''
@@ -403,6 +439,7 @@ export class LocalTui implements TuiService {
   #focusBlock: number | undefined
   #focusBlockEdge: 'start' | 'end' | undefined
   #motion: MotionMode = 'full'
+  #externalEditor: EditorId = 'auto'
   #terminalProgress = false
   #terminalProgressActive = false
   #terminalProgressTick: ReturnType<typeof setInterval> | null = null
@@ -440,6 +477,9 @@ export class LocalTui implements TuiService {
   #tools: ToolInfo[] = []
   #runtimeCommands: TuiCommand[] = []
   #prompt: PendingPrompt | null = null
+  #pluginSettings: PluginSettingsBinding | undefined
+  #pluginSettingsAbort: AbortController | undefined
+  #pluginSettingsTask: Promise<void> | undefined
   /**
    * The overlay surface displaced by an in-flight prompt: while a human
    * prompt owns the keyboard, its screen must not compete with a stale
@@ -860,22 +900,46 @@ export class LocalTui implements TuiService {
   prompt(request: TuiPrompt): Promise<string | null> {
     if (this.#prompt !== null) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
-    this.#emitNotification(this.#notifications.humanPrompt())
+    if (request.notify !== false) this.#emitNotification(this.#notifications.humanPrompt())
     this.#herdr.prompt(request.title)
+    const savedInput = { text: this.#editor.text, cursor: this.#editor.cursor }
     this.#editor.setText('')
     this.#ac = null
     const displaced = this.#displaceSurface()
     return new Promise((resolve) => {
       const selected = Math.max(0, request.options?.findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
-      const pending: PendingPrompt = { request, selected, checked: new Set(), resolve }
+      const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
+        ...(request.documentTail === true ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
       if (request.signal !== undefined) {
-        const onAbort = (): void => { this.#finishPrompt(null) }
+        const onAbort = (): void => {
+          this.#finishPrompt(null)
+          if (this.#tty && !this.#disposed) this.#render()
+        }
         request.signal.addEventListener('abort', onAbort, { once: true })
         pending.offAbort = () => { request.signal?.removeEventListener('abort', onAbort) }
       }
       this.#prompt = pending
       this.#promptDisplaced = displaced
+      if (this.#tty && request.wait !== undefined && request.refreshDocument === undefined) {
+        const tick = setInterval(() => { if (!this.#disposed) this.#render() }, 1_000)
+        pending.offTick = () => { clearInterval(tick) }
+      }
+      if (this.#tty && request.refreshDocument !== undefined) {
+        const tick = setInterval(() => {
+          if (this.#disposed || this.#prompt === null) return
+          try {
+            const detail = request.refreshDocument?.()
+            if (detail === undefined || detail === this.#prompt.request.detail) return
+            this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, detail } }
+            this.#render()
+          } catch (error) {
+            this.#finishPrompt(null)
+            this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+          }
+        }, 250)
+        pending.offTick = () => { clearInterval(tick) }
+      }
       if (this.#tty) {
         this.#render()
       } else {
@@ -890,6 +954,7 @@ export class LocalTui implements TuiService {
               ? 'Choose labels/numbers separated by commas, or type a custom answer.'
               : 'Choose a label/number, or type a custom answer.')
         }
+        if (request.skippable === true) lines.push('', 'A blank line skips this question.')
         this.notice(`${request.title}\n${lines.join('\n')}`)
       }
     })
@@ -976,6 +1041,7 @@ export class LocalTui implements TuiService {
       theme: this.#themeName,
       colors: this.#colors,
       motion: this.#motion,
+      editor: this.#externalEditor,
       terminalProgress: this.#terminalProgress,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
@@ -998,6 +1064,20 @@ export class LocalTui implements TuiService {
     this.#persistPrefs = persist
   }
 
+  /** Bind the native Plugins section; unbinding cancels and drains its active form. */
+  bindPluginSettings(binding: PluginSettingsBinding): () => Promise<void> {
+    if (this.#pluginSettings !== undefined) throw new Error('omdsh-tui: Plugin settings are already bound')
+    this.#pluginSettings = binding
+    return async () => {
+      if (this.#pluginSettings !== binding) return
+      this.#pluginSettings = undefined
+      this.#pluginSettingsAbort?.abort()
+      await this.#pluginSettingsTask
+      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, undefined, discoverEditors(this.#externalEditor))
+      if (this.#tty && !this.#disposed) this.#render()
+    }
+  }
+
   bindAgentBehaviorSettings(binding: TuiAgentBehaviorSettingsBinding): () => void {
     if (this.#updateAgentBehavior !== undefined) {
       throw new Error('omdsh-tui: Agent behavior settings are already bound')
@@ -1014,7 +1094,7 @@ export class LocalTui implements TuiService {
       this.#updateAgentBehavior = undefined
       this.#agentBehavior = undefined
       this.#agentBehaviorPending = false
-      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features)
+      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor))
       if (this.#tty && !this.#disposed) this.#render()
     }
   }
@@ -1058,6 +1138,7 @@ export class LocalTui implements TuiService {
 
   restoreInput(submission: TuiSubmission): void {
     this.#images.restore(submission)
+    for (const file of submission.files ?? []) this.#files.add(file)
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -1079,14 +1160,17 @@ export class LocalTui implements TuiService {
   }
 
   #currentSubmission(): TuiSubmission {
+    const files = this.#files.copies()
     return {
-      text: this.#editor.text,
+      text: this.#files.text(this.#editor.text),
       images: this.#images.copies(),
+      ...(files.length === 0 ? {} : { files }),
     }
   }
 
   #replaceInput(submission: TuiSubmission): void {
     this.#images.replace(submission)
+    this.#files.restore(submission.files)
     this.#historyIndex = 0
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
@@ -1125,6 +1209,7 @@ export class LocalTui implements TuiService {
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
+    this.#pluginSettingsAbort?.abort()
     if (this.#resizeTimer !== null) {
       clearTimeout(this.#resizeTimer)
       this.#resizeTimer = null
@@ -1519,6 +1604,12 @@ export class LocalTui implements TuiService {
 
   async #acceptPastedText(text: string): Promise<void> {
     if (this.#prompt !== null) {
+      const prompt = this.#prompt
+      if (prompt.request.wait !== undefined && prompt.waitHeld !== true) {
+        prompt.request.wait.hold()
+        prompt.offTick?.()
+        this.#prompt = { ...prompt, waitHeld: true }
+      }
       this.#editor.handle({ type: 'text', value: text })
       this.#render()
       return
@@ -1734,6 +1825,7 @@ export class LocalTui implements TuiService {
       } else {
         this.#editor.clear()
         this.#images.clear()
+        this.#files.clear()
         this.#historyIndex = 0
         this.#ac = null
         this.#render()
@@ -1762,6 +1854,7 @@ export class LocalTui implements TuiService {
         if (this.#inspected.writable === true && (this.#editor.text !== '' || this.#images.count > 0)) {
           this.#editor.clear()
           this.#images.clear()
+          this.#files.clear()
           this.#ac = null
           this.#render()
           return
@@ -1793,9 +1886,34 @@ export class LocalTui implements TuiService {
   }
 
   #handlePrompt(event: KeyEvent): boolean {
-    const prompt = this.#prompt
+    let prompt = this.#prompt
     if (prompt === null) return false
-    if (prompt.request.presentation === 'plan-review') return this.#handlePlanReview(event, prompt)
+    if (event.type === 'key' && event.id === 'ctrl+c' && prompt.request.interrupt !== undefined) {
+      this.#lastSigintTime = Date.now()
+      prompt.request.interrupt()
+      this.#finishPrompt(null)
+      if (this.#state.status !== 'idle') for (const listener of this.#interrupts) listener()
+      this.#render()
+      return true
+    }
+    if (event.type === 'key' && event.id === 'ctrl+s' && prompt.request.skippable === true) {
+      this.#editor.setText('')
+      this.#finishPrompt('')
+      this.#render()
+      return true
+    }
+    const takeTime = event.type === 'key' && event.id === 'ctrl+t'
+    const editing = event.type === 'text' || (event.type === 'key'
+      && ['backspace', 'delete', 'up', 'down', 'tab', 'shift+tab'].includes(event.id))
+    if (prompt.request.wait !== undefined && prompt.waitHeld !== true && (takeTime || editing)) {
+      prompt.request.wait.hold()
+      prompt.offTick?.()
+      prompt = { ...prompt, waitHeld: true }
+      this.#prompt = prompt
+      this.#render()
+    }
+    if (takeTime && prompt.request.wait !== undefined) return true
+    if (prompt.request.presentation === 'plan-review' || prompt.request.presentation === 'document') return this.#handlePlanReview(event, prompt)
     if (event.type === 'text' && this.#editor.text === '') {
       const action = prompt.request.actions?.find(item => item.key === event.value)
       const selected = filteredPromptOptions(prompt.request, '')[prompt.selected]
@@ -1858,8 +1976,9 @@ export class LocalTui implements TuiService {
       return true
     }
     if (event.id === 'enter' && prompt.request.filterable === true) {
-      this.#finishPrompt(selectedFilteredPromptAnswer(prompt, this.#editor.text))
+      const answer = selectedFilteredPromptAnswer(prompt, this.#editor.text)
       this.#editor.setText('')
+      this.#finishPrompt(answer)
       this.#render()
       return true
     }
@@ -1875,6 +1994,12 @@ export class LocalTui implements TuiService {
   }
 
   #handlePlanReview(event: KeyEvent, prompt: PendingPrompt): boolean {
+    const document = prompt.request.presentation === 'document'
+    if (document && event.type === 'text') {
+      const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.value.toLowerCase())
+      if (action !== undefined) { this.#finishPrompt(action.valuePrefix); this.#render() }
+      return true
+    }
     if (prompt.feedback === true) {
       if (event.type === 'key' && event.id === 'ctrl+c') {
         this.#editor.setText('')
@@ -1915,11 +2040,11 @@ export class LocalTui implements TuiService {
     else if (event.id === 'pageUp') documentScroll = (scroll?.start ?? 0) - (scroll?.pageSize ?? 8)
     else if (event.id === 'pageDown') documentScroll = (scroll?.start ?? 0) + (scroll?.pageSize ?? 8)
     else if (event.id === 'home') documentScroll = 0
-    else if (event.id === 'end') documentScroll = scroll?.maxStart ?? prompt.documentScroll ?? 0
+    else if (event.id === 'end') documentScroll = prompt.request.documentTail === true ? Number.POSITIVE_INFINITY : scroll?.maxStart ?? prompt.documentScroll ?? 0
     if (documentScroll !== undefined) {
       this.#prompt = {
         ...prompt,
-        documentScroll: Math.max(0, Math.min(documentScroll, scroll?.maxStart ?? Number.POSITIVE_INFINITY)),
+        documentScroll: documentScroll === Number.POSITIVE_INFINITY ? documentScroll : Math.max(0, Math.min(documentScroll, scroll?.maxStart ?? Number.POSITIVE_INFINITY)),
       }
       this.#render()
       return true
@@ -1939,7 +2064,7 @@ export class LocalTui implements TuiService {
       if (answer === null) return true
       const approve = prompt.request.approveValue ?? prompt.request.options?.[0]?.value
         ?? prompt.request.options?.[0]?.label
-      if (answer === approve) {
+      if (document || answer === approve) {
         this.#finishPrompt(answer)
       } else {
         this.#editor.setText('')
@@ -1995,7 +2120,7 @@ export class LocalTui implements TuiService {
   #pickSubagent(): void {
     this.#subagentLauncherFocused = false
     const agents = this.#subagents?.agents ?? []
-    if (agents.length === 0) {
+    if (agents.length === 0 && !this.#subagents?.workflows?.length) {
       this.notice('No subagents are available in this session.')
       return
     }
@@ -2005,7 +2130,7 @@ export class LocalTui implements TuiService {
     this.#search = null
     this.#trajectory = null
     this.#ac = null
-    this.#agentHub = createAgentHub({ agents })
+    this.#agentHub = createAgentHub(this.#subagents ?? { agents })
     this.#render()
   }
 
@@ -2015,6 +2140,7 @@ export class LocalTui implements TuiService {
     this.#colors = prefs.colors
     this.#syncTrueColor()
     this.#motion = prefs.motion ?? 'full'
+    this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalProgress = prefs.terminalProgress ?? false
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -2085,7 +2211,12 @@ export class LocalTui implements TuiService {
 
   #applySettings(event: KeyEvent): void {
     if (this.#settings === null) return
+    if (this.#pluginSettingsTask !== undefined) return
     const command = applySettingsEvent(this.#settings, event)
+    if (command.kind === 'open-plugin') {
+      this.#openPluginSettings(command.id)
+      return
+    }
     if (command.kind === 'update') {
       this.#settings = command.state
       this.#render()
@@ -2117,6 +2248,23 @@ export class LocalTui implements TuiService {
       this.#settings = null
       this.#render()
     }
+  }
+
+  #openPluginSettings(id: string): void {
+    const binding = this.#pluginSettings
+    if (binding === undefined) return
+    const closing = new AbortController()
+    this.#pluginSettingsAbort = closing
+    this.#pluginSettingsTask = Promise.resolve().then(() => binding.edit(id, closing.signal)).catch((error: unknown) => {
+      if (!closing.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    }).finally(() => {
+      this.#pluginSettingsAbort = undefined
+      this.#pluginSettingsTask = undefined
+      if (this.#settings !== null) this.#settings = { ...this.#settings, prefs: this.prefs(),
+        ...(this.#agentBehavior === undefined ? {} : { agent: this.#agentBehavior }),
+        ...(this.#features === undefined ? {} : { features: this.#features }), plugins: this.#pluginSettings?.entries() ?? [] }
+      if (this.#tty && !this.#disposed) this.#render()
+    })
   }
 
   #applyCopySelector(event: KeyEvent): void {
@@ -2348,6 +2496,7 @@ export class LocalTui implements TuiService {
     if (command.kind === 'clear') {
       this.#editor.clear()
       this.#images.clear()
+      this.#files.clear()
       this.#queueEditNewer = null
       this.#queueEditPending = false
       this.#historyIndex = 0
@@ -2448,7 +2597,9 @@ export class LocalTui implements TuiService {
       return
     }
     const images = this.#images.copies()
-    const submittedText = images.length > 0 ? text.trim() : text
+    const files = this.#files.copies()
+    const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
+    const submission = { text: submittedText, images, ...(files.length === 0 ? {} : { files }) }
     const queueEditNewer = this.#queueEditNewer
     const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
@@ -2463,6 +2614,7 @@ export class LocalTui implements TuiService {
     this.#queueEditPending = false
     this.#editor.setText('')
     this.#images.clear()
+    this.#files.clear()
     this.#ac = null
     this.#search = null
     this.#settings = null
@@ -2472,7 +2624,7 @@ export class LocalTui implements TuiService {
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
     // them only to detect and execute Harness commands.
-    const slash = images.length === 0 ? parseSlashInput(submittedText) : null
+    const slash = images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
       this.#runSlash(slash.name, slash.args)
@@ -2483,11 +2635,11 @@ export class LocalTui implements TuiService {
     if (pending !== null) {
       pending.offAbort?.()
       this.#pending = null
-      pending.resolve({ text: submittedText, images })
+      pending.resolve(submission)
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
-    } else if (submittedText !== '' || images.length > 0 || queueEditNewer !== null) {
-      if (submittedText !== '' || images.length > 0) {
-        this.#queuedSubmissions.push({ text: submittedText, images })
+    } else if (submittedText !== '' || images.length > 0 || files.length > 0 || queueEditNewer !== null) {
+      if (submittedText !== '' || images.length > 0 || files.length > 0) {
+        this.#queuedSubmissions.push(submission)
       }
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
     }
@@ -2496,7 +2648,8 @@ export class LocalTui implements TuiService {
 
   #submitInspect(text: string): void {
     const images = this.#images.copies()
-    const submittedText = images.length > 0 ? text.trim() : text
+    const files = this.#files.copies()
+    const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
     const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
       .trim()
@@ -2508,19 +2661,20 @@ export class LocalTui implements TuiService {
     this.#draft = ''
     this.#editor.setText('')
     this.#images.clear()
+    this.#files.clear()
     this.#ac = null
     this.#search = null
-    const slash = images.length === 0 ? parseSlashInput(submittedText) : null
+    const slash = images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       this.#runSlash(slash.name, slash.args)
       return
     }
     this.#followTail()
-    if (submittedText === '' && images.length === 0) {
+    if (submittedText === '' && images.length === 0 && files.length === 0) {
       this.#render()
       return
     }
-    for (const listener of this.#inspectSubmits) listener({ text: submittedText, images })
+    for (const listener of this.#inspectSubmits) listener({ text: submittedText, images, ...(files.length === 0 ? {} : { files }) })
     this.#render()
   }
 
@@ -2634,6 +2788,8 @@ export class LocalTui implements TuiService {
     this.#prompt = null
     this.#herdr.promptResolved()
     pending.offAbort?.()
+    pending.offTick?.()
+    this.#editor.setText(pending.savedInput.text, pending.savedInput.cursor)
     pending.resolve(answer)
     this.#restoreDisplacedSurface()
   }
@@ -2707,7 +2863,7 @@ export class LocalTui implements TuiService {
     }
     this.#search = null
     this.#ac = null
-    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features)
+    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor))
     this.#render()
   }
 
@@ -2753,6 +2909,13 @@ export class LocalTui implements TuiService {
   /** Run one configured action; returns true when the event was consumed. */
   #runAction(action: TuiAction): boolean {
     if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (action === 'review-changes') {
+      const anchor = this.#viewportBlock() ?? this.#state.blocks.length - 1
+      const nextUser = this.#state.blocks.findIndex((block, index) => index > anchor && block.kind === 'user')
+      const workspace = this.#state.blocks.slice(0, nextUser < 0 ? undefined : nextUser).findLast(block => block.kind === 'workspace')
+      this.#runSlash('diff', workspace?.kind === 'workspace' ? `turn ${workspace.turn}` : '')
+      return true
+    }
     if (action === 'scroll-page-up') {
       if (this.#search !== null) return false
       this.#scrollBy(-this.#pageSize())
@@ -2839,7 +3002,7 @@ export class LocalTui implements TuiService {
     try {
       this.#setMouseTracking(false)
       this.#term.input.setRawMode?.(false)
-      const text = editExternally(this.#editor.text)
+      const text = editExternally(this.#editor.text, this.#externalEditor)
       this.#editor.setText(text)
       this.#images.reconcile()
     } catch (error: unknown) {
@@ -3034,6 +3197,7 @@ export function apply(ctx: Context, config: Config): void {
       theme: config.theme.get(),
       colors: resolveColors(config.colors.get(), term.output.isTTY === true),
       motion: config.motion.get(),
+      editor: config.editor.get(),
       terminalProgress: config.terminalProgress.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
@@ -3057,5 +3221,11 @@ export function apply(ctx: Context, config: Config): void {
       void settingsCtx.settings.mutate(TUI_SETTINGS_ENTRY, ops)
         .catch((error: unknown) => { settingsCtx.logger.warn(error) })
     })
+  })
+  ctx.inject(['settings', 'credentials'], (settingsCtx) => {
+    settingsCtx.effect(() => tui.bindPluginSettings({
+      entries: () => pluginSettingsEntries(settingsCtx),
+      edit: (id, signal) => editPluginSettings(settingsCtx, id, signal),
+    }))
   })
 }

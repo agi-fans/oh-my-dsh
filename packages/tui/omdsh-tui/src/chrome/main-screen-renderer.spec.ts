@@ -1165,6 +1165,26 @@ describe('MainScreenRenderer', () => {
 })
 
 describe('MainScreenRenderer reflow', () => {
+  it('repaints a fold beginning at the frozen boundary without adding a blank prefix', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(emu, { width: 80, height: 8 })
+    const opened = ['prompt', ...Array.from({ length: 10 }, (_, i) => `tool-${i}`), 'answer', 'composer', 'footer']
+    renderer.render(frame(opened, 1))
+    const history = [...emu.scrollback]
+    expect(history).toEqual(['prompt'])
+
+    const closed = ['prompt', 'run folded', 'answer', '', '', '', 'composer', 'footer']
+    renderer.reflow(1)
+    renderer.render(frame(closed, 6))
+    expect(emu.visible()).toEqual(closed)
+    renderer.render(frame(closed, 6))
+    expect(emu.visible()).toEqual(closed)
+    renderer.render(frame(['inspection'], 0, { transientSurface: 'scroll' }))
+    renderer.render(frame(closed, 6))
+    expect(emu.visible()).toEqual(closed)
+    expect(emu.scrollback).toEqual(history)
+  })
+
   // A run that opened pushed its rows into native history; closing it makes the
   // document above the screen shorter while the frozen boundary still counts
   // the opened rows.

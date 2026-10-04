@@ -5,10 +5,11 @@ import { readFileSync } from 'node:fs'
 export type TuiAction = 'external-editor' | 'retry' | 'paste-clipboard' | 'copy-prompt' | 'copy-line' | 'inspect-subagent'
   | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-reasoning'
   | 'toggle-tools' | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down' | 'search-history'
-  | 'search-transcript' | 'toggle-tool-details'
+  | 'search-transcript' | 'toggle-tool-details' | 'review-changes'
 
 export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.freeze({
   'ctrl+x': 'external-editor',
+  'alt+v': 'review-changes',
   'alt+r': 'retry',
   'ctrl+v': 'paste-clipboard',
   'alt+c': 'copy-prompt',
@@ -31,7 +32,7 @@ const ACTIONS: readonly TuiAction[] = [
   'external-editor', 'retry', 'paste-clipboard', 'copy-prompt', 'copy-line', 'inspect-subagent',
   'cycle-model-forward', 'cycle-model-backward', 'cycle-reasoning',
   'toggle-tools', 'scroll-page-up', 'scroll-page-down', 'scroll-fast-up', 'scroll-fast-down', 'search-history',
-  'search-transcript', 'toggle-tool-details',
+  'search-transcript', 'toggle-tool-details', 'review-changes',
 ]
 
 /** Load `{ "key-id": "action" }`; invalid rows are ignored independently. */

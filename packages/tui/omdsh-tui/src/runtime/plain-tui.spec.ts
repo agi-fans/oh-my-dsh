@@ -75,6 +75,20 @@ describe('PlainTui.readline', () => {
   })
 })
 
+describe('PlainTui explicit question skips', () => {
+  it('distinguishes a blank submitted answer from EOF', async () => {
+    const { term, plain, answers } = make([], { title: 'Question', question: 'Choose', skippable: true })
+    const read = plain.readline()
+    term.input.write('\n')
+    await tick()
+    expect(answers).toEqual([''])
+    term.input.end()
+    expect(await read).toBeNull()
+    expect(answers).toEqual(['', null])
+    plain.dispose()
+  })
+})
+
 describe('PlainTui prompt routing', () => {
   const request: TuiPrompt = {
     title: 'Pick',

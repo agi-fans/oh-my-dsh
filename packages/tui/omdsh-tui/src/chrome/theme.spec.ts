@@ -9,6 +9,7 @@ const THEME_COLORS: readonly ThemeColor[] = [
   'toolDiffRemoved', 'toolDiffContext', 'mdHeading', 'mdLink', 'mdLinkUrl', 'mdCode',
   'mdCodeBlock', 'mdCodeBlockBorder', 'mdKeyword', 'mdQuote', 'mdListBullet',
   'thinkingText', 'customMessageLabel',
+  'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType',
 ]
 
 function sgrLuminance(ansi: string): number {

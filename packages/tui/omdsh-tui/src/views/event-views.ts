@@ -10,6 +10,7 @@
  */
 
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-hook-protocol'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
@@ -54,6 +55,28 @@ const MAX_TOKENS_TOOL_NOTICE = 'Output token limit reached. A partial tool call 
 const INTERRUPTED_NOTICE = 'Session was interrupted before completion.'
 const INTERRUPTED_TOOL_NOTICE = 'Session was interrupted before completion. A partial tool call was not executed.'
 const UNFINISHED_TOOL_OUTPUT = 'No durable tool result was recorded before the turn ended. The tool\'s outcome is unknown.'
+
+/** Render a persisted late-answer batch without exposing its transport envelope. */
+function questionReplyText(text: string): string {
+  const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+  try {
+    const payload: unknown = JSON.parse(text)
+    if (!record(payload) || !Array.isArray(payload.answers) || !Array.isArray(payload.questions)) return text
+    const questions = payload.questions
+    const lines = payload.answers.flatMap((answer: unknown) => {
+      if (!record(answer) || typeof answer.id !== 'string' || !Array.isArray(answer.selected)
+        || !answer.selected.every((value: unknown) => typeof value === 'string')) return []
+      const question: unknown = questions.find((item: unknown) => record(item) && item.id === answer.id)
+      const title = record(question) && typeof question.question === 'string' ? question.question : answer.id
+      const values: string[] = [...answer.selected]
+      if (typeof answer.custom === 'string' && answer.custom !== '') values.push(answer.custom)
+      return [`${title}\n${values.length === 0 ? 'Skipped' : values.join(', ')}`]
+    })
+    return lines.length === 0 ? text : `Answer to pending question\n\n${lines.join('\n\n')}`
+  } catch {
+    return text
+  }
+}
 
 const COMPACTED_NOTICE_PREFIX = 'Context compacted'
 const TRIMMED_NOTICE_PREFIX = 'Context trimmed'
@@ -414,8 +437,10 @@ function foldEvent(
       // Synthetic plugin injections (system-prompt runtime context, skill
       // catalog) reach the surface as user-role messages but are model input,
       // not what the human typed; only human prompts render as transcript.
-      if (event.data.source.kind !== 'user') return state
-      const text = contentToText(event.data.content)
+      const source = event.data.source.kind
+      if (source !== 'user' && source !== 'user-question-reply') return state
+      const content = contentToText(event.data.content)
+      const text = source === 'user-question-reply' ? questionReplyText(content) : content
       if (text === '') return state
       const blocks = editableBlocks(state, mutable)
       blocks.push({ kind: 'user', text })
@@ -444,6 +469,15 @@ function foldEvent(
         state, event.data.callId, event.data.name, event.data.arguments, undefined, presentation, mutable, indexes,
         event.data.turn, event.time,
       )
+    case 'hook/result': {
+      const result = event.data
+      if ((result.exitCode === undefined || result.exitCode === 0) && ['pass', 'allow'].includes(result.decision)) return state
+      const blocks = editableBlocks(state, mutable)
+      blocks.push({ kind: 'notice', level: result.exitCode !== undefined && result.exitCode !== 0 ? 'error' : 'warning',
+        text: `Hook ${result.point}: ${result.decision}${result.exitCode === undefined ? '' : ` · exit ${result.exitCode}`}${result.stderrSummary ? `\n${result.stderrSummary}` : ''}`,
+        process: { turn: result.turn, source: `hook:${event.seq}:${result.handlerId}` } })
+      return { ...state, blocks }
+    }
     // PTC mode records the calls a program made under its `run_code` call
     // rather than as tool/call events, but the Harness asks UIs to render a
     // sub-call through the same path as a native one, so it is the same block.

@@ -82,24 +82,36 @@ describe('alignFileDiffs', () => {
     }])
     const deleted = rows.find(row => row.kind === 'del')
     const added = rows.find(row => row.kind === 'add')
-    expect(deleted?.tokens).toEqual([
-      { text: 'const' },
-      { text: ' ' },
-      { text: 'foo', changed: true },
-      { text: ' ' },
-      { text: '=' },
-      { text: ' ' },
-      { text: '1' },
-    ])
-    expect(added?.tokens).toEqual([
-      { text: 'const' },
-      { text: ' ' },
-      { text: 'bar', changed: true },
-      { text: ' ' },
-      { text: '=' },
-      { text: ' ' },
-      { text: '1' },
-    ])
+    expect(deleted?.tokens.filter(token => token.changed).map(token => token.text).join('')).toBe('foo')
+    expect(added?.tokens.filter(token => token.changed).map(token => token.text).join('')).toBe('bar')
+    expect(rowText(deleted!)).toBe('const foo = 1')
+    expect(rowText(added!)).toBe('const bar = 1')
+  })
+
+  it('keeps context in a large hunk with a small edit', () => {
+    const original = Array.from({ length: 1000 }, (_, i) => `const value${i} = ${i}`)
+    const edited = [...original]
+    edited[500] = 'const value500 = 999'
+    const rows = alignFileDiffs([{ path: 'large.ts', oldText: original.join('\n'), newText: edited.join('\n') }])
+    expect(rows.filter(row => row.kind === 'ctx')).toHaveLength(999)
+    expect(countDiffStats(rows)).toEqual({ added: 1, removed: 1 })
+  })
+
+  it.each([
+    ['read(foo.bar)', 'read(foo.baz)', 'bar', 'baz'],
+    ['value = a + b', 'value = a - b', '+', '-'],
+    ['  value = 1', '    value = 1', '  ', '    '],
+    ['const 名称 = "🐳"', 'const 名称 = "🐋"', '🐳', '🐋'],
+    ['"👩‍💻"', '"👩‍🔬"', '👩‍💻', '👩‍🔬'],
+    ['"e\u0301"', '"e\u0300"', 'e\u0301', 'e\u0300'],
+  ])('highlights the changed word, punctuation, or whitespace in %s', (oldText, newText, oldChange, newChange) => {
+    const rows = alignFileDiffs([{ path: 'a.ts', oldText, newText }])
+    const removed = rows.find(row => row.kind === 'del')!
+    const added = rows.find(row => row.kind === 'add')!
+    expect(rowText(removed)).toBe(oldText)
+    expect(rowText(added)).toBe(newText)
+    expect(removed.tokens.filter(token => token.changed).map(token => token.text).join('')).toBe(oldChange)
+    expect(added.tokens.filter(token => token.changed).map(token => token.text).join('')).toBe(newChange)
   })
 })
 
@@ -114,8 +126,7 @@ describe('intra-line alignment ceiling', () => {
     const rows = alignFileDiffs([{ path: 'min.js', oldText, newText }])
     const elapsed = performance.now() - started
 
-    // Without the ceiling this pair builds a 3000x3000 table: measured at 63 ms
-    // and ~18 MB, once per frame while the tool card's spinner invalidates it.
+    // The minified-line guard runs before word tokenization or alignment.
     expect(elapsed).toBeLessThan(20)
     expect(formatDiffRows(rows)).toEqual(['min.js', '- ' + oldText, '+ ' + newText])
     expect(countDiffStats(rows)).toEqual({ added: 1, removed: 1 })
@@ -270,7 +281,7 @@ describe('context syntax highlighting', () => {
     expect(addLine).toContain('\x1b[7mbar\x1b[27m')
   })
 
-  it('does not syntax-highlight the >200-line LCS fallback', () => {
+  it('does not syntax-highlight the edit-distance fallback', () => {
     const oldText = Array.from({ length: 201 }, (_, i) => `const old-${i} = ${i}`).join('\n')
     const newText = Array.from({ length: 201 }, (_, i) => `const new-${i} = ${i}`).join('\n')
     const rows = alignFileDiffs([{ path: 'big.ts', oldText, newText }])

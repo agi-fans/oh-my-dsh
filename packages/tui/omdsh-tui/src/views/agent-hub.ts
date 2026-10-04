@@ -132,15 +132,20 @@ function rosterLine(agent: TuiSubagentView, selected: boolean, tree: boolean, th
   const phase = theme.fg(phaseColor(agent.phase), agent.phase.padEnd(9))
   const elapsed = duration(agent, now).padStart(7)
   const prefix = `${marker} ${indent}${phase} ${elapsed}  `
-  return prefix + truncateToWidth(agent.label, Math.max(0, width - visibleWidth(prefix)))
+  const label = agent.label + (agent.workflow?.phase === undefined ? '' : ` · ${agent.workflow.phase}`)
+  return prefix + truncateToWidth(label, Math.max(0, width - visibleWidth(prefix)))
 }
 
 function rosterRows(state: AgentHubState, theme: Theme, width: number, height: number, now: number): string[] {
-  if (state.roster.agents.length === 0) return [theme.fg('dim', ' No subagents are available in this session.')]
+  const workflows = (state.roster.workflows ?? []).slice(-3).map(run => truncateToWidth(theme.fg(run.status === 'completed' ? 'success' : run.status === 'open' ? 'accent' : 'warning',
+    ` Workflow · ${run.name} · ${run.status}${run.phase === undefined ? '' : ` · ${run.phase}`}`), width))
+  height = Math.max(0, height - workflows.length)
+  if (state.roster.agents.length === 0) return [...workflows, theme.fg('dim', ' No subagents are available in this session.')]
   const selected = Math.max(0, state.roster.agents.findIndex(agent => agent.id === state.selectedId))
   const start = Math.max(0, Math.min(state.roster.agents.length - height, selected - Math.floor(height / 2)))
-  return state.roster.agents.slice(start, start + height)
+  return [...workflows, ...state.roster.agents.slice(start, start + height)
     .map(agent => truncateToWidth(rosterLine(agent, agent.id === state.selectedId, state.tree, theme, width, now), width))
+  ]
 }
 
 function inspectorText(agent: TuiSubagentView | undefined, now: number): string {
@@ -158,6 +163,7 @@ function inspectorText(agent: TuiSubagentView | undefined, now: number): string 
     `Session: ${agent.id}`,
     `Parent: ${agent.parentId ?? 'root session'}`,
     `Depth: ${agent.depth}`,
+    ...(agent.workflow === undefined ? [] : [`Workflow: ${agent.workflow.name}`, `Phase: ${agent.workflow.phase ?? '—'}`, `Outcome: ${agent.workflow.outcome ?? 'not recorded'}`]),
     `Current: ${current?.text ?? '—'}`,
     '',
     'Recent activity',

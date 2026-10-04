@@ -19,6 +19,7 @@ describe('TUI row settings', () => {
       // Resolved against the output stream, which a schema cannot know.
       colors: undefined,
       motion: 'full',
+      editor: 'auto',
       terminalProgress: false,
       foldDensity: 'standard',
       // Legacy migration input; the schema still reads it so an older document
@@ -85,5 +86,7 @@ describe('TUI row settings', () => {
   it('rejects values outside the declared vocabulary', () => {
     expect(() => RowSettings({ theme: 'neon' })).toThrow()
     expect(() => RowSettings({ motion: 'sometimes' })).toThrow()
+    expect(() => RowSettings({ editor: 'missing-editor' })).toThrow()
+    expect(resolve({ editor: 'cursor' }).editor).toBe('cursor')
   })
 })

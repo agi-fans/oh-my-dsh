@@ -10,6 +10,17 @@
   - id: timer
     name: '@deepseek-ai/cordis-plugin-timer'
 
+  - id: hmr
+    name: '@deepseek-ai/dsh-hmr'
+    config:
+      root: []
+
+  - id: plugin-manager
+    name: '@deepseek-ai/dsh-plugin-manager'
+
+  - id: plugin-inventory
+    name: '@deepseek-ai/dsh-host-plugin-inventory'
+
   - id: llm
     name: '@deepseek-ai/dsh-llm'
 
@@ -136,6 +147,12 @@
 
   - id: attachments
     name: '@deepseek-ai/dsh-attachment-local'
+
+  - id: tui-command-files
+    name: '@agi-fans/dsh-tui/command-files'
+
+  - id: hook-settings
+    name: '@agi-fans/dsh-tui/hook-settings'
     config:
       dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
 
@@ -159,9 +176,6 @@
 
   - id: authorization
     name: '@deepseek-ai/dsh-authorization'
-
-  - id: authorization-invariant
-    name: '@deepseek-ai/dsh-authorization/invariant'
 
   # Dormant multi-provider twin: zero extra picker routes until a `llm-pi-ai:`
   # settings section supplies profiles. /login writes those profiles; /model
@@ -305,21 +319,6 @@
   - id: jobs
     name: '@deepseek-ai/dsh-jobs-local'
 
-  - id: invariants
-    name: '@deepseek-ai/dsh-invariants'
-
-  - id: session-invariant
-    name: '@deepseek-ai/dsh-session/invariant'
-
-  - id: agent-invariant
-    name: '@deepseek-ai/dsh-agent/invariant'
-
-  - id: scope-invariant
-    name: '@deepseek-ai/dsh-scope/invariant'
-
-  - id: agent-loop-invariant
-    name: '@deepseek-ai/dsh-agent-loop/invariant'
-
   - id: shell-env
     name: '@deepseek-ai/dsh-shell-env'
     config:
@@ -352,9 +351,14 @@
 
   - id: terminal-bash
     name: '@deepseek-ai/dsh-terminal-bash'
+    config:
+      shellDialect: !!js "process.platform === 'win32' ? 'pwsh' : 'bash'"
 
   - id: tool-terminal
     name: '@deepseek-ai/dsh-tool-terminal'
+
+  - id: tui-command-terminal
+    name: '@agi-fans/dsh-tui/command-terminal'
 
   - id: agent-loop
     name: '@deepseek-ai/dsh-agent-loop'
@@ -363,6 +367,9 @@
 
   - id: ptc-runtime
     name: '@deepseek-ai/dsh-ptc-runtime-node'
+    config:
+      # Leave time for a default question wait and its recorded sub-call result.
+      timeoutMs: 180000
 
   - id: cordis-host-runner
     name: '@deepseek-ai/dsh-cordis-host-runner'
@@ -375,7 +382,8 @@
   - id: tool-ask-user
     name: '@deepseek-ai/dsh-tool-ask-user'
     config:
-      mode: legacy
+      mode: timed
+      timeout: 120
 
   - id: plan-mode
     name: '@deepseek-ai/dsh-plan-mode'
@@ -503,6 +511,9 @@
 
   - id: subagent
     name: '@deepseek-ai/dsh-subagent'
+
+  - id: subagent-model-selection-settings
+    name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
   - id: subagent-spawn
     name: '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -678,6 +689,9 @@
 
   - id: tui-command-integrations
     name: '@agi-fans/dsh-tui/command-integrations'
+
+  - id: tui-command-plugins
+    name: '@agi-fans/dsh-tui/command-plugins'
 
   - id: tui-command-jobs
     name: '@agi-fans/dsh-tui/command-jobs'

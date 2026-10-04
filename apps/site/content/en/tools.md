@@ -29,7 +29,9 @@ The read-only `lsp` tool answers definitions, references, implementations, and h
 
 `todo_write` tracks implementation items, `ask_user_question` asks you when inspection cannot decide a user-owned choice, `present` records finished deliverables so they stay findable after the turn, and `skill` loads a matching `SKILL.md` on demand.
 
-omdsh configures `ask_user_question` in blocking `legacy` mode. Harness `0.2.0-rc.2` also provides an experimental `timed` mode, but the TUI does not yet support its countdown or late-answer flow; keep `tool-ask-user.config.mode` set to `legacy` in Profile overrides.
+omdsh uses `timed` questions with a default 120-second wait. Editing an answer or pressing `Ctrl+T` pauses the question countdown; `Ctrl+S` explicitly skips one question, and `Esc` leaves a finite timed question pending. When the wait ends, the model can continue independent work; a timeout grants no approval. A pending-question indicator and `/questions` let you answer later, including after resuming the session. Late answers appear in the transcript and reach the next model step. `Ctrl+C` interrupts instead of submitting an empty answer. In line-input mode, a blank answer line explicitly skips a question; EOF cancels the answer UI.
+
+The model can request `timeout: -1` when it must wait indefinitely, and a Profile can still select `legacy` mode. PTC has a separate execution budget: its default is 180 seconds, so Take time does not keep a `run_code` program alive indefinitely. If a PTC program ends before its question result is recorded, that question cannot be restored for a late answer.
 
 Five read-only tools let the agent reach work it did in an earlier session: `session_search` and `session_event_search` find it, `session_trace` and `session_event_trace` follow lineage and relationships, and `session_event_read` returns exact event data. Without them a model that already solved something can only be told again, because `/sessions` and `/resume` are yours to reach and not the agent's.
 
@@ -37,7 +39,7 @@ They are workspace-scoped: cross-session reads are authorized only when the targ
 
 ## Runtime inspection
 
-The `cordis` preset adds read-only runtime inspection on top of the native catalog: `cordis_inspect_list` discovers providers, and `cordis_inspect_query` reads exact Service, Event, and Tool APIs. Changing the runtime means editing composition files, not calling a tool.
+The `cordis` preset adds read-only runtime inspection on top of the native catalog: `cordis_inspect_list` discovers providers, and `cordis_inspect_query` reads exact Service, Event, and Tool APIs. It also adds published Harness authoring Skills and the `plugin_manager` tool for profile-wide management. That tool requires full host access or approval for the call; dependency scripts require separate explicit approval. `/plugins` offers the human management surface.
 
 ## Delegation
 

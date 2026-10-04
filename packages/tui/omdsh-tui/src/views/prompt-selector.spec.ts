@@ -24,6 +24,28 @@ function reviewState(overrides: Partial<PromptSelectorState> = {}): PromptSelect
 }
 
 describe('plan review page', () => {
+  it.each([false, true])('keeps every document action visible with an explicit selection at narrow widths (color=%s)', color => {
+    for (const width of [30, 40, 60, 100]) {
+      const labels = ['Files', 'Previous', 'Next', 'Open', 'Editor']
+      const frame = renderPlanReviewPage({ request: { title: 'File', question: 'a.txt', presentation: 'document', detail: 'Content',
+        options: labels.map(label => ({ label })) }, selected: 4, checked: new Set() }, createTheme(color), width, 24, '', 0, 'omdsh')
+      const text = stripAnsi(frame.lines.join('\n'))
+      for (const label of labels) expect(text).toContain(`[ ${label} ]`)
+      expect(text).toContain('› [ Editor ]')
+      expect(frame.lines).toHaveLength(24)
+      expect(frame.lines.every(line => visibleWidth(line) === width)).toBe(true)
+    }
+  })
+
+  it('keeps the selected action inside a very short viewport', () => {
+    const frame = renderPlanReviewPage({ request: { title: 'File', question: 'a.txt', presentation: 'document', detail: 'Content',
+      options: ['Files', 'Preview', 'Previous', 'Next', 'Open', 'Editor'].map(label => ({ label })) },
+      selected: 5, checked: new Set() }, createTheme(false), 30, 10, '', 0, 'omdsh')
+    expect(frame.lines).toHaveLength(10)
+    expect(frame.lines.every(line => visibleWidth(line) === 30)).toBe(true)
+    expect(frame.lines.join('\n')).toContain('› [ Editor ]')
+  })
+
   it('keeps a long Markdown plan inside the terminal viewport', () => {
     const frame = renderPlanReviewPage(reviewState(), createTheme(false), 100, 30, '', 0, 'omdsh')
     const text = stripAnsi(frame.lines.join('\n'))
@@ -118,4 +140,42 @@ describe('full-screen selector density', () => {
     expect(rows.some(row => row.includes('deepseek-v4-flash — DeepSeek-V4-Flash'))).toBe(true)
     expect(rows.some(row => row.includes('deepseek-v4-pro — DeepSeek-V4-Pro'))).toBe(true)
   })
+})
+
+describe('timed question cards', () => {
+  it.each([false, true])('keeps the countdown and multilingual answer padding within display cells (colors=%s)', (colors) => {
+    const state: PromptSelectorState = {
+      request: { title: 'Question', question: '选择项目范围 🐳',
+        options: [{ label: '项目范围 e\u0301' }], skippable: true, dismissLabel: 'Later',
+        wait: { deadline: Date.now() + 120_000, hold: () => {} },
+      }, selected: 0, checked: new Set(),
+    }
+    for (const width of [30, 60, 90]) {
+      const frame = renderPromptSelector(state, createTheme(colors), width, '自定义答案 🐳', 6)
+      expect(frame.lines.every(line => visibleWidth(line) <= width), `width=${width}`).toBe(true)
+    }
+    const frame = renderPromptSelector(state, createTheme(colors), 90, '', 0)
+    const text = stripAnsi(frame.lines.join('\n'))
+    expect(text).toContain('Continues in')
+    expect(text).toContain('ctrl+t take time')
+    expect(text).toContain('esc later')
+    expect(text).toContain('ctrl+s skip')
+    const held = renderPromptSelector({ ...state, waitHeld: true }, createTheme(colors), 90, '', 0)
+    expect(stripAnsi(held.lines.join('\n'))).toContain('Take your time')
+  })
+})
+
+
+it('renders scrolling documents in bounded cells and keeps action selection visible', () => {
+  for (const color of [false, true]) for (const width of [24, 40, 80]) {
+    const state = reviewState()
+    state.request = { ...state.request, presentation: 'document', question: '文件 🐳', detail: Array.from({ length: 30 }, (_, index) => `文档 e\u0301 🐳 ${index}`).join('\n'),
+      options: [{ label: 'Open', value: 'open' }, { label: 'Files', value: 'files' }], actions: [{ key: 'o', label: 'open', valuePrefix: 'open' }] }
+    state.documentScroll = Number.POSITIVE_INFINITY
+    const frame = renderPlanReviewPage(state, createTheme(color), width, 20, '', 0, 'omdsh')
+    expect(frame.lines).toHaveLength(20)
+    expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+    expect(stripAnsi(frame.lines.join('\n'))).toContain('29')
+    expect(frame.document!.start).toBe(frame.document!.maxStart)
+  }
 })
