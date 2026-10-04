@@ -21,10 +21,11 @@ const view = (state: TranscriptState, open = false, width = 80, colors = false) 
 }).lines
 
 describe('completed turn summary', () => {
-  it('shows only the duration and complete final answer', () => {
+  it('shows the duration, expansion hint, and complete final answer', () => {
     const screen = view(transcript(50)).join('\n')
     expect(screen.match(/▸ Worked/gu)).toHaveLength(1)
     expect(screen).toContain('Worked for 16s')
+    expect(screen).toContain('Ctrl+O to expand')
     expect(screen).toContain('Answer one.')
     expect(screen).toContain('Answer two.')
     expect(screen).not.toContain('Progress')
@@ -42,6 +43,7 @@ describe('completed turn summary', () => {
     }
     expect(screen.match(/Answer one\./gu)).toHaveLength(1)
     expect(screen).not.toContain('Worked')
+    expect(screen).not.toContain('to expand')
     expect(screen).not.toMatch(/[╭╰]─.*bash/u)
   })
   it('keeps failure facts outside the fold', () => {
@@ -54,6 +56,21 @@ describe('completed turn summary', () => {
     for (const width of [12, 20, 40, 80]) {
       expect(view(transcript(1, true), false, width, colors).every(row => visibleWidth(row) <= width)).toBe(true)
     }
+  })
+  it.each([false, true])('prioritizes duration and failures over the hint at narrow widths (colors=%s)', colors => {
+    const narrow = view(transcript(1, true), false, 32, colors).map(stripAnsi).join('\n')
+    expect(narrow).toContain('Worked for 16s · 1 failed')
+    expect(narrow).not.toContain('to expand')
+    expect(view(transcript(), false, 40, colors).map(stripAnsi).join('\n')).toContain('Worked for 16s · Ctrl+O to expand')
+  })
+  it('refreshes the cached hint when the shortcut is rebound or disabled', () => {
+    const state = transcript()
+    const options = { width: 80, height: 60, colors: false, model: 'm', input: '', inputCursor: 0 }
+    expect(renderView(state, options).lines.join('\n')).toContain('Ctrl+O to expand')
+    const rebound = renderView(state, { ...options, turnDetailsKey: 'Alt+D' }).lines.join('\n')
+    expect(rebound).toContain('Alt+D to expand')
+    expect(rebound).not.toContain('Ctrl+O to expand')
+    expect(renderView(state, { ...options, turnDetailsKey: 'Disabled' }).lines.join('\n')).not.toContain('to expand')
   })
   it('does not invent a duration for an older log without timing events', () => {
     const state = transcript()

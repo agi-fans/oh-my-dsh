@@ -216,6 +216,26 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
 }
 
 describe('LocalTui folds against a scrolling terminal', () => {
+  it('shows the configured turn expansion key and opens the turn with it', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'omdsh-turn-hint-'))
+    const path = join(directory, 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'ctrl+o': 'retry', 'alt+d': 'toggle-tools' }))
+    const term = new ScrollingTerminal(80, 30)
+    const tui = new LocalTui(term, 'm', false, 'dark', async () => {}, { keybindingsPath: path })
+    try {
+      longTurn(tui, 1, 1)
+      expect(term.visible().join('\n')).toContain('Alt+D to expand')
+      expect(term.visible().join('\n')).not.toContain('Ctrl+O to expand')
+      press(term as never, '\x1bd')
+      expect(term.visible().join('\n')).not.toContain('Worked for')
+      press(term as never, '\x1bd')
+      expect(term.visible().join('\n')).toContain('Alt+D to expand')
+    } finally {
+      tui.dispose()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it.each([false, true])('keeps a short folded turn compact after expanding tool details (colors=%s)', colors => {
     const term = new ScrollingTerminal(127, 58)
     const tui = new LocalTui(term, 'm', colors)

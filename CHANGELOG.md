@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Completed Turn summaries show the configured expansion shortcut when space allows, keeping duration and failures visible at narrow widths.
+
 - Searchable choice lists prioritize exact names and prefixes and support multiword queries and short word abbreviations. Command and project-path completion favor compact matches at word boundaries.
 - File-edit tool previews highlight changed identifiers, punctuation, and spacing more precisely, preserve emoji and combining sequences, and retain context in large hunks with small edits.
 - Code previews, fenced replies, and tool diff context use Prism syntax grammars with theme-aware colors, including multiline comments and strings, TSX, configuration files, and PowerShell. Diff documents color added and removed lines.

@@ -166,6 +166,8 @@ export interface ViewOptions {
   expandedTools?: ReadonlySet<string>
   /** Effective application binding used in preview hints. */
   toolDetailsKey?: string
+  /** Effective application binding used in completed-turn expansion hints. */
+  turnDetailsKey?: string
   /** Legacy reasoning anchors retained for search and scroll mapping. */
   expandedReasoning?: ReadonlySet<string>
   /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
@@ -625,11 +627,15 @@ export function formatElapsed(ms: number): string {
 }
 
 /** A completed turn's duration and any failures remain visible when folded. */
-function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string): string[] {
+function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string, expandKey = 'Ctrl+O'): string[] {
   const label = elapsed === undefined ? 'Worked' : `Worked for ${elapsed}`
   const failure = group.failures === 0 ? '' : theme.fg('error', ` · ${group.failures} failed`)
   const labelRoom = Math.max(1, width - 4 - visibleWidth(failure))
-  return [padToWidth(truncateToWidth(`${SYMBOL.folded} ${theme.fg('dim', truncateToWidth(label, labelRoom))}${failure}`, Math.max(1, width - 2)), width)]
+  const summary = `${SYMBOL.folded} ${theme.fg('dim', truncateToWidth(label, labelRoom))}${failure}`
+  const hint = ` · ${expandKey} to expand`
+  const suffix = expandKey !== 'Disabled' && visibleWidth(summary) + visibleWidth(hint) <= width - 2
+    ? theme.fg('dim', hint) : ''
+  return [padToWidth(truncateToWidth(summary + suffix, Math.max(1, width - 2)), width)]
 }
 
 /**
@@ -766,6 +772,7 @@ function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
 
 interface TranscriptBodyCache {
   toolDetailsKey: string | undefined
+  turnDetailsKey: string | undefined
   width: number
   colors: boolean
   trueColor: boolean
@@ -1172,6 +1179,7 @@ function renderTranscriptBody(
     && cached.openedGroups === openedGroups
     && cached.toolDetailsKey === options.toolDetailsKey
     && cached.turnSpans === state.turnSpans
+    && cached.turnDetailsKey === options.turnDetailsKey
     && cached.searchKey === searchKey
     && cached.status === state.status
     && cached.focusBlock === options.focusBlock) {
@@ -1275,7 +1283,7 @@ function renderTranscriptBody(
       if (group.live) liveFrom ??= headerRow
       // A live run has no header: it becomes a group when its turn ends.
       if (!group.live && !opened) {
-        lines.push(...processGroupHeader(group, theme, options.width, elapsedOf(groupIndex)))
+        lines.push(...processGroupHeader(group, theme, options.width, elapsedOf(groupIndex), options.turnDetailsKey))
       }
       const bodyRow = lines.length
       let offsets = new Map<number, number>()
@@ -1418,6 +1426,7 @@ function renderTranscriptBody(
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
     toolDetailsKey: options.toolDetailsKey,
+    turnDetailsKey: options.turnDetailsKey,
     blockDrawStarts,
     width: options.width,
     colors: options.colors,

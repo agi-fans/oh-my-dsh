@@ -1422,6 +1422,7 @@ export class LocalTui implements TuiService {
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#detailedToolIds(),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
+        turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
