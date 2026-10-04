@@ -260,6 +260,12 @@ export function apply(ctx: Context): void {
       input: { hint: '[query]' },
       handler: invocation => sessionsCommand(ctx, invocation),
     },
+    { name: 'tree', description: 'Browse conversation turns and branches', handler: async invocation => {
+      if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /tree' }
+      if (invocation.agent.status !== 'idle') return { kind: 'error', text: 'Finish or interrupt the active turn before opening the Session Tree.' }
+      await ctx.omdshSession.openSessionTree(invocation.signal)
+      return { kind: 'success' }
+    } },
     { name: 'session', description: 'Show current session details', handler: invocation => showSession(ctx, invocation) },
     { name: 'retry', description: 'Run the most recent human prompt again', handler: invocation => retry(ctx, invocation) },
     { name: 'todo', description: 'Show the current session todo list', handler: showTodo },

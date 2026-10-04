@@ -47,6 +47,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'notificationThreshold',
       'statusEnabled',
       'statusLabels',
+      'statusContextStyle',
       'statusItem:model',
       'statusItem:effort',
       'statusItem:session',
@@ -66,11 +67,11 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ label: 'Release notes', value: 'summary' })
     expect(items.find(item => item.id === 'statusEnabled')?.value).toBe('on')
-    expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Status line')
+    expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Telemetry')
     expect(items.find(item => item.id === 'statusLabels')?.value).toBe('compact')
     expect(items.find(item => item.id === 'statusItem:model')).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
-      .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6% · 16.4K/1M' })
+      .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6%' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false })
     expect(applySettingValue(prefs, 'foldDensity', 'verbose'))
@@ -340,7 +341,7 @@ describe('renderSettings', () => {
     expect(terminalActivity).toContain('terminal tabs and taskbars')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
-    expect(status).toContain('Show the fixed two-line footer')
+    expect(status).toContain('Show session metrics on the second footer')
     expect(status).toContain('Context')
     expect(status).toContain('Latency')
     expect(status).toContain('deepseek')
@@ -354,7 +355,32 @@ describe('renderSettings', () => {
     expect(wide).toContain('Tools 3m33s')
     expect(wide).not.toMatch(/main \*1…|Tools…/u)
     const textPreview = renderSettings(createSettings(prefs, 'statusItem:context'), theme, 120, 14).lines.join('\n')
-    expect(textPreview).toContain('Ctx 1.6% · 16.4K/1M')
+    expect(textPreview).toContain('Ctx 1.6%')
+  })
+
+  it('cycles context styles through live previews without moving or hiding the item', () => {
+    let state = createSettings(prefs, 'statusContextStyle')
+    expect(tuiSettingItems(prefs)[state.selected]).toMatchObject({ label: 'Context style', value: 'percent' })
+    for (const [contextStyle, preview] of [['bar', 'Ctx ──────────'], ['tokens', 'Ctx 16.4K/1M'], ['detailed', 'Ctx 1.6% · 16.4K/1M'], ['percent', 'Ctx 1.6%']]) {
+      const result = applySettingsEvent(state, key('enter'))
+      expect(result.kind).toBe('apply')
+      if (result.kind !== 'apply') throw new Error('Context style must apply immediately')
+      state = result.state
+      expect(state.prefs.statusBar?.contextStyle).toBe(contextStyle)
+      expect(state.moving).toBeUndefined()
+      expect(state.prefs.statusBar?.groups).toContain('context')
+      expect(renderSettings(state, theme, 140, 20).lines.join('\n')).toContain(preview)
+    }
+    expect(applySettingValue(prefs, 'statusContextStyle', 'invalid')).toEqual(prefs)
+  })
+
+  it('previews metadata when telemetry is disabled, matching the live footer', () => {
+    const hidden = applySettingValue(prefs, 'statusEnabled', 'off')
+    const preview = renderSettings(createSettings(hidden, 'statusEnabled'), theme, 140, 20).lines.slice(3, 5).join('\n')
+    expect(preview).toContain('deepseek')
+    expect(preview).toContain('main *1')
+    expect(preview).not.toContain('Cache')
+    expect(preview).not.toContain('Ctx')
   })
 
   it('renders status rows in their effective order and marks a grabbed row', () => {

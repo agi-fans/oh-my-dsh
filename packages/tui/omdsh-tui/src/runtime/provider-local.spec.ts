@@ -216,6 +216,41 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
 }
 
 describe('LocalTui folds against a scrolling terminal', () => {
+  it('searches and scrolls tree previews, folds branches, and restores the draft on cancel', async () => {
+    const term = new ScrollingTerminal(100, 24)
+    const tui = new LocalTui(term, 'm', false)
+    tui.restoreInput({ text: 'keep this draft', images: [] })
+    const request = { title: 'Session Tree', question: '', presentation: 'fullscreen-tree' as const,
+      filterable: true, allowCustom: false, initialValue: 'first',
+      actions: [{ key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' }], options: [
+        { value: 'root', label: 'Conversation' },
+        { value: 'first', parentValue: 'root', label: 'First request', preview: Array.from({ length: 50 }, (_, i) => `preview row ${i}`).join('\n\n') },
+        { value: 'last', parentValue: 'first', label: 'Alternative request' },
+      ] }
+    try {
+      const pending = tui.prompt(request)
+      const history = term.scrollback()
+      press(term as never, '\x1b[1;5B')
+      expect(term.visible().join('\n')).not.toContain('preview row 0')
+      press(term as never, '\x1b[D')
+      expect(term.visible().join('\n')).not.toContain('Alternative request')
+      press(term as never, '\x1b[C')
+      expect(term.visible().join('\n')).toContain('Alternative request')
+      press(term as never, 'Alternative')
+      expect(term.visible().join('\n')).toContain('Enter select')
+      press(term as never, '\x1b')
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).toContain('Session Tree')
+      press(term as never, '\x03')
+      expect(await pending).toBeNull()
+      expect(term.visible().join('\n')).toContain('keep this draft')
+      expect(term.scrollback()).toEqual(history)
+      const continued = tui.prompt(request)
+      press(term as never, 'Alternative\x1b\r')
+      expect(await continued).toBe('continue:last')
+    } finally { tui.dispose() }
+  })
+
   it('shows the configured turn expansion key and opens the turn with it', () => {
     const directory = mkdtempSync(join(tmpdir(), 'omdsh-turn-hint-'))
     const path = join(directory, 'keys.json')
@@ -2597,6 +2632,7 @@ describe('LocalTui (tty)', () => {
       statusBar: {
         enabled: true,
         labels: 'compact',
+        contextStyle: 'percent',
         groups: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
         order: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
         meta: ['model', 'effort', 'path', 'git'],
@@ -2636,6 +2672,22 @@ describe('LocalTui (tty)', () => {
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()
+  })
+
+  it('persists context style changes and restores them on the next launch', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    let saved: ReturnType<LocalTui['prefs']> | undefined
+    tui.setPrefsPersist(prefs => { saved = prefs })
+    void tui.readline()
+    press(term, '/settings\r\t\x1b[B\x1b[B\r')
+    if (saved === undefined) throw new Error('Context style was not persisted')
+    expect(saved.statusBar?.contextStyle).toBe('bar')
+    tui.dispose()
+    const restored = new LocalTui(new FakeTerminal(), 'm', false)
+    restored.applyStoredPrefs(saved)
+    expect(restored.prefs().statusBar?.contextStyle).toBe('bar')
+    restored.dispose()
   })
 
   it('persists the Ralph feature toggle across TUI launches', () => {

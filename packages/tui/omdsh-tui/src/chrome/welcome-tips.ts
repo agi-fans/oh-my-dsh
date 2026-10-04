@@ -27,7 +27,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/trajectory', text: 'Inspect the session event trajectory' },
   { key: '/settings', text: 'Customize appearance and status' },
   { key: '/copy code', text: 'Copy the latest code block' },
-  { key: 'Esc Esc', text: 'Rewind to an earlier conversation turn' },
+  { key: 'Esc Esc', text: 'Browse conversation turns and branches' },
   { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
   { key: '/tools', text: 'Inspect tools available to the agent' },
   { key: '/mcp', text: 'Inspect connected MCP servers' },

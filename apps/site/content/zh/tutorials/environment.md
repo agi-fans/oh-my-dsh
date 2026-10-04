@@ -36,6 +36,6 @@ Agent 分区的 Language 一行可在 `Auto`、`Simplified Chinese` 和 `English
 
 General 分区的 Motion 只控制显示效果。`full` 会平滑揭示流式 Assistant 文本，并为 `Deep Driving` 添加流光；`reduced` 保留平滑流式显示，但不显示流光；`off` 直接跟随 Provider chunk，并使用静态活动标记。Provider 的完整输出仍会立即进入当前会话，遇到 Tool 边界或已完成的 Assistant 消息时，界面也会立即显示完整内容，不会等待动画。Terminal activity 是单独启用的忙碌/空闲提示，可显示在支持该能力的终端标签页或任务栏中。它不表示任务完成百分比，并会在任务停止或 omdsh 退出时清除。
 
-Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。Context 以百分比和已用/窗口 Token 数显示压力，并会随压力升高切换为警告色和错误色。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
+Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。Context 默认显示百分比；Context style 还可选择占用条、已用/窗口 Token 数及详细组合，所有样式都会随压力升高切换为警告色和错误色。Telemetry 只隐藏第二行指标，模型与工作区一行仍然显示。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
 
 运行 `/help` 可以查看完整的命令与快捷键目录。命令列表由当前启用的插件共同组成，因此也会包含 Skills 和其他运行时集成贡献的能力。

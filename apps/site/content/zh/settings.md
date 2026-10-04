@@ -73,14 +73,15 @@ Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具�
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
-| Status line | on / off | on | 显示 composer 下方固定的两行页脚。 |
-| Labels | compact / full | compact | 紧凑或完整的指标标签。 |
+| Telemetry | on / off | on | 显示页脚第二行的会话指标；模型和工作区信息仍然显示。 |
+| Context label | compact / full | compact | 在占用值前显示 `Ctx` 或 `Context`。 |
+| Context style | percent / bar / tokens / detailed | percent | 显示百分比、十格占用条、已用/窗口 Token 数，或百分比与 Token 数。 |
 
 状态项可以就地重排与换色：`Space` 显示或隐藏一项，`Enter` 开始移动（`↑`/`↓` 重排，`←`/`→` 选择列），每一项都有自己的颜色。
 
 第一行默认顺序：Model（`deepseek`）、Effort（`max`）、Path（`~/project`）、Git（`main *1`）与 Session；Session 默认关闭，因为终端窗口标题无论如何都会显示会话标题。
 
-第二行的遥测分组默认全部显示：Context（`Ctx 1.6% · 16.4K/1M`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。终端较窄时，按配置顺序选择能完整放下的分组。默认优先保留上下文、缓存、Token 和延迟，再考虑时长和活动计数；放不下的分组会被跳过，后续较小的分组仍有机会显示。
+第二行的遥测分组默认全部显示：Context（`Ctx 1.6%`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。Context style 只改变显示形式：`tokens` 显示 `Ctx 16.4K/1M`，`detailed` 显示 `Ctx 1.6% · 16.4K/1M`，`bar` 显示占用条，不同时显示百分比。所有样式都会在占用升高时使用警告和错误颜色。终端较窄时，按配置顺序选择能完整放下的分组。默认优先保留上下文、缓存、Token 和延迟，再考虑时长和活动计数；放不下的分组会被跳过，后续较小的分组仍有机会显示。
 
 ## 持久化
 

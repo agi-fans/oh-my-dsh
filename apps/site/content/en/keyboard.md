@@ -65,7 +65,7 @@ When the transcript can scroll, omdsh handles mouse input, so native click-and-d
 
 | Shortcut | Action |
 |---|---|
-| `Esc` twice | Rewind to an earlier conversation turn. |
+| `Esc` twice | Open the Session Tree to browse turns and branches. |
 | `Ctrl+C` once | Interrupt the active turn, or clear the composer. |
 | `Ctrl+C` twice | Exit; a durable session prints an `omdsh --resume <session-id>` hint. |
 | `Ctrl+Z` | Suspend to the background. |
@@ -88,7 +88,8 @@ When the transcript can scroll, omdsh handles mouse input, so native click-and-d
 | History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
 | Transcript search (`Ctrl+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `↑`/`↓`, `Home`/`End`, `PgUp`/`PgDn` navigate, `Enter` open details, `Tab`/`←`/`→` switch sections, `/` search, `n`/`N` and `Ctrl+N`/`Ctrl+P` step matches, `t` collapse turns, `c` collapse calls, `Esc`/`Ctrl+C` close. |
-| Prompts (resume, permission, model, agent, workflow, login, rewind) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
+| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Esc` clears search then closes, `Ctrl+C` cancels. |
+| Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
 
 Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/sessions <query>` retain their own search rules.
 

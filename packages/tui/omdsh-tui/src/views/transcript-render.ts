@@ -26,6 +26,7 @@ import {
   renderPlanReviewPage,
   renderPromptSelector,
   renderPromptSelectorPage,
+  renderPromptTreePage,
   type PromptSelectorState,
 } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
@@ -1907,8 +1908,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  if (options.promptSelector?.request.presentation === 'fullscreen-list') {
-    const selector = renderPromptSelectorPage(
+  if (options.promptSelector?.request.presentation === 'fullscreen-list' || options.promptSelector?.request.presentation === 'fullscreen-tree') {
+    const selector = (options.promptSelector.request.presentation === 'fullscreen-tree' ? renderPromptTreePage : renderPromptSelectorPage)(
       options.promptSelector,
       theme,
       width,
@@ -1919,6 +1920,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     )
     return {
       lines: fitFrame(selector.lines, width),
+      ...(selector.document === undefined ? {} : { promptDocument: selector.document }),
       cursor: selector.cursor,
       cursorVisible: true,
       // A full-screen surface drew no transcript body.

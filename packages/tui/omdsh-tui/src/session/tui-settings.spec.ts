@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
-import { resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
+import { resolveStatusBarConfig, STATUS_CONTEXT_STYLES, type StatusBarConfig } from '../chrome/status-config.ts'
 import { FOLD_DENSITIES } from './fold-policy.ts'
 import { TUI_SETTINGS_FIELDS } from './tui-settings.ts'
 
@@ -77,6 +77,12 @@ describe('TUI row settings', () => {
       checkUpdates: false,
       startupChangelog: 'expanded',
     })
+  })
+
+  it.each(STATUS_CONTEXT_STYLES)('persists the %s context representation in the TUI schema', contextStyle => {
+    expect(resolve({ statusBar: { contextStyle } }).statusBar).toMatchObject({ contextStyle })
+    expect(resolveStatusBarConfig(resolve({ statusBar: {} }).statusBar as StatusBarConfig).contextStyle).toBe('percent')
+    expect(() => RowSettings({ statusBar: { contextStyle: 'invalid' } })).toThrow()
   })
 
   it('keeps a legacy status preset available for runtime migration', () => {

@@ -20,11 +20,11 @@ Inside the TUI, `/resume` opens a searchable session selector with the latest hu
 
 omdsh v0.12.0 and later no longer add the private `omdsh/tools-selected` event, so newly created sessions can be loaded by an unmodified DSH persistence reader. Sessions first created with v0.5.0 through v0.11.0 may still contain that event: current omdsh recognizes it and can resume those sessions, but an unmodified DSH reader will refuse the log. Session files may be compressed and include integrity checks, so do not edit them by hand; keep using omdsh for those sessions until an explicit migration tool is available.
 
-### Rewind without destroying history
+### Explore branches without losing history
 
-When the agent is idle and the composer is empty, press `Esc` twice to open the conversation-turn selector. Choosing a user turn creates a new session branched from the history before that message and restores the original prompt into the composer. The original session remains available through `/resume`, so rewind is recoverable rather than destructive.
+When the agent is idle and the composer is empty, press `Esc` twice, or run `/tree`, to open the Session Tree. Browse turns and forks with `↑`/`↓`, fold them with `←`/`→`, and type to search while previewing the selected content. Enter on a Turn prepares a new branch before that message and restores its text, images, and file references into the composer without sending it. Enter on a branch or `Alt+Enter` resumes that branch’s latest state. The original branches stay available; these operations do not roll back workspace files.
 
-Two neighboring commands cover the cases rewind does not:
+Two neighboring commands cover other session workflows:
 
 - `/retry` submits the latest human prompt again as a new turn.
 - `/new` starts a clean session instead of branching the current one.

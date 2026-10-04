@@ -1795,7 +1795,8 @@ describe('renderView', () => {
       },
     })
     expect(frame.lines.at(-2)).toContain('deepseek-v4-flash')
-    expect(frame.lines.at(-1)).toContain('Ctx 0% · 0/1M')
+    expect(frame.lines.at(-1)).toContain('Ctx 0%')
+    expect(frame.lines.at(-1)).not.toContain('0/1M')
     expect(frame.lines.at(-1)).toContain('0 turns · 0 steps')
   })
 

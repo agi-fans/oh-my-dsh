@@ -166,6 +166,8 @@ import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import {
   movePromptSelection,
+  movePromptTree,
+  searchPromptSelection,
   filteredPromptOptions,
   selectedPromptAnswer,
   selectedFilteredPromptAnswer,
@@ -907,7 +909,7 @@ export class LocalTui implements TuiService {
     this.#ac = null
     const displaced = this.#displaceSurface()
     return new Promise((resolve) => {
-      const selected = Math.max(0, request.options?.findIndex(option =>
+      const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
       const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
         ...(request.documentTail === true ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
@@ -1917,7 +1919,7 @@ export class LocalTui implements TuiService {
     if (prompt.request.presentation === 'plan-review' || prompt.request.presentation === 'document') return this.#handlePlanReview(event, prompt)
     if (event.type === 'text' && this.#editor.text === '') {
       const action = prompt.request.actions?.find(item => item.key === event.value)
-      const selected = filteredPromptOptions(prompt.request, '')[prompt.selected]
+      const selected = filteredPromptOptions(prompt.request, '', prompt.collapsed)[prompt.selected]
       if (action !== undefined && selected !== undefined) {
         this.#finishPrompt(action.valuePrefix + (selected.value ?? selected.label))
         this.#render()
@@ -1932,18 +1934,47 @@ export class LocalTui implements TuiService {
     if (event.type === 'text' && prompt.request.filterable === true) {
       const command = this.#editor.handle(event)
       if (command.kind === 'changed') {
-        this.#prompt = { ...prompt, selected: 0 }
+        this.#prompt = searchPromptSelection(prompt, this.#editor.text) as PendingPrompt
         this.#render()
       }
       return true
     }
     if (event.type === 'text' && prompt.request.allowCustom === false) return true
     if (event.type !== 'key') return false
-    const filtered = filteredPromptOptions(prompt.request, this.#editor.text)
+    const filtered = filteredPromptOptions(prompt.request, this.#editor.text, prompt.collapsed)
     const count = filtered.length
+    if (prompt.request.presentation === 'fullscreen-tree') {
+      const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.id)
+      const selected = filtered[prompt.selected]
+      if (action !== undefined) {
+        if (selected !== undefined) {
+          this.#finishPrompt(action.valuePrefix + (selected.value ?? selected.label))
+          this.#render()
+        }
+        return true
+      }
+    }
     if (event.id === 'escape' || event.id === 'ctrl+c') {
+      if (event.id === 'escape' && prompt.request.presentation === 'fullscreen-tree' && this.#editor.text !== '') {
+        const selected = filtered[prompt.selected]?.value
+        this.#editor.setText('')
+        this.#prompt = { ...prompt, collapsed: new Set(), selected: Math.max(0, filteredPromptOptions(prompt.request, '').findIndex(option => option.value === selected)), previewScroll: 0 }
+        this.#render()
+        return true
+      }
       this.#editor.setText('')
       this.#finishPrompt(null)
+      this.#render()
+      return true
+    }
+    if (prompt.request.presentation === 'fullscreen-tree' && (event.id === 'left' || event.id === 'right')) {
+      this.#prompt = movePromptTree(prompt, event.id, this.#editor.text) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (prompt.request.presentation === 'fullscreen-tree' && (event.id === 'ctrl+up' || event.id === 'ctrl+down')) {
+      const start = this.#promptDocument?.start ?? prompt.previewScroll ?? 0
+      this.#prompt = { ...prompt, previewScroll: Math.max(0, Math.min(start + (event.id === 'ctrl+up' ? -1 : 1), this.#promptDocument?.maxStart ?? 0)) }
       this.#render()
       return true
     }
@@ -1952,16 +1983,18 @@ export class LocalTui implements TuiService {
       if (event.id === 'enter') return true
       const command = this.#editor.handle(event)
       if (command.kind === 'changed') {
-        this.#prompt = { ...prompt, selected: 0 }
+        this.#prompt = searchPromptSelection(prompt, this.#editor.text) as PendingPrompt
         this.#render()
       }
       return true
     }
     let next: number | undefined
+    const page = prompt.request.presentation === 'fullscreen-tree'
+      ? Math.max(1, this.#term.width() >= 90 ? this.#term.height() - 7 : Math.floor((this.#term.height() - 8) / 2)) : 10
     if (event.id === 'up' || event.id === 'shift+tab') next = prompt.selected - 1
     else if (event.id === 'down' || event.id === 'tab') next = prompt.selected + 1
-    else if (event.id === 'pageUp') next = prompt.selected - 10
-    else if (event.id === 'pageDown') next = prompt.selected + 10
+    else if (event.id === 'pageUp') next = prompt.request.presentation === 'fullscreen-tree' ? Math.max(0, prompt.selected - page) : prompt.selected - page
+    else if (event.id === 'pageDown') next = prompt.request.presentation === 'fullscreen-tree' ? Math.min(count - 1, prompt.selected + page) : prompt.selected + page
     else if (event.id === 'home') next = 0
     else if (event.id === 'end') next = count - 1
     if (next !== undefined) {
@@ -1986,7 +2019,7 @@ export class LocalTui implements TuiService {
     if (prompt.request.filterable === true) {
       const command = this.#editor.handle(event)
       if (command.kind === 'changed') {
-        this.#prompt = { ...prompt, selected: 0 }
+        this.#prompt = searchPromptSelection(prompt, this.#editor.text) as PendingPrompt
         this.#render()
       }
       return true

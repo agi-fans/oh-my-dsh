@@ -51,6 +51,9 @@ import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
 import { blocksText } from './content-text.ts'
+import { conversationTurns } from './conversation-turns.ts'
+import { buildSessionTree, sessionTreeFamily, type SessionTreeBranch } from './session-tree.ts'
+export { conversationTurns, type ConversationTurn } from './conversation-turns.ts'
 import { jobNoticeFor } from './job-notice.ts'
 import type {
   TuiCommand,
@@ -334,49 +337,6 @@ function humanMessageText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
   const text = blocksText(event.data.content, { collapse: true })
   return text === '' ? undefined : text
-}
-
-/** One direct human turn that can become a safe fork boundary. */
-export interface ConversationTurn {
-  /** Harness turn number shown to the user. */
-  turn: number
-  /** Index of the direct user/message event in the immutable log. */
-  messageIndex: number
-  /** Balanced seed boundary immediately before this turn starts. */
-  branchIndex: number
-  /** Single-line selector preview. */
-  preview: string
-  /** Number of image blocks in the selected message. */
-  imageCount: number
-}
-
-/** Find direct human messages whose preceding log prefix is safe to seed into a fork. */
-export function conversationTurns(events: readonly SessionEvent[]): ConversationTurn[] {
-  const turns: ConversationTurn[] = []
-  let open: { turn: number; branchIndex: number } | undefined
-  for (let index = 0; index < events.length; index += 1) {
-    const event = events[index] as SessionEvent
-    if (event.type === 'turn/start') {
-      open = { turn: event.data.turn, branchIndex: index }
-      continue
-    }
-    if (event.type === 'turn/end') {
-      if (open?.turn === event.data.turn) open = undefined
-      continue
-    }
-    if (open === undefined || event.type !== 'user/message' || event.data.source.kind !== 'user') continue
-    const text = blocksText(event.data.content, { collapse: true })
-    const imageCount = event.data.content.filter(block => block.type === 'image').length
-    if (text === '' && imageCount === 0) continue
-    turns.push({
-      turn: open.turn,
-      messageIndex: index,
-      branchIndex: open.branchIndex,
-      preview: text === '' ? (imageCount === 1 ? 'Image' : `${imageCount} images`) : text,
-      imageCount,
-    })
-  }
-  return turns
 }
 
 /** Title and latest-human-message preview for durable session discovery. */
@@ -854,41 +814,76 @@ export class SessionRuntime {
     await this.refreshRecent()
   }
 
-  /** Fork before a selected human turn and restore that message as an editable draft. */
-  async rewindToTurn(signal: AbortSignal): Promise<void> {
+  /** Browse conversation forks and preview turns before editing or continuing a branch. */
+  async openSessionTree(signal: AbortSignal): Promise<void> {
     const agent = this.#requiredAgent()
     if (agent.status !== 'idle') return
-    const events = agent.session.snapshotEvents()
-    const turns = conversationTurns(events)
-    if (turns.length === 0) {
-      this.#tui.notice('No conversation turns are available to rewind.')
+    const persistence = this.#ctx.get('sessionPersistence')
+    const snapshots = persistence === undefined ? [] : await persistence.list({ signal })
+    const candidates = snapshots.filter(item => item.header.origin !== 'subagent'
+      && item.header.cwd === agent.session.header.cwd).map(item => ({
+        id: String(item.header.id),
+        ...(item.header.isSeeded && item.header.parentSession !== undefined ? { parentId: String(item.header.parentSession) } : {}),
+      }))
+    const current = { id: String(agent.id),
+      ...(agent.session.header.isSeeded && agent.session.header.parentSession !== undefined
+        ? { parentId: String(agent.session.header.parentSession) } : {}) }
+    const headers = [...candidates.filter(item => item.id !== current.id), current]
+    const family = sessionTreeFamily(headers, current.id)
+    const branches: SessionTreeBranch[] = []
+    for (const header of headers) {
+      if (!family.has(header.id)) continue
+      signal.throwIfAborted()
+      if (header.id === current.id) {
+        const events = agent.session.snapshotEvents()
+        const title = explicitSessionTitle(events.slice(header.parentId === undefined ? 0 : Number(agent.session.inheritedEventCount)))
+        branches.push({ ...header, events, inheritedEventCount: Number(agent.session.inheritedEventCount), ...(title === undefined ? {} : { title }),
+          ...(agent.session.header.agentPreset === undefined ? {} : { agentPreset: agent.session.header.agentPreset }) })
+      } else if (persistence !== undefined) {
+        const log = await readColdSessionLog(persistence, SessionId(header.id), signal)
+        const title = explicitSessionTitle(log.events.slice(header.parentId === undefined ? 0 : Number(log.inheritedEventCount)))
+        branches.push({ ...header, events: log.events, inheritedEventCount: Number(log.inheritedEventCount), ...(title === undefined ? {} : { title }),
+          ...(log.header.agentPreset === undefined ? {} : { agentPreset: log.header.agentPreset }) })
+      }
+    }
+    this.assertActive(agent)
+    if (agent.status !== 'idle') return
+    const nodes = buildSessionTree(branches, current.id)
+    if (!nodes.some(node => node.kind === 'turn')) {
+      this.#tui.notice('No conversation turns are available in the Session Tree.')
       return
     }
-    const newestFirst = [...turns].reverse()
+    const target = nodes.findLast(node => node.sessionId === current.id && node.kind === 'turn')
+      ?? nodes.find(node => node.sessionId === current.id)
     const answer = await this.#tui.prompt({
-      title: 'Rewind Conversation',
-      question: '',
-      detail: 'original session preserved',
-      options: newestFirst.map(turn => ({
-        label: `Turn ${turn.turn}`,
-        value: String(turn.messageIndex),
-        preview: turn.preview,
-        description: turn.imageCount === 0
-          ? 'Branch before this message'
-          : `Branch before this message · ${turn.imageCount} ${turn.imageCount === 1 ? 'image' : 'images'}`,
+      title: 'Session Tree', question: '', notify: false,
+      options: nodes.map(node => ({
+        label: node.label, value: node.id, ...(node.parentId === undefined ? {} : { parentValue: node.parentId }),
+        preview: node.preview, description: node.description,
+        submitLabel: node.kind === 'turn' ? 'edit from here' : 'continue branch',
+        ...(node.current ? { badge: { label: 'Current', tone: 'success' as const } } : {}),
       })),
-      initialValue: String(newestFirst[0]?.messageIndex),
-      presentation: 'fullscreen-list',
-      optionLayout: 'spacious',
-      filterable: true,
-      allowCustom: false,
-      submitLabel: 'rewind',
-      signal,
+      actions: [{ key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' }],
+      ...(target === undefined ? {} : { initialValue: target.id }), presentation: 'fullscreen-tree', filterable: true, allowCustom: false, signal,
     })
     if (answer === null) return
     this.assertActive(agent)
-    if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before rewinding.')
-    const selected = turns.find(turn => String(turn.messageIndex) === answer)
+    signal.throwIfAborted()
+    if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before navigating the Session Tree.')
+    const continuing = answer.startsWith('continue:')
+    const node = nodes.find(item => item.id === (continuing ? answer.slice('continue:'.length) : answer))
+    if (node === undefined) throw new Error('The selected conversation node is no longer available.')
+    if (continuing || node.kind === 'branch') {
+      if (node.sessionId === current.id) { this.#tui.notice('This branch is already active.'); return }
+      await this.resumeSession(agent, node.sessionId, signal)
+      this.#tui.notice('Continued the selected conversation branch.')
+      return
+    }
+    // Draft preparation forks the selected branch; browsing itself never activates it.
+    const source = branches.find(branch => branch.id === node.sessionId)
+    if (source === undefined) throw new Error('The selected conversation branch is no longer available.')
+    const events = source.events
+    const selected = conversationTurns(events).find(turn => turn.messageIndex === node.messageIndex)
     if (selected === undefined) throw new Error('The selected conversation turn is no longer available.')
     const message = events[selected.messageIndex]
     if (message?.type !== 'user/message' || message.data.source.kind !== 'user') {
@@ -923,9 +918,9 @@ export class SessionRuntime {
       seed: events.slice(0, selected.branchIndex),
       meta: {
         ...(agent.session.header.cwd === undefined ? {} : { cwd: agent.session.header.cwd }),
-        parentSession: agent.id,
+        parentSession: SessionId(source.id),
         isSeeded: true,
-        agentPreset: active.agentPreset,
+        agentPreset: source.agentPreset ?? active.agentPreset,
       },
       inheritedEventCount: SessionLogOffset(selected.branchIndex),
       agentOptions: { provider: selection.provider, model: selection.model },
@@ -952,7 +947,7 @@ export class SessionRuntime {
     })
     const files = message.data.content.filter((block): block is Extract<(typeof message.data.content)[number], { type: 'file' }> => block.type === 'file').map(block => block.attachment)
     this.#tui.restoreInput({ text, images, ...(files.length === 0 ? {} : { files }) })
-    this.#tui.notice(`Rewound to before turn ${selected.turn}. The original session remains available in /resume.`)
+    this.#tui.notice(`Editing from before turn ${selected.turn}. The original branch remains available in the Session Tree.`)
     await this.#disposeRetired()
     await this.refreshRecent()
   }

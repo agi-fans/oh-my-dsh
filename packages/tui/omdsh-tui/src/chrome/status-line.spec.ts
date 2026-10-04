@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TuiSessionStats } from '../definition.ts'
-import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from './status-config.ts'
+import { defaultStatusBarConfig, resolveStatusBarConfig, STATUS_CONTEXT_STYLES, type StatusBarConfig } from './status-config.ts'
 import {
   formatDuration,
   formatTokens,
@@ -118,14 +118,14 @@ describe('session status line', () => {
       contextWindow: 1_000_000,
     }
     expect(telemetryGroups(initial)).toEqual([
-      'Ctx 0% · 0/1M',
+      'Ctx 0%',
       '0 turns · 0 steps',
     ])
-    expect(telemetryGroups(initial, statusBar())).toContain('Ctx 0% · 0/1M')
+    expect(telemetryGroups(initial, statusBar())).toContain('Ctx 0%')
     const compact = telemetryRow(initial, statusBar(), createTheme(false), 80)
-    expect(compact).toContain('Ctx 0% · 0/1M')
+    expect(compact).toContain('Ctx 0%')
     expect(compact).not.toContain('Context')
-    expect(telemetryRow(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0% · 0/1M')
+    expect(telemetryRow(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0%')
   })
 
   it('renders context pressure as percentage and used/window tokens', () => {
@@ -134,9 +134,44 @@ describe('session status line', () => {
       contextTokens: 12_200,
       contextWindow: 100_000,
     }
-    expect(telemetryGroups(withContext, statusBar())).toContain(
+    expect(telemetryGroups(withContext, statusBar({ contextStyle: 'detailed' }))).toContain(
       'Ctx 12% · 12.2K/100K',
     )
+  })
+
+  it.each([
+    ['percent', 'Ctx 40%'],
+    ['bar', 'Ctx ━━━━──────'],
+    ['tokens', 'Ctx 40K/100K'],
+    ['detailed', 'Ctx 40% · 40K/100K'],
+  ] as const)('renders the %s context style without redundant representations', (contextStyle, expected) => {
+    expect(telemetryRow({ ...stats, contextTokens: 40_000, contextWindow: 100_000 }, statusBar({ groups: ['context'], contextStyle }))).toBe(expected)
+  })
+
+  it('bounds the bar while retaining numeric over-capacity information in percent mode', () => {
+    const overflow = { ...stats, contextTokens: 120, contextWindow: 100 }
+    expect(telemetryRow(overflow, statusBar({ groups: ['context'], contextStyle: 'bar' }))).toBe('Ctx ━━━━━━━━━━')
+    expect(telemetryRow(overflow, statusBar({ groups: ['context'] }))).toBe('Ctx 120%')
+    expect(telemetryRow({ ...overflow, contextTokens: -1 }, statusBar({ groups: ['context'], contextStyle: 'bar' }))).toBe('Ctx ──────────')
+    expect(resolveStatusBarConfig({ contextStyle: 'invalid' as never }).contextStyle).toBe('percent')
+    expect(resolveStatusBarConfig({ labels: 'full' }).contextStyle).toBe('percent')
+  })
+
+  it.each(STATUS_CONTEXT_STYLES)('keeps %s pressure colors and exact footer widths', contextStyle => {
+    for (const colors of [true, false]) {
+      const theme = createTheme(colors, true)
+      const config = statusBar({ groups: ['context'], contextStyle })
+      for (const width of [10, 20, 40, 80, 140]) {
+        const lines = renderStatusFooter({ model: '模型 🐳', stats: { ...stats, contextTokens: 80, contextWindow: 100 }, config, width }, theme)
+        for (const line of lines) expect(oracleWidth(line)).toBe(width)
+      }
+      const warning = telemetryRow({ ...stats, contextTokens: 80, contextWindow: 100 }, config, theme)
+      const error = telemetryRow({ ...stats, contextTokens: 95, contextWindow: 100 }, config, theme)
+      if (colors) {
+        expect(warning).toContain(theme.fg('warning', '').split('\x1b[39m')[0])
+        expect(error).toContain(theme.fg('error', '').split('\x1b[39m')[0])
+      }
+    }
   })
 
   it('raises context pressure text from warning to error colors', () => {

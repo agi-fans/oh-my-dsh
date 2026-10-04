@@ -12,11 +12,19 @@ Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back 
 - `/resume` opens a searchable selector with the latest human-message preview, age, event count, and completion state; `/resume <session-id>` skips the selector.
 - `/new` starts a clean session rather than branching the current one.
 - `/retry` submits the latest human prompt again as a new turn.
-- `Esc` twice opens the conversation-turn selector: choosing a user turn branches a new session from the history before that message and restores the original prompt into the composer. The original session stays available through `/resume`, so rewind is recoverable rather than destructive.
+- `Esc` twice or `/tree` opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
 
 See [Recover and manage a long session](tutorials/long-session.md) for the walkthrough.
 
 The terminal's native scrollback stays available when you clear the transcript, resume or switch sessions, or fork through rewind. A labelled boundary marks the replacement. A fresh launch, preset or tool-catalog changes, and entering or leaving subagent inspection omit this boundary. `/new` shows it only when the previous transcript has content beyond notices and tool catalogs.
+
+## Session Tree
+
+The Session Tree places forks at their inherited conversation boundary, marks the active branch, and shows shared turns once. It includes related conversation branches in the same workspace; subagent sessions remain in Agent Hub.
+
+Use `↑`/`↓` or `Tab` to select, `←`/`→` to fold or open a subtree, and type to search while retaining matching nodes’ ancestors. The selected user message and final reply appear beside the tree on wide terminals and below it on narrower ones; `Ctrl+↑`/`Ctrl+↓` scroll the preview. `Esc` clears a search first, then closes the tree; cancelling preserves the composer and active session.
+
+The footer names the action for Enter: **edit from here** prepares a new branch and restores the original text, images, and file references without sending a model request; **continue branch**, also available through `Alt+Enter` after searching, resumes the selected branch’s latest state. The original branches and terminal scrollback remain available. These actions change conversation history, not workspace files.
 
 ## Session Library
 

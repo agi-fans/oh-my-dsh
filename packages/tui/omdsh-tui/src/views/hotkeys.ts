@@ -113,7 +113,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
     {
       title: 'Session',
       rows: [
-        { keys: 'Esc twice', action: 'Rewind to an earlier conversation turn' },
+        { keys: 'Esc twice', action: 'Browse conversation turns and branches' },
         { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
         { keys: 'Ctrl+Z', action: 'Suspend to the background' },
         { keys: 'Alt+L', action: 'Reset the terminal display' },
@@ -154,7 +154,7 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KE
     { keys: 'Enter', action: 'Send the message' },
     { keys: 'Shift+Enter / Alt+Enter / Ctrl+J', action: 'Insert a new line' },
     { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
-    { keys: 'Esc twice', action: 'Rewind to an earlier conversation turn' },
+    { keys: 'Esc twice', action: 'Browse conversation turns and branches' },
     { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
     { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript' },
     { keys: keysForActions(bindings, 'scroll-page-up', 'scroll-page-down'), action: 'Scroll the transcript' },

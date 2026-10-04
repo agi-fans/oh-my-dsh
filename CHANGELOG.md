@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Context style in Settings selects percentage, an occupancy bar, used/window tokens, or detailed values. Context occupancy defaults to percentage only.
+- Double Escape and `/tree` open a searchable Session Tree with forks at their conversation boundaries, current-branch markers, and responsive content previews. Enter prepares a branch from a historical Turn or continues a branch; `Alt+Enter` continues the selected node’s branch. Browsing and cancellation preserve the active conversation and draft.
+
 - Settings includes a persistent Editor choice shared by file previews and `Ctrl+X`, with automatic detection of installed editors and compatibility with existing `$VISUAL` or `$EDITOR` preferences.
 - Timed questions show a countdown, pause while editing or with `Ctrl+T`, and remain answerable through `/questions` after the wait ends. `Ctrl+S` skips one question; `Esc` leaves a finite timed question pending, and `Ctrl+C` interrupts. Resumed sessions retain pending questions and display late answers in the transcript.
 - `/plugins` manages running-profile entries and bundles, with installation progress, cancellation, diagnostic logs, and explicit dependency-script approval. Configuration patches are watched; replacing installed package code still requires a restart.
@@ -35,6 +38,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Status line settings accurately name the telemetry toggle and context label; disabling telemetry keeps model and workspace metadata visible in the preview.
 - Folding a completed Turn or returning from expanded tool details no longer leaves a large blank gap above the reply when the prompt has entered terminal scrollback.
 
 - Markdown tables honor left, center, and right alignment, keep wide characters within column budgets, and isolate wrapped cell styles and hyperlinks from neighboring cells and borders. Very narrow views retain the original Markdown table syntax.

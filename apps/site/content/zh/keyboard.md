@@ -65,7 +65,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 | 快捷键 | 作用 |
 |---|---|
-| `Esc` 两次 | 回退到更早的对话回合。 |
+| `Esc` 两次 | 打开 Session Tree，浏览回合与分支。 |
 | `Ctrl+C` 一次 | 中断活动回合，或清空 composer。 |
 | `Ctrl+C` 两次 | 退出；持久会话会打印 `omdsh --resume <session-id>` 提示。 |
 | `Ctrl+Z` | 挂起到后台。 |
@@ -88,7 +88,8 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `↑`/`↓`、`Home`/`End`、`PgUp`/`PgDn` 导航，`Enter` 打开详情，`Tab`/`←`/`→` 切换分区，`/` 搜索，`n`/`N` 与 `Ctrl+N`/`Ctrl+P` 跳转匹配，`t` 折叠回合，`c` 折叠调用，`Esc`/`Ctrl+C` 关闭。 |
-| 交互选择器（resume、permission、model、agent、workflow、login、rewind） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
+| Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
+| 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
 
 可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/sessions <query>` 保留各自的搜索规则。
 

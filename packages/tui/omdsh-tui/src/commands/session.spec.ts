@@ -36,6 +36,7 @@ async function harness(options: HarnessOptions = {}) {
   await ctx.plugin(CommandRuntime)
   const prompt = vi.fn(async () => options.promptAnswer ?? null)
   const resumeSession = vi.fn(async () => {})
+  const openSessionTree = vi.fn(async () => {})
   const searchSessions = vi.fn(async () => {
     if (options.failSearch !== undefined) throw options.failSearch
     return { items: options.hits ?? [] }
@@ -46,7 +47,7 @@ async function harness(options: HarnessOptions = {}) {
       ? { sessionId: id, status: 'rejected' as const, reason: new Error('no title') }
       : { sessionId: id, status: 'fulfilled' as const, value: { session: { id }, title: { title } } }
   }))
-  ctx.provide('omdshSession', { refreshRecent: vi.fn(), resumeSession } as unknown as SessionRuntime)
+  ctx.provide('omdshSession', { refreshRecent: vi.fn(), resumeSession, openSessionTree } as unknown as SessionRuntime)
   ctx.provide('tui', { prompt } as unknown as TuiService)
   if (options.omitQueryService !== true) {
     ctx.provide('sessionQuery', { searchSessions, readTitleSnapshots } as never)
@@ -60,8 +61,23 @@ async function harness(options: HarnessOptions = {}) {
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   const execute = (line: string) => ctx.commands.execute(agent, line, [], new AbortController().signal)
-  return { execute, prompt, resumeSession, searchSessions, agent }
+  return { execute, prompt, resumeSession, openSessionTree, searchSessions, agent }
 }
+
+describe('/tree', () => {
+  it('opens the same Session Tree controller as double Escape', async () => {
+    const { execute, openSessionTree } = await harness()
+    expect((await execute('/tree'))?.result).toMatchObject({ kind: 'success' })
+    expect(openSessionTree).toHaveBeenCalledWith(expect.any(AbortSignal))
+  })
+  it('rejects arguments and active turns without opening a tree', async () => {
+    const { execute, openSessionTree, agent } = await harness()
+    expect((await execute('/tree extra'))?.result).toMatchObject({ kind: 'error', text: 'Usage: /tree' })
+    Object.assign(agent, { status: 'running' })
+    expect((await execute('/tree'))?.result).toMatchObject({ kind: 'error', text: expect.stringContaining('Finish or interrupt') })
+    expect(openSessionTree).not.toHaveBeenCalled()
+  })
+})
 
 describe('/sessions search', () => {
   it('searches session content and resumes the chosen hit', async () => {

@@ -119,12 +119,16 @@ function buildStatusGroups(stats: TuiSessionStats, config: StatusBarConfig): Sta
     const used = stats.contextTokens ?? 0
     const pressureTone = contextPressureTone(used, stats.contextWindow)
     const contextValue = `${formatContextPercent(used, stats.contextWindow)}%`
+    const tokenValue = `${formatTokens(used)}/${formatTokens(stats.contextWindow)}`
+    const filled = Math.max(0, Math.min(10, Math.round(used / stats.contextWindow * 10)))
+    const style = config.contextStyle ?? 'percent'
+    const value = style === 'bar' ? '━'.repeat(filled) + '─'.repeat(10 - filled)
+      : style === 'tokens' ? tokenValue : contextValue
     groups.push({
       id: 'context',
       parts: [
-        ...metric(config.labels === 'compact' ? 'Ctx' : 'Context', contextValue, pressureTone),
-        part(' · ', 'separator'),
-        part(`${formatTokens(used)}/${formatTokens(stats.contextWindow)}`, pressureTone),
+        ...metric(config.labels === 'compact' ? 'Ctx' : 'Context', value, pressureTone),
+        ...(style === 'detailed' ? [part(' · ', 'separator'), part(tokenValue, pressureTone)] : []),
       ],
     })
   }

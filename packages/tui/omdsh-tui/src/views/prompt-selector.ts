@@ -1,6 +1,7 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
 import type { TuiPrompt } from '../definition.ts'
+import { promptTreeRows } from './prompt-tree.ts'
 import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
@@ -15,6 +16,8 @@ export interface PromptSelectorState {
   checked: ReadonlySet<number>
   /** Requested first document row for full-screen review surfaces. */
   documentScroll?: number
+  collapsed?: ReadonlySet<string>
+  previewScroll?: number
   /** Whether a rejected plan is collecting optional revision feedback. */
   feedback?: boolean
   /** Editing or Take time paused this local countdown. */
@@ -77,12 +80,106 @@ export function maskPromptSecret(input: string): string {
 }
 
 /** Options matching the current full-screen selector query. */
-export function filteredPromptOptions(request: TuiPrompt, query: string): readonly PromptOption[] {
+export function filteredPromptOptions(request: TuiPrompt, query: string, collapsed?: ReadonlySet<string>): readonly PromptOption[] {
+  if (request.presentation === 'fullscreen-tree') return promptTreeRows(request, collapsed, query).map(row => row.option)
   const options = request.options ?? []
   if (request.filterable !== true) return options
   return rankSearchResults(options, query, option =>
     [option.label, option.value, option.preview, option.description, option.badge?.label]
       .filter((value): value is string => value !== undefined))
+}
+
+const previewCache = new WeakMap<PromptOption, Map<string, string[]>>()
+
+function treePreview(option: PromptOption | undefined, theme: Theme, width: number): string[] {
+  if (option === undefined) return ['No matching conversation turns.']
+  let cache = previewCache.get(option)
+  if (cache === undefined) { cache = new Map(); previewCache.set(option, cache) }
+  const key = `${width}:${theme.name}:${theme.colors}:${theme.trueColor}`
+  const cached = cache.get(key)
+  if (cached !== undefined) return cached
+  const lines = renderMarkdown(option.preview ?? option.label, theme, width)
+  if (cache.size >= 4) cache.clear()
+  cache.set(key, lines)
+  return lines
+}
+
+/** A hierarchical choice with an independently scrollable content preview. */
+export function renderPromptTreePage(
+  state: PromptSelectorState, theme: Theme, width: number, height: number,
+  input: string, inputCursor: number, appName: string,
+): PromptSelectorFrame {
+  if (height < 10 || width < 20) return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, height - 8))
+  const rows = promptTreeRows(state.request, state.collapsed, input)
+  const selected = Math.max(0, Math.min(state.selected, rows.length - 1))
+  const option = rows[selected]?.option
+  const split = width >= 90
+  const inner = width - 4
+  const middle = height - 7
+  const listHeight = split ? middle : Math.max(1, Math.floor((middle - 1) / 2))
+  const previewHeight = split ? middle : middle - listHeight - 1
+  const listWidth = split ? Math.floor((inner - 3) * 0.45) : inner
+  const previewWidth = split ? inner - listWidth - 3 : inner
+  const range = promptSelectorVisibleRange(rows.length, selected, listHeight)
+  const list: string[] = []
+  for (let at = range.start; at < range.end; at++) {
+    const row = rows[at]!
+    const marker = at === selected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
+    const fold = row.expandable ? state.collapsed?.has(row.option.value ?? row.option.label) && input === '' ? '▸ ' : '▾ ' : '  '
+    const badge = row.option.badge?.label === undefined ? '' : `[${row.option.badge.label}] `
+    const text = badge + row.option.label
+    const prefixLimit = Math.max(1, Math.floor(listWidth / 3))
+    const prefix = row.prefix.length <= prefixLimit ? row.prefix : '…' + row.prefix.slice(-(prefixLimit - 1))
+    list.push(fit(marker + theme.fg('dim', prefix + fold) + (at === selected ? theme.fg('accent', text) : text), listWidth))
+  }
+  if (rows.length === 0) list.push(fit(theme.fg('dim', state.request.emptyText ?? 'No matching conversation turns.'), listWidth))
+  const preview = treePreview(option, theme, Math.max(1, previewWidth))
+  const maxScroll = Math.max(0, preview.length - previewHeight)
+  const scroll = Math.max(0, Math.min(state.previewScroll ?? 0, maxScroll))
+  const lines = [pageTop(theme, width, appName), pageRow(theme, theme.bold(state.request.title), width),
+    pageRow(theme, theme.fg('dim', '> ') + input, width), pageDivider(theme, width)]
+  if (split) {
+    for (let at = 0; at < middle; at++) lines.push(pageRow(theme,
+      fit(list[at] ?? '', listWidth) + theme.fg('border', ' │ ') + fit(preview[scroll + at] ?? '', previewWidth), width))
+  } else {
+    for (let at = 0; at < listHeight; at++) lines.push(pageRow(theme, list[at] ?? '', width))
+    lines.push(pageDivider(theme, width))
+    for (let at = 0; at < previewHeight; at++) lines.push(pageRow(theme, preview[scroll + at] ?? '', width))
+  }
+  const action = option?.submitLabel ?? state.request.submitLabel ?? 'select'
+  const actions = (state.request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
+  const hint = `↑↓ · ←→ fold${width >= 90 ? ' · type search' : ''}${actions === '' ? '' : ` · ${actions}`}${width >= 90 ? ' · Ctrl+↑↓ preview' : ''}`
+  lines.push(pageRow(theme, theme.fg('dim', `Enter ${action} · Esc back`), width),
+    pageRow(theme, theme.fg('dim', hint), width), pageBottom(theme, width))
+  return { lines, cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
+    document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight }, cursorVisible: true }
+}
+
+/** Fold/unfold a subtree or move to its parent, preserving selection by value. */
+export function movePromptTree(state: PromptSelectorState, direction: 'left' | 'right', query: string): PromptSelectorState {
+  const rows = promptTreeRows(state.request, state.collapsed, query)
+  const row = rows[state.selected]
+  if (row === undefined) return state
+  const value = row.option.value ?? row.option.label
+  const collapsed = new Set(state.collapsed)
+  if (direction === 'left' && row.expandable && !collapsed.has(value) && query === '') collapsed.add(value)
+  else if (direction === 'right' && collapsed.has(value)) collapsed.delete(value)
+  else if (direction === 'left') {
+    const parent = rows.findIndex(item => (item.option.value ?? item.option.label) === row.option.parentValue)
+    return parent < 0 ? state : { ...state, selected: parent, previewScroll: 0 }
+  } else {
+    const child = rows.findIndex(item => item.option.parentValue === value)
+    return child < 0 ? state : { ...state, selected: child, previewScroll: 0 }
+  }
+  const next = promptTreeRows(state.request, collapsed, query).findIndex(item => (item.option.value ?? item.option.label) === value)
+  return { ...state, collapsed, selected: Math.max(0, next), previewScroll: 0 }
+}
+
+/** Start on a matching node instead of a context-only ancestor. */
+export function searchPromptSelection(state: PromptSelectorState, query: string): PromptSelectorState {
+  const selected = state.request.presentation === 'fullscreen-tree'
+    ? Math.max(0, promptTreeRows(state.request, state.collapsed, query).findIndex(row => row.matched)) : 0
+  return { ...state, selected, previewScroll: 0 }
 }
 
 /** Visible option window centered around the selected row. */
@@ -357,7 +454,7 @@ export function renderPromptSelector(
   inputCursor: number,
   maxVisible: number = PROMPT_SELECTOR_MAX_VISIBLE,
 ): PromptSelectorFrame {
-  const options = state.request.options ?? []
+  const options = filteredPromptOptions(state.request, input, state.collapsed)
   const contentWidth = Math.max(1, width - 4)
   const body = [state.request.question]
   if (state.request.wait !== undefined) {
@@ -432,7 +529,7 @@ export function movePromptSelection(
 ): PromptSelectorState {
   if (count === 0) return state
   const selected = (next % count + count) % count
-  return selected === state.selected ? state : { ...state, selected }
+  return selected === state.selected ? state : { ...state, selected, previewScroll: 0 }
 }
 
 /** Toggle the active row for a multi-select prompt. */
@@ -446,7 +543,8 @@ export function togglePromptSelection(state: PromptSelectorState): PromptSelecto
 
 /** Resolve the selected labels in stable option order. */
 export function selectedPromptAnswer(state: PromptSelectorState): string | null {
-  const options = state.request.options ?? []
+  const options = state.request.presentation === 'fullscreen-tree'
+    ? filteredPromptOptions(state.request, '', state.collapsed) : state.request.options ?? []
   if (options.length === 0) return null
   if (state.request.multiSelect !== true) {
     const option = options[state.selected]
@@ -458,6 +556,6 @@ export function selectedPromptAnswer(state: PromptSelectorState): string | null 
 
 /** Resolve the selected answer after applying a full-screen selector query. */
 export function selectedFilteredPromptAnswer(state: PromptSelectorState, query: string): string | null {
-  const option = filteredPromptOptions(state.request, query)[state.selected]
+  const option = filteredPromptOptions(state.request, query, state.collapsed)[state.selected]
   return option?.value ?? option?.label ?? null
 }

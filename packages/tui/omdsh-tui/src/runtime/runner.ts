@@ -61,7 +61,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
     if (operation !== undefined || controller.agent?.status !== 'idle') return
     const rewind = new AbortController()
     operation = rewind
-    void controller.rewindToTurn(rewind.signal).catch((error: unknown) => {
+    void controller.openSessionTree(rewind.signal).catch((error: unknown) => {
       if (!rewind.signal.aborted) {
         tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
       }

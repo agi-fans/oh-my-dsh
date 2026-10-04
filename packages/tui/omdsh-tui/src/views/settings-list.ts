@@ -9,6 +9,7 @@ import type { KeyEvent } from '../input/keys.ts'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from '../session/release-notes.ts'
 import {
   STATUS_COLOR_TOKENS,
+  STATUS_CONTEXT_STYLES,
   STATUS_GROUP_IDS,
   STATUS_LABEL_STYLES,
   STATUS_META_IDS,
@@ -114,7 +115,7 @@ const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: strin
   path: { label: 'Path', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
   git: { label: 'Git', description: `Git branch on the right of the first footer line. A dirty worktree stays warning while color is default. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
   session: { label: 'Session', description: `Folded session title on the first footer line. Off by default; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
-  context: { label: 'Context', description: `Context pressure as percentage and used/window tokens. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6% · 16.4K/1M' },
+  context: { label: 'Context', description: `Context occupancy; choose its representation in Context style. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
   cache: { label: 'Cache', description: `Prompt-cache hit rate. Cache-hit percentages stay on the success color. ${STATUS_ITEM_CONTROLS}`, sample: 'Cache 99%' },
   tokens: { label: 'Tokens', description: `Input and output token counts. ${STATUS_ITEM_CONTROLS}`, sample: '5.9M in' },
   speed: { label: 'Latency', description: `First-token latency and decode rate. ${STATUS_ITEM_CONTROLS}`, sample: 'TTFT 1.2s' },
@@ -234,17 +235,24 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
   return [
     {
       id: 'statusEnabled',
-      label: 'Status line',
-      description: 'Show the fixed two-line footer below the composer',
+      label: 'Telemetry',
+      description: 'Show session metrics on the second footer line',
       value: statusBar.enabled ? 'on' : 'off',
       values: COLOR_VALUES,
     },
     {
       id: 'statusLabels',
-      label: 'Labels',
-      description: 'Compact or full metric labels',
+      label: 'Context label',
+      description: 'Use Ctx or Context before the occupancy value',
       value: statusBar.labels,
       values: STATUS_LABEL_STYLES,
+    },
+    {
+      id: 'statusContextStyle',
+      label: 'Context style',
+      description: 'Percentage, a ten-cell bar, used/window tokens, or percentage with tokens',
+      value: statusBar.contextStyle,
+      values: STATUS_CONTEXT_STYLES,
     },
     ...statusBar.metaOrder.filter(id => itemSide(statusBar, id) === 'left').map(id => statusItemRow(statusBar, id)),
     ...statusBar.metaOrder.filter(id => itemSide(statusBar, id) === 'right').map(id => statusItemRow(statusBar, id)),
@@ -355,6 +363,9 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'statusEnabled') return { ...prefs, statusBar: { ...statusBar, enabled: value === 'on' } }
   if (id === 'statusLabels' && STATUS_LABEL_STYLES.includes(value as StatusBarConfig['labels'])) {
     return { ...prefs, statusBar: { ...statusBar, labels: value as StatusBarConfig['labels'] } }
+  }
+  if (id === 'statusContextStyle' && STATUS_CONTEXT_STYLES.includes(value as NonNullable<StatusBarConfig['contextStyle']>)) {
+    return { ...prefs, statusBar: { ...statusBar, contextStyle: value as NonNullable<StatusBarConfig['contextStyle']> } }
   }
   if (id.startsWith('statusItem:')) {
     const item = id.slice('statusItem:'.length)
@@ -725,9 +736,6 @@ function renderStatusPreview(state: SettingsState, theme: Theme, width: number, 
   const inner = Math.max(0, width - 4)
   const prefix = 'Preview  '
   const label = theme.fg('dim', prefix)
-  if (!config.enabled) {
-    return [framedRow(theme, label + theme.fg('muted', 'disabled'), width)]
-  }
   const focus = selectedStatusItem(state)
   const preview = renderStatusFooter({
     ...STATUS_PREVIEW_META,

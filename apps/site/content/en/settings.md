@@ -73,14 +73,15 @@ Rows that back a command (`session-query` backs `/sessions`, `workspace` backs `
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
-| Status line | on / off | on | Show the fixed two-line footer below the composer. |
-| Labels | compact / full | compact | Compact or full metric labels. |
+| Telemetry | on / off | on | Show session metrics on the second footer line; model and workspace metadata remain visible. |
+| Context label | compact / full | compact | Use `Ctx` or `Context` before the occupancy value. |
+| Context style | percent / bar / tokens / detailed | percent | Show percentage, a ten-cell occupancy bar, used/window tokens, or percentage with tokens. |
 
 Status items are reordered and restyled in place: `Space` shows or hides an item, `Enter` starts moving one (`↑`/`↓` reorder, `←`/`→` choose the column), and each item has its own color.
 
 First line, in default order: Model (`deepseek`), Effort (`max`), Path (`~/project`), Git (`main *1`), and Session, which is off by default because the terminal window title carries the session title regardless.
 
-Second line telemetry groups, all shown by default: Context (`Ctx 1.6% · 16.4K/1M`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`). When the terminal is narrow, complete groups are selected in configured order. The default order prioritizes context, cache, tokens, and latency before durations and activity counts; a group that does not fit is skipped so a smaller later group can still appear.
+Second line telemetry groups, all shown by default: Context (`Ctx 1.6%`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`). Context style changes only the representation: `tokens` shows `Ctx 16.4K/1M`, `detailed` shows `Ctx 1.6% · 16.4K/1M`, and `bar` shows occupancy without also printing a percentage. Every style retains warning and error colors as occupancy rises. When the terminal is narrow, complete groups are selected in configured order. The default order prioritizes context, cache, tokens, and latency before durations and activity counts; a group that does not fit is skipped so a smaller later group can still appear.
 
 ## Persistence
 

@@ -20,6 +20,9 @@ export type StatusItemId = (typeof STATUS_ITEM_IDS)[number]
 export const STATUS_LABEL_STYLES = ['compact', 'full'] as const
 export type StatusLabelStyle = (typeof STATUS_LABEL_STYLES)[number]
 
+export const STATUS_CONTEXT_STYLES = ['percent', 'bar', 'tokens', 'detailed'] as const
+export type StatusContextStyle = (typeof STATUS_CONTEXT_STYLES)[number]
+
 /**
  * Color slots: one per preview item, plus legacy `metrics` as a fallback for
  * telemetry groups that do not have their own color yet.
@@ -56,6 +59,8 @@ export type StatusBarColors = Partial<Record<StatusColorSlot, StatusColorToken>>
 export interface StatusBarConfig {
   enabled: boolean
   labels: StatusLabelStyle
+  /** Context occupancy representation; omitted preferences default to percent. */
+  contextStyle?: StatusContextStyle
   groups: StatusGroupId[]
   /** Complete visual order, including hidden groups. Absent in legacy settings. */
   order?: StatusGroupId[]
@@ -74,6 +79,7 @@ export type StatusBarInput = Partial<VolatileSnapshot<StatusBarConfig>>
 
 /** Normalized layout always carries complete orders, colors, and columns. */
 export interface ResolvedStatusBarConfig extends StatusBarConfig {
+  contextStyle: StatusContextStyle
   order: StatusGroupId[]
   meta: StatusMetaId[]
   metaOrder: StatusMetaId[]
@@ -113,6 +119,7 @@ export function defaultStatusBarConfig(): ResolvedStatusBarConfig {
   return {
     enabled: true,
     labels: 'compact',
+    contextStyle: 'percent',
     groups: [...DEFAULT_STATUS_GROUPS],
     order: [...DEFAULT_STATUS_GROUPS],
     meta: [...DEFAULT_STATUS_META],
@@ -207,6 +214,7 @@ export function resolveStatusBarConfig(
   return {
     enabled: config.enabled ?? true,
     labels: isStatusLabelStyle(config.labels) ? config.labels : 'compact',
+    contextStyle: STATUS_CONTEXT_STYLES.includes(config.contextStyle as StatusContextStyle) ? config.contextStyle as StatusContextStyle : 'percent',
     groups,
     order: completeOrder(STATUS_GROUP_IDS, config.order === undefined ? groups : config.order),
     meta,

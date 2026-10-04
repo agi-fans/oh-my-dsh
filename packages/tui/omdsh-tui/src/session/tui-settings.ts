@@ -10,6 +10,7 @@ import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from './release-no
 import { FOLD_DENSITIES, DEFAULT_FOLD_DENSITY, type FoldDensity } from './fold-policy.ts'
 import {
   STATUS_COLOR_TOKENS,
+  STATUS_CONTEXT_STYLES,
   STATUS_GROUP_IDS,
   STATUS_ITEM_IDS,
   STATUS_META_IDS,
@@ -62,6 +63,7 @@ export interface TuiSettings {
 const STATUS_BAR_SCHEMA: z<any, any, any> = z.union([z.object({
   enabled: z.boolean().default(true),
   labels: z.union([...STATUS_LABEL_STYLES]).default('compact'),
+  contextStyle: z.union([...STATUS_CONTEXT_STYLES]).default('percent'),
   groups: z.array(z.union([...STATUS_GROUP_IDS])).default([...STATUS_GROUP_IDS]),
   order: z.array(z.union([...STATUS_GROUP_IDS])),
   meta: z.array(z.union([...STATUS_META_IDS])),

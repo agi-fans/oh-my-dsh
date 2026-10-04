@@ -1,6 +1,7 @@
 // Interactive-mode e2e: boots omdsh under a real PTY (raw-mode key path),
 // submits a prompt, waits for the failed turn's rendered error (fake API
-// key — keyless), rewinds the failed human turn through double Escape, then
+// key — keyless), opens the Session Tree through double Escape and forks
+// before the failed human turn, then
 // quits with double Ctrl-C and asserts the resume hint.
 // Run: node scripts/pty-smoke.mjs
 
@@ -318,26 +319,26 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('error:'), 'rend
 term.write('\x1b')
 await sleep(100)
 term.write('\x1b')
-if (!(await waitFor(() => cleanOutput(out).includes('Rewind Conversation'), 'rewind selector', deadline))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Session Tree'), 'session tree', deadline))) {
   term.kill()
   process.exit(1)
 }
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Rewound to before turn 1.'), 'rewound session fork', deadline))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Editing from before turn 1.'), 'historical turn fork', deadline))) {
   term.kill()
   process.exit(1)
 }
-// Rewinding leaves no completed turn to open. Ctrl+O must not enter an
+// Forking before the first turn leaves no completed turn to open. Ctrl+O must not enter an
 // unrelated full-output mode; use the catalog to exercise cleanup on exit.
 mark = out.length
 term.write('\x0f')
 await sleep(200)
 if (out.slice(mark).includes('\x1b[?1000h\x1b[?1006h')) {
-  console.error('FAIL: Ctrl+O opened an empty transcript after rewind')
+  console.error('FAIL: Ctrl+O opened an empty transcript after the historical fork')
   term.kill()
   process.exit(1)
 }
-// Rewind restores the original prompt in the composer.
+// Editing from a historical turn restores the original prompt in the composer.
 term.write('\x15')
 term.write('/tools\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Available Tools'), 'tool catalog before exit', deadline))) {
@@ -379,8 +380,8 @@ const ok = exitCode === 0
   && clean.includes('Agent: Cordis')
   && clean.includes('Workflow: Plan')
   && clean.includes('Access: Read only')
-  && clean.includes('Rewind Conversation')
-  && clean.includes('Rewound to before turn 1.')
+  && clean.includes('Session Tree')
+  && clean.includes('Editing from before turn 1.')
   && clean.includes('Resume this session with omdsh --resume session-')
 if (!ok) {
   console.error('FAIL: exit=' + exitCode)

@@ -1,9 +1,14 @@
 import { PassThrough } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, SessionLogOffset, type SessionEvent, type CreateSessionOptions } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '../chrome/width.ts'
 import { LocalTui, type TerminalLike } from '../runtime/provider-local.ts'
 import { SessionRuntime } from './session-controller.ts'
@@ -53,9 +58,10 @@ class ScrollingTerminal implements TerminalLike {
 }
 
 /** Real controller and TUI, with only external agent execution replaced. */
-async function fixture(tty = false) {
+async function fixture(tty = false, durableRoot?: string) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  if (durableRoot !== undefined) await ctx.plugin(JsonlSessionPersistence, { root: durableRoot, compression: 'none' })
   const contexts: Context[] = []
   const presets = {
     defaultId: 'standard',
@@ -70,6 +76,8 @@ async function fixture(tty = false) {
     sessionId?: string
     resumeSessionId?: string
     seed?: readonly SessionEvent[]
+    meta?: CreateSessionOptions['meta']
+    inheritedEventCount?: SessionLogOffset
     setup?: (context: Context, agent: Agent) => Promise<void>
   }) {
     const agentCtx = new Context()
@@ -80,7 +88,9 @@ async function fixture(tty = false) {
     agentCtx.provide('tools', { presentAs: () => () => undefined })
     agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
     const id = SessionId(options.resumeSessionId ?? options.sessionId!)
-    const session = ctx.sessions.get(id) ?? ctx.sessions.create(id, { seed: options.seed })
+    const session = ctx.sessions.get(id) ?? ctx.sessions.create(id, { seed: options.seed,
+      ...(options.meta === undefined ? {} : { meta: options.meta }),
+      ...(options.inheritedEventCount === undefined ? {} : { inheritedEventCount: options.inheritedEventCount }) })
     const agent = { id, ctx: agentCtx, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
     agents.set(id, agent)
     await options.setup?.(agentCtx, agent)
@@ -302,13 +312,75 @@ describe('session transcript boundaries', () => {
       }, { surfaceOp: 'append' })
       original.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       void f.tui.readline()
-      const pending = f.runtime.rewindToTurn(new AbortController().signal)
+      const pending = f.runtime.openSessionTree(new AbortController().signal)
       f.resetOutput()
-      f.input.write('Turn 1\n')
+      f.input.write('2\n')
       await pending
       expect(f.runtime.agent!.id).not.toBe(original.id)
       expect(f.output()).toContain('session opened · earlier output retained')
-      expect(f.output()).toContain('The original session remains available in /resume.')
+      expect(f.output().replace(/\s+/gu, ' ')).toContain('The original branch remains available in the Session Tree.')
     } finally { await f.dispose() }
+  })
+
+  it('previews without changing sessions, continues a durable fork, and edits another branch at its own boundary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-tree-lifecycle-'))
+    const f = await fixture(true, root)
+    try {
+      await f.runtime.start()
+      const original = f.runtime.agent!
+      const appendTurn = (session: typeof original.session, number: number, text: string): void => {
+        session.append('turn/start', { turn: number })
+        session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }), { surfaceOp: 'append' })
+        session.append('turn/end', { turn: number, reason: { kind: 'completed' } })
+      }
+      appendTurn(original.session, 1, 'Shared prompt')
+      const cut = original.session.snapshotEvents().length
+      appendTurn(original.session, 2, 'Original second prompt')
+      const child = f.ctx.sessions.create(SessionId('tree-alternative'), {
+        seed: original.session.snapshotEvents().slice(0, cut), inheritedEventCount: SessionLogOffset(cut),
+        meta: { parentSession: original.id, isSeeded: true,
+          ...(original.session.header.cwd === undefined ? {} : { cwd: original.session.header.cwd }) },
+      })
+      appendTurn(child, 2, 'Alternative prompt')
+      for (const session of [original.session, child]) {
+        const handle = await f.ctx.sessionPersistence.create(session.header, {
+          ...(session.header.isSeeded ? { inheritedEventCount: session.inheritedEventCount } : {}),
+        })
+        await handle.append(session.snapshotEvents())
+        await handle.close()
+      }
+      const prompt = vi.spyOn(f.tui, 'prompt')
+      const history = f.terminal!.scrollback()
+      const cancelled = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalled())
+      f.input.write('\x1b[A')
+      expect(f.runtime.agent!.id).toBe(original.id)
+      f.input.write('\x03')
+      await cancelled
+      expect(f.runtime.agent!.id).toBe(original.id)
+      expect(f.terminal!.scrollback()).toEqual(history)
+
+      prompt.mockClear()
+      const continued = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalled())
+      f.input.write('Alternative\x1b[F\x1b\r')
+      await continued
+      expect(f.runtime.agent!.id).toBe(child.id)
+      expect(f.terminal!.scrollback().slice(0, history.length)).toEqual(history)
+
+      prompt.mockClear()
+      const edited = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalled())
+      f.input.write('Original second\x1b[F\r')
+      await edited
+      expect(f.runtime.agent!.id).not.toBe(child.id)
+      expect(f.runtime.agent!.session.header.parentSession).toBe(original.id)
+      expect(Number(f.runtime.agent!.session.inheritedEventCount)).toBe(cut)
+      expect(f.terminal!.visible().join('\n')).toContain('Original second prompt')
+      expect(child.snapshotEvents().at(-1)?.type).toBe('turn/end')
+    } finally {
+      await f.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

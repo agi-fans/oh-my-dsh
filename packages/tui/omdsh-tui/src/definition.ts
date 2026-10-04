@@ -76,13 +76,17 @@ export interface TuiPrompt {
     label: string
     /** Answer returned to the caller; defaults to {@link label}. */
     value?: string
+    /** Parent option value in a full-screen tree. Missing parents become roots. */
+    parentValue?: string
+    /** Action shown for Enter on this option. */
+    submitLabel?: string
     /** Secondary content preview shown above metadata in spacious lists. */
     preview?: string
     description?: string
     /** Optional semantic badge painted after the description. */
     badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
   }[]
-  /** Optional single-key actions applied to the active option while the filter is empty. */
+  /** Text actions require an empty filter; full-screen trees also accept key chords. */
   actions?: readonly {
     key: string
     label: string
@@ -96,7 +100,7 @@ export interface TuiPrompt {
   /** Option value selected when a fixed-choice prompt opens. */
   initialValue?: string
   /** Full-height searchable list instead of the default prompt card. */
-  presentation?: 'fullscreen-list' | 'plan-review' | 'document'
+  presentation?: 'fullscreen-list' | 'fullscreen-tree' | 'plan-review' | 'document'
   /** Suppress attention notifications for user-initiated browsing surfaces. */
   notify?: boolean
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */

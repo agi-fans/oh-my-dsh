@@ -93,7 +93,7 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Send the message')
     expect(text).toContain('Ctrl+R')
     expect(text).toContain('Esc twice')
-    expect(text).toContain('Rewind to an earlier conversation turn')
+    expect(text).toContain('Browse conversation turns and branches')
     expect(text).toContain('@ / ./ / ~/')
     expect(text).toContain('/copy')
     expect(text).toContain('/help')
