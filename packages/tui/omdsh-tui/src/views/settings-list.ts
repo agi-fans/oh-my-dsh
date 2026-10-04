@@ -52,6 +52,7 @@ export interface TuiPrefs {
   colors: boolean
   motion?: MotionMode
   terminalProgress?: boolean
+  /** Legacy input; ignored by the turn presentation. */
   foldDensity?: FoldDensity
   /** Legacy input; ignored by the turn presentation. */
   expandTools?: boolean

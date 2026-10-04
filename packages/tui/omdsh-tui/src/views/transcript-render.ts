@@ -32,7 +32,7 @@ import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from 
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
 import { createTheme, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
-import { charWidth, padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
@@ -57,7 +57,6 @@ import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
-import { DEFAULT_FOLD_DENSITY, foldPolicy, foldPolicyKey, type FoldPolicy } from '../session/fold-policy.ts'
 import {
   contentToText,
   prettyArgs,
@@ -104,8 +103,6 @@ export interface ViewOptions {
   appName?: string
   /** Spinner phase while a turn or tool is running. */
   spinnerFrame?: number
-  /** @deprecated Process content no longer displays a separate clock. */
-  now?: number
   /** Animation policy for streaming, activity marks, and the working label. */
   motion?: MotionMode
   /** 24-bit color; defaults to off so tests stay deterministic. */
@@ -165,8 +162,6 @@ export interface ViewOptions {
   transcriptSearch?: { query: string; matches: readonly number[]; focus: number; editing: boolean }
   /** Legacy full-output override for direct callers and the tool catalog. */
   toolsExpanded?: boolean
-  /** @deprecated Accepted for compatibility; all turns use the same layout. */
-  fold?: FoldPolicy
   /** Tool calls whose complete inputs and results are visible. */
   expandedTools?: ReadonlySet<string>
   /** Effective application binding used in preview hints. */
@@ -325,9 +320,6 @@ function toolRowLine(
   theme: Theme,
   width: number,
   spinnerFrame: number,
-  showSubject = true,
-  indent = '',
-  elapsed?: string,
 ): string[] {
   const presentation = renderTool({
     name: block.name,
@@ -341,7 +333,7 @@ function toolRowLine(
   // A PTC sub-call ran inside a program, not because the model asked for it
   // directly. Indenting says that without a second visual vocabulary, and the
   // width budget shrinks to match so the row still ends at the same column.
-  const nest = indent + (block.parentCallId === undefined ? '' : '  ')
+  const nest = block.parentCallId === undefined ? '' : '  '
   // No gutter column. A settled successful call carries no mark at all — a
   // column of identical bullets says only that the row above exists — and the
   // two that remain are the states a reader has to act on: motion while the
@@ -350,19 +342,18 @@ function toolRowLine(
   const head = nest + mark
   const room = processRoom(width, head)
   const label = processLabel(block.name)
-  const detail = toolRowSubject(block, presentation, label)
-  const subject = showSubject ? detail : ''
+  const subject = toolRowSubject(block, presentation, label)
   const args = toolArgsObject(block.args)
   const call = block.presentation?.call
   const description = args?.['description'] ?? (call?.card === 'terminal' ? call.description : undefined)
-  const descriptionLed = showSubject && (COMMAND_TOOL.test(block.name) || call?.card === 'terminal')
+  const descriptionLed = (COMMAND_TOOL.test(block.name) || call?.card === 'terminal')
     && typeof description === 'string' && description.trim() !== ''
   // The echo a failure skips is the command line, which a description-led row
   // no longer carries as its subject.
-  const argCommand = toolArgsObject(block.args)?.['command']
+  const argCommand = args?.['command']
   const command = typeof argCommand === 'string'
     ? argCommand
-    : block.presentation?.call?.card === 'terminal' ? presentation.input[0] ?? detail : detail
+    : block.presentation?.call?.card === 'terminal' ? presentation.input[0] ?? subject : subject
   const fact = block.status === 'error'
     ? firstLineOf(block.job !== undefined && block.job.status !== 'completed'
       ? block.job.detail ?? block.job.status
@@ -373,14 +364,9 @@ function toolRowLine(
   // as a separate column that belonged to no row in particular. It is reserved
   // first so a long subject cannot push it off; a failure gets the larger
   // share, because its fact is the reason the reader stopped.
-  // The running clock is reserved before either of them: a call that has been
-  // running is what the reader is waiting on, and a subject that pushed its age
-  // off the row would leave the one live number in the transcript unreported.
-  const clock = elapsed === undefined || elapsed === '' ? '' : theme.dim(elapsed)
-  const clockRoom = clock === '' ? 0 : visibleWidth(clock) + ROW_JOIN.length
   const factShare = block.status === 'error' ? 0.5 : 1 / 3
-  const factRoom = Math.min(visibleWidth(fact), Math.floor(Math.max(1, room - clockRoom) * factShare))
-  const afterFact = Math.max(1, room - clockRoom - (factRoom === 0 ? 0 : factRoom + ROW_JOIN.length))
+  const factRoom = Math.min(visibleWidth(fact), Math.floor(Math.max(1, room) * factShare))
+  const afterFact = Math.max(1, room - (factRoom === 0 ? 0 : factRoom + ROW_JOIN.length))
   const labelRoom = descriptionLed ? 0 : Math.min(visibleWidth(label), afterFact)
   const detailRoom = descriptionLed ? afterFact : afterFact - labelRoom - ROW_JOIN.length
   const labelText = descriptionLed ? '' : truncateToWidth(label, Math.max(1, labelRoom))
@@ -392,9 +378,7 @@ function toolRowLine(
   // A failure is the one line in a run that has to stay findable while scrolling
   // past, so its fact carries the error colour rather than the row's dim.
   const tail = tailText === '' ? '' : block.status === 'error' ? theme.fg('error', tailText) : theme.dim(tailText)
-  const clockText = clock === '' || text === '' && tailText === '' ? clock
-    : clock === '' ? '' : ROW_JOIN + clock
-  return [padToWidth(truncateToWidth(head + theme.fg('muted', text) + tail + clockText, Math.max(1, width - 2)), width)]
+  return [padToWidth(truncateToWidth(head + theme.fg('muted', text) + tail, Math.max(1, width - 2)), width)]
 }
 
 /** Separator between a process subject and its outcome. */
@@ -539,96 +523,12 @@ function toolBlockLines(
   return ['', ...rows, ''].map(row => theme.bg(bg, padToWidth(' '.repeat(padding + nest) + row, width)))
 }
 
-/** How wide a preview may grow before it is cut even at a sentence end. */
-const PREVIEW_CELLS = 96
-
 function firstLineOf(text: string): string {
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
     if (trimmed !== '') return trimmed
   }
   return ''
-}
-
-/**
- * The first whole sentence of a line, or the line cut to a readable width.
- *
- * Taking the first *line* of a thought produced a run-on clause that always ran
- * off the right edge and always ended in an ellipsis, so a long turn came back
- * as a wall of identically truncated rows. A sentence is the unit a reader can
- * hold, and it is usually short enough to fit without a mark saying it was cut.
- * Prose that never closes on a sentence falls back to a width, and says so.
- */
-function firstSentenceOf(line: string): string {
-  const limit = Math.min(visibleWidth(line), PREVIEW_CELLS)
-  // The running width is accumulated rather than re-measured per character. A
-  // thought paragraph runs to thousands of characters, and re-measuring the
-  // prefix on every step made looking for a sentence that is not there
-  // quadratic — the common case, since most thoughts do not close on one.
-  let widthSoFar = 0
-  for (let at = 1; at < line.length; at += 1) {
-    const char = line[at]
-    const next = line[at + 1]
-    widthSoFar += charWidth(line.charCodeAt(at))
-    const wide = char === '\u3002' || char === '\uff01' || char === '\uff1f'
-    const closes = wide || char === '.' || char === '!' || char === '?'
-    // A full stop inside an ellipsis, a version tag or a decimal is not an end.
-    // A CJK stop is never followed by a space, so it ends wherever it stands.
-    const endsHere = closes && (wide || next === undefined || SENTENCE_FOLLOWER.test(next))
-    if (!endsHere || widthSoFar > limit) continue
-    // A sentence that closes inside a quotation takes the closing mark with it;
-    // cutting before it leaves the row with an opening quote and no partner.
-    let end = at + 1
-    while (end < line.length && CLOSING_MARK.test(line[end]!)) end += 1
-    return line.slice(0, end).trimEnd()
-  }
-  return truncateToWidth(line, Math.max(1, limit))
-}
-
-const SENTENCE_FOLLOWER = /[\s"'\u201d\u2019)\]\u300d\u300f]/u
-const CLOSING_MARK = /["'\u201d\u2019)\]\u300d\u300f]/u
-
-/**
- * Sentences that carry no content on their own.
- *
- * A model opens a thought with an acknowledgement — `Good.`, `Hmm.`, `Now,` —
- * far more often than a writer would, and a preview that stops there reads as
- * a row of noise down the run. Skipping them costs nothing: the next sentence
- * is the one the acknowledgement was introducing.
- */
-const FILLER_SENTENCE = /^(good|great|ok|okay|hmm+|now|so|right|alright|yes|interesting|perfect|done|nice)[\s.!,:;\u2014-]*$/iu
-
-/** The first sentence of a line that says something, skipping acknowledgements. */
-function firstTellingSentenceOf(line: string): string {
-  let rest = line
-  for (let hop = 0; hop < 3; hop += 1) {
-    const sentence = firstSentenceOf(rest)
-    const after = rest.slice(sentence.length).trim()
-    if (!FILLER_SENTENCE.test(sentence) || after === '') return sentence
-    rest = after
-  }
-  return firstSentenceOf(rest)
-}
-
-/**
- * One-line preview of a reasoning run.
- *
- * Slicing the raw text would show half a sentence and then rewrite it under the
- * reader's eyes on the next token. A paragraph is the unit the model actually
- * finishes, so the preview advances to the first line of the last *completed*
- * paragraph and waits there until another one closes; before any paragraph has
- * closed there is nothing safe to show, and the row says so. Once the block
- * settles there is no incomplete tail to avoid, so the whole text's first line
- * is used. Inline markers are stripped because the row is prose, not rendered
- * markdown: leaving them reads as stray punctuation in a plain line.
- */
-export function reasoningPreview(text: string, streaming: boolean): string {
-  const clean = text.replaceAll('**', '').replaceAll('`', '').trim()
-  if (clean === '') return ''
-  if (!streaming) return firstTellingSentenceOf(firstLineOf(clean))
-  const paragraphs = clean.split(/\n[ \t]*\n/u).map(paragraph => paragraph.trim()).filter(paragraph => paragraph !== '')
-  if (paragraphs.length < 2) return ''
-  return firstTellingSentenceOf(firstLineOf(paragraphs[paragraphs.length - 2] ?? ''))
 }
 
 /** Thinking uses the same quiet Markdown style throughout the turn. */
@@ -677,7 +577,7 @@ function groupMemberLines(
   else {
     lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey)
       : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width)
-        : blockLines(block, theme, width, 0, false, true)
+        : blockLines(block, theme, width)
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
@@ -734,19 +634,18 @@ function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, el
 
 /**
  * Render a block for the transcript or plain printer. Full output is available
- * to direct callers; turn inspection uses previews. Legacy positional options
- * remain accepted, and omitReasoning excludes thinking already drawn by a run.
+ * to direct callers; turn inspection uses previews. omitReasoning excludes
+ * thinking already drawn by a run.
  */
 export function blockLines(
   block: Block,
   theme: Theme,
   width: number,
-  _spinnerFrame = 0,
-  toolsExpanded = false,
-  _reasoningExpanded = false,
-  _toolSubject = true,
-  omitReasoning = false,
-  toolDetailsKey = 'Alt+O',
+  { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O' }: {
+    toolsExpanded?: boolean
+    omitReasoning?: boolean
+    toolDetailsKey?: string
+  } = {},
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
@@ -876,11 +775,6 @@ interface TranscriptBodyCache {
   expandedTools: string
   expandedReasoning: string
   openedGroups: string
-  /**
-   * Resting fold shape. Folded rows are derived from it, so reusing rows across
-   * a density change would repaint nothing and read as a dead key.
-   */
-  foldKey: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
   /** A settled turn's length lands on its run's header without touching a block. */
@@ -923,11 +817,7 @@ interface BlockLinesCache {
   colors: boolean
   trueColor: boolean
   themeName: ThemeName
-  spinnerFrame: number
   expanded: boolean
-  reasoningExpanded: boolean
-  /** The folded row's argument clause is a density choice, not an open/closed one. */
-  toolSubject: boolean
   /** The block's thought is painted by the run above it. */
   omitReasoning: boolean
   lines: readonly string[]
@@ -942,23 +832,16 @@ function cachedBlockLines(
   theme: Theme,
   themeName: ThemeName,
   trueColor: boolean,
-  spinnerFrame: number,
   expanded: boolean,
-  reasoningExpanded: boolean,
-  toolSubject: boolean,
   omitReasoning = false,
 ): readonly string[] {
-  const animatedSpinnerFrame = block.kind === 'tool' && block.status === 'running' ? spinnerFrame : -1
   const cached = blockLinesCache.get(block)
   if (cached !== undefined
     && cached.width === options.width
     && cached.colors === options.colors
     && cached.trueColor === trueColor
     && cached.themeName === themeName
-    && cached.spinnerFrame === animatedSpinnerFrame
     && cached.expanded === expanded
-    && cached.reasoningExpanded === reasoningExpanded
-    && cached.toolSubject === toolSubject
     && cached.omitReasoning === omitReasoning
     && cached.toolDetailsKey === options.toolDetailsKey
     && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)) return cached.lines
@@ -966,8 +849,8 @@ function cachedBlockLines(
   const lines = block.kind === 'tool' && toolDetails
     ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
     : blockLines(
-    block, theme, options.width, spinnerFrame, expanded, reasoningExpanded, toolSubject, omitReasoning, options.toolDetailsKey,
-  )
+      block, theme, options.width, { toolsExpanded: expanded, omitReasoning, toolDetailsKey: options.toolDetailsKey ?? 'Alt+O' },
+    )
   blockLinesCache.set(block, {
     toolDetailsKey: options.toolDetailsKey,
     toolDetails,
@@ -975,10 +858,7 @@ function cachedBlockLines(
     colors: options.colors,
     trueColor,
     themeName,
-    spinnerFrame: animatedSpinnerFrame,
     expanded,
-    reasoningExpanded,
-    toolSubject,
     omitReasoning,
     lines,
   })
@@ -993,61 +873,30 @@ function cachedBlockLines(
  * rendering code. A tool with no family is reported by its own name, which is
  * still more informative than dropping it.
  */
-/**
- * A work category, phrased as what happened rather than as what kind of tool
- * it was.
- *
- * The reference client composes its collapsed titles from verb phrases — "read
- * files", "searched code", "ran commands" — and joins them into a sentence. A
- * list of category nouns does not: `files, search, commands` is metadata about
- * the tools, and a reader scrolling back wants to know what the agent did.
- * Counts choose the form here but are not printed in the title, the same way the
- * reference ranks by count and then shows only the labels.
- */
-interface ProcessCategory {
-  /** What the category contributes to a run's header. */
-  phrase: (count: number) => string
-  /** What one call of this kind is called on its own row. */
-  label: string
-  /** The bare noun a folded run counts this kind in: `4 commands`, `1 read`. */
-  noun: (count: number) => string
-  match: RegExp
-}
-
-/** A phrase that does not inflect reads the same at one and at many. */
-const flat = (phrase: string): ProcessCategory['phrase'] => () => phrase
-/** The only inflection a title needs: one call, or more than one. */
-const plural = (one: string, many: string): ProcessCategory['phrase'] =>
-  (count: number) => (count === 1 ? one : many)
-
-const PROCESS_CATEGORIES: readonly ProcessCategory[] = [
-  { match: /^read$/, label: 'Read file', noun: plural('read', 'reads'), phrase: plural('Read a file', 'Read files') },
-  { match: /^(read_image|readImage)$/, label: 'View image', noun: plural('image', 'images'), phrase: plural('Looked at an image', 'Looked at images') },
-  { match: /^(write|notebook_edit|apply_patch)$/, label: 'Write file', noun: plural('write', 'writes'), phrase: plural('Wrote a file', 'Wrote files') },
-  { match: /^(edit|multi_edit|str_replace_editor)$/, label: 'Edit file', noun: plural('edit', 'edits'), phrase: plural('Edited a file', 'Edited files') },
-  { match: /^(grep|glob|list_dir|search)$/, label: 'Search code', noun: plural('search', 'searches'), phrase: flat('Searched the code') },
-  { match: /^(bash|shell|pwsh|exec|write_stdin)$/, label: 'Run command', noun: plural('command', 'commands'), phrase: plural('Ran a command', 'Ran commands') },
-  { match: /^(run_code)$/, label: 'Run code', noun: plural('program', 'programs'), phrase: flat('Ran code') },
-  { match: /^(web_search)$/, label: 'Search web', noun: plural('web search', 'web searches'), phrase: flat('Searched the web') },
-  { match: /^(web_fetch)$/, label: 'Fetch page', noun: plural('page', 'pages'), phrase: plural('Visited a page', 'Visited pages') },
+const PROCESS_LABELS: readonly { match: RegExp; label: string }[] = [
+  { match: /^read$/, label: 'Read file' },
+  { match: /^(read_image|readImage)$/, label: 'View image' },
+  { match: /^(write|notebook_edit|apply_patch)$/, label: 'Write file' },
+  { match: /^(edit|multi_edit|str_replace_editor)$/, label: 'Edit file' },
+  { match: /^(grep|glob|list_dir|search)$/, label: 'Search code' },
+  { match: /^(bash|shell|pwsh|exec|write_stdin)$/, label: 'Run command' },
+  { match: /^(run_code)$/, label: 'Run code' },
+  { match: /^(web_search)$/, label: 'Search web' },
+  { match: /^(web_fetch)$/, label: 'Fetch page' },
   {
     match: /^(subagent|subagent_fork|subagent_isolated|agent|ralph|workflow_run)$/, label: 'Run subagent',
-    noun: plural('subagent', 'subagents'),
-    phrase: plural('Coordinated a subagent', 'Coordinated subagents'),
   },
   {
     match: /^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/,
-    label: 'Search sessions', noun: plural('session search', 'session searches'), phrase: flat('Searched past sessions'),
+    label: 'Search sessions',
   },
   {
     match: /^(todo_write|update_goal|create_goal|get_goal)$/, label: 'Update plan',
-    noun: plural('plan update', 'plan updates'), phrase: flat('Updated the plan'),
   },
   {
     match: /^(ask_user_question|ask_user|user_question)$/, label: 'Ask question',
-    noun: plural('question', 'questions'), phrase: plural('Asked a question', 'Asked questions'),
   },
-  { match: /^skill$/, label: 'Load skill', noun: plural('skill', 'skills'), phrase: plural('Loaded a skill', 'Loaded skills') },
+  { match: /^skill$/, label: 'Load skill' },
 ]
 
 /**
@@ -1056,30 +905,10 @@ const PROCESS_CATEGORIES: readonly ProcessCategory[] = [
  * category for it would not be.
  */
 function processLabel(name: string): string {
-  for (const category of PROCESS_CATEGORIES) {
+  for (const category of PROCESS_LABELS) {
     if (category.match.test(name)) return category.label
   }
   return name
-}
-
-function processPhrase(name: string): ProcessCategory['phrase'] {
-  for (const category of PROCESS_CATEGORIES) {
-    if (category.match.test(name)) return category.phrase
-  }
-  return () => name
-}
-
-/**
- * The bare noun a folded run counts this tool in: `16 commands`.
- *
- * A tool that belongs to no declared category is counted as a call rather than
- * dropped, so the run's totals always add up to what the reader can see.
- */
-function processNoun(name: string): ProcessCategory['noun'] {
-  for (const category of PROCESS_CATEGORIES) {
-    if (category.match.test(name)) return category.noun
-  }
-  return plural('call', 'calls')
 }
 
 /** One collapsible stretch of process: the calls and thoughts between two answers. */
@@ -1113,18 +942,6 @@ export interface ProcessGroup {
    * this is a flag rather than a second index into the same block.
    */
   tookThought: boolean
-  /** Tool families in first-seen order, with how many calls each took. */
-  categories: { phrase: (count: number) => string; count: number }[]
-  /**
-   * The same calls counted by the bare noun a folded run names them in.
-   *
-   * The rows say what each call *was* — `Read file · a.ts` — and this says how
-   * many of each kind the run made, which is the only account of the work that
-   * survives the fold. It is counted from the blocks rather than derived from
-   * {@link ProcessGroup.categories}, so a tool that belongs to no declared
-   * category still lands in the total instead of vanishing from the summary.
-   */
-  stats: { noun: string; count: number }[]
   /** How many tool calls the run made. */
   calls: number
   /** Failed calls and independent process notices in this run. */
@@ -1234,8 +1051,6 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
     const size = memberEnd - start + (absorbs === undefined ? 0 : 1)
     const answerIndex = answer
     if (size >= MIN_GROUP_BLOCKS || (size > 0 && segmentTurn !== undefined)) {
-      const categories: ProcessGroup['categories'] = []
-      const stats: ProcessGroup['stats'] = []
       let calls = 0
       let failures = 0
       let live = false
@@ -1251,14 +1066,6 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
         if (block.kind !== 'tool') continue
         calls += 1
         if (block.status === 'error') failures += 1
-        const phrase = processPhrase(block.name)
-        const existing = categories.find(entry => entry.phrase(1) === phrase(1))
-        if (existing === undefined) categories.push({ phrase, count: 1 })
-        else existing.count += 1
-        const noun = processNoun(block.name)(1)
-        const counted = stats.find(entry => entry.noun === noun)
-        if (counted === undefined) stats.push({ noun, count: 1 })
-        else counted.count += 1
       }
       const turn = segmentTurn ?? (blocks[end]?.kind === 'workspace' ? (blocks[end] as WorkspaceBlock).turn : undefined)
       groups.push({
@@ -1269,8 +1076,6 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
         // painted without it. A separate flag rather than a second index: the
         // block is always the answer.
         tookThought: absorbs !== undefined,
-        categories,
-        stats,
         calls,
         failures,
         live,
@@ -1342,8 +1147,6 @@ function renderTranscriptBody(
   spinnerFrame: number,
 ): TranscriptBody {
   const toolsExpanded = options.toolsExpanded === true
-  const fold = foldPolicy(DEFAULT_FOLD_DENSITY)
-  const foldKey = foldPolicyKey(fold)
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
@@ -1368,7 +1171,6 @@ function renderTranscriptBody(
     && cached.expandedReasoning === expandedReasoning
     && cached.openedGroups === openedGroups
     && cached.toolDetailsKey === options.toolDetailsKey
-    && cached.foldKey === foldKey
     && cached.turnSpans === state.turnSpans
     && cached.searchKey === searchKey
     && cached.status === state.status
@@ -1426,7 +1228,6 @@ function renderTranscriptBody(
       openedThoughts.add(reasoningKey(state.blocks[group.answer] as Extract<Block, { kind: 'assistant' }>))
     }
     const asked = toolsExpanded
-      || !fold.groups
       || options.openedGroups?.has(group.key) === true
       || state.blocks.slice(group.start, group.until).some(block => block.kind === 'tool' && options.expandedTools?.has(block.callId))
       || reasoningHit
@@ -1439,7 +1240,6 @@ function renderTranscriptBody(
   // change of shape starts. Global switches reshape from the top.
   const foldMarks: FoldMark[] = []
   if (toolsExpanded) foldMarks.push({ key: 'all', row: 0 })
-  foldMarks.push({ key: `density:${foldKey}`, row: 0 })
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, trueColor, width: options.width,
@@ -1447,7 +1247,7 @@ function renderTranscriptBody(
   }
   const compactProcessRow = (block: Block | undefined): boolean => {
     if (block?.kind === 'notice') return block.process !== undefined && block.framed !== true
-    return block?.kind === 'tool' && fold.tools && !toolsExpanded && !options.expandedTools?.has(block.callId)
+    return block?.kind === 'tool' && !toolsExpanded && !options.expandedTools?.has(block.callId)
   }
   // Only a turn's last run is summarized by how long the turn took; an earlier
   // run in the same turn did not take all of it.
@@ -1518,8 +1318,7 @@ function renderTranscriptBody(
         offsets.set(group.answer, lines.length - bodyRow)
         const answer = state.blocks[group.answer]!
         const rendered = cachedBlockLines(
-          answer, options, theme, themeName, trueColor, spinnerFrame,
-          toolsExpanded || !fold.tools, toolsExpanded || !fold.reasoning, fold.subject,
+          answer, options, theme, themeName, trueColor, toolsExpanded,
           absorbed.has(group.answer),
         )
         for (const line of (search !== undefined && matches.has(group.answer)
@@ -1603,13 +1402,9 @@ function renderTranscriptBody(
       && (blockTurn(block) === undefined || blockTurn(block) === state.turn)
     if (liveBlock) liveFrom ??= lines.length
     const expanded = (block.kind === 'workspace' && groups.some((group, at) => group.turn === block.turn && openGroups.has(at))) || matches.has(index) || toolsExpanded
-      || !fold.tools
       || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
-    const reasoningExpanded = liveBlock || toolsExpanded
-      || !fold.reasoning
-      || (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true)
     const rendered = cachedBlockLines(
-      block, options, theme, themeName, trueColor, spinnerFrame, expanded, reasoningExpanded, fold.subject,
+      block, options, theme, themeName, trueColor, expanded,
       absorbed.has(index),
     )
     lines.push(...(search !== undefined && matches.has(index)
@@ -1633,7 +1428,6 @@ function renderTranscriptBody(
     expandedTools,
     expandedReasoning,
     openedGroups,
-    foldKey,
     searchKey,
     turnSpans: state.turnSpans,
     status: state.status,

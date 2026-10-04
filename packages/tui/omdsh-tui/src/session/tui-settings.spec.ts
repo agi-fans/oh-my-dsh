@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
 import { resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
+import { FOLD_DENSITIES } from './fold-policy.ts'
 import { TUI_SETTINGS_FIELDS } from './tui-settings.ts'
 
 const RowSettings = z.object(TUI_SETTINGS_FIELDS)
@@ -32,7 +33,7 @@ describe('TUI row settings', () => {
     })
   })
 
-  it('accepts explicit palette, motion, and transcript density overrides', () => {
+  it('accepts explicit palette and motion overrides', () => {
     expect(resolve({ theme: 'light', colors: false, motion: 'off', foldDensity: 'verbose' })).toMatchObject({
       theme: 'light',
       colors: false,
@@ -40,6 +41,10 @@ describe('TUI row settings', () => {
       terminalProgress: false,
       foldDensity: 'verbose',
     })
+  })
+
+  it.each(FOLD_DENSITIES)('accepts the legacy %s density and expandTools preference', foldDensity => {
+    expect(resolve({ foldDensity, expandTools: true })).toMatchObject({ foldDensity, expandTools: true })
   })
 
   it('validates the status-line detail and drops retired display fields', () => {

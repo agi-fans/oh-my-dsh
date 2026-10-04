@@ -7,7 +7,7 @@ import type { Block } from './transcript-types.ts'
 
 type Tool = Extract<Block, { kind: 'tool' }>
 const tool = (over: Partial<Tool> = {}): Tool => ({ kind: 'tool', callId: ToolCallId('call'), name: 'bash', status: 'ok', args: '{}', output: '', ...over })
-const render = (block: Tool, width = 80, colors = false, full = false) => blockLines(block, createTheme(colors), width, 0, full)
+const render = (block: Tool, width = 80, colors = false, full = false) => blockLines(block, createTheme(colors), width, { toolsExpanded: full })
 const text = (block: Tool, full = false) => render(block, 80, false, full).map(stripAnsi).join('\n')
 
 describe('tool content', () => {

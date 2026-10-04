@@ -1,5 +1,5 @@
 /**
- * Optional product features and the Profile-patch block that turns them off.
+ * Optional product features and their managed Profile-patch overrides.
  *
  * A feature is a composition row a deployment may not want: it costs context,
  * runtime, or transcript noise. The row's `disabled` field is a Loader option
@@ -16,7 +16,7 @@
 
 import { join } from 'node:path'
 
-/** One optional product feature, addressed by the row id it disables. */
+/** One optional product feature, addressed by its composition row id. */
 export interface FeatureToggle {
   /** Composition row id; the key a Profile patch keys its override by. */
   id: string
@@ -29,7 +29,7 @@ export interface FeatureToggle {
 }
 
 /**
- * Features this build can turn off.
+ * Features this build can enable or disable.
  *
  * Rows that make the agent non-functional (`tool-fs`, `tool-bash`, `todo`), rows
  * that back a command (`session-query` backs `/sessions`, `workspace` backs
@@ -83,53 +83,18 @@ export function defaultFeatureStates(
 }
 
 /**
- * Apply the `disabled` rows a Profile patch declares on top of the defaults.
- *
- * Only rows this build knows a feature for are read: a patch may disable any
- * row for its own reasons, and an unknown id is not a feature toggle.
- *
- * @param states - the shipped defaults.
- * @param disabled - row ids the patch marks `disabled: true`.
- * @returns a new state map with those features off.
- */
-export function applyDisabledRows(
-  states: Record<string, boolean>,
-  disabled: readonly string[],
-): Record<string, boolean> {
-  const known = new Set(FEATURE_TOGGLES.map(feature => feature.id))
-  const next = { ...states }
-  for (const id of disabled) if (known.has(id)) next[id] = false
-  return next
-}
-
-/**
- * Row ids that must be disabled to make `states` true, ignoring rows already
- * off in the shipped composition.
- *
- * @param states - desired feature state.
- * @returns the row ids a patch has to mark `disabled: true`.
- */
-export function rowsToDisable(states: FeatureStates): string[] {
-  return FEATURE_TOGGLES
-    .filter(feature => feature.enabledByDefault && states[feature.id] === false)
-    .map(feature => feature.id)
-}
-
-/**
- * Render the managed block for the features that are off.
- *
- * The block is written unconditionally so it always states the full set the
- * build manages; re-enabling a feature is removing its row from here.
+ * Render only states that differ from the shipped defaults. Returning a
+ * feature to its default removes its override, including shipped-off features.
  *
  * @param states - desired feature state.
  * @returns the block text, including a trailing newline.
  */
 export function renderFeatureBlock(states: FeatureStates): string {
-  const off = FEATURE_TOGGLES
-    .filter(feature => feature.enabledByDefault && states[feature.id] === false)
-    .map(feature => feature.id)
   const lines = [FEATURE_BLOCK_BEGIN]
-  for (const id of off) lines.push(`- id: ${id}`, '  disabled: true')
+  for (const feature of FEATURE_TOGGLES) {
+    const enabled = states[feature.id] ?? feature.enabledByDefault
+    if (enabled !== feature.enabledByDefault) lines.push(`- id: ${feature.id}`, `  disabled: ${!enabled}`)
+  }
   lines.push(FEATURE_BLOCK_END, '')
   return lines.join('\n')
 }
@@ -162,7 +127,7 @@ export function replaceFeatureBlock(text: string, block: string): string {
  * Read the feature state a patch file currently declares.
  *
  * Only the managed block is parsed, by row id, so a hand-written
- * `disabled: true` elsewhere in the file is left for the composition to honour
+ * overrides elsewhere in the file are left for the composition to honour
  * and is not double-counted as a feature toggle.
  *
  * @param text - patch file contents.
@@ -181,8 +146,9 @@ export function featureStatesFromPatch(
   for (const raw of text.slice(begin, end).split('\n')) {
     const id = raw.match(/^\s*-\s*id:\s*(\S+)\s*$/u)
     if (id !== null) { current = id[1]; continue }
-    if (/^\s*disabled:\s*true\s*$/u.test(raw) && current !== undefined) {
-      if (Object.hasOwn(states, current)) states[current] = false
+    const disabled = raw.match(/^\s*disabled:\s*(true|false)\s*$/u)
+    if (disabled !== null && current !== undefined) {
+      if (Object.hasOwn(states, current)) states[current] = disabled[1] === 'false'
       current = undefined
     }
   }

@@ -17,7 +17,7 @@
 
 “完整结果”指当前 session 记录中可用的内容。若 spill policy 已把原始结果替换为预览和私有文件路径，展开不能凭空恢复被替换的全文；这与转录自身的预览截断不同。
 
-四档转录密度已移除。[fold-policy](../../packages/tui/omdsh-tui/src/session/fold-policy.ts)只负责兼容读取旧配置，所有旧值解析为当前统一布局，不能据此恢复多个产品档位。
+四档转录密度已移除。[fold-policy](../../packages/tui/omdsh-tui/src/session/fold-policy.ts)仅保留旧配置的枚举值供 schema 兼容读取；运行时不再维护密度策略或对应的缓存条件。旧值不影响当前统一布局，不能据此恢复多个产品档位。
 
 ## 滚动与视口控件
 

@@ -122,7 +122,7 @@ export class PlainTui {
     let out = ''
     for (const block of blocks.slice(this.#printed)) {
       // Pipe / CI output is not a viewport: print the full tool body.
-      for (const line of blockLines(block, theme, width, 0, true)) out += line + '\n'
+      for (const line of blockLines(block, theme, width, { toolsExpanded: true })) out += line + '\n'
     }
     this.#printed = blocks.length
     if (out !== '') this.#deps.term.output.write(out)

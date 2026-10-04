@@ -5,7 +5,7 @@
  * cross-turn quit latch, plain-mode line input, and event rendering.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -2358,7 +2358,6 @@ describe('LocalTui (tty)', () => {
       colors: false,
       motion: 'full',
       terminalProgress: false,
-      foldDensity: 'standard',
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
@@ -2405,6 +2404,35 @@ describe('LocalTui (tty)', () => {
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()
+  })
+
+  it('persists the Ralph feature toggle across TUI launches', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'omdsh-feature-toggle-'))
+    const featurePatch = join(directory, 'cordis.patch.yml')
+    const handwritten = '# keep this row\n- id: custom-plugin\n  disabled: true\n'
+    writeFileSync(featurePatch, handwritten)
+    let tui: LocalTui | undefined
+    try {
+      for (const initial of ['off', 'on']) {
+        const term = new FakeTerminal()
+        tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { featurePatch })
+        void tui.readline()
+        press(term, '/settings\r')
+        press(term, '\t\x1b[B\x1b[B')
+        const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+        expect(screen).toMatch(new RegExp(`Ralph loop\\s+${initial}`, 'u'))
+        press(term, '\r')
+        const patch = readFileSync(featurePatch, 'utf8')
+        expect(patch).toContain(handwritten.trim())
+        if (initial === 'off') expect(patch).toContain('- id: tool-ralph\n  disabled: false')
+        else expect(patch).not.toContain('tool-ralph')
+        tui.dispose()
+        tui = undefined
+      }
+    } finally {
+      tui?.dispose()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('keeps an unconfigured session colorless under NO_COLOR', () => {
@@ -2812,7 +2840,7 @@ describe('LocalTui (tty)', () => {
     longTurn(tui, 3, 1)
     const before = term.visible()
     tui.applyStoredPrefs({ theme: 'dark', colors: false, expandTools: true, foldDensity })
-    expect(tui.prefs().foldDensity).toBe('standard')
+    expect(tui.prefs()).not.toHaveProperty('foldDensity')
     expect(term.visible()).toEqual(before)
     press(term, '\x0f')
     expect(term.visible().join('\n')).toContain('src/c3b.ts')

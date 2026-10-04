@@ -276,13 +276,6 @@ function paintTokens(tokens: readonly DiffToken[], theme: Theme): string {
 }
 
 /** Color a already-prefixed plain diff line (`- `, `+ `, `  `, path, or gap). */
-export function paintPrefixedDiffLine(line: string, theme: Theme): string {
-  if (line.startsWith('- ')) return theme.fg('toolDiffRemoved', line)
-  if (line.startsWith('+ ')) return theme.fg('toolDiffAdded', line)
-  if (line.startsWith('  ')) return theme.fg('toolDiffContext', line)
-  return theme.fg('dim', line)
-}
-
 export function paintDiffRow(row: DiffRow, theme: Theme): string {
   const body = paintTokens(row.tokens, theme)
   switch (row.kind) {

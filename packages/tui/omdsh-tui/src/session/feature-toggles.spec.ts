@@ -3,13 +3,11 @@ import {
   FEATURE_BLOCK_BEGIN,
   FEATURE_BLOCK_END,
   FEATURE_TOGGLES,
-  applyDisabledRows,
   defaultFeatureStates,
   featurePatchPath,
   featureStatesFromPatch,
   renderFeatureBlock,
   replaceFeatureBlock,
-  rowsToDisable,
 } from './feature-toggles.ts'
 
 const HAND_WRITTEN = [
@@ -45,28 +43,30 @@ describe('feature registry', () => {
   })
 })
 
-describe('applyDisabledRows', () => {
-  it('turns a known feature off', () => {
-    expect(applyDisabledRows(defaultFeatureStates(), ['workspace-changes'])['workspace-changes']).toBe(false)
-  })
-
-  it('ignores a row id that is not a feature', () => {
-    const states = applyDisabledRows(defaultFeatureStates(), ['session-query'])
-    expect(states).toEqual(defaultFeatureStates())
-  })
-})
-
-describe('rowsToDisable', () => {
-  it('lists only shipped-on features that were turned off', () => {
-    expect(rowsToDisable({ ...defaultFeatureStates(), 'workspace-changes': false })).toEqual(['workspace-changes'])
-  })
-
-  it('never lists a feature that was already off by default', () => {
-    expect(rowsToDisable(defaultFeatureStates())).toEqual([])
-  })
-})
-
 describe('feature block round trip', () => {
+  it('persists enabling Ralph and removes the override when it is disabled again', () => {
+    const enabled = { ...defaultFeatureStates(), 'tool-ralph': true }
+    const first = replaceFeatureBlock(HAND_WRITTEN, renderFeatureBlock(enabled))
+    expect(first).toContain('- id: tool-ralph\n  disabled: false')
+    expect(featureStatesFromPatch(first)).toEqual(enabled)
+    const second = replaceFeatureBlock(first, renderFeatureBlock(defaultFeatureStates()))
+    expect(second).not.toContain('tool-ralph')
+    expect(featureStatesFromPatch(second)).toEqual(defaultFeatureStates())
+    expect(second).toContain(HAND_WRITTEN.trim())
+  })
+
+  it('round-trips every combination of shipped-on and shipped-off features', () => {
+    for (let mask = 0; mask < 2 ** FEATURE_TOGGLES.length; mask += 1) {
+      const states = Object.fromEntries(FEATURE_TOGGLES.map((feature, index) => [feature.id, (mask & (1 << index)) !== 0]))
+      expect(featureStatesFromPatch(renderFeatureBlock(states))).toEqual(states)
+    }
+  })
+
+  it('reads explicit enable and disable rows only inside the managed block', () => {
+    const text = `${FEATURE_BLOCK_BEGIN}\n- id: tool-ralph\n  disabled: false\n- id: workspace-changes\n  disabled: true\n- id: unknown\n  disabled: false\n${FEATURE_BLOCK_END}\n- id: tool-ralph\n  disabled: true\n`
+    expect(featureStatesFromPatch(text)).toEqual({ ...defaultFeatureStates(), 'tool-ralph': true, 'workspace-changes': false })
+  })
+
   it('writes the off features and reads them back', () => {
     const states = { ...defaultFeatureStates(), 'workspace-changes': false, 'tool-session-query': false }
     const text = replaceFeatureBlock(HAND_WRITTEN, renderFeatureBlock(states))
@@ -99,7 +99,7 @@ describe('feature block round trip', () => {
     expect(featureStatesFromPatch(HAND_WRITTEN)).toEqual(defaultFeatureStates())
   })
 
-  it('writes an empty but well-formed block when everything is on', () => {
+  it('writes an empty but well-formed block for shipped defaults', () => {
     const text = replaceFeatureBlock(HAND_WRITTEN, renderFeatureBlock(defaultFeatureStates()))
     expect(text).toContain(FEATURE_BLOCK_BEGIN)
     expect(text).toContain(FEATURE_BLOCK_END)

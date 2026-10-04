@@ -153,13 +153,6 @@ import { colorDisabledByEnv, detectTrueColor, type ThemeName } from '../chrome/t
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSettings } from '../session/tui-settings.ts'
-import {
-  DEFAULT_FOLD_DENSITY,
-  foldPolicy,
-  resolveFoldDensity,
-  type FoldDensity,
-  type FoldPolicy,
-} from '../session/fold-policy.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
@@ -409,8 +402,6 @@ export class LocalTui implements TuiService {
   #follow = true
   #focusBlock: number | undefined
   #focusBlockEdge: 'start' | 'end' | undefined
-  #foldDensity: FoldDensity = DEFAULT_FOLD_DENSITY
-  #foldPolicy: FoldPolicy = foldPolicy(DEFAULT_FOLD_DENSITY)
   #motion: MotionMode = 'full'
   #terminalProgress = false
   #terminalProgressActive = false
@@ -986,7 +977,6 @@ export class LocalTui implements TuiService {
       colors: this.#colors,
       motion: this.#motion,
       terminalProgress: this.#terminalProgress,
-      foldDensity: this.#foldDensity,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
@@ -1347,7 +1337,6 @@ export class LocalTui implements TuiService {
         toolsExpanded: this.#toolsExpanded,
         expandedTools: this.#detailedToolIds(),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
-        fold: this.#foldPolicy,
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
@@ -2022,14 +2011,11 @@ export class LocalTui implements TuiService {
 
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
     const previousMotion = this.#motion
-    const density = resolveFoldDensity(prefs)
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#syncTrueColor()
     this.#motion = prefs.motion ?? 'full'
     this.#terminalProgress = prefs.terminalProgress ?? false
-    this.#foldDensity = density
-    this.#foldPolicy = foldPolicy(density)
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#notificationPolicy = prefs.notifications ?? 'off'
@@ -3049,7 +3035,6 @@ export function apply(ctx: Context, config: Config): void {
       colors: resolveColors(config.colors.get(), term.output.isTTY === true),
       motion: config.motion.get(),
       terminalProgress: config.terminalProgress.get(),
-      foldDensity: config.foldDensity.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
       notifications: config.notifications.get(),

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Enabling the Ralph loop in `/settings` now persists across launches. Feature overrides support both enabling a default-off tool and disabling a default-on feature.
+
 ## [0.19.0] - 2026-10-03
 
 ### Added

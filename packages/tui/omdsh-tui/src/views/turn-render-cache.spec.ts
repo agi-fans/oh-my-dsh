@@ -1,19 +1,8 @@
-/**
- * Density contract at the rendering layer.
- *
- * The renderer reads booleans and nothing else: a reader's density is resolved
- * upstream, and these tests drive the four rungs through the same transcript to
- * prove each one reaches the screen. The row-offset assertions are here for the
- * same reason they are in the group contract — a fold that repaints correctly
- * but leaves a stale offset behind breaks search and focus instead of looking
- * obviously wrong.
- */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { applyEvent, initialTranscript, processGroups, renderView } from './event-views.ts'
+import { applyEvent, initialTranscript, renderView } from './event-views.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import type { TranscriptState } from './transcript-types.ts'
-import { foldPolicy, type FoldDensity } from '../session/fold-policy.ts'
 
 function ev(type: string, data: unknown, seq: number): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
@@ -61,45 +50,6 @@ function transcript(): TranscriptState {
   return state
 }
 
-/** Identity of the one run in the fixture, so a test never hard-codes it. */
-const RUN_KEY = processGroups(transcript().blocks)[0]!.key
-
-function view(density: FoldDensity | undefined, over: Record<string, unknown> = {}): string {
-  return renderView(transcript(), {
-    width: 74,
-    height: 60,
-    model: 'm',
-    input: '',
-    inputCursor: 0,
-    colors: false,
-    ...(density === undefined ? {} : { fold: foldPolicy(density) }),
-    ...over,
-  }).lines.map(stripAnsi).join('\n')
-}
-
-describe('legacy density rendering', () => {
-  it('uses the same folded presentation for every old density', () => {
-    for (const density of ['compact', 'standard', 'detailed', 'verbose'] as const) {
-      expect(view(density)).toBe(view(undefined))
-      expect(view(density)).toContain('▸ Worked')
-      expect(view(density)).toContain('All done.')
-      expect(view(density)).not.toContain('Then check the lockfile.')
-    }
-  })
-  it('opens a turn with the same previews regardless of legacy density', () => {
-    const over = { openedGroups: new Set([RUN_KEY]) }
-    for (const density of ['compact', 'standard', 'detailed', 'verbose'] as const) {
-      const screen = view(density, over)
-      expect(screen).toBe(view(undefined, over))
-      expect(screen).toContain('Then check the lockfile.')
-      expect(screen).toContain('read package.json')
-      expect(screen).not.toContain('the whole manifest body')
-      expect(screen).toContain('$ pnpm test')
-      expect(screen).not.toContain('Worked')
-    }
-  })
-})
-
 describe('the render cache and a turn that is still running', () => {
   // A running turn's trailing run is painted flat, ungrouped, and becomes a
   // group when the turn ends. That projection reads `state.status`, which
@@ -112,7 +62,7 @@ describe('the render cache and a turn that is still running', () => {
   const running: TranscriptState = { ...finished, status: 'running' }
 
   const at = (state: TranscriptState): string => renderView(state, {
-    width: 74, height: 60, model: 'm', input: '', inputCursor: 0, colors: false, fold: foldPolicy('standard'),
+    width: 74, height: 60, model: 'm', input: '', inputCursor: 0, colors: false,
   }).lines.map(stripAnsi).join('\n')
 
   it('paints a finished run folded and the same run flat while it is still running', () => {
@@ -153,7 +103,6 @@ describe('the render cache and a turn that finished while the blocks stayed', ()
   })
   const screen = (state: TranscriptState): string => renderView(state, {
     width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-    fold: foldPolicy('standard'),
   }).lines.map(stripAnsi).join('\n')
 
   it('redraws the elapsed time when only the turn span changes', () => {

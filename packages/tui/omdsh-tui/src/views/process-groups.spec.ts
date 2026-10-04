@@ -19,7 +19,6 @@ import {
 } from './event-views.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import type { Block, TranscriptState } from './transcript-types.ts'
-import { foldPolicy } from '../session/fold-policy.ts'
 
 function ev(type: string, data: unknown, seq: number): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
@@ -123,19 +122,7 @@ describe('processGroups', () => {
     expect(groups[0]?.calls).toBe(2)
   })
 
-  it('tallies each tool family once, in first-seen order', () => {
-    const groups = processGroups(fold(oneTurn()).blocks)
-
-    // Categories are phrases, not labels: a collapsed title is a sentence about
-    // what happened, and a list of family names is not one.
-    expect(groups[0]?.categories.map(entry => [entry.phrase(entry.count), entry.count])).toEqual([
-      ['Read a file', 1],
-      ['Searched the code', 1],
-      ['Ran a command', 1],
-    ])
-  })
-
-  it('reports a tool with no family by its own name rather than dropping it', () => {
+  it('counts tools with no known family in the run total', () => {
     const state = fold([
       call('c1', 'strange_tool', {}, 1),
       result('c1', 'ok', 2),
@@ -143,8 +130,7 @@ describe('processGroups', () => {
       result('c2', 'ok', 4),
     ])
 
-    expect(processGroups(state.blocks)[0]?.categories.map(entry => entry.phrase(entry.count)))
-      .toEqual(['strange_tool', 'other_tool'])
+    expect(processGroups(state.blocks)[0]?.calls).toBe(2)
   })
 
   it('counts a group with a single call out', () => {
@@ -498,7 +484,7 @@ describe('a run whose work settles after its answer', () => {
     ])
     const view = (over: Record<string, unknown>): string => renderView(state, {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'), ...over,
+      ...over,
     }).lines.map(stripAnsi).join('\n')
     const matched = 'The lockfile pins a release that is two weeks old.'
 
@@ -513,7 +499,7 @@ describe('a run whose work settles after its answer', () => {
     // into the run's one-line preview, which carries a `·` subject clause.
     const rows = renderView(state, {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'), transcriptSearch: { query: 'lockfile pins', matches: [3], focus: 3 },
+      transcriptSearch: { query: 'lockfile pins', matches: [3], focus: 3 },
     }).lines.map(stripAnsi)
     expect(rows.find(row => row.includes(matched))?.trim()).toBe(matched)
   })
@@ -559,7 +545,6 @@ describe('a search hit inside the thought a run took', () => {
     // thought's own rows — the ones the hit was in — sat above the viewport.
     const screen = renderView(state(longThought(30)), {
       width: 74, height: 12, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'),
       transcriptSearch: { query: 'thought line 27', matches: [3], focus: 3 },
       focusBlock: 3,
     }).lines.map(stripAnsi).join('\n')
@@ -572,7 +557,6 @@ describe('a search hit inside the thought a run took', () => {
   it('still aims at the reply when the hit is in the reply itself', () => {
     const screen = renderView(state('a short thought'), {
       width: 74, height: 12, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'),
       transcriptSearch: { query: 'the reply', matches: [3], focus: 3 },
       focusBlock: 3,
     }).lines.map(stripAnsi).join('\n')

@@ -13,12 +13,9 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import { applyEvent, initialTranscript, renderView } from './event-views.ts'
-import { foldPolicy } from '../session/fold-policy.ts'
 import { processGroups } from './transcript-render.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import type { TranscriptState } from './transcript-types.ts'
-
-const FOLD = foldPolicy('standard')
 
 /** A run the reader keeps open, whose answering step has a long thought. */
 function transcript(): TranscriptState {
@@ -56,7 +53,7 @@ function view(
 ): Rendered {
   const frame = renderView(state, {
     width: 74, height: 90, model: 'm', input: '', inputCursor: 0, colors: false,
-    fold: FOLD, openedGroups: new Set([runKey(state)]), ...over,
+    openedGroups: new Set([runKey(state)]), ...over,
     ...(search === undefined ? {} : { transcriptSearch: { ...search, editing: true } }),
   })
   const rows = frame.lines.map(stripAnsi)
@@ -195,7 +192,7 @@ describe('a search that opens a thought the run took', () => {
     const expanded = new Set(['9:9'])
     renderView(state, {
       width: 74, height: 20, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: FOLD, openedGroups: opened, expandedReasoning: expanded,
+      openedGroups: opened, expandedReasoning: expanded,
       transcriptSearch: { query: 'lockfile shared 9', matches: [3], focus: 3, editing: true },
     })
 

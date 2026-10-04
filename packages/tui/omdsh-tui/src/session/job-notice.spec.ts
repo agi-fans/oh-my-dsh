@@ -89,7 +89,7 @@ describe('job settlement in the originating tool row', () => {
     const after = applyEvent(settled, result)
     expect(after.blocks[0]).toMatchObject({ status: 'error' })
     for (const expanded of [false, true]) {
-      const rows = blockLines(after.blocks[0]!, createTheme(false), 90, 0, expanded).join('\n')
+      const rows = blockLines(after.blocks[0]!, createTheme(false), 90, { toolsExpanded: expanded }).join('\n')
       expect(rows).toContain('exit code: 3')
     }
   })

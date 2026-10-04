@@ -813,15 +813,6 @@ export const DEEPSEEK_LOGO = [
   '     ⠉⠉⠉⠉⠉⠁         ',
 ] as const
 
-/** @deprecated Use {@link DEEPSEEK_LOGO}; retained for API compatibility. */
-export const PI_LOGO = [
-  '▀██████████▀',
-  ' ╘██    ██  ',
-  '  ██    ██  ',
-  '  ██    ██  ',
-  ' ▄██▄  ▄██▄ ',
-] as const
-
 const GRADIENT_STOPS: ReadonlyArray<readonly [number, number, number]> = [
   [255, 92, 200],
   [200, 110, 255],

@@ -131,7 +131,7 @@ describe('PTC sub-calls in the transcript', () => {
   it('opens a sub-call with the same padded output surface a native call gets', () => {
     const state = replayEvents(ptcRound())
     const bash = tools(state)[2]!
-    const opened = plain(blockLines(bash, theme, 60, 0, true))
+    const opened = plain(blockLines(bash, theme, 60, { toolsExpanded: true }))
 
     expect(opened[1]?.startsWith('    $')).toBe(true)
     expect(opened.join('\n')).toContain('all good')

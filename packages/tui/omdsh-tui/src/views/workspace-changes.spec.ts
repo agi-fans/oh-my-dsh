@@ -32,7 +32,7 @@ function changesEvent(seq: number, turn: number): SessionEvent {
 
 /** Rendered lines with ANSI stripped, ready for plain-text assertions. */
 function render(block: Block, expanded = false): string[] {
-  return blockLines(block, theme, WIDTH, 0, expanded).map(stripAnsi)
+  return blockLines(block, theme, WIDTH, { toolsExpanded: expanded }).map(stripAnsi)
 }
 
 describe('workspace/changes fold', () => {

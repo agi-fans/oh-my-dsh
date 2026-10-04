@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest'
 import { MainScreenRenderer, mapBlockSpan } from './main-screen-renderer.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
-import { foldPolicy } from '../session/fold-policy.ts'
 import { processGroups } from '../views/transcript-render.ts'
 import { stripAnsi } from './width.ts'
 import type { Block, TranscriptState } from '../views/transcript-types.ts'
@@ -1543,7 +1542,6 @@ describe('MainScreenRenderer reflow across a collapsed run with a failure', () =
     const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' } as TranscriptState
     const rendered = renderView(state, {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'),
     })
     return rendered.transcript!
   }
@@ -1554,7 +1552,6 @@ describe('MainScreenRenderer reflow across a collapsed run with a failure', () =
     const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' } as TranscriptState
     const rendered = renderView(state, {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'),
       ...(opened.length === 0 ? {} : { openedGroups: new Set(opened) }),
     })
     return { lines: rendered.lines.map(stripAnsi), transcript: rendered.transcript! }
@@ -1903,7 +1900,6 @@ describe('MainScreenRenderer which span the mapper picks', () => {
     const state = { ...initialTranscript(), blocks: blocks(), turn: 1, status: 'idle' } as TranscriptState
     const rendered = renderView(state, {
       width: 74, height: 40, model: 'm', input: '', inputCursor: 0, colors: false,
-      fold: foldPolicy('standard'),
       ...(opened.length === 0 ? {} : { openedGroups: new Set(opened) }),
     })
     return { lines: rendered.lines.map(stripAnsi), transcript: rendered.transcript! }

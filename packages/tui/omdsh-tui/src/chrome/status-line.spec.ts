@@ -4,10 +4,7 @@ import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } 
 import {
   formatDuration,
   formatTokens,
-  renderSessionStatusLabel,
   renderStatusFooter,
-  renderStatusPreviewLines,
-  sessionStatusGroups,
 } from './status-line.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
@@ -30,6 +27,21 @@ const stats: TuiSessionStats = {
 
 function statusBar(overrides: Partial<StatusBarConfig> = {}): StatusBarConfig {
   return { ...defaultStatusBarConfig(), ...overrides }
+}
+
+/** Read the telemetry row through the same footer used by the live TUI. */
+function telemetryRow(
+  sample: TuiSessionStats,
+  config = statusBar(),
+  theme = createTheme(false),
+  width = 200,
+): string {
+  return renderStatusFooter({ model: 'm', stats: sample, config, width }, theme)[1]?.trim() ?? ''
+}
+
+/** Split the displayed groups at their separators and the footer column gap. */
+function telemetryGroups(sample: TuiSessionStats, config = statusBar()): string[] {
+  return stripAnsi(telemetryRow(sample, config)).split(/ • |\s{2,}/u)
 }
 
 /** Painted footer rows for the standard metadata and telemetry sample. */
@@ -105,15 +117,15 @@ describe('session status line', () => {
       cacheWriteTokens: 0,
       contextWindow: 1_000_000,
     }
-    expect(sessionStatusGroups(initial)).toEqual([
+    expect(telemetryGroups(initial)).toEqual([
       'Ctx 0% · 0/1M',
       '0 turns · 0 steps',
     ])
-    expect(sessionStatusGroups(initial, statusBar())).toContain('Ctx 0% · 0/1M')
-    const compact = renderSessionStatusLabel(initial, statusBar(), createTheme(false), 80)
+    expect(telemetryGroups(initial, statusBar())).toContain('Ctx 0% · 0/1M')
+    const compact = telemetryRow(initial, statusBar(), createTheme(false), 80)
     expect(compact).toContain('Ctx 0% · 0/1M')
     expect(compact).not.toContain('Context')
-    expect(renderSessionStatusLabel(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0% · 0/1M')
+    expect(telemetryRow(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0% · 0/1M')
   })
 
   it('renders context pressure as percentage and used/window tokens', () => {
@@ -122,7 +134,7 @@ describe('session status line', () => {
       contextTokens: 12_200,
       contextWindow: 100_000,
     }
-    expect(sessionStatusGroups(withContext, statusBar())).toContain(
+    expect(telemetryGroups(withContext, statusBar())).toContain(
       'Ctx 12% · 12.2K/100K',
     )
   })
@@ -151,7 +163,7 @@ describe('session status line', () => {
   })
 
   it('formats concise English metric groups', () => {
-    expect(sessionStatusGroups(stats)).toEqual([
+    expect(telemetryGroups(stats)).toEqual([
       'Cache 99%',
       '5.9M in · 73.8K out',
       'TTFT 1.2s · 80 tok/s',
@@ -192,7 +204,7 @@ describe('session status line', () => {
   })
 
   it('keeps complete high-priority groups on a narrow terminal', () => {
-    const line = renderSessionStatusLabel(stats, statusBar(), createTheme(false), 76)
+    const line = telemetryRow(stats, statusBar(), createTheme(false), 80)
     expect(line).toContain('Cache 99%')
     expect(line).toContain('5.9M in · 73.8K out')
     expect(line).toContain('TTFT 1.2s · 80 tok/s')
@@ -255,21 +267,21 @@ describe('session status line', () => {
     expect(clippedCells(footerRows(200)[0] ?? '')).toHaveLength(0)
   })
 
-  it('uses a continuous border label and includes every group when space allows', () => {
-    const line = renderSessionStatusLabel(stats, statusBar(), createTheme(false), 160)
+  it('includes every group across the footer columns when space allows', () => {
+    const line = telemetryRow(stats, statusBar(), createTheme(false), 160)
     expect(line).toContain('Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s')
     expect(line).toContain('LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
-    expect(stripAnsi(line)).toMatch(/^ .* $/)
+    expect(stripAnsi(line)).toMatch(/tok\/s\s+LLM/u)
     expect(line).not.toContain('轮')
     expect(line).not.toContain('缓存')
   })
 
   it('uses English singular labels', () => {
-    expect(sessionStatusGroups({ ...stats, turns: 1, steps: 1 })).toContain('1 turn · 1 step')
+    expect(telemetryGroups({ ...stats, turns: 1, steps: 1 })).toContain('1 turn · 1 step')
   })
 
   it('keeps minimal mode as an explicit telemetry opt-out', () => {
-    expect(renderSessionStatusLabel(stats, statusBar({ enabled: false }), createTheme(false), 200)).toBe('')
+    expect(telemetryRow(stats, statusBar({ enabled: false }), createTheme(false), 200)).toBe('')
   })
 
   it('migrates legacy presets into the customizable layout', () => {
@@ -296,7 +308,7 @@ describe('session status line', () => {
 
   it('honors configured visibility and order', () => {
     const custom = statusBar({ groups: ['tokens', 'cache', 'counts'] })
-    expect(sessionStatusGroups(stats, custom)).toEqual([
+    expect(telemetryGroups(stats, custom)).toEqual([
       '5.9M in · 73.8K out',
       'Cache 99%',
       '1 turn · 74 steps',
@@ -304,7 +316,7 @@ describe('session status line', () => {
   })
 
   it('hides telemetry when no complete metric group fits', () => {
-    expect(renderSessionStatusLabel(stats, statusBar(), createTheme(false), 10)).toBe('')
+    expect(telemetryRow(stats, statusBar(), createTheme(false), 10)).toBe('')
   })
 
   it('renders model/workspace and telemetry as two split footer rows', () => {
@@ -478,7 +490,7 @@ describe('session status line', () => {
   })
 
   it('packs a complete settings preview instead of clipping the right column', () => {
-    const lines = renderStatusPreviewLines({
+    const lines = renderStatusFooter({
       model: 'deepseek',
       reasoningEffort: 'max',
       pwd: '~/project',
@@ -487,14 +499,14 @@ describe('session status line', () => {
       config: statusBar(),
       width: 120,
     }, createTheme(false))
-    expect(stripAnsi(lines[0] ?? '')).toMatch(/^deepseek · max\s+~\/project · main \*1$/)
+    expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek · max\s+~\/project · main \*1  $/)
     expect(stripAnsi(lines[1] ?? '')).toContain('Cache 99%')
     expect(stripAnsi(lines[1] ?? '')).toContain('Tools 3m33s')
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(120)
   })
 
   it('keeps the first preview line split instead of packing path and git left', () => {
-    const lines = renderStatusPreviewLines({
+    const lines = renderStatusFooter({
       model: 'deepseek',
       reasoningEffort: 'max',
       pwd: '~/project',
@@ -503,7 +515,7 @@ describe('session status line', () => {
       config: statusBar(),
       width: 80,
     }, createTheme(false))
-    expect(stripAnsi(lines[0] ?? '')).toMatch(/^deepseek · max\s+~\/project · main \*1$/)
+    expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek · max\s+~\/project · main \*1  $/)
     expect(lines.join('\n')).not.toContain('…')
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80)
   })

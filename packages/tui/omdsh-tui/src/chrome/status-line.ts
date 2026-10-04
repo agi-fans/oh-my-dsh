@@ -11,7 +11,6 @@
 import type { TuiLoopStatus, TuiSessionControls, TuiSessionStats } from '../definition.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
-  defaultStatusBarConfig,
   itemSide,
   resolveStatusBarConfig,
   type StatusBarConfig,
@@ -35,7 +34,6 @@ interface StatusGroup {
   parts: StatusPart[]
 }
 
-const LABEL_PADDING = 2
 const GROUP_SEPARATOR = ' • '
 const FOOTER_PADDING = 2
 const COLUMN_GAP = 3
@@ -181,40 +179,10 @@ function groupText(group: StatusGroup): string {
   return group.parts.map(item => item.text).join('')
 }
 
-/** Build the unpainted English groups for diagnostics and tests. */
-export function sessionStatusGroups(
-  stats: TuiSessionStats,
-  config: StatusBarConfig = defaultStatusBarConfig(),
-): string[] {
-  const normalized = resolveStatusBarConfig(config)
-  if (!normalized.enabled) return []
-  return buildStatusGroups(stats, normalized).map(groupText)
-}
-
 function groupsWidth(groups: readonly StatusGroup[]): number {
   if (groups.length === 0) return 0
   return groups.reduce((total, group) => total + visibleWidth(groupText(group)), 0)
     + GROUP_SEPARATOR.length * (groups.length - 1)
-}
-
-function layoutWidth(groups: readonly StatusGroup[]): number {
-  return LABEL_PADDING + groupsWidth(groups)
-}
-
-/**
- * Keep complete metric groups instead of truncating the sentence. Cache and
- * token usage survive first, followed by latency/rate, timings, then counts.
- * A group that does not fit whole is skipped instead of ending the scan, so a
- * wide group no longer hides the narrower groups configured after it.
- */
-function selectGroups(groups: readonly StatusGroup[], width: number): StatusGroup[] {
-  const selected: StatusGroup[] = []
-  for (const group of groups) {
-    const candidate = [...selected, group]
-    if (layoutWidth(candidate) > width) continue
-    selected.push(group)
-  }
-  return selected
 }
 
 function tokenThemeColor(token: StatusColorToken | undefined, fallback: ThemeColor): ThemeColor {
@@ -503,54 +471,4 @@ function packPreviewParts(
     break
   }
   return out
-}
-
-/**
- * Status sample for `/settings`. Uses the same left/right footer layout as
- * the live two-line status bar.
- */
-export function renderStatusPreviewLines(
-  options: {
-    model: string
-    reasoningEffort?: string
-    pwd?: string
-    branch?: string
-    stats?: TuiSessionStats
-    config: StatusBarConfig
-    width: number
-    focus?: StatusItemId
-  },
-  theme: Theme,
-): string[] {
-  const normalized = resolveStatusBarConfig(options.config)
-  const width = Math.max(0, options.width)
-  if (width === 0) return []
-  return renderStatusFooter({
-    model: options.model,
-    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
-    ...(options.pwd === undefined ? {} : { pwd: options.pwd }),
-    ...(options.branch === undefined ? {} : { branch: options.branch }),
-    ...(options.stats === undefined ? {} : { stats: options.stats }),
-    config: normalized,
-    width,
-    ...(options.focus === undefined ? {} : { focus: options.focus }),
-  }, theme).map(line => line.trim())
-}
-
-/**
- * Render the telemetry row without footer metadata. Used by the settings
- * preview and retained as a compatibility seam for direct render callers.
- */
-export function renderSessionStatusLabel(
-  stats: TuiSessionStats | undefined,
-  config: StatusBarConfig,
-  theme: Theme,
-  width: number,
-): string {
-  const normalized = resolveStatusBarConfig(config)
-  if (stats === undefined || !normalized.enabled || width <= LABEL_PADDING) return ''
-  const groups = selectGroups(buildStatusGroups(stats, normalized), width)
-  if (groups.length === 0) return ''
-  const line = ' ' + paintColumn(groups, theme, normalized) + ' '
-  return truncateToWidth(line, width)
 }

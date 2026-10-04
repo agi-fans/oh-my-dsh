@@ -834,7 +834,7 @@ describe('applyEvent', () => {
         call: { card: 'terminal', title: 'SCOPE=/repo pnpm test', description: 'Run tests', cwd: '/repo' },
         result: { card: 'terminal', output: '42 passed', exitCode: 0 },
       },
-    }, createTheme(false), 60, 0, true)
+    }, createTheme(false), 60, { toolsExpanded: true })
     const text = lines.map(stripAnsi).join('\n')
 
     expect(text).toContain('$ SCOPE=/repo pnpm test')
@@ -858,7 +858,7 @@ describe('applyEvent', () => {
       status: 'ok',
       output: '',
       presentation: { result: { card: 'diff', title: 'Edit a.ts', diffs: [hunk] } },
-    }, createTheme(true, false), 60, 0, true)
+    }, createTheme(true, false), 60, { toolsExpanded: true })
     const plain = lines.map(stripAnsi).join('\n')
     const raw = lines.join('\n')
 
@@ -893,7 +893,7 @@ describe('applyEvent', () => {
     expect(text).toContain('old_string not found')
     expect(text).not.toContain('- a')
     // Opening the row restores the diff the failure is about.
-    const opened = blockLines(block, createTheme(false), 60, 0, true).map(stripAnsi).join('\n')
+    const opened = blockLines(block, createTheme(false), 60, { toolsExpanded: true }).map(stripAnsi).join('\n')
     expect(opened).toContain('- a')
     expect(opened).toContain('+ b')
     expect(opened).toContain('old_string not found')
@@ -1054,7 +1054,7 @@ describe('blockLines', () => {
     const expanded = blockLines({
       kind: 'toolCatalog',
       tools: [{ name: 'bash', description: 'Execute a bash command and return all stdout and stderr without shortening this complete description.' }],
-    }, theme, 48, 0, true)
+    }, theme, 48, { toolsExpanded: true })
     expect(expanded.join('\n')).toContain('without')
     expect(expanded.join('\n')).toContain('shortening this complete')
     expect(expanded.join('\n')).toContain('Ctrl+O: Collapse descriptions')
@@ -1097,7 +1097,7 @@ describe('blockLines', () => {
       args: JSON.stringify({ command }),
       status: 'ok',
       output: 'Done',
-    }, createTheme(true, true), 80, 0, true)
+    }, createTheme(true, true), 80, { toolsExpanded: true })
     const top = stripAnsi(lines[1] ?? '')
     const text = lines.map(stripAnsi).join('\n')
 
