@@ -40,6 +40,8 @@ export interface TuiSettings {
   motion: Volatile<MotionMode>
   editor: Volatile<EditorId>
   terminalProgress: Volatile<boolean>
+  copyOnSelect: Volatile<boolean>
+  mouseInteraction: Volatile<'auto' | 'tui' | 'native'>
   /** Legacy configuration, accepted without changing the turn presentation. */
   foldDensity: Volatile<FoldDensity>
   /** Legacy configuration; no longer changes transcript presentation. */
@@ -98,6 +100,8 @@ export const TUI_SETTINGS_FIELDS = {
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
+  copyOnSelect: z.boolean().default(true).volatile(),
+  mouseInteraction: z.union(['auto', 'tui', 'native'] as const).default('auto').volatile(),
   foldDensity: z.union([...FOLD_DENSITIES]).default(DEFAULT_FOLD_DENSITY).volatile(),
   expandTools: z.boolean().default(false).volatile(),
   checkUpdates: z.boolean().default(true).volatile(),

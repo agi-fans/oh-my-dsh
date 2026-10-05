@@ -238,25 +238,25 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest 
 term.write('\x1b[<64;10;5M')
 mark = out.length
 term.write('/settings\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends inspection mouse tracking', deadline))) {
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends inspection mouse tracking', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection restored after settings', deadline))) {
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'inspection restored after settings', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('/trajectory\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000l\x1b[?1006l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command opens over inspection', deadline))) {
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command opens over inspection', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1006h'), 'inspection restored after trajectory command', deadline))) {
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'inspection restored after trajectory command', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -333,7 +333,7 @@ if (!(await waitFor(() => cleanOutput(out).includes('Editing from before turn 1.
 mark = out.length
 term.write('\x0f')
 await sleep(200)
-if (out.slice(mark).includes('\x1b[?1000h\x1b[?1006h')) {
+if (out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h')) {
   console.error('FAIL: Ctrl+O opened an empty transcript after the historical fork')
   term.kill()
   process.exit(1)
@@ -367,7 +367,7 @@ term.kill()
 
 const clean = cleanOutput(out)
 const ok = exitCode === 0
-  && out.slice(mark).includes('\x1b[?1000l\x1b[?1006l')
+  && out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
   && clean.includes('Recent sessions')
   && clean.includes('Recent header seed')
   && clean.includes('hi')

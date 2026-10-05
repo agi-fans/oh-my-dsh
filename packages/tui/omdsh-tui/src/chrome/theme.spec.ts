@@ -84,12 +84,12 @@ describe('createTheme', () => {
     expect(dark.getBgAnsi('error')).toBe('\x1b[41m')
     expect(dark.getFgAnsi('error')).toBe('\x1b[31m')
     expect(dark.getBgAnsi('userMessageBg')).toBe('\x1b[40m')
-    expect(dark.getBgAnsi('toolErrorBg')).toBe('\x1b[41m')
+    expect(dark.getBgAnsi('toolErrorBg')).toBe('\x1b[40m')
     expect(dark.getBgAnsi('text')).toBe('\x1b[49m')
     const light = createTheme(true, false, 'light')
     expect(light.getBgAnsi('userMessageBg')).toBe('\x1b[47m')
-    expect(light.getBgAnsi('toolSuccessBg')).toBe('\x1b[42m')
-    expect(light.getBgAnsi('accent')).toBe('\x1b[46m')
+    expect(light.getBgAnsi('toolSuccessBg')).toBe('\x1b[47m')
+    expect(light.getBgAnsi('accent')).toBe('\x1b[44m')
   })
 
   it('documents the shared 16-color dark tool-card background', () => {
@@ -113,7 +113,7 @@ describe('createTheme', () => {
     const light = createTheme(true, true, 'light')
     expect(dark.name).toBe('dark')
     expect(light.name).toBe('light')
-    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;90;128;128m')
+    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;76;108;108m')
     expect(light.getFgAnsi('accent')).not.toBe(dark.getFgAnsi('accent'))
   })
 
@@ -136,7 +136,7 @@ describe('createTheme', () => {
     expect(dark.getFgAnsi('borderMuted')).toBe('\x1b[38;2;61;66;74m')
     expect(dark.getFgAnsi('mdKeyword')).toBe('\x1b[38;2;86;156;214m')
     expect(dark.getFgAnsi('mdKeyword')).not.toBe(dark.getFgAnsi('accent'))
-    expect(midnight.getFgAnsi('muted')).toBe('\x1b[38;2;119;125;136m')
+    expect(midnight.getFgAnsi('muted')).toBe('\x1b[38;2;135;141;150m')
     expect(midnight.getFgAnsi('error')).toBe('\x1b[38;2;247;118;142m')
     expect(midnight.getFgAnsi('borderMuted')).not.toBe(midnight.getFgAnsi('border'))
     expect(solarized.getFgAnsi('mdKeyword')).toBe('\x1b[38;2;133;153;0m')

@@ -34,13 +34,15 @@ The selected published bridge runs its supported synchronous command hooks. Code
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
+| Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
+| Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
 | Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |
 | Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
 
-Tool previews use the active theme's background colors with padding on every side. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
+Tool previews use the active theme's background colors with padding on every side. Prompt and tool-card backgrounds have paired text colors; ordinary reply text keeps the terminal's default foreground. Match `light` to a light terminal and the other palettes to a dark terminal. In 16-color mode, cards use neutral backgrounds and retain status labels and symbols. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
 
 Editor choices include installed VS Code, Cursor, VSCodium, Neovim, Vim, Nano, and Vi. Auto honors an existing `$VISUAL` or `$EDITOR` value, then prefers a detected graphical code editor before terminal editors. macOS app bundles and standard Windows installation locations are checked even when their launcher is absent from PATH. A manual selection applies immediately and persists across launches. Save and close the opened file to return; a missing saved editor is shown as unavailable so you can select another app. If no editor is found, install one and reopen Settings.
 

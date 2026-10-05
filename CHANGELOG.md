@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Mouse text selection works alongside transcript scrolling in folded and expanded views, with word/line selection and optional copying on release. Settings controls mouse ownership and automatic copying; Auto respects tmux mouse off.
 - Context style in Settings selects percentage, an occupancy bar, used/window tokens, or detailed values. Context occupancy defaults to percentage only.
 - Double Escape and `/tree` open a searchable Session Tree with forks at their conversation boundaries, current-branch markers, and responsive content previews. Enter prepares a branch from a historical Turn or continues a branch; `Alt+Enter` continues the selected node’s branch. Browsing and cancellation preserve the active conversation and draft.
 
@@ -38,6 +39,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Themes pair prompt and tool-card text with their fixed backgrounds, improve tool output, code, and hint contrast, and keep error text visible in 16-color terminals. Nested color resets preserve the surrounding card colors.
+- Returning from transcript browsing keeps floating controls out of tmux scrollback even when `scroll-on-clear` is enabled.
+- Clipboard copying forwards to tmux clients and remote terminals when needed, distinguishing confirmed local copies from unacknowledged terminal requests.
 - Status line settings accurately name the telemetry toggle and context label; disabling telemetry keeps model and workspace metadata visible in the preview.
 - Folding a completed Turn or returning from expanded tool details no longer leaves a large blank gap above the reply when the prompt has entered terminal scrollback.
 

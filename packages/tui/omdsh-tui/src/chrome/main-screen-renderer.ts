@@ -422,6 +422,7 @@ export class MainScreenRenderer {
    */
   /** Exact visible rows expected on the physical screen. */
   #screen: string[]
+  #decoratedRows: readonly string[] | undefined
   #transient = false
   #altActive = false
 
@@ -622,7 +623,8 @@ export class MainScreenRenderer {
   /** Put the cursor below the UI before terminal ownership is released. */
   finish(): void {
     const targetRow = Math.max(0, this.#height - 1)
-    let out = ''
+    let out = this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
+    this.#decoratedRows = undefined
     if (this.#altActive) {
       out += EXIT_ALT_SCREEN
       this.#altActive = false
@@ -636,8 +638,18 @@ export class MainScreenRenderer {
     this.#cursorVisible = true
   }
 
-  /** Render a frame, appending only finalized rows during a stable geometry epoch. */
-  render(frame: Frame): void {
+  /** Canonical physical rows, including viewport-only prompt headers. */
+  viewport(): readonly string[] { return [...(this.#altActive ? this.#altScreen : this.#screen)] }
+
+  /** Render canonical content, then decorate the viewport without changing history. */
+  render(frame: Frame, decorate?: (rows: readonly string[]) => readonly string[]): void {
+    // Remove the previous selection before any canonical rows can cross into history.
+    // A resize invalidates its physical coordinates; repaint the new viewport instead.
+    const hadDecoration = this.#decoratedRows !== undefined
+    const resizedDecoration = hadDecoration && this.#resize !== undefined
+    const undecorate = hadDecoration && !resizedDecoration
+      ? this.#paintDiff(this.#screen, this.#decoratedRows!) : ''
+    this.#decoratedRows = undefined
     // The event slot is per-frame. A frame that prepares no move must not inherit the last
     // one's record: the confirmation steps are written against "the move this frame made",
     // and a leftover slot would let them check against rows a previous frame moved. A move
@@ -807,7 +819,14 @@ export class MainScreenRenderer {
     this.#exitOwnedByCaller = false
     // One packaging for the whole frame: the reverse prefix and the body are wrapped together
     // rather than the body being wrapped on its own and the prefix left outside it.
-    const frameBytes = restoreBytes + paint
+    const viewport = this.#altActive ? this.#altScreen : this.#screen
+    const decorated = decorate?.(viewport) ?? viewport
+    const decoration = this.#paintDiff(decorated, viewport)
+    if (decoration !== '') this.#decoratedRows = decorated
+    const repaint = resizedDecoration ? this.#writeRun(viewport, 0, this.#height - 1) : ''
+    const restoreCursor = undecorate !== '' || decoration !== '' || repaint !== ''
+      ? csi(this.#cursorRow, this.#cursorCol) : ''
+    const frameBytes = undecorate + restoreBytes + paint + repaint + decoration + restoreCursor
     if (frameBytes !== '') this.#sink.write(this.#wrap(frameBytes))
   }
 
@@ -1323,7 +1342,7 @@ export class MainScreenRenderer {
     this.#noteFlushed(next, ranges.flatMap(([from, to]) => Array.from(
       { length: Math.max(0, to - from) }, (_, i) => from + i,
     )))
-    let out = CLEAR_SCREEN
+    let out = this.#clearViewport()
     if (rows.length < this.#height) out += csi(this.#height - rows.length, 0)
     for (let i = 0; i < rows.length; i += 1) {
       if (i > 0) out += '\r\n'
@@ -1347,7 +1366,7 @@ export class MainScreenRenderer {
     this.#noteFlushed(next, Array.from(
       { length: Math.max(0, committedEnd - start) }, (_, i) => start + i,
     ))
-    let out = clearScreen ? CLEAR_SCREEN : csi(0, 0)
+    let out = clearScreen ? this.#clearViewport() : csi(0, 0)
     if (rows.length < this.#height) out += csi(this.#height - rows.length, 0)
     for (let i = 0; i < rows.length; i += 1) {
       if (i > 0) out += '\r\n'
@@ -1357,8 +1376,16 @@ export class MainScreenRenderer {
     return out
   }
 
+  /** ED2 can append the entire screen to tmux history (scroll-on-clear). */
+  #clearViewport(): string {
+    // The initial clear may preserve pre-existing shell output, and alternate
+    // buffers have no scrollback. Later main-screen clears are strictly local.
+    if (!this.#hasFrame || this.#altActive) return CLEAR_SCREEN
+    return Array.from({ length: this.#height }, (_, row) => csi(row, 0) + CLEAR_LINE).join('') + csi(0, 0)
+  }
+
   #paintScreen(next: readonly string[], old: readonly string[], clear: boolean): string {
-    return (clear ? CLEAR_SCREEN : '') + this.#paintDiff(next, clear ? this.#blankScreen() : old)
+    return (clear ? this.#clearViewport() : '') + this.#paintDiff(next, clear ? this.#blankScreen() : old)
   }
 
   #paintDiff(next: readonly string[], old: readonly string[]): string {

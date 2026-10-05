@@ -4,7 +4,7 @@
  * @module @agi-fans/dsh-tui
  */
 
-import { BOX, DEEPSEEK_LOGO, SYMBOL, gradientLogo, type Theme, type ThemeColor } from './theme.ts'
+import { BOX, DEEPSEEK_LOGO, SYMBOL, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
 import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped } from './width.ts'
 import { formatRelativeAge } from './relative-time.ts'
@@ -26,16 +26,6 @@ function bgColorFor(state: BoxState | undefined): ThemeColor | undefined {
   if (state === 'running') return 'toolPendingBg'
   if (state === 'ok') return 'toolSuccessBg'
   return undefined
-}
-
-function applyBg(line: string, theme: Theme, color: ThemeColor, width: number): string {
-  const ansi = theme.getBgAnsi(color)
-  if (ansi === '') return padToWidth(line, width)
-  const padded = padToWidth(line, width)
-  const restabilized = padded
-    .replace(/\x1b\[(?:0)?m/g, (match) => match + ansi)
-    .replace(/\x1b\[49m/g, (match) => match + ansi)
-  return ansi + restabilized + '\x1b[49m'
 }
 
 function centerText(text: string, width: number): string {
@@ -78,7 +68,7 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
   const bg = options.applyBg === false ? undefined : bgColorFor(options.state)
   const paint = (line: string): string => {
     const indented = inset === '' ? line : inset + line
-    return bg ? applyBg(indented, theme, bg, width) : padToWidth(indented, width)
+    return bg ? paintSurface(theme, bg, 'toolOutput', padToWidth(indented, width)) : padToWidth(indented, width)
   }
 
   const cap = h.repeat(3)

@@ -33,7 +33,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+-` | Undo the last edit. |
 | `Ctrl+D` | Delete forward, or quit when the composer is empty. |
 | `Ctrl+V` | Paste clipboard text or an image. |
-| `Alt+C` | Copy the current prompt. |
+| `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `Ctrl+Alt+C` | Copy the current line. |
 | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 
@@ -59,7 +59,11 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `Ctrl+F` | Search the current transcript when the composer is empty; `n`/`N` step across matches. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
-When the transcript can scroll, omdsh handles mouse input, so native click-and-drag selection is unavailable. Use `/copy` to choose a code block or command, `/copy code` or `/copy cmd` for the latest matching item, and `Ctrl+Alt+C` for the current composer line. Native terminal history is retained. Leaving omdsh restores the terminal's mouse handling. Full-screen pages temporarily suspend wheel handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
+When the transcript can scroll, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its interrupt/exit behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
+
+**Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
+
+Full-screen pages temporarily suspend application mouse handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
 
 ## Session
 
@@ -111,7 +115,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `external-editor` | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Run the most recent human prompt again. |
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
-| `copy-prompt` | `Alt+C` | Copy the current prompt. |
+| `copy-prompt` | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `copy-line` | `Ctrl+Alt+C` | Copy the current line. |
 | `inspect-subagent` | `Alt+A` | Open the Agent Hub. |
 | `cycle-model-forward` | `Ctrl+P` | Cycle to the next favorite model. |

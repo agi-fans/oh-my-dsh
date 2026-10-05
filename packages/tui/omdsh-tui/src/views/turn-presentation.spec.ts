@@ -3,7 +3,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { applyEvent, applyStreamChunk, initialTranscript, renderView } from './event-views.ts'
 import { turnGroups } from './transcript-render.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
-import { createTheme, THEME_NAMES } from '../chrome/theme.ts'
+import { createTheme, paintSurface, THEME_NAMES } from '../chrome/theme.ts'
 import type { TranscriptState } from './transcript-types.ts'
 
 const event = (type: string, data: unknown, time: number): SessionEvent => ({ type, data, time, seq: time }) as SessionEvent
@@ -110,11 +110,11 @@ describe('opened turns use the live presentation', () => {
       })
       const at = frame.lines.findIndex(row => stripAnsi(row).includes('$ pwd'))
       expect(at).toBeGreaterThan(0)
-      expect(frame.lines[at - 1]).toBe(theme.bg('toolSuccessBg', ' '.repeat(80)))
+      expect(frame.lines[at - 1]).toBe(paintSurface(theme, 'toolSuccessBg', 'toolOutput', ' '.repeat(80)))
       expect(frame.lines[at]).toContain(theme.getBgAnsi('toolSuccessBg'))
       expect(frame.lines[at]).toContain(theme.fg('toolTitle', '$ pwd'))
       expect(frame.lines[at + 2]).toContain(theme.fg('toolOutput', 'workspace'))
-      expect(frame.lines[at + 3]).toBe(theme.bg('toolSuccessBg', ' '.repeat(80)))
+      expect(frame.lines[at + 3]).toBe(paintSurface(theme, 'toolSuccessBg', 'toolOutput', ' '.repeat(80)))
     }
   })
 

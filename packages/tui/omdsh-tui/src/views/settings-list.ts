@@ -62,6 +62,8 @@ export interface TuiPrefs {
   motion?: MotionMode
   editor?: EditorId
   terminalProgress?: boolean
+  copyOnSelect?: boolean
+  mouseInteraction?: 'auto' | 'tui' | 'native'
   /** Legacy input; ignored by the turn presentation. */
   foldDensity?: FoldDensity
   /** Legacy input; ignored by the turn presentation. */
@@ -180,6 +182,20 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       description: 'Open files and edit prompts with this app. Save and close the file to return.',
       value: editors.find(editor => editor.id === (prefs.editor ?? 'auto'))?.label ?? prefs.editor ?? 'Auto',
       values: editors.map(editor => editor.label),
+    },
+    {
+      id: 'mouseInteraction',
+      label: 'Mouse interaction',
+      description: 'Auto supports scrolling and text selection, respecting tmux mouse off. Native leaves the mouse to the terminal; TUI overrides the tmux preference.',
+      value: prefs.mouseInteraction ?? 'auto',
+      values: ['auto', 'tui', 'native'],
+    },
+    {
+      id: 'copyOnSelect',
+      label: 'Copy on select',
+      description: 'Copy selected text when the mouse is released. With this off, use Alt+C, Enter, or right-click to copy.',
+      value: prefs.copyOnSelect === false ? 'off' : 'on',
+      values: COLOR_VALUES,
     },
     {
       id: 'terminalProgress',
@@ -348,6 +364,10 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
+  if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
+  if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {
+    return { ...prefs, mouseInteraction: value as NonNullable<TuiPrefs['mouseInteraction']> }
+  }
   if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {

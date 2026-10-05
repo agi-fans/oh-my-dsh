@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { blockLines } from './event-views.ts'
-import { createTheme, THEME_NAMES } from '../chrome/theme.ts'
+import { createTheme, paintSurface, THEME_NAMES } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import type { Block } from './transcript-types.ts'
 
@@ -11,6 +11,26 @@ const render = (block: Tool, width = 80, colors = false, full = false) => blockL
 const text = (block: Tool, full = false) => render(block, 80, false, full).map(stripAnsi).join('\n')
 
 describe('tool content', () => {
+  it.each(THEME_NAMES)('%s restores card ink and fill after terminal output resets', name => {
+    const theme = createTheme(true, true, name)
+    const rows = blockLines(tool({ output: '\x1b[31mcolored\x1b[0;39;49m ordinary' }), theme, 80)
+    expect(rows.join('\n')).toContain('\x1b[0;39;49m' + theme.getFgAnsi('toolOutput') + theme.getBgAnsi('toolSuccessBg') + ' ordinary')
+    expect(rows.every(row => row.endsWith('\x1b[39m\x1b[49m'))).toBe(true)
+  })
+
+  it.each(THEME_NAMES)('%s supplies prompt ink before and after wrapped path mentions', name => {
+    for (const trueColor of [false, true]) {
+      const theme = createTheme(true, trueColor, name)
+      const rows = blockLines({ kind: 'user', text: '检查 🐳 @"docs/my long file.md", then continue' }, theme, 20)
+      for (const row of rows) {
+        expect(row.startsWith(theme.getBgAnsi('userMessageBg') + theme.getFgAnsi('userMessageText'))).toBe(true)
+        expect(row.endsWith('\x1b[39m\x1b[49m')).toBe(true)
+        expect(visibleWidth(row)).toBe(20)
+      }
+      expect(stripAnsi(rows.join(''))).toContain('检查')
+    }
+  })
+
   it.each(['running', 'ok', 'error'] as const)('pads the entire %s surface with the active theme background', status => {
     const block = tool({ status, args: '{"command":"pwd"}', output: 'workspace' })
     const background = status === 'running' ? 'toolPendingBg' : status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
@@ -19,7 +39,7 @@ describe('tool content', () => {
         for (const trueColor of [false, true]) {
           const theme = createTheme(colors, trueColor, name)
           const rows = blockLines(block, theme, 40)
-          const blank = theme.bg(background, ' '.repeat(40))
+          const blank = paintSurface(theme, background, 'toolOutput', ' '.repeat(40))
           expect(rows[0]).toBe(blank)
           expect(rows.at(-1)).toBe(blank)
           expect(stripAnsi(rows[1]!)).toMatch(/^  \$ pwd +$/u)

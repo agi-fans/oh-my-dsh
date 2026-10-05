@@ -92,7 +92,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'Ctrl+-', action: 'Undo the last edit' },
         { keys: 'Ctrl+D', action: 'Delete forward / quit when the editor is empty' },
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste the clipboard verbatim' },
-        { keys: keysForAction(bindings, 'copy-prompt'), action: 'Copy the current prompt' },
+        { keys: keysForAction(bindings, 'copy-prompt'), action: 'Copy the selection or current prompt' },
         { keys: keysForAction(bindings, 'copy-line'), action: 'Copy the current line' },
         { keys: keysForAction(bindings, 'external-editor'), action: 'Edit the prompt in the selected editor' },
       ],

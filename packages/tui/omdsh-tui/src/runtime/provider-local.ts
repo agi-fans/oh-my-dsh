@@ -87,6 +87,8 @@ import {
   type FileSearcher,
   type SessionSearcher,
 } from '../views/at-complete.ts'
+import { readTmuxMouseEnabled } from '../input/mouse-policy.ts'
+import { TextSelection } from '../input/text-selection.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from '../input/clipboard.ts'
 import {
   applyCopySelectorEvent,
@@ -472,6 +474,11 @@ export class LocalTui implements TuiService {
    */
   #inspecting = false
   #mouseTracking = false
+  readonly #selection = new TextSelection()
+  #copyOnSelect = true
+  #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
+  #tmuxMouseEnabled: boolean | undefined
+  #jumpPress: { row: number; column: number; width: number } | undefined
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
   /** Turn scopes whose tools stay detailed as new calls arrive during inspection. */
@@ -508,6 +515,7 @@ export class LocalTui implements TuiService {
    */
   #trueColor = false
   readonly #copy: ClipboardWriter
+  #copyTask: Promise<unknown> = Promise.resolve()
   readonly #readClipboard: ClipboardReader
   readonly #readClipboardImage: ClipboardImageReader
   readonly #readClipboardFiles: ClipboardFileReader
@@ -638,6 +646,8 @@ export class LocalTui implements TuiService {
       this.#offResize = term.onResize?.(() => {
         // A terminal resize changes the committed/live seam; re-anchor the
         // live window so it stays anchored at the bottom.
+        this.#selection.clear()
+        this.#jumpPress = undefined
         const repaint = (): void => {
           this.#resizeTimer = null
           this.#renderer.resize(this.#term.width(), this.#term.height())
@@ -1045,6 +1055,8 @@ export class LocalTui implements TuiService {
       motion: this.#motion,
       editor: this.#externalEditor,
       terminalProgress: this.#terminalProgress,
+      copyOnSelect: this.#copyOnSelect,
+      mouseInteraction: this.#mouseInteraction,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
@@ -1466,7 +1478,7 @@ export class LocalTui implements TuiService {
       this.#foldShape = scroll.foldShape
       this.#foldMarks = scroll.foldMarks
     }
-    this.#renderer.render(frame)
+    this.#renderer.render(frame, rows => this.#selection.paint(rows))
   }
 
   #scheduleStreamRender(): void {
@@ -1537,9 +1549,12 @@ export class LocalTui implements TuiService {
 
   /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
   #setMouseTracking(enabled: boolean): void {
+    enabled = enabled && this.#mouseInteraction !== 'native'
+      && (this.#mouseInteraction === 'tui' || this.#tmuxMouseEnabled !== false)
+    if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
-    this.#term.output.write(enabled ? '\x1b[?1000h\x1b[?1006h' : '\x1b[?1000l\x1b[?1006l')
+    this.#term.output.write(enabled ? '\x1b[?1000h\x1b[?1002h\x1b[?1006h' : '\x1b[?1006l\x1b[?1002l\x1b[?1000l')
   }
 
   /**
@@ -1691,17 +1706,82 @@ export class LocalTui implements TuiService {
     if (text !== '') await this.#acceptPastedText(text)
   }
 
-  #dispatch(event: KeyEvent): void {
-    if (event.type === 'click') {
-      const target = this.#jumpToLatest
-      if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0 && target !== undefined
-        && event.row === target.row && event.column >= target.column && event.column < target.column + target.width) {
-        this.#followTail()
-        this.#render()
-      }
+  /** Resolve one bounded tmux probe without overwriting an explicit preference. */
+  setTmuxMouseEnabled(enabled: boolean | undefined): void {
+    if (this.#disposed) return
+    this.#tmuxMouseEnabled = enabled
+    if (this.#tty) this.#render()
+  }
+
+  #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
+    if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
+    const inside = (target: { row: number; column: number; width: number }): boolean =>
+      event.row === target.row && event.column >= target.column && event.column < target.column + target.width
+    if (event.button === 'right') {
+      if (event.action === 'press') void this.#copySelection()
       return
     }
+    if (event.action === 'press') {
+      const target = this.#jumpToLatest
+      this.#jumpPress = target !== undefined && inside(target) ? target : undefined
+      if (this.#jumpPress !== undefined) this.#selection.clear()
+      else this.#selection.begin(this.#renderer.viewport(), event, Date.now(), event.shift)
+    } else if (this.#jumpPress !== undefined) {
+      const target = this.#jumpPress
+      // A drag that starts on the floating button must not activate it on release.
+      if (event.action === 'drag') this.#jumpPress = undefined
+      else {
+        this.#jumpPress = undefined
+        if (inside(target)) this.#followTail()
+      }
+    } else if (event.action === 'drag') this.#selection.move(event)
+    else {
+      const text = this.#selection.release(event)
+      if (text !== undefined && this.#copyOnSelect) void this.#copySelection()
+    }
+    this.#render()
+  }
+
+  /** Keep older clipboard operations from finishing after a newer user copy. */
+  #deliverCopy(text: string): ReturnType<ClipboardWriter> {
+    const task = this.#copyTask.then(() => {
+      if (this.#disposed) throw new Error('terminal closed')
+      return this.#copy(text)
+    })
+    this.#copyTask = task.catch(() => {})
+    return task
+  }
+
+  async #copySelection(): Promise<void> {
+    if (!this.#selection.valid(this.#renderer.viewport())) { this.#selection.clear(); return }
+    const text = this.#selection.text()
+    if (text === undefined) return
+    try { await this.#deliverCopy(text) }
+    catch {
+      if (!this.#disposed) this.notice('Could not copy selection to the clipboard.', { level: 'error' })
+    }
+  }
+
+  #dispatch(event: KeyEvent): void {
+    if (event.type === 'mouse') {
+      this.#handleMouse(event)
+      return
+    }
+    this.#jumpPress = undefined
+    if (this.#selection.active) {
+      if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
+        void this.#copySelection()
+        return
+      }
+      this.#selection.clear()
+      this.#render()
+      if (event.type === 'key' && event.id === 'escape') {
+        this.#lastEscapeTime = 0
+        return
+      }
+    }
     if (event.type === 'wheel') {
+      this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
         this.#scrollBy(event.direction === 'up' ? -3 : 3)
       }
@@ -2176,6 +2256,8 @@ export class LocalTui implements TuiService {
     this.#motion = prefs.motion ?? 'full'
     this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalProgress = prefs.terminalProgress ?? false
+    this.#copyOnSelect = prefs.copyOnSelect ?? true
+    this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#notificationPolicy = prefs.notifications ?? 'off'
@@ -2322,9 +2404,11 @@ export class LocalTui implements TuiService {
 
   async #copyPicked(text: string, label: string): Promise<void> {
     try {
-      await this.#copy(text)
-      this.#notice('Copied ' + label)
+      const delivery = await this.#deliverCopy(text)
+      if (this.#disposed) return
+      this.#notice(delivery === 'requested' ? 'Sent ' + label + ' to the terminal clipboard' : 'Copied ' + label)
     } catch {
+      if (this.#disposed) return
       this.#notice('Copy failed')
     }
     this.#render()
@@ -3233,6 +3317,8 @@ export function apply(ctx: Context, config: Config): void {
       motion: config.motion.get(),
       editor: config.editor.get(),
       terminalProgress: config.terminalProgress.get(),
+      copyOnSelect: config.copyOnSelect.get(),
+      mouseInteraction: config.mouseInteraction.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
       notifications: config.notifications.get(),
@@ -3246,6 +3332,7 @@ export function apply(ctx: Context, config: Config): void {
     return prefs
   }
   tui.applyStoredPrefs(storedPrefs())
+  void readTmuxMouseEnabled().then(enabled => tui.setTmuxMouseEnabled(enabled))
   ctx.on('loader/volatile-update', () => { tui.applyStoredPrefs(storedPrefs()) })
   // Persistence needs the settings service; without one the provider still runs
   // and an in-app change stays session-local, as it did before.

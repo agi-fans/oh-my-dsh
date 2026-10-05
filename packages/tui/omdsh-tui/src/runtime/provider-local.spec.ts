@@ -216,6 +216,189 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
 }
 
 describe('LocalTui folds against a scrolling terminal', () => {
+  it('serializes rapid selection copies so an older helper cannot overwrite a newer copy', async () => {
+    const term = new ScrollingTerminal(80, 20)
+    const pending: Array<() => void> = []
+    const copied: string[] = []
+    const copy = vi.fn(async (text: string) => {
+      await new Promise<void>(resolve => { pending.push(resolve) })
+      copied.push(text)
+    })
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      longTurn(tui, 2, 30)
+      const row = term.visible().findIndex(line => line.includes('answer 1 line 29'))
+      const col = term.visible()[row]!.indexOf('answer')
+      const select = (first: number, last: number) => press(term as never,
+        `\x1b[<0;${col + first + 1};${row + 1}M\x1b[<32;${col + last + 1};${row + 1}M\x1b[<0;${col + last + 1};${row + 1}m`)
+      select(0, 5)
+      await flushAsyncPaste()
+      select(9, 12)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledTimes(1)
+      pending[0]!()
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenLastCalledWith('line')
+      pending[1]!()
+      await flushAsyncPaste()
+      expect(copied).toEqual(['answer', 'line'])
+    } finally { pending.forEach(resolve => resolve()); tui.dispose() }
+  })
+
+  it('clears a mouse drag immediately when the terminal resizes', async () => {
+    const term = new FakeTerminal()
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      longTurn(tui, 2, 30)
+      press(term, '\x1b[<0;3;1M\x1b[<32;6;1M')
+      expect(term.captured).toContain('\x1b[7m')
+      term.resize(80, 30)
+      press(term, '\x1b[<0;6;1m')
+      await flushAsyncPaste()
+      expect(copy).not.toHaveBeenCalled()
+    } finally { tui.dispose() }
+  })
+
+  it.each(['alt+c', 'enter', 'right-click'] as const)('copies the selected text with %s when automatic copying is off', async key => {
+    const term = new ScrollingTerminal(80, 20)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, copyOnSelect: false })
+      longTurn(tui, 2, 30)
+      const row = term.visible().findIndex(line => line.includes('answer 1 line 29'))
+      const col = term.visible()[row]!.indexOf('answer')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 6};${row + 1}M\x1b[<0;${col + 6};${row + 1}m`)
+      expect(copy).not.toHaveBeenCalled()
+      press(term as never, key === 'right-click' ? `\x1b[<2;${col + 1};${row + 1}M` : key === 'enter' ? '\r' : '\x1bc')
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('answer')
+      expect(tui.prefs()).toMatchObject({ copyOnSelect: false, mouseInteraction: 'auto' })
+    } finally { tui.dispose() }
+  })
+
+  it.each(['escape', 'wheel', 'changed-content', 'overlay', 'clear'] as const)('discards a stale mouse gesture on %s', async action => {
+    const term = new ScrollingTerminal(80, 20)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      longTurn(tui, 2, 30)
+      const row = term.visible().findIndex(line => line.includes('answer 1 line 29'))
+      const col = term.visible()[row]!.indexOf('answer')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 6};${row + 1}M`)
+      if (action === 'escape') { press(term as never, '\x1b'); await new Promise(resolve => setTimeout(resolve, 40)) }
+      else if (action === 'wheel') press(term as never, '\x1b[<64;10;5M')
+      else if (action === 'changed-content') tui.notice('another visible row')
+      else { void tui.readline(); press(term as never, action === 'overlay' ? '/settings\r' : '/clear\r') }
+      press(term as never, `\x1b[<0;${col + 6};${row + 1}m`)
+      await flushAsyncPaste()
+      expect(copy).not.toHaveBeenCalled()
+    } finally { tui.dispose() }
+  })
+
+  it('preserves Ctrl-C interruption and exit behavior while text is selected', async () => {
+    const term = new ScrollingTerminal(80, 20)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    const interrupted = vi.fn()
+    tui.onInterrupt(interrupted)
+    try {
+      longTurn(tui, 2, 30, false)
+      const row = term.visible().findIndex(line => line.includes('answer 1 line 29'))
+      const col = term.visible()[row]!.indexOf('answer')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 6};${row + 1}M`)
+      const pending = tui.readline()
+      press(term as never, '\x03')
+      expect(interrupted).toHaveBeenCalledOnce()
+      expect(copy).not.toHaveBeenCalled()
+      press(term as never, '\x03')
+      expect(await pending).toBeNull()
+    } finally { tui.dispose() }
+  })
+
+  it('respects tmux mouse off in Auto and allows explicit TUI or native ownership', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      tui.setTmuxMouseEnabled(false)
+      const mark = term.captured.length
+      longTurn(tui, 2, 30)
+      expect(term.captured.slice(mark)).not.toContain('\x1b[?1000h')
+      const tail = term.visible()
+      press(term as never, '\x1b[<64;10;5M')
+      expect(term.visible()).toEqual(tail)
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, mouseInteraction: 'tui' })
+      expect(term.captured.slice(mark)).toContain('\x1b[?1002h')
+      press(term as never, '\x1b[<64;10;5M')
+      expect(term.visible()).not.toEqual(tail)
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, mouseInteraction: 'native' })
+      expect(term.captured).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
+      press(term as never, '\x1b[F')
+      expect(term.visible().join('\n')).toContain('answer 1 line 29')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps expanded tool selection and folding out of native history', async () => {
+    const term = new ScrollingTerminal(80, 20)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', true, 'dark', copy)
+    try {
+      longTurn(tui, 4, 30)
+      const history = term.scrollback()
+      press(term as never, '\x0f')
+      expect(term.visible()).toEqual(expect.arrayContaining([expect.stringContaining('src/c4a.ts')]))
+      const row = term.visible().findIndex(line => line.includes('src/c4a.ts'))
+      const col = term.visible()[row]!.indexOf('src/c4a.ts')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 10};${row + 1}M\x1b[<0;${col + 10};${row + 1}m`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('src/c4a.ts')
+      press(term as never, '\x0f')
+      expect(term.scrollback()).toEqual(history)
+      expect(term.visible().join('\n')).toContain('answer 1 line 29')
+      expect(term.visible().join('\n')).not.toContain('Jump to latest message')
+    } finally { tui.dispose() }
+  })
+
+  it('activates Jump only on a stationary release, preserving wheel navigation', () => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      longTurn(tui, 4, 30)
+      press(term as never, '\x1b[5~')
+      const row = term.visible().findIndex(line => line.includes('Jump to latest message'))
+      const col = term.visible()[row]!.indexOf('Jump')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M`)
+      expect(term.visible().join('\n')).toContain('Jump to latest message')
+      press(term as never, `\x1b[<32;${col + 3};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      expect(term.visible().join('\n')).toContain('Jump to latest message')
+      press(term as never, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      expect(term.visible().join('\n')).not.toContain('Jump to latest message')
+    } finally { tui.dispose() }
+  })
+
+  it('copies a mouse selection in the folded view without changing native history or the draft', async () => {
+    const term = new ScrollingTerminal(80, 20)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      longTurn(tui, 2, 30)
+      tui.restoreInput({ text: 'keep this draft', images: [] })
+      const row = term.visible().findIndex(line => line.includes('answer 1 line 29'))
+      const column = term.visible()[row]!.indexOf('answer')
+      const history = term.scrollback()
+      press(term as never, `\x1b[<0;${column + 1};${row + 1}M`)
+      press(term as never, `\x1b[<32;${column + 6};${row + 1}M`)
+      expect(term.captured).toContain('\x1b[7m')
+      press(term as never, `\x1b[<0;${column + 6};${row + 1}m`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('answer')
+      expect(term.scrollback()).toEqual(history)
+      expect(term.visible().join('\n')).toContain('keep this draft')
+      expect(term.captured).not.toContain('\x1b[?1049h')
+    } finally { tui.dispose() }
+  })
+
   it('searches and scrolls tree previews, folds branches, and restores the draft on cancel', async () => {
     const term = new ScrollingTerminal(100, 24)
     const tui = new LocalTui(term, 'm', false)
@@ -332,12 +515,12 @@ describe('LocalTui folds against a scrolling terminal', () => {
       if (action === 'end') press(term as never, '\x1b[F')
       else {
         const column = term.visible()[row]!.indexOf('Jump')
-        press(term as never, `\x1b[<0;${column + 1};${row + 1}M`)
+        press(term as never, `\x1b[<0;${column + 1};${row + 1}M\x1b[<0;${column + 1};${row + 1}m`)
       }
       expect(term.visible().join('\n')).not.toContain('Jump to latest message')
       expect(term.visible().join('\n')).toContain('answer 1 line 29')
       expect(term.scrollback()).toEqual(history)
-      expect(term.captured).toContain('\x1b[?1000h\x1b[?1006h')
+      expect(term.captured).toContain('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
     } finally { tui.dispose() }
   })
 
@@ -963,7 +1146,7 @@ describe('LocalTui (tty)', () => {
     press(term, '\x1b[<64;10;5M\x1b[<65;10;5M')
     expect(term.captured.length).toBeGreaterThan(mark)
     press(term, '\x1b[F')
-    expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l\x1b[?1006l')
+    expect(term.captured.slice(mark)).not.toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
     tui.dispose()
   })
 
@@ -973,14 +1156,14 @@ describe('LocalTui (tty)', () => {
     longTurn(tui, 30, 1)
     expect(term.captured).toContain('\x1b[?1000h')
     press(term, '\x0f')
-    expect(term.captured).toContain('\x1b[?1000h\x1b[?1006h')
+    expect(term.captured).toContain('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
     const mark = term.captured.length
     if (exit === 'close') press(term, '\x0f')
     else if (exit === 'tail') press(term, '\x1b[6~'.repeat(6))
     else if (exit === 'clear') press(term, '/clear\r')
     else tui.dispose()
-    if (exit === 'dispose' || exit === 'clear') expect(term.captured.slice(mark)).toContain('\x1b[?1000l\x1b[?1006l')
-    else expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l\x1b[?1006l')
+    if (exit === 'dispose' || exit === 'clear') expect(term.captured.slice(mark)).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
+    else expect(term.captured.slice(mark)).not.toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
     tui.dispose()
   })
 
@@ -997,9 +1180,9 @@ describe('LocalTui (tty)', () => {
     vi.stubEnv('VISUAL', '/omdsh-missing-editor-command')
     try {
       press(term, '\x18')
-      expect(modesAtHandoff).toContain('\x1b[?1000l\x1b[?1006l')
+      expect(modesAtHandoff).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
       expect(term.raw).toBe(true)
-      expect(term.captured.slice(modesAtHandoff.length)).toContain('\x1b[?1000h\x1b[?1006h')
+      expect(term.captured.slice(modesAtHandoff.length)).toContain('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
     } finally {
       vi.unstubAllEnvs()
       tui.dispose()
@@ -1016,7 +1199,7 @@ describe('LocalTui (tty)', () => {
     try {
       press(term, '\x1a')
       expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTSTP')
-      expect(modesAtSuspend).toContain('\x1b[?1000l\x1b[?1006l')
+      expect(modesAtSuspend).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
     } finally {
       kill.mockRestore()
       tui.dispose()
@@ -1031,7 +1214,8 @@ describe('LocalTui (tty)', () => {
     term.resize(42, 18)
 
     const repaint = term.captured.slice(before)
-    expect(repaint).toContain('\x1b[2J\x1b[H')
+    for (let row = 1; row <= term.rows; row++) expect(repaint).toContain(`\x1b[${row};1H\x1b[2K`)
+    expect(repaint).not.toContain('\x1b[2J')
     expect(stripAnsi(repaint)).toContain('🐳')
     tui.dispose()
   })
@@ -2625,6 +2809,8 @@ describe('LocalTui (tty)', () => {
       motion: 'full',
       editor: 'auto',
       terminalProgress: false,
+      copyOnSelect: true,
+      mouseInteraction: 'auto',
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
@@ -2761,7 +2947,7 @@ describe('LocalTui (tty)', () => {
       const tui = new LocalTui(term, 'm', undefined)
       tui.notice('probe', { level: 'error' })
 
-      expect(term.captured).toContain('\x1b[38;2;252;58;75mprobe')
+      expect(term.captured).toContain('\x1b[38;2;252;67;83mprobe')
       tui.dispose()
     } finally {
       vi.unstubAllEnvs()
@@ -2818,14 +3004,14 @@ describe('LocalTui (tty)', () => {
       const term = new FakeTerminal()
       const tui = new LocalTui(term, 'm', false)
       tui.notice('colorless', { level: 'error' })
-      expect(term.captured).not.toContain('\x1b[38;2;252;58;75m')
+      expect(term.captured).not.toContain('\x1b[38;2;252;67;83m')
       expect(term.captured).not.toContain('\x1b[31m')
 
       tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
       tui.notice('colorful', { level: 'error' })
 
-      // Dark `error` is #fc3a4b, so 16-color fallback would emit `31` instead.
-      expect(term.captured).toContain('\x1b[38;2;252;58;75mcolorful')
+      // Dark error ink is #fc4353; the 16-color fallback emits `31`.
+      expect(term.captured).toContain('\x1b[38;2;252;67;83mcolorful')
       expect(term.captured).not.toContain('\x1b[31m')
       tui.dispose()
     } finally {

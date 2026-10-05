@@ -33,7 +33,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+-` | 撤销上一次编辑。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
-| `Alt+C` | 复制当前提示。 |
+| `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
 | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 
@@ -59,7 +59,11 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+F` | composer 为空时搜索当前转录；`n`/`N` 在匹配间跳转。 |
 | `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
 
-转录可以滚动时，omdsh 会接管鼠标输入，因此无法用终端原生拖选。可以用 `/copy` 选择代码块或命令，用 `/copy code` 或 `/copy cmd` 复制最近的对应条目，用 `Ctrl+Alt+C` 复制当前输入行。终端原生历史仍然保留；离开 omdsh 后恢复终端自身的鼠标处理。全屏界面暂时关闭滚轮接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
+转录可以滚动时，折叠和展开视图都支持在当前视口内拖选文字。双击选择单词或路径，三击选择整行，Shift 点击扩展选区；默认松开鼠标后复制。可在 Settings 关闭 **Copy on select**，改用 `Alt+C`、`Enter` 或右键复制；`Esc` 清除选区，`Ctrl+C` 保留中断与退出行为。滚动、调整窗口、输入文字或所选行内容变化时会清除选区。
+
+**Mouse interaction** 默认 `auto`，尊重 tmux 的 mouse off 设置；`tui` 显式启用应用接管，`native` 将鼠标交给终端，键盘滚动和 `End` 仍然可用。终端原生历史继续保留，可用终端选择或 tmux copy-mode 复制。
+
+全屏页面暂时关闭应用鼠标接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
 
 ## 会话
 
@@ -111,7 +115,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `external-editor` | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 重试最近一条人类提示。 |
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
-| `copy-prompt` | `Alt+C` | 复制当前提示。 |
+| `copy-prompt` | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `copy-line` | `Ctrl+Alt+C` | 复制当前行。 |
 | `inspect-subagent` | `Alt+A` | 打开 Agent Hub。 |
 | `cycle-model-forward` | `Ctrl+P` | 切换到下一个收藏模型。 |

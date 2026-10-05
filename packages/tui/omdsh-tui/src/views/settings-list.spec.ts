@@ -40,6 +40,8 @@ describe('tuiSettingItems / applySettingValue', () => {
       'colors',
       'motion',
       'editor',
+      'mouseInteraction',
+      'copyOnSelect',
       'terminalProgress',
       'checkUpdates',
       'startupChangelog',
@@ -81,6 +83,9 @@ describe('tuiSettingItems / applySettingValue', () => {
     // that could write the legacy flag back.
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual(prefs)
     expect(applySettingValue(prefs, 'motion', 'reduced').motion).toBe('reduced')
+    expect(applySettingValue(prefs, 'copyOnSelect', 'off').copyOnSelect).toBe(false)
+    expect(applySettingValue(prefs, 'mouseInteraction', 'native').mouseInteraction).toBe('native')
+    expect(applySettingValue(prefs, 'mouseInteraction', 'invalid')).toEqual(prefs)
     expect(applySettingValue(prefs, 'terminalProgress', 'on').terminalProgress).toBe(true)
     expect(applySettingValue(prefs, 'statusEnabled', 'off').statusBar?.enabled).toBe(false)
     expect(applySettingValue(prefs, 'statusLabels', 'full').statusBar?.labels).toBe('full')

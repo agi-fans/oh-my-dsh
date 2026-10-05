@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { MainScreenRenderer, mapBlockSpan } from './main-screen-renderer.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
 import { processGroups } from '../views/transcript-render.ts'
+import { TextSelection } from '../input/text-selection.ts'
 import { stripAnsi } from './width.ts'
 import type { Block, TranscriptState } from '../views/transcript-types.ts'
 import type { Frame } from './renderer.ts'
@@ -28,6 +29,7 @@ class Emulator {
   col = 0
   captured = ''
   writeCount = 0
+  scrollOnClear = false
   /**
    * The alternate buffer, modelled on xterm.js: 1049 saves the cursor and
    * switches to alt, which it *clears*; leaving it switches back to normal and
@@ -230,6 +232,10 @@ class Emulator {
             }
             this.#put(this.#get().slice(0, this.col))
           } else if (n === 2 || n === 3) {
+            if (n === 2 && this.scrollOnClear && !this.#alt) {
+              const last = this.screen.findLastIndex(line => line !== '')
+              this.scrollback.push(...this.screen.slice(0, last + 1))
+            }
             for (let r = 0; r < this.height; r += 1) {
               if (this.#alt) this.#altScreen[r] = ''
               else this.screen[r] = ''
@@ -289,6 +295,88 @@ function joined(lines: readonly string[]): string {
 }
 
 describe('MainScreenRenderer', () => {
+  it('keeps browsing and selection out of tmux history when scroll-on-clear is enabled', () => {
+    const emu = new Emulator(6)
+    emu.scrollOnClear = true
+    emu.screen = ['shell output', 'shell prompt', '', '', '', '']
+    const renderer = new MainScreenRenderer(emu, { width: 40, height: 6 })
+    const rows = Array.from({ length: 30 }, (_, i) => `row-${i}`)
+    renderer.render(frame(rows, 24))
+    expect(emu.scrollback).toContain('shell output')
+    const history = [...emu.scrollback]
+    const mark = emu.captured.length
+    const browse = { ...frame(rows.slice(18, 24), 0), transientSurface: 'scroll' as const,
+      documentRows: { documentStart: 18, documentEnd: 24, frameStart: 0 } }
+    renderer.render(browse)
+    const selection = new TextSelection()
+    selection.begin(renderer.viewport(), { row: 0, column: 0 })
+    selection.release({ row: 1, column: 4 })
+    renderer.render(browse, rows => selection.paint(rows))
+    selection.clear()
+    renderer.render(frame(rows, 24))
+    expect(emu.scrollback).toEqual(history)
+    expect(emu.screen).toEqual(rows.slice(24))
+    expect(emu.captured.slice(mark)).not.toContain('\x1b[2J')
+    expect(emu.captured).not.toContain('\x1b[3J')
+  })
+
+  it('paints selection after layout without decorating committed rows or changing the canonical viewport', () => {
+    const emu = new Emulator(6, ['shell output'])
+    const renderer = new MainScreenRenderer(emu, { width: 40, height: 6 })
+    const rows = Array.from({ length: 30 }, (_, i) => `row-${i}`)
+    const view = frame(rows, 24)
+    renderer.render(view)
+    const original = renderer.viewport()
+    const history = [...emu.scrollback]
+    const selection = new TextSelection()
+    selection.begin(original, { row: 0, column: 0 })
+    selection.release({ row: 1, column: 5 })
+    const mark = emu.captured.length
+    renderer.render(view, rows => selection.paint(rows))
+    expect(emu.captured.slice(mark)).toContain('\x1b[7m')
+    expect(renderer.viewport()).toEqual(original)
+    expect(emu.scrollback).toEqual(history)
+    // More canonical rows reach scrollback after the selection is cleared.
+    selection.clear()
+    renderer.render(frame([...rows, 'row-30', 'row-31'], 26), rows => selection.paint(rows))
+    expect(emu.scrollback).toEqual(['shell output', ...rows.slice(0, 26)])
+    expect(emu.screen).toEqual([...rows.slice(26), 'row-30', 'row-31'])
+    expect(emu.captured).not.toContain('\x1b[3J')
+  })
+
+  it('removes viewport selection on resize and finish without replaying native history', () => {
+    const emu = new Emulator(6, ['shell output'])
+    const renderer = new MainScreenRenderer(emu, { width: 40, height: 6 })
+    const control = new Emulator(6, ['shell output'])
+    const baseline = new MainScreenRenderer(control, { width: 40, height: 6 })
+    const rows = Array.from({ length: 6 }, (_, i) => `row-${i}`)
+    const view = frame(rows, 0)
+    const selection = new TextSelection()
+    renderer.render(view)
+    baseline.render(view)
+    selection.begin(renderer.viewport(), { row: 2, column: 0 })
+    selection.release({ row: 3, column: 5 })
+    renderer.render(view, rows => selection.paint(rows))
+    baseline.render(view)
+    emu.resize(8)
+    control.resize(8)
+    baseline.resize(40, 8)
+    renderer.resize(40, 8)
+    selection.clear()
+    baseline.render(view)
+    renderer.render(view, rows => selection.paint(rows))
+    const history = [...control.scrollback]
+    expect(renderer.viewport().map(stripAnsi)).toEqual(emu.screen)
+    expect(emu.scrollback).toEqual(history)
+    selection.begin(renderer.viewport(), { row: 1, column: 0 })
+    selection.release({ row: 2, column: 5 })
+    renderer.render(view, rows => selection.paint(rows))
+    const mark = emu.captured.length
+    renderer.finish()
+    expect(emu.captured.slice(mark)).not.toContain('\x1b[7m')
+    expect(emu.scrollback).toEqual(history)
+  })
+
   it('browses history without re-emitting rows into native scrollback', () => {
     const emu = new Emulator(6)
     const renderer = new MainScreenRenderer(emu, { width: 40, height: 6, synchronized: false })

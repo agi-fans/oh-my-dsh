@@ -31,7 +31,7 @@ import {
 } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
-import { createTheme, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
+import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
 import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type {
@@ -264,9 +264,9 @@ function userBubble(text: string, theme: Theme, width: number): string[] {
   // the gap between blocks, and the prompt floated in twice the space of
   // anything else on the screen.
   return rows.map((row, index) => {
-    if (row === '') return theme.colors ? theme.bg('userMessageBg', padToWidth('', width)) : padToWidth('', width)
+    if (row === '') return paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth('', width))
     const content = padToWidth((index === 1 ? gutter : '') + row, width)
-    return theme.colors ? theme.bg('userMessageBg', content) : content
+    return paintSurface(theme, 'userMessageBg', 'userMessageText', content)
   })
 }
 
@@ -523,7 +523,7 @@ function toolBlockLines(
     `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
   ), room))
   const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
-  return ['', ...rows, ''].map(row => theme.bg(bg, padToWidth(' '.repeat(padding + nest) + row, width)))
+  return ['', ...rows, ''].map(row => paintSurface(theme, bg, 'toolOutput', padToWidth(' '.repeat(padding + nest) + row, width)))
 }
 
 function firstLineOf(text: string): string {
@@ -2165,7 +2165,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       stickyHeaders.push({
         start: transcriptStart + (transcript.blockStarts[at + 1] ?? transcript.lines.length),
         end: body.length,
-        text: theme.bg('userMessageBg', padToWidth(' '.repeat(padding) + theme.fg('userMessageText', label), width)),
+        text: paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth(' '.repeat(padding) + label, width)),
       })
     }
   }

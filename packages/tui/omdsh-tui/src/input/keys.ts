@@ -12,7 +12,7 @@ export type KeyEvent =
   | { type: 'paste-start' }
   | { type: 'paste-end' }
   | { type: 'wheel'; direction: 'up' | 'down' }
-  | { type: 'click'; row: number; column: number }
+  | { type: 'mouse'; action: 'press' | 'drag' | 'release'; button: 'left' | 'right'; row: number; column: number; shift: boolean }
 
 const CTRL: Record<number, string> = {
   0x01: 'ctrl+a',
@@ -105,17 +105,20 @@ function kittyEvent(code: number, modifier: number): KeyEvent {
   return { type: 'key', id: withMods(`code${code}`, modifier) }
 }
 
-/** Decode wheel and left-button presses; consume other SGR mouse reports. */
+/** Decode SGR presses, button motion, releases and wheels; consume unsupported reports. */
 function parseSgr(body: string): { used: number; event?: KeyEvent } | 'partial' | null {
-  // body is the CSI payload after '['
   const match = /^<(\d+);(\d+);(\d+)([Mm])/.exec(body)
   if (match !== null) {
-    const button = Number(match[1]) & ~28 // Ignore Shift, Alt and Ctrl modifiers.
-    const event: KeyEvent | undefined = match[4] === 'M' && (button === 64 || button === 65)
-      ? { type: 'wheel', direction: button === 64 ? 'up' : 'down' }
-      : match[4] === 'M' && button === 0
-        ? { type: 'click', row: Number(match[3]) - 1, column: Number(match[2]) - 1 }
-      : undefined
+    const code = Number(match[1])
+    const button = code & ~28
+    let event: KeyEvent | undefined
+    if (match[4] === 'M' && (button === 64 || button === 65)) {
+      event = { type: 'wheel', direction: button === 64 ? 'up' : 'down' }
+    } else if ([0, 2, 32, 34].includes(button) && (code & 24) === 0) {
+      event = { type: 'mouse', action: match[4] === 'm' ? 'release' : (button & 32) ? 'drag' : 'press',
+        button: (button & 3) === 0 ? 'left' : 'right', row: Number(match[3]) - 1,
+        column: Number(match[2]) - 1, shift: (code & 4) !== 0 }
+    }
     return { used: 1 + match[0].length, ...(event === undefined ? {} : { event }) }
   }
   if (body.length < 32 && /^<\d*(?:;\d*){0,2}$/.test(body)) return 'partial'

@@ -21,6 +21,8 @@ describe('TUI row settings', () => {
       motion: 'full',
       editor: 'auto',
       terminalProgress: false,
+      copyOnSelect: true,
+      mouseInteraction: 'auto',
       foldDensity: 'standard',
       // Legacy migration input; the schema still reads it so an older document
       // resolves, but nothing writes it any more.
@@ -32,6 +34,11 @@ describe('TUI row settings', () => {
       statusBar: undefined,
       statusPreset: undefined,
     })
+  })
+
+  it('validates durable selection and mouse ownership preferences', () => {
+    expect(resolve({ copyOnSelect: false, mouseInteraction: 'native' })).toMatchObject({ copyOnSelect: false, mouseInteraction: 'native' })
+    expect(() => RowSettings({ mouseInteraction: 'unknown' })).toThrow()
   })
 
   it('accepts explicit palette and motion overrides', () => {

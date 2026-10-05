@@ -60,15 +60,17 @@ describe('parseKeys', () => {
     expect(parseKeys('\x1b[<81;10;5M').events).toEqual([{ type: 'wheel', direction: 'down' }])
     expect(parseKeys('\x1b[<64;10;5m').events).toEqual([])
     expect(parseKeys('\x1b[<66;10;5M').events).toEqual([])
-    expect(parseKeys('\x1b[<0;4;8M').events).toEqual([{ type: 'click', row: 7, column: 3 }])
-    expect(parseKeys('\x1b[<0;4;8m').events).toEqual([])
+    expect(parseKeys('\x1b[<0;4;8M').events).toEqual([{ type: 'mouse', action: 'press', button: 'left', row: 7, column: 3, shift: false }])
+    expect(parseKeys('\x1b[<0;4;8m').events).toEqual([{ type: 'mouse', action: 'release', button: 'left', row: 7, column: 3, shift: false }])
+    expect(parseKeys('\x1b[<36;4;8M').events).toEqual([{ type: 'mouse', action: 'drag', button: 'left', row: 7, column: 3, shift: true }])
+    expect(parseKeys('\x1b[<35;4;8M').events).toEqual([])
     expect(parseKeys('\x1b[<64;10')).toEqual({ events: [], rest: '\x1b[<64;10' })
     expect(parseKeys('\x1b[<64;10' + ';5Mok').events).toEqual([
       { type: 'wheel', direction: 'up' }, { type: 'text', value: 'ok' },
     ])
     expect(parseKeys('before\x1b[<0;4;8Mafter').events).toEqual([
       { type: 'text', value: 'before' },
-      { type: 'click', row: 7, column: 3 },
+      { type: 'mouse', action: 'press', button: 'left', row: 7, column: 3, shift: false },
       { type: 'text', value: 'after' },
     ])
   })
