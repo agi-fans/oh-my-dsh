@@ -1,5 +1,5 @@
 ---
-description: "Where omdsh stores durable sessions and local data, how the Session Library searches and pins sessions, and how older session logs keep working."
+description: "Where omdsh stores durable sessions and local data, how the Session Library searches, pins and archives sessions, and how older session logs keep working."
 ---
 
 # Sessions and history
@@ -26,11 +26,21 @@ Use `↑`/`↓` or `Tab` to select, `←`/`→` to fold or open a subtree, and t
 
 The footer names the action for Enter: **edit from here** prepares a new branch and restores the original text, images, and file references without sending a model request; **continue branch**, also available through `Alt+Enter` after searching, resumes the selected branch’s latest state. The original branches and terminal scrollback remain available. These actions change conversation history, not workspace files.
 
+Use `Alt+L` to label a Turn or branch and edit its existing label; `Alt+U` clears it. Labels are searchable and limited to 120 characters. `Alt+B` switches between the full tree and marked nodes with their ancestors, including when no nodes are marked. Labelling and filtering preserve the active session and composer; labels stay local and never enter the model context.
+
 ## Session Library
 
-`/sessions` opens the Session Library, the resume list with pin and rename actions: `p` pins a session and `r` renames it. Pins and names are stored in `$OMDSH_HOME/omdsh/session-library.json`.
+`/sessions` opens the Session Library: `p` pins or unpins a session, `r` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search; letter actions require an empty search. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/sessions <query>`; resuming does not automatically restore it to the default list.
+
+Pins, archive state, and tree labels are stored in `$OMDSH_HOME/omdsh/session-library.json`. Session titles remain in the Harness session logs. These paths fall back to `$DSH_HOME` and then `~/.dsh`.
 
 `/sessions <query>` searches durable session content instead, through the session-query index — SQLite FTS5, built in memory on the first search of a run — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
+
+## Unsent drafts
+
+The interactive composer saves unsent text per session after a short idle delay, and flushes it when switching sessions or exiting. Resuming a session restores its draft and cursor, including folded paste content, image bytes, and file attachment references. Parent and inspected subagent sessions keep separate drafts.
+
+Sending or explicitly clearing the composer removes its saved draft. Browsing input history retains the original unsent draft until you edit or select recalled text. Question answers, secret inputs, and queued messages are not saved as composer drafts. Drafts stay in local files outside the Harness log and are not included in session exports; pipe mode does not save them.
 
 ## Logs on disk
 
@@ -45,10 +55,11 @@ All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/
 | Path | Contents |
 |---|---|
 | `sessions/` | The durable session logs. |
+| `omdsh/drafts/` | Unsent composer drafts and their image bytes, grouped by hashed session id. |
 | `omdsh/history.jsonl` | Prompt history behind `Ctrl+R`. |
 | `omdsh/keybindings.json` | Application keybinding overrides. |
 | `omdsh/model-favorites.json` | The favorite model cycle behind `Ctrl+P` and `Alt+P`. |
-| `omdsh/session-library.json` | Session pins and renames. |
+| `omdsh/session-library.json` | Session pins, archive state, and local tree labels. |
 | `omdsh/recent-sessions.json` | Session Library labels reused across launches; delete it to re-read every stored log. |
 | `omdsh/sessions-upgraded.json` | Records the session format the stored logs were upgraded to. |
 | `sessions-query.sqlite` | Derived full-text index behind session content search; delete it to rebuild on the next search. |

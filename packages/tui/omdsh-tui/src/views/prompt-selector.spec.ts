@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { maskPromptSecret, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import { refreshPromptOptions, maskPromptSecret, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
@@ -178,4 +178,50 @@ it('renders scrolling documents in bounded cells and keeps action selection visi
     expect(stripAnsi(frame.lines.join('\n'))).toContain('29')
     expect(frame.document!.start).toBe(frame.document!.maxStart)
   }
+})
+
+
+describe('Session Library footer actions', () => {
+  it.each([false, true])('keeps archive and view switching discoverable when empty (colors=%s)', colors => {
+    const frame = renderPromptSelectorPage({ request: { title: 'Session Library', question: '', options: [], actions: [
+      { key: 'r', label: 'rename', valuePrefix: 'rename:' }, { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
+      { key: 'Alt+A', label: 'archive', valuePrefix: 'archive:' },
+      { key: 'Alt+V', label: 'archived sessions', valuePrefix: 'view:', scope: 'list' },
+    ] }, selected: 0, checked: new Set() }, createTheme(colors), 60, 24, '', 0, 'omdsh')
+    const text = stripAnsi(frame.lines.join(' '))
+    expect(text).toContain('Alt+A')
+    expect(text).toContain('Alt+V')
+    expect(frame.lines).toHaveLength(24)
+    expect(frame.lines.every(line => visibleWidth(line) === 60)).toBe(true)
+  })
+})
+
+
+describe('live prompt choices', () => {
+  const choices = [{ label: '你好 🐳', value: 'a' }, { label: 'Beta', value: 'b' }, { label: 'Gamma', value: 'c' }]
+  it('retains selected and checked identities through reordering and filtering', () => {
+    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'fullscreen-list', filterable: true }, selected: 1, checked: new Set([0, 1]), previewScroll: 5 }
+    const reordered = refreshPromptOptions(state, [choices[1]!, choices[2]!, choices[0]!], '')
+    expect(reordered.selected).toBe(0)
+    expect(reordered.checked).toEqual(new Set([0, 2]))
+    expect(reordered.previewScroll).toBe(5)
+    const filtered = refreshPromptOptions({ ...state, selected: 0 }, [choices[2]!, choices[1]!], 'beta')
+    expect(filtered.selected).toBe(0)
+    expect(filtered.checked).toEqual(new Set([1]))
+  })
+  it.each([false, true])('clamps a removed selection, resets its preview and handles an empty list (color=%s)', color => {
+    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'fullscreen-list' }, selected: 1, checked: new Set(), previewScroll: 99 }
+    const next = refreshPromptOptions(state, [choices[0]!, choices[2]!], '')
+    expect(next.selected).toBe(1)
+    expect(next.previewScroll).toBe(0)
+    const empty = refreshPromptOptions(next, [], '')
+    expect(empty.selected).toBe(0)
+    for (const width of [24, 40, 80]) {
+      for (const current of [next, empty]) {
+        const frame = renderPromptSelectorPage(current, createTheme(color), width, 20, '', 0, 'omdsh')
+        expect(frame.lines.length).toBeLessThanOrEqual(20)
+        expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+      }
+    }
+  })
 })

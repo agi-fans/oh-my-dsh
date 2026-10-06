@@ -19,6 +19,8 @@ describe('loadKeybindings', () => {
 
   it('ships configurable scroll, tool, and history actions', () => {
     const bindings = loadKeybindings(undefined)
+    expect(bindings['alt+i']).toBe('expand-paste')
+    expect(bindings['alt+s']).toBe('steer-turn')
     expect(bindings['ctrl+o']).toBe('toggle-tools')
     expect(bindings['alt+o']).toBe('toggle-tool-details')
     expect(bindings['pageup']).toBe('scroll-page-up')

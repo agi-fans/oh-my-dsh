@@ -62,6 +62,7 @@ export interface TuiPrefs {
   motion?: MotionMode
   editor?: EditorId
   terminalProgress?: boolean
+  pasteProtection?: boolean
   copyOnSelect?: boolean
   mouseInteraction?: 'auto' | 'tui' | 'native'
   /** Legacy input; ignored by the turn presentation. */
@@ -71,6 +72,7 @@ export interface TuiPrefs {
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
   notifications?: 'off' | 'long-running' | 'always'
+  notificationFocus?: 'always' | 'unfocused'
   notificationThreshold?: '15s' | '30s' | '1m' | '2m'
   statusBar?: StatusBarInput
   /** Read-only migration input for settings written before status-line customization. */
@@ -191,6 +193,13 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       values: ['auto', 'tui', 'native'],
     },
     {
+      id: 'pasteProtection',
+      label: 'Paste protection',
+      description: 'Treat rapid text and Enter keys as a paste when the terminal does not mark pasted input.',
+      value: prefs.pasteProtection === false ? 'off' : 'on',
+      values: COLOR_VALUES,
+    },
+    {
       id: 'copyOnSelect',
       label: 'Copy on select',
       description: 'Copy selected text when the mouse is released. With this off, use Alt+C, Enter, or right-click to copy.',
@@ -224,6 +233,13 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       description: 'Notify when a turn finishes or input is required',
       value: prefs.notifications ?? 'off',
       values: ['off', 'long-running', 'always'],
+    },
+    {
+      id: 'notificationFocus',
+      label: 'Notify when',
+      description: 'Only notify while away from the terminal, or regardless of focus. Terminals without focus reports use the existing notification policy.',
+      value: prefs.notificationFocus ?? 'unfocused',
+      values: ['unfocused', 'always'],
     },
     {
       id: 'notificationThreshold',
@@ -364,6 +380,7 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
+  if (id === 'pasteProtection') return { ...prefs, pasteProtection: value === 'on' }
   if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
   if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {
     return { ...prefs, mouseInteraction: value as NonNullable<TuiPrefs['mouseInteraction']> }
@@ -376,6 +393,7 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'notifications' && ['off', 'long-running', 'always'].includes(value)) {
     return { ...prefs, notifications: value as NonNullable<TuiPrefs['notifications']> }
   }
+  if (id === 'notificationFocus' && ['always', 'unfocused'].includes(value)) return { ...prefs, notificationFocus: value as NonNullable<TuiPrefs['notificationFocus']> }
   if (id === 'notificationThreshold' && ['15s', '30s', '1m', '2m'].includes(value)) {
     return { ...prefs, notificationThreshold: value as NonNullable<TuiPrefs['notificationThreshold']> }
   }

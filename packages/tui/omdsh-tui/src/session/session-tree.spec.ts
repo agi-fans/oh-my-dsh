@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { buildSessionTree, sessionTreeFamily } from './session-tree.ts'
+import { buildSessionTree, markedSessionTree, sessionTreeFamily } from './session-tree.ts'
 
 const turn = (number: number, text: string): SessionEvent[] => [
   { type: 'turn/start', data: { turn: number } },
@@ -23,6 +23,15 @@ describe('Session Tree projection', () => {
     const preview = nodes.find(node => node.id === 'turn:root:5')?.preview
     expect(preview).toContain('### User\n\nOriginal')
     expect(preview).toContain('### Assistant\n\nAnswer to Original')
+  })
+
+  it('filters to marked nodes with ancestors, without detaching forks or duplicating inherited turns', () => {
+    const nodes = buildSessionTree([root, child], 'fork')
+    const labels = { 'turn:fork:5': 'Important 🐳' }
+    const marked = markedSessionTree(nodes, labels)
+    expect(marked.map(node => node.id)).toEqual(['session:root', 'turn:root:1', 'session:fork', 'turn:fork:5'])
+    expect(markedSessionTree(nodes, {})).toEqual([])
+    expect(markedSessionTree(nodes, { 'deleted-node': 'stale' })).toEqual([])
   })
 
   it('locates a fork of an inherited prefix in its original ancestor', () => {

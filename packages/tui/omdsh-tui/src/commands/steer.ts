@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { steerAgent } from '../session/steering.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-steer'
@@ -17,7 +17,7 @@ function steer(invocation: CommandInvocation): CommandResult {
       text: 'Steering is only available during an active turn. Send a normal message to start the next turn.',
     }
   }
-  invocation.agent.steer(createUserMessage({ content: [{ type: 'text', text: input }], source: { kind: 'user' } }))
+  steerAgent(invocation.agent, input)
   return { kind: 'success', text: "Guidance queued for the current turn's next model step." }
 }
 

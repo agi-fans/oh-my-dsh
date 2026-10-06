@@ -12,7 +12,13 @@ You do not need a special command to continue a running task. Submit another ord
 
 To correct a queued message before it runs: with an empty composer, press `Up` to select the newest queued message (press `Up` again for older ones), edit the text, and press `Enter` to return it to the queue. This works without interrupting the current tool call.
 
+To correct the active task instead, type guidance and press `Alt+S`, or use `/steer <message>`. The Harness receives it before the next model step; it does not interrupt the current tool call. **Guidance · next step** remains visible until the message is claimed, while **Queued · next turn** waits for the current Turn to finish. Enter keeps its next-turn behavior. The shortcut accepts text only; use Enter to queue attachments. Rejected guidance stays in the composer.
+
 Press `Ctrl+C` once to interrupt an active turn. A second `Ctrl+C` within the exit window leaves omdsh, so pause before pressing it again if you intend to continue the session.
+
+Open `/queue` or press `Alt+Q` to manage individual pending messages. The live list separates current-turn **Guidance**, **Next turn** follow-ups, and **Waiting** submissions that have not reached the Agent yet. Type to filter and use arrows or Tab to select; Enter edits text while keeping its images and file references. `Alt+D` deletes one entry, and `Alt+↑`/`Alt+↓` move it within its group without crossing plugin-owned queue messages. Esc cancels, preserving the composer draft and accepted input.
+
+A tool question takes priority over the queue page. If it interrupts editing, the changed text returns as an unsent composer draft while the queued entry stays unchanged. If the model takes an entry before its edit can be saved, the edit also returns as a draft instead of automatically creating another message. Guidance and follow-up changes use the Harness’s durable inbox; Waiting submissions remain in memory until dispatched.
 
 ### Repeat a prompt with Loop
 

@@ -90,3 +90,16 @@ describe('withMods', () => {
     expect(withMods('enter', 2)).toBe('shift+enter')
   })
 })
+
+describe('terminal focus reports', () => {
+  it('decodes gained/lost reports and consumes fragmented CSI without literal leakage', () => {
+    expect(parseKeys('\x1b[I\x1b[O').events).toEqual([
+      { type: 'focus', focused: true }, { type: 'focus', focused: false },
+    ])
+    const first = parseKeys('\x1b[')
+    expect(first.events).toEqual([])
+    expect(parseKeys(first.rest + 'Ihello').events).toEqual([
+      { type: 'focus', focused: true }, { type: 'text', value: 'hello' },
+    ])
+  })
+})

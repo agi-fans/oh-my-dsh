@@ -41,11 +41,13 @@ describe('tuiSettingItems / applySettingValue', () => {
       'motion',
       'editor',
       'mouseInteraction',
+      'pasteProtection',
       'copyOnSelect',
       'terminalProgress',
       'checkUpdates',
       'startupChangelog',
       'notifications',
+      'notificationFocus',
       'notificationThreshold',
       'statusEnabled',
       'statusLabels',
@@ -439,4 +441,10 @@ describe('renderSettings', () => {
     expect(text).toContain('Auto')
   })
 
+})
+
+it('persists paste protection and notification focus choices', () => {
+  expect(applySettingValue(prefs, 'pasteProtection', 'off')).toMatchObject({ pasteProtection: false })
+  expect(applySettingValue(prefs, 'notificationFocus', 'always')).toMatchObject({ notificationFocus: 'always' })
+  expect(tuiSettingItems(prefs).find(row => row.id === 'notificationFocus')?.value).toBe('unfocused')
 })

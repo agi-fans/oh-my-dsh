@@ -140,7 +140,7 @@ const HIGHLIGHT_CACHE_CAP = 32
 /** A single block larger than this is highlighted but never cached. */
 const HIGHLIGHT_CACHE_MAX_ENTRY_CHARS = 64 * 1024
 
-/** Bound synchronous grammar work for large tool output; file previews fit inside this limit. */
+/** Bound synchronous grammar work; larger source previews retain plain text. */
 const HIGHLIGHT_MAX_SOURCE_CHARS = 256 * 1024
 
 /** Total source characters retained across all cached entries before eviction. */

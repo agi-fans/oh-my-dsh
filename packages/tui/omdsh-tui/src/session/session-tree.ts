@@ -112,3 +112,18 @@ export function buildSessionTree(branches: readonly SessionTreeBranch[], current
   }
   return nodes
 }
+
+/** Keep marked nodes and the ancestors that locate them in the conversation. */
+export function markedSessionTree(nodes: readonly SessionTreeNode[], labels: Readonly<Record<string, string>>): SessionTreeNode[] {
+  const byId = new Map(nodes.map(node => [node.id, node]))
+  const keep = new Set<string>()
+  for (const node of nodes) {
+    if (labels[node.id] === undefined) continue
+    let cursor: SessionTreeNode | undefined = node
+    while (cursor !== undefined && !keep.has(cursor.id)) {
+      keep.add(cursor.id)
+      cursor = cursor.parentId === undefined ? undefined : byId.get(cursor.parentId)
+    }
+  }
+  return nodes.filter(node => keep.has(node.id))
+}

@@ -122,7 +122,7 @@ export interface TranscriptState {
   compaction: { id: string; events: number; tokens: number; resume: SessionStatus } | undefined
   /** Durable follow-up turns waiting in the Harness-owned agent inbox. */
   nextTurnInbox: UserMessage[]
-  /** Durable steering/context waiting for a later step (kept for splice fidelity). */
+  /** Durable steering/context waiting for the next model step. */
   nextStepInbox: UserMessage[]
   /**
    * Text of the turn that ended in failure, held until the next submission.

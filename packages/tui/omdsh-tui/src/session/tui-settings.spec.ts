@@ -22,6 +22,7 @@ describe('TUI row settings', () => {
       editor: 'auto',
       terminalProgress: false,
       copyOnSelect: true,
+      pasteProtection: true,
       mouseInteraction: 'auto',
       foldDensity: 'standard',
       // Legacy migration input; the schema still reads it so an older document
@@ -31,6 +32,7 @@ describe('TUI row settings', () => {
       startupChangelog: 'summary',
       notifications: 'off',
       notificationThreshold: '30s',
+      notificationFocus: 'unfocused',
       statusBar: undefined,
       statusPreset: undefined,
     })

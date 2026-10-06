@@ -13,13 +13,18 @@
 
 import {
   TerminalNotificationController,
+  TerminalNotificationQueue,
+  type NotificationFocus,
   terminalNotificationSequence,
   terminalProgressSequence,
 } from './terminal-notifications.ts'
 import { HerdrAgentReporter } from './herdr-agent.ts'
 import { ComposerImages } from './composer-images.ts'
+import { ComposerDraftStore, type ComposerDraft } from '../session/composer-drafts.ts'
 import { mergeJobSettlement } from '../session/job-notice.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
+import { documentDestination, documentLayout, documentLineRow, documentMatches, documentModel, documentPosition, documentStart } from '../views/document-reader.ts'
+import type { TuiDocumentPosition } from '../definition.ts'
 
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -58,6 +63,7 @@ import {
   type TuiLoopStatus,
   type TuiSubagentRoster,
   type TuiSubmission,
+  type TuiPendingInputs,
 } from '../definition.ts'
 import {
   applySlashCompletion,
@@ -155,12 +161,13 @@ import {
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { type FoldMark, type RenderSink } from '../chrome/renderer.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
-import { colorDisabledByEnv, detectTrueColor, type ThemeName } from '../chrome/theme.ts'
+import { colorDisabledByEnv, createTheme, detectTrueColor, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSettings } from '../session/tui-settings.ts'
 import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
+import { PasteBurst, type PasteEmission } from '../input/paste-burst.ts'
 import { loadKeybindings, type TuiAction } from '../input/keybindings-config.ts'
 import { discoverEditors, type EditorId } from '../input/editor-discovery.ts'
 import { editExternally, editFileExternally } from '../input/external-editor.ts'
@@ -171,6 +178,8 @@ import {
   movePromptTree,
   searchPromptSelection,
   filteredPromptOptions,
+  refreshPromptOptions,
+  promptTreePageSize,
   selectedPromptAnswer,
   selectedFilteredPromptAnswer,
   togglePromptSelection,
@@ -284,7 +293,7 @@ type PendingPrompt = PromptSelectorState & {
   resolve: (answer: string | null) => void
   offAbort?: () => void
   offTick?: () => void
-  savedInput: { text: string; cursor: number }
+  savedInput: ReturnType<InputEditor['snapshot']>
 }
 
 interface PluginSettingsBinding {
@@ -344,11 +353,13 @@ export class LocalTui implements TuiService {
     if (!this.#tty) throw new Error('Opening an editor requires an interactive terminal.')
     try {
       this.#setMouseTracking(false)
+      this.#term.output.write('\x1b[?1004l')
       this.#term.input.setRawMode?.(false)
       editFileExternally(path, this.#externalEditor)
     } finally {
       if (!this.#disposed) {
         this.#term.input.setRawMode?.(true)
+        this.#term.output.write('\x1b[?1004h')
         this.#renderer.reset()
         this.#render()
       }
@@ -370,7 +381,7 @@ export class LocalTui implements TuiService {
   #state: TranscriptState = initialTranscript()
   readonly #editor = new InputEditor()
   readonly #files = new ComposerFiles({ text: () => this.#editor.text,
-    append: marker => { const text = this.#editor.text; this.#editor.setText(text + (text === '' ? '' : ' ') + marker) } })
+    append: marker => { this.#editor.setCursor(this.#editor.text.length); this.#editor.handle({ type: 'text', value: (this.#editor.text === '' ? '' : ' ') + marker }) } })
 
   stageFileAttachment(file: FileAttachmentRef): void {
     this.#files.add(file)
@@ -379,7 +390,16 @@ export class LocalTui implements TuiService {
   }
   #history: string[] = []
   #historyIndex = 0
+  #literalInput = false
   #draft = ''
+  #historyDraft: ComposerDraft | undefined
+  readonly #draftStore: ComposerDraftStore | undefined
+  #draftScope: string | undefined
+  #draftFingerprint = ''
+  #draftDirty = false
+  #draftTimer: ReturnType<typeof setTimeout> | undefined
+  readonly #unsavedDrafts = new Map<string, ComposerDraft>()
+  #draftError = false
   #ac: { items: AutocompleteItem[]; selected: number } | null = null
   #search: HistorySearchState | null = null
   #transcriptSearch: TranscriptSearchState | null = null
@@ -403,6 +423,11 @@ export class LocalTui implements TuiService {
   #inspectEscapeFenceUntil = 0
   #interrupts = new Set<() => void>()
   #queueEdits = new Set<() => void>()
+  #queueHandler: ((signal: AbortSignal) => Promise<void>) | undefined
+  #queueHotkeyAbort: AbortController | undefined
+  readonly #queuedInputIds = new WeakMap<TuiSubmission, string>()
+  #queuedInputSerial = 0
+  #steerHandler: ((text: string) => void) | undefined
   #rewinds = new Set<() => void>()
   #inspects = new Set<(id: string) => void>()
   #inspectCloses = new Set<() => void>()
@@ -413,6 +438,9 @@ export class LocalTui implements TuiService {
   #autocompleteTimer: ReturnType<typeof setTimeout> | null = null
   #autocompleteAbort: AbortController | null = null
   #autocompleteRequestId = 0
+  #pasteBurst = new PasteBurst()
+  #pasteBurstTimer: ReturnType<typeof setTimeout> | undefined
+  #pasteProtection = true
   #paste = false
   #pasteBuf = ''
   #pasteInFlight = 0
@@ -423,6 +451,7 @@ export class LocalTui implements TuiService {
   })
   readonly #plain: PlainTui
   #offData: (() => void) | null = null
+  #offResume: (() => void) | undefined
   #offResize: (() => void) | null = null
   #pwd: string
   #branch: string | undefined
@@ -450,6 +479,10 @@ export class LocalTui implements TuiService {
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
   #notifications = new TerminalNotificationController()
+  #notificationQueue = new TerminalNotificationQueue()
+  #notificationTimer: ReturnType<typeof setTimeout> | undefined
+  #terminalFocused: boolean | undefined
+  #notificationFocus: NotificationFocus = 'unfocused'
   /**
    * Herdr lifecycle authority for this pane. The plugin entry injects the
    * environment-aware reporter; a directly constructed instance is inert so
@@ -507,7 +540,7 @@ export class LocalTui implements TuiService {
   #subagents: TuiSubagentRoster | undefined
   #subagentLauncherFocused = false
   #inspected: TuiInspectedSubagent | undefined
-  #promptDocument: { start: number; maxStart: number; pageSize: number } | undefined
+  #promptDocument: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition } | undefined
   /**
    * 24-bit switch for the current color preference, re-derived whenever that
    * preference changes so a session that starts colorless can still enable
@@ -561,6 +594,7 @@ export class LocalTui implements TuiService {
       searchSessions?: SessionSearcher
       autocompleteDebounceMs?: number
       historyPath?: string
+      draftsPath?: string
       keybindingsPath?: string
       /**
        * Profile patch the Features section edits. Absent leaves the section
@@ -620,6 +654,7 @@ export class LocalTui implements TuiService {
     this.#herdr = paths.herdrReporter ?? new HerdrAgentReporter({ env: {} })
     this.#syncTrueColor()
     this.#tty = term.input.isTTY === true
+    this.#draftStore = this.#tty && paths.draftsPath !== undefined ? new ComposerDraftStore(paths.draftsPath) : undefined
     this.#plain = new PlainTui({
       term,
       blocks: () => this.#state.blocks,
@@ -660,7 +695,18 @@ export class LocalTui implements TuiService {
           repaint()
         }
       }) ?? null
-      term.output.write('\x1b[?2004h')
+      if (process.platform !== 'win32') {
+        const resume = (): void => {
+          if (this.#disposed) return
+          this.#terminalFocused = undefined
+          this.#term.output.write('\x1b[?1004h')
+          this.#renderer.reset()
+          this.#render()
+        }
+        process.on('SIGCONT', resume)
+        this.#offResume = () => { process.off('SIGCONT', resume) }
+      }
+      term.output.write('\x1b[?2004h\x1b[?1004h')
     }
     this.#render()
     this.#herdr.start()
@@ -794,6 +840,7 @@ export class LocalTui implements TuiService {
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.mode === inspected?.mode
       && this.#inspected?.writable === inspected?.writable) return
+    this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     if (inspected !== undefined) {
       this.#inspectEscapeFenceUntil = 0
@@ -910,18 +957,27 @@ export class LocalTui implements TuiService {
   }
 
   prompt(request: TuiPrompt): Promise<string | null> {
-    if (this.#prompt !== null) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
+    if (this.#prompt !== null) {
+      const superseded = this.#prompt.request.onSuperseded
+      if (superseded === undefined || request.notify === false) return Promise.reject(new Error('omdsh-tui: prompt already in flight'))
+      const input = this.#editor.expandedText
+      this.#finishPrompt(null)
+      try { superseded(input) } catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
+    }
+    this.#flushPasteBurst(true)
+    this.#pasteBurst.clear()
     if (request.notify !== false) this.#emitNotification(this.#notifications.humanPrompt())
     this.#herdr.prompt(request.title)
-    const savedInput = { text: this.#editor.text, cursor: this.#editor.cursor }
-    this.#editor.setText('')
+    const savedInput = this.#editor.snapshot()
+    this.#editor.setText(request.options?.length || request.allowCustom === false ? '' : request.initialInput ?? '')
     this.#ac = null
     const displaced = this.#displaceSurface()
     return new Promise((resolve) => {
       const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
       const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
+        ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query }),
         ...(request.documentTail === true ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
       if (request.signal !== undefined) {
         const onAbort = (): void => {
@@ -933,18 +989,26 @@ export class LocalTui implements TuiService {
       }
       this.#prompt = pending
       this.#promptDisplaced = displaced
-      if (this.#tty && request.wait !== undefined && request.refreshDocument === undefined) {
+      if (this.#tty && request.wait !== undefined && request.refreshDocument === undefined && request.refreshOptions === undefined) {
         const tick = setInterval(() => { if (!this.#disposed) this.#render() }, 1_000)
         pending.offTick = () => { clearInterval(tick) }
       }
-      if (this.#tty && request.refreshDocument !== undefined) {
+      if (this.#tty && (request.refreshDocument !== undefined || request.refreshOptions !== undefined)) {
         const tick = setInterval(() => {
           if (this.#disposed || this.#prompt === null) return
           try {
             const detail = request.refreshDocument?.()
-            if (detail === undefined || detail === this.#prompt.request.detail) return
-            this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, detail } }
-            this.#render()
+            const options = request.refreshOptions?.()
+            let changed = false
+            if (options !== undefined && options !== this.#prompt.request.options) {
+              this.#prompt = refreshPromptOptions(this.#prompt, options, this.#editor.text)
+              changed = true
+            }
+            if (detail !== undefined && detail !== this.#prompt.request.detail) {
+              this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, detail } }
+              changed = true
+            }
+            if (changed) this.#render()
           } catch (error) {
             this.#finishPrompt(null)
             this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
@@ -956,6 +1020,7 @@ export class LocalTui implements TuiService {
         this.#render()
       } else {
         const lines = [request.question]
+        if (request.documentSource !== undefined) lines.push('', request.documentSource.text)
         if (request.detail !== undefined && request.detail !== '') lines.push('', request.detail)
         if (request.options !== undefined && request.options.length > 0) {
           lines.push('', ...request.options.map((option, index) =>
@@ -1001,6 +1066,7 @@ export class LocalTui implements TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
+    this.#switchDraft(this.#inspected?.id ?? info.id)
     this.#sessionId = info.id
     this.#herdr.setSession(info.id)
     const title = info.title?.trim()
@@ -1057,10 +1123,12 @@ export class LocalTui implements TuiService {
       terminalProgress: this.#terminalProgress,
       copyOnSelect: this.#copyOnSelect,
       mouseInteraction: this.#mouseInteraction,
+      pasteProtection: this.#pasteProtection,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
       notificationThreshold: this.#notificationThreshold,
+      notificationFocus: this.#notificationFocus,
       statusBar: {
         ...this.#statusBar,
         groups: [...this.#statusBar.groups],
@@ -1151,6 +1219,7 @@ export class LocalTui implements TuiService {
   }
 
   restoreInput(submission: TuiSubmission): void {
+    this.#literalInput ||= submission.literal === true
     this.#images.restore(submission)
     for (const file of submission.files ?? []) this.#files.add(file)
     this.#refreshAutocomplete()
@@ -1176,13 +1245,15 @@ export class LocalTui implements TuiService {
   #currentSubmission(): TuiSubmission {
     const files = this.#files.copies()
     return {
-      text: this.#files.text(this.#editor.text),
+      text: this.#files.text(this.#editor.expandedText),
+      ...(this.#literalInput || this.#editor.startsWithPaste ? { literal: true } : {}),
       images: this.#images.copies(),
       ...(files.length === 0 ? {} : { files }),
     }
   }
 
   #replaceInput(submission: TuiSubmission): void {
+    this.#literalInput = submission.literal === true
     this.#images.replace(submission)
     this.#files.restore(submission.files)
     this.#historyIndex = 0
@@ -1193,6 +1264,41 @@ export class LocalTui implements TuiService {
   onInterrupt(listener: () => void): () => void {
     this.#interrupts.add(listener)
     return () => { this.#interrupts.delete(listener) }
+  }
+
+  readonly pendingInputs: TuiPendingInputs = {
+    list: () => {
+      if (this.#disposed) return []
+      if (this.#queueEditNewer !== null || this.#queueEditPending) throw new Error('Finish editing the queued follow-up with Enter before opening Queue.')
+      return this.#queuedSubmissions.map(submission => {
+        let id = this.#queuedInputIds.get(submission)
+        if (id === undefined) { id = `local-${++this.#queuedInputSerial}`; this.#queuedInputIds.set(submission, id) }
+        return { id, submission }
+      })
+    },
+    update: (id, change) => {
+      if (this.#disposed) return false
+      const index = this.#queuedSubmissions.findIndex(item => this.#queuedInputIds.get(item) === id)
+      if (index < 0) return false
+      if (change.kind === 'remove') this.#queuedSubmissions.splice(index, 1)
+      else if (change.kind === 'replace') {
+        this.#queuedInputIds.set(change.submission, id)
+        this.#queuedSubmissions[index] = change.submission
+      } else {
+        const destination = index + change.direction
+        if (destination < 0 || destination >= this.#queuedSubmissions.length) return false
+        const other = this.#queuedSubmissions[destination]!
+        this.#queuedSubmissions[destination] = this.#queuedSubmissions[index]!
+        this.#queuedSubmissions[index] = other
+      }
+      if (this.#tty && !this.#disposed) this.#render()
+      return true
+    },
+  }
+
+  setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
+    this.#queueHandler = handler
+    return () => { if (this.#queueHandler === handler) { this.#queueHotkeyAbort?.abort(); this.#queueHandler = undefined } }
   }
 
   onQueueEdit(listener: () => void): () => void {
@@ -1220,9 +1326,23 @@ export class LocalTui implements TuiService {
     return () => { this.#inspectSubmits.delete(listener) }
   }
 
+  setSteerHandler(handler: (text: string) => void): () => void {
+    this.#steerHandler = handler
+    return () => { if (this.#steerHandler === handler) this.#steerHandler = undefined }
+  }
+
   dispose(): void {
     if (this.#disposed) return
+    this.#flushPasteBurst(true)
+    this.#flushDraft()
     this.#disposed = true
+    this.#steerHandler = undefined
+    this.#queueHotkeyAbort?.abort()
+    this.#queueHandler = undefined
+    if (this.#notificationTimer !== undefined) clearTimeout(this.#notificationTimer)
+    this.#notificationQueue.clear()
+    if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
+    this.#pasteBurst.clear()
     this.#pluginSettingsAbort?.abort()
     if (this.#resizeTimer !== null) {
       clearTimeout(this.#resizeTimer)
@@ -1245,6 +1365,7 @@ export class LocalTui implements TuiService {
     if (this.#tty) {
       this.#offData?.()
       this.#offResize?.()
+      this.#offResume?.()
       this.#setMouseTracking(false)
       this.#term.input.setRawMode?.(false)
       // Leave the cursor on a fresh line below the last frame so the shell
@@ -1256,7 +1377,7 @@ export class LocalTui implements TuiService {
         this.#term.output.write('\x1b]2;\x07')
         this.#writtenWindowTitle = undefined
       }
-      this.#term.output.write('\x1b[?2004l\x1b[?25h\r\n')
+      this.#term.output.write('\x1b[?2004l\x1b[?1004l\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
       }
@@ -1391,7 +1512,97 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #captureDraft(): ComposerDraft {
+    if (this.#historyIndex > 0 && this.#historyDraft !== undefined) return this.#historyDraft
+    const editor = this.#prompt?.savedInput ?? this.#editor.snapshot()
+    return { editor, images: this.#images.copies(), files: this.#files.snapshot(editor.text), literal: this.#literalInput }
+  }
+
+  #restoreDraft(draft: ComposerDraft): void {
+    this.#images.replace({ text: draft.editor.text, images: draft.images })
+    this.#editor.restore(draft.editor)
+    this.#files.restoreSnapshot(draft.files)
+    this.#literalInput = draft.literal
+  }
+
+  #draftKey(): string {
+    return [this.#editor.revision, this.#editor.cursor, this.#images.revision, this.#files.revision, this.#literalInput].join(':')
+  }
+
+  #watchDraft(): void {
+    if (this.#disposed || this.#draftStore === undefined || this.#draftScope === undefined || this.#prompt !== null || this.#historyIndex > 0) return
+    const key = this.#draftKey()
+    if (key === this.#draftFingerprint) return
+    this.#draftFingerprint = key
+    this.#draftDirty = true
+    if (this.#draftTimer !== undefined) clearTimeout(this.#draftTimer)
+    this.#draftTimer = setTimeout(() => { this.#draftTimer = undefined; this.#flushDraft() }, 500)
+    this.#draftTimer.unref?.()
+  }
+
+  #flushDraft(): void {
+    this.#watchDraft()
+    if (this.#draftTimer !== undefined) clearTimeout(this.#draftTimer)
+    this.#draftTimer = undefined
+    const id = this.#draftScope
+    if (id === undefined || this.#draftStore === undefined || !this.#draftDirty && !this.#unsavedDrafts.has(id)) return
+    const draft = this.#captureDraft()
+    this.#draftDirty = false
+    try {
+      this.#draftStore.save(id, draft)
+      this.#unsavedDrafts.delete(id)
+      this.#draftError = false
+    } catch (error) {
+      this.#unsavedDrafts.set(id, draft)
+      this.#reportDraftError('save', error)
+    }
+  }
+
+  #reportDraftError(action: 'save' | 'restore', error: unknown): void {
+    if (this.#draftError) return
+    this.#draftError = true
+    this.notice(`Could not ${action} composer draft: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
+  }
+
+  #clearDraft(): void {
+    this.#historyDraft = undefined
+    if (this.#draftStore === undefined || this.#draftScope === undefined) return
+    // A sent or explicitly discarded input must not return after a quick exit.
+    this.#draftFingerprint = this.#draftKey()
+    this.#draftDirty = true
+    this.#flushDraft()
+  }
+
+  #switchDraft(id: string | undefined): void {
+    if (this.#draftStore === undefined || id === this.#draftScope) return
+    this.#flushPasteBurst(true)
+    this.#finishPrompt(null)
+    this.#flushDraft()
+    const initialInput = this.#draftScope === undefined && this.#editor.text !== '' ? this.#captureDraft() : undefined
+    this.#draftScope = id
+    this.#historyIndex = 0
+    this.#historyDraft = undefined
+    this.#draft = ''
+    this.#draftDirty = false
+    this.#draftError = false
+    this.#search = null
+    this.#ac = null
+    this.#restoreDraft({ editor: { text: '', cursor: 0, pastes: [] }, images: [], files: { entries: [], next: 0 }, literal: false })
+    let restoreError: unknown
+    if (id !== undefined) {
+      try {
+        const draft = this.#unsavedDrafts.get(id) ?? this.#draftStore.load(id)
+        if (draft !== undefined) this.#restoreDraft(draft)
+      } catch (error) { restoreError = error }
+    }
+    if (initialInput !== undefined) this.#restoreDraft(initialInput)
+    this.#draftFingerprint = initialInput === undefined ? this.#draftKey() : ''
+    this.#refreshAutocomplete()
+    if (restoreError !== undefined) this.#reportDraftError('restore', restoreError)
+  }
+
   #render(): void {
+    this.#watchDraft()
     if (this.#streamRenderTimer !== null) {
       clearTimeout(this.#streamRenderTimer)
       this.#streamRenderTimer = null
@@ -1437,6 +1648,7 @@ export class LocalTui implements TuiService {
         expandedTools: this.#detailedToolIds(),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
+        ...(this.#steerHandler === undefined ? {} : { steerKey: keysForAction(this.#keybindings, 'steer-turn') }),
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
@@ -1463,6 +1675,9 @@ export class LocalTui implements TuiService {
     this.#focusBlock = undefined
     this.#focusBlockEdge = undefined
     this.#promptDocument = frame.promptDocument
+    if (this.#prompt !== null && frame.promptDocument?.position !== undefined) {
+      this.#prompt = { ...this.#prompt, documentAnchor: frame.promptDocument.position }
+    }
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#setMouseTracking(frame.transcript !== undefined && frame.transientSurface !== 'overlay'
@@ -1591,16 +1806,66 @@ export class LocalTui implements TuiService {
       clearTimeout(this.#escapeTimer)
       this.#escapeTimer = null
     }
-    for (const event of events) this.#dispatch(event)
+    this.#routeInputBatch(events)
     if (rest === '\x1b') {
       this.#escapeTimer = setTimeout(() => {
         this.#pendingKeys = ''
         this.#escapeTimer = null
-        for (const event of flushPending(rest)) this.#dispatch(event)
+        for (const event of flushPending(rest)) this.#routeInput(event)
       }, 80)
     } else if (rest.length > 32) {
       this.#pendingKeys = ''
     }
+  }
+
+  #routeInputBatch(events: readonly KeyEvent[]): void {
+    if (this.#pasteProtection && this.#state.status !== 'compacting' && !this.#paste && this.#pasteInFlight === 0
+      && this.#prompt === null && this.#settings === null && this.#copySelector === null
+      && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
+      && events.every(event => event.type === 'text' || (event.type === 'key' && ['enter', 'ctrl+j', 'tab'].includes(event.id)))) {
+      if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
+      for (const event of this.#pasteBurst.pushBatch(events, Date.now())) this.#deliverPasteEmission(event)
+      this.#armPasteBurst()
+    } else for (const event of events) this.#routeInput(event)
+  }
+
+  #armPasteBurst(): void {
+    this.#pasteBurstTimer = undefined
+    if (this.#pasteBurst.pending) {
+      this.#pasteBurstTimer = setTimeout(() => { this.#pasteBurstTimer = undefined; this.#flushPasteBurst(true) }, this.#pasteBurst.delay)
+    }
+  }
+
+  #routeInput(event: KeyEvent): void {
+    if (event.type === 'focus') { this.#dispatch(event); return }
+    const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null && this.#copySelector === null
+      && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
+    if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
+      || event.type === 'paste-start' || event.type === 'paste-end') {
+      this.#flushPasteBurst(true)
+      this.#pasteBurst.clear()
+      this.#dispatch(event)
+      return
+    }
+    if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
+    this.#pasteBurstTimer = undefined
+    for (const emission of this.#pasteBurst.push(event, Date.now())) this.#deliverPasteEmission(emission)
+    this.#armPasteBurst()
+  }
+
+  #deliverPasteEmission(event: PasteEmission): void {
+    if (event.type === 'paste') {
+      this.#editor.paste(event.value.replaceAll('\r\n', '\n').replaceAll('\r', '\n'))
+      this.#refreshAutocomplete()
+      this.#render()
+    }
+    else this.#dispatch(event)
+  }
+
+  #flushPasteBurst(force = false): void {
+    if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
+    this.#pasteBurstTimer = undefined
+    for (const event of this.#pasteBurst.flush(Date.now(), force)) this.#deliverPasteEmission(event)
   }
 
   #startAsyncPaste(operation: Promise<void>): void {
@@ -1665,7 +1930,7 @@ export class LocalTui implements TuiService {
         return
       }
     }
-    this.#editor.handle({ type: 'text', value: text })
+    this.#editor.paste(text)
     this.#refreshAutocomplete()
     this.#render()
   }
@@ -1763,6 +2028,11 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    if (event.type === 'focus') {
+      this.#terminalFocused = event.focused
+      if (event.focused && this.#notificationFocus === 'unfocused') this.#notificationQueue.clear()
+      return
+    }
     if (event.type === 'mouse') {
       this.#handleMouse(event)
       return
@@ -1819,7 +2089,9 @@ export class LocalTui implements TuiService {
         return
       }
       if (event.type === 'text') this.#pasteBuf += event.value
-      else if (event.type === 'key' && (event.id === 'enter' || event.id === 'ctrl+j')) this.#pasteBuf += '\n'
+      else if (event.type === 'key' && event.id === 'enter') this.#pasteBuf += '\r'
+      else if (event.type === 'key' && event.id === 'ctrl+j') this.#pasteBuf += '\n'
+      else if (event.type === 'key' && event.id === 'tab') this.#pasteBuf += '\t'
       return
     }
     if (event.type === 'paste-start') {
@@ -1906,10 +2178,12 @@ export class LocalTui implements TuiService {
       if (this.#state.status !== 'idle') {
         for (const listener of this.#interrupts) listener()
       } else {
+        this.#literalInput = false
         this.#editor.clear()
         this.#images.clear()
         this.#files.clear()
         this.#historyIndex = 0
+        this.#clearDraft()
         this.#ac = null
         this.#render()
       }
@@ -1938,6 +2212,9 @@ export class LocalTui implements TuiService {
           this.#editor.clear()
           this.#images.clear()
           this.#files.clear()
+          this.#historyIndex = 0
+          this.#literalInput = false
+          this.#clearDraft()
           this.#ac = null
           this.#render()
           return
@@ -2000,8 +2277,8 @@ export class LocalTui implements TuiService {
     if (event.type === 'text' && this.#editor.text === '') {
       const action = prompt.request.actions?.find(item => item.key === event.value)
       const selected = filteredPromptOptions(prompt.request, '', prompt.collapsed)[prompt.selected]
-      if (action !== undefined && selected !== undefined) {
-        this.#finishPrompt(action.valuePrefix + (selected.value ?? selected.label))
+      if (action !== undefined && (action.scope === 'list' || selected !== undefined)) {
+        this.#finishPrompt(action.valuePrefix + (action.scope === 'list' ? '' : selected!.value ?? selected!.label))
         this.#render()
         return true
       }
@@ -2023,12 +2300,12 @@ export class LocalTui implements TuiService {
     if (event.type !== 'key') return false
     const filtered = filteredPromptOptions(prompt.request, this.#editor.text, prompt.collapsed)
     const count = filtered.length
-    if (prompt.request.presentation === 'fullscreen-tree') {
+    if (prompt.request.presentation === 'fullscreen-tree' || prompt.request.presentation === 'fullscreen-list') {
       const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.id)
       const selected = filtered[prompt.selected]
       if (action !== undefined) {
-        if (selected !== undefined) {
-          this.#finishPrompt(action.valuePrefix + (selected.value ?? selected.label))
+        if (action.scope === 'list' || selected !== undefined) {
+          this.#finishPrompt(action.valuePrefix + (action.scope === 'list' ? '' : selected!.value ?? selected!.label))
           this.#render()
         }
         return true
@@ -2070,7 +2347,7 @@ export class LocalTui implements TuiService {
     }
     let next: number | undefined
     const page = prompt.request.presentation === 'fullscreen-tree'
-      ? Math.max(1, this.#term.width() >= 90 ? this.#term.height() - 7 : Math.floor((this.#term.height() - 8) / 2)) : 10
+      ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height()) : 10
     if (event.id === 'up' || event.id === 'shift+tab') next = prompt.selected - 1
     else if (event.id === 'down' || event.id === 'tab') next = prompt.selected + 1
     else if (event.id === 'pageUp') next = prompt.request.presentation === 'fullscreen-tree' ? Math.max(0, prompt.selected - page) : prompt.selected - page
@@ -2109,6 +2386,7 @@ export class LocalTui implements TuiService {
 
   #handlePlanReview(event: KeyEvent, prompt: PendingPrompt): boolean {
     const document = prompt.request.presentation === 'document'
+    if (document && prompt.request.documentSource !== undefined && this.#handleDocumentReader(event, prompt)) return true
     if (document && event.type === 'text') {
       const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.value.toLowerCase())
       if (action !== undefined) { this.#finishPrompt(action.valuePrefix); this.#render() }
@@ -2158,6 +2436,8 @@ export class LocalTui implements TuiService {
     if (documentScroll !== undefined) {
       this.#prompt = {
         ...prompt,
+        documentAnchor: undefined,
+        documentTarget: undefined,
         documentScroll: documentScroll === Number.POSITIVE_INFINITY ? documentScroll : Math.max(0, Math.min(documentScroll, scroll?.maxStart ?? Number.POSITIVE_INFINITY)),
       }
       this.#render()
@@ -2187,6 +2467,66 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
+    return true
+  }
+
+  #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
+    const source = prompt.request.documentSource!
+    const layout = documentLayout(source, createTheme(this.#colors, this.#trueColor, this.#themeName), Math.max(1, this.#term.width() - 6))
+    const start = this.#promptDocument?.start ?? 0
+    const current = prompt.documentTarget ?? layout.sourceRows[start] ?? 0
+    const origin = prompt.documentOrigin === undefined ? start : documentStart(layout, prompt.documentOrigin)
+    const jump = (row: number | undefined): void => {
+      this.#prompt = { ...prompt, documentAnchor: undefined, documentTarget: row, documentScroll: row === undefined ? start : layout.starts[row] ?? start }
+    }
+    if (prompt.documentInput !== undefined) {
+      if (event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) {
+        this.#editor.setText('')
+        this.#prompt = { ...prompt, documentInput: undefined, documentQuery: prompt.documentOriginalQuery ?? '',
+          documentAnchor: undefined, documentTarget: undefined, documentScroll: origin, documentError: undefined }
+      } else if (event.type === 'key' && (event.id === 'enter' || event.id === 'ctrl+j')) {
+        const text = this.#editor.text
+        const row = prompt.documentInput === 'line' && /^[1-9]\d*$/u.test(text.trim()) ? documentLineRow(source, Number(text)) : undefined
+        if (prompt.documentInput === 'line' && row === undefined) {
+          this.#prompt = { ...prompt, documentError: source.diff ? 'Enter a new-file line shown in this diff.' : 'Enter a line number in this file.' }
+        } else {
+          if (row !== undefined) jump(row)
+          this.#prompt = { ...(this.#prompt ?? prompt), documentInput: undefined, documentError: undefined }
+          this.#editor.setText('')
+        }
+      } else {
+        const command = this.#editor.handle(event)
+        if (command.kind === 'changed') {
+          this.#prompt = { ...prompt, documentError: undefined }
+          if (prompt.documentInput === 'search') {
+            const query = this.#editor.text.replace(/\r?\n/gu, ' ')
+            const matches = documentMatches(source, query)
+            const row = matches.find(row => row >= (layout.sourceRows[origin] ?? 0)) ?? matches[0]
+            this.#prompt = { ...prompt, documentError: undefined, documentQuery: query, documentAnchor: undefined,
+              documentTarget: row,
+              documentScroll: row === undefined ? origin : layout.starts[row] ?? start }
+          }
+        }
+      }
+      this.#render()
+      return true
+    }
+    const search = event.type === 'key' && event.id === 'ctrl+f' || event.type === 'text' && event.value === '/'
+    const line = event.type === 'key' && event.id === 'ctrl+g' || event.type === 'text' && event.value.toLowerCase() === 'g'
+    if (search || line) {
+      this.#editor.setText(search ? prompt.documentQuery ?? '' : '')
+      this.#prompt = { ...prompt, documentInput: search ? 'search' : 'line', documentOrigin: documentPosition(layout, start, prompt.documentQuery ?? ''), documentError: undefined,
+        documentOriginalQuery: prompt.documentQuery ?? '',
+        documentAnchor: { row: current, wrap: start - (layout.starts[current] ?? 0), query: prompt.documentQuery ?? '' } }
+      this.#render()
+      return true
+    }
+    if (event.type === 'key' && (event.id === 'ctrl+n' || event.id === 'ctrl+p')) {
+      jump(documentDestination(documentMatches(source, prompt.documentQuery ?? ''), current, event.id === 'ctrl+n' ? 1 : -1))
+    } else if (source.diff === true && event.type === 'text' && (event.value === '[' || event.value === ']')) {
+      jump(documentDestination(documentModel(source).hunks, current, event.value === ']' ? 1 : -1))
+    } else return false
+    this.#render()
     return true
   }
 
@@ -2254,6 +2594,8 @@ export class LocalTui implements TuiService {
     this.#colors = prefs.colors
     this.#syncTrueColor()
     this.#motion = prefs.motion ?? 'full'
+    this.#flushPasteBurst(true)
+    this.#pasteProtection = prefs.pasteProtection !== false
     this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalProgress = prefs.terminalProgress ?? false
     this.#copyOnSelect = prefs.copyOnSelect ?? true
@@ -2262,6 +2604,8 @@ export class LocalTui implements TuiService {
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
     this.#notificationPolicy = prefs.notifications ?? 'off'
     this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
+    this.#notificationFocus = prefs.notificationFocus ?? 'unfocused'
+    if (this.#notificationPolicy === 'off') this.#notificationQueue.clear()
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     if (options.forceToolsSync) this.#toolsExpanded = false
@@ -2465,7 +2809,7 @@ export class LocalTui implements TuiService {
     }
     if (event.id === 'enter') {
       this.#applySelectedCompletion()
-      this.#submit(this.#editor.text)
+      this.#submit(this.#editor.expandedText)
       return true
     }
     return false
@@ -2576,7 +2920,7 @@ export class LocalTui implements TuiService {
     const next = item.kind === 'path' || item.kind === 'session'
       ? applyPathCompletion(this.#editor.text, this.#editor.cursor, item)
       : applySlashCompletion(this.#editor.text, this.#editor.cursor, item)
-    this.#editor.setText(next.text, next.cursor)
+    this.#editor.replaceText(next.text, next.cursor)
     this.#refreshAutocomplete()
   }
 
@@ -2612,12 +2956,14 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'clear') {
+      this.#literalInput = false
       this.#editor.clear()
       this.#images.clear()
       this.#files.clear()
       this.#queueEditNewer = null
       this.#queueEditPending = false
       this.#historyIndex = 0
+      this.#clearDraft()
       this.#ac = null
       this.#search = null
       this.#render()
@@ -2634,6 +2980,7 @@ export class LocalTui implements TuiService {
           this.#render()
         }
         this.#setMouseTracking(false)
+        this.#term.output.write('\x1b[?1004l')
         try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
       }
       return
@@ -2647,7 +2994,10 @@ export class LocalTui implements TuiService {
   #historyPrev(): void {
     if (this.#images.count > 0) return
     if (this.#history.length === 0 || this.#historyIndex >= this.#history.length) return
-    if (this.#historyIndex === 0) this.#draft = this.#editor.text
+    if (this.#historyIndex === 0) {
+      this.#draft = this.#editor.expandedText
+      this.#historyDraft = this.#captureDraft()
+    }
     this.#historyIndex += 1
     this.#editor.setText(this.#history[this.#history.length - this.#historyIndex] ?? '')
     this.#refreshAutocomplete()
@@ -2688,9 +3038,10 @@ export class LocalTui implements TuiService {
     if (this.#images.count > 0) return
     if (this.#historyIndex === 0) return
     this.#historyIndex -= 1
-    this.#editor.setText(
-      this.#historyIndex === 0 ? this.#draft : (this.#history[this.#history.length - this.#historyIndex] ?? ''),
-    )
+    if (this.#historyIndex === 0 && this.#historyDraft !== undefined) {
+      this.#restoreDraft(this.#historyDraft)
+      this.#draftFingerprint = this.#draftKey()
+    } else this.#editor.setText(this.#historyIndex === 0 ? this.#draft : (this.#history[this.#history.length - this.#historyIndex] ?? ''))
     this.#refreshAutocomplete()
     this.#render()
   }
@@ -2710,14 +3061,16 @@ export class LocalTui implements TuiService {
   #submit(text: string): void {
     if (this.#prompt !== null) {
       this.#editor.setText('')
-      this.#finishPrompt(text.trim() === '' ? null : text.trim())
+      const answer = this.#prompt.request.preserveWhitespace === true ? text : text.trim()
+      this.#finishPrompt(answer.trim() === '' ? null : answer)
       this.#render()
       return
     }
     const images = this.#images.copies()
     const files = this.#files.copies()
     const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
-    const submission = { text: submittedText, images, ...(files.length === 0 ? {} : { files }) }
+    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
+    const submission = { text: submittedText, images, ...(files.length === 0 ? {} : { files }), ...(literal ? { literal: true } : {}) }
     const queueEditNewer = this.#queueEditNewer
     const historyText = stripComposerImageMarkers(submittedText, images)
       .replace(/[ \t]{2,}/gu, ' ')
@@ -2728,11 +3081,13 @@ export class LocalTui implements TuiService {
     }
     this.#historyIndex = 0
     this.#draft = ''
+    this.#literalInput = false
     this.#queueEditNewer = null
     this.#queueEditPending = false
     this.#editor.setText('')
     this.#images.clear()
     this.#files.clear()
+    this.#clearDraft()
     this.#ac = null
     this.#search = null
     this.#settings = null
@@ -2742,7 +3097,7 @@ export class LocalTui implements TuiService {
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
     // them only to detect and execute Harness commands.
-    const slash = images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
+    const slash = !literal && images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
       this.#runSlash(slash.name, slash.args)
@@ -2765,6 +3120,7 @@ export class LocalTui implements TuiService {
   }
 
   #submitInspect(text: string): void {
+    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
     const images = this.#images.copies()
     const files = this.#files.copies()
     const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
@@ -2777,12 +3133,14 @@ export class LocalTui implements TuiService {
     }
     this.#historyIndex = 0
     this.#draft = ''
+    this.#literalInput = false
     this.#editor.setText('')
     this.#images.clear()
     this.#files.clear()
+    this.#clearDraft()
     this.#ac = null
     this.#search = null
-    const slash = images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
+    const slash = !literal && images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       this.#runSlash(slash.name, slash.args)
       return
@@ -2907,9 +3265,14 @@ export class LocalTui implements TuiService {
     this.#herdr.promptResolved()
     pending.offAbort?.()
     pending.offTick?.()
-    this.#editor.setText(pending.savedInput.text, pending.savedInput.cursor)
+    this.#editor.restore(pending.savedInput)
+    this.#draftFingerprint = this.#draftKey()
     pending.resolve(answer)
     this.#restoreDisplacedSurface()
+    if (this.#promptDocument?.position !== undefined) {
+      try { pending.request.onDocumentPosition?.(this.#promptDocument.position) }
+      catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
+    }
   }
 
   /** Save and close the visible overlay so a prompt owns both input and screen. */
@@ -3001,9 +3364,17 @@ export class LocalTui implements TuiService {
   }
 
   #emitNotification(notification: ReturnType<TerminalNotificationController['humanPrompt']>): void {
-    if (notification === undefined || !this.#tty) return
-    const sequence = terminalNotificationSequence(notification)
-    if (sequence !== '') this.#term.output.write(sequence)
+    if (notification === undefined || !this.#tty || this.#disposed) return
+    if (this.#notificationFocus === 'unfocused' && this.#terminalFocused === true) return
+    this.#notificationQueue.offer(notification)
+    if (this.#notificationTimer !== undefined) return
+    this.#notificationTimer = setTimeout(() => {
+      this.#notificationTimer = undefined
+      const pending = this.#notificationQueue.take(this.#notificationFocus, this.#terminalFocused)
+      if (pending === undefined || this.#disposed || this.#notificationPolicy === 'off') return
+      const sequence = terminalNotificationSequence(pending)
+      if (sequence !== '') this.#term.output.write(sequence)
+    }, 25)
   }
 
   #toolCatalog(): void {
@@ -3027,6 +3398,50 @@ export class LocalTui implements TuiService {
   /** Run one configured action; returns true when the event was consumed. */
   #runAction(action: TuiAction): boolean {
     if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (action === 'expand-paste') {
+      if (this.#search !== null) return false
+      this.#literalInput ||= this.#editor.startsWithPaste
+      this.#editor.expandPaste()
+      this.#refreshAutocomplete()
+      this.#render()
+      return true
+    }
+    if (action === 'manage-queue') {
+      if (this.#inspected !== undefined) this.notice('Return to the parent session to manage queued messages.')
+      else if (this.#queueHandler === undefined) this.notice('Queue management is unavailable in this profile.')
+      else if (this.#queueHotkeyAbort === undefined) {
+        const abort = new AbortController()
+        this.#queueHotkeyAbort = abort
+        void this.#queueHandler(abort.signal).catch((error: unknown) => {
+          if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+        }).finally(() => { if (this.#queueHotkeyAbort === abort) this.#queueHotkeyAbort = undefined })
+      }
+      return true
+    }
+    if (action === 'steer-turn') {
+      if (this.#search !== null) return false
+      if (this.#inspected !== undefined || this.#state.status !== 'running') {
+        this.notice('Steering needs an active parent turn. Use Enter to send the next message.')
+      } else if (this.#images.count > 0 || this.#files.copies().length > 0) {
+        this.notice('Use Enter to queue attachments; steering accepts text only.')
+      } else if (this.#queueEditNewer !== null || this.#queueEditPending) {
+        this.notice('Finish editing the queued follow-up with Enter before steering.')
+      } else if (this.#editor.expandedText.trim() !== '') {
+        try {
+          if (this.#steerHandler === undefined) throw new Error('Steering is unavailable in this profile.')
+          this.#steerHandler(this.#editor.expandedText)
+          this.#editor.setText('')
+          this.#literalInput = false
+          this.#historyIndex = 0
+          this.#clearDraft()
+          this.#ac = null
+          this.#render()
+        } catch (error) {
+          this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+        }
+      }
+      return true
+    }
     if (action === 'review-changes') {
       const anchor = this.#viewportBlock() ?? this.#state.blocks.length - 1
       const nextUser = this.#state.blocks.findIndex((block, index) => index > anchor && block.kind === 'user')
@@ -3102,11 +3517,11 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'copy-prompt') {
-      void this.#copyPicked(this.#editor.text, 'current prompt')
+      void this.#copyPicked(this.#editor.expandedText, 'current prompt')
       return true
     }
     if (action === 'copy-line') {
-      const text = this.#editor.text.slice(
+      const text = this.#editor.textRange(
         lineStart(this.#editor.text, this.#editor.cursor),
         lineEnd(this.#editor.text, this.#editor.cursor),
       )
@@ -3119,17 +3534,22 @@ export class LocalTui implements TuiService {
     }
     try {
       this.#setMouseTracking(false)
+      this.#term.output.write('\x1b[?1004l')
       this.#term.input.setRawMode?.(false)
-      const text = editExternally(this.#editor.text, this.#externalEditor)
+      this.#literalInput ||= this.#editor.startsWithPaste
+      const text = editExternally(this.#editor.expandedText, this.#externalEditor)
       this.#editor.setText(text)
       this.#images.reconcile()
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {
-      this.#term.input.setRawMode?.(true)
-      this.#renderer.reset()
-      this.#refreshAutocomplete()
-      this.#render()
+      if (!this.#disposed) {
+        this.#term.input.setRawMode?.(true)
+        this.#term.output.write('\x1b[?1004h')
+        this.#renderer.reset()
+        this.#refreshAutocomplete()
+        this.#render()
+      }
     }
     return true
   }
@@ -3297,6 +3717,7 @@ export function apply(ctx: Context, config: Config): void {
       alternateScreenOverlays: terminalProfile === 'direct',
       herdrReporter: new HerdrAgentReporter(),
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
+      draftsPath: join(config.dshHome ?? dshHome, 'omdsh', 'drafts'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
       ...(() => {
         const path = featurePatchPath(config.dshHome ?? dshHome)
@@ -3319,10 +3740,12 @@ export function apply(ctx: Context, config: Config): void {
       terminalProgress: config.terminalProgress.get(),
       copyOnSelect: config.copyOnSelect.get(),
       mouseInteraction: config.mouseInteraction.get(),
+      pasteProtection: config.pasteProtection.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
       notifications: config.notifications.get(),
       notificationThreshold: config.notificationThreshold.get(),
+      notificationFocus: config.notificationFocus.get(),
     }
     const statusBar = config.statusBar.get()
     // The reference holds a frozen snapshot; the provider keeps a mutable copy.

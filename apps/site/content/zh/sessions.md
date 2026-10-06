@@ -1,5 +1,5 @@
 ---
-description: "omdsh 把持久会话与本地数据存在哪里、Session Library 如何搜索与置顶会话，以及旧会话日志如何继续可用。"
+description: "omdsh 把持久会话与本地数据存在哪里、Session Library 如何搜索、置顶与归档会话，以及旧会话日志如何继续可用。"
 ---
 
 # 会话与历史
@@ -26,11 +26,21 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 
 底部显示 Enter 的具体动作：**edit from here** 创建新分支并恢复原始文本、图片与文件引用，不自动向模型发送请求；**continue branch** 恢复选中分支的最新状态，也可以在搜索后使用 `Alt+Enter`。原有分支与终端 scrollback 继续保留。这些操作改变的是对话历史，不会回滚工作区文件。
 
+按 `Alt+L` 为 Turn 或分支添加标记、编辑已有标记；`Alt+U` 清除标记。标记可搜索，最多 120 个字符。`Alt+B` 在完整树与已标记节点之间切换，筛选时保留祖先路径，没有标记时也可以切回完整树。标记和筛选保留当前会话与 composer 草稿；标记仅保存在本地，不进入模型上下文。
+
 ## Session Library
 
-`/sessions` 打开 Session Library，即带置顶与重命名操作的恢复列表：按 `p` 置顶会话，按 `r` 重命名。置顶与名称保存在 `$OMDSH_HOME/omdsh/session-library.json`。
+`/sessions` 打开 Session Library：`p` 置顶或取消置顶，`r` 编辑会话标题，`Alt+A` 归档选中会话。`Alt+V` 切换到归档列表，在那里按 `Alt+A` 恢复选中会话。列表为空或正在搜索时也能切换视图；单字母操作需要先清空搜索。归档会话从默认列表和最近会话快捷入口中隐藏，日志与附件仍然保留。你仍可以按 ID 直接恢复，或用 `/sessions <query>` 搜索；继续归档会话不会自动将它移回默认列表。
+
+置顶、归档状态与树节点标记保存在 `$OMDSH_HOME/omdsh/session-library.json`；会话标题仍写入 Harness 会话日志。这些路径依次回退到 `$DSH_HOME` 和 `~/.dsh`。
 
 `/sessions <查询>` 则改为搜索持久会话内容，通过 session-query 索引——SQLite FTS5，在每次运行首次搜索时于内存中构建——并恢复选中的结果。搜索覆盖完整会话日志，因此被压缩或折叠历史中的匹配同样会被计入。
+
+## 未发送草稿
+
+交互式 composer 按会话保存未发送的输入：短暂停止编辑后自动保存，切换会话或退出时立即写入。恢复会话会还原草稿和光标位置，包括折叠粘贴的原文、图片字节和文件附件引用。父会话与正在查看的子 Agent 会话各自保留草稿。
+
+发送消息或明确清空 composer 会移除已保存的草稿。浏览输入历史时仍保留原来的未发送草稿，直到你修改或选用历史文本。问答回复、秘密输入和已排队消息不作为 composer 草稿保存。草稿存放在 Harness 日志之外的本地文件中，不包含在会话导出中；管道模式不保存草稿。
 
 ## 磁盘上的日志
 
@@ -45,10 +55,11 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 | 路径 | 内容 |
 |---|---|
 | `sessions/` | 持久会话日志。 |
+| `omdsh/drafts/` | 未发送的 composer 草稿及其图片字节，按会话 ID 的哈希分组。 |
 | `omdsh/history.jsonl` | `Ctrl+R` 使用的输入历史。 |
 | `omdsh/keybindings.json` | 应用级键位覆盖。 |
 | `omdsh/model-favorites.json` | `Ctrl+P` 与 `Alt+P` 使用的收藏模型循环。 |
-| `omdsh/session-library.json` | 会话置顶与重命名。 |
+| `omdsh/session-library.json` | 会话置顶、归档状态与本地树节点标记。 |
 | `omdsh/recent-sessions.json` | 跨启动复用的会话库标签；删除后下次启动会重新读取每个存储日志。 |
 | `omdsh/sessions-upgraded.json` | 记录已存日志已迁移到的会话格式。 |
 | `sessions-query.sqlite` | 会话内容搜索使用的派生全文索引；删除后会在下次搜索时重建。 |

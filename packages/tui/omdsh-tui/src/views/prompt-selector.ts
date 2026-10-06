@@ -1,12 +1,13 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
-import type { TuiPrompt } from '../definition.ts'
+import type { TuiDocumentPosition, TuiPrompt } from '../definition.ts'
+import { documentLayout, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
 import { promptTreeRows } from './prompt-tree.ts'
 import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth } from '../chrome/width.ts'
+import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import { formatHotkeyKeys, formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 
 /** Presentation state owned by the terminal while a human prompt is active. */
@@ -16,6 +17,13 @@ export interface PromptSelectorState {
   checked: ReadonlySet<number>
   /** Requested first document row for full-screen review surfaces. */
   documentScroll?: number
+  documentAnchor?: TuiDocumentPosition | undefined
+  documentQuery?: string
+  documentInput?: 'search' | 'line' | undefined
+  documentError?: string | undefined
+  documentOrigin?: TuiDocumentPosition
+  documentOriginalQuery?: string
+  documentTarget?: number | undefined
   collapsed?: ReadonlySet<string>
   previewScroll?: number
   /** Whether a rejected plan is collecting optional revision feedback. */
@@ -27,7 +35,7 @@ export interface PromptSelectorState {
 export interface PromptSelectorFrame {
   lines: string[]
   cursor: { row: number; column: number }
-  document?: { start: number; maxStart: number; pageSize: number }
+  document?: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition }
   cursorVisible?: boolean
 }
 
@@ -89,6 +97,18 @@ export function filteredPromptOptions(request: TuiPrompt, query: string, collaps
       .filter((value): value is string => value !== undefined))
 }
 
+/** Keep the same live choice selected as entries arrive, move, or disappear. */
+export function refreshPromptOptions<T extends PromptSelectorState>(state: T, options: NonNullable<TuiPrompt['options']>, query: string): T {
+  const previous = filteredPromptOptions(state.request, query, state.collapsed)[state.selected]
+  const request = { ...state.request, options }
+  const filtered = filteredPromptOptions(request, query, state.collapsed)
+  const found = filtered.findIndex(option => (option.value ?? option.label) === (previous?.value ?? previous?.label))
+  const selected = found < 0 ? Math.max(0, Math.min(state.selected, filtered.length - 1)) : found
+  const checkedValues = new Set((state.request.options ?? []).filter((_, at) => state.checked.has(at)).map(option => option.value ?? option.label))
+  return { ...state, request, selected, checked: new Set(options.flatMap((option, at) => checkedValues.has(option.value ?? option.label) ? [at] : [])),
+    ...((filtered[selected]?.value ?? filtered[selected]?.label) === (previous?.value ?? previous?.label) ? {} : { previewScroll: 0 }) }
+}
+
 const previewCache = new WeakMap<PromptOption, Map<string, string[]>>()
 
 function treePreview(option: PromptOption | undefined, theme: Theme, width: number): string[] {
@@ -104,6 +124,21 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
   return lines
 }
 
+function treePageLayout(request: TuiPrompt, width: number, height: number) {
+  const actions = (request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
+  const hint = `↑↓ · ←→ fold${width >= 90 ? ' · type search' : ''}${actions === '' ? '' : ` · ${actions}`}${width >= 90 ? ' · Ctrl+↑↓ preview' : ''}`
+  const hints = wrapText(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
+  const middle = height - 6 - hints.length
+  const listHeight = width >= 90 ? middle : Math.max(1, Math.floor((middle - 1) / 2))
+  const previewHeight = width >= 90 ? middle : middle - listHeight - 1
+  return { hints, middle, listHeight, previewHeight }
+}
+
+/** Page movement follows the list space remaining after wrapped action hints. */
+export function promptTreePageSize(request: TuiPrompt, width: number, height: number): number {
+  return height < 10 || width < 20 ? Math.max(1, height - 8) : treePageLayout(request, width, height).listHeight
+}
+
 /** A hierarchical choice with an independently scrollable content preview. */
 export function renderPromptTreePage(
   state: PromptSelectorState, theme: Theme, width: number, height: number,
@@ -115,9 +150,7 @@ export function renderPromptTreePage(
   const option = rows[selected]?.option
   const split = width >= 90
   const inner = width - 4
-  const middle = height - 7
-  const listHeight = split ? middle : Math.max(1, Math.floor((middle - 1) / 2))
-  const previewHeight = split ? middle : middle - listHeight - 1
+  const { hints, middle, listHeight, previewHeight } = treePageLayout(state.request, width, height)
   const listWidth = split ? Math.floor((inner - 3) * 0.45) : inner
   const previewWidth = split ? inner - listWidth - 3 : inner
   const range = promptSelectorVisibleRange(rows.length, selected, listHeight)
@@ -147,10 +180,8 @@ export function renderPromptTreePage(
     for (let at = 0; at < previewHeight; at++) lines.push(pageRow(theme, preview[scroll + at] ?? '', width))
   }
   const action = option?.submitLabel ?? state.request.submitLabel ?? 'select'
-  const actions = (state.request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
-  const hint = `↑↓ · ←→ fold${width >= 90 ? ' · type search' : ''}${actions === '' ? '' : ` · ${actions}`}${width >= 90 ? ' · Ctrl+↑↓ preview' : ''}`
   lines.push(pageRow(theme, theme.fg('dim', `Enter ${action} · Esc back`), width),
-    pageRow(theme, theme.fg('dim', hint), width), pageBottom(theme, width))
+    ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageBottom(theme, width))
   return { lines, cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
     document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight }, cursorVisible: true }
 }
@@ -272,7 +303,10 @@ export function renderPromptSelectorPage(
   const options = filteredPromptOptions(state.request, input)
   const selected = Math.max(0, Math.min(state.selected, Math.max(0, options.length - 1)))
   const compact = state.request.optionLayout === 'compact'
-  const fixedRows = compact ? 9 : 11
+  const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
+  const hints = wrapText(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL])
+    + (actionHints === '' ? '' : ' · ' + actionHints), width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
+  const fixedRows = (compact ? 9 : 11) + hints.length - 1
   const visibleCount = compact
     ? Math.max(1, pageHeight - fixedRows)
     : Math.max(1, Math.floor((pageHeight - fixedRows) / 4))
@@ -325,14 +359,13 @@ export function renderPromptSelectorPage(
     }
   }
 
-  const footerRows = 4
+  const footerRows = 3 + hints.length
   const targetBeforeFooter = Math.max(0, pageHeight - footerRows)
   if (lines.length > targetBeforeFooter) lines.length = targetBeforeFooter
   while (lines.length < targetBeforeFooter) lines.push(pageRow(theme, '', width))
-  const position = options.length === 0 ? '' : ` · ${selected + 1}/${options.length}`
-  const actions = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
-  const hint = `[${formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL])}${actions === '' ? '' : ' · ' + actions}${position}]`
-  lines.push(pageRow(theme, '', width), pageRow(theme, theme.fg('dim', hint), width), pageRow(theme, '', width), pageBottom(theme, width))
+  const position = options.length === 0 ? '' : `${selected + 1}/${options.length}`
+  lines.push(pageRow(theme, theme.fg('dim', position.trim()), width),
+    ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageRow(theme, '', width), pageBottom(theme, width))
   const cursorColumn = Math.min(Math.max(1, width - 3), 4 + visibleWidth(input.slice(0, inputCursor)))
   return {
     lines,
@@ -365,8 +398,9 @@ export function renderPlanReviewPage(
   appName: string,
 ): PromptSelectorFrame {
   const pageHeight = Math.max(1, height)
-  if (pageHeight < 10 || width < 24) {
-    return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
+  const source = state.request.documentSource
+  if ((source === undefined && (pageHeight < 10 || width < 24)) || pageHeight < 7 || width < 12) {
+    return renderPromptSelector(source === undefined ? state : { ...state, request: { ...state.request, detail: source.text } }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
   }
   const feedback = state.feedback === true
   const actionRows: string[] = []
@@ -387,25 +421,44 @@ export function renderPlanReviewPage(
     actionRows.splice(0, actionRows.length, selected === undefined ? ''
       : theme.bold(theme.fg('accent', truncateToWidth(`› [ ${selected.label} ]`, actionWidth))))
   }
-  const footerRows = feedback ? 5 : actionRows.length + 3
-  const bodyRows = Math.max(1, pageHeight - 5 - footerRows)
+  const readerInput = source !== undefined && state.documentInput !== undefined
+  let readerHints = source === undefined ? [] : wrapText(readerInput ? 'Enter apply · Esc cancel'
+    : '↑↓/PgUp/PgDn scroll · Home/End edges · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
+      + ' · Tab/←→ actions · Enter activate · ' + (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back', width - 4)
+  const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))
+  if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
+  const compactReader = source !== undefined && pageHeight < 10
+  if (compactReader) readerHints = []
+  const footerRows = feedback ? 5 : actionRows.length + 3 + (source === undefined ? 0 : readerHints.length)
+  const bodyRows = Math.max(1, pageHeight - (source === undefined ? 5 : compactReader ? 2 : 3) - footerRows)
   const markdownWidth = Math.max(1, width - 6)
-  const document = documentRows(state.request, theme, markdownWidth)
+  const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth)
+  const document = layout?.rows ?? documentRows(state.request, theme, markdownWidth)
   const maxStart = Math.max(0, document.length - bodyRows)
-  const start = Math.max(0, Math.min(state.documentScroll ?? 0, maxStart))
+  const start = Math.max(0, Math.min(layout !== undefined && state.documentAnchor !== undefined
+    ? documentStart(layout, state.documentAnchor) : state.documentScroll ?? state.request.documentPosition?.row ?? 0, maxStart))
   const visible = document.slice(start, start + bodyRows)
+  const query = state.documentQuery ?? ''
+  const matches = source === undefined ? [] : documentMatches(source, query)
+  const matching = new Set(matches)
+  if (layout !== undefined) for (let at = 0; at < visible.length; at++) {
+    if (matching.has(layout.sourceRows[start + at] ?? -1)) {
+      const row = visible[at] ?? ''
+      visible[at] = theme.inverse(layout.gutterWidth === 0 ? row : '›' + row.slice(1))
+    }
+  }
   while (visible.length < bodyRows) visible.push('')
   const subject = state.request.presentation === 'document' ? 'document' : 'plan'
-  if (start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier ${subject} lines`)
-  if (start + bodyRows < document.length) {
+  if (source === undefined && start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier ${subject} lines`)
+  if (source === undefined && start + bodyRows < document.length) {
     visible[Math.max(0, visible.length - 1)] = theme.fg('dim', `… ↓ ${document.length - start - bodyRows} later ${subject} lines`)
   }
 
   const lines = [
-    pageTop(theme, width, `${appName} · ${state.request.title}`),
-    pageRow(theme, '', width),
-    pageRow(theme, ' ' + theme.bold(state.request.question), width),
-    pageRow(theme, '', width),
+    pageTop(theme, width, `${appName} · ${compactReader ? state.request.question : state.request.title}`),
+    ...(source === undefined ? [pageRow(theme, '', width)] : []),
+    ...(compactReader ? [] : [pageRow(theme, ' ' + theme.bold(state.request.question), width)]),
+    ...(source === undefined ? [pageRow(theme, '', width)] : []),
     pageDivider(theme, width),
     ...visible.map(line => pageRow(theme, '  ' + line, width)),
     pageDivider(theme, width),
@@ -429,19 +482,35 @@ export function renderPlanReviewPage(
       column: Math.min(Math.max(1, width - 3), 5 + visibleWidth(displayBeforeCursor)),
     }
   } else {
+    if (source !== undefined) {
+      const row = layout?.sourceRows[start] ?? 0
+      const model = documentModel(source)
+      const line = model.numbers[row]?.next ?? model.numbers[row]?.old
+      const position = source.diff ? `Diff row ${row + 1}/${model.lines.length}` : `Line ${line ?? 1}/${model.lines.length}`
+      const match = matches.indexOf(state.documentTarget ?? row)
+      const search = query === '' ? '' : ` · ${match < 0 ? matches.length : `${match + 1}/${matches.length}`} matching lines · “${query}”`
+      const label = state.documentInput === 'search' ? 'Find: ' : 'Line: '
+      const value = input.replace(/\r?\n/gu, ' ')
+      const status = (readerInput ? label + value + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
+        : position + search + (source.status === undefined ? '' : ` · ${source.status}`) + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
+      ).replace(/[\r\n]+/gu, ' ')
+      cursor = { row: lines.length, column: Math.min(width - 3, 2 + visibleWidth(label + value.slice(0, inputCursor))) }
+      lines.push(pageRow(theme, theme.fg('muted', status), width))
+    }
     lines.push(...actionRows.map(row => pageRow(theme, ' ' + row, width)))
     const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
       : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])
-    lines.push(pageRow(theme, theme.fg('dim', `[${shortcuts}]`), width))
+    lines.push(...(source === undefined ? [`[${shortcuts}]`] : readerHints).map(hint => pageRow(theme, theme.fg('dim', hint), width)))
     lines.push(pageBottom(theme, width))
   }
 
   return {
     lines,
     cursor,
-    document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1) },
-    cursorVisible: feedback,
+    document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1),
+      ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query: '' } } : {} : { position: documentPosition(layout, start, query) }) },
+    cursorVisible: feedback || readerInput,
   }
 }
 

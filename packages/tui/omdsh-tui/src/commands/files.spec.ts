@@ -64,9 +64,9 @@ describe('file browsing actions', () => {
       await ctx.plugin(filesCommand)
       const session = ctx.sessions.create(SessionId('file-browser'), { meta: { cwd: root } })
       await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/files a.txt', [], new AbortController().signal)
-      expect(requests[0]?.detail).toContain('File A')
-      expect(requests[1]?.detail).toContain('File B')
-      expect(requests[2]?.detail).toContain('File A')
+      expect(requests[0]?.documentSource?.text).toContain('File A')
+      expect(requests[1]?.documentSource?.text).toContain('File B')
+      expect(requests[2]?.documentSource?.text).toContain('File A')
       expect(requests[3]?.options?.map(option => option.label)).toEqual(['a.txt', 'b.txt'])
       expect(requests[4]?.title).toBe(`Files · ${root}`)
     } finally { await ctx.fiber.dispose() }

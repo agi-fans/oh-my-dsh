@@ -8,6 +8,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { steerAgent } from './steering.ts'
+import { openMessageQueue } from './message-queue.ts'
 import { WorkflowProjection } from './workflow-projection.ts'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -52,7 +54,7 @@ import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
 import { blocksText } from './content-text.ts'
 import { conversationTurns } from './conversation-turns.ts'
-import { buildSessionTree, sessionTreeFamily, type SessionTreeBranch } from './session-tree.ts'
+import { buildSessionTree, markedSessionTree, sessionTreeFamily, type SessionTreeBranch } from './session-tree.ts'
 export { conversationTurns, type ConversationTurn } from './conversation-turns.ts'
 import { jobNoticeFor } from './job-notice.ts'
 import type {
@@ -68,7 +70,7 @@ import type {
   TuiTranscriptReplacement,
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
-import { readRecentRows, writeRecentRows, type SessionRowMemo } from './session-library.ts'
+import { readRecentRows, writeRecentRows, readSessionLibrary, sessionLibraryPath, setSessionLabel, type SessionRowMemo } from './session-library.ts'
 import { readJsonFile, writeJsonAtomic } from './json-file.ts'
 import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
@@ -457,16 +459,19 @@ export class SessionRuntime {
   readonly #tui: TuiService
   #active: ActiveSession | undefined
   #recent: TuiRecentSession[] = []
+  #archivedSessions = new Set<string>()
   #skillCommands: TuiCommand[] = []
   #started = false
   readonly #retired: AgentHandle[] = []
   // Weak: deduplication must not retain disposed session graphs.
   readonly #releasedHandles = new WeakSet<AgentHandle>()
   #disposed = false
+  #queueAbort: AbortController | undefined
   readonly #off: Array<() => void> = []
   readonly #tracker: SubagentTracker
   readonly #streamAttempts = new LiveAttemptTracker()
   readonly #recentCache = new Map<string, SessionRowMemo>()
+  readonly #libraryPath: string
   readonly #recentRowsPath: string | undefined
   readonly #upgradeMarkerPath: string | undefined
   #recentRowsLoaded = false
@@ -479,6 +484,7 @@ export class SessionRuntime {
   constructor(ctx: Context, tui: TuiService, options: { stateDir?: string } = {}) {
     this.#ctx = ctx
     this.#tui = tui
+    this.#libraryPath = sessionLibraryPath(options.stateDir)
     this.#recentRowsPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'recent-sessions.json')
     this.#upgradeMarkerPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'sessions-upgraded.json')
     this.#tracker = new SubagentTracker({
@@ -496,6 +502,8 @@ export class SessionRuntime {
         this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
       },
     })
+    this.#off.push(tui.setSteerHandler(text => { steerAgent(this.agent, text) }))
+    this.#off.push(tui.setQueueHandler(signal => this.openQueue(signal)))
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
     this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
     this.#off.push(tui.onInspectSubmit(submission => { void this.#steerInspected(submission) }))
@@ -660,19 +668,32 @@ export class SessionRuntime {
     agent.followup(message)
   }
 
+  async openQueue(signal: AbortSignal, agent: Agent = this.#requiredAgent()): Promise<void> {
+    this.assertActive(agent)
+    if (this.#inspectedId !== undefined) throw new Error('Return to the parent session to manage queued messages.')
+    if (this.#queueAbort !== undefined) throw new Error('Message Queue is already open.')
+    const abort = new AbortController()
+    this.#queueAbort = abort
+    const onAbort = (): void => { abort.abort(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+    try {
+      await openMessageQueue({ agent, tui: this.#tui, signal: abort.signal, assertActive: () => { this.assertActive(agent) },
+        restore: message => restoreSubmissionMessage(message, this.#ctx.get('attachments')) })
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+      if (this.#queueAbort === abort) this.#queueAbort = undefined
+    }
+  }
+
   /** Remove and rehydrate the newest durable human follow-up for queue browsing. */
   async editLatestFollowup(agent: Agent = this.#requiredAgent()): Promise<TuiSubmission | undefined> {
     this.assertActive(agent)
     const message = agent.inbox.nextTurn.findLast(candidate => candidate.source.kind === 'user')
-    if (message === undefined || !agent.inbox.remove(message.id)) return undefined
-    try {
-      const submission = await restoreSubmissionMessage(message, this.#ctx.get('attachments'))
-      this.assertActive(agent)
-      return submission
-    } catch (error: unknown) {
-      try { agent.inbox.append('next-turn', message) } catch { /* agent retired or message was restored elsewhere */ }
-      throw error
-    }
+    if (message === undefined) return undefined
+    const submission = await restoreSubmissionMessage(message, this.#ctx.get('attachments'))
+    this.assertActive(agent)
+    return agent.inbox.remove(message.id) ? { ...submission, literal: true } : undefined
   }
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
@@ -721,6 +742,9 @@ export class SessionRuntime {
   assertActive(agent: Agent): void {
     if (agent !== this.#requiredAgent()) throw new Error('the command does not target the active omdsh session')
   }
+
+  /** Shared local metadata document for Session Library and Tree actions. */
+  get sessionLibraryPath(): string { return this.#libraryPath }
 
   /** Immutable recent-session view used by the resume command. */
   get recentSessions(): readonly TuiRecentSession[] {
@@ -855,21 +879,69 @@ export class SessionRuntime {
     }
     const target = nodes.findLast(node => node.sessionId === current.id && node.kind === 'turn')
       ?? nodes.find(node => node.sessionId === current.id)
-    const answer = await this.#tui.prompt({
-      title: 'Session Tree', question: '', notify: false,
-      options: nodes.map(node => ({
-        label: node.label, value: node.id, ...(node.parentId === undefined ? {} : { parentValue: node.parentId }),
-        preview: node.preview, description: node.description,
-        submitLabel: node.kind === 'turn' ? 'edit from here' : 'continue branch',
-        ...(node.current ? { badge: { label: 'Current', tone: 'success' as const } } : {}),
-      })),
-      actions: [{ key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' }],
-      ...(target === undefined ? {} : { initialValue: target.id }), presentation: 'fullscreen-tree', filterable: true, allowCustom: false, signal,
-    })
-    if (answer === null) return
-    this.assertActive(agent)
-    signal.throwIfAborted()
-    if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before navigating the Session Tree.')
+    let markedOnly = false
+    let selectedId = target?.id
+    let answer: string | null
+    while (true) {
+      const library = readSessionLibrary(this.#libraryPath)
+      const visible = markedOnly ? markedSessionTree(nodes, library.labels) : nodes
+      answer = await this.#tui.prompt({
+        title: markedOnly ? 'Session Tree · Marked' : 'Session Tree', question: '', notify: false,
+        emptyText: 'No marked nodes. Alt+B shows the full tree.',
+        options: visible.map(node => {
+          const label = library.labels[node.id]
+          return {
+            label: label === undefined ? node.label : `◆ ${label} · ${node.label}`,
+            value: node.id, ...(node.parentId === undefined ? {} : { parentValue: node.parentId }),
+            preview: node.preview, description: node.description,
+            submitLabel: node.kind === 'turn' ? 'edit from here' : 'continue branch',
+            ...(node.current ? { badge: { label: 'Current', tone: 'success' as const } } : {}),
+          }
+        }),
+        actions: [
+          { key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' },
+          { key: 'Alt+L', label: 'label', valuePrefix: 'label:' },
+          { key: 'Alt+U', label: 'clear label', valuePrefix: 'unlabel:' },
+          { key: 'Alt+B', label: markedOnly ? 'full tree' : 'marked nodes', valuePrefix: 'marked:', scope: 'list' },
+        ],
+        ...(selectedId === undefined ? {} : { initialValue: selectedId }), presentation: 'fullscreen-tree', filterable: true, allowCustom: false, signal,
+      })
+      if (answer === null) return
+      this.assertActive(agent)
+      signal.throwIfAborted()
+      if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before navigating the Session Tree.')
+      if (answer === 'marked:') { markedOnly = !markedOnly; continue }
+      const clear = answer.startsWith('unlabel:')
+      if (clear || answer.startsWith('label:')) {
+        const id = answer.slice(clear ? 'unlabel:'.length : 'label:'.length)
+        const node = visible.find(item => item.id === id)
+        if (node === undefined) continue
+        selectedId = id
+        if (clear) {
+          setSessionLabel(this.#libraryPath, id, '')
+          continue
+        }
+        let draft = library.labels[id] ?? ''
+        let error: string | undefined
+        while (true) {
+          const label = await this.#tui.prompt({
+            title: 'Label Conversation Node', question: `Label for ${node.label}`,
+            initialInput: draft, detail: error ?? 'Up to 120 characters. Alt+U in the tree clears a label.',
+            allowCustom: true, notify: false, signal,
+          })
+          if (label === null) break
+          this.assertActive(agent)
+          signal.throwIfAborted()
+          try { setSessionLabel(this.#libraryPath, id, label); break }
+          catch (failure) {
+            error = failure instanceof Error ? failure.message : String(failure)
+            draft = label
+          }
+        }
+        continue
+      }
+      break
+    }
     const continuing = answer.startsWith('continue:')
     const node = nodes.find(item => item.id === (continuing ? answer.slice('continue:'.length) : answer))
     if (node === undefined) throw new Error('The selected conversation node is no longer available.')
@@ -1108,6 +1180,7 @@ export class SessionRuntime {
   }
 
   async #refreshRecentNow(): Promise<void> {
+    this.#archivedSessions = new Set(readSessionLibrary(this.#libraryPath).archived)
     const persistence = this.#ctx.get('sessionPersistence')
     if (persistence === undefined) {
       this.#recent = []
@@ -1168,6 +1241,7 @@ export class SessionRuntime {
   }
 
   async dispose(): Promise<void> {
+    this.#queueAbort?.abort(new Error('session runtime disposed'))
     if (this.#disposed) return
     this.#disposed = true
     this.#activationEpoch += 1
@@ -1248,6 +1322,7 @@ export class SessionRuntime {
     }
     const previous = this.#active
     const epoch = ++this.#activationEpoch
+    this.#queueAbort?.abort(new Error('active session changed'))
     this.#active = next
     void this.#claimWorkspace(next)
     try {
@@ -1434,7 +1509,7 @@ export class SessionRuntime {
     this.#tui.setSession({
       id: agent.id,
       ...(title === undefined ? {} : { title }),
-      recent: this.#recent.filter(row => row.id !== agent.id),
+      recent: this.#recent.filter(row => row.id !== agent.id && !this.#archivedSessions.has(row.id)),
       stats: sessionStats(events, active.contextWindow, projection),
       controls: this.#sessionControls(active, projection),
     })

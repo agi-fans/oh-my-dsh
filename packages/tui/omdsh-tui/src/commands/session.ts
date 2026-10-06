@@ -1,8 +1,6 @@
 /** Session lifecycle and inspection commands registered through dsh-commands. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
@@ -13,7 +11,7 @@ import { registerCommands } from './registration.ts'
 import { formatRelativeAge } from '../chrome/relative-time.ts'
 import { formatPermission, formatTokens } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
-import { readPinnedSessions, sortSessionRows, togglePinnedSession, writePinnedSessions } from '../session/session-library.ts'
+import { readSessionLibrary, sortSessionRows, togglePinnedSession, updateSessionLibrary } from '../session/session-library.ts'
 import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
 import { blocksText } from '../session/content-text.ts'
 
@@ -46,23 +44,26 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
   await ctx.omdshSession.refreshRecent()
   let id = invocation.rawInput.trim()
   if (id === '') {
-    const dshHome = process.env.OMDSH_HOME ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
-    const pinsPath = join(dshHome, 'omdsh', 'session-library.json')
-    let pinned = readPinnedSessions(pinsPath)
+    const libraryPath = ctx.omdshSession.sessionLibraryPath
+    let archivedView = false
+    let selectedId: string | undefined
     while (id === '') {
-      const recent = sortSessionRows(ctx.omdshSession.recentSessions, pinned)
-      if (recent.length === 0) return { kind: 'success', text: 'No durable sessions found.' }
+      const library = readSessionLibrary(libraryPath)
+      const recent = sortSessionRows(ctx.omdshSession.recentSessions.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
+      if (ctx.omdshSession.recentSessions.length === 0) return { kind: 'success', text: 'No durable sessions found.' }
       const answer = await ctx.tui.prompt({
-        title: 'Session Library',
+        title: archivedView ? 'Session Library · Archived' : 'Session Library',
+        notify: false,
+        ...(selectedId === undefined ? {} : { initialValue: selectedId }),
         question: '',
         // Filtering can empty the list even when the library is not empty.
-        emptyText: 'No sessions found.',
+        emptyText: archivedView ? 'No archived sessions. Alt+V returns to active sessions.' : 'No active sessions. Alt+V shows archived sessions.',
         options: recent.map(row => ({
-          label: `${pinned.includes(row.id) ? '◆ ' : ''}${row.title}`,
+          label: `${library.pinned.includes(row.id) ? '◆ ' : ''}${row.title}`,
           value: row.id,
           ...(row.preview === undefined ? {} : { preview: row.preview }),
           description: [
-            ...(pinned.includes(row.id) ? ['pinned'] : []),
+            ...(library.pinned.includes(row.id) ? ['pinned'] : []),
             formatRelativeAge(row.updatedAt ?? row.createdAt),
             ...(row.eventCount === undefined ? [] : [`${row.eventCount} events`]),
           ].join(' · '),
@@ -82,6 +83,8 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
         actions: [
           { key: 'r', label: 'rename', valuePrefix: 'rename:' },
           { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
+          { key: 'Alt+A', label: archivedView ? 'restore' : 'archive', valuePrefix: 'archive:' },
+          { key: 'Alt+V', label: archivedView ? 'active sessions' : 'archived sessions', valuePrefix: 'view:', scope: 'list' },
         ],
         presentation: 'fullscreen-list',
         filterable: true,
@@ -89,18 +92,28 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
         signal: invocation.signal,
       })
       if (answer === null) return { kind: 'success' }
-      if (answer.startsWith('pin:')) {
-        pinned = togglePinnedSession(pinned, answer.slice('pin:'.length))
-        writePinnedSessions(pinsPath, pinned)
+      invocation.signal.throwIfAborted()
+      if (answer === 'view:') { archivedView = !archivedView; continue }
+      if (answer.startsWith('pin:') || answer.startsWith('archive:')) {
+        const [action, ...parts] = answer.split(':')
+        const target = parts.join(':')
+        if (!recent.some(row => row.id === target)) continue
+        selectedId = target
+        updateSessionLibrary(libraryPath, current => action === 'pin'
+          ? { ...current, pinned: togglePinnedSession(current.pinned, target) }
+          : { ...current, archived: archivedView ? current.archived.filter(id => id !== target) : [...new Set([...current.archived, target])] })
+        if (action === 'archive') await ctx.omdshSession.refreshRecent()
         continue
       }
       if (answer.startsWith('rename:')) {
         const target = answer.slice('rename:'.length)
         const row = recent.find(item => item.id === target)
         if (row === undefined) continue
+        selectedId = target
         const title = await ctx.tui.prompt({
           title: 'Rename Session',
           question: `New title for “${row.title}”`,
+          initialInput: row.title,
           allowCustom: true,
           signal: invocation.signal,
         })
@@ -246,6 +259,12 @@ function showTodo(invocation: CommandInvocation): CommandResult {
 
 export function apply(ctx: Context): void {
   registerCommands(ctx, [
+    { name: 'queue', description: 'Review, edit, delete, and reorder pending messages', handler: async invocation => {
+      if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /queue' }
+      await ctx.omdshSession.openQueue(invocation.signal, invocation.agent)
+      return { kind: 'success' }
+    } },
+
     { name: 'context', description: 'Inspect projection-backed context usage', handler: invocation => showContext(ctx, invocation) },
     { name: 'new', description: 'Start a new session', handler: invocation => newSession(ctx, invocation) },
     {

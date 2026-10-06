@@ -35,12 +35,16 @@ The selected published bridge runs its supported synchronous command hooks. Code
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
+| Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
 | Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
 | Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |
+| Notify when | unfocused / always | unfocused | Suppress notifications while the terminal reports focus; terminals without focus reports use the selected notification policy. |
 | Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
+
+Notifications coalesce brief event bursts, prioritizing questions, approvals, and failures over successful completion. Returning to the terminal before a pending notification is sent cancels it when **Notify when** is `unfocused`.
 
 Tool previews use the active theme's background colors with padding on every side. Prompt and tool-card backgrounds have paired text colors; ordinary reply text keeps the terminal's default foreground. Match `light` to a light terminal and the other palettes to a dark terminal. In 16-color mode, cards use neutral backgrounds and retain status labels and symbols. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
 

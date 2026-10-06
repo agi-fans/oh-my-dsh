@@ -63,3 +63,30 @@ describe('terminalNotificationSequence', () => {
     expect(terminalProgressSequence(false)).toBe('\x1b]9;4;0;\x07')
   })
 })
+
+describe('notification queue', () => {
+  it('retains an attention request over later completion, then drains only once', async () => {
+    const { TerminalNotificationQueue } = await import('./terminal-notifications.ts')
+    const queue = new TerminalNotificationQueue()
+    const question = { title: 'omdsh needs attention', body: 'Approve execution' }
+    queue.offer({ title: 'omdsh finished', body: 'Done' })
+    queue.offer(question)
+    queue.offer({ title: 'omdsh finished', body: 'Another done' })
+    expect(queue.take('unfocused', false)).toEqual(question)
+    expect(queue.take('always', false)).toBeUndefined()
+  })
+
+  it('respects known focus, supports unknown focus, and can clear a pending event', async () => {
+    const { TerminalNotificationQueue } = await import('./terminal-notifications.ts')
+    const queue = new TerminalNotificationQueue(), note = { title: 'omdsh finished', body: 'Done' }
+    queue.offer(note)
+    expect(queue.take('unfocused', true)).toBeUndefined()
+    queue.offer(note)
+    expect(queue.take('unfocused', undefined)).toEqual(note)
+    queue.offer(note)
+    expect(queue.take('always', true)).toEqual(note)
+    queue.offer(note)
+    queue.clear()
+    expect(queue.take('always', false)).toBeUndefined()
+  })
+})

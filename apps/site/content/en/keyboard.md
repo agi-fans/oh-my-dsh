@@ -33,9 +33,16 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+-` | Undo the last edit. |
 | `Ctrl+D` | Delete forward, or quit when the composer is empty. |
 | `Ctrl+V` | Paste clipboard text or an image. |
+| `Alt+I` | Expand a folded pasted block for editing. |
+| `Alt+Q` | Open Message Queue without submitting the composer draft. |
+| `Alt+S` | Send text guidance to the active Turn’s next model step. |
 | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `Ctrl+Alt+C` | Copy the current line. |
 | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
+
+Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 lines]` or a character-count marker. Arrow keys and deletion treat each block as one unit; `Alt+I` expands the block at or nearest the caret for editing, and `Ctrl+-` undoes insertion, deletion, or expansion. Copying the prompt, using the external editor, and sending a message use the full text. Temporary questions and queued-message editing retain the source. A draft beginning with a folded paste sends its source as a message even if it begins with `/`.
+
+**Paste protection** also recognizes long text chunks, multiline reads, and rapid ASCII key streams when a terminal does not mark pasted input, keeping embedded Enter keys from submitting a message. Wait briefly after the paste finishes, then press Enter to send. Normal typing and individual IME commits appear immediately. This detection is heuristic; turn it off in Settings if it interferes with your terminal. Explicit bracketed paste remains safe with this setting off.
 
 ## Transcript
 
@@ -65,6 +72,8 @@ When the transcript can scroll, omdsh supports mouse dragging within the current
 
 Full-screen pages temporarily suspend application mouse handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
 
+File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
+
 ## Session
 
 | Shortcut | Action |
@@ -92,7 +101,8 @@ Full-screen pages temporarily suspend application mouse handling. Reading views 
 | History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
 | Transcript search (`Ctrl+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `↑`/`↓`, `Home`/`End`, `PgUp`/`PgDn` navigate, `Enter` open details, `Tab`/`←`/`→` switch sections, `/` search, `n`/`N` and `Ctrl+N`/`Ctrl+P` step matches, `t` collapse turns, `c` collapse calls, `Esc`/`Ctrl+C` close. |
-| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Esc` clears search then closes, `Ctrl+C` cancels. |
+| Session Library | `p` pins/unpins and `r` renames with an empty search; `Alt+A` archives/restores the selection, `Alt+V` switches active/archived lists even when empty or searching. |
+| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Alt+L` labels a node, `Alt+U` clears its label, `Alt+B` toggles marked nodes, `Esc` clears search then closes, `Ctrl+C` cancels. |
 | Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
 
 Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/sessions <query>` retain their own search rules.
@@ -112,6 +122,9 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 | Action id | Default key | Effect |
 |---|---|---|
+| `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
+| `manage-queue` | `Alt+Q` | Manage individual pending messages. |
+| `steer-turn` | `Alt+S` | Send text guidance to the active Turn’s next model step. |
 | `external-editor` | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Run the most recent human prompt again. |
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |

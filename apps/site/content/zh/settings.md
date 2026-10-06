@@ -35,12 +35,16 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
+| Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |
 | Terminal activity | on / off | off | 支持的终端标签页与任务栏中的忙碌/空闲状态。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
 | Notifications | off / long-running / always | off | 回合结束或需要输入时通知。 |
+| Notify when | unfocused / always | unfocused | 终端报告获得焦点时不发通知；没有焦点报告的终端沿用所选通知策略。 |
 | Long turn | 15s / 30s / 1m / 2m | 30s | 触发长任务通知的最短时长。 |
+
+通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。当 **Notify when** 为 `unfocused` 时，在待发通知送出前回到终端会取消该通知。
 
 工具预览使用当前主题的背景色，四周保留内边距。用户消息和工具卡片的背景有配套文字色，普通回复正文继续使用终端默认前景色。浅色终端应选择 `light`，深色终端选择其他主题。16 色模式下，卡片使用中性背景，保留状态说明和符号。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 

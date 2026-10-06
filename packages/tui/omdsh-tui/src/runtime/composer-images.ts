@@ -21,6 +21,7 @@ export interface ComposerImagesDeps {
 export class ComposerImages {
   readonly #deps: ComposerImagesDeps
   #images: TuiInputImage[] = []
+  #revision = 0
   #validate: ((image: TuiInputImage) => Promise<void>) | undefined
 
   constructor(deps: ComposerImagesDeps) {
@@ -30,6 +31,8 @@ export class ComposerImages {
   get count(): number {
     return this.#images.length
   }
+
+  get revision(): number { return this.#revision }
 
   /** Fresh copies for a submission snapshot. */
   copies(): TuiInputImage[] {
@@ -58,6 +61,7 @@ export class ComposerImages {
 
   /** Insert an `[Image #n]` marker at the cursor, padded with spaces. */
   insert(input: TuiInputImage): void {
+    this.#revision++
     const size = input.width === undefined || input.height === undefined
       ? probeImageDimensions(input.data, input.mediaType)
       : undefined
@@ -107,7 +111,8 @@ export class ComposerImages {
         nextIndex += 1
       }
       this.#images = nextImages
-      editor.setText(text, Math.min(from, text.length))
+      this.#revision++
+      editor.replaceText(text, Math.min(from, text.length))
       return true
     }
     return false
@@ -130,11 +135,13 @@ export class ComposerImages {
       nextIndex += 1
     }
     this.#images = retained
-    editor.setText(text, Math.min(editor.cursor, text.length))
+    this.#revision++
+    editor.replaceText(text, Math.min(editor.cursor, text.length))
   }
 
   /** Prepend a queued submission's drafts, rebasing the current markers. */
   restore(submission: TuiSubmission): void {
+    this.#revision++
     const editor = this.#deps.editor
     const currentImages = this.#images
     let rebasedCurrent = editor.text
@@ -147,16 +154,18 @@ export class ComposerImages {
     }
     const separator = submission.text !== '' && rebasedCurrent !== '' ? '\n' : ''
     this.#images = [...submission.images.map(image => ({ ...image })), ...currentImages]
-    editor.setText(submission.text + separator + rebasedCurrent)
+    editor.replaceText(submission.text + separator + rebasedCurrent)
   }
 
   /** Replace drafts and text with a queued/edited submission. */
   replace(submission: TuiSubmission): void {
+    this.#revision++
     this.#images = submission.images.map(image => ({ ...image }))
     this.#deps.editor.setText(submission.text)
   }
 
   clear(): void {
+    this.#revision++
     this.#images = []
   }
 }

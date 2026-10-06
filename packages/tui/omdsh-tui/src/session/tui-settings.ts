@@ -40,6 +40,7 @@ export interface TuiSettings {
   motion: Volatile<MotionMode>
   editor: Volatile<EditorId>
   terminalProgress: Volatile<boolean>
+  pasteProtection: Volatile<boolean>
   copyOnSelect: Volatile<boolean>
   mouseInteraction: Volatile<'auto' | 'tui' | 'native'>
   /** Legacy configuration, accepted without changing the turn presentation. */
@@ -49,6 +50,7 @@ export interface TuiSettings {
   checkUpdates: Volatile<boolean>
   startupChangelog: Volatile<StartupChangelogMode>
   notifications: Volatile<'off' | 'long-running' | 'always'>
+  notificationFocus: Volatile<'always' | 'unfocused'>
   notificationThreshold: Volatile<'15s' | '30s' | '1m' | '2m'>
   statusBar: Volatile<StatusBarConfig | undefined>
   /** Legacy input retained so older documents can be migrated. */
@@ -100,6 +102,7 @@ export const TUI_SETTINGS_FIELDS = {
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
+  pasteProtection: z.boolean().default(true).volatile(),
   copyOnSelect: z.boolean().default(true).volatile(),
   mouseInteraction: z.union(['auto', 'tui', 'native'] as const).default('auto').volatile(),
   foldDensity: z.union([...FOLD_DENSITIES]).default(DEFAULT_FOLD_DENSITY).volatile(),
@@ -107,6 +110,7 @@ export const TUI_SETTINGS_FIELDS = {
   checkUpdates: z.boolean().default(true).volatile(),
   startupChangelog: z.union([...STARTUP_CHANGELOG_MODES]).default('summary').volatile(),
   notifications: z.union(['off', 'long-running', 'always'] as const).default('off').volatile(),
+  notificationFocus: z.union(['always', 'unfocused'] as const).default('unfocused').volatile(),
   notificationThreshold: z.union(['15s', '30s', '1m', '2m'] as const).default('30s').volatile(),
   statusBar: STATUS_BAR_SCHEMA.volatile(),
   statusPreset: z.union([...STATUS_PRESETS]).volatile(),

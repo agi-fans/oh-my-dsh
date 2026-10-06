@@ -275,7 +275,7 @@ describe('applyEvent', () => {
       inserted: [],
     }, 3))
     const claimed = view(state)
-    expect(claimed.lines.join('\n')).toContain('Queued · second follow-up')
+    expect(claimed.lines.join('\n')).toContain('Queued · next turn · second follow-up')
     expect(claimed.lines.join('\n')).not.toContain('first follow-up')
   })
 
@@ -1432,7 +1432,7 @@ describe('renderView', () => {
     })
     const editorStart = composerStart(frame.lines)
     const queue = frame.lines.slice(editorStart - 3, editorStart)
-    expect(queue[0]).toMatch(/^  │ Queued · 2\s+↑ edit latest$/u)
+    expect(queue[0]).toMatch(/^  │ Queued · 2 · next turn\s+↑ edit latest$/u)
     expect(queue.slice(1)).toEqual([
       '  │ 1  first queued',
       '  │ 2  second ↵ queued',
@@ -1443,7 +1443,8 @@ describe('renderView', () => {
     const lines = renderQueuedSubmissions([
       { text: 'one queued message', images: [] },
     ], createTheme(false), 48)
-    expect(lines[0]).toMatch(/^  │ Queued · one queued message\s+↑ edit$/u)
+    expect(lines[0]).toMatch(/^  │ Queued · next turn · one queued mes…\s+↑ edit$/u)
+    expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(48)
   })
 
   it('caps and truncates queued submission previews', () => {
@@ -2173,4 +2174,28 @@ it('keeps successful hooks silent and replays blocking and failed results with t
   expect(blocked.blocks.at(-1)).toHaveProperty('text', expect.stringContaining('Command blocked'))
   const result = applyEvent(state, ev('hook/result', { ...base, decision: 'stop' }, 3))
   expect(result.blocks.at(-1)).toMatchObject({ kind: 'notice', level: 'warning' })
+})
+
+describe('human guidance display', () => {
+  it('distinguishes durable next-step guidance from next-turn follow-ups and hides it when claimed', () => {
+    const guide = ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [
+      { id: 'steer', source: { kind: 'user' }, content: [{ type: 'text', text: '纠正 🐳 now' }] },
+      { id: 'context', source: { kind: 'tool', name: 'context' }, content: [{ type: 'text', text: 'internal context' }] },
+    ] }, 1)
+    const queued = ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [
+      { id: 'next', source: { kind: 'user' }, content: [{ type: 'text', text: 'next task' }] },
+    ] }, 2)
+    const state = replayEvents([guide, queued])
+    expect(state).toEqual(applyEvent(applyEvent(initialTranscript(), guide), queued))
+    const rendered = view(state).lines.join('\n')
+    expect(rendered).toContain('Guidance · next step · 纠正 🐳 now')
+    expect(rendered).toContain('Queued · next turn · next task')
+    expect(rendered).not.toContain('internal context')
+    const claimed = applyEvent(state, ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 2, inserted: [] }, 3))
+    expect(view(claimed).lines.join('\n')).not.toContain('Guidance · next step')
+    for (const width of [12, 24, 80]) {
+      const frame = renderView(state, { width, height: 24, model: 'm', input: '', inputCursor: 0, colors: false })
+      for (const line of frame.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width)
+    }
+  })
 })

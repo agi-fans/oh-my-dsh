@@ -74,6 +74,8 @@ function isBlockPending(block: Block): boolean {
 }
 
 export interface ViewOptions {
+  /** Effective key for active-turn guidance, when the provider has an admission handler. */
+  steerKey?: string
   /** Terminal width in columns. */
   width: number
   /** Terminal height in rows; the view keeps the frame inside it. */
@@ -1819,6 +1821,17 @@ export function renderTurnError(text: string, theme: Theme, width: number): stri
   return [padToWidth(line, width)]
 }
 
+/** Human guidance remains visible until the Harness claims it for a model step. */
+export function renderSteering(inbox: readonly UserMessage[], theme: Theme, width: number): string[] {
+  const messages = inbox.filter(message => message.source.kind === 'user')
+  if (messages.length === 0 || width <= 0) return []
+  const latest = queuedMessageLabel(messages.at(-1)!)
+  const count = messages.length > 1 ? ` · ${messages.length}` : ''
+  return [truncateToWidth('  ' + theme.fg('border', '│') + ' '
+    + theme.bold(theme.fg('accent', 'Guidance · next step' + count))
+    + theme.fg('dim', ' · ') + theme.fg('text', latest), width)]
+}
+
 /** Compact, unframed pending-message view placed immediately above the composer. */
 export function renderQueuedSubmissions(
   submissions: readonly TuiSubmission[],
@@ -1847,11 +1860,11 @@ export function renderQueuedSubmissions(
   }
   if (labels.length === 1) {
     return [alignAction(
-      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('text', labels[0] ?? ''),
+      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', 'next turn · ') + theme.fg('text', labels[0] ?? ''),
       theme.fg('dim', '↑ edit'),
     )]
   }
-  const summary = ` · ${labels.length}${hidden === 0 ? '' : ` · ${hidden} earlier`}`
+  const summary = ` · ${labels.length} · next turn${hidden === 0 ? '' : ` · ${hidden} earlier`}`
   const visibleLabels = labels.slice(start)
   const lines = [
     alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', '↑ edit latest'), false),
@@ -1979,6 +1992,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     }, options.transcriptSearch.matches.length)
     : options.inspected === undefined
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
+        ?? (state.status === 'running' && options.steerKey !== undefined
+          ? `Enter: next turn · ${options.steerKey}: next step` : null)
       : options.inspected.writable
         ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
         : 'Read-only · Esc to return'
@@ -2042,7 +2057,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : undefined
   const queuedSubmissions = editor === undefined || options.inspected !== undefined
     ? []
-    : renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox)
+    : [
+      ...renderSteering(state.nextStepInbox, theme, width),
+      ...renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox),
+    ]
   // Above the composer and below the queue: the failure explains why the queue
   // is not moving, and the row survives until the next submission.
   const turnError = editor === undefined || options.inspected !== undefined || state.turnError === undefined

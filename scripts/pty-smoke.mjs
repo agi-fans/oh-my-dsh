@@ -6,8 +6,10 @@
 // Run: node scripts/pty-smoke.mjs
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { createRequire } from 'node:module'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { cleanOutput, omdshCommand, repoRoot, sleep, smokeEnv, smokeHome, waitFor } from './smoke-lib.mjs'
 
@@ -53,15 +55,62 @@ if (!(await waitFor(() => hasReasoningEffort(out), 'effective reasoning effort',
   term.kill()
   process.exit(1)
 }
+// Exercise explicit and unmarked paste through the shipped raw-input owner.
+const pasteSource = Array.from({ length: 12 }, (_, index) => `paste line ${index}`).join('\n')
+let pasteMark = out.length
+term.write('\x1b[200~' + pasteSource + '\x1b[201~')
+if (!(await waitFor(() => cleanOutput(out.slice(pasteMark)).includes('[Pasted #1: 12 lines]'), 'folded pasted block', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+pasteMark = out.length
+term.write('\x1bi')
+if (!(await waitFor(() => cleanOutput(out.slice(pasteMark)).includes('paste line 11'), 'expanded pasted block', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\x03')
+await sleep(100)
+pasteMark = out.length
+term.write(pasteSource.replaceAll('\n', '\r') + '\r')
+if (!(await waitFor(() => cleanOutput(out.slice(pasteMark)).includes('[Pasted #2: 13 lines]'), 'legacy multiline paste protection', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+if (cleanOutput(out.slice(pasteMark)).includes('Deep Driving')) {
+  console.error('FAIL: an Enter inside a paste submitted a turn'); term.kill(); process.exit(1)
+}
+// A clear should not be interpreted as the second gesture of a double Ctrl-C exit.
+await sleep(600)
+term.write('\x03')
+await sleep(100)
+term.write('\x1b[I\x1b[O')
 // File viewing and attachment staging use the same raw TTY owner as chat.
 const reviewDirectory = join(omdshHome, 'file-review')
 mkdirSync(reviewDirectory, { recursive: true })
 const attachmentPath = join(reviewDirectory, 'a.txt')
-writeFileSync(attachmentPath, 'Hello file preview\n')
+writeFileSync(attachmentPath, 'Hello file preview\n' + Array.from({ length: 80 }, (_, at) => `source row ${at + 2}\n`).join(''))
 writeFileSync(join(reviewDirectory, 'b.txt'), 'Hello sibling preview\n')
 let featureMark = out.length
 term.write(`/files "${attachmentPath}"\r`)
 if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello file preview'), 'file document page', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('G')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Line:'), 'file line entry', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('42\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Line 42/81'), 'source line jump', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('/')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Find:'), 'source search entry', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('source row 60\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('1/1 matching lines'), 'source content search', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
 featureMark = out.length
@@ -71,7 +120,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello si
 }
 featureMark = out.length
 term.write('P')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello file preview'), 'Previous file via uppercase shortcut', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('source row 60'), 'Previous file restores source position', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
 featureMark = out.length
@@ -323,11 +372,79 @@ if (!(await waitFor(() => cleanOutput(out).includes('Session Tree'), 'session tr
   term.kill()
   process.exit(1)
 }
+// Mark and filter the failed Turn using the shipped Session Tree.
+term.write('\x1bl')
+if (!(await waitFor(() => cleanOutput(out).includes('Label Conversation Node'), 'label editor', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('Smoke checkpoint\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Tree'), 'labelled tree', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1bb')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Tree · Marked'), 'marked tree', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1bb')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Tree'), 'full tree', deadline))) {
+  term.kill()
+  process.exit(1)
+}
 term.write('\r')
 if (!(await waitFor(() => cleanOutput(out).includes('Editing from before turn 1.'), 'historical turn fork', deadline))) {
   term.kill()
   process.exit(1)
 }
+// Archiving changes only the local library; restoring keeps the Turn's label.
+const libraryPath = join(omdshHome, 'omdsh', 'session-library.json')
+const libraryMetadata = () => {
+  try { return JSON.parse(readFileSync(libraryPath, 'utf8')) }
+  catch { return {} }
+}
+mark = out.length
+term.write('\x15/sessions\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library'), 'session library', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1ba')
+if (!(await waitFor(() => libraryMetadata().archived?.length === 1 && cleanOutput(out.slice(mark)).includes('Session Library'), 'archived session', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1bv')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library · Archived'), 'archived library', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1ba')
+if (!(await waitFor(() => libraryMetadata().archived?.length === 0 && cleanOutput(out.slice(mark)).includes('No archived sessions'), 'restored session', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+if (Object.values(libraryMetadata().labels ?? {}).filter(label => label === 'Smoke checkpoint').length !== 1) {
+  console.error('FAIL: archive actions lost the tree label')
+  term.kill()
+  process.exit(1)
+}
+// The archive list is now empty; its view action still works.
+mark = out.length
+term.write('\x1bv')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library'), 'active library after restore', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x03')
+await sleep(100)
 // Forking before the first turn leaves no completed turn to open. Ctrl+O must not enter an
 // unrelated full-output mode; use the catalog to exercise cleanup on exit.
 mark = out.length
@@ -367,6 +484,8 @@ term.kill()
 
 const clean = cleanOutput(out)
 const ok = exitCode === 0
+  && out.includes('\x1b[?1004h')
+  && out.includes('\x1b[?1004l')
   && out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
   && clean.includes('Recent sessions')
   && clean.includes('Recent header seed')
@@ -388,4 +507,106 @@ if (!ok) {
   console.error(clean.slice(-2000))
   process.exit(1)
 }
-console.log('PTY_SMOKE_PASS exit=' + exitCode)
+// Recovery must work through the shipped provider, including after an abrupt stop.
+const resumeId = /Resume this session with omdsh --resume (session-[^\s]+)/u.exec(clean)?.[1]
+if (resumeId === undefined) { console.error('FAIL: missing recovery session id'); process.exit(1) }
+const draftPath = join(omdshHome, 'omdsh', 'drafts', createHash('sha256').update(resumeId).digest('hex'), 'draft.json')
+const draftSource = Array.from({ length: 12 }, (_, at) => `recovery draft row ${at + 1}`).join('\n')
+function recoveryTerminal() {
+  const terminal = pty.spawn(spawnCmd[0], [...spawnCmd[1], '--resume', resumeId], {
+    name: 'xterm-256color', cols: 80, rows: 30, cwd: repoRoot, env,
+  })
+  const capture = { process: terminal, output: '', exit: null }
+  terminal.onData(data => { capture.output += data })
+  terminal.onExit(({ exitCode }) => { capture.exit = exitCode })
+  return capture
+}
+const draftWriter = recoveryTerminal()
+if (!(await waitFor(() => cleanOutput(draftWriter.output).includes(`Resumed ${resumeId}.`), 'draft writer resumed', deadline))) {
+  console.error(cleanOutput(draftWriter.output).slice(-2000)); draftWriter.process.kill(); process.exit(1)
+}
+draftWriter.process.write('\x1b[200~' + draftSource + '\x1b[201~')
+if (!(await waitFor(() => {
+  try { return JSON.parse(readFileSync(draftPath, 'utf8')).editor.pastes[0]?.content === draftSource } catch { return false }
+}, 'draft autosave on disk', deadline))) {
+  console.error(cleanOutput(draftWriter.output).slice(-2000)); draftWriter.process.kill(); process.exit(1)
+}
+draftWriter.process.kill()
+if (!(await waitFor(() => draftWriter.exit !== null, 'draft writer stopped', deadline))) process.exit(1)
+const draftReader = recoveryTerminal()
+if (!(await waitFor(() => cleanOutput(draftReader.output).includes('[Pasted #1: 12 lines]'), 'restored folded draft', deadline))) {
+  console.error(cleanOutput(draftReader.output).slice(-2000)); draftReader.process.kill(); process.exit(1)
+}
+const recoveryMark = draftReader.output.length
+draftReader.process.write('\x1bi')
+if (!(await waitFor(() => cleanOutput(draftReader.output.slice(recoveryMark)).includes('recovery draft row 12'), 'restored original paste text', deadline))) {
+  console.error(cleanOutput(draftReader.output).slice(-2000)); draftReader.process.kill(); process.exit(1)
+}
+draftReader.process.write('\x03')
+await sleep(100)
+draftReader.process.write('\x03')
+if (!(await waitFor(() => draftReader.exit !== null, 'recovery terminal clean exit', deadline))) {
+  draftReader.process.kill(); process.exit(1)
+}
+if (draftReader.exit !== 0 || !draftReader.output.includes('\x1b[?2004l') || !draftReader.output.includes('\x1b[?1004l')) {
+  console.error('FAIL: recovery terminal did not restore terminal modes'); process.exit(1)
+}
+try { readFileSync(draftPath); console.error('FAIL: discarded draft was not removed'); process.exit(1) }
+catch (error) { if (error.code !== 'ENOENT') throw error }
+// Keep a real Agent turn streaming while its durable inbox is managed through the keyboard.
+const queueHome = smokeHome('omdsh-queue-pty-')
+const queueProfile = join(queueHome, 'profiles', 'omdsh')
+mkdirSync(queueProfile, { recursive: true })
+writeFileSync(join(queueProfile, 'cordis.patch.yml'), '- id: agent-preset-registry\n  config:\n    default: code\n- id: session-title-llm\n  disabled: true\n')
+const queueServer = await startMockLlmServer({ port: 0, sequence: ['slow_success'], successText: 'QUEUE_STREAM_READY ' + '.'.repeat(3000), chunkSize: 10, chunkDelayMs: 100 })
+const queueTerm = pty.spawn(spawnCmd[0], spawnCmd[1], { name: 'xterm-256color', cols: 80, rows: 30, cwd: repoRoot,
+  env: smokeEnv(queueHome, { DEEPSEEK_BASE_URL: queueServer.baseURL + '/v1', DEEPSEEK_API_KEY: 'sk-mock' }) })
+let queueOut = '', queueExit = null
+queueTerm.onData(data => { queueOut += data })
+queueTerm.onExit(({ exitCode }) => { queueExit = exitCode })
+async function queueWait(predicate, label) {
+  if (await waitFor(predicate, label, deadline)) return
+  console.error(cleanOutput(queueOut).slice(-2500))
+  queueTerm.kill(); await queueServer.close(); process.exit(1)
+}
+await queueWait(() => hasReasoningEffort(queueOut), 'queue terminal ready')
+queueTerm.write('queue smoke start\r')
+await queueWait(() => cleanOutput(queueOut).includes('QUEUE_STREAM_READY'), 'queue model streaming')
+queueTerm.write('first followup\r')
+await sleep(150)
+queueTerm.write('second followup\r')
+await queueWait(() => cleanOutput(queueOut).includes('Queued · 2'), 'durable follow-ups')
+let queueMark = queueOut.length
+queueTerm.write('\x1bq')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Message Queue'), 'queue shortcut')
+queueMark = queueOut.length
+queueTerm.write('\x1b[B\x1b[1;3A')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · second followup'), 'durable queue reorder')
+queueMark = queueOut.length
+queueTerm.write('\r')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Edit Queued Message'), 'queue text editor')
+queueMark = queueOut.length
+queueTerm.write('\x01\x0bupdated followup\r')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · updated followup'), 'durable queue replacement')
+queueMark = queueOut.length
+queueTerm.write('\x1bd')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · first followup'), 'selected queue deletion')
+queueMark = queueOut.length
+queueTerm.write('\x1bd')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('No pending messages.'), 'empty queue after deletion')
+queueTerm.write('\x1b[27u')
+await sleep(100)
+queueMark = queueOut.length
+queueTerm.write('/queue\r')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Message Queue'), 'queue slash command')
+queueTerm.write('\x1b[27u')
+await sleep(100)
+queueTerm.write('\x03')
+await sleep(100)
+queueTerm.write('\x03')
+await queueWait(() => queueExit !== null, 'queue terminal exit')
+await queueServer.close()
+if (queueExit !== 0 || !queueOut.includes('\x1b[?2004l') || !queueOut.includes('\x1b[?1004l')) {
+  console.error('FAIL: queue terminal did not restore terminal modes'); process.exit(1)
+}
+console.log('PTY_SMOKE_PASS exit=' + exitCode + ' draft-recovery=pass message-queue=pass')

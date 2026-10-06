@@ -49,6 +49,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 | Command | What it does |
 |---|---|
+| `/queue` | Review, edit, delete, and reorder pending human messages. |
 | `/steer <message>` | Guide the active turn before its next model step. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
@@ -77,9 +78,11 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/attachments` | Preview or externally open original file and image attachments from this session’s user messages. |
 | `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
 
-File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, and `E` uses the editor selected in Settings. Esc returns to the picker. Text previews are capped at 128 KiB; binary formats open in their application. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
+File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, and `E` uses the editor selected in Settings. Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
 
-Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`; Markdown files render as documents. Multiline comments and strings retain their syntax colors across lines. Unknown languages remain plain, and disabling colors preserves the source text.
+In source views, `/` or `Ctrl+F` opens a case-insensitive literal search over the loaded text; Enter keeps the query, `Ctrl+N`/`Ctrl+P` cycle through matching lines, and Esc cancels an edit without closing the reader. `G` or `Ctrl+G` jumps to a file line. Diff views show both line-number columns, use new-file line numbers for jumps, and navigate hunks with `[`/`]`; lines outside the displayed hunks cannot be reached. Text loads start at 128 KiB; `L` or **Load more** doubles the loaded prefix up to 4 MiB. Open reads the original beyond that limit; binary formats open in their application.
+
+Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
 Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. `/files` previews include sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **General → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 

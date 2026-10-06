@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- `/queue` and configurable `Alt+Q` manage individual guidance, follow-ups, and waiting submissions with live previews, text editing, deletion, and reordering. Edits retain attachments and the composer draft; tool questions take priority, and raced edits return as unsent drafts.
+
+- Unsent composer drafts survive session switches and restarts, retaining cursor positions, folded pastes, images, and file references. Sending or clearing input removes its saved draft; question answers and queued messages stay separate.
+
+- File and Diff source readers show line numbers, search loaded text, jump to file lines or diff hunks, retain reading positions across navigation and editor actions, and load text previews beyond 128 KiB up to 4 MiB. Markdown previews switch between source and rendered views.
+
+- Session Tree supports searchable local labels and a marked-node view that preserves ancestor paths. Session Library archives and restores sessions without deleting their logs or attachments; archived sessions stay available through direct resume and content search.
+
+- Long text pastes fold into editable blocks with original content retained through copying, undo, questions, and queued-message editing. Paste protection prevents embedded Enter keys from submitting recognized unmarked pastes.
+- `Alt+S` sends text guidance to the active Turn’s next model step, keeps rejected drafts, and distinguishes guidance from next-turn follow-ups. `Alt+I` expands pasted blocks; both shortcuts are configurable.
+- Notifications can be limited to unfocused terminals, coalesce event bursts, and prioritize requests for input and failures over completion.
+
 - Mouse text selection works alongside transcript scrolling in folded and expanded views, with word/line selection and optional copying on release. Settings controls mouse ownership and automatic copying; Auto respects tmux mouse off.
 - Context style in Settings selects percentage, an occupancy bar, used/window tokens, or detailed values. Context occupancy defaults to percentage only.
 - Double Escape and `/tree` open a searchable Session Tree with forks at their conversation boundaries, current-branch markers, and responsive content previews. Enter prepares a branch from a historical Turn or continues a branch; `Alt+Enter` continues the selected node’s branch. Browsing and cancellation preserve the active conversation and draft.

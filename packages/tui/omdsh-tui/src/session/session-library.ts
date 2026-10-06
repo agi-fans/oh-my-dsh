@@ -1,10 +1,58 @@
-/** Product-owned ordering metadata for the durable Session Library. */
+/** Local pins, archives and tree labels; conversation logs remain Harness-owned. */
 
 import type { TuiRecentSession } from '../definition.ts'
 import { readJsonFile, writeJsonAtomic } from './json-file.ts'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
-interface SessionLibraryDocument {
+export interface SessionLibraryDocument {
   readonly pinned: readonly string[]
+  readonly archived: readonly string[]
+  readonly labels: Readonly<Record<string, string>>
+}
+
+export function sessionLibraryPath(stateDir?: string): string {
+  const home = process.env.OMDSH_HOME ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  return join(stateDir ?? join(home, 'omdsh'), 'session-library.json')
+}
+
+/** One-line labels remain readable in the tree and its search field. */
+function normalizeSessionLabel(value: string): string {
+  const label = value.replace(/[\s\x00-\x1f\x7f-\x9f]+/gu, ' ').trim()
+  if ([...label].length > 120) throw new Error('Keep the label within 120 characters.')
+  return label
+}
+
+export function readSessionLibrary(path: string): SessionLibraryDocument {
+  const parsed = readJsonFile(path) as Partial<SessionLibraryDocument> | undefined
+  const labels: Record<string, string> = Object.create(null) as Record<string, string>
+  if (typeof parsed?.labels === 'object' && parsed.labels !== null && !Array.isArray(parsed.labels)) {
+    for (const [id, value] of Object.entries(parsed.labels)) {
+      if (id.trim() === '' || typeof value !== 'string') continue
+      try {
+        const label = normalizeSessionLabel(value)
+        if (label !== '') labels[id] = label
+      } catch { /* malformed stored labels do not prevent browsing */ }
+    }
+  }
+  return { pinned: validIds(parsed?.pinned), archived: validIds(parsed?.archived), labels }
+}
+
+/** Re-read before each mutation so independent views preserve one another's metadata. */
+export function updateSessionLibrary(path: string, update: (current: SessionLibraryDocument) => SessionLibraryDocument): SessionLibraryDocument {
+  const next = update(readSessionLibrary(path))
+  writeJsonAtomic(path, next)
+  return next
+}
+
+export function setSessionLabel(path: string, id: string, value: string): SessionLibraryDocument {
+  const label = normalizeSessionLabel(value)
+  return updateSessionLibrary(path, current => {
+    const labels = { ...current.labels }
+    if (label === '') delete labels[id]
+    else labels[id] = label
+    return { ...current, labels }
+  })
 }
 
 /**
@@ -66,15 +114,6 @@ export function readRecentRows(path: string): Map<string, SessionRowMemo> {
 /** Write the memo document atomically so the next process reuses these rows. */
 export function writeRecentRows(path: string, rows: ReadonlyMap<string, SessionRowMemo>): void {
   writeJsonAtomic(path, { rows: Object.fromEntries(rows) })
-}
-
-export function readPinnedSessions(path: string): string[] {
-  const parsed = readJsonFile(path) as Partial<SessionLibraryDocument> | undefined
-  return validIds(parsed?.pinned)
-}
-
-export function writePinnedSessions(path: string, pinned: readonly string[]): void {
-  writeJsonAtomic(path, { pinned: validIds(pinned) })
 }
 
 export function togglePinnedSession(pinned: readonly string[], id: string): string[] {

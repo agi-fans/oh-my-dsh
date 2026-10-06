@@ -107,7 +107,7 @@ describe('interactive turn comparison', () => {
     try {
       const result = await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/diff turn 4', [], new AbortController().signal)
       expect(result?.result).toEqual({ kind: 'success' })
-      expect(requests[1]!.detail).toContain('-original')
+      expect(requests[1]!.documentSource).toMatchObject({ diff: true, text: expect.stringContaining('-original') })
       expect(calls[0]!.slice(0, 3)).toEqual([session.id, retained.seq, 0])
     } finally { await ctx.fiber.dispose() }
   })
@@ -156,8 +156,8 @@ describe('interactive workspace comparison from a subdirectory', () => {
       const result = await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, `/diff ${target}`, [], new AbortController().signal)
       expect(result?.result).toEqual({ kind: 'success' })
       const documentStart = target === '' ? 1 : 0
-      expect(requests[documentStart]?.detail).toContain(expected)
-      expect(requests[documentStart + 1]?.detail).toContain(expected)
+      expect(requests[documentStart]?.documentSource?.text).toContain(expected)
+      expect(requests[documentStart + 1]?.documentSource?.text).toContain(expected)
       expect(openFileInEditor).toHaveBeenCalledWith(join(root, path))
     } finally {
       await ctx.fiber.dispose()

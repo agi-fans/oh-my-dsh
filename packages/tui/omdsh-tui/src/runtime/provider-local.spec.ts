@@ -1533,7 +1533,7 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     // No readline in flight — the runner is busy driving a turn.
     press(term, 'typed during turn\r')
-    expect(stripAnsi(term.captured)).toContain('│ Queued · typed during turn')
+    expect(stripAnsi(term.captured)).toContain('│ Queued · next turn · typed during turn')
     expect(stripAnsi(term.captured)).toContain('↑ edit')
     const next = tui.readline()
     expect(await next).toBe('typed during turn')
@@ -1543,11 +1543,11 @@ describe('LocalTui (tty)', () => {
   it('restores the newest queued line into an empty composer with up arrow', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    press(term, 'first queued\rsecond queued\r')
+    for (const message of ['first queued', 'second queued']) press(term, message + '\r')
     expect(stripAnsi(term.captured)).toContain('Queued · 2')
     press(term, '\x1b[A')
     const restored = stripAnsi(term.captured)
-    expect(restored).toContain('│ Queued · first queued')
+    expect(restored).toContain('│ Queued · next turn · first queued')
     expect(restored).toContain('second queued')
     const next = tui.readline()
     expect(await next).toBe('first queued')
@@ -1557,7 +1557,7 @@ describe('LocalTui (tty)', () => {
   it('walks backward through queued lines with repeated up arrows without reordering them', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    press(term, 'first queued\rsecond queued\rthird queued\r')
+    for (const message of ['first queued', 'second queued', 'third queued']) press(term, message + '\r')
 
     press(term, '\x1b[A\x1b[A!\r')
 
@@ -1909,7 +1909,7 @@ describe('LocalTui (tty)', () => {
     }
   })
 
-  it('uses the durable turn ending reason in terminal notifications', () => {
+  it('uses the durable turn ending reason in terminal notifications', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.applyStoredPrefs({
@@ -1924,6 +1924,7 @@ describe('LocalTui (tty)', () => {
     tui.event(ev('turn/start', { turn: 1 }, 1))
     tui.event(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 2))
 
+    await new Promise(resolve => setTimeout(resolve, 40))
     expect(term.captured).toContain('omdsh needs attention: Output token limit reached after 0s')
     tui.dispose()
   })
@@ -2811,10 +2812,12 @@ describe('LocalTui (tty)', () => {
       terminalProgress: false,
       copyOnSelect: true,
       mouseInteraction: 'auto',
+      pasteProtection: true,
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
       notificationThreshold: '30s',
+      notificationFocus: 'unfocused',
       statusBar: {
         enabled: true,
         labels: 'compact',
@@ -3779,6 +3782,103 @@ describe('LocalTui (plain)', () => {
 
 
 describe('document and file interaction', () => {
+  it.each([false, true])('searches source lines, cycles through bottom matches and restores the composer (color=%s)', async color => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', color)
+    const position = vi.fn()
+    try {
+      press(term, 'draft 中文🐳')
+      await flushAsyncPaste()
+      const text = Array.from({ length: 60 }, (_, at) => at === 20 || at === 59 ? `literal [a.*] ${at}` : `line ${at}`).join('\n')
+      const answer = tui.prompt({ title: 'Review', question: 'a.txt', presentation: 'document', documentSource: { text },
+        onDocumentPosition: position, options: [{ label: 'Editor', value: 'editor' }], actions: [{ key: 'e', label: 'editor', valuePrefix: 'editor' }] })
+      press(term, '/')
+      press(term, '[a.*]')
+      await flushAsyncPaste()
+      press(term, '\r')
+      let mark = term.captured.length
+      press(term, '\x0e')
+      expect(stripAnsi(term.captured.slice(mark))).toContain('2/2 matching lines')
+      mark = term.captured.length
+      press(term, '\x0e')
+      expect(stripAnsi(term.captured.slice(mark))).toContain('1/2 matching lines')
+      mark = term.captured.length
+      press(term, '\x10')
+      expect(stripAnsi(term.captured.slice(mark))).toContain('2/2 matching lines')
+      press(term, 'E')
+      await flushAsyncPaste()
+      expect(await answer).toBe('editor')
+      expect(position).toHaveBeenCalledWith({ row: expect.any(Number), wrap: 0, query: '[a.*]' })
+      const input = tui.readInput()
+      press(term, '\r')
+      expect(await input).toEqual({ text: 'draft 中文🐳', images: [] })
+      expect(term.captured).not.toContain('\x1b[3J')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps invalid line input editable, cancels search without dismissing, and retains source anchors on resize', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), abort = new AbortController()
+    const position = vi.fn(), settled = vi.fn()
+    try {
+      const text = Array.from({ length: 100 }, (_, at) => `row ${at + 1} ${'中文🐳 '.repeat(12)}`).join('\n')
+      const answer = tui.prompt({ title: 'Review', question: 'a.txt', presentation: 'document', documentSource: { text },
+        signal: abort.signal, onDocumentPosition: position, options: [{ label: 'Files' }] })
+      void answer.then(settled)
+      press(term, 'G')
+      await flushAsyncPaste()
+      press(term, '0\r')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('Enter a line number in this file.')
+      expect(settled).not.toHaveBeenCalled()
+      press(term, '\x15')
+      press(term, '42\r')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('Line 42/100')
+      let mark = term.captured.length
+      term.resize(100, 24)
+      expect(stripAnsi(term.captured.slice(mark))).toContain('Line 42/100')
+      press(term, '/')
+      press(term, 'row 99')
+      await flushAsyncPaste()
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(settled).not.toHaveBeenCalled()
+      mark = term.captured.length
+      press(term, '\x1b[B\x1b[B\x1b[B')
+      expect(stripAnsi(term.captured.slice(mark))).toContain('Line 43/100')
+      abort.abort()
+      expect(await answer).toBeNull()
+      expect(position.mock.calls[0]?.[0]).toMatchObject({ row: 42, query: '' })
+      expect(term.raw).toBe(true)
+    } finally { tui.dispose() }
+  })
+
+  it('jumps through retained diff hunks and uses new-file line numbers', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const position = vi.fn()
+    try {
+      const source = { diff: true, text: '@@ -1,30 +1,30 @@\n' + Array.from({ length: 30 }, (_, at) => ` context ${at}`).join('\n') + '\n@@ -80,2 +90,2 @@\n-old\n+new\n end\n' }
+      const answer = tui.prompt({ title: 'Diff', question: 'a.ts', presentation: 'document', documentSource: source,
+        onDocumentPosition: position, options: [{ label: 'Files' }] })
+      press(term, ']')
+      await flushAsyncPaste()
+      let mark = term.captured.length
+      press(term, ']')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured.slice(mark))).toContain('Diff row 1/35')
+      press(term, 'G')
+      await flushAsyncPaste()
+      press(term, '50\r')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('Enter a new-file line shown in this diff.')
+      press(term, '\x15')
+      press(term, '90\r')
+      await flushAsyncPaste()
+      press(term, '\r')
+      expect(await answer).toBe('Files')
+      expect(position).toHaveBeenCalledWith({ row: expect.any(Number), wrap: 0, query: '' })
+    } finally { tui.dispose() }
+  })
+
   it('keeps browsing quiet while attention notifications remain enabled for questions', async () => {
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
@@ -3790,6 +3890,7 @@ describe('document and file interaction', () => {
       await document
       expect(term.captured.slice(before)).not.toContain('\x1b]9;')
       const question = tui.prompt({ title: 'Question', question: 'Input required', options: [{ label: 'Yes' }] })
+      await new Promise(resolve => setTimeout(resolve, 40))
       expect(term.captured.slice(before)).toContain('\x1b]9;')
       press(term, '\r')
       await question
@@ -3928,4 +4029,260 @@ it('persists the selected editor and uses it for both file and prompt editing', 
       expect(fileEditor).toHaveBeenLastCalledWith('/workspace/b.ts', 'code')
     } finally { second.dispose() }
   } finally { tui.dispose(); choices.mockRestore(); fileEditor.mockRestore(); promptEditor.mockRestore() }
+})
+
+describe('composer paste and steering', () => {
+  const source = Array.from({ length: 12 }, (_, i) => `line ${i} 中文 🐳`).join('\n')
+  it('keeps folded original text through browsing prompts, copying, and queue editing', async () => {
+    const term = new FakeTerminal(), copied: string[] = []
+    const tui = new LocalTui(term, 'm', false, 'dark', value => { copied.push(value) })
+    try {
+      press(term, '\x1b[200~' + source + '\x1b[201~')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('[Pasted #1: 12 lines]')
+      const question = tui.prompt({ question: 'Confirm', options: [{ label: 'Yes' }] })
+      press(term, '\r')
+      await question
+      press(term, '\x1bc')
+      await flushAsyncPaste()
+      expect(copied).toEqual([source])
+      press(term, '\r')
+      press(term, '\x1b[A\r')
+      expect((await tui.readInput())?.text).toBe(source)
+    } finally { tui.dispose() }
+  })
+
+  it('expands the folded block for editing and retains original text on undo', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      press(term, '\x1b[200~' + source + '\x1b[201~')
+      await flushAsyncPaste()
+      press(term, '\x1bi!\x1f\r')
+      expect((await tui.readInput())?.text).toBe(source)
+    } finally { tui.dispose() }
+  })
+
+  it('keeps pasted slash-prefixed source literal through queued draft restoration', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const original = '/clear\n' + source
+    try {
+      press(term, '\x1b[200~' + original + '\x1b[201~')
+      await flushAsyncPaste()
+      press(term, '\r')
+      const submission = await tui.readInput()
+      expect(submission).toMatchObject({ text: original, literal: true })
+      tui.restoreInput(submission!)
+      press(term, '\r')
+      expect(await tui.readInput()).toMatchObject({ text: original, literal: true })
+    } finally { tui.dispose() }
+  })
+
+  it('guards legacy multiline paste and submits only after a later intentional Enter', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      const received = vi.fn()
+      const pending = tui.readInput().then(received)
+      press(term, 'first line\rsecond line\r')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(received).not.toHaveBeenCalled()
+      press(term, '\r')
+      await pending
+      expect(received.mock.calls[0]?.[0]?.text).toBe('first line\nsecond line\n')
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+
+  it('can disable legacy detection without disabling explicit paste safety', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, pasteProtection: false })
+      press(term, 'one\rtwo\r')
+      expect((await tui.readInput())?.text).toBe('one')
+      expect((await tui.readInput())?.text).toBe('two')
+      press(term, '\x1b[200~a\nb\x1b[201~')
+      await flushAsyncPaste()
+      press(term, '\r')
+      expect((await tui.readInput())?.text).toBe('a\nb')
+    } finally { tui.dispose() }
+  })
+
+  it('uses acknowledged steering without consuming the next-turn reader, while Enter still queues', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), accepted: string[] = []
+    try {
+      tui.setStatus('running')
+      tui.setSteerHandler(text => { accepted.push(text) })
+      const nextTurn = tui.readInput()
+      press(term, 'correct course\x1bs')
+      expect(accepted).toEqual(['correct course'])
+      press(term, 'next task\r')
+      expect((await nextTurn)?.text).toBe('next task')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps a rejected steering draft, including when the active turn just ended', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.setStatus('running')
+      const release = tui.setSteerHandler(() => { throw new Error('Turn already ended') })
+      press(term, 'keep my text\x1bs')
+      expect(stripAnsi(term.captured)).toContain('Turn already ended')
+      release()
+      press(term, '\r')
+      expect((await tui.readInput())?.text).toBe('keep my text')
+    } finally { tui.dispose() }
+  })
+
+  it('does not route steering from a selector or silently lose attachments', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), handler = vi.fn()
+    try {
+      tui.setStatus('running')
+      tui.setSteerHandler(handler)
+      const modal = tui.prompt({ question: 'Choose', options: [{ label: 'Yes' }] })
+      press(term, '\x1bs\r')
+      await modal
+      expect(handler).not.toHaveBeenCalled()
+      tui.restoreInput({ text: 'attached', images: [], files: [
+        { attachmentId: AttachmentId('file-steer'), name: 'a.txt', bytes: 1 } as never,
+      ] })
+      press(term, '\x1bs')
+      expect(handler).not.toHaveBeenCalled()
+      expect(stripAnsi(term.captured).replace(/\s+/gu, ' ')).toContain('steering accepts text only')
+      press(term, '\r')
+      expect((await tui.readInput())?.files).toHaveLength(1)
+    } finally { tui.dispose() }
+  })
+})
+
+describe('focus-aware notifications', () => {
+  it('suppresses focused notifications, coalesces attention first, and restores focus reporting on exit', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'unfocused' })
+      expect(term.captured).toContain('\x1b[?1004h')
+      press(term, '\x1b[I')
+      tui.event(ev('turn/start', { turn: 1 }, 100))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 200))
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured).not.toContain('\x1b]9;')
+      press(term, '\x1b[O')
+      const question = tui.prompt({ question: 'Approval required', options: [{ label: 'Yes' }] })
+      tui.event(ev('turn/start', { turn: 2 }, 300))
+      tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 400))
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+      expect(term.captured).toContain('omdsh needs attention: Input required')
+      press(term, '\r')
+      await question
+    } finally { tui.dispose(); vi.useRealTimers() }
+    expect(term.captured).toContain('\x1b[?1004l')
+  })
+
+  it('drops pending notifications when focus returns or the provider is disposed', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
+      press(term, '\x1b[O')
+      tui.event(ev('turn/start', { turn: 1 }, 1))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
+      press(term, '\x1b[I')
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured).not.toContain('\x1b]9;')
+      press(term, '\x1b[O')
+      tui.event(ev('turn/start', { turn: 2 }, 3))
+      tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 4))
+      tui.dispose()
+      const output = term.captured
+      await vi.advanceTimersByTimeAsync(100)
+      expect(term.captured).toBe(output)
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+
+  it('allows an explicit always-focus preference and falls back when reports are unavailable', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'unfocused' })
+      const question = tui.prompt({ question: 'Input', options: [{ label: 'Yes' }] })
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+      press(term, '\r')
+      await question
+      press(term, '\x1b[I')
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'always' })
+      tui.event(ev('turn/start', { turn: 1 }, 1))
+      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(2)
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+})
+
+it('releases focus reports for a suspended terminal and restores them on resume without leaking listeners', () => {
+  if (process.platform === 'win32') return
+  const before = process.listenerCount('SIGCONT')
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
+  try {
+    press(term, '\x1a')
+    expect(term.captured).toContain('\x1b[?1004l')
+    process.emit('SIGCONT')
+    expect(term.captured.match(/\x1b\[\?1004h/gu)).toHaveLength(2)
+  } finally { kill.mockRestore(); tui.dispose() }
+  expect(process.listenerCount('SIGCONT')).toBe(before)
+})
+
+it('uses original pasted source in the external editor and retains slash-literal intent after expansion', async () => {
+  const original = '/clear\n' + 'source line\n'.repeat(12)
+  const edit = vi.spyOn(externalEditor, 'editExternally').mockImplementation(text => text)
+  try {
+    for (const shortcut of ['\x1bi', '\x18']) {
+      const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+      try {
+        press(term, '\x1b[200~' + original + '\x1b[201~')
+        await flushAsyncPaste()
+        press(term, shortcut + '\r')
+        expect(await tui.readInput()).toMatchObject({ text: original, literal: true })
+      } finally { tui.dispose() }
+    }
+    expect(edit).toHaveBeenCalledWith(original, 'auto')
+  } finally { edit.mockRestore() }
+})
+
+it('preserves tabs and normalizes CRLF once when bracketed paste spans reads', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    press(term, '\x1b[200~\tfirst\r')
+    press(term, '\n\tsecond\r\n\x1b[201~')
+    await flushAsyncPaste()
+    press(term, '\r')
+    expect((await tui.readInput())?.text).toBe('\tfirst\n\tsecond\n')
+  } finally { tui.dispose() }
+})
+
+
+describe('list-wide prompt actions', () => {
+  it.each(['fullscreen-list', 'fullscreen-tree'] as const)('keeps list actions working with no match in %s', async presentation => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      tui.restoreInput({ text: 'Preserve the draft 🐳', images: [] })
+      const request = { title: 'Library', question: '', presentation, filterable: true, allowCustom: false,
+        actions: [{ key: 'Alt+A', label: 'archive', valuePrefix: 'archive:' },
+          { key: 'Alt+V', label: 'switch view', valuePrefix: 'view:', scope: 'list' as const }], options: [] }
+      const pending = tui.prompt(request)
+      const history = term.scrollback()
+      press(term as never, 'no match\x1ba')
+      expect(term.visible().join('\n')).toContain('Library')
+      press(term as never, '\x1bv')
+      expect(await pending).toBe('view:')
+      expect(term.visible().join('\n')).toContain('Preserve the draft 🐳')
+      expect(term.scrollback()).toEqual(history)
+      const populated = tui.prompt({ ...request, options: [{ label: '中文会话 🐳', value: 'session-a' }] })
+      press(term as never, '中文\x1ba')
+      expect(await populated).toBe('archive:session-a')
+      expect(term.visible().join('\n')).toContain('Preserve the draft 🐳')
+    } finally { tui.dispose() }
+  })
 })

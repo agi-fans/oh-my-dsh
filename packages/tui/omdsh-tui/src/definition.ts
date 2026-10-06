@@ -60,6 +60,21 @@ export interface TuiNoticeOptions extends TuiOutputOptions {
   job?: { id: string; label: string; startedAt: number; status: 'completed' | 'failed' | 'killed'; detail?: string }
 }
 
+/** Source text inspected without Markdown interpreting its syntax. */
+export interface TuiDocumentSource {
+  readonly text: string
+  readonly language?: string
+  readonly diff?: boolean
+  readonly status?: string
+}
+
+/** Source row and wrapped continuation retained across reader actions and resizing. */
+export interface TuiDocumentPosition {
+  row: number
+  wrap: number
+  query: string
+}
+
 /** One terminal-owned human prompt used by approval and question adapters. */
 export interface TuiPrompt {
   title: string
@@ -86,13 +101,19 @@ export interface TuiPrompt {
     /** Optional semantic badge painted after the description. */
     badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
   }[]
-  /** Text actions require an empty filter; full-screen trees also accept key chords. */
+  /** Text actions require an empty filter; full-screen lists and trees also accept key chords. */
   actions?: readonly {
     key: string
     label: string
     /** Prefix returned before the selected option value. */
     valuePrefix: string
+    /** List actions return only their prefix, including when no option is selected. */
+    scope?: 'selection' | 'list'
   }[]
+  /** Initial editable text for a text-only prompt. */
+  initialInput?: string
+  /** Keep indentation and trailing newlines when editing message text. */
+  preserveWhitespace?: boolean
   multiSelect?: boolean
   allowCustom?: boolean
   /** Mask custom input while retaining the real value only in the prompt editor. */
@@ -105,8 +126,17 @@ export interface TuiPrompt {
   notify?: boolean
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
   refreshDocument?: () => string
+  /** Refresh live choices; option values identify retained selection. */
+  refreshOptions?: () => NonNullable<TuiPrompt['options']>
+  /** Yield this reading surface to an attention-requesting prompt and recover any entered text. */
+  onSuperseded?: (input: string) => void
   /** Open a live document at its latest rows. */
   documentTail?: boolean
+  /** Source reader with line numbers, search, and diff navigation. */
+  documentSource?: TuiDocumentSource
+  documentPosition?: TuiDocumentPosition
+  /** Called on dismissal or action activation with the last visible source position. */
+  onDocumentPosition?: (position: TuiDocumentPosition) => void
   /** Row density for full-screen lists; compact rows keep short choices together. */
   optionLayout?: 'compact' | 'spacious'
   /** Choice that approves a dedicated review; other choices may collect feedback. */
@@ -270,6 +300,8 @@ export interface TuiSubmission {
   text: string
   images: readonly TuiInputImage[]
   files?: readonly FileAttachmentRef[]
+  /** Send pasted source as message text even when its first character is a slash. */
+  literal?: boolean
 }
 
 /** Product-owned language preference projected into the settings overlay. */
@@ -282,6 +314,12 @@ export interface TuiAgentBehaviorSettingsBinding {
   get(): TuiAgentBehaviorSettings
   update(next: TuiAgentBehaviorSettings): Promise<void>
   watch(listener: (next: TuiAgentBehaviorSettings) => void): () => void
+}
+
+/** Terminal submissions waiting for dispatch, separate from durable Agent inbox input. */
+export interface TuiPendingInputs {
+  list(): readonly { id: string; submission: TuiSubmission }[]
+  update(id: string, change: { kind: 'replace'; submission: TuiSubmission } | { kind: 'remove' } | { kind: 'move'; direction: -1 | 1 }): boolean
 }
 
 /**
@@ -395,6 +433,11 @@ export interface TuiService {
    * @returns disposer removing the listener.
    */
   onQueueEdit(listener: () => void): () => void
+  /** Bind synchronous guidance admission; a rejected draft stays in the composer. */
+  setSteerHandler(handler: (text: string) => void): () => void
+  readonly pendingInputs: TuiPendingInputs
+  /** Open message management through the session owner without submitting the composer. */
+  setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void
   /**
    * Subscribe to the idle double-Escape gesture that opens conversation rewind.
    * @returns disposer removing the listener.

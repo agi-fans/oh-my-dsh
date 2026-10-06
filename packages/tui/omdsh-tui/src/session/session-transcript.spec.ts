@@ -12,6 +12,7 @@ import SessionStore, { SessionId, SessionLogOffset, type SessionEvent, type Crea
 import { stripAnsi } from '../chrome/width.ts'
 import { LocalTui, type TerminalLike } from '../runtime/provider-local.ts'
 import { SessionRuntime } from './session-controller.ts'
+import { readSessionLibrary, setSessionLabel, updateSessionLibrary } from './session-library.ts'
 import * as commandTrajectory from '../commands/trajectory.ts'
 import { registerCommands } from '../commands/registration.ts'
 
@@ -108,7 +109,7 @@ async function fixture(tty = false, durableRoot?: string) {
     output: { isTTY: tty, write: (chunk: string) => { output += chunk; terminal?.output.write(chunk) } },
     width: () => 80, height: () => 20,
   }, 'm', false, 'dark', async () => {}, { deferInitialRender: tty })
-  const runtime = new SessionRuntime(ctx, tui)
+  const runtime = new SessionRuntime(ctx, tui, durableRoot === undefined ? {} : { stateDir: join(durableRoot, 'omdsh') })
   return {
     ctx, runtime, tui, input, terminal,
     output: () => output,
@@ -383,4 +384,140 @@ describe('session transcript boundaries', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('labels and filters turns through the real TTY without changing logs, scrollback or the draft', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-tree-labels-'))
+    const f = await fixture(true, root)
+    try {
+      await f.runtime.start()
+      const original = f.runtime.agent!
+      for (const [number, text] of [[1, 'First request'], [2, 'Important request'], [3, 'Later request']] as const) {
+        original.session.append('turn/start', { turn: number })
+        original.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }), { surfaceOp: 'append' })
+        original.session.append('turn/end', { turn: number, reason: { kind: 'completed' } })
+      }
+      const events = original.session.snapshotEvents()
+      const history = f.terminal!.scrollback()
+      f.tui.restoreInput({ text: 'Keep my draft 🐳', images: [] })
+      const prompt = vi.spyOn(f.tui, 'prompt')
+      const pending = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+      f.input.write('\x1b[A\x1bl')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+      expect(prompt.mock.calls[1]![0]).toMatchObject({ title: 'Label Conversation Node', question: expect.stringContaining('Important request') })
+      f.input.write('检查点 🐳\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+      expect(f.terminal!.visible().join('\n')).toContain('检查点 🐳')
+      f.input.write('\x1bb')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(4))
+      const marked = prompt.mock.calls[3]![0]
+      expect(marked.title).toBe('Session Tree · Marked')
+      expect(marked.options?.map(option => option.label).join('\n')).not.toContain('Later request')
+      expect(marked.options?.map(option => option.label).join('\n')).toContain('First request')
+      f.input.write('\x03')
+      await pending
+      expect(f.runtime.agent).toBe(original)
+      expect(original.session.snapshotEvents()).toEqual(events)
+      expect(f.terminal!.scrollback()).toEqual(history)
+      expect(f.terminal!.visible().join('\n')).toContain('Keep my draft 🐳')
+      const path = join(root, 'omdsh', 'session-library.json')
+      expect(readSessionLibrary(path).labels).toEqual({ [`turn:${original.id}:4`]: '检查点 🐳' })
+
+      prompt.mockClear()
+      const reopened = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+      expect(prompt.mock.calls[0]![0].options?.map(option => option.label).join('\n')).toContain('检查点 🐳')
+      f.input.write('检查点\x1bu')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+      expect(readSessionLibrary(path).labels).toEqual({})
+      f.input.write('\x1bb')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+      expect(prompt.mock.calls[2]![0].options).toEqual([])
+      f.input.write('\x1bb')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(4))
+      expect(prompt.mock.calls[3]![0].options).toHaveLength(4)
+      f.input.write('\x03')
+      await reopened
+      expect(original.session.snapshotEvents()).toEqual(events)
+      expect(f.runtime.agent).toBe(original)
+      expect(f.terminal!.scrollback()).toEqual(history)
+      expect(f.terminal!.visible().join('\n')).toContain('Keep my draft 🐳')
+    } finally {
+      await f.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+
+  it('keeps archived sessions durable while omitting them from recent-session chrome', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-session-archive-'))
+    const f = await fixture(true, root)
+    try {
+      await f.runtime.start()
+      const durable = f.ctx.sessions.create(SessionId('archivable'))
+      durable.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Finished work' }] }), { surfaceOp: 'append' })
+      const events = durable.snapshotEvents()
+      const handle = await f.ctx.sessionPersistence.create(durable.header)
+      await handle.append(events)
+      await handle.close()
+      const publish = vi.spyOn(f.tui, 'setSession')
+      await f.runtime.refreshRecent()
+      expect(publish.mock.calls.at(-1)![0].recent).toContainEqual(expect.objectContaining({ id: durable.id }))
+      updateSessionLibrary(f.runtime.sessionLibraryPath, current => ({ ...current, archived: [durable.id] }))
+      await f.runtime.refreshRecent()
+      expect(f.runtime.recentSessions).toContainEqual(expect.objectContaining({ id: durable.id }))
+      expect(publish.mock.calls.at(-1)![0].recent).not.toContainEqual(expect.objectContaining({ id: durable.id }))
+      updateSessionLibrary(f.runtime.sessionLibraryPath, current => ({ ...current, archived: [] }))
+      await f.runtime.refreshRecent()
+      expect(publish.mock.calls.at(-1)![0].recent).toContainEqual(expect.objectContaining({ id: durable.id }))
+      expect(durable.snapshotEvents()).toEqual(events)
+      expect((await f.ctx.sessionPersistence.list()).map(row => row.header.id)).toContain(durable.id)
+    } finally {
+      await f.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a cancelled label and retains an invalid edit for correction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-label-validation-'))
+    const f = await fixture(true, root)
+    try {
+      await f.runtime.start()
+      const original = f.runtime.agent!
+      original.session.append('turn/start', { turn: 1 })
+      original.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Request' }] }), { surfaceOp: 'append' })
+      original.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      const id = `turn:${original.id}:1`
+      setSessionLabel(f.runtime.sessionLibraryPath, id, 'Existing label')
+      const prompt = vi.spyOn(f.tui, 'prompt')
+      const events = original.session.snapshotEvents()
+      f.tui.restoreInput({ text: 'Keep the composer', images: [] })
+      const pending = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+      f.input.write('\x1bl')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+      expect(f.terminal!.visible().join('\n')).toContain('Existing label')
+      f.input.write('\x03')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+      expect(readSessionLibrary(f.runtime.sessionLibraryPath).labels[id]).toBe('Existing label')
+      f.input.write('\x1bl')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(4))
+      f.input.write('\x15' + '🐳'.repeat(121) + '\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(5))
+      expect(prompt.mock.calls[4]![0]).toMatchObject({ initialInput: '🐳'.repeat(121), detail: expect.stringContaining('120 characters') })
+      expect(readSessionLibrary(f.runtime.sessionLibraryPath).labels[id]).toBe('Existing label')
+      f.input.write('\x15修正后的标记\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(6))
+      f.input.write('\x03')
+      await pending
+      expect(readSessionLibrary(f.runtime.sessionLibraryPath).labels[id]).toBe('修正后的标记')
+      expect(f.runtime.agent).toBe(original)
+      expect(original.session.snapshotEvents()).toEqual(events)
+      expect(f.terminal!.visible().join('\n')).toContain('Keep the composer')
+    } finally {
+      await f.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
 })

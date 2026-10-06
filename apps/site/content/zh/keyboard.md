@@ -33,9 +33,16 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+-` | 撤销上一次编辑。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
+| `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
+| `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
+| `Alt+S` | 将文本纠正消息送到当前 Turn 的下一次模型步骤。 |
 | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
 | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
+
+超过十行或 1,000 个字符的粘贴内容显示为 `[Pasted #1: 120 lines]` 或字符数标记。方向键和删除操作将每段内容视为一个整体；`Alt+I` 展开光标所在或附近的粘贴块进行编辑，`Ctrl+-` 可撤销插入、删除或展开。复制提示、使用外部编辑器和发送消息时均使用完整文本。临时问答和队列消息编辑保留原文。以折叠粘贴块开头的草稿会作为模型消息发送，即使原文以 `/` 开头。
+
+**Paste protection** 还会在终端未标记粘贴输入时识别大段文本、一次读取中的多行内容和快速 ASCII 按键流，避免其中的 Enter 提前提交消息。粘贴结束后稍等，再按 Enter 发送。普通输入和单次输入法提交立即显示。这属于启发式识别；如果影响你使用的终端，可在 Settings 中关闭。关闭后，明确标记的 bracketed paste 仍然不会触发误提交。
 
 ## 转录
 
@@ -65,6 +72,8 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 全屏页面暂时关闭应用鼠标接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
 
+文件和 Diff 的源码阅读器用 `/` 或 `Ctrl+F` 搜索已加载文本，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，`G` 或 `Ctrl+G` 跳到文件行号。`[`／`]` 切换 Diff 变更块；提供相应按钮时，`L` 加载更多文本，`M` 切换 Markdown 渲染。Enter 应用搜索或行号输入，Esc 先取消输入，再返回文件列表。预览上限和视图行为见[文件命令](commands.md)。
+
 ## 会话
 
 | 快捷键 | 作用 |
@@ -92,7 +101,8 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `↑`/`↓`、`Home`/`End`、`PgUp`/`PgDn` 导航，`Enter` 打开详情，`Tab`/`←`/`→` 切换分区，`/` 搜索，`n`/`N` 与 `Ctrl+N`/`Ctrl+P` 跳转匹配，`t` 折叠回合，`c` 折叠调用，`Esc`/`Ctrl+C` 关闭。 |
-| Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
+| Session Library | 清空搜索后 `p` 置顶／取消置顶、`r` 重命名；`Alt+A` 归档／恢复选中会话，`Alt+V` 切换默认／归档列表，列表为空或正在搜索时也可切换。 |
+| Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Alt+L` 添加标记，`Alt+U` 清除标记，`Alt+B` 切换已标记节点，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
 | 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
 
 可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/sessions <query>` 保留各自的搜索规则。
@@ -112,6 +122,9 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 
 | Action id | 默认键 | 作用 |
 |---|---|---|
+| `expand-paste` | `Alt+I` | 展开粘贴块进行编辑。 |
+| `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
+| `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |
 | `external-editor` | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 重试最近一条人类提示。 |
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |

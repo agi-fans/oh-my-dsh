@@ -84,6 +84,27 @@ export class TerminalNotificationController {
   }
 }
 
+export type NotificationFocus = 'always' | 'unfocused'
+
+/** Keep one notification per event burst, with input requests and failures first. */
+export class TerminalNotificationQueue {
+  #pending: TerminalNotification | undefined
+
+  offer(notification: TerminalNotification): void {
+    if (this.#pending?.title === 'omdsh needs attention' && notification.title !== 'omdsh needs attention') return
+    this.#pending = notification
+  }
+
+  clear(): void { this.#pending = undefined }
+
+  take(condition: NotificationFocus, focused: boolean | undefined): TerminalNotification | undefined {
+    const pending = this.#pending
+    this.clear()
+    // A terminal without focus reports retains the existing notification behavior.
+    return condition === 'unfocused' && focused === true ? undefined : pending
+  }
+}
+
 function cleanNotificationText(value: string): string {
   return value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240)
 }

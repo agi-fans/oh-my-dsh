@@ -5,6 +5,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { diffChars } from 'diff'
 import type { KeyEvent } from './keys.ts'
 import { moveGraphemeLeft, moveGraphemeRight, snapToGraphemeBoundary } from '../chrome/grapheme.ts'
 
@@ -28,10 +29,15 @@ export type EditorCommand =
   | { kind: 'resetDisplay' }
   | { kind: 'ignored' }
 
+interface PasteAtom { start: number; end: number; content: string }
+
 interface Snapshot {
   text: string
   cursor: number
+  pastes: PasteAtom[]
 }
+
+export type EditorSnapshot = Snapshot
 
 /** Emacs-style kill ring (consecutive kills accumulate). */
 export class KillRing {
@@ -118,7 +124,10 @@ function moveLine(text: string, cursor: number, dir: -1 | 1): number | undefined
  * Multiline input buffer with OMP editor bindings.
  */
 export class InputEditor {
+  #pastes: PasteAtom[] = []
+  #pasteId = 0
   #text = ''
+  #revision = 0
   #cursor = 0
   #undo: Snapshot[] = []
   #last: 'none' | 'kill' | 'yank' | 'insert' = 'none'
@@ -130,12 +139,111 @@ export class InputEditor {
     return this.#text
   }
 
+  get revision(): number { return this.#revision }
+
+  /** Original pasted content, for submission, clipboard, and external editing. */
+  get startsWithPaste(): boolean {
+    return this.#pastes.some(atom => atom.start === this.#text.length - this.#text.trimStart().length)
+  }
+
+  get expandedText(): string {
+    return this.textRange(0, this.#text.length)
+  }
+
+  /** Expand owned paste atoms in a visible-text range; literal lookalikes stay literal. */
+  textRange(start: number, end: number): string {
+    let result = ''
+    let cursor = start
+    for (const atom of this.#pastes) {
+      if (atom.start < start || atom.end > end) continue
+      result += this.#text.slice(cursor, atom.start) + atom.content
+      cursor = atom.end
+    }
+    return result + this.#text.slice(cursor, end)
+  }
+
+  #replaceRange(start: number, end: number, text: string): void {
+    this.#revision++
+    const delta = text.length - (end - start)
+    this.#pastes = this.#pastes.flatMap(atom => {
+      if (atom.end <= start) return [atom]
+      if (atom.start >= end) return [{ ...atom, start: atom.start + delta, end: atom.end + delta }]
+      return []
+    })
+    this.#text = this.#text.slice(0, start) + text + this.#text.slice(end)
+  }
+
+  /** Admit one paste as a single undoable edit, compacting large payloads. */
+  paste(text: string): void {
+    const lines = text.split('\n').length
+    const chars = [...text].length
+    if (lines <= 10 && chars <= 1000) { this.#insert(text); return }
+    this.#pushUndo()
+    const marker = `[Pasted #${++this.#pasteId}: ${lines > 10 ? `${lines} lines` : `${chars} chars`}]`
+    const start = this.#cursor
+    this.#replaceRange(start, start, marker)
+    this.#pastes.push({ start, end: start + marker.length, content: text })
+    this.#pastes.sort((a, b) => a.start - b.start)
+    this.#cursor += marker.length
+    this.#last = 'none'
+  }
+
+  /** Expand the paste at the caret, or the nearest preceding paste, for editing. */
+  expandPaste(): boolean {
+    const ranges = this.#pastes
+    const range = ranges.find(item => item.start <= this.#cursor && item.end >= this.#cursor)
+      ?? ranges.findLast(item => item.end <= this.#cursor) ?? ranges[0]
+    if (range === undefined) return false
+    this.#pushUndo()
+    const text = range.content
+    this.#replaceRange(range.start, range.end, text)
+    this.#cursor = range.start + text.length
+    this.#last = 'none'
+    return true
+  }
+
   get cursor(): number {
     return this.#cursor
   }
 
-  /** Replace the buffer (history recall). Clears undo. */
+  snapshot(): Snapshot {
+    return { text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })) }
+  }
+
+  restore(snapshot: Snapshot): void {
+    this.setText(snapshot.text, snapshot.cursor)
+    this.#pastes = snapshot.pastes.map(atom => ({ ...atom }))
+    for (const atom of this.#pastes) this.#pasteId = Math.max(this.#pasteId,
+      Number(/\[Pasted #(\d+):/u.exec(snapshot.text.slice(atom.start, atom.end))?.[1] ?? 0))
+  }
+
+  /** Replace visible text during completion or attachment edits, retaining live pastes. */
+  replaceText(text: string, cursor = text.length): void {
+    if (this.#pastes.length === 0) { this.setText(text, cursor); return }
+    const pastes: PasteAtom[] = []
+    let oldAt = 0
+    let newAt = 0
+    // Completion and image renumbering can alter several disjoint spans.
+    for (const change of diffChars(this.#text, text)) {
+      if (!change.added && !change.removed) {
+        for (const atom of this.#pastes) {
+          if (atom.start >= oldAt && atom.end <= oldAt + change.value.length) {
+            pastes.push({ ...atom, start: newAt + atom.start - oldAt, end: newAt + atom.end - oldAt })
+          }
+        }
+      }
+      if (!change.added) oldAt += change.value.length
+      if (!change.removed) newAt += change.value.length
+    }
+    this.setText(text, cursor)
+    this.#pastes = pastes
+    this.#cursor = this.#snapCursor(this.#cursor)
+  }
+
+  /** Replace the buffer (history recall). Clears undo and paste ownership. */
   setText(text: string, cursor = text.length): void {
+    this.#revision++
+    this.#pastes = []
     this.#text = text
     this.#cursor = this.#snapCursor(Math.max(0, Math.min(cursor, text.length)))
     this.#undo = []
@@ -153,8 +261,10 @@ export class InputEditor {
   /** Empty the buffer, keeping undo of the previous contents. */
   clear(): void {
     if (this.#text === '') return
+    this.#revision++
     this.#pushUndo()
     this.#text = ''
+    this.#pastes = []
     this.#cursor = 0
     this.#last = 'none'
   }
@@ -185,7 +295,7 @@ export class InputEditor {
   #handleKey(id: string): EditorCommand {
     switch (id) {
       case 'enter':
-        return { kind: 'submit', text: this.#text }
+        return { kind: 'submit', text: this.expandedText }
       case 'ctrl+j':
       case 'shift+enter':
       case 'alt+enter':
@@ -277,7 +387,7 @@ export class InputEditor {
   }
 
   #moveTo(cursor: number): EditorCommand {
-    const next = this.#snapCursor(Math.max(0, Math.min(this.#text.length, cursor)))
+    const next = this.#snapCursor(Math.max(0, Math.min(this.#text.length, cursor)), cursor < this.#cursor)
     if (next === this.#cursor) return { kind: 'changed' }
     this.#cursor = next
     this.#last = 'none'
@@ -285,12 +395,14 @@ export class InputEditor {
   }
 
   /** Snap a UTF-16 offset to the grapheme boundary it belongs to (forward). */
-  #snapCursor(cursor: number): number {
+  #snapCursor(cursor: number, backward = false): number {
+    const range = this.#pastes.find(item => item.start < cursor && item.end > cursor)
+    if (range !== undefined) return backward ? range.start : range.end
     return snapToGraphemeBoundary(this.#text, cursor)
   }
 
   #pushUndo(): void {
-    this.#undo.push({ text: this.#text, cursor: this.#cursor })
+    this.#undo.push({ text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })) })
     if (this.#undo.length > MAX_UNDO) this.#undo.shift()
   }
 
@@ -298,17 +410,19 @@ export class InputEditor {
     if (value === '') return
     const coalesce = this.#last === 'insert' && value.length === 1 && value !== '\n'
     if (!coalesce) this.#pushUndo()
-    this.#text = this.#text.slice(0, this.#cursor) + value + this.#text.slice(this.#cursor)
+    this.#replaceRange(this.#cursor, this.#cursor, value)
     this.#cursor += value.length
     this.#last = 'insert'
     this.#yankLen = 0
   }
 
   #deleteRange(start: number, end: number, direction: 'forward' | 'backward'): void {
+    start = this.#snapCursor(start, true)
+    end = this.#snapCursor(end)
     if (start >= end) return
     this.#pushUndo()
-    const killed = this.#text.slice(start, end)
-    this.#text = this.#text.slice(0, start) + this.#text.slice(end)
+    const killed = this.textRange(start, end)
+    this.#replaceRange(start, end, '')
     this.#cursor = start
     this.#kills.push(killed, { prepend: direction === 'backward', accumulate: this.#last === 'kill' })
     this.#last = 'kill'
@@ -367,12 +481,12 @@ export class InputEditor {
     if (this.#last !== 'yank' || this.#kills.length <= 1 || this.#yankLen === 0) return
     const start = this.#cursor - this.#yankLen
     if (start < 0) return
-    this.#text = this.#text.slice(0, start) + this.#text.slice(this.#cursor)
+    this.#replaceRange(start, this.#cursor, '')
     this.#cursor = start
     this.#kills.rotate()
     const next = this.#kills.peek()
     if (next === undefined) return
-    this.#text = this.#text.slice(0, this.#cursor) + next + this.#text.slice(this.#cursor)
+    this.#replaceRange(this.#cursor, this.#cursor, next)
     this.#cursor += next.length
     this.#yankLen = next.length
     this.#last = 'yank'
@@ -383,17 +497,19 @@ export class InputEditor {
     this.#last = 'none'
     if (dir === 'forward') {
       const at = this.#text.indexOf(char, this.#cursor + 1)
-      if (at >= 0) this.#cursor = at
+      if (at >= 0) this.#cursor = this.#snapCursor(at)
       return
     }
     if (this.#cursor === 0) return
     const at = this.#text.lastIndexOf(char, this.#cursor - 1)
-    if (at >= 0) this.#cursor = at
+    if (at >= 0) this.#cursor = this.#snapCursor(at, dir === 'backward')
   }
 
   #applyUndo(): void {
     const snap = this.#undo.pop()
     if (snap === undefined) return
+    this.#pastes = snap.pastes.map(atom => ({ ...atom }))
+    this.#revision++
     this.#text = snap.text
     this.#cursor = snap.cursor
     this.#last = 'none'

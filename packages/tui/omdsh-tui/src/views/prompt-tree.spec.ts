@@ -43,6 +43,19 @@ describe('hierarchical prompt selector', () => {
     expect(frame.lines.map(stripAnsi).join('\n')).toContain('Full user message 中文 🐳')
     expect(frame.lines.map(stripAnsi).join('\n')).toContain('Full reply 👩‍💻')
   })
+  it.each([false, true])('keeps label and filter actions visible on a narrow terminal (colors=%s)', colors => {
+    const frame = renderPromptTreePage({ ...state(), request: { ...request, actions: [
+      { key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' },
+      { key: 'Alt+L', label: 'label', valuePrefix: 'label:' },
+      { key: 'Alt+U', label: 'clear label', valuePrefix: 'unlabel:' },
+      { key: 'Alt+B', label: 'marked nodes', valuePrefix: 'marked:', scope: 'list' },
+    ] } }, createTheme(colors), 60, 24, '', 0, 'omdsh')
+    const text = stripAnsi(frame.lines.join(' '))
+    for (const key of ['Alt+Enter', 'Alt+L', 'Alt+U', 'Alt+B']) expect(text).toContain(key)
+    expect(frame.lines).toHaveLength(24)
+    expect(frame.lines.every(line => visibleWidth(line) === 60)).toBe(true)
+  })
+
   it('bounds preview scrolling and does not consume indentation for long linear histories', () => {
     const chain: TuiPrompt = { ...request, options: Array.from({ length: 5000 }, (_, index) => ({
       value: String(index), ...(index === 0 ? {} : { parentValue: String(index - 1) }), label: `Turn ${index}`,

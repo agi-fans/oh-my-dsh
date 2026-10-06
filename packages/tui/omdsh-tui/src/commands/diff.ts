@@ -6,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from './registration.ts'
 import type {} from '@deepseek-ai/dsh-workspace-changes'
-import { changedPaths, codeDocument, filePreview, gitOutput, reviewFiles } from '../runtime/file-review.ts'
+import { changedPaths, fileDocument, gitOutput, reviewFiles } from '../runtime/file-review.ts'
 
 export const name = 'omdsh-command-diff'
 export const inject = ['commands']
@@ -120,8 +120,8 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
             const diff = await service?.diff(invocation.agent.id, event.seq, index, invocation.signal)
             if (diff === undefined) return 'This comparison is no longer retained.'
             if (diff.kind !== 'text') return diff.kind === 'binary' ? 'Binary file; open the original to inspect it.' : 'File exceeds the turn comparison limit.'
-            return codeDocument(diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), 'diff')
-              + (diff.coarse ? '\n\nComparison time limit reached; complete replacement shown.' : '')
+            return { text: diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), diff: true,
+              ...(diff.coarse ? { status: 'Comparison time limit reached; complete replacement shown.' } : {}) }
           }, invocation.signal)
       } else {
         // Git's changed-file lists use repository paths, even when the session
@@ -137,7 +137,7 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
           let patch: string
           try { patch = await gitOutput(root, ['diff', 'HEAD', '--', path], invocation.signal) }
           catch { patch = (await gitOutput(root, ['diff', '--cached', '--', path], invocation.signal)) + (await gitOutput(root, ['diff', '--', path], invocation.signal)) }
-          return patch.trim() === '' ? await filePreview(resolve(root, path), invocation.signal) : codeDocument(patch, 'diff')
+          return patch.trim() === '' ? await fileDocument(resolve(root, path), invocation.signal) : { text: patch, diff: true }
         }, invocation.signal, target === '' ? undefined : 0)
       }
       return { kind: 'success' }

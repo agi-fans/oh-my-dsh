@@ -12,7 +12,13 @@ description: 在任务运行时用 next-turn 队列、Loop、Plan mode、待办�
 
 要在队列消息执行前修正它：在空 Composer 中按 `Up` 选中最新一条队列消息（再按 `Up` 可向更早的消息移动），修改文本后按 `Enter` 放回队列。整个过程不会中断当前工具调用。
 
+如果想纠正当前任务，可输入指导文本后按 `Alt+S`，或使用 `/steer <message>`。Harness 会在下一次模型步骤前接收它，不会中断正在执行的工具调用。**Guidance · next step** 保留到消息被接收；**Queued · next turn** 则等待当前 Turn 结束。Enter 仍然进入下一轮队列。快捷键仅接受文本，附件请用 Enter 排队；被拒绝的纠正消息会留在输入框中。
+
 按一次 `Ctrl+C` 会中断当前回合。在退出时间窗口内再次按 `Ctrl+C` 会离开 omdsh，因此如果还要继续当前会话，请不要立刻重复按键。
+
+使用 `/queue` 或 `Alt+Q` 逐条管理待处理消息。实时列表分为当前 Turn 的 **Guidance**、下一 Turn 的 **Next turn** 和尚未交给 Agent 的 **Waiting**。输入文字可以筛选，方向键或 Tab 选择条目；Enter 编辑文本并保留图片和文件引用。`Alt+D` 删除一条，`Alt+↑`/`Alt+↓` 在同组内调整顺序，不跨越插件拥有的队列消息。Esc 取消，保留 composer 草稿和已接收的消息。
+
+工具问答优先于队列页面。若编辑被问答打断，修改后的文本会回到 composer 作为未发送草稿，原队列条目保持不变。若模型在保存编辑之前取走原消息，修改内容同样还原为草稿，不会自动创建另一条消息。Guidance 和 follow-up 的修改由 Harness inbox 持久化；Waiting 中的消息在交付前只保存在内存中。
 
 ### 使用 Loop 重复执行 Prompt
 
