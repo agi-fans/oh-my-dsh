@@ -1,5 +1,6 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
+import { imageSize, type ImageProtocol } from '../chrome/terminal-images.ts'
 import type { TuiDocumentPosition, TuiPrompt } from '../definition.ts'
 import { documentLayout, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
 import { promptTreeRows } from './prompt-tree.ts'
@@ -33,6 +34,7 @@ export interface PromptSelectorState {
 }
 
 export interface PromptSelectorFrame {
+  image?: import('../chrome/terminal-images.ts').ImagePlacement
   lines: string[]
   cursor: { row: number; column: number }
   document?: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition }
@@ -388,21 +390,7 @@ function documentRows(request: TuiPrompt, theme: Theme, width: number): string[]
 }
 
 /** Render a bounded, scrollable Markdown document with fixed actions. */
-export function renderPlanReviewPage(
-  state: PromptSelectorState,
-  theme: Theme,
-  width: number,
-  height: number,
-  input: string,
-  inputCursor: number,
-  appName: string,
-): PromptSelectorFrame {
-  const pageHeight = Math.max(1, height)
-  const source = state.request.documentSource
-  if ((source === undefined && (pageHeight < 10 || width < 24)) || pageHeight < 7 || width < 12) {
-    return renderPromptSelector(source === undefined ? state : { ...state, request: { ...state.request, detail: source.text } }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
-  }
-  const feedback = state.feedback === true
+function documentActionRows(state: PromptSelectorState, theme: Theme, width: number, pageHeight: number): string[] {
   const actionRows: string[] = []
   let actionRow = ''
   const actionWidth = Math.max(1, width - 5)
@@ -421,9 +409,52 @@ export function renderPlanReviewPage(
     actionRows.splice(0, actionRows.length, selected === undefined ? ''
       : theme.bold(theme.fg('accent', truncateToWidth(`› [ ${selected.label} ]`, actionWidth))))
   }
+  return actionRows
+}
+
+/** Reserve a bordered, padded rectangle; graphics never become display-row content. */
+export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme, width: number, height: number,
+  appName: string, protocol?: ImageProtocol, cell?: { width: number; height: number }): PromptSelectorFrame {
+  const image = state.request.documentImage!
+  if (width < 16 || height < 10) return renderPromptSelector({ ...state, request: { ...state.request,
+    detail: image.description + '\nEnlarge the terminal or use Open to view the image.' } }, theme, width, '', 0, Math.max(1, height - 8))
+  const actions = documentActionRows(state, theme, width, height)
+  const hints = 'Tab/←→ actions · Enter activate · Esc back'
+  const bodyRows = Math.max(1, height - 8 - actions.length)
+  const lines = [pageTop(theme, width, appName + ' · ' + state.request.title), pageRow(theme, state.request.question, width),
+    pageRow(theme, theme.fg('muted', image.description), width), pageDivider(theme, width)]
+  const top = lines.length
+  const canOpen = state.request.options?.some(option => option.value === 'open') === true
+  const fallback = protocol === undefined ? wrapText('Inline images are unavailable in this terminal. '
+    + (canOpen ? 'Use Open to view the original.' : 'This attachment has no local original to open.'), width - 8) : []
+  for (let at = 0; at < bodyRows; at++) lines.push(pageRow(theme, '  ' + (fallback[at] ?? ''), width))
+  lines.push(pageDivider(theme, width), pageRow(theme, theme.fg('muted', (state.request.detail ?? '').replace(/[\r\n]+/gu, ' ')), width),
+    ...actions.map(row => pageRow(theme, ' ' + row, width)), pageRow(theme, theme.fg('dim', hints), width), pageBottom(theme, width))
+  const size = imageSize(image, width - 8, bodyRows, cell)
+  return { lines, cursor: { row: height - 1, column: 0 }, cursorVisible: false,
+    ...(protocol === undefined ? {} : { image: { image, protocol, row: top + Math.floor((bodyRows - size.rows) / 2),
+      column: 4 + Math.floor((width - 8 - size.columns) / 2), ...size } }) }
+}
+
+export function renderPlanReviewPage(
+  state: PromptSelectorState,
+  theme: Theme,
+  width: number,
+  height: number,
+  input: string,
+  inputCursor: number,
+  appName: string,
+): PromptSelectorFrame {
+  const pageHeight = Math.max(1, height)
+  const source = state.request.documentSource
+  if ((source === undefined && (pageHeight < 10 || width < 24)) || pageHeight < 7 || width < 12) {
+    return renderPromptSelector(source === undefined ? state : { ...state, request: { ...state.request, detail: source.text } }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
+  }
+  const feedback = state.feedback === true
+  const actionRows = documentActionRows(state, theme, width, pageHeight)
   const readerInput = source !== undefined && state.documentInput !== undefined
   let readerHints = source === undefined ? [] : wrapText(readerInput ? 'Enter apply · Esc cancel'
-    : '↑↓/PgUp/PgDn scroll · Home/End edges · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
+    : '↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
       + ' · Tab/←→ actions · Enter activate · ' + (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back', width - 4)
   const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))
   if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
@@ -435,7 +466,7 @@ export function renderPlanReviewPage(
   const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth)
   const document = layout?.rows ?? documentRows(state.request, theme, markdownWidth)
   const maxStart = Math.max(0, document.length - bodyRows)
-  const start = Math.max(0, Math.min(layout !== undefined && state.documentAnchor !== undefined
+  const start = Math.max(0, Math.min(state.documentScroll === Number.POSITIVE_INFINITY ? maxStart : layout !== undefined && state.documentAnchor !== undefined
     ? documentStart(layout, state.documentAnchor) : state.documentScroll ?? state.request.documentPosition?.row ?? 0, maxStart))
   const visible = document.slice(start, start + bodyRows)
   const query = state.documentQuery ?? ''
@@ -486,13 +517,14 @@ export function renderPlanReviewPage(
       const row = layout?.sourceRows[start] ?? 0
       const model = documentModel(source)
       const line = model.numbers[row]?.next ?? model.numbers[row]?.old
-      const position = source.diff ? `Diff row ${row + 1}/${model.lines.length}` : `Line ${line ?? 1}/${model.lines.length}`
+      const position = source.diff ? `Diff row ${row + 1}/${model.lines.length}` : `Line ${line ?? 1}/${(source.firstLine ?? 1) + model.lines.length - 1}`
+      const following = state.request.documentTail !== true ? '' : state.documentScroll === Number.POSITIVE_INFINITY ? ' · Following' : ' · Paused'
       const match = matches.indexOf(state.documentTarget ?? row)
       const search = query === '' ? '' : ` · ${match < 0 ? matches.length : `${match + 1}/${matches.length}`} matching lines · “${query}”`
       const label = state.documentInput === 'search' ? 'Find: ' : 'Line: '
       const value = input.replace(/\r?\n/gu, ' ')
       const status = (readerInput ? label + value + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
-        : position + search + (source.status === undefined ? '' : ` · ${source.status}`) + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
+        : position + following + (source.status === undefined ? '' : ` · ${source.status}`) + search + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
       ).replace(/[\r\n]+/gu, ' ')
       cursor = { row: lines.length, column: Math.min(width - 3, 2 + visibleWidth(label + value.slice(0, inputCursor))) }
       lines.push(pageRow(theme, theme.fg('muted', status), width))
@@ -509,7 +541,8 @@ export function renderPlanReviewPage(
     lines,
     cursor,
     document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1),
-      ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query: '' } } : {} : { position: documentPosition(layout, start, query) }) },
+      ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query: '' } } : {} : { position: { ...documentPosition(layout, start, query),
+        ...(state.request.documentTail === true ? { following: state.documentScroll === Number.POSITIVE_INFINITY } : {}) } }) },
     cursorVisible: feedback || readerInput,
   }
 }

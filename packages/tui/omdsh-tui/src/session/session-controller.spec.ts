@@ -521,7 +521,8 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     const submitCallbacks: Array<(submission: { text: string, images: never[] }) => void> = []
     const restoreInput = vi.fn()
     const notice = vi.fn()
-    const tui = new Proxy({ restoreInput, notice }, {
+    const setStatus = vi.fn()
+    const tui = new Proxy({ restoreInput, notice, setStatus }, {
       get(target: Record<string, unknown>, prop: string) {
         if (prop in target) return target[prop]
         if (prop === 'onInspectSubagent') {
@@ -545,6 +546,9 @@ describe('SessionRuntime inspected-subagent delivery', () => {
       await runtime.start()
       expect(inspectCallbacks).toHaveLength(1)
       await inspectCallbacks[0]?.(childId)
+      setStatus.mockClear()
+      ctx.emit('agent/status', { agent: rootAgent, status: 'idle' })
+      expect(setStatus).toHaveBeenCalledWith('idle', { root: true })
       await submitCallbacks[0]?.({ text: 'Keep going.', images: [] })
       await new Promise(resolve => { setTimeout(resolve, 0) })
 

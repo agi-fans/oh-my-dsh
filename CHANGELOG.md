@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Image preview pages for composer drafts (`Alt+M`), workspace files, deliverables and stored attachments, with Kitty/iTerm2 graphics on supported direct terminals, original-file opening and a text fallback elsewhere. PNG, JPEG, WebP and GIF previews fit the viewport without changing attachment bytes.
+
+- `/terminal` searches retained output, navigates matching lines, and loads older history in bounded pages. Pausing freezes the reading snapshot; console actions retain position and search, and End resumes following the latest output.
+
 - `/queue` and configurable `Alt+Q` manage individual guidance, follow-ups, and waiting submissions with live previews, text editing, deletion, and reordering. Edits retain attachments and the composer draft; tool questions take priority, and raced edits return as unsent drafts.
 
 - Unsent composer drafts survive session switches and restarts, retaining cursor positions, folded pastes, images, and file references. Sending or clearing input removes its saved draft; question answers and queued messages stay separate.
@@ -50,6 +54,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - CLI and runtime plugin operations share the profile write lock. Feature toggles apply after the running profile reloads its patch; existing sessions retain their Agent preset revision.
 
 ### Fixed
+
+- Herdr status follows the root Agent during session updates and subagent inspection, retries failed reports, and waits briefly for release on exit. Background runs and smoke-test terminals no longer claim their caller's Herdr pane.
+
+- Pasting a search term into a source reader updates matching lines immediately.
 
 - Themes pair prompt and tool-card text with their fixed backgrounds, improve tool output, code, and hint contrast, and keep error text visible in 16-color terminals. Nested color resets preserve the surrounding card colors.
 - Returning from transcript browsing keeps floating controls out of tmux scrollback even when `scroll-on-clear` is enabled.

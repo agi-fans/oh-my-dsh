@@ -36,7 +36,8 @@ export interface HerdrRequest {
 
 /** Delivery seam: production writes one JSON line per request to the local socket. */
 export interface HerdrTransport {
-  send(request: HerdrRequest): void
+  /** Async delivery resolves true only after a matching success response. */
+  send(request: HerdrRequest): void | boolean | Promise<boolean>
 }
 
 export interface HerdrEnvironment {
@@ -107,18 +108,6 @@ export class HerdrAgentStatusController {
     return this.#publish()
   }
 
-  /**
-   * Forget the last projection without reporting. A replaced session makes
-   * the previous state meaningless, but only a fresh signal may publish,
-   * because a compaction or resume can swap sessions mid-driver.
-   */
-  reset(): void {
-    this.#running = false
-    this.#prompts = 0
-    this.#promptMessage = undefined
-    this.#last = undefined
-  }
-
   #desired(): HerdrAgentStatus {
     if (this.#prompts > 0) {
       return this.#promptMessage === undefined
@@ -138,6 +127,8 @@ export class HerdrAgentStatusController {
 }
 
 export interface HerdrAgentReporterOptions {
+  /** Whether the provider owns interactive input and output. Defaults to true. */
+  readonly interactive?: boolean
   /** Environment to detect Herdr from. Defaults to `process.env`. */
   readonly env?: NodeJS.ProcessEnv
   /** Delivery seam for tests. Defaults to the local socket transport. */
@@ -146,28 +137,39 @@ export interface HerdrAgentReporterOptions {
   readonly now?: () => number
 }
 
-/**
- * Report omdsh lifecycle state to the Herdr pane that owns this process.
- *
- * Reports are best-effort and silent, matching Herdr's own integrations: a
- * missing or restarted server must never disturb the TUI.
- */
+const HERDR_RETRY_MS = 1_000
+const HERDR_RELEASE_TIMEOUT_MS = 1_100
+let lastSequence = 0
+const owners = new Map<string, () => void>()
+
+/** Report pane lifecycle silently, retaining only the latest undelivered state. */
 export class HerdrAgentReporter {
   readonly #environment: HerdrEnvironment | undefined
   readonly #transport: HerdrTransport | undefined
   readonly #controller = new HerdrAgentStatusController()
   readonly #now: () => number
-  #seq: number
+  readonly #ownerKey: string | undefined
+  #pending: HerdrRequest | undefined
+  #sending = false
+  #retry: ReturnType<typeof setTimeout> | undefined
+  #finished = false
+  #releasePromise: Promise<void> | undefined
+  #resolveRelease: (() => void) | undefined
+  #releaseTimer: ReturnType<typeof setTimeout> | undefined
   #sessionId: string | undefined
   #released = false
 
   constructor(options: HerdrAgentReporterOptions = {}) {
     this.#now = options.now ?? ((): number => Date.now())
-    this.#seq = this.#now() * 1000
-    this.#environment = herdrEnvironment(options.env ?? process.env)
+    this.#environment = options.interactive === false ? undefined : herdrEnvironment(options.env ?? process.env)
     this.#transport = this.#environment === undefined
       ? undefined
       : (options.transport ?? defaultHerdrTransport)(this.#environment.socketPath)
+    this.#ownerKey = this.#environment === undefined ? undefined : `${this.#environment.socketPath}\0${this.#environment.paneId}`
+    if (this.#ownerKey !== undefined) {
+      owners.get(this.#ownerKey)?.()
+      owners.set(this.#ownerKey, this.#stop)
+    }
   }
 
   /** Whether this process runs inside a Herdr pane with a usable socket. */
@@ -197,98 +199,134 @@ export class HerdrAgentReporter {
     const next = trimmed === undefined || trimmed === '' ? undefined : trimmed
     if (next === this.#sessionId) return
     this.#sessionId = next
-    this.#controller.reset()
+    this.#report(this.#controller.start())
   }
 
-  /** Release the pane's lifecycle authority; later reports are dropped. */
-  release(): void {
+  /** Drain an in-flight report, then release authority within a bounded shutdown grace. */
+  release(): Promise<void> {
+    if (this.#releasePromise !== undefined) return this.#releasePromise
     const environment = this.#environment
-    const transport = this.#transport
-    if (this.#released || environment === undefined || transport === undefined) return
+    if (this.#finished || environment === undefined || this.#transport === undefined) return Promise.resolve()
     this.#released = true
-    this.#deliver(transport, {
-      id: `${HERDR_REPORT_SOURCE}:release:${this.#now()}`,
-      method: 'pane.release_agent',
-      params: {
-        pane_id: environment.paneId,
-        source: HERDR_REPORT_SOURCE,
-        agent: HERDR_AGENT_LABEL,
-        seq: this.#nextSeq(),
-      },
+    this.#releasePromise = new Promise(resolve => { this.#resolveRelease = resolve })
+    // This timer deliberately holds process lifetime until the release settles.
+    this.#releaseTimer = setTimeout(this.#stop, HERDR_RELEASE_TIMEOUT_MS)
+    this.#enqueue({
+      id: '', method: 'pane.release_agent',
+      params: { pane_id: environment.paneId, source: HERDR_REPORT_SOURCE, agent: HERDR_AGENT_LABEL },
     })
+    return this.#releasePromise
   }
 
   #report(status: HerdrAgentStatus | undefined): void {
     const environment = this.#environment
     const transport = this.#transport
-    if (status === undefined || this.#released || environment === undefined || transport === undefined) return
+    if (status === undefined || this.#released || this.#finished || environment === undefined || transport === undefined) return
     const params: Record<string, unknown> = {
       pane_id: environment.paneId,
       source: HERDR_REPORT_SOURCE,
       agent: HERDR_AGENT_LABEL,
       state: status.state,
-      seq: this.#nextSeq(),
     }
     if (status.message !== undefined) params.message = status.message
     if (this.#sessionId !== undefined) params.agent_session_id = this.#sessionId
-    this.#deliver(transport, {
-      id: `${HERDR_REPORT_SOURCE}:${status.state}:${this.#now()}`,
-      method: 'pane.report_agent',
-      params,
-    })
+    this.#enqueue({ id: '', method: 'pane.report_agent', params })
   }
 
-  /** A broken transport must never throw into the TUI's status or dispose path. */
-  #deliver(transport: HerdrTransport, request: HerdrRequest): void {
-    try {
-      transport.send(request)
-    } catch {
-      // Best-effort delivery, matching Herdr's own integrations.
+  #request(request: HerdrRequest): HerdrRequest {
+    lastSequence = Math.max(lastSequence + 1, this.#now() * 1000)
+    return { ...request, id: `${HERDR_REPORT_SOURCE}:${request.method}:${lastSequence}`, params: { ...request.params, seq: lastSequence } }
+  }
+
+  #enqueue(request: HerdrRequest): void {
+    if (this.#retry !== undefined) clearTimeout(this.#retry)
+    this.#retry = undefined
+    this.#pending = this.#request(request)
+    this.#drain()
+  }
+
+  #drain(): void {
+    if (this.#finished || this.#sending || this.#pending === undefined || this.#transport === undefined) return
+    const request = this.#pending
+    this.#pending = undefined
+    this.#sending = true
+    let delivered: ReturnType<HerdrTransport['send']>
+    try { delivered = this.#transport.send(request) } catch { delivered = false }
+    if (delivered instanceof Promise) void delivered.then(success => { this.#settled(request, success) }, () => { this.#settled(request, false) })
+    else this.#settled(request, delivered !== false)
+  }
+
+  #settled(request: HerdrRequest, success: boolean): void {
+    if (this.#finished) return
+    this.#sending = false
+    if (request.method === 'pane.release_agent') { this.#stop(); return }
+    if (this.#pending !== undefined) { this.#drain(); return }
+    if (!success && !this.#released) {
+      this.#pending = request
+      this.#retry = setTimeout(() => {
+        this.#retry = undefined
+        if (this.#pending !== undefined) this.#pending = this.#request(this.#pending)
+        this.#drain()
+      }, HERDR_RETRY_MS)
+      this.#retry.unref()
     }
   }
 
-  /**
-   * Strictly increasing across reporter instances in one process: Herdr
-   * ignores a report whose sequence is not above the last accepted one for the
-   * same source, so a plugin reload must not restart below a used sequence.
-   */
-  #nextSeq(): number {
-    this.#seq = Math.max(this.#seq + 1, this.#now() * 1000)
-    return this.#seq
+  readonly #stop = (): void => {
+    this.#finished = true
+    this.#pending = undefined
+    if (this.#retry !== undefined) clearTimeout(this.#retry)
+    if (this.#releaseTimer !== undefined) clearTimeout(this.#releaseTimer)
+    this.#retry = undefined
+    this.#releaseTimer = undefined
+    if (this.#ownerKey !== undefined && owners.get(this.#ownerKey) === this.#stop) owners.delete(this.#ownerKey)
+    this.#resolveRelease?.()
   }
 }
 
 const HERDR_REQUEST_TIMEOUT_MS = 500
 
-/**
- * One JSON line per request over a short-lived local connection. The server
- * acknowledges every request, but delivery stays fire-and-forget: the pane
- * must never wait on Herdr, and `unref()` keeps a pending write from holding
- * the process open.
- */
+/** One bounded newline-delimited request/response per connection, off the render path. */
 function defaultHerdrTransport(socketPath: string): HerdrTransport {
   const target = herdrSocketTarget(socketPath)
   return {
     send(request) {
-      let socket: Socket
-      try {
-        socket = connect(target)
-      } catch {
-        return
-      }
-      socket.unref()
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const finish = (): void => {
-        if (timer !== undefined) clearTimeout(timer)
-        socket.destroy()
-      }
-      timer = setTimeout(finish, HERDR_REQUEST_TIMEOUT_MS)
-      timer.unref()
-      socket.on('error', finish)
-      socket.on('connect', () => { socket.write(`${JSON.stringify(request)}\n`) })
-      socket.on('data', finish)
-      socket.on('end', finish)
-      socket.on('close', finish)
+      return new Promise<boolean>(resolve => {
+        let socket: Socket
+        try { socket = connect(target) } catch { resolve(false); return }
+        socket.unref()
+        socket.setEncoding('utf8')
+        let completed = false
+        const finish = (success = false): void => {
+          if (completed) return
+          completed = true
+          clearTimeout(timer)
+          socket.destroy()
+          resolve(success)
+        }
+        const timer = setTimeout(finish, HERDR_REQUEST_TIMEOUT_MS)
+        timer.unref()
+        let response = ''
+        socket.on('error', () => { finish() })
+        socket.on('connect', () => {
+          try { socket.write(`${JSON.stringify(request)}\n`) } catch { finish() }
+        })
+        socket.on('data', (chunk: string) => {
+          response += chunk
+          if (response.length > 64 * 1024) { finish(); return }
+          let newline: number
+          while ((newline = response.indexOf('\n')) >= 0) {
+            const line = response.slice(0, newline)
+            response = response.slice(newline + 1)
+            try {
+              const reply = JSON.parse(line) as { id?: unknown; result?: { type?: unknown }; error?: unknown }
+              if (reply.id === request.id) { finish(reply.error === undefined && reply.result?.type === 'ok'); return }
+            } catch { finish(); return }
+          }
+        })
+        socket.on('end', () => { finish() })
+        socket.on('close', () => { finish() })
+      })
     },
   }
 }

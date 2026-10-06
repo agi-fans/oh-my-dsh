@@ -93,6 +93,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'Ctrl+D', action: 'Delete forward / quit when the editor is empty' },
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
         { keys: keysForAction(bindings, 'expand-paste'), action: 'Expand a pasted block for editing' },
+        { keys: keysForAction(bindings, 'preview-images'), action: 'Preview draft images' },
         { keys: keysForAction(bindings, 'manage-queue'), action: 'Manage individual queued messages' },
         { keys: keysForAction(bindings, 'steer-turn'), action: 'Send the draft as guidance for the active turn’s next step' },
         { keys: keysForAction(bindings, 'copy-prompt'), action: 'Copy the selection or current prompt' },
@@ -165,6 +166,7 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KE
     { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
     { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
     { keys: keysForAction(bindings, 'expand-paste'), action: 'Expand a pasted block for editing' },
+    { keys: keysForAction(bindings, 'preview-images'), action: 'Preview draft images' },
     { keys: keysForAction(bindings, 'steer-turn'), action: 'Guide the active turn’s next step' },
   ]
   return rows.map(row => `- \`${tableCell(row.keys)}\` — ${tableCell(row.action)}`).join('\n')

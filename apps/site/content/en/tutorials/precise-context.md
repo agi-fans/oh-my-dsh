@@ -22,6 +22,8 @@ Typing `./` or `~/` opens plain path completion. It inserts a path; it does not 
 
 Copy an image and press `Ctrl+V`. The composer inserts a compact image marker; add any explanatory text and submit them as one message, or send the image with `/goal` or `/plan`. Pasting an image file path also imports that image when it can be read.
 
+Press `Alt+M` to inspect draft images before sending. Use Tab and Enter for the preview actions, or `P`/`N` to switch between images and `O` to open the original. Esc closes the preview and keeps the draft. Stored images remain accessible through `/attachments`; [Files and terminals](../commands.md#files-and-terminals) describes terminal support and preview limits.
+
 Image paste needs the platform clipboard reader. On Linux it uses `wl-paste` under Wayland or `xclip` under X11; if neither is installed, text paste keeps working but clipboard images are unavailable.
 
 The default DeepSeek catalog includes the image-capable `deepseek-flash`; the other default DeepSeek models stay text-only. A deployment that wants native image requests on another model must list `inputModalities: [text, image]` on that model.

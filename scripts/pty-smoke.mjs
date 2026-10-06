@@ -153,6 +153,39 @@ term.write('echo OMDSH_TERMINAL_READY\r')
 if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_TERMINAL_READY'), 'terminal input output', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
+// Read a real long-running shell's history through the published terminal registry.
+await sleep(300)
+term.write('i')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Send a line'), 'long-output terminal input', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('node -e "for (let i=1;i<=650;i++) console.log(\'OMDSH_HISTORY_\'+i)"\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_HISTORY_650'), 'terminal newest output', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+await sleep(300)
+featureMark = out.length
+term.write('\x1b[H')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Paused'), 'terminal pause following', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('l')
+await sleep(200)
+term.write('l')
+await sleep(200)
+featureMark = out.length
+term.write('/\x1b[200~OMDSH_HISTORY_100\x1b[201~')
+await sleep(100)
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('1/1 matching lines'), 'terminal older-output search', deadline))) {
+  console.error(cleanOutput(out).slice(-2500)); term.kill(); process.exit(1)
+}
+featureMark = out.length
+term.write('\x1b[F')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Following'), 'terminal resume following', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
 // Detach, then return to prove the registry still owns the shell.
 term.write('\x1b[27u')
 await sleep(100)

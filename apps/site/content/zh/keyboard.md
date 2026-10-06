@@ -33,6 +33,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+-` | 撤销上一次编辑。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
+| `Alt+M` | 预览 composer 图片，不发送消息。 |
 | `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
 | `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
 | `Alt+S` | 将文本纠正消息送到当前 Turn 的下一次模型步骤。 |
@@ -73,6 +74,8 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 全屏页面暂时关闭应用鼠标接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
 
 文件和 Diff 的源码阅读器用 `/` 或 `Ctrl+F` 搜索已加载文本，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，`G` 或 `Ctrl+G` 跳到文件行号。`[`／`]` 切换 Diff 变更块；提供相应按钮时，`L` 加载更多文本，`M` 切换 Markdown 渲染。Enter 应用搜索或行号输入，Esc 先取消输入，再返回文件列表。预览上限和视图行为见[文件命令](commands.md)。
+
+`/terminal` 控制台沿用相同的搜索和匹配行跳转快捷键。`L` 加载更早的保留输出，滚动或搜索会暂停跟随，`End` 回到最新输出并恢复跟随。`I` 发送一行输入，`C` 中断 shell。
 
 ## 会话
 
@@ -122,6 +125,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 
 | Action id | 默认键 | 作用 |
 |---|---|---|
+| `preview-images` | `Alt+M` | 预览草稿图片。 |
 | `expand-paste` | `Alt+I` | 展开粘贴块进行编辑。 |
 | `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
 | `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |

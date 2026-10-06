@@ -23,6 +23,7 @@ import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
 import { renderAgentHub, type AgentHubState } from './agent-hub.ts'
 import {
+  renderImagePreviewPage,
   renderPlanReviewPage,
   renderPromptSelector,
   renderPromptSelectorPage,
@@ -124,6 +125,9 @@ export interface ViewOptions {
   trajectory?: TrajectoryState
   /** Keyboard-first full-screen descendant roster and inspector. */
   agentHub?: AgentHubState
+  /** Terminal-owned graphics capability and measured cell geometry. */
+  imageProtocol?: import('../chrome/terminal-images.ts').ImageProtocol
+  imageCellSize?: { width: number; height: number }
   /** Human-interaction selector; replaces the normal editor while active. */
   promptSelector?: PromptSelectorState
   /** Effective local + agent-scoped slash command catalog. */
@@ -1941,7 +1945,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     }
   }
   if (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document') {
-    const review = renderPlanReviewPage(
+    const review = options.promptSelector.request.documentImage === undefined ? renderPlanReviewPage(
       options.promptSelector,
       theme,
       width,
@@ -1949,8 +1953,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       options.input,
       options.inputCursor,
       appName,
-    )
+    ) : renderImagePreviewPage(options.promptSelector, theme, width, height, appName, options.imageProtocol, options.imageCellSize)
     return {
+      ...(review.image === undefined ? {} : { image: review.image }),
       lines: fitFrame(review.lines, width),
       cursor: review.cursor,
       cursorVisible: review.cursorVisible === true,

@@ -551,7 +551,7 @@ export class SessionRuntime {
     }
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
-        if (this.#inspectedId === undefined) tui.setStatus(payload.status)
+        tui.setStatus(payload.status, { root: true })
         return
       }
       if (payload.agent.id === this.#inspectedId) tui.setStatus(payload.status)

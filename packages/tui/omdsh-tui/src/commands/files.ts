@@ -6,8 +6,9 @@ import { basename, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { deliverableFiles, sessionAttachments } from '../views/session-files.ts'
+import { deliverableFiles, logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
+import { previewImages } from '../runtime/image-preview.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-files'
@@ -72,7 +73,7 @@ export async function attachFile(ctx: Context, invocation: CommandInvocation): P
 }
 
 async function attachments(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const refs = sessionAttachments(invocation.agent.session.snapshotEvents())
+  const refs = logAttachments(invocation.agent.session.snapshotEvents())
   if (ctx.tui.interactive !== true) return { kind: 'success', text: refs.map(ref => `${ref.name ?? ref.attachmentId} · ${ref.bytes} bytes`).join('\n') || 'No attachments in this session.' }
   while (!invocation.signal.aborted) {
     const answer = await ctx.tui.prompt({ title: 'Attachments', question: 'Choose a stored attachment', emptyText: 'No attachments in this session.',
@@ -83,9 +84,15 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     const ref = refs[Number(answer)]
     if (ref === undefined) continue
     // Verify the durable bytes before opening the provider-owned original.
-    if ('mediaType' in ref) await ctx.attachments.readImage(ref, invocation.signal)
+    if ('mediaType' in ref) {
+      const stored = await ctx.attachments.readImage(ref, invocation.signal)
+      const path = ctx.attachments.imageHostPath(ref)
+      await previewImages(ctx.tui, [{ ...ref, data: stored.data }], invocation.signal,
+        path === undefined ? undefined : () => openSystemFile(path))
+      continue
+    }
     else for await (const chunk of ctx.attachments.readFileStream(ref, invocation.signal)) { void chunk }
-    const path = 'mediaType' in ref ? ctx.attachments.imageHostPath(ref) : ctx.attachments.fileHostPath(ref)
+    const path = ctx.attachments.fileHostPath(ref)
     if (path === undefined) { ctx.tui.notice('This attachment provider does not expose a local file to open.'); continue }
     const action = await ctx.tui.prompt({ title: ref.name ?? 'Attachment', question: 'Open the stored original or preview it?', allowCustom: false, signal: invocation.signal,
       notify: false,

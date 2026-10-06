@@ -19,6 +19,9 @@ import {
   terminalProgressSequence,
 } from './terminal-notifications.ts'
 import { HerdrAgentReporter } from './herdr-agent.ts'
+import { imageProtocol, type ImageProtocol } from '../chrome/terminal-images.ts'
+import { previewImages } from './image-preview.ts'
+import { rmSync } from 'node:fs'
 import { ComposerImages } from './composer-images.ts'
 import { ComposerDraftStore, type ComposerDraft } from '../session/composer-drafts.ts'
 import { mergeJobSettlement } from '../session/job-notice.ts'
@@ -366,6 +369,10 @@ export class LocalTui implements TuiService {
     }
   }
   #deferInitialRender = false
+  readonly #imageProtocol: ImageProtocol | undefined
+  #imageCellSize = { width: 9, height: 18 }
+  #imagePreviewAbort: AbortController | undefined
+  #imageTemporary = new Set<string>()
   readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
   readonly #resizeDebounceMs: number
   #resizeTimer: ReturnType<typeof setTimeout> | null = null
@@ -606,6 +613,7 @@ export class LocalTui implements TuiService {
       readClipboardFiles?: ClipboardFileReader
       readImagePath?: ImagePathReader
       deferInitialRender?: boolean
+      imageProtocol?: ImageProtocol | 'none'
       terminalProfile?: 'direct' | 'multiplexer' | 'conpty'
       alternateScreenOverlays?: boolean
       resizeDebounceMs?: number
@@ -649,6 +657,7 @@ export class LocalTui implements TuiService {
     this.#welcomeTips = pickWelcomeTips()
     this.#deferInitialRender = paths.deferInitialRender === true
     this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
+    this.#imageProtocol = this.#terminalProfile !== 'direct' || paths.imageProtocol === 'none' ? undefined : paths.imageProtocol ?? imageProtocol(process.env)
     this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
     this.#herdr = paths.herdrReporter ?? new HerdrAgentReporter({ env: {} })
@@ -780,10 +789,10 @@ export class LocalTui implements TuiService {
     }
   }
 
-  setStatus(status: TuiStatus): void {
-    // Only the displayed top-level agent drives the Herdr pane state; an
-    // inspected child must not, and closing the inspector re-syncs the root.
-    if (this.#inspected === undefined) this.#herdr.setRunning(status === 'running')
+  setStatus(status: TuiStatus, options: { root?: boolean } = {}): void {
+    // Parent lifecycle remains authoritative while the child owns the visible view.
+    if (options.root === true || this.#inspected === undefined) this.#herdr.setRunning(status === 'running')
+    if (options.root === true && this.#inspected !== undefined) return
     if (this.#state.status === 'compacting') return
     this.#state = { ...this.#state, status }
     this.#syncTick()
@@ -969,6 +978,7 @@ export class LocalTui implements TuiService {
     this.#pasteBurst.clear()
     if (request.notify !== false) this.#emitNotification(this.#notifications.humanPrompt())
     this.#herdr.prompt(request.title)
+    if (this.#tty && request.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
     const savedInput = this.#editor.snapshot()
     this.#editor.setText(request.options?.length || request.allowCustom === false ? '' : request.initialInput ?? '')
     this.#ac = null
@@ -978,7 +988,7 @@ export class LocalTui implements TuiService {
         (option.value ?? option.label) === request.initialValue) ?? 0)
       const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
         ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query }),
-        ...(request.documentTail === true ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
+        ...(request.documentTail === true && request.documentPosition?.following !== false ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
       if (request.signal !== undefined) {
         const onAbort = (): void => {
           this.#finishPrompt(null)
@@ -989,17 +999,25 @@ export class LocalTui implements TuiService {
       }
       this.#prompt = pending
       this.#promptDisplaced = displaced
-      if (this.#tty && request.wait !== undefined && request.refreshDocument === undefined && request.refreshOptions === undefined) {
+      if (this.#tty && request.wait !== undefined && request.refreshDocument === undefined && request.refreshDocumentSource === undefined && request.refreshOptions === undefined) {
         const tick = setInterval(() => { if (!this.#disposed) this.#render() }, 1_000)
         pending.offTick = () => { clearInterval(tick) }
       }
-      if (this.#tty && (request.refreshDocument !== undefined || request.refreshOptions !== undefined)) {
+      if (this.#tty && (request.refreshDocument !== undefined || request.refreshDocumentSource !== undefined || request.refreshOptions !== undefined)) {
         const tick = setInterval(() => {
           if (this.#disposed || this.#prompt === null) return
           try {
             const detail = request.refreshDocument?.()
+            const source = request.refreshDocumentSource?.(this.#prompt.documentScroll === Number.POSITIVE_INFINITY)
             const options = request.refreshOptions?.()
             let changed = false
+            if (source !== undefined && source !== this.#prompt.request.documentSource) {
+              const shift = (this.#prompt.request.documentSource?.firstLine ?? 1) - (source.firstLine ?? 1)
+              const anchor = this.#prompt.documentAnchor
+              this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, documentSource: source },
+                ...(anchor === undefined ? {} : { documentAnchor: { ...anchor, row: Math.max(0, anchor.row + shift) } }) }
+              changed = true
+            }
             if (options !== undefined && options !== this.#prompt.request.options) {
               this.#prompt = refreshPromptOptions(this.#prompt, options, this.#editor.text)
               changed = true
@@ -1331,12 +1349,15 @@ export class LocalTui implements TuiService {
     return () => { if (this.#steerHandler === handler) this.#steerHandler = undefined }
   }
 
-  dispose(): void {
-    if (this.#disposed) return
+  dispose(): Promise<void> {
+    if (this.#disposed) return this.#herdr.release()
     this.#flushPasteBurst(true)
     this.#flushDraft()
     this.#disposed = true
     this.#steerHandler = undefined
+    this.#imagePreviewAbort?.abort()
+    for (const directory of this.#imageTemporary) { try { rmSync(directory, { recursive: true, force: true }) } catch { /* OS may still hold the opened file. */ } }
+    this.#imageTemporary.clear()
     this.#queueHotkeyAbort?.abort()
     this.#queueHandler = undefined
     if (this.#notificationTimer !== undefined) clearTimeout(this.#notificationTimer)
@@ -1395,7 +1416,7 @@ export class LocalTui implements TuiService {
     this.#offAgentBehaviorWatch = undefined
     this.#settlePending(null)
     this.#finishPrompt(null)
-    this.#herdr.release()
+    return this.#herdr.release()
   }
 
   /** Settle one pending read, detaching its abort listener. */
@@ -1615,6 +1636,8 @@ export class LocalTui implements TuiService {
     const frame = this.#tty
       ? renderView(renderState, {
         width,
+        ...(this.#imageProtocol === undefined ? {} : { imageProtocol: this.#imageProtocol }),
+        imageCellSize: this.#imageCellSize,
         height: this.#term.height(),
         model: this.#model,
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
@@ -1675,7 +1698,7 @@ export class LocalTui implements TuiService {
     this.#focusBlock = undefined
     this.#focusBlockEdge = undefined
     this.#promptDocument = frame.promptDocument
-    if (this.#prompt !== null && frame.promptDocument?.position !== undefined) {
+    if (this.#prompt !== null && this.#prompt.documentScroll !== Number.POSITIVE_INFINITY && frame.promptDocument?.position !== undefined) {
       this.#prompt = { ...this.#prompt, documentAnchor: frame.promptDocument.position }
     }
     this.#syncScroll(frame.transcript)
@@ -1837,7 +1860,7 @@ export class LocalTui implements TuiService {
   }
 
   #routeInput(event: KeyEvent): void {
-    if (event.type === 'focus') { this.#dispatch(event); return }
+    if (event.type === 'focus' || event.type === 'cell-size') { this.#dispatch(event); return }
     const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null && this.#copySelector === null
       && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
     if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
@@ -1888,6 +1911,10 @@ export class LocalTui implements TuiService {
   async #acceptPastedText(text: string): Promise<void> {
     if (this.#prompt !== null) {
       const prompt = this.#prompt
+      if (prompt.request.documentSource !== undefined && prompt.documentInput !== undefined) {
+        this.#handleDocumentReader({ type: 'text', value: text }, prompt)
+        return
+      }
       if (prompt.request.wait !== undefined && prompt.waitHeld !== true) {
         prompt.request.wait.hold()
         prompt.offTick?.()
@@ -2028,6 +2055,11 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    if (event.type === 'cell-size') {
+      this.#imageCellSize = { width: event.width, height: event.height }
+      if (this.#prompt?.request.documentImage !== undefined) this.#render()
+      return
+    }
     if (event.type === 'focus') {
       this.#terminalFocused = event.focused
       if (event.focused && this.#notificationFocus === 'unfocused') this.#notificationQueue.clear()
@@ -2488,7 +2520,7 @@ export class LocalTui implements TuiService {
         const text = this.#editor.text
         const row = prompt.documentInput === 'line' && /^[1-9]\d*$/u.test(text.trim()) ? documentLineRow(source, Number(text)) : undefined
         if (prompt.documentInput === 'line' && row === undefined) {
-          this.#prompt = { ...prompt, documentError: source.diff ? 'Enter a new-file line shown in this diff.' : 'Enter a line number in this file.' }
+          this.#prompt = { ...prompt, documentError: source.diff ? 'Enter a new-file line shown in this diff.' : source.firstLine === undefined ? 'Enter a line number in this file.' : 'Enter a retained line number in this snapshot.' }
         } else {
           if (row !== undefined) jump(row)
           this.#prompt = { ...(this.#prompt ?? prompt), documentInput: undefined, documentError: undefined }
@@ -2516,6 +2548,7 @@ export class LocalTui implements TuiService {
     if (search || line) {
       this.#editor.setText(search ? prompt.documentQuery ?? '' : '')
       this.#prompt = { ...prompt, documentInput: search ? 'search' : 'line', documentOrigin: documentPosition(layout, start, prompt.documentQuery ?? ''), documentError: undefined,
+        documentScroll: start,
         documentOriginalQuery: prompt.documentQuery ?? '',
         documentAnchor: { row: current, wrap: start - (layout.starts[current] ?? 0), query: prompt.documentQuery ?? '' } }
       this.#render()
@@ -3398,6 +3431,23 @@ export class LocalTui implements TuiService {
   /** Run one configured action; returns true when the event was consumed. */
   #runAction(action: TuiAction): boolean {
     if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (action === 'preview-images') {
+      if (this.#search !== null || this.#inspected !== undefined) return false
+      if (this.#images.count === 0) this.notice('Paste an image before opening its preview.')
+      else if (this.#imagePreviewAbort === undefined) {
+        const abort = new AbortController()
+        const revision = this.#images.revision
+        const session = this.#sessionId
+        this.#imagePreviewAbort = abort
+        void previewImages(this, this.#images.copies(), abort.signal, undefined, directory => {
+          if (this.#disposed) rmSync(directory, { recursive: true, force: true })
+          else this.#imageTemporary.add(directory)
+        }, () => !this.#disposed && session === this.#sessionId && revision === this.#images.revision && this.#prompt === null && this.#settings === null)
+          .catch((error: unknown) => { if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) })
+          .finally(() => { if (this.#imagePreviewAbort === abort) this.#imagePreviewAbort = undefined })
+      }
+      return true
+    }
     if (action === 'expand-paste') {
       if (this.#search !== null) return false
       this.#literalInput ||= this.#editor.startsWithPaste
@@ -3715,7 +3765,7 @@ export function apply(ctx: Context, config: Config): void {
       deferInitialRender: true,
       terminalProfile,
       alternateScreenOverlays: terminalProfile === 'direct',
-      herdrReporter: new HerdrAgentReporter(),
+      herdrReporter: new HerdrAgentReporter({ interactive: term.input.isTTY === true && term.output.isTTY === true }),
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
       draftsPath: join(config.dshHome ?? dshHome, 'omdsh', 'drafts'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),
@@ -3726,7 +3776,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   )
   ctx.provide(TUI_SERVICE, tui)
-  ctx.effect(() => () => { tui.dispose() })
+  ctx.effect(() => () => tui.dispose())
   // Preferences are this entry's own volatile config: the initial read applies
   // them without persisting, a committed form edit dispatches a volatile update
   // to this fiber only, and an in-app `/settings` change writes back through the

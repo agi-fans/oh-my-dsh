@@ -1,13 +1,18 @@
 /** Bounded host-file previews and keyboard-driven document inspection. */
 
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { open, stat } from 'node:fs/promises'
 import { extname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { StringDecoder } from 'node:string_decoder'
 import type { TuiDocumentPosition, TuiDocumentSource, TuiService } from '../definition.ts'
 import { stripAnsi } from '../chrome/width.ts'
+import { openSystemFile } from './file-open.ts'
+import { imageFile, imageMediaType } from './image-preview.ts'
+import type { PreviewImage } from '../chrome/terminal-images.ts'
 import { languageFromPath } from '../chrome/code-highlight.ts'
+
+export { openSystemFile } from './file-open.ts'
 
 const exec = promisify(execFile)
 export const PREVIEW_BYTES = 128 * 1024
@@ -73,16 +78,6 @@ export async function fileDocument(path: string, signal: AbortSignal, limit = PR
   } finally { await handle.close() }
 }
 
-/** Ask the OS to open an explicitly selected file, without a command shell. */
-export async function openSystemFile(path: string): Promise<void> {
-  const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open'
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(command, [resolve(path)], { stdio: 'ignore' })
-    child.once('error', reject)
-    child.once('exit', code => code === 0 ? resolvePromise() : reject(new Error(`File opener exited with status ${String(code)}.`)))
-  })
-}
-
 export interface ReviewFile { path: string; label: string; description?: string }
 
 /** Keep file selection, document scrolling, and external opening in one loop. */
@@ -106,6 +101,7 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
     if (file === undefined) return
     selected = String(index)
     let feedback = ''
+    let previewImage: PreviewImage | undefined
     while (!signal.aborted) {
       const mode = modes.get(index) ?? (hasDiff ? 'diff' : 'source')
       const preview = mode !== 'diff'
@@ -113,8 +109,10 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
       let detail = ''
       let source: TuiDocumentSource | undefined
       let loaded: FileDocument | undefined
+      let image: PreviewImage | undefined
       try {
-        const content = preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index)
+        if (preview && imageMediaType(file.path) !== undefined) image = previewImage ??= await imageFile(resolve(cwd, file.path), signal)
+        const content: string | FileDocument = image !== undefined ? { binary: true, text: '' } : preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index)
         if (typeof content !== 'string' && content.diff !== true && hasDiff && !preview && 'truncated' in content) {
           modes.set(index, 'source'); continue
         }
@@ -133,6 +131,7 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
         ...(loaded?.truncated === true && (limits.get(index) ?? PREVIEW_BYTES) < MAX_PREVIEW_BYTES ? [{ label: 'Load more', value: 'more' }] : [])]
       const position = positions.get(key)
       const action = await tui.prompt({ title: `${title} · ${index + 1}/${files.length}`, question: file.label, detail,
+        ...(image === undefined ? {} : { documentImage: image }),
         ...(source === undefined ? {} : { documentSource: source }), ...(position === undefined ? {} : { documentPosition: position }), onDocumentPosition: position => { positions.set(key, position) },
         presentation: 'document', options, allowCustom: false, signal, notify: false,
         actions: [{ key: 'f', label: 'files', valuePrefix: 'files' }, ...(hasDiff ? [{ key: 'v', label: 'preview/diff', valuePrefix: 'preview' }] : []),

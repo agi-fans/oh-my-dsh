@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import { ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -161,4 +162,17 @@ describe('file inspection', () => {
       expect(await filePreview(path, signal())).toMatch(new RegExp('^```' + language + '\\n', 'u'))
     }
   })
+})
+
+it('opens file images through the graphics reader and keeps next-file navigation', async () => {
+  const root = await directory()
+  await writeFile(join(root, 'a.png'), await sharp({ create: { width: 20, height: 10, channels: 3, background: '#1569a5' } }).png().toBuffer())
+  await writeFile(join(root, 'b.txt'), 'text file')
+  const answers = ['next', null, null]
+  const prompt = vi.fn<TuiService['prompt']>().mockImplementation(async () => answers.shift() ?? null)
+  await reviewFiles({ prompt } as unknown as TuiService, 'Files', root,
+    [{ path: 'a.png', label: 'a.png' }, { path: 'b.txt', label: 'b.txt' }], async () => '', signal(), 0, false)
+  expect(prompt.mock.calls[0]?.[0].documentImage).toMatchObject({ width: 20, height: 10 })
+  expect(prompt.mock.calls[1]?.[0].documentImage).toBeUndefined()
+  expect(prompt.mock.calls[1]?.[0].documentSource?.text).toBe('text file')
 })

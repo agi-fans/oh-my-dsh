@@ -22,6 +22,8 @@ description: 用 @ 提及把 omdsh 指向精确的文件和会话，粘贴剪贴
 
 复制图片后按 `Ctrl+V`。Composer 会插入一个紧凑的图片标记；补充说明文字后即可作为一条消息发送，也可以随 `/goal` 或 `/plan` 一起提交。粘贴可读取的图片文件路径时，也会导入对应图片。
 
+发送前可按 `Alt+M` 检查草稿图片。用 Tab 和 Enter 操作预览按钮，或按 `P`/`N` 切换图片、`O` 打开原图；Esc 关闭预览并保留草稿。已存储的图片可通过 `/attachments` 查看；支持的终端与预览限制见[文件与终端](../commands.md#文件与终端)。
+
 图片粘贴依赖平台剪贴板读取器。在 Linux 上，它在 Wayland 下使用 `wl-paste`，在 X11 下使用 `xclip`；如果两者都不存在，文本粘贴仍然可用，但无法直接捕获剪贴板图片。
 
 默认 DeepSeek catalog 包含可处理图片的 `deepseek-flash`；其余默认 DeepSeek 模型仍是纯文本。若部署要让其他模型接受原生图片请求，须在该模型上声明 `inputModalities: [text, image]`。

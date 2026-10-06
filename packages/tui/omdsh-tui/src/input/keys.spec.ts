@@ -103,3 +103,11 @@ describe('terminal focus reports', () => {
     ])
   })
 })
+
+it('consumes fragmented cell-size reports without inserting terminal responses', () => {
+  const first = parseKeys('\x1b[6;18;')
+  expect(first.events).toEqual([])
+  expect(parseKeys(first.rest + '9t').events).toEqual([{ type: 'cell-size', width: 9, height: 18 }])
+  expect(parseKeys('\x1b[6;0;0t\x1b[6;2000;9t').events).toEqual([])
+  expect(parseKeys('\x1b[6;18;9ttext').events).toEqual([{ type: 'cell-size', width: 9, height: 18 }, { type: 'text', value: 'text' }])
+})

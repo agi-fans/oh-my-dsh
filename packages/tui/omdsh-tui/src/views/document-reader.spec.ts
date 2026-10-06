@@ -5,6 +5,13 @@ import { documentDestination, documentLayout, documentLineRow, documentMatches, 
 import { renderPlanReviewPage } from './prompt-selector.ts'
 
 describe('source document navigation', () => {
+  it('uses retained snapshot line numbers for search and line jumps', () => {
+    const source = { text: 'older\n中文🐳 match\nlast\n', firstLine: 701 }
+    expect(documentModel(source).numbers).toEqual([{ next: 701 }, { next: 702 }, { next: 703 }])
+    expect(documentLineRow(source, 702)).toBe(1)
+    expect(documentLineRow(source, 2)).toBeUndefined()
+    expect(documentMatches(source, 'match')).toEqual([1])
+  })
   it('numbers both diff sides without treating headers or no-newline markers as content', () => {
     const source = { diff: true, text: 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -3,2 +3,3 @@\n same\n-old\n+new\n+extra\n\\ No newline at end of file\n@@ -20 +21 @@\n-last\n+final\n' }
     const model = documentModel(source)

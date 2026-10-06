@@ -31,7 +31,7 @@ export function documentModel(source: TuiDocumentSource): DocumentModel {
   const hunks: number[] = []
   let old = 0, next = 0, oldRemaining = 0, nextRemaining = 0
   for (const [at, line] of lines.entries()) {
-    if (!source.diff) { numbers.push({ next: at + 1 }); continue }
+    if (!source.diff) { numbers.push({ next: at + (source.firstLine ?? 1) }); continue }
     const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line)
     if (hunk !== null) {
       old = Number(hunk[1]); next = Number(hunk[3])

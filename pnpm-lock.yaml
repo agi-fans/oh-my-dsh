@@ -603,6 +603,9 @@ importers:
       prismjs:
         specifier: 1.30.0
         version: 1.30.0
+      sharp:
+        specifier: 0.35.3
+        version: 0.35.3(@types/node@22.20.1)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5-alpha.1

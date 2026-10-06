@@ -193,7 +193,8 @@
     "diff": "9.0.0",
     "fflate": "0.8.3",
     "marked": "15.0.12",
-    "prismjs": "1.30.0"
+    "prismjs": "1.30.0",
+    "sharp": "0.35.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5-alpha.1"

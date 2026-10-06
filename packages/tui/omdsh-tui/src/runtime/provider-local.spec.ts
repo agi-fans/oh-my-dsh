@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 /**
  * LocalTui contract tests over a fake terminal: key routing (edit, history,
  * slash/tab autocomplete, Ctrl-R history search, PgUp/PgDn transcript
@@ -17,6 +18,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
+import { TerminalReader } from './terminal-reader.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
@@ -1947,11 +1949,35 @@ describe('LocalTui (tty)', () => {
     expect(recorder.requests.at(-1)?.params.state).toBe('working')
 
     tui.setSession({ id: 'herdr-session', recent: [] })
+    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'working', agent_session_id: 'herdr-session' })
     tui.setStatus('idle')
     expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'idle', agent_session_id: 'herdr-session' })
 
     tui.dispose()
     expect(recorder.requests.at(-1)?.method).toBe('pane.release_agent')
+  })
+
+  it('restores the terminal immediately but keeps disposal pending until Herdr release settles', async () => {
+    const term = new FakeTerminal()
+    let acknowledge: ((success: boolean) => void) | undefined
+    const reporter = new HerdrAgentReporter({
+      env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p2', HERDR_SOCKET_PATH: '/tmp/omdsh-herdr-dispose.sock' },
+      transport: () => ({ send: request => request.method === 'pane.release_agent'
+        ? new Promise<boolean>(resolve => { acknowledge = resolve })
+        : true }),
+    })
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { herdrReporter: reporter })
+    let finished = false
+    const disposal = tui.dispose()
+    void disposal.then(() => { finished = true })
+    expect(term.raw).toBe(false)
+    expect(term.destroyed).toBe(true)
+    expect(tui.dispose()).toBe(disposal)
+    await Promise.resolve()
+    expect(finished).toBe(false)
+    acknowledge?.(true)
+    await disposal
+    expect(finished).toBe(true)
   })
 
   it('ignores status updates from an inspected subagent while still reporting human prompts', async () => {
@@ -4285,4 +4311,136 @@ describe('list-wide prompt actions', () => {
       expect(term.visible().join('\n')).toContain('Preserve the draft 🐳')
     } finally { tui.dispose() }
   })
+})
+
+it.each(['kitty', 'none'] as const)('previews a draft then restores text, image bytes and raw-mode ownership (%s)', async protocol => {
+  const data = await sharp({ create: { width: 40, height: 20, channels: 3, background: '#1569a5' } }).png().toBuffer()
+  const term = new FakeTerminal()
+  const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { imageProtocol: protocol, terminalProfile: 'direct',
+    readClipboardImage: async () => ({ data, mediaType: 'image/png', name: '预览🐳.png' }) })
+  try {
+    const pending = tui.readInput()
+    press(term, 'draft ')
+    press(term, '\x16')
+    await flushAsyncPaste()
+    term.captured = ''
+    press(term, '\x1bm')
+    await vi.waitFor(() => expect(term.captured).toContain(protocol === 'kitty' ? 'a=T' : 'Inline images are unavailable'))
+    if (protocol === 'kitty') {
+      expect(term.captured).toContain('\x1b[16t')
+      term.captured = ''
+      press(term, '\x1b[6;12;12t')
+      expect(term.captured).toContain('a=T')
+      term.captured = ''
+    }
+    press(term, '\x1b')
+    await vi.waitFor(() => expect(term.captured).toContain(protocol === 'kitty' ? '\x1b[?1049l' : 'draft'))
+    if (protocol === 'kitty') expect(term.captured).toContain('a=d,d=I')
+    expect(term.raw).toBe(true)
+    press(term, '\r')
+    expect(await pending).toMatchObject({ text: 'draft [Image #1, 40x20]', images: [{ data, mediaType: 'image/png' }] })
+  } finally { tui.dispose() }
+  expect(term.raw).toBe(false)
+  expect(term.captured).not.toContain('\x1b[3J')
+})
+
+
+describe('live source readers', () => {
+  it('freezes paused terminal output, resumes following and stops refreshes after abort', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), abort = new AbortController()
+    let lines = Array.from({ length: 100 }, (_, at) => `row ${at + 1}`)
+    const reader = new TerminalReader(({ offset = 0, count = 300 }) => {
+      const end = lines.length - offset, start = Math.max(0, end - count)
+      return { text: lines.slice(start, end).join('\n'), totalLines: lines.length, lineBegin: start, lineEnd: end, truncated: false }
+    })
+    const refresh = vi.fn((following: boolean) => reader.refresh(following))
+    try {
+      const answer = tui.prompt({ title: 'Terminal', question: 'Shell', presentation: 'document', notify: false,
+        documentSource: reader.refresh(true), refreshDocumentSource: refresh, documentTail: true, signal: abort.signal, options: [{ label: 'Close' }] })
+      press(term, '\x1b[H')
+      term.captured = ''
+      lines = [...lines, 'LATEST AFTER PAUSE']
+      await vi.advanceTimersByTimeAsync(500)
+      expect(refresh).toHaveBeenLastCalledWith(false)
+      expect(term.captured).not.toContain('LATEST AFTER PAUSE')
+      press(term, '\x1b[F')
+      await vi.advanceTimersByTimeAsync(250)
+      expect(refresh).toHaveBeenLastCalledWith(true)
+      expect(term.captured).toContain('LATEST AFTER PAUSE')
+      abort.abort()
+      expect(await answer).toBeNull()
+      const reads = refresh.mock.calls.length
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(refresh).toHaveBeenCalledTimes(reads)
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+
+  it('preserves source anchors when older output is prepended', async () => {
+    vi.useFakeTimers()
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    let source = { text: Array.from({ length: 60 }, (_, at) => `row ${at + 301}`).join('\n'), firstLine: 301 }
+    const refresh = vi.fn(() => source)
+    const position = vi.fn()
+    try {
+      const answer = tui.prompt({ title: 'Terminal', question: 'Shell', presentation: 'document', documentSource: source,
+        refreshDocumentSource: refresh, onDocumentPosition: position, options: [{ label: 'Close' }] })
+      press(term, '\x1b[H')
+      source = { text: Array.from({ length: 360 }, (_, at) => `row ${at + 1}`).join('\n'), firstLine: 1 }
+      term.captured = ''
+      await vi.advanceTimersByTimeAsync(250)
+      press(term, '\x03')
+      expect(await answer).toBeNull()
+      expect(position).toHaveBeenCalledWith(expect.objectContaining({ row: 300 }))
+    } finally { tui.dispose(); vi.useRealTimers() }
+  })
+
+  it('searches pasted text in a reader without changing the composer draft', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.restoreInput({ text: 'draft', images: [] })
+      const answer = tui.prompt({ title: 'File', question: 'source', presentation: 'document', documentSource: { text: 'first\nneedle 中文🐳\nlast' }, options: [{ label: 'Close' }] })
+      press(term, '/')
+      press(term, '\x1b[200~needle\x1b[201~')
+      await flushAsyncPaste()
+      press(term, '\r')
+      expect(stripAnsi(term.captured)).toContain('1/1 matching lines')
+      press(term, '\x03')
+      expect(await answer).toBeNull()
+      const submitted = tui.readInput()
+      press(term, '\r')
+      expect(await submitted).toMatchObject({ text: 'draft' })
+    } finally { tui.dispose() }
+  })
+
+  it('yields a quiet document to a human question while retaining draft ownership', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const superseded = vi.fn()
+    try {
+      tui.restoreInput({ text: 'draft', images: [] })
+      const reader = tui.prompt({ title: 'Terminal', question: 'Shell', presentation: 'document', notify: false,
+        onSuperseded: superseded, documentSource: { text: 'output' }, options: [{ label: 'Close' }] })
+      const question = tui.prompt({ title: 'Question', question: 'Continue?', options: [{ label: 'Yes' }] })
+      expect(await reader).toBeNull()
+      expect(superseded).toHaveBeenCalledOnce()
+      press(term, '\r')
+      expect(await question).toBe('Yes')
+      const submitted = tui.readInput()
+      press(term, '\r')
+      expect(await submitted).toMatchObject({ text: 'draft' })
+    } finally { tui.dispose() }
+  })
+})
+
+
+it('reports parent completion while a running child is inspected, without applying it to the child view', () => {
+  const term = new FakeTerminal(), recorder = createHerdrRecorder()
+  const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { herdrReporter: recorder.reporter })
+  try {
+    tui.setStatus('running')
+    tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'running', writable: false })
+    tui.setStatus('running')
+    tui.setStatus('idle', { root: true })
+    expect(recorder.requests.at(-1)?.params.state).toBe('idle')
+  } finally { tui.dispose() }
 })

@@ -28,6 +28,7 @@
  * renderer wraps every paint in one DEC 2026 synchronized write.
  * @module @agi-fans/dsh-tui
  */
+import { deleteImage, imageSequence, type ImagePlacement } from './terminal-images.ts'
 import { sanitizeDisplayLine, type Frame, type RenderSink } from './renderer.ts'
 import { visibleWidth } from './width.ts'
 
@@ -382,6 +383,9 @@ interface ResizeBaseline {
 export class MainScreenRenderer {
   readonly #sink: RenderSink
   readonly #synchronized: boolean
+  #image: ImagePlacement | undefined
+  readonly #imageId = Math.floor(Math.random() * 0x7ffffffe) + 1
+  #imageChanged = false
   readonly #alternateScreenOverlays: boolean
   #width: number
   #height: number
@@ -623,7 +627,9 @@ export class MainScreenRenderer {
   /** Put the cursor below the UI before terminal ownership is released. */
   finish(): void {
     const targetRow = Math.max(0, this.#height - 1)
-    let out = this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
+    let out = this.#image?.protocol === 'kitty' ? deleteImage(this.#imageId) : ''
+    this.#image = undefined
+    out += this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
     this.#decoratedRows = undefined
     if (this.#altActive) {
       out += EXIT_ALT_SCREEN
@@ -656,6 +662,14 @@ export class MainScreenRenderer {
     // that still needs confirming lives in the pending queue, which is what the retry reads —
     // that lifecycle is explicit and not a side effect of this field.
     this.#pendingEvent = undefined
+    const graphic = frame.transientSurface === 'scroll' || (frame.liveStart ?? 0) !== 0 ? undefined : frame.image
+    const oldGraphic = this.#image
+    this.#imageChanged = oldGraphic?.image !== graphic?.image || oldGraphic?.protocol !== graphic?.protocol
+      || oldGraphic?.row !== graphic?.row || oldGraphic?.column !== graphic?.column
+      || oldGraphic?.columns !== graphic?.columns || oldGraphic?.rows !== graphic?.rows || this.#resize !== undefined
+      || (graphic !== undefined && (this.#reanchor || !this.#altActive))
+    const removeGraphic = this.#imageChanged && oldGraphic?.protocol === 'kitty' ? deleteImage(this.#imageId) : ''
+    this.#image = graphic
     const next = frame.lines.map(line => sanitizeDisplayLine(String(line)))
     const liveStart = Math.max(0, Math.min(frame.liveStart ?? 0, next.length))
     const livePinned = frame.livePinned !== false
@@ -682,7 +696,7 @@ export class MainScreenRenderer {
     // one that painted this one. An alternate frame may still apply a normal resize event;
     // what it must not do is confirm main-screen sources from overlay text.
     const drawsAlternate = liveStart === 0
-      && this.#alternateScreenOverlays
+      && (this.#alternateScreenOverlays || graphic !== undefined)
       && frame.transientSurface !== 'scroll'
     // Fixed and applied once, after the target buffer is known and before the queue is read, so
     // this frame's own move is part of its own comparison. The draw paths receive the result
@@ -826,7 +840,8 @@ export class MainScreenRenderer {
     const repaint = resizedDecoration ? this.#writeRun(viewport, 0, this.#height - 1) : ''
     const restoreCursor = undecorate !== '' || decoration !== '' || repaint !== ''
       ? csi(this.#cursorRow, this.#cursorCol) : ''
-    const frameBytes = undecorate + restoreBytes + paint + repaint + decoration + restoreCursor
+    const graphics = graphic !== undefined && this.#imageChanged ? imageSequence(graphic, this.#imageId) + csi(this.#cursorRow, this.#cursorCol) : ''
+    const frameBytes = removeGraphic + undecorate + restoreBytes + paint + repaint + decoration + restoreCursor + graphics
     if (frameBytes !== '') this.#sink.write(this.#wrap(frameBytes))
   }
 
@@ -845,10 +860,10 @@ export class MainScreenRenderer {
     // Browsing history is not an overlay: the alternate buffer would hide the
     // terminal's own scrollback, which is exactly what the user is scrolling
     // through, so a scroll frame repaints the main screen instead.
-    if (this.#alternateScreenOverlays && surface !== 'scroll') {
+    if ((this.#alternateScreenOverlays || frame.image !== undefined) && surface !== 'scroll') {
       // A transition present here is the overlay's own: the main screen's is parked
       // on `#mainResizeRecord`, so a restore never re-arms this clear.
-      const clear = !this.#altActive || transitionForAlt !== undefined
+      const clear = !this.#altActive || transitionForAlt !== undefined || this.#imageChanged
       let body = this.#altActive ? '' : ENTER_ALT_SCREEN
       body += this.#paintScreen(target.rows, clear ? this.#blankScreen() : this.#altScreen, clear)
       const targetRow = this.#screenRow(cursor.row, target, next.length)

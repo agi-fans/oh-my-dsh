@@ -10,6 +10,7 @@ export type KeyEvent =
   | { type: 'key'; id: string }
   | { type: 'text'; value: string }
   | { type: 'focus'; focused: boolean }
+  | { type: 'cell-size'; width: number; height: number }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
   | { type: 'wheel'; direction: 'up' | 'down' }
@@ -147,6 +148,8 @@ function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 
   const p3 = match[3] === undefined || match[3] === '' ? undefined : Number(match[3])
   const cmd = match[4] ?? ''
   if ((cmd === 'I' || cmd === 'O') && match[0].length === 1) return { event: { type: 'focus', focused: cmd === 'I' }, used }
+  if (cmd === 't') return { event: p1 === 6 && p3 !== undefined && p2 > 0 && p2 <= 1000 && p3 > 0 && p3 <= 1000
+    ? { type: 'cell-size', width: p3, height: p2 } : undefined, used }
   if (cmd === 'u') return { event: kittyEvent(p1, p2), used }
   if (cmd === '~') {
     if (p1 === 200) return { event: { type: 'paste-start' }, used }

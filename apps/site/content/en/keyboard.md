@@ -33,6 +33,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+-` | Undo the last edit. |
 | `Ctrl+D` | Delete forward, or quit when the composer is empty. |
 | `Ctrl+V` | Paste clipboard text or an image. |
+| `Alt+M` | Preview composer images without sending them. |
 | `Alt+I` | Expand a folded pasted block for editing. |
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
 | `Alt+S` | Send text guidance to the active Turn’s next model step. |
@@ -73,6 +74,8 @@ When the transcript can scroll, omdsh supports mouse dragging within the current
 Full-screen pages temporarily suspend application mouse handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
 
 File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
+
+The `/terminal` console uses the same search and matching-line keys. `L` loads earlier retained output, scrolling or searching pauses following, and `End` returns to the latest output and resumes following. `I` sends a line; `C` interrupts the shell.
 
 ## Session
 
@@ -122,6 +125,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 | Action id | Default key | Effect |
 |---|---|---|
+| `preview-images` | `Alt+M` | Preview draft images. |
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
 | `steer-turn` | `Alt+S` | Send text guidance to the active Turn’s next model step. |

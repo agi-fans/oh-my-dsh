@@ -28,9 +28,13 @@ export function omdshCommand() {
     : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
 }
 
-/** Smoke environment: isolated home, no color, plus per-script extras. */
+/** Smoke children own synthetic terminals, never their caller's Herdr pane. */
 export function smokeEnv(home, extra = {}) {
-  return { ...process.env, OMDSH_HOME: home, NO_COLOR: '1', ...extra }
+  const inherited = { ...process.env }
+  for (const key of Object.keys(inherited)) {
+    if (key.startsWith('HERDR_')) delete inherited[key]
+  }
+  return { ...inherited, OMDSH_HOME: home, NO_COLOR: '1', ...extra }
 }
 
 /** Strip ANSI escapes and carriage returns from captured terminal output. */

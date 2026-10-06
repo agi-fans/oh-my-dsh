@@ -77,6 +77,8 @@ export interface DocumentRows {
 
 /** One display frame: exact lines plus an optional final cursor position. */
 export interface Frame {
+  /** Trusted graphics resource placed separately from text. */
+  image?: import('./terminal-images.ts').ImagePlacement
   /** Viewport-only prompt labels, active within half-open document row ranges. */
   stickyHeaders?: readonly { start: number; end: number; text: string }[]
   /** Click target for returning from transcript browsing, in zero-based frame cells. */

@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,4 +72,28 @@ describe('file browsing actions', () => {
       expect(requests[4]?.title).toBe(`Files · ${root}`)
     } finally { await ctx.fiber.dispose() }
   })
+})
+
+
+it('previews verified durable image bytes when the provider has no host path', async () => {
+  const data = await sharp({ create: { width: 20, height: 10, channels: 3, background: '#1569a5' } }).png().toBuffer()
+  const ref = { attachmentId: 'stored-image', name: '中文.png', bytes: data.length, mediaType: 'image/png' }
+  const ctx = new Context(), requests: TuiPrompt[] = []
+  const answers = ['0', null, null]
+  const readImage = vi.fn().mockResolvedValue({ ref, data })
+  try {
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    ctx.provide('tui', { interactive: true, prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } } as never)
+    ctx.provide('attachments', { readImage, imageHostPath: () => undefined } as never)
+    await ctx.plugin(filesCommand)
+    const session = ctx.sessions.create(SessionId('image-attachment-test'))
+    session.append('user/message', { source: { kind: 'user' }, content: [{ type: 'image', attachment: ref }] } as never, { surfaceOp: 'append' })
+    const abort = new AbortController()
+    const result = await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/attachments', [], abort.signal)
+    expect(result).toMatchObject({ result: { kind: 'success' } })
+    expect(readImage).toHaveBeenCalledWith(ref, abort.signal)
+    expect(requests[1]?.documentImage).toMatchObject({ width: 20, height: 10 })
+    expect(requests[1]?.options?.map(option => option.value)).toEqual(['close'])
+  } finally { await ctx.fiber.dispose() }
 })

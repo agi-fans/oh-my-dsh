@@ -63,6 +63,8 @@ export interface TuiNoticeOptions extends TuiOutputOptions {
 /** Source text inspected without Markdown interpreting its syntax. */
 export interface TuiDocumentSource {
   readonly text: string
+  /** One-based line number of the first retained source row. */
+  readonly firstLine?: number
   readonly language?: string
   readonly diff?: boolean
   readonly status?: string
@@ -73,6 +75,8 @@ export interface TuiDocumentPosition {
   row: number
   wrap: number
   query: string
+  /** Live readers retain whether End is following new output across actions. */
+  following?: boolean
 }
 
 /** One terminal-owned human prompt used by approval and question adapters. */
@@ -126,12 +130,16 @@ export interface TuiPrompt {
   notify?: boolean
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
   refreshDocument?: () => string
+  /** Refresh a source reader; false requests a stable paused snapshot. */
+  refreshDocumentSource?: (following: boolean) => TuiDocumentSource
   /** Refresh live choices; option values identify retained selection. */
   refreshOptions?: () => NonNullable<TuiPrompt['options']>
   /** Yield this reading surface to an attention-requesting prompt and recover any entered text. */
   onSuperseded?: (input: string) => void
   /** Open a live document at its latest rows. */
   documentTail?: boolean
+  /** Prepared PNG shown in a dedicated image reader; original bytes remain untouched. */
+  documentImage?: import('./chrome/terminal-images.ts').PreviewImage
   /** Source reader with line numbers, search, and diff navigation. */
   documentSource?: TuiDocumentSource
   documentPosition?: TuiDocumentPosition
@@ -357,8 +365,8 @@ export interface TuiService {
   setWorkspaceSummary(turn: number, summary: WorkspaceChangesSummary): void
   /** Fold one live `agent/assistant-stream` chunk into the transcript. */
   streamDelta(delta: StreamDelta): void
-  /** Update the status line liveness. */
-  setStatus(status: TuiStatus): void
+  /** Update status liveness; root signals also update pane lifecycle while inspecting a child. */
+  setStatus(status: TuiStatus, options?: { root?: boolean }): void
   /** Update the model and effective reasoning effort shown in the composer. */
   setModel(model: string, reasoningEffort?: string): void
   /** Update the optional process-local Loop indicator in the fixed footer. */
@@ -471,8 +479,8 @@ export interface TuiService {
   ) => Promise<readonly { path: string; kind: 'file' | 'directory' }[]>): void
   /** Replace the optional Harness image-admission check applied when a paste drafts an image. */
   setImageValidator(validate?: (image: TuiInputImage) => Promise<void>): void
-  /** Restore terminal state and settle a pending input read with null. */
-  dispose(): void
+  /** Restore the terminal and settle input immediately, then await bounded integration teardown. */
+  dispose(): void | Promise<void>
 }
 
 declare module '@deepseek-ai/cordis' {

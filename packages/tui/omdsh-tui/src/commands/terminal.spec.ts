@@ -10,7 +10,7 @@ function harness(answers: readonly (string | null)[], rawInput = '') {
   const owner = { session: { header: { cwd: '/workspace' } } }
   const terminals = {
     list: vi.fn(() => [{ sessionId: 'owned', name: 'Shell', type: 'shell', status: { kind: 'running' } }]),
-    read: vi.fn(() => ({ text: 'output', truncated: false, lineEnd: 1, totalLines: 1 })),
+    read: vi.fn(() => ({ text: 'output', truncated: false, lineBegin: 0, lineEnd: 1, totalLines: 1 })),
     startSend: vi.fn(() => ({ done: Promise.resolve() })), signal: vi.fn(async () => {}), kill: vi.fn(async () => {}),
   }
   const ctx = { tui: { interactive: true, prompt, notice: vi.fn() }, terminals, logger: { warn: vi.fn() } } as unknown as Context
@@ -24,7 +24,7 @@ describe('persistent terminal console', () => {
     expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
     expect(h.terminals.startSend).toHaveBeenCalledWith(h.owner, 'owned', { text: 'echo hello', submit: true, signal: h.invocation.signal })
     expect(h.terminals.kill).not.toHaveBeenCalled()
-    expect(h.prompt.mock.calls[1]![0].refreshDocument!()).toContain('output')
+    expect(h.prompt.mock.calls[1]![0].refreshDocumentSource!(true).text).toContain('output')
   })
   it('interrupts explicitly and requires confirmation to close', async () => {
     const h = harness(['interrupt', 'close', 'keep', 'close', 'close', null], 'owned')
@@ -36,5 +36,35 @@ describe('persistent terminal console', () => {
     const h = harness([], 'foreign')
     expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'error', text: 'Terminal foreign is not available in this session.' })
     expect(h.terminals.read).not.toHaveBeenCalled()
+  })
+
+  it('retains a paused reading position and search across input cancellation and older-page loading', async () => {
+    const h = harness([], 'owned')
+    const lines = Array.from({ length: 800 }, (_, at) => `line ${at + 1}`)
+    h.terminals.read.mockImplementation((_owner?: unknown, _id?: unknown, request?: { offset?: number; count?: number }) => {
+      const offset = request?.offset ?? 0, end = lines.length - offset, start = Math.max(0, end - (request?.count ?? 300))
+      return { text: lines.slice(start, end).join('\n'), truncated: false, lineBegin: offset, lineEnd: offset + end - start, totalLines: lines.length }
+    })
+    let documents = 0
+    h.prompt.mockImplementation(async request => {
+      if (request.presentation !== 'document') return null
+      documents++
+      expect(request.notify).toBe(false)
+      expect(request.refreshDocumentSource).toBeTypeOf('function')
+      if (documents === 1) {
+        request.onDocumentPosition!({ row: 20, wrap: 1, query: 'line', following: false })
+        return 'input'
+      }
+      expect(request.documentPosition).toEqual({ row: documents === 2 ? 20 : 320, wrap: 1, query: 'line', following: false })
+      if (documents === 2) {
+        request.onDocumentPosition!(request.documentPosition!)
+        return 'earlier'
+      }
+      expect(request.documentSource?.firstLine).toBe(201)
+      return null
+    })
+    expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
+    expect(documents).toBe(3)
+    expect(h.terminals.startSend).not.toHaveBeenCalled()
   })
 })

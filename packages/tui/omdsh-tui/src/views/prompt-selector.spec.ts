@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { refreshPromptOptions, maskPromptSecret, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import { refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
@@ -223,5 +223,27 @@ describe('live prompt choices', () => {
         expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
       }
     }
+  })
+})
+
+
+describe('image preview page', () => {
+  it.each([false, true])('reserves padded image cells and readable actions across sizes (color=%s)', colors => {
+    const state: PromptSelectorState = { selected: 1, checked: new Set(), request: { title: 'Image preview', question: '中文🐳e\u0301.png',
+      documentImage: { data: new Uint8Array([0]), width: 640, height: 320, description: 'PNG · 640 × 320 px' },
+      options: [{ label: 'Previous' }, { label: 'Open' }, { label: 'Close' }] } }
+    for (const [width, height] of [[24, 10], [40, 14], [80, 24], [120, 40]]) {
+      const frame = renderImagePreviewPage(state, createTheme(colors), width!, height!, 'omdsh', 'kitty', { width: 8, height: 16 })
+      expect(frame.lines).toHaveLength(height!)
+      expect(frame.lines.every(line => visibleWidth(line) === width)).toBe(true)
+      expect(frame.image!.column).toBeGreaterThanOrEqual(4)
+      expect(frame.image!.column + frame.image!.columns).toBeLessThanOrEqual(width! - 4)
+      expect(frame.image!.row + frame.image!.rows).toBeLessThanOrEqual(height! - 4)
+      expect(stripAnsi(frame.lines.join('\n'))).toContain('› [ Open ]')
+      expect(frame.cursorVisible).toBe(false)
+    }
+    const fallback = renderImagePreviewPage(state, createTheme(colors), 80, 24, 'omdsh')
+    expect(fallback.image).toBeUndefined()
+    expect(stripAnsi(fallback.lines.join('\n'))).toContain('Inline images are unavailable')
   })
 })
