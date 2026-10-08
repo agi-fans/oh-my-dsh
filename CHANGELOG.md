@@ -61,6 +61,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Returning from file previews and other full-screen pages repaints the live transcript and composer, preventing stale borders and displaced input rows.
+
 - Markdown code retains literal HTML tags, entities and emphasis characters. Incomplete formulas remain readable while streaming, and compound exponents no longer convert only their first digit.
 
 - Herdr status follows the root Agent during session updates and subagent inspection, retries failed reports, and waits briefly for release on exit. Background runs and smoke-test terminals no longer claim their caller's Herdr pane.

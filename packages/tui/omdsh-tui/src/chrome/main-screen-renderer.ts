@@ -1004,8 +1004,9 @@ export class MainScreenRenderer {
   ): string {
 
     const transcript = frame.transcript
-    const exitAlt = this.#altActive && !this.#exitOwnedByCaller ? EXIT_ALT_SCREEN : ''
-    if (this.#altActive) {
+    const leavingAlt = this.#altActive
+    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? EXIT_ALT_SCREEN : ''
+    if (leavingAlt) {
       this.#altActive = false
       this.#altScreen = this.#blankScreen()
     }
@@ -1273,7 +1274,9 @@ export class MainScreenRenderer {
     } else {
       if (!this.#frozenViewport && candidatePhysical < this.#physical) effectiveStart = Math.max(this.#physical, viewStart)
       target = this.#target(next, effectiveStart, 'bottom')
-      body = this.#paintScreen(target.rows, this.#screen, false)
+      // The hidden normal buffer may no longer match the last painted snapshot.
+      // Restore the live viewport explicitly, even when its logical rows are unchanged.
+      body = this.#paintScreen(target.rows, this.#screen, leavingAlt)
     }
 
     this.#transient = false

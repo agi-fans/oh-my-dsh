@@ -426,6 +426,30 @@ describe('MainScreenRenderer', () => {
     expect(emu.visible()).toEqual(transcript.slice(10, 16))
   })
 
+  it('repairs stale normal-buffer rows after nested previews without rewriting history', () => {
+    const emu = new Emulator(8, ['earlier shell output'])
+    const renderer = new MainScreenRenderer(emu, { width: 40, height: 8, alternateScreenOverlays: true })
+    const document = Array.from({ length: 20 }, (_, row) => `reply-${row}`)
+    const live = frame([...document, '', 'composer top', 'draft', 'composer bottom', 'model', 'context'], 12, {
+      bodyRows: document.length,
+      cursor: { row: document.length + 2, column: 2 },
+    })
+    renderer.render(live)
+    const screen = emu.normalScreen()
+    const history = [...emu.scrollback]
+    renderer.render(frame(['Files', 'README.md'], 0, { transientSurface: 'overlay' }))
+    renderer.render(frame(['Preview', 'source line'], 0, { transientSurface: 'overlay' }))
+    // A terminal can return rows that differ from the renderer's saved snapshot.
+    emu.screen[1] = 'stale table border'
+    emu.screen[5] = 'duplicate composer border'
+    const mark = emu.captured.length
+    renderer.render(live)
+    expect(emu.normalScreen()).toEqual(screen)
+    expect(emu.scrollback).toEqual(history)
+    expect(emu.outputAfter(mark)).not.toContain('\x1b[2J')
+    expect(emu.outputAfter(mark)).not.toContain('\x1b[3J')
+  })
+
   it('clears an alternate-screen overlay once per resize, not on every frame', () => {
     const emu = new Emulator(6)
     const renderer = new MainScreenRenderer(emu, {

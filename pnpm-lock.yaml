@@ -625,6 +625,9 @@ importers:
       '@types/prismjs':
         specifier: 1.26.6
         version: 1.26.6
+      '@xterm/headless':
+        specifier: 6.0.0
+        version: 6.0.0
       tsx:
         specifier: ^4.19.0
         version: 4.23.12
