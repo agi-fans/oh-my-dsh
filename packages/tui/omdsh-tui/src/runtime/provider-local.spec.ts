@@ -23,6 +23,7 @@ import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
 import { createHistorySearch } from '../views/history-search.ts'
+import { tuiSettingItems } from '../views/settings-list.ts'
 import type { DirEntry, PathSearcher, ProjectPathEntry } from '../views/path-complete.ts'
 import { stripAnsi } from '../chrome/width.ts'
 
@@ -2834,6 +2835,8 @@ describe('LocalTui (tty)', () => {
       theme: 'light',
       colors: false,
       motion: 'full',
+      mathMode: 'auto',
+      mermaidMode: 'auto',
       editor: 'auto',
       terminalProgress: false,
       copyOnSelect: true,
@@ -3808,6 +3811,33 @@ describe('LocalTui (plain)', () => {
 
 
 describe('document and file interaction', () => {
+  it('toggles wrapping, pans with Alt arrows and retains reading position without consuming a draft', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const position = vi.fn()
+    try {
+      press(term, 'draft')
+      await flushAsyncPaste()
+      const source = { text: 'left ' + '中文🐳'.repeat(40) + ' right', language: 'ts' }
+      const answer = tui.prompt({ title: 'File', question: 'a.ts', presentation: 'document', documentSource: source,
+        onDocumentPosition: position, options: [{ label: 'Files' }, { label: 'Open' }] })
+      press(term, 'w')
+      press(term, '\x1b[1;3C')
+      press(term, '\x1b[C')
+      press(term, '\r')
+      expect(await answer).toBe('Open')
+      expect(position).toHaveBeenLastCalledWith({ row: 0, wrap: 0, query: '', wordWrap: false, column: 8 })
+      const reopened = tui.prompt({ title: 'File', question: 'a.ts', presentation: 'document', documentSource: source,
+        documentPosition: position.mock.calls.at(-1)![0], onDocumentPosition: position, options: [{ label: 'Close' }] })
+      press(term, '\x1b[1;3D')
+      press(term, '\r')
+      await reopened
+      expect(position).toHaveBeenLastCalledWith({ row: 0, wrap: 0, query: '', wordWrap: false, column: 0 })
+      const input = tui.readInput()
+      press(term, '\r')
+      expect(await input).toEqual({ text: 'draft', images: [] })
+      expect(term.captured).not.toContain('\x1b[3J')
+    } finally { tui.dispose() }
+  })
   it.each([false, true])('searches source lines, cycles through bottom matches and restores the composer (color=%s)', async color => {
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', color)
     const position = vi.fn()
@@ -4036,7 +4066,7 @@ it('persists the selected editor and uses it for both file and prompt editing', 
   const pending = tui.readline()
   try {
     press(term, '/settings\r')
-    press(term, '\x1b[B'.repeat(3) + '\r')
+    press(term, '\x1b[B'.repeat(tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'editor')) + '\r')
     expect(persist.mock.calls[0]?.[0].editor).toBe('code')
     press(term, '\x1b')
     tui.openFileInEditor('/workspace/a.ts')
@@ -4442,5 +4472,34 @@ it('reports parent completion while a running child is inspected, without applyi
     tui.setStatus('running')
     tui.setStatus('idle', { root: true })
     expect(recorder.requests.at(-1)?.params.state).toBe('idle')
+  } finally { tui.dispose() }
+})
+
+
+it('persists Mermaid source mode and refreshes the live reply after leaving Settings', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  term.resize(80, 40)
+  const persist = vi.fn()
+  tui.setPrefsPersist(persist)
+  const pending = tui.readline()
+  try {
+    tui.event(ev('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [
+      { type: 'text', text: '```mermaid\ngraph TD\nA[First] --> B[Second]\n```' },
+    ] } }, 1))
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('First')
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).not.toContain('-->')
+    press(term, '/settings\r')
+    const row = tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'mermaidMode')
+    press(term, '\x1b[B'.repeat(row) + '\r')
+    expect(persist.mock.calls[0]?.[0].mermaidMode).toBe('source')
+    press(term, '\x1b')
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('A[First] --> B[Second]'))
+    const restored = new LocalTui(new FakeTerminal(), 'm', false)
+    try {
+      restored.applyStoredPrefs(persist.mock.calls[0]![0])
+      expect(restored.prefs().mermaidMode).toBe('source')
+    } finally { restored.dispose() }
+    press(term, 'ok\r')
+    expect(await pending).toBe('ok')
   } finally { tui.dispose() }
 })

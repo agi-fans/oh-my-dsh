@@ -18,6 +18,8 @@ export interface PlainTuiDeps {
   readonly term: TerminalLike
   /** Transcript blocks, read live so `print()` always flushes the newest tail. */
   blocks(): readonly Block[]
+  mathMode?(): import('../chrome/math.ts').MathMode
+  mermaidMode?(): import('../chrome/mermaid.ts').MermaidMode
   /** The in-flight human prompt's request, if one is waiting on an answer. */
   promptRequest(): TuiPrompt | undefined
   /** Resolve the in-flight prompt; the provider owns prompt bookkeeping. */
@@ -122,7 +124,7 @@ export class PlainTui {
     let out = ''
     for (const block of blocks.slice(this.#printed)) {
       // Pipe / CI output is not a viewport: print the full tool body.
-      for (const line of blockLines(block, theme, width, { toolsExpanded: true })) out += line + '\n'
+      for (const line of blockLines(block, theme, width, { toolsExpanded: true, mathMode: this.#deps.mathMode?.() ?? 'auto', mermaidMode: this.#deps.mermaidMode?.() ?? 'auto' })) out += line + '\n'
     }
     this.#printed = blocks.length
     if (out !== '') this.#deps.term.output.write(out)

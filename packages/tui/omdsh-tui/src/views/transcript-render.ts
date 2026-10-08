@@ -109,6 +109,8 @@ export interface ViewOptions {
   spinnerFrame?: number
   /** Animation policy for streaming, activity marks, and the working label. */
   motion?: MotionMode
+  mathMode?: import('../chrome/math.ts').MathMode
+  mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
   /** 24-bit color; defaults to off so tests stay deterministic. */
   trueColor?: boolean
   /** Shipped palette; defaults to dark. */
@@ -541,8 +543,8 @@ function firstLineOf(text: string): string {
 }
 
 /** Thinking uses the same quiet Markdown style throughout the turn. */
-function openReasoningLines(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number): string[] {
-  return assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true })
+function openReasoningLines(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number, mathMode: import('../chrome/math.ts').MathMode = 'auto'): string[] {
+  return assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true, mathMode })
 }
 
 interface GroupRenderContext {
@@ -579,14 +581,14 @@ function groupMemberLines(
   const block = blocks[index]!
   // Search must reveal a match even when it falls outside a tool's normal preview.
   const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
-  const signature = [width, options.colors, context.trueColor, context.themeName, thoughtOnly, full, options.toolDetailsKey].join('\0')
+  const signature = [width, options.colors, context.trueColor, context.themeName, options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
   else {
     lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey)
-      : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width)
-        : blockLines(block, theme, width)
+      : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width, options.mathMode)
+        : blockLines(block, theme, width, { mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto' })
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
@@ -654,24 +656,26 @@ export function blockLines(
   block: Block,
   theme: Theme,
   width: number,
-  { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O' }: {
+  { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O', mathMode = 'auto', mermaidMode = 'auto' }: {
     toolsExpanded?: boolean
     omitReasoning?: boolean
     toolDetailsKey?: string
+    mathMode?: import('../chrome/math.ts').MathMode
+    mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
   } = {},
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
     const lines: string[] = []
     if (block.reasoning !== '' && !omitReasoning) {
-      lines.push(...openReasoningLines(block, theme, width))
+      lines.push(...openReasoningLines(block, theme, width, mathMode))
       if (block.text !== '') lines.push('')
     }
     if (block.text === '' && block.reasoning === '' && block.streaming) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
       lines.push(...assistantContentLines([theme.fg('dim', '…')], width, paddingX))
     } else if (block.text !== '') {
-      lines.push(...assistantMarkdown(block.text, theme, width, hasExplicitTextColor(theme) ? { color: 'text' } : undefined))
+      lines.push(...assistantMarkdown(block.text, theme, width, { ...(hasExplicitTextColor(theme) ? { color: 'text' as const } : {}), mathMode, mermaidMode }))
     }
     if (block.interrupted === true) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
@@ -778,6 +782,8 @@ function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
 }
 
 interface TranscriptBodyCache {
+  mathMode: import('../chrome/math.ts').MathMode | undefined
+  mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
   turnDetailsKey: string | undefined
   width: number
@@ -825,6 +831,8 @@ interface TranscriptBodyCache {
 const transcriptBodyCache = new WeakMap<readonly Block[], TranscriptBodyCache>()
 
 interface BlockLinesCache {
+  mathMode: import('../chrome/math.ts').MathMode | undefined
+  mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
   toolDetails: boolean
   width: number
@@ -857,15 +865,19 @@ function cachedBlockLines(
     && cached.themeName === themeName
     && cached.expanded === expanded
     && cached.omitReasoning === omitReasoning
+    && cached.mathMode === options.mathMode
+    && cached.mermaidMode === options.mermaidMode
     && cached.toolDetailsKey === options.toolDetailsKey
     && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)) return cached.lines
   const toolDetails = block.kind === 'tool' && options.expandedTools?.has(block.callId) === true
   const lines = block.kind === 'tool' && toolDetails
     ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
     : blockLines(
-      block, theme, options.width, { toolsExpanded: expanded, omitReasoning, toolDetailsKey: options.toolDetailsKey ?? 'Alt+O' },
+      block, theme, options.width, { toolsExpanded: expanded, omitReasoning, toolDetailsKey: options.toolDetailsKey ?? 'Alt+O', mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto' },
     )
   blockLinesCache.set(block, {
+    mathMode: options.mathMode,
+    mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
     toolDetails,
     width: options.width,
@@ -1180,6 +1192,8 @@ function renderTranscriptBody(
     && cached.trueColor === trueColor
     && cached.themeName === themeName
     && cached.spinnerFrame === animatedSpinnerFrame
+    && cached.mathMode === options.mathMode
+    && cached.mermaidMode === options.mermaidMode
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools
     && cached.expandedReasoning === expandedReasoning
@@ -1432,6 +1446,8 @@ function renderTranscriptBody(
   // this; opening, folding, or a run settling at turn end do.
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
+    mathMode: options.mathMode,
+    mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
     turnDetailsKey: options.turnDetailsKey,
     blockDrawStarts,

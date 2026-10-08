@@ -33,6 +33,8 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Theme | dark、light、midnight、solarized、catppuccin、dracula、nord、gruvbox、rose-pine、mono | dark | 配色方案。 |
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
+| Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
+| Mermaid in replies | auto / source | auto | 绘制能够完整容纳的图形，或显示 Mermaid 源码。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
@@ -51,6 +53,10 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 Editor 列出已安装的 VS Code、Cursor、VSCodium、Neovim、Vim、Nano 和 Vi。Auto 兼容已有的 `$VISUAL` 或 `$EDITOR` 配置，否则优先使用探测到的图形代码编辑器，再选择终端编辑器。即使命令不在 PATH 中，也会检查 macOS 应用包和 Windows 的标准安装位置。手动选择立即生效，并在下次启动时保留；保存并关闭打开的文件即可返回。已保存但不再可用的编辑器会标为 unavailable，方便重新选择；若未发现编辑器，安装后重新打开 Settings 即可。
 
 Motion 只影响呈现：provider 输出仍会立即进入实时会话，工具边界或已落定的助手消息会立即冲刷可见流，不等待动画。
+
+Math in replies 立即应用于实时回复和思考视图。Auto 转换行内希腊字母、符号和上下标，并用终端字符排版独立的分式、根号、极限、矩阵、分段函数与对齐方程。不支持、不完整或尺寸过大的公式保留完整 LaTeX 原文，避免原文与部分转换结果混杂。这只支持有限的 TeX 语法，不是浏览器公式渲染器。复制回复和导出会话保留原始文本；终端历史保留已经显示过的行。
+
+Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态图、类图、ER 图、思维导图、时间线、饼图和 Git 图。Auto 等待围栏代码块闭合，仅在解析没有警告且整个图形能够容纳时绘制。不支持、不完整、被截断或尺寸过大的图形保留源码；图形连线不会为适应宽度而折行或裁剪。图形颜色跟随当前主题。Source 模式和思考视图显示 Mermaid 代码。复制和导出保留原始 Markdown；切换设置会刷新实时视图，不会重写终端历史。
 
 ## Agent
 

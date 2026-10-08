@@ -3,7 +3,7 @@
 import type { TuiDocumentPosition, TuiDocumentSource } from '../definition.ts'
 import { highlightCodeLines } from '../chrome/code-highlight.ts'
 import { type Theme } from '../chrome/theme.ts'
-import { expandTabs, stripAnsi, wrapCode } from '../chrome/width.ts'
+import { expandTabs, sliceCells, stripAnsi, visibleWidth, wrapCode } from '../chrome/width.ts'
 
 export interface DocumentModel {
   lines: readonly string[]
@@ -16,11 +16,15 @@ export interface DocumentLayout {
   starts: readonly number[]
   sourceRows: readonly number[]
   gutterWidth: number
+  wordWrap: boolean
+  column: number
+  maxColumn: number
 }
 
 const models = new WeakMap<TuiDocumentSource, DocumentModel>()
 const layouts = new WeakMap<TuiDocumentSource, Map<string, DocumentLayout>>()
 const searches = new WeakMap<TuiDocumentSource, Map<string, number[]>>()
+const paints = new WeakMap<TuiDocumentSource, Map<string, { lines: readonly string[]; width: number }>>()
 
 export function documentModel(source: TuiDocumentSource): DocumentModel {
   const cached = models.get(source)
@@ -70,10 +74,12 @@ export function documentLineRow(source: TuiDocumentSource, line: number): number
 }
 
 /** Wrap once per source, theme, and width; scrolling only slices these rows. */
-export function documentLayout(source: TuiDocumentSource, theme: Theme, width: number): DocumentLayout {
+export function documentLayout(source: TuiDocumentSource, theme: Theme, width: number, options: { wordWrap?: boolean; column?: number } = {}): DocumentLayout {
   let cache = layouts.get(source)
   if (cache === undefined) { cache = new Map(); layouts.set(source, cache) }
-  const key = `${width}:${theme.name}:${theme.colors}:${theme.trueColor}`
+  const wordWrap = options.wordWrap !== false
+  const themeKey = `${theme.name}:${theme.colors}:${theme.trueColor}`
+  const key = `${width}:${themeKey}:${wordWrap}:${options.column ?? 0}`
   const cached = cache.get(key)
   if (cached !== undefined) return cached
   const model = documentModel(source)
@@ -81,7 +87,18 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   const gutterWidth = source.diff ? digits * 2 + 3 : digits + 2
   const showNumbers = width > gutterWidth + 4
   const inner = Math.max(1, width - (showNumbers ? gutterWidth : 0))
-  const painted = highlightCodeLines(model.lines, source.diff ? 'diff' : source.language ?? '', theme)
+  let paintCache = paints.get(source)
+  if (paintCache === undefined) { paintCache = new Map(); paints.set(source, paintCache) }
+  let paint = paintCache.get(themeKey)
+  if (paint === undefined) {
+    const lines = highlightCodeLines(model.lines, source.diff ? 'diff' : source.language ?? '', theme).map(line => expandTabs(line))
+    paint = { lines, width: lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0) }
+    if (paintCache.size >= 2) paintCache.clear()
+    paintCache.set(themeKey, paint)
+  }
+  const painted = paint.lines
+  const maxColumn = Math.max(0, paint.width - inner)
+  const column = Math.max(0, Math.min(Math.floor(options.column ?? 0), maxColumn))
   const rows: string[] = [], starts: number[] = [], sourceRows: number[] = []
   for (const [at, line] of painted.entries()) {
     starts.push(rows.length)
@@ -89,13 +106,13 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
     const label = source.diff
       ? `${number.old === undefined ? ''.padStart(digits) : String(number.old).padStart(digits)} ${number.next === undefined ? ''.padStart(digits) : String(number.next).padStart(digits)} `
       : `${String(number.next ?? '').padStart(digits)} `
-    const segments = wrapCode(expandTabs(line), inner)
+    const segments = wordWrap ? wrapCode(line, inner) : [sliceCells(line, column, inner)]
     for (const [wrap, segment] of segments.entries()) {
       rows.push((showNumbers ? ' ' + theme.fg('dim', wrap === 0 ? label : ' '.repeat(gutterWidth - 1)) : '') + segment)
       sourceRows.push(at)
     }
   }
-  const layout = { rows, starts, sourceRows, gutterWidth: showNumbers ? gutterWidth : 0 }
+  const layout = { rows, starts, sourceRows, gutterWidth: showNumbers ? gutterWidth : 0, wordWrap, column, maxColumn }
   if (cache.size >= 2) cache.clear()
   cache.set(key, layout)
   return layout
@@ -111,7 +128,8 @@ export function documentStart(layout: DocumentLayout, position: TuiDocumentPosit
 export function documentPosition(layout: DocumentLayout, start: number, query: string): TuiDocumentPosition {
   const at = Math.max(0, Math.min(start, layout.rows.length - 1))
   const row = layout.sourceRows[at] ?? 0
-  return { row, wrap: at - (layout.starts[row] ?? 0), query }
+  return { row, wrap: at - (layout.starts[row] ?? 0), query,
+    ...(layout.wordWrap && layout.column === 0 ? {} : { wordWrap: layout.wordWrap, column: layout.column }) }
 }
 
 /** Wrap through destinations in reading order; manual scrolling chooses the nearest next one. */

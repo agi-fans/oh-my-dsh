@@ -14,6 +14,53 @@ const call = (id: string, name: string, args: unknown, seq: number): SessionEven
 const result = (id: string, text: string, seq: number): SessionEvent =>
   ev('tool/result', { message: { role: 'tool', toolCallId: id, content: [{ type: 'text', text }] } }, seq)
 
+describe('math preferences and immutable transcript caches', () => {
+  it.each([false, true])('refreshes the same blocks when math preferences change (color=%s)', colors => {
+    const state: TranscriptState = { ...initialTranscript(), turn: 1, status: 'idle', blocks: [
+      { kind: 'user', text: 'math' },
+      { kind: 'assistant', turn: 1, step: 1, text: 'Intermediate $x^2$.', reasoning: 'Reasoning $y^2$.' },
+      { kind: 'tool', turn: 1, callId: 'c', name: 'read', args: '{}', status: 'ok', output: 'x' },
+      { kind: 'assistant', turn: 1, step: 2, text: 'Final $z^2$.', reasoning: '' },
+    ] }
+    for (const toolsExpanded of [false, true]) {
+      const screen = (mathMode: 'auto' | 'source'): string => renderView(state, {
+        width: 80, height: 50, model: 'm', input: '', inputCursor: 0, colors, toolsExpanded, mathMode,
+      }).lines.map(stripAnsi).join('\n')
+      const auto = screen('auto')
+      expect(auto).toContain('Final z².')
+      const source = screen('source')
+      expect(source).toContain('Final $z^2$.')
+      if (toolsExpanded) {
+        expect(source).toContain('Intermediate $x^2$.')
+        expect(source).toContain('Reasoning $y^2$.')
+      }
+      expect(screen('auto')).toBe(auto)
+    }
+  })
+})
+
+describe('Mermaid preferences and immutable transcript caches', () => {
+  it.each([false, true])('refreshes folded and expanded replies when Mermaid preferences change (color=%s)', colors => {
+    const diagram = '```mermaid\ngraph TD\nA[First] --> B[Second]\n```'
+    const state: TranscriptState = { ...initialTranscript(), turn: 1, status: 'idle', blocks: [
+      { kind: 'user', text: 'diagram' },
+      { kind: 'assistant', turn: 1, step: 1, text: diagram, reasoning: diagram },
+      { kind: 'tool', turn: 1, callId: 'c', name: 'read', args: '{}', status: 'ok', output: 'x' },
+      { kind: 'assistant', turn: 1, step: 2, text: diagram, reasoning: '' },
+    ] }
+    for (const toolsExpanded of [false, true]) {
+      const screen = (mermaidMode: 'auto' | 'source'): string => renderView(state, {
+        width: 80, height: 60, model: 'm', input: '', inputCursor: 0, colors, toolsExpanded, mermaidMode,
+      }).lines.map(stripAnsi).join('\n')
+      const auto = screen('auto')
+      const source = screen('source')
+      expect(source).toContain('A[First] --> B[Second]')
+      expect(auto).not.toBe(source)
+      expect(screen('auto')).toBe(auto)
+    }
+  })
+})
+
 /**
  * A prompt, a thought, three calls, and an answer — one finished turn.
  *

@@ -19,6 +19,8 @@ export interface PromptSelectorState {
   /** Requested first document row for full-screen review surfaces. */
   documentScroll?: number
   documentAnchor?: TuiDocumentPosition | undefined
+  documentWordWrap?: boolean
+  documentColumn?: number
   documentQuery?: string
   documentInput?: 'search' | 'line' | undefined
   documentError?: string | undefined
@@ -454,7 +456,7 @@ export function renderPlanReviewPage(
   const actionRows = documentActionRows(state, theme, width, pageHeight)
   const readerInput = source !== undefined && state.documentInput !== undefined
   let readerHints = source === undefined ? [] : wrapText(readerInput ? 'Enter apply · Esc cancel'
-    : '↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
+    : 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
       + ' · Tab/←→ actions · Enter activate · ' + (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back', width - 4)
   const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))
   if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
@@ -463,7 +465,10 @@ export function renderPlanReviewPage(
   const footerRows = feedback ? 5 : actionRows.length + 3 + (source === undefined ? 0 : readerHints.length)
   const bodyRows = Math.max(1, pageHeight - (source === undefined ? 5 : compactReader ? 2 : 3) - footerRows)
   const markdownWidth = Math.max(1, width - 6)
-  const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth)
+  const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth, {
+    wordWrap: state.documentWordWrap ?? state.request.documentPosition?.wordWrap ?? true,
+    column: state.documentColumn ?? state.request.documentPosition?.column ?? 0,
+  })
   const document = layout?.rows ?? documentRows(state.request, theme, markdownWidth)
   const maxStart = Math.max(0, document.length - bodyRows)
   const start = Math.max(0, Math.min(state.documentScroll === Number.POSITIVE_INFINITY ? maxStart : layout !== undefined && state.documentAnchor !== undefined
@@ -519,12 +524,13 @@ export function renderPlanReviewPage(
       const line = model.numbers[row]?.next ?? model.numbers[row]?.old
       const position = source.diff ? `Diff row ${row + 1}/${model.lines.length}` : `Line ${line ?? 1}/${(source.firstLine ?? 1) + model.lines.length - 1}`
       const following = state.request.documentTail !== true ? '' : state.documentScroll === Number.POSITIVE_INFINITY ? ' · Following' : ' · Paused'
+      const horizontal = layout?.wordWrap === false ? ` · No wrap · Col ${layout.column + 1}` : ''
       const match = matches.indexOf(state.documentTarget ?? row)
       const search = query === '' ? '' : ` · ${match < 0 ? matches.length : `${match + 1}/${matches.length}`} matching lines · “${query}”`
       const label = state.documentInput === 'search' ? 'Find: ' : 'Line: '
       const value = input.replace(/\r?\n/gu, ' ')
       const status = (readerInput ? label + value + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
-        : position + following + (source.status === undefined ? '' : ` · ${source.status}`) + search + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
+        : position + horizontal + following + (source.status === undefined ? '' : ` · ${source.status}`) + search + (state.documentError === undefined ? '' : ` · ${state.documentError}`)
       ).replace(/[\r\n]+/gu, ' ')
       cursor = { row: lines.length, column: Math.min(width - 3, 2 + visibleWidth(label + value.slice(0, inputCursor))) }
       lines.push(pageRow(theme, theme.fg('muted', status), width))

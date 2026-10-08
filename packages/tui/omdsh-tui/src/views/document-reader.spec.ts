@@ -3,8 +3,27 @@ import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import { documentDestination, documentLayout, documentLineRow, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
 import { renderPlanReviewPage } from './prompt-selector.ts'
+import { oracleWidth } from '../chrome/width.oracle.ts'
 
 describe('source document navigation', () => {
+  it.each([false, true])('pans source cells with fixed line numbers and preserves anchors across wrap changes (color=%s)', colors => {
+    const source = { text: 'const 中文🐳 = "' + 'x'.repeat(60) + '";\nsecond line', language: 'ts' }
+    const theme = createTheme(colors)
+    const wrapped = documentLayout(source, theme, 20)
+    expect(wrapped.starts[1]).toBeGreaterThan(1)
+    const panned = documentLayout(source, theme, 20, { wordWrap: false, column: 7 })
+    expect(panned.starts).toEqual([0, 1])
+    expect(stripAnsi(panned.rows[0]!)).toMatch(/^ 1 /u)
+    expect(panned.rows.every(row => oracleWidth(row) <= 20)).toBe(true)
+    expect(documentLayout(source, theme, 20, { wordWrap: false, column: 7 })).toBe(panned)
+    const anchor = documentPosition(panned, 1, 'line')
+    expect(anchor).toEqual({ row: 1, wrap: 0, query: 'line', wordWrap: false, column: 7 })
+    expect(documentStart(wrapped, anchor)).toBe(wrapped.starts[1])
+    expect(documentMatches(source, '中文🐳')).toEqual([0])
+    const edge = documentLayout(source, theme, 20, { wordWrap: false, column: 1_000_000 })
+    expect(edge.column).toBe(edge.maxColumn)
+    expect(stripAnsi(edge.rows[0]!)).toContain('";')
+  })
   it('uses retained snapshot line numbers for search and line jumps', () => {
     const source = { text: 'older\n中文🐳 match\nlast\n', firstLine: 701 }
     expect(documentModel(source).numbers).toEqual([{ next: 701 }, { next: 702 }, { next: 703 }])

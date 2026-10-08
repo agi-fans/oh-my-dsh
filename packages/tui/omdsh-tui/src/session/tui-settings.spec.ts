@@ -19,6 +19,8 @@ describe('TUI row settings', () => {
       // Resolved against the output stream, which a schema cannot know.
       colors: undefined,
       motion: 'full',
+      mathMode: 'auto',
+      mermaidMode: 'auto',
       editor: 'auto',
       terminalProgress: false,
       copyOnSelect: true,
@@ -41,6 +43,16 @@ describe('TUI row settings', () => {
   it('validates durable selection and mouse ownership preferences', () => {
     expect(resolve({ copyOnSelect: false, mouseInteraction: 'native' })).toMatchObject({ copyOnSelect: false, mouseInteraction: 'native' })
     expect(() => RowSettings({ mouseInteraction: 'unknown' })).toThrow()
+  })
+
+  it('persists formula display and rejects unsupported modes', () => {
+    expect(resolve({ mathMode: 'source' })).toMatchObject({ mathMode: 'source' })
+    expect(() => RowSettings({ mathMode: 'image' })).toThrow()
+  })
+
+  it('persists Mermaid display and rejects unsupported modes', () => {
+    expect(resolve({ mermaidMode: 'source' })).toMatchObject({ mermaidMode: 'source' })
+    expect(() => RowSettings({ mermaidMode: 'image' })).toThrow()
   })
 
   it('accepts explicit palette and motion overrides', () => {

@@ -249,6 +249,38 @@ export function padToWidth(text: string, width: number): string {
   return text + padding(width - used)
 }
 
+/** Crop a styled cell range. A partly visible wide grapheme becomes blank cells. */
+export function sliceCells(text: string, start: number, width: number): string {
+  start = Math.max(0, Math.floor(start))
+  width = Math.max(0, Math.floor(width))
+  if (width === 0) return ''
+  let cell = 0, out = '', prefix = '', started = false, styled = false, linked = false
+  const end = start + width
+  for (const part of splitAnsi(text)) {
+    if (part.ansi) {
+      // Never replay cursor controls from a clipped row.
+      if (!/^\x1b\[[0-9;]*m$/u.test(part.value) && !part.value.startsWith('\x1b]8;')) continue
+      styled ||= part.value.endsWith('m')
+      linked ||= part.value.startsWith('\x1b]8;')
+      if (started) out += part.value
+      else prefix += part.value
+      continue
+    }
+    for (const { segment: cluster } of segments(part.value)) {
+      const cells = graphemeWidth(cluster)
+      if (cell >= end) break
+      if (cell + cells > start) {
+        if (!started) { out += prefix; started = true }
+        out += cell < start || cell + cells > end
+          ? ' '.repeat(Math.max(0, Math.min(end, cell + cells) - Math.max(start, cell))) : cluster
+      }
+      cell += cells
+    }
+    if (cell >= end) break
+  }
+  return started ? out + (linked ? '\x1b]8;;\x07' : '') + (styled ? '\x1b[0m' : '') : ''
+}
+
 function splitWordsPreservingAnsi(text: string): string[] {
   const words: string[] = []
   let buf = ''

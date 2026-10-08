@@ -30,6 +30,8 @@ import { BOX, SYMBOL, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, 
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
 import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
+import { MATH_MODES, type MathMode } from '../chrome/math.ts'
+import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
@@ -60,6 +62,8 @@ export interface TuiPrefs {
   theme: ThemeName
   colors: boolean
   motion?: MotionMode
+  mathMode?: MathMode
+  mermaidMode?: MermaidMode
   editor?: EditorId
   terminalProgress?: boolean
   pasteProtection?: boolean
@@ -177,6 +181,20 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       description: 'Full adds smooth streaming and a working shimmer; Reduced keeps smooth streaming without the shimmer; Off follows provider chunks with static activity marks',
       value: prefs.motion ?? 'full',
       values: MOTION_MODES,
+    },
+    {
+      id: 'mathMode',
+      label: 'Math in replies',
+      description: 'Auto formats supported formulas as terminal text; Source keeps the original LaTeX. Copy and export retain the source.',
+      value: prefs.mathMode ?? 'auto',
+      values: MATH_MODES,
+    },
+    {
+      id: 'mermaidMode',
+      label: 'Mermaid in replies',
+      description: 'Auto draws complete diagrams that fit; Source shows Mermaid code. Unsupported or incomplete diagrams retain their source.',
+      value: prefs.mermaidMode ?? 'auto',
+      values: MERMAID_MODES,
     },
     {
       id: 'editor',
@@ -380,6 +398,8 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
+  if (id === 'mathMode' && MATH_MODES.includes(value as MathMode)) return { ...prefs, mathMode: value as MathMode }
+  if (id === 'mermaidMode' && MERMAID_MODES.includes(value as MermaidMode)) return { ...prefs, mermaidMode: value as MermaidMode }
   if (id === 'pasteProtection') return { ...prefs, pasteProtection: value === 'on' }
   if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
   if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {

@@ -597,6 +597,9 @@ importers:
       fflate:
         specifier: 0.8.3
         version: 0.8.3
+      lovely-mermaid:
+        specifier: 0.3.3
+        version: 0.3.3
       marked:
         specifier: 15.0.12
         version: 15.0.12
@@ -5069,6 +5072,10 @@ packages:
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
+
+  lovely-mermaid@0.3.3:
+    resolution: {integrity: sha512-EMLJS934qwt2MLO/a5o+T/89HGbuXZPwmCpHIhHO+DVrm+y5tHlEHgpZzlC2o4yW/rFPHRFO9xSMafzqH4wH5A==}
+    engines: {node: '>=18'}
 
   lru-cache@11.5.2:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
@@ -10880,6 +10887,8 @@ snapshots:
   longest-streak@3.1.0: {}
 
   loupe@3.2.1: {}
+
+  lovely-mermaid@0.3.3: {}
 
   lru-cache@11.5.2: {}
 

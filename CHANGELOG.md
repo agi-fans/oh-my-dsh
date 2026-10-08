@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Mermaid in replies draws complete supported diagrams with theme-aware terminal characters. Settings switches between Auto and Source; unsupported, incomplete, truncated or oversized diagrams retain Mermaid code. Copy and export keep the original Markdown.
+- Math in replies supports terminal text layouts for fractions, roots, scripts, limits, matrices, cases and aligned equations. Settings switches between automatic formatting and LaTeX source; unsupported or oversized formulas retain their complete source.
+- Source readers toggle wrapping with `W` and pan horizontally with `Alt+Left`/`Alt+Right`, retaining line numbers, syntax colors and reading positions across actions.
+
 - Image preview pages for composer drafts (`Alt+M`), workspace files, deliverables and stored attachments, with Kitty/iTerm2 graphics on supported direct terminals, original-file opening and a text fallback elsewhere. PNG, JPEG, WebP and GIF previews fit the viewport without changing attachment bytes.
 
 - `/terminal` searches retained output, navigates matching lines, and loads older history in bounded pages. Pausing freezes the reading snapshot; console actions retain position and search, and End resumes following the latest output.
@@ -44,6 +48,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Tables that cannot fit useful columns on narrow terminals show labelled records.
+
 - Completed Turn summaries show the configured expansion shortcut when space allows, keeping duration and failures visible at narrow widths.
 
 - Searchable choice lists prioritize exact names and prefixes and support multiword queries and short word abbreviations. Command and project-path completion favor compact matches at word boundaries.
@@ -54,6 +60,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - CLI and runtime plugin operations share the profile write lock. Feature toggles apply after the running profile reloads its patch; existing sessions retain their Agent preset revision.
 
 ### Fixed
+
+- Markdown code retains literal HTML tags, entities and emphasis characters. Incomplete formulas remain readable while streaming, and compound exponents no longer convert only their first digit.
 
 - Herdr status follows the root Agent during session updates and subagent inspection, retries failed reports, and waits briefly for release on exit. Background runs and smoke-test terminals no longer claim their caller's Herdr pane.
 

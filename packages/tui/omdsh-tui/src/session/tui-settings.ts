@@ -21,6 +21,8 @@ import {
   type StatusPreset,
 } from '../chrome/status-config.ts'
 import { THEME_NAMES, type ThemeName } from '../chrome/theme.ts'
+import { MATH_MODES, type MathMode } from '../chrome/math.ts'
+import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 
 /** Available terminal animation policies. */
 export const MOTION_MODES = ['full', 'reduced', 'off'] as const
@@ -38,6 +40,8 @@ export interface TuiSettings {
   theme: Volatile<ThemeName>
   colors: Volatile<boolean | undefined>
   motion: Volatile<MotionMode>
+  mathMode: Volatile<MathMode>
+  mermaidMode: Volatile<MermaidMode>
   editor: Volatile<EditorId>
   terminalProgress: Volatile<boolean>
   pasteProtection: Volatile<boolean>
@@ -100,6 +104,8 @@ export const TUI_SETTINGS_FIELDS = {
   theme: z.union([...THEME_NAMES]).default('dark').volatile(),
   colors: z.boolean().volatile(),
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
+  mathMode: z.union([...MATH_MODES]).default('auto').volatile(),
+  mermaidMode: z.union([...MERMAID_MODES]).default('auto').volatile(),
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
   pasteProtection: z.boolean().default(true).volatile(),

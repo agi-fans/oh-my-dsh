@@ -39,6 +39,8 @@ describe('tuiSettingItems / applySettingValue', () => {
       'theme',
       'colors',
       'motion',
+      'mathMode',
+      'mermaidMode',
       'editor',
       'mouseInteraction',
       'pasteProtection',
@@ -85,6 +87,10 @@ describe('tuiSettingItems / applySettingValue', () => {
     // that could write the legacy flag back.
     expect(applySettingValue(prefs, 'expandTools', 'expanded')).toEqual(prefs)
     expect(applySettingValue(prefs, 'motion', 'reduced').motion).toBe('reduced')
+    expect(applySettingValue(prefs, 'mathMode', 'source').mathMode).toBe('source')
+    expect(applySettingValue(prefs, 'mathMode', 'invalid').mathMode).toBe(prefs.mathMode)
+    expect(applySettingValue(prefs, 'mermaidMode', 'source').mermaidMode).toBe('source')
+    expect(applySettingValue(prefs, 'mermaidMode', 'invalid').mermaidMode).toBe(prefs.mermaidMode)
     expect(applySettingValue(prefs, 'copyOnSelect', 'off').copyOnSelect).toBe(false)
     expect(applySettingValue(prefs, 'mouseInteraction', 'native').mouseInteraction).toBe('native')
     expect(applySettingValue(prefs, 'mouseInteraction', 'invalid')).toEqual(prefs)

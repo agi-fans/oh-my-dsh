@@ -35,6 +35,26 @@ function make(blocks: readonly Block[] = [], prompt?: TuiPrompt) {
 const tick = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
 
 describe('PlainTui.readline', () => {
+  it('uses the stored math preference without changing the original reply', () => {
+    const blocks: Block[] = [{ kind: 'assistant', turn: 1, step: 1, text: '$x^2$', reasoning: '' }]
+    const term = new FakeTerm()
+    const plain = new PlainTui({ term, blocks: () => blocks, mathMode: () => 'source', promptRequest: () => undefined, finishPrompt: () => {} })
+    plain.print()
+    expect(term.captured).toContain('$x^2$')
+    expect(blocks[0]).toMatchObject({ text: '$x^2$' })
+    plain.dispose()
+  })
+  it('uses the stored Mermaid preference without changing source text', () => {
+    const source = '```mermaid\ngraph TD\nA[First] --> B[Second]\n```'
+    const blocks: Block[] = [{ kind: 'assistant', turn: 1, step: 1, text: source, reasoning: '' }]
+    const term = new FakeTerm()
+    const plain = new PlainTui({ term, blocks: () => blocks, mermaidMode: () => 'source', promptRequest: () => undefined, finishPrompt: () => {} })
+    plain.print()
+    expect(term.captured).toContain('A[First] --> B[Second]')
+    expect(blocks[0]).toMatchObject({ text: source })
+    plain.dispose()
+  })
+
   it('resolves each pending read with the next queued line', async () => {
     const { term, plain } = make()
     const first = plain.readline()

@@ -29,6 +29,49 @@ describe('renderInline', () => {
 })
 
 describe('renderMarkdown', () => {
+  it('preserves HTML, entities and literal emphasis in code', () => {
+    expect(plain('```html\n<div>Hello &amp; goodbye</div>\n```')).toContain('<div>Hello &amp; goodbye</div>')
+    expect(plain('`<span>label &lt; x</span>`')).toBe('<span>label &lt; x</span>')
+    expect(plain('    <div>Hello</div>')).toContain('<div>Hello</div>')
+    expect(plain('`******`')).toBe('******')
+    expect(plain('`first\n****** &amp; <div>`')).toBe('first ****** &amp; <div>')
+    expect(plain('```text\nconst ticks = "```"\n****** &amp; <div>\n```')).toContain('****** &amp; <div>')
+    expect(plain('    ' + ' '.repeat(30) + '******')).toContain(' '.repeat(30) + '******')
+  })
+
+  it('keeps unsupported and incomplete formulas verbatim instead of converting fragments', () => {
+    expect(plain('$x^{2k}$')).toBe('x²ᵏ')
+    expect(plain('$\\alpha + \\unknown{x}$')).toBe('$\\alpha + \\unknown{x}$')
+    expect(plain('\\(x^2 + \\frac{1}')).toBe('\\(x^2 + \\frac{1}')
+    expect(plain('$x^2 + \\frac{1}')).toBe('$x^2 + \\frac{1}')
+    expect(plain('$x^{ab}$')).toBe('x^(ab)')
+    expect(plain('$\\unknown{********}$')).toBe('$\\unknown{********}$')
+    expect(plain('$\\unknown{`******`}$')).toBe('$\\unknown{`******`}$')
+  })
+
+  it('lets source mode retain complete math delimiters in colored and plain replies', () => {
+    for (const colors of [false, true]) {
+      const rows = renderMarkdown('Inline $x^2$.\n\n$$\n\\frac{a}{b}\n$$', createTheme(colors), 60, { mathMode: 'source' })
+      expect(rows.map(stripAnsi).join('\n')).toContain('Inline $x^2$.')
+      expect(rows.map(stripAnsi).join('\n')).toContain('$$\n  \\frac{a}{b}\n  $$')
+      expect(rows.every(row => oracleWidth(row) <= 60)).toBe(true)
+    }
+  })
+
+  it('lays out display fractions and preserves source when the layout does not fit', () => {
+    const source = '$$\n\\frac{a+b}{c}\n$$'
+    const lines = renderMarkdown(source, theme, 30).map(stripAnsi)
+    expect(lines.map(line => line.trim())).toEqual(['a+b', '───', 'c'])
+    expect(plain(source, 2).replaceAll('\n', '')).toContain('\\frac')
+  })
+
+  it('resolves Mermaid labels across declarations and retains edge labels', () => {
+    const text = plain('```mermaid\nflowchart TD\nA[Start]\nB{Check}\nC[Done]\nA --> B\nB -->|yes| C\nB -->|no| A\n```')
+    for (const label of ['Start', 'Check', 'Done', 'yes', 'no']) expect(text).toContain(label)
+    expect(text).not.toContain('-->')
+    expect(text).not.toContain('BDone')
+  })
+
   it('renders headings, lists, quotes, and emphasis', () => {
     const text = plain('# Title\n\n- one\n- two\n\n> quote\n\n**bold** and `code`')
     expect(text).toContain('Title')
@@ -87,7 +130,7 @@ describe('renderMarkdown', () => {
   })
 
   it('closes styles and hyperlinks before table padding and restores them on continuation rows', () => {
-    const lines = renderMarkdown('| Link | Plain |\n| --- | --- |\n| [abcdefghijk](https://example.com) | x |', color, 18)
+    const lines = renderMarkdown('| Link | Plain |\n| --- | --- |\n| [abcdefghijkabcdefghijkabcdefghijk](https://example.com) | x |', color, 38)
     const linkRows = lines.filter(line => /^[a-k]+$/u.test(stripAnsi(line).split('│')[1]?.trim() ?? ''))
     expect(linkRows.length).toBeGreaterThan(1)
     for (const line of linkRows) {
@@ -98,9 +141,21 @@ describe('renderMarkdown', () => {
   })
 
   it('keeps the original table delimiters in the narrow-screen fallback', () => {
-    const text = plain('| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |', 12)
+    const text = plain('| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |', 5)
     expect(text.replaceAll('\n', '')).toContain(':---:')
     expect(text.replaceAll('\n', '')).toContain('---:')
+  })
+
+  it.each([false, true])('uses labelled records when table columns cannot stay readable (colors=%s)', colors => {
+    const source = '| Name | Count | State |\n| --- | ---: | --- |\n| 文件🐳 | 123 | ready |\n| Other | 456 | done |'
+    const lines = renderMarkdown(source, createTheme(colors), 18)
+    const text = lines.map(stripAnsi).join('\n')
+    expect(text).toContain('Name: 文件🐳')
+    expect(text).toContain('Count: 123')
+    expect(text).toContain('State: ready')
+    expect(text).toContain('Count: 456')
+    expect(lines.every(line => oracleWidth(line) <= 18)).toBe(true)
+    expect(text).not.toContain('╭')
   })
 
   it('sets a fenced code block behind a rail, without its fences', () => {
@@ -139,8 +194,29 @@ describe('renderMarkdown', () => {
 
   it('renders Mermaid as a stable terminal text diagram', () => {
     const text = plain('```mermaid\ngraph TD\nA[Start] --> B[Done]\n```')
-    expect(text).toContain('Start → Done')
+    expect(text).toContain('Start')
+    expect(text).toContain('Done')
+    expect(text).toMatch(/[┌╭╔]/u)
+    expect(text).not.toContain('-->')
     expect(text).not.toContain('AStart')
+  })
+
+  it.each([false, true])('retains Mermaid source for preferences, incomplete fences and narrow viewports (colors=%s)', colors => {
+    const source = 'graph TD\nA[开始 🐳] --> B[结束]'
+    const fenced = '```mermaid\n' + source + '\n```'
+    const paint = (input: string, width = 80, style = {}) => renderMarkdown(input, createTheme(colors), width, style).map(stripAnsi).join('\n')
+    expect(paint(fenced, 80, { mermaidMode: 'source' })).toContain('A[开始 🐳] --> B[结束]')
+    expect(paint(fenced, 80, { color: 'thinkingText' })).toContain('-->')
+    expect(paint('```mermaid\n' + source)).toContain('-->')
+    expect(paint('````mermaid\n' + source + '\n```')).toContain('-->')
+    expect(paint(fenced, 10)).toContain('graph')
+    for (const width of [1, 4, 10, 80]) {
+      const rows = renderMarkdown(fenced, createTheme(colors), width)
+      expect(rows.every(row => oracleWidth(row) <= width)).toBe(true)
+    }
+    expect(paint(fenced)).not.toContain('-->')
+    expect(paint('~~~~mermaid\n' + source + '\n~~~~')).not.toContain('-->')
+    expect(paint('```mermaid\ngraph TD\nA[Start --> B\n```')).toContain('A[Start --> B')
   })
 
   it('joins wrapped source lines into one paragraph', () => {

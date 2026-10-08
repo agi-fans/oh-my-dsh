@@ -16,6 +16,9 @@ import type { Theme, ThemeColor } from './theme.ts'
 export interface MarkdownStyle {
   color?: ThemeColor
   italic?: boolean
+  /** Source mode preserves formula delimiters and commands. */
+  mathMode?: import('./math.ts').MathMode
+  mermaidMode?: import('./mermaid.ts').MermaidMode
 }
 
 /** Reopen the surrounding style after a nested span closes foreground or italic. */

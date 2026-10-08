@@ -516,6 +516,8 @@ export class LocalTui implements TuiService {
   #mouseTracking = false
   readonly #selection = new TextSelection()
   #copyOnSelect = true
+  #mathMode: import('../chrome/math.ts').MathMode = 'auto'
+  #mermaidMode: import('../chrome/mermaid.ts').MermaidMode = 'auto'
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
   #jumpPress: { row: number; column: number; width: number } | undefined
@@ -667,6 +669,8 @@ export class LocalTui implements TuiService {
     this.#plain = new PlainTui({
       term,
       blocks: () => this.#state.blocks,
+      mathMode: () => this.#mathMode,
+      mermaidMode: () => this.#mermaidMode,
       promptRequest: () => this.#prompt?.request,
       finishPrompt: answer => { this.#finishPrompt(answer) },
     })
@@ -987,7 +991,8 @@ export class LocalTui implements TuiService {
       const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
       const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
-        ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query }),
+        ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query,
+          documentWordWrap: request.documentPosition.wordWrap, documentColumn: request.documentPosition.column }),
         ...(request.documentTail === true && request.documentPosition?.following !== false ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
       if (request.signal !== undefined) {
         const onAbort = (): void => {
@@ -1137,6 +1142,8 @@ export class LocalTui implements TuiService {
       theme: this.#themeName,
       colors: this.#colors,
       motion: this.#motion,
+      mathMode: this.#mathMode,
+      mermaidMode: this.#mermaidMode,
       editor: this.#externalEditor,
       terminalProgress: this.#terminalProgress,
       copyOnSelect: this.#copyOnSelect,
@@ -1638,6 +1645,8 @@ export class LocalTui implements TuiService {
         width,
         ...(this.#imageProtocol === undefined ? {} : { imageProtocol: this.#imageProtocol }),
         imageCellSize: this.#imageCellSize,
+        mathMode: this.#mathMode,
+        mermaidMode: this.#mermaidMode,
         height: this.#term.height(),
         model: this.#model,
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
@@ -2504,7 +2513,9 @@ export class LocalTui implements TuiService {
 
   #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
     const source = prompt.request.documentSource!
-    const layout = documentLayout(source, createTheme(this.#colors, this.#trueColor, this.#themeName), Math.max(1, this.#term.width() - 6))
+    const layout = documentLayout(source, createTheme(this.#colors, this.#trueColor, this.#themeName), Math.max(1, this.#term.width() - 6), {
+      wordWrap: prompt.documentWordWrap ?? true, column: prompt.documentColumn ?? 0,
+    })
     const start = this.#promptDocument?.start ?? 0
     const current = prompt.documentTarget ?? layout.sourceRows[start] ?? 0
     const origin = prompt.documentOrigin === undefined ? start : documentStart(layout, prompt.documentOrigin)
@@ -2540,6 +2551,16 @@ export class LocalTui implements TuiService {
           }
         }
       }
+      this.#render()
+      return true
+    }
+    const toggleWrap = event.type === 'text' && event.value.toLowerCase() === 'w'
+    const pan = event.type === 'key' && (event.id === 'alt+left' || event.id === 'alt+right')
+    if (toggleWrap || pan) {
+      const wordWrap = toggleWrap ? !layout.wordWrap : false
+      const column = pan ? Math.max(0, Math.min(layout.maxColumn, layout.column + (event.id === 'alt+right' ? 8 : -8))) : layout.column
+      this.#prompt = { ...prompt, documentWordWrap: wordWrap, documentColumn: column,
+        documentAnchor: { ...documentPosition(layout, start, prompt.documentQuery ?? ''), wrap: 0, wordWrap, column } }
       this.#render()
       return true
     }
@@ -2632,6 +2653,8 @@ export class LocalTui implements TuiService {
     this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalProgress = prefs.terminalProgress ?? false
     this.#copyOnSelect = prefs.copyOnSelect ?? true
+    this.#mathMode = prefs.mathMode ?? 'auto'
+    this.#mermaidMode = prefs.mermaidMode ?? 'auto'
     this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -3786,6 +3809,8 @@ export function apply(ctx: Context, config: Config): void {
       theme: config.theme.get(),
       colors: resolveColors(config.colors.get(), term.output.isTTY === true),
       motion: config.motion.get(),
+      mathMode: config.mathMode.get(),
+      mermaidMode: config.mermaidMode.get(),
       editor: config.editor.get(),
       terminalProgress: config.terminalProgress.get(),
       copyOnSelect: config.copyOnSelect.get(),

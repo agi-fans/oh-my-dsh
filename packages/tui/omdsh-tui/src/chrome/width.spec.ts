@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
+import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
+import { oracleWidth } from './width.oracle.ts'
+
+describe('horizontal cell cropping', () => {
+  it('keeps partial CJK and emoji clusters blank without shifting following cells', () => {
+    expect(sliceCells('a中文🐳e\u0301z', 2, 6)).toBe(' 文🐳e\u0301')
+    expect(sliceCells('🐳中文', 0, 1)).toBe(' ')
+    expect(sliceCells('a👨‍👩‍👧‍👦b', 2, 2)).toBe(' b')
+    expect(sliceCells('abc', 10, 4)).toBe('')
+    for (const start of [0, 1, 2, 3, 4]) for (const width of [1, 2, 3, 4]) {
+      expect(oracleWidth(sliceCells('a中文🐳e\u0301z', start, width))).toBeLessThanOrEqual(width)
+    }
+  })
+  it('retains styles and hyperlinks while closing them before the next frame cell', () => {
+    const row = '\x1b[31m\x1b]8;;https://example.com\x07abcdef\x1b]8;;\x07\x1b[0m'
+    const cropped = sliceCells(row, 2, 2)
+    expect(stripAnsi(cropped)).toBe('cd')
+    expect(cropped).toContain('\x1b[31m')
+    expect(cropped).toContain('\x1b]8;;https://example.com\x07')
+    expect(cropped.endsWith('\x1b]8;;\x07\x1b[0m')).toBe(true)
+    expect(sliceCells('\x1b[2Jabc', 1, 1)).toBe('b')
+  })
+})
 
 describe('visibleWidth', () => {
   it('ignores SGR sequences', () => {

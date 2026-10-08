@@ -192,6 +192,7 @@
     "@deepseek-ai/schemastery": "3.18.5-alpha.1",
     "diff": "9.0.0",
     "fflate": "0.8.3",
+    "lovely-mermaid": "0.3.3",
     "marked": "15.0.12",
     "prismjs": "1.30.0",
     "sharp": "0.35.3"

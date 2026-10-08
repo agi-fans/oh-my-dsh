@@ -77,6 +77,9 @@ export interface TuiDocumentPosition {
   query: string
   /** Live readers retain whether End is following new output across actions. */
   following?: boolean
+  /** Source readers default to wrapping; column is a display-cell offset when unwrapped. */
+  wordWrap?: boolean
+  column?: number
 }
 
 /** One terminal-owned human prompt used by approval and question adapters. */

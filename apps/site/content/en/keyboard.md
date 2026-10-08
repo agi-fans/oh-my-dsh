@@ -49,6 +49,8 @@ Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 line
 
 While a turn runs, thinking appears as quiet italic text, replies use ordinary Markdown, and tools show padded result previews in the active theme. Shell output keeps its last five visual lines; successful file reads show the call without the file body. Completed steps stay visible until the turn ends. The process then folds to a duration summary such as `Worked for 16s`, followed by the complete final answer; failures remain visible.
 
+Narrow tables show labelled records when their columns would become unreadable. Complete supported Mermaid diagrams draw with terminal characters when they fit; unsupported, incomplete or oversized diagrams stay visible as code. **Mermaid in replies** in [Settings](settings.md) switches between Auto and Source. Reply formulas follow the **Math in replies** preference in [Settings](settings.md).
+
 `Ctrl+O` restores that process view for a completed turn. `Alt+O` opens complete tool Input and Output sections for the turn being read, including PTC sub-calls; pressing it again restores previews while leaving the process view open. It also works during a running turn, and new calls in that turn inherit the detailed view. On a folded turn it opens the process and tool details together. `Ctrl+O`, `End`, or scrolling past the end closes inspection and resets tool details. Opening details never rewrites native terminal history.
 
 Details show all text received by the TUI; they cannot recover content already truncated or spilled to a file by a tool. `/trajectory` provides event-level inspection, and `Ctrl+F` searches content outside the previews and reveals matches.
@@ -74,6 +76,8 @@ When the transcript can scroll, omdsh supports mouse dragging within the current
 Full-screen pages temporarily suspend application mouse handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
 
 File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
+
+Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. The terminal console uses the same reading keys.
 
 The `/terminal` console uses the same search and matching-line keys. `L` loads earlier retained output, scrolling or searching pauses following, and `End` returns to the latest output and resumes following. `I` sends a line; `C` interrupts the shell.
 

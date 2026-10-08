@@ -7,25 +7,19 @@
 import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtension } from 'marked'
 import { BOX, SYMBOL, type Theme } from './theme.ts'
 import { highlightCodeLines } from './code-highlight.ts'
+import { mathLayout } from './math.ts'
+import { mermaidLines } from './mermaid.ts'
 import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
-import { expandTabs, graphemeWidth, stripAnsi, visibleWidth, wrapCode, wrapText, wrapTextStable } from './width.ts'
+import { expandTabs, graphemeWidth, sliceCells, stripAnsi, visibleWidth, wrapCode, wrapText, wrapTextStable } from './width.ts'
 
 export type { MarkdownStyle } from './md-style.ts'
-
-const MATH_SYMBOLS: Readonly<Record<string, string>> = {
-  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', theta: 'θ', lambda: 'λ', mu: 'μ',
-  pi: 'π', sigma: 'σ', phi: 'φ', omega: 'ω', times: '×', cdot: '·', le: '≤', ge: '≥',
-  neq: '≠', approx: '≈', infty: '∞', sum: '∑', int: '∫', sqrt: '√', to: '→',
-}
-const SUPERSCRIPT: Readonly<Record<string, string>> = {
-  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻',
-}
 
 interface MathToken {
   type: 'math'
   raw: string
   text: string
   display?: boolean
+  pending?: boolean
 }
 
 function isMathToken(token: Token): token is Token & MathToken {
@@ -67,13 +61,14 @@ const mathBlock: TokenizerAndRendererExtension = {
   name: 'mathBlock',
   level: 'block',
   start(src) {
-    const index = src.indexOf('$$')
-    return index === -1 ? undefined : index
+    const indexes = [src.indexOf('$$'), src.indexOf('\\[')].filter(index => index >= 0)
+    return indexes.length === 0 ? undefined : Math.min(...indexes)
   },
   tokenizer(src) {
-    const match = /^\$\$[ \t]*\n?([\s\S]*?)\n?\$\$[ \t]*(?:\n+|$)/u.exec(src)
-    if (match === null || (match[1] ?? '').trim() === '') return undefined
-    return { type: 'math', raw: match[0], text: (match[1] ?? '').trim(), display: true }
+    const match = /^ {0,3}(?:\$\$[ \t]*\n?([\s\S]*?)\n?\$\$|\\\[[ \t]*\n?([\s\S]*?)\n?\\\])[ \t]*(?:\n+|$)/u.exec(src)
+    if (match !== null) return { type: 'math', raw: match[0], text: (match[1] ?? match[2] ?? '').trim(), display: true }
+    if (/^ {0,3}(?:\$\$|\\\[)/u.test(src)) return { type: 'math', raw: src, text: src, display: true, pending: true }
+    return undefined
   },
 }
 
@@ -96,19 +91,19 @@ const mathInline: TokenizerAndRendererExtension = {
       if (end !== -1 && src.slice(2, end).trim() !== '') {
         return { type: 'math', raw: src.slice(0, end + 2), text: src.slice(2, end).trim() }
       }
-      return undefined
+      return { type: 'math', raw: src, text: src, pending: true }
     }
     if (src.startsWith('\\[')) {
       const end = src.indexOf('\\]', 2)
       if (end !== -1 && src.slice(2, end).trim() !== '') {
         return { type: 'math', raw: src.slice(0, end + 2), text: src.slice(2, end).trim(), display: true }
       }
-      return undefined
+      return { type: 'math', raw: src, text: src, pending: true }
     }
     if (!src.startsWith('$')) return undefined
     if (src[1] === '(' || src[1] === '{') return undefined
     const end = inlineMathSpanEnd(src, 0)
-    if (end === -1) return undefined
+    if (end === -1) return /[\\^_]/u.test(src.slice(1)) ? { type: 'math', raw: src, text: src, pending: true } : undefined
     return { type: 'math', raw: src.slice(0, end + 1), text: src.slice(1, end) }
   },
 }
@@ -127,7 +122,7 @@ function normalizeHtml(source: string): string {
 }
 
 function prepare(source: string): string {
-  return clampNesting(normalizeHtml(source).replaceAll('\r\n', '\n').replaceAll('\r', '\n'))
+  return clampNesting(source.replaceAll('\r\n', '\n').replaceAll('\r', '\n'))
 }
 
 /**
@@ -143,19 +138,37 @@ const MAX_MARKDOWN_NESTING = 24
 const MAX_EMPHASIS_RUN = 3
 
 function clampNesting(source: string): string {
+  // Mask fences before code spans: a backtick string inside a fence is not its
+  // closing delimiter. Preserve multiline code spans before clamping prose.
+  let marker = '\u0000code'
+  while (source.includes(marker)) marker += '\u0000'
+  const code: string[] = []
+  const protect = (text: string): string => `${marker}${code.push(text) - 1}\u0000`
   let fence: string | undefined
-  return source.split('\n').map((line) => {
+  const masked: string[] = [], buffer: string[] = []
+  for (const line of source.split('\n')) {
     const fenceMatch = /^\s*(`{3,}|~{3,})/u.exec(line)
     if (fence !== undefined) {
+      buffer.push(line)
       if (fenceMatch?.[1] !== undefined
         && fenceMatch[1].startsWith(fence[0] ?? '')
-        && fenceMatch[1].length >= fence.length) fence = undefined
-      return line
-    }
-    if (fenceMatch?.[1] !== undefined) {
-      fence = fenceMatch[1]
-      return line
-    }
+        && fenceMatch[1].length >= fence.length
+        && line.slice(fenceMatch[0].length).trim() === '') {
+        masked.push(protect(buffer.join('\n'))); buffer.length = 0; fence = undefined
+      }
+    } else if (fenceMatch?.[1] !== undefined) {
+      fence = fenceMatch[1]; buffer.push(line)
+    } else masked.push(line)
+  }
+  if (buffer.length > 0) masked.push(protect(buffer.join('\n')))
+  source = masked.join('\n').replace(/(?<!`)(`+)(?!`)([^\u0000]*?)(?<!`)\1(?!`)/gu, protect)
+  source = source.replace(/(?<!\\)(?:\$\$[\s\S]*?(?:\$\$|$)|\\\([\s\S]*?(?:\\\)|$)|\\\[[\s\S]*?(?:\\\]|$)|\$(?![\s${(])(?:\\.|[^\n$])*?(?:\$(?!\d)|$))/gu, match => {
+    const singleDollar = match.startsWith('$') && !match.startsWith('$$')
+    return singleDollar && inlineMathSpanEnd(match, 0) < 0 && !/[\\^_]/u.test(match.slice(1)) ? match : protect(match)
+  })
+  const bounded = source.split('\n').map((line) => {
+    if (line.startsWith(marker)) return line
+    if (/^(?: {4}|\t)/u.test(line) && !/^\s*(?:[-+*]|\d+[.)])\s/u.test(line)) return line
     let out = line
     const quote = /^(\s*)((?:>\s?)+)(.*)$/u.exec(out)
     if (quote !== null) {
@@ -171,6 +184,9 @@ function clampNesting(source: string): string {
     }
     return out.replace(/([*_])\1{2,}/gu, (_match, mark: string) => mark.repeat(MAX_EMPHASIS_RUN))
   }).join('\n')
+  const restore = (value: string): string => value.replace(new RegExp(`${marker}(\\d+)\u0000`, 'gu'), (_match, at: string) => code[Number(at)]!)
+  // A math span can contain a previously masked code span.
+  return restore(restore(bounded))
 }
 
 function isProseCodespan(text: string): boolean {
@@ -178,39 +194,14 @@ function isProseCodespan(text: string): boolean {
   return words.length >= 4 || (words.length >= 2 && /[,;]/.test(text))
 }
 
-function renderMath(value: string, theme: Theme, style?: MarkdownStyle): string {
-  const normalized = value
-    .replace(/\\([A-Za-z]+)/gu, (whole, name: string) => MATH_SYMBOLS[name] ?? whole)
-    .replace(/\^\{?([0-9+-]+)\}?/gu, (_whole, body: string) =>
-      [...body].map(char => SUPERSCRIPT[char] ?? char).join(''))
-    .replace(/_\{([^}]+)\}/gu, '₍$1₎')
-  return paintFg(theme, ink(style, 'mdCode'), normalized, style)
+function renderMath(token: MathToken, theme: Theme, style?: MarkdownStyle, width?: number): string[] {
+  const rows = token.pending === true || style?.mathMode === 'source' ? undefined : mathLayout(token.text, token.display === true && width !== undefined, width)
+  return (rows ?? token.raw.trimEnd().split('\n')).map(row => paintFg(theme, ink(style, 'mdCode'), row, style))
 }
 
-function mermaidEndpoint(raw: string): string {
-  const text = raw.trim()
-  const labeled = /^(?:[\w.-]*)\[([^\]]+)\]$/u.exec(text)
-    ?? /^(?:[\w.-]*)\(([^)]+)\)$/u.exec(text)
-    ?? /^(?:[\w.-]*)\{([^}]+)\}$/u.exec(text)
-  if (labeled?.[1] !== undefined) return labeled[1]
-  return text.replace(/[\[\](){}]/gu, '').trim()
-}
-
-function renderMermaid(rows: readonly string[], theme: Theme, width: number, style?: MarkdownStyle): string[] {
-  const output: string[] = []
-  for (const raw of rows) {
-    const row = raw.trim()
-    if (row === '' || /^(?:graph|flowchart|sequenceDiagram)\b/u.test(row)) continue
-    const sequence = /^([^:]+?)-+>>?([^:]+):\s*(.+)$/u.exec(row)
-    const edge = /^(.+?)-+(?:>|\|[^|]*\|)(.+)$/u.exec(row)
-    const text = sequence
-      ? `${mermaidEndpoint(sequence[1] ?? '')} → ${mermaidEndpoint(sequence[2] ?? '')}: ${sequence[3]?.trim() ?? ''}`
-      : edge
-        ? `${mermaidEndpoint(edge[1] ?? '')} → ${mermaidEndpoint(edge[2] ?? '')}`
-        : row
-    output.push(...wrapStyled('  ' + paintFg(theme, ink(style, 'mdCodeBlock'), text, style), width))
-  }
-  return output.length > 0 ? output : [theme.fg(ink(style, 'dim'), '  (empty Mermaid diagram)')]
+function decodeEntities(text: string): string {
+  return text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&nbsp;', ' ')
 }
 
 function wrapStyled(text: string, width: number): string[] {
@@ -271,7 +262,7 @@ function renderInlineTokens(
   let out = ''
   for (const token of tokens) {
     if (isMathToken(token)) {
-      out += renderMath(token.text, theme, style)
+      out += renderMath(token, theme, style).join('\n')
       continue
     }
     switch (token.type) {
@@ -280,7 +271,7 @@ function renderInlineTokens(
         break
       case 'text':
         out += token.tokens === undefined
-          ? paintBase(theme, flattenText(token.text), style)
+          ? paintBase(theme, decodeEntities(flattenText(token.text)), style)
           : renderInlineTokens(token.tokens, theme, style, depth + 1)
         break
       case 'strong':
@@ -303,6 +294,9 @@ function renderInlineTokens(
         break
       case 'br':
         out += '\n'
+        break
+      case 'html':
+        out += paintBase(theme, normalizeHtml(token.text), style)
         break
       default:
         if ('tokens' in token && token.tokens !== undefined) out += renderInlineTokens(token.tokens, theme, style, depth + 1)
@@ -347,7 +341,13 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
   if (cols === 0) return []
   const borderOverhead = 3 * cols + 1
   const available = width - borderOverhead
-  const fallback = (): string[] => wrapTextStable(theme.fg('dim', token.raw.trimEnd()), width)
+  const fallback = (): string[] => {
+    if (rows.length === 0 || width < 8) return wrapTextStable(theme.fg('dim', token.raw.trimEnd()), width)
+    return rows.flatMap((row, at) => [
+      ...(at === 0 ? [] : ['']),
+      ...header.flatMap((key, col) => wrapTextStable(theme.bold(key || `Column ${col + 1}`) + ': ' + (row[col] ?? ''), width)),
+    ])
+  }
   if (available < cols) return fallback()
 
   const columns = Array.from({ length: cols }, (_, i) => [header[i] ?? '', ...rows.map(row => row[i] ?? '')])
@@ -402,6 +402,9 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
     }
   }
 
+  if (widths.some((value, col) => value < Math.min(4, natural[col] ?? 1)
+    || value < 12 && rows.some(row => wrapTextStable(row[col] ?? '', value).length > 8))) return fallback()
+
   const h = BOX.horizontal
   const v = theme.fg('borderMuted', BOX.vertical)
   const join = (left: string, fill: string[], mid: string, right: string): string =>
@@ -455,24 +458,36 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
 function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: MarkdownStyle): string[] {
   const lang = (token.lang ?? '').trim()
   const rows = token.text.split('\n')
-  const rail = theme.fg(ink(style, 'mdCodeBlockBorder'), '  \u2502 ')
-  const inner = Math.max(1, width - CODE_GUTTER)
-  if (lang.toLowerCase() === 'mermaid') {
-    return renderMermaid(rows, theme, inner, style).map(line => rail + line)
+  const gutter = width > CODE_GUTTER ? CODE_GUTTER : width > 2 ? 2 : width > 1 ? 1 : 0
+  const rail = theme.fg(ink(style, 'mdCodeBlockBorder'), gutter === 4 ? '  │ ' : gutter === 2 ? '│ ' : gutter === 1 ? '│' : '')
+  const inner = Math.max(1, width - gutter)
+  if (lang.toLowerCase() === 'mermaid' && style?.mermaidMode !== 'source'
+    && style?.color !== 'thinkingText' && closedFence(token.raw)) {
+    const diagram = mermaidLines(token.text, theme, inner, style)
+    if (diagram !== undefined) return diagram.map(row => rail + row)
   }
   const highlighted = highlightCodeLines(rows, lang, theme, style)
   const lines: string[] = []
   for (let i = 0; i < rows.length; i += 1) {
     const body = highlighted[i] ?? ''
     // Tabs resolve against the column the rail already occupies.
-    const wrapped = wrapCode(expandTabs(body, 8, CODE_GUTTER), inner)
-    for (const line of wrapped) lines.push(rail + line + (theme.colors ? '\x1b[39m' + openBase(theme, style) : ''))
+    const wrapped = wrapCode(expandTabs(body, 8, gutter), inner)
+    for (const line of wrapped) lines.push(rail + (visibleWidth(line) > inner ? sliceCells(line, 0, inner) : line)
+      + (theme.colors ? '\x1b[39m' + openBase(theme, style) : ''))
   }
   return lines
 }
 
 /** Cells a code block's rail takes before the code: two of margin, the rail, one of gap. */
 const CODE_GUTTER = 4
+
+function closedFence(raw: string): boolean {
+  const opening = /^ {0,3}(`{3,}|~{3,})[^\n]*\n/u.exec(raw)
+  if (opening === null) return false
+  const fence = opening[1]!
+  const closing = raw.trimEnd().slice(opening[0].length).split('\n').at(-1) ?? ''
+  return new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[ \\t]*$`, 'u').test(closing)
+}
 
 function renderList(token: Tokens.List, theme: Theme, width: number, level: number, style?: MarkdownStyle, depth = 0): string[] {
   const lines: string[] = []
@@ -535,7 +550,8 @@ function renderBlockquote(token: Tokens.Blockquote, theme: Theme, width: number,
 
 function renderBlock(token: Token, theme: Theme, width: number, listLevel: number, style?: MarkdownStyle, depth = 0): string[] {
   if (isMathToken(token)) {
-    return wrapStyled('  ' + renderMath(token.text, theme, style), width)
+    const pad = width > 4 ? '  ' : ''
+    return renderMath(token, theme, style, Math.max(1, width - pad.length)).flatMap(row => wrapStyled(pad + row, width))
   }
   switch (token.type) {
     case 'space':
@@ -558,7 +574,8 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
     case 'html':
       {
         const stripped = normalizeHtml(token.text).trim()
-        return stripped === '' ? [] : wrapStyled(renderInline(stripped, theme, style), width)
+        if (stripped === '') return []
+        return stripped === token.text.trim() ? wrapStyled(paintBase(theme, stripped, style), width) : renderMarkdown(stripped, theme, width, style)
       }
     case 'def':
       return []

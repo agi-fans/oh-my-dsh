@@ -33,6 +33,8 @@ The selected published bridge runs its supported synchronous command hooks. Code
 | Theme | dark, light, midnight, solarized, catppuccin, dracula, nord, gruvbox, rose-pine, mono | dark | Color palette. |
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
+| Math in replies | auto / source | auto | Format supported formulas as terminal text, or retain LaTeX delimiters and commands. |
+| Mermaid in replies | auto / source | auto | Draw complete diagrams that fit, or show Mermaid source. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
@@ -51,6 +53,10 @@ Tool previews use the active theme's background colors with padding on every sid
 Editor choices include installed VS Code, Cursor, VSCodium, Neovim, Vim, Nano, and Vi. Auto honors an existing `$VISUAL` or `$EDITOR` value, then prefers a detected graphical code editor before terminal editors. macOS app bundles and standard Windows installation locations are checked even when their launcher is absent from PATH. A manual selection applies immediately and persists across launches. Save and close the opened file to return; a missing saved editor is shown as unavailable so you can select another app. If no editor is found, install one and reopen Settings.
 
 Motion controls presentation only: provider output still enters the live session immediately, and a tool boundary or settled assistant message flushes the visible stream without waiting for the animation.
+
+Math in replies applies immediately to the live reply and reasoning view. Auto formats inline Greek letters, symbols and scripts, and lays out standalone fractions, roots, limits, matrices, cases and aligned equations using terminal characters. Unsupported, incomplete or oversized formulas retain their complete LaTeX source instead of mixing source and converted fragments. This supports a bounded subset of TeX, not a browser math renderer. Copying replies and exporting sessions retain the original text; terminal history keeps the rows already shown.
+
+Mermaid in replies uses terminal characters for supported flowcharts, sequence, state, class, ER, mindmap, timeline, pie and Git diagrams. Auto waits for the fenced block to close and draws only when parsing has no warnings and the whole diagram fits. Unsupported, incomplete, truncated or oversized diagrams retain their source; graph connections never wrap or clip to fit. Diagram colors follow the active theme. Source mode and reasoning views show Mermaid code. Copy and export retain the original Markdown; changing this preference refreshes the live view without rewriting terminal history.
 
 ## Agent
 
