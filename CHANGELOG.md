@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.20.0]
+
 ### Added
 
 - Mermaid in replies draws complete supported diagrams with theme-aware terminal characters. Settings switches between Auto and Source; unsupported, incomplete, truncated or oversized diagrams retain Mermaid code. Copy and export keep the original Markdown.
@@ -48,6 +50,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- **Compatibility:** Upgrade the published DeepSeek Harness runtime to `0.2.1-alpha.1` with its matching Cordis, loader, timer, and schemastery releases. Plugin consumers must upgrade to Cordis `~4.0.5-alpha.1`. Goal cancellation withdraws queued follow-up messages so subsequent input can proceed.
+
 - Tables that cannot fit useful columns on narrow terminals show labelled records.
 
 - Completed Turn summaries show the configured expansion shortcut when space allows, keeping duration and failures visible at narrow widths.
@@ -55,7 +59,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Searchable choice lists prioritize exact names and prefixes and support multiword queries and short word abbreviations. Command and project-path completion favor compact matches at word boundaries.
 - File-edit tool previews highlight changed identifiers, punctuation, and spacing more precisely, preserve emoji and combining sequences, and retain context in large hunks with small edits.
 - Code previews, fenced replies, and tool diff context use Prism syntax grammars with theme-aware colors, including multiline comments and strings, TSX, configuration files, and PowerShell. Diff documents color added and removed lines.
-- Upgrade the published DeepSeek Harness runtime to `0.2.1-alpha.1` with its matching Cordis, loader, timer, and schemastery releases. Plugin consumers must use Cordis `~4.0.5-alpha.1`. Goal cancellation now withdraws queued follow-up messages so subsequent input can proceed.
 - The default PTC execution budget is 180 seconds, leaving time for the default 120-second question wait and its result. Taking time on a question does not pause the outer program deadline.
 - CLI and runtime plugin operations share the profile write lock. Feature toggles apply after the running profile reloads its patch; existing sessions retain their Agent preset revision.
 
@@ -75,7 +78,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Status line settings accurately name the telemetry toggle and context label; disabling telemetry keeps model and workspace metadata visible in the preview.
 - Folding a completed Turn or returning from expanded tool details no longer leaves a large blank gap above the reply when the prompt has entered terminal scrollback.
 
-- Markdown tables honor left, center, and right alignment, keep wide characters within column budgets, and isolate wrapped cell styles and hyperlinks from neighboring cells and borders. Very narrow views retain the original Markdown table syntax.
+- Markdown tables honor left, center, and right alignment, keep wide characters within column budgets, and isolate wrapped cell styles and hyperlinks from neighboring cells and borders. Views narrower than eight display cells retain the original Markdown table syntax.
 - File browsing reviews sibling files, accepts uppercase document shortcuts, keeps all action buttons visible at narrow widths, and shows external-open and editor results in the preview. User-initiated file navigation no longer emits attention notifications.
 - Wrapped code preserves indentation, repeated spaces, and syntax colors across continuation rows.
 - Interactive `/diff` resolves listed changes from the Git repository root when launched in a subdirectory, keeping patches, previews, and external file actions on the same file.
@@ -538,7 +541,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.16.0...v0.17.0
