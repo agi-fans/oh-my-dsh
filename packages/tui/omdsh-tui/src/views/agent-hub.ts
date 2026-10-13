@@ -63,6 +63,7 @@ export function applyAgentHubEvent(state: AgentHubState, event: KeyEvent): Agent
   }
   if (event.id === 'enter') {
     const agent = selectedAgent(state)
+    if (agent?.mode === 'external') return { state: { ...state, inspector: true, detailScroll: 0 } }
     return agent === undefined ? { state } : { open: agent.id }
   }
   return { state }
@@ -159,6 +160,7 @@ function inspectorText(agent: TuiSubagentView | undefined, now: number): string 
     '',
     `Status: ${agent.phase}`,
     `Mode: ${agent.mode ?? 'unknown'}`,
+    ...(agent.mode === 'external' ? ['External execution: results appear in the parent session; no local transcript.'] : []),
     `Elapsed: ${duration(agent, now)}`,
     `Session: ${agent.id}`,
     `Parent: ${agent.parentId ?? 'root session'}`,

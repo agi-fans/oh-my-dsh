@@ -4,29 +4,46 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 
 # 设置
 
-`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Agent、Features、Status line 和 Plugins 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。完整浮层按键见[键盘与快捷键](keyboard.md)。
+`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 Interface、Agent、Tools、Status line、Integrations 和 Advanced 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
-## 插件配置
+## 产品配置
 
-打开 `/settings`，切换到 **Plugins**，选中插件后按 `Enter` 编辑字段。`Esc` 返回 Settings 并保留原来的选中行。该分区列出当前已激活且有可编辑配置的插件，字段列表支持筛选。字段来自插件已发布的实时 schema，包括 Shell 超时与输出限制、Subagent 深度/并发/模型策略、Agent loop 工具并行度，以及 Web search 的端点/模型/token/调用次数限制。
+自带能力按用户任务归入产品设置。Advisor model calls、Command hooks 兼容模式和 Subagent models 模型选择直接显示当前值，可用 `←`/`→` 或 `Space` 修改。选中配置行后按 `Enter` 打开设置，`Esc` 返回原来的选中行；启用集成导致可用设置变化时，也保持原行。没有内容的分类不显示。
 
-每个字段显示有效值及其来自继承还是当前 Profile 覆盖。**Reset to inherited** 只移除该字段的覆盖；**Set value** 按插件 schema 校验，并带上表单读取时的版本保存。若期间配置发生变化，写入会被拒绝，避免覆盖并发修改。字符串直接输入；数组、字典等结构化字段使用 JSON。schema 中隐藏或禁用的字段不显示。包含密钥的复合字段保持受保护，请使用 `/auth` 或其所属配置入口。
+| 分类 | 配置 |
+|---|---|
+| Interface | 外观、输入、通知与启动偏好。 |
+| Agent | Model and reasoning、Access、Agent preset、Language、Subagents 与 Subagent models。 |
+| Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。 |
+| Status line | 状态栏布局、可见性、上下文样式与颜色。 |
+| Integrations | Advisor model calls、Command hooks、Web search、Codex 与 Claude Code。 |
+| Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件。 |
+
+Integrations 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
+
+Web search 在 Integrations 中提供 **Search limit** 与 **Token limit**。凭据引用、API 密钥、端点、模型和 API 版本留在 **Advanced → Web search**。修改继续沿用搜索 Provider 自己的凭据配置；`/login` 登录不会配置 Web search。
+
+Advanced 遵守插件的自动表单策略，不重复展示已有产品控件覆盖的字段，包括 TUI 外观、语言与结构化状态栏编辑器。隐藏、禁用和弃用字段不显示；上游新增但尚未收编的字段仍可访问，不重复整个所属表单。
+
+每个字段显示有效值及其来自继承还是当前 Profile 覆盖。产品字段直接进入编辑，预选或预填当前值；时长和字节限制支持 `30s`、`2m`、`512 KiB`、`2 MiB` 等可读单位。**Restore inherited setting…** 打开字段选择与确认；设置行上的 `Ctrl+R` 也可恢复继承。Advanced 保留 **Set value**／**Reset to inherited** 操作。修改按插件 schema 校验，并使用表单显示时的版本保存。若期间配置发生变化，写入会被拒绝，避免覆盖并发修改。字符串直接输入；Subagent 允许模型使用目录选择器。Advanced 中的其他数组、字典等结构化字段使用 JSON。schema 中隐藏或禁用的字段不显示。包含密钥的复合字段保持受保护，请使用 `/login` 或其所属配置入口。
 
 密钥输入会被遮蔽，也不会出现在 notice 中。为带有 `apiKeyEnv` 的 `apiKey` 设置值时，密钥通过 Harness credentials 保存，Profile 只记录引用。重置该密钥会同时移除这两个 Profile 字段，恢复继承规则；不会撤销继承凭据或删除凭据库中的密钥。凭据引用字段继续遵循 Harness 的环境变量与凭据源继承规则。
 
-修改实时生效，影响使用同一 Profile 的所有会话。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
+设置保存到当前 Profile。外观立即生效，Agent 语言从下一回合生效，子代理模型选择作用于新会话。**Advisor model calls** 控制 `consult_advisor`，手动 `/advisor` 仍可使用。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
 
-在 **Plugins** 中选择 **Subagent model selection settings**（`subagent-model-selection-settings`），可配置子代理模型选择。先把 `allowedModels` 设为 JSON 列表，例如 `[{"provider":"deepseek-official","model":"deepseek-flash"}]`，再把 `enabled` 设为 `true`。新会话读取该白名单，只向 `subagent` 暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父代理路由。默认关闭。
+在 **Agent → Subagent models → Allowed models** 中搜索模型目录，用 `Space` 勾选、`Enter` 保存。当前路由会预选，不在目录里的已配置路由也会保留。启用模型选择前需至少选一个模型。新会话采样允许列表，`subagent` 只暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父路由。默认关闭。
 
-插件名称使用易读标签，说明中仍保留 namespace；字段旁显示 schema 的帮助文字。
+产品表单与保存提示使用任务和字段标签，Advanced 保留技术 namespace 与字段路径；字段旁显示 schema 的帮助文字。设置继续写回原插件条目，不复制到 TUI 偏好中。
 
 ### 命令 Hooks
 
-在 Plugins 中选择 **Hook settings**（`hook-settings`）。先设置 `configPath`，再把 `bridge` 改为 `codex` 或 `claude-code`；默认 `off` 不执行 Hooks。路径为空时，使用进程工作目录下的 `.codex/hooks.json` 或 `.claude/settings.json`。可以指向已有兼容配置；修改文件内容后，需要重启或将 bridge 关闭再开启。
+在 **Integrations** 中选择 **Command hooks**。先设置 **Configuration file**，再把 **Hook compatibility** 改为 `codex` 或 `claude-code`；默认 `off` 不执行 Hooks。路径为空时，使用进程工作目录下的 `.codex/hooks.json` 或 `.claude/settings.json`。可以指向已有兼容配置；修改文件内容后，需要重启或将 bridge 关闭再开启。
 
 所选的已发布 bridge 执行其支持的同步 command hooks。Codex 映射 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse 和 Stop；Claude Code 遵循其已发布事件子集。不执行不受支持的 async、prompt 和 agent hooks。阻断决定和失败显示在转录中并保留日志；启用后不会为已有会话补跑 SessionStart。一次只启用一个 bridge。
 
-## General
+## Interface
+
+设置分为 Appearance、Input、Notifications 与 Startup。通知依赖保持可见：通知关闭时 **Notify when** 不生效，**Long turn** 仅用于 long-running 策略。
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
@@ -64,11 +81,13 @@ Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态�
 |---|---|---|---|
 | Language | Auto / Simplified Chinese / English | Auto | 推理与回复的偏好语言。 |
 
+**Model and reasoning**、**Access** 与 **Agent preset** 在命令可用时打开现有的 `/model`、`/permission` 与 `/agent` 选择器。模型选择保存默认路由；Access 和 Agent preset 作用于当前会话。
+
 非 Auto 的选择从下一个回合开始生效；代码、标识符、命令、工具参数、日志、引用与文件内容保持准确形式，当前任务的显式语言要求仍然优先。该偏好是用户级的，因此恢复的会话使用当前值而不是历史快照。
 
-## 功能
+## Tools
 
-可选的产品功能，各自消耗上下文、运行时间或转录噪声。每一行关闭一个组合行。
+Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows 的 PowerShell 使用同一套表单，分别写回各自配置。可选功能各自消耗上下文、运行时间或转录噪声；每一行关闭一个组合行。
 
 | 行 | 默认 | 关闭后 |
 |---|---|---|
@@ -89,6 +108,8 @@ Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态�
 | Context label | compact / full | compact | 在占用值前显示 `Ctx` 或 `Context`。 |
 | Context style | percent / bar / tokens / detailed | percent | 显示百分比、十格占用条、已用/窗口 Token 数，或百分比与 Token 数。 |
 
+状态项上的 `Ctrl+R` 只恢复继承颜色；**Restore layout** 经确认后恢复完整的继承布局、可见性和颜色。
+
 状态项可以就地重排与换色：`Space` 显示或隐藏一项，`Enter` 开始移动（`↑`/`↓` 重排，`←`/`→` 选择列），每一项都有自己的颜色。
 
 第一行默认顺序：Model（`deepseek`）、Effort（`max`）、Path（`~/project`）、Git（`main *1`）与 Session；Session 默认关闭，因为终端窗口标题无论如何都会显示会话标题。
@@ -97,9 +118,11 @@ Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态�
 
 ## 持久化
 
+外观与状态栏修改只写入实际变更的字段，其余字段继续继承默认值；保存期间立即预览；保存失败时恢复已保存的偏好，错误提示保留到主动返回。功能开关仅在 Profile 补丁写入成功后更新显示；已有补丁不可读时保持原文件不变。
+
 设置、模型偏好与登录写入的凭据都是实时插件配置，持久化到当前 Profile 的 Cordis 补丁 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`（home 本身依次回退到 `$DSH_HOME`、`~/.dsh`）；`/settings`、`/model` 与 `/login` 都写入这里。更早版本留下的 `settings.yaml` 会在启动时导入一次——每个设置段按同名 id 写入 Profile 行——随后文件被重命名为 `settings.yaml.imported`；已不再对应任何行 id 的设置段会被记录日志，并且只留在重命名后的文件里。完整文件清单见[会话与历史](sessions.md)。
 
-## 插件设置
+## 配置归属
 
 已挂载的 Harness 插件把设置保存在各自 Profile 行的 config 中。`llm-deepseek` 路由只接受 Messages 兼容端点，配置 `protocol` 键时会报错 `protocol is not configurable; remove it and use a Messages-compatible baseURL`。自建 gateway 需要设置兼容的 `baseURL`；DeepSeek 端点由 base URL 选择。
 

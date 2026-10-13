@@ -13,6 +13,16 @@ The mounted tools come from published Harness plugins and from the session's Age
 | `bash` / `pwsh` | One-shot commands in the confined shell for the host. Calls carry a 120-second timeout that the model can raise per call or avoid by running the command in the background. |
 | `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, `terminal_list` | Persistent terminal sessions that retain cwd, environment, and interactive children across calls. |
 
+## Working directory
+
+`working_directory` reads the current directory, or changes it with `cd` to an existing directory. Later file operations, shell launches, file completion and the footer follow that directory. The original project still groups the session and determines its existing permissions; changing directory does not widen Access or move an already running terminal. Minimal keeps its two-tool catalog.
+
+## Git worktrees
+
+Choose **Enable worktree creation** in `/worktree`, or enable the Git Worktrees bundle in `/plugins` → Bundles, to expose `create_worktree`. The bundle ships with omdsh but stays off by default; Minimal still restricts its model tools. `/worktree` lets you create from a local revision, enter an existing registered checkout, or return to the session’s original directory with `/worktree return`. The conversation, original project and Access remain unchanged; file operations, new shells and the footer follow the current directory.
+
+Creation requires Git 2.45 or newer and Node in the same execution environment. It checks out committed files only, skips configured Git filters and does not initialize submodules or install dependencies. Source changes stay in the original checkout. Leaving, disabling the bundle or cancelling creation never automatically deletes branches or files; failures may retain partial artifacts. Return explicitly and review retained artifacts before managing them with Git.
+
 ## Files and search
 
 `read`, `write`, `edit`, and `str_replace_editor` cover file content, while `grep` and `glob` search the workspace. Mutating tools honor the session Access preset, and a mutation outside the sandbox returns the shared denial described in [Permissions and access](permissions.md). Results over the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
@@ -44,6 +54,8 @@ The `cordis` preset adds read-only runtime inspection on top of the native catal
 ## Delegation
 
 `subagent`, `subagent_fork`, and `subagent_isolated` delegate to child agents, and `workflow_run` fans work out across children from a script. `ralph` iterates fresh agents toward one objective but ships disabled, matching the upstream base bundle; a home overlay restores it with `disabled: false` on its row. The `code` preset denies `workflow_run`, so a PTC session authors its orchestration through `run_code` alone. See [Subagents and delegation](subagents.md).
+
+`consult_advisor` obtains a Codex or Claude Code opinion from an explicit question and text context when the user asks for a second opinion. It returns attributed advice for the primary model to evaluate and uses independent filesystem confinement. Native model charges apply; Settings can disable model consultations. See [Independent advice](subagents.md#independent-advice) for setup and limits.
 
 ## Related
 

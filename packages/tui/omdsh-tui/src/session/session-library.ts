@@ -85,6 +85,7 @@ function recentRowMemo(id: string, value: unknown): SessionRowMemo | undefined {
   if (typeof candidate.preview === 'string') accepted.preview = candidate.preview
   if (typeof candidate.updatedAt === 'number') accepted.updatedAt = candidate.updatedAt
   if (typeof candidate.eventCount === 'number') accepted.eventCount = candidate.eventCount
+  if (candidate.formatStatus === 'current' || candidate.formatStatus === 'migration-required') accepted.formatStatus = candidate.formatStatus
   const status = candidate.status
   if (typeof status === 'string' && RECENT_ROW_STATUSES[status] === true) {
     accepted.status = status as NonNullable<TuiRecentSession['status']>

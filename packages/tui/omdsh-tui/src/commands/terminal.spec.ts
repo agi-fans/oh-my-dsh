@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
 import type { TuiService } from '../definition.ts'
 import { terminalConsole } from './terminal.ts'
@@ -19,6 +19,21 @@ function harness(answers: readonly (string | null)[], rawInput = '') {
 }
 
 describe('persistent terminal console', () => {
+  it('starts a new shell in the current directory without moving an existing terminal', async () => {
+    const h = harness(['new', null])
+    const ctx = new Context()
+    const spawn = vi.fn(async () => ({ sessionId: 'owned' }))
+    ctx.provide('tui', h.ctx.tui)
+    ctx.provide('terminals', { ...h.terminals, spawn } as never)
+    ctx.provide('workingDirectory', { get: () => '/current-workspace' } as never)
+    try {
+      expect(await terminalConsole(ctx, h.invocation)).toEqual({ kind: 'success' })
+      expect(spawn).toHaveBeenCalledWith(h.owner, { type: 'shell', cwd: '/current-workspace' }, h.invocation.signal)
+      expect(h.owner.session.header.cwd).toBe('/workspace')
+      expect(h.terminals.kill).not.toHaveBeenCalled()
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('sends user input through the registry and detaches without killing the shell', async () => {
     const h = harness(['owned', 'input', 'echo hello', null])
     expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })

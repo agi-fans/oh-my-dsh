@@ -10,6 +10,7 @@ import { deliverableFiles, logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
 import { previewImages } from '../runtime/image-preview.ts'
 import { registerCommands } from './registration.ts'
+import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-files'
 export const inject = ['commands', 'tui', 'attachments']
@@ -20,7 +21,7 @@ export function userPath(input: string, cwd: string): string {
 }
 
 async function browse(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const cwd = invocation.agent.session.header.cwd ?? process.cwd()
+  const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
   let path = userPath(invocation.rawInput.trim(), cwd)
   while (!invocation.signal.aborted) {
     const info = await stat(path)
@@ -60,7 +61,7 @@ export async function attachFile(ctx: Context, invocation: CommandInvocation): P
   let input = invocation.rawInput.trim()
   if (input === '') input = await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, signal: invocation.signal }) ?? ''
   if (input === '' || invocation.signal.aborted) return { kind: 'success' }
-  const path = userPath(input, invocation.agent.session.header.cwd ?? process.cwd())
+  const path = userPath(input, currentWorkingDirectory(ctx, invocation.agent.session))
   const info = await stat(path)
   if (!info.isFile()) return { kind: 'error', text: 'Select a regular file to attach.' }
   const source = createReadStream(path, { highWaterMark: 64 * 1024, signal: invocation.signal })

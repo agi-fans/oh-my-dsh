@@ -37,11 +37,10 @@ import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
-import { SessionAlreadyOwnedError, type SessionPersistence as SessionPersistenceService } from '@deepseek-ai/dsh-session-persistence'
 import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-goal'
@@ -71,7 +70,7 @@ import type {
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
 import { readRecentRows, writeRecentRows, readSessionLibrary, sessionLibraryPath, setSessionLabel, type SessionRowMemo } from './session-library.ts'
-import { readJsonFile, writeJsonAtomic } from './json-file.ts'
+import { currentWorkingDirectory } from './working-directory.ts'
 import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
@@ -473,7 +472,6 @@ export class SessionRuntime {
   readonly #recentCache = new Map<string, SessionRowMemo>()
   readonly #libraryPath: string
   readonly #recentRowsPath: string | undefined
-  readonly #upgradeMarkerPath: string | undefined
   #recentRowsLoaded = false
   #refreshInFlight: Promise<void> | null = null
   #refreshDirty = false
@@ -486,7 +484,6 @@ export class SessionRuntime {
     this.#tui = tui
     this.#libraryPath = sessionLibraryPath(options.stateDir)
     this.#recentRowsPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'recent-sessions.json')
-    this.#upgradeMarkerPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'sessions-upgraded.json')
     this.#tracker = new SubagentTracker({
       rootId: () => this.#active?.handle.agent.id,
       depth: (session) => {
@@ -516,7 +513,7 @@ export class SessionRuntime {
     const fileReferences = this.#ctx.get('fileReferences')
     if (fileReferences !== undefined) {
       tui.setFileSearch(async (query, signal) => {
-        const agent = this.#active?.handle.agent
+        const agent = this.#inspectedId === undefined ? this.#active?.handle.agent : this.#ctx.get('agents')?.get(SessionId(this.#inspectedId))
         if (agent === undefined) return []
         return fileReferences.list(agent, query, signal ?? new AbortController().signal)
       })
@@ -560,12 +557,20 @@ export class SessionRuntime {
     this.#off.push(ctx.on('session/created', (session) => {
       this.#tracker.noteSession(session)
     }))
+    this.#off.push(ctx.on('subagent/start', info => { this.#tracker.noteExternalRun(info) }))
+    this.#off.push(ctx.on('subagent/end', info => { this.#tracker.noteExternalRun(info) }))
     this.#off.push(ctx.on('session/disposed', (session) => {
       this.#tracker.noteGone(session)
     }))
     this.#off.push(ctx.on('session/event', (session, event) => {
       const active = this.#active
       if (active === undefined) return
+      if (event.type === 'working-directory/change') {
+        if (session.id === (this.#inspectedId ?? active.handle.agent.id)) {
+          tui.setWorkingDirectory?.(currentWorkingDirectory(ctx, session))
+        }
+        if (session === active.handle.agent.session) void this.#refreshSkills().catch(error => { ctx.logger.warn(error) })
+      }
       if (session.id === this.#inspectedId) {
         const child = ctx.get('agents')?.get(session.id)
         tui.event(event, child === undefined ? undefined : ctx.get('tuiToolPresentation')?.event(child, event))
@@ -624,13 +629,6 @@ export class SessionRuntime {
           || key === 'plan' || key === 'permissions' || key === 'goal' || key === 'userQuestions') this.#pushSessionInfo()
       }))
     }
-    // One-time per session format, off the first render: stored logs an earlier
-    // release wrote get their current-format generation here rather than on the
-    // next listing or search that has to decode them.
-    ctx.inject(['sessionPersistence'], (persistenceCtx) => {
-      void this.#upgradeStoredSessions(persistenceCtx.sessionPersistence)
-        .catch((error: unknown) => { persistenceCtx.logger.warn(error) })
-    })
   }
 
   get agent(): Agent | undefined {
@@ -1080,16 +1078,6 @@ export class SessionRuntime {
     return active.agentPreset
   }
 
-  /** Select the Harness Plan Mode controller and immediately refresh terminal state. */
-  changeWorkflow(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop' {
-    this.assertActive(agent)
-    const planMode = this.#ctx.get('planMode')
-    if (planMode === undefined) throw new Error('Plan workflow is not configured.')
-    const outcome = planMode.set(agent, active)
-    this.#pushSessionInfo()
-    return outcome
-  }
-
   /**
    * Resolve and attach the changed-file summary a `workspace/changes` event
    * announces.
@@ -1120,43 +1108,6 @@ export class SessionRuntime {
       const summary = service.summary(id, seq)
       if (summary !== undefined) tui.setWorkspaceSummary(data.turn, summary)
     })
-  }
-
-  /**
-   * Publish a current-format generation for every stored session an earlier
-   * release wrote. A read open never upgrades a log, so without this pass
-   * every listing and search keeps decoding the historical corpus — the pass
-   * runs once per session format, in the background, and skips a session
-   * another live process owns.
-   */
-  async #upgradeStoredSessions(persistence: SessionPersistenceService): Promise<void> {
-    const markerPath = this.#upgradeMarkerPath
-    if (markerPath === undefined) return
-    const marker = readJsonFile(markerPath) as { sessionFormat?: unknown } | undefined
-    if (typeof marker?.sessionFormat === 'number' && marker.sessionFormat >= SESSION_FORMAT_VERSION) return
-    const before = await persistence.list()
-    const revisions = new Map(before.map(snapshot => [String(snapshot.header.id), snapshot.revision]))
-    const active = this.#active?.handle.agent.id
-    for (const snapshot of before) {
-      if (this.#disposed) return
-      if (String(snapshot.header.id) === active) continue
-      try {
-        const handle = await persistence.open(snapshot.header.id, 'write')
-        await handle.close()
-      } catch (error) {
-        // Another process owns it, or the log is unreadable: leave it alone.
-        if (!(error instanceof SessionAlreadyOwnedError)) this.#ctx.logger.debug(error)
-      }
-    }
-    if (this.#disposed) return
-    let upgraded = 0
-    for (const snapshot of await persistence.list()) {
-      if (revisions.get(String(snapshot.header.id)) !== snapshot.revision) upgraded += 1
-    }
-    writeJsonAtomic(markerPath, { sessionFormat: SESSION_FORMAT_VERSION })
-    if (upgraded > 0) {
-      this.#tui.notice(`Upgraded ${upgraded} stored session${upgraded === 1 ? '' : 's'} to the current format.`)
-    }
   }
 
   async refreshRecent(): Promise<void> {
@@ -1207,8 +1158,14 @@ export class SessionRuntime {
     for (const snapshot of snapshots) {
       const header = snapshot.header
       const cached = this.#recentCache.get(header.id)
+      if (snapshot.formatStatus === 'migration-required') {
+        // Do not open the log merely to browse it. A previous label is a hint;
+        // the stored format classification always comes from this listing.
+        rows.push({ ...(cached?.row ?? { id: header.id, title: header.id, createdAt: header.createdAt }), formatStatus: 'migration-required' })
+        continue
+      }
       if (cached?.revision === snapshot.revision) {
-        if (cached.row !== null) rows.push(cached.row)
+        if (cached.row !== null) rows.push({ ...cached.row, ...(snapshot.formatStatus === undefined ? {} : { formatStatus: snapshot.formatStatus }) })
         continue
       }
       try {
@@ -1259,7 +1216,7 @@ export class SessionRuntime {
     if (active !== undefined) handles.push(active.handle)
     // Own every handle here so a late activation cannot double-release it.
     for (const handle of handles) this.#releasedHandles.add(handle)
-    await Promise.allSettled(handles.map(handle => handle.dispose()))
+    await this.#disposeHandles(handles)
   }
 
   async #create(selection: ModelSelection): Promise<ActiveSession> {
@@ -1443,7 +1400,9 @@ export class SessionRuntime {
     if (agent === undefined || skills === undefined) {
       this.#skillCommands = []
     } else {
-      const list = await skills.list({ cwd: agent.session.header.cwd, scope: agent, signal })
+      const cwd = currentWorkingDirectory(this.#ctx, agent.session)
+      const list = await skills.list({ cwd, scope: agent, signal })
+      if (this.#disposed || this.agent !== agent || currentWorkingDirectory(this.#ctx, agent.session) !== cwd) return
       this.#skillCommands = userSkillCommands(list)
     }
     this.#pushCommands()
@@ -1453,7 +1412,7 @@ export class SessionRuntime {
     const agent = this.#requiredAgent()
     const skills = this.#ctx.get('skills')
     if (skills === undefined) return undefined
-    const list = await skills.list({ cwd: agent.session.header.cwd, scope: agent, signal })
+    const list = await skills.list({ cwd: currentWorkingDirectory(this.#ctx, agent.session), scope: agent, signal })
     return list.find(skill => skill.name === name && isUserInvocable(skill))
   }
 
@@ -1516,6 +1475,7 @@ export class SessionRuntime {
   }
 
   #replaceTranscript(agent: Agent, reason: TuiTranscriptReplacement = 'refresh'): void {
+    this.#tui.setWorkingDirectory?.(currentWorkingDirectory(this.#ctx, agent.session))
     const events = agent.session.snapshotEvents()
     this.#tracker.observeCatalog(agent.session, events)
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status, reason)
@@ -1549,7 +1509,12 @@ export class SessionRuntime {
       this.#tui.notice('That subagent is no longer available.', { level: 'error' })
       return
     }
+    if (this.#tracker.snapshot()?.agents.find(agent => agent.id === id)?.mode === 'external') {
+      this.#tui.notice('External executions have no local transcript. Their results appear in the parent session.')
+      return
+    }
     const live = this.#ctx.get('sessions')?.get(SessionId(id))
+    let cwd = live === undefined ? undefined : currentWorkingDirectory(this.#ctx, live)
     let events: readonly SessionEvent[]
     if (live !== undefined) {
       events = live.ownEvents()
@@ -1559,6 +1524,8 @@ export class SessionRuntime {
         const log = persistence === undefined ? undefined : await readColdSessionLog(persistence, SessionId(id))
         if (log === undefined) throw new Error('subagent transcript is unavailable')
         events = log.events.slice(log.inheritedEventCount)
+        const change = log.events.findLast(event => event.type === 'working-directory/change')
+        cwd = change?.type === 'working-directory/change' ? change.data.cwd : log.header.cwd
       } catch {
         if (request === this.#inspectEpoch) {
           this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })
@@ -1568,6 +1535,7 @@ export class SessionRuntime {
     }
     if (request !== this.#inspectEpoch) return
     this.#inspectedId = id
+    if (cwd !== undefined) this.#tui.setWorkingDirectory?.(cwd)
     const child = this.#ctx.get('agents')?.get(SessionId(id))
     this.#tui.replaceSession(
       events,
@@ -1656,6 +1624,13 @@ export class SessionRuntime {
   }
 
   async #disposeRetired(): Promise<void> {
-    await Promise.allSettled(this.#retired.splice(0).map(handle => handle.dispose()))
+    await this.#disposeHandles(this.#retired.splice(0))
+  }
+
+  async #disposeHandles(handles: readonly AgentHandle[]): Promise<void> {
+    if (handles.length === 0) return
+    try { await this.#ctx.get('subagents')?.drainDescendants(handles.map(handle => handle.agent)) }
+    catch (error) { this.#ctx.logger.warn(error) }
+    finally { await Promise.allSettled(handles.map(handle => handle.dispose())) }
   }
 }

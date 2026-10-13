@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import { togglePromptSelection, selectedPromptAnswer, refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
@@ -22,6 +22,18 @@ function reviewState(overrides: Partial<PromptSelectorState> = {}): PromptSelect
     ...overrides,
   }
 }
+
+it.each([false, true])('renders progress with cancellation hints and no answer editor (color=%s)', color => {
+  const state: PromptSelectorState = { request: { title: 'Install plugin', question: 'demo 🐳', detail: 'Plugin installing · 1/2', presentation: 'progress' }, selected: 0, checked: new Set() }
+  for (const width of [30, 60, 100]) {
+    const frame = renderPromptSelector(state, createTheme(color), width, '', 0)
+    const text = stripAnsi(frame.lines.join('\n'))
+    expect(text).toContain('Esc cancel')
+    expect(text).not.toContain('Enter')
+    expect(frame.cursorVisible).toBe(false)
+    expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+  }
+})
 
 describe('plan review page', () => {
   it.each([false, true])('keeps every document action visible with an explicit selection at narrow widths (color=%s)', color => {
@@ -246,4 +258,14 @@ describe('image preview page', () => {
     expect(fallback.image).toBeUndefined()
     expect(stripAnsi(fallback.lines.join('\n'))).toContain('Inline images are unavailable')
   })
+})
+
+
+it.each([[60, 24], [24, 9]])('paints filtered multi-select checkboxes by original identity at %sx%s', (width, height) => {
+  const state: PromptSelectorState = { request: { title: 'Models', question: '', presentation: 'fullscreen-list', filterable: true, optionLayout: 'compact', multiSelect: true, options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }, selected: 0, checked: new Set([1]) }
+  const frame = renderPromptSelectorPage(state, createTheme(false), width, height, 'Beta', 4, 'omdsh')
+  expect(stripAnsi(frame.lines.join('\n'))).toContain('[x] Beta')
+  expect(togglePromptSelection(state, 'Beta').checked).toEqual(new Set())
+  expect(selectedPromptAnswer({ ...state, checked: new Set(), request: { ...state.request, allowEmptySelection: true } })).toBe('')
+  expect(selectedPromptAnswer({ ...state, checked: new Set() })).toBeNull()
 })

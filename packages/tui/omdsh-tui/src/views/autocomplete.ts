@@ -54,6 +54,18 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'quit', aliases: ['q', 'exit'], description: 'Quit the application' },
 ]
 
+// Task groups affect discovery only; command registration stays in Harness.
+const COMMAND_GROUPS: readonly { label: string; names: readonly string[] }[] = [
+  { label: 'Session', names: ['new', 'sessions', 'resume', 'tree', 'rename', 'fork', 'retry', 'clear'] },
+  { label: 'Model and access', names: ['model', 'plan', 'permission', 'agent', 'login', 'logout'] },
+  { label: 'Files and output', names: ['files', 'diff', 'review', 'attach', 'attachments', 'terminal', 'copy', 'export', 'worktree'] },
+  { label: 'Tasks', names: ['queue', 'steer', 'questions', 'todo', 'jobs', 'goal', 'loop', 'compact'] },
+  { label: 'Settings and integrations', names: ['settings', 'advisor', 'plugins', 'mcp'] },
+  { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'feedback', 'changelog'] },
+  { label: 'Application', names: ['help', 'quit'] },
+]
+const COMMON_COMMANDS = ['model', 'plan', 'permission', 'sessions', 'files', 'diff', 'tree', 'settings', 'new', 'help']
+
 /** Visible popup rows (OMP editor default). */
 export const AUTOCOMPLETE_MAX_VISIBLE = 5
 
@@ -143,6 +155,9 @@ function buildNamedCompletions(
         if (entry.description !== '') item.description = entry.description
         best = item
       }
+      if (kind === 'command' && lowerPrefix.length >= 3 && best === undefined && entry.description.toLowerCase().includes(lowerPrefix)) {
+        best = { value: entry.value, label: entry.value, kind, score: 50, description: entry.description }
+      }
       return best === undefined ? [] : [best]
     })
     .sort((a, b) => b.score - a.score)
@@ -155,7 +170,10 @@ export function buildSlashCommandCompletions(
   lowerPrefix: string,
 ): AutocompleteItem[] {
   return buildNamedCompletions(
-    commands.map((command) => ({
+    (lowerPrefix === '' ? [...commands].sort((a, b) => {
+      const rank = (name: string): number => { const i = COMMON_COMMANDS.indexOf(name); return i < 0 ? COMMON_COMMANDS.length : i }
+      return rank(a.name) - rank(b.name)
+    }) : commands).map((command) => ({
       value: command.name,
       ...(command.aliases === undefined ? {} : { aliases: command.aliases }),
       description: command.description,
@@ -302,23 +320,13 @@ export function formatHelpText(
   commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
 ): string {
   const skills = commands.filter(command => command.name.startsWith('skill:'))
-  const terminalNames = new Set(BUILTIN_SLASH_COMMANDS.map(command => command.name))
-  const terminal = commands.filter(command => terminalNames.has(command.name))
-  const agent = commands.filter(command => !command.name.startsWith('skill:') && !terminalNames.has(command.name))
-  const lines = [`Commands · ${terminal.length + agent.length} core${skills.length === 0 ? '' : ` · ${skills.length} skills`}`]
-  if (terminal.length > 0) {
-    lines.push(
-      '',
-      `**Terminal Commands · ${terminal.length}**`,
-      ...helpRows(terminal),
-    )
-  }
-  if (agent.length > 0) {
-    lines.push(
-      '',
-      `**Agent Commands · ${agent.length}**`,
-      ...helpRows(agent),
-    )
+  const core = commands.filter(command => !command.name.startsWith('skill:'))
+  const lines = [`Commands · ${core.length} core${skills.length === 0 ? '' : ` · ${skills.length} skills`}`]
+  const assigned = new Set(COMMAND_GROUPS.flatMap(group => group.names))
+  const groups = [...COMMAND_GROUPS.map(group => ({ label: group.label, commands: core.filter(command => group.names.includes(command.name)) })),
+    { label: 'Extensions', commands: core.filter(command => !assigned.has(command.name)) }]
+  for (const group of groups) {
+    if (group.commands.length > 0) lines.push('', `**${group.label} · ${group.commands.length}**`, ...helpRows(group.commands))
   }
   if (skills.length > 0) {
     lines.push(

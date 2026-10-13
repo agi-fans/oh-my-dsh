@@ -40,10 +40,10 @@ omdsh keeps three session controls separate instead of collapsing them into one 
 | Concept | Command | Choices |
 |---|---|---|
 | Agent | `/agent` | Standard is the full coding agent; PTC defaults to programmatic tool calling; Minimal keeps persistent Bash and `str_replace_editor`; Cordis adds live runtime inspection and plugin experimentation. |
-| Workflow | `/workflow` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
+| Plan mode | `/plan` / `/plan off` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
 | Access | `/permission` | Read only, Workspace write, or Full access. |
 
-Agent changes what the model can see, so select it before the first prompt; it is locked once model history exists. Each preset owns its tool exposure: PTC uses `run_code` with the generated TypeScript SDK, while Standard, Minimal, and Cordis expose their tools as native functions. A PTC program calls tools from inside its own code, so the calls it makes are recorded as sub-calls: each one has its own content, indented under `run_code`, and is included when `Ctrl+O` opens the completed turn. Workflow and Access are durable session state and can change later.
+Agent changes what the model can see, so select it before the first prompt; it is locked once model history exists. Each preset owns its tool exposure: PTC uses `run_code` with the generated TypeScript SDK, while Standard, Minimal, and Cordis expose their tools as native functions. A PTC program calls tools from inside its own code, so the calls it makes are recorded as sub-calls: each one has its own content, indented under `run_code`, and is included when `Ctrl+O` opens the completed turn. Plan mode and Access are durable session state and can change later.
 
 ### Choose safe Access
 

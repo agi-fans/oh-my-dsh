@@ -301,14 +301,15 @@ export function renderPromptSelectorPage(
   appName: string,
 ): PromptSelectorFrame {
   const pageHeight = Math.max(1, height)
-  if (pageHeight < 10 || width < 16) {
-    return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
-  }
   const options = filteredPromptOptions(state.request, input)
+  const visibleChecked = new Set(options.flatMap((option, index) => state.checked.has(state.request.options?.indexOf(option) ?? -1) ? [index] : []))
+  if (pageHeight < 10 || width < 16) {
+    return renderPromptSelector({ ...state, request: { ...state.request, options }, checked: visibleChecked }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
+  }
   const selected = Math.max(0, Math.min(state.selected, Math.max(0, options.length - 1)))
   const compact = state.request.optionLayout === 'compact'
   const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
-  const hints = wrapText(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL])
+  const hints = wrapText(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, ...(state.request.multiSelect === true ? [HOTKEY_TOGGLE] : []), HOTKEY_SELECT, HOTKEY_CANCEL])
     + (actionHints === '' ? '' : ' · ' + actionHints), width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
   const fixedRows = (compact ? 9 : 11) + hints.length - 1
   const visibleCount = compact
@@ -348,13 +349,14 @@ export function renderPromptSelectorPage(
       const option = options[index]
       if (option === undefined) continue
       if (compact) {
-        lines.push(pageRow(theme, optionRow(option, index, { ...state, selected }, theme, Math.max(1, width - 6)), width))
+        lines.push(pageRow(theme, optionRow(option, index, { ...state, selected, checked: visibleChecked }, theme, Math.max(1, width - 6)), width))
         continue
       }
       const active = index === selected
       const marker = active ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
+      const check = state.request.multiSelect === true ? visibleChecked.has(index) ? '[x] ' : '[ ] ' : ''
       const label = active ? theme.bold(option.label) : option.label
-      lines.push(pageRow(theme, marker + label, width))
+      lines.push(pageRow(theme, marker + check + label, width))
       lines.push(pageRow(theme, '  ' + theme.fg('dim', option.preview ?? ''), width))
       const badge = optionBadge(option, theme)
       const description = option.description === undefined ? '' : theme.fg('dim', option.description)
@@ -584,11 +586,13 @@ export function renderPromptSelector(
     || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')
   // The request supplies the submit verb; the key itself comes from the catalog.
   const select = `${formatHotkeyKeys(HOTKEY_SELECT)} ${submit}`
-  const navigation = options.length === 0
-    ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
-    : state.request.multiSelect === true
-      ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
-      : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+  const navigation = state.request.presentation === 'progress'
+    ? formatOverlayHint([HOTKEY_CANCEL, HOTKEY_CANCEL_CTRL], 'catalog')
+    : options.length === 0
+      ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+      : state.request.multiSelect === true
+        ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+        : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
   const dismiss = state.request.dismissLabel
   const hints = [
     dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL]), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
@@ -603,7 +607,7 @@ export function renderPromptSelector(
     width,
     applyBg: false,
   }, theme)
-  if (state.request.allowCustom === false) {
+  if (state.request.allowCustom === false || state.request.presentation === 'progress') {
     return {
       lines: card,
       // Keep the terminal caret on body padding; the visible selector glyph
@@ -641,11 +645,14 @@ export function movePromptSelection(
 }
 
 /** Toggle the active row for a multi-select prompt. */
-export function togglePromptSelection(state: PromptSelectorState): PromptSelectorState {
-  if (state.request.multiSelect !== true || state.request.options?.[state.selected] === undefined) return state
+export function togglePromptSelection(state: PromptSelectorState, query = ''): PromptSelectorState {
+  const option = filteredPromptOptions(state.request, query)[state.selected]
+  if (state.request.multiSelect !== true || option === undefined) return state
+  const index = state.request.options?.indexOf(option) ?? -1
+  if (index < 0) return state
   const checked = new Set(state.checked)
-  if (checked.has(state.selected)) checked.delete(state.selected)
-  else checked.add(state.selected)
+  if (checked.has(index)) checked.delete(index)
+  else checked.add(index)
   return { ...state, checked }
 }
 
@@ -659,7 +666,7 @@ export function selectedPromptAnswer(state: PromptSelectorState): string | null 
     return option?.value ?? option?.label ?? null
   }
   const labels = options.flatMap((option, index) => state.checked.has(index) ? [option.value ?? option.label] : [])
-  return labels.length === 0 ? null : labels.join(', ')
+  return labels.length === 0 ? state.request.allowEmptySelection === true ? '' : null : labels.join(', ')
 }
 
 /** Resolve the selected answer after applying a full-screen selector query. */

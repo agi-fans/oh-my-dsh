@@ -84,9 +84,6 @@ async function writeEvents(persistence: unknown, id: string, texts: readonly str
 
 /** One cold launch over `persistence`: the rows a fresh process would publish. */
 async function launch(persistence: unknown, memoPath: string): Promise<TuiRecentSession[]> {
-  // Mark the corpus as already upgraded so these launches exercise the row
-  // memo rather than the background format pass.
-  writeFileSync(join(memoPath, 'sessions-upgraded.json'), JSON.stringify({ sessionFormat: SESSION_FORMAT_VERSION }))
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   ctx.provide('sessionPersistence', persistence as never)
@@ -98,6 +95,14 @@ async function launch(persistence: unknown, memoPath: string): Promise<TuiRecent
 }
 
 describe('Session Library row memo', () => {
+  it('uses header metadata for historical sessions without opening their logs or writing generations', async () => {
+    const root = temp('omdsh-recent-migration-')
+    const snapshots = [{ header: { id: SessionId('old'), createdAt: 1, isSeeded: false }, revision: 'old-revision', formatStatus: 'migration-required' }]
+    const open = vi.fn(async () => { throw new Error('Browsing must not open historical logs') })
+    const rows = await launch({ list: async () => snapshots, open }, root)
+    expect(rows).toEqual([{ id: 'old', title: 'old', createdAt: 1, formatStatus: 'migration-required' }])
+    expect(open).not.toHaveBeenCalled()
+  })
   it('publishes memoized labels without reading an unchanged log, and re-reads a changed one', async () => {
     const root = temp('omdsh-recent-')
     const memoPath = temp('omdsh-recent-memo-')

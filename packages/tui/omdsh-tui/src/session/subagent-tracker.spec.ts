@@ -92,6 +92,35 @@ describe('SubagentTracker.noteStatus/noteGone', () => {
 })
 
 describe('SubagentTracker.observeCatalog/sync', () => {
+  it('tracks external lifecycle edges without a local session and ignores unrelated runs', () => {
+    const { tracker } = make()
+    tracker.observeCatalog(fakeSession('root'), [ev('subagent/catalog', { version: 2, childId: 'external', mode: 'external', label: 'Codex task' })])
+    const info = { runId: 'run-1', id: SessionId('external'), provider: 'codex', local: false } as Parameters<SubagentTracker['noteExternalRun']>[0]
+    tracker.noteExternalRun(info)
+    expect(tracker.snapshot()?.agents[0]).toMatchObject({ mode: 'external', phase: 'running' })
+    tracker.noteExternalRun({ ...info, stopReason: 'error' })
+    expect(tracker.snapshot()?.agents[0]?.phase).toBe('error')
+    tracker.noteExternalRun({ ...info, id: SessionId('unrelated') })
+    expect(tracker.snapshot()?.agents).toHaveLength(1)
+  })
+
+  it('restores an external catalog entry as completed without treating it as a waiting local conversation', async () => {
+    const { tracker } = make({ listChildren: async () => [{ id: SessionId('external'), mode: 'external', createdAt: 1 }] })
+    tracker.sync()
+    await tick()
+    expect(tracker.snapshot()?.agents[0]).toMatchObject({ mode: 'external', phase: 'completed' })
+  })
+
+  it('retains an observed external activation when rebuilding the same root catalog', async () => {
+    const entry: SubagentCatalogEntry = { id: SessionId('external'), mode: 'external', createdAt: 1 }
+    const { tracker } = make({ listChildren: async () => [entry] })
+    tracker.observeCatalog(fakeSession('root'), [ev('subagent/catalog', { version: 2, childId: entry.id, mode: 'external' })])
+    tracker.noteExternalRun({ runId: 'run-1', id: entry.id, provider: 'codex', local: false } as Parameters<SubagentTracker['noteExternalRun']>[0])
+    tracker.sync()
+    await tick()
+    expect(tracker.snapshot()?.agents[0]?.phase).toBe('running')
+  })
+
   it('adds catalog children declared by a session log', () => {
     const { tracker, published } = make()
     const parent = fakeSession('root', undefined, [

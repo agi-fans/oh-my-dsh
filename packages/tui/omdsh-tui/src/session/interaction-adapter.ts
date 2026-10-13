@@ -147,25 +147,21 @@ async function answerPendingQuestions(
   return accepted ? 'Answer queued for the next model step.' : 'This question has already been answered.'
 }
 
-/**
- * Body of the approval prompt: what the call is, then why it is being asked.
- * The interface already rendered this call, so it is read back instead of
- * restating the tool name. The detail renders on one line, so both parts are
- * joined with a separator, and the action comes before the asker's explanation.
- */
+/** Preserve the full action and reason for the scrollable approval reader. */
 export function approvalDetail(tui: TuiService, request: ApprovalRequest): { detail?: string } {
   const context = request.callId === undefined ? undefined : tui.toolCallContext(request.callId)
   const parts = [context, request.reason].filter(
     (part): part is string => part !== undefined && part !== '',
   )
-  return parts.length === 0 ? {} : { detail: parts.join(' · ') }
+  return parts.length === 0 ? {} : { detail: parts.join('\n\n') }
 }
 
 async function askApproval(tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
   const raw = await tui.prompt({
     title: 'Approval required',
     question: `Allow ${request.toolName} once?`,
-    ...approvalDetail(tui, request),
+    presentation: 'document',
+    documentSource: { text: approvalDetail(tui, request).detail ?? request.toolName, language: 'text' },
     options: [
       { label: 'Allow once', description: 'Run only this requested action.' },
       { label: 'Reject', description: 'Deny this action.' },

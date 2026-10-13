@@ -7,9 +7,10 @@
  */
 
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
@@ -49,6 +50,8 @@ export async function bootTuiTurn(options: {
   extraEnv?: Record<string, string>
   toolCall?: { name: string; arguments: string }
   patch?: string
+  repeatLast?: boolean
+  cwd?: string
 }): Promise<{ bodies: unknown[], output: string, status: number | null }> {
   writeTurnConfig(options.home, options.preset)
   if (options.patch !== undefined) appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), options.patch)
@@ -60,15 +63,16 @@ export async function bootTuiTurn(options: {
     sequence: options.toolCall === undefined ? ['success'] : ['tool_call_success', 'success'],
     ...(options.toolCall === undefined ? {} : { toolName: options.toolCall.name, toolArguments: options.toolCall.arguments }),
     successText: 'ok',
+    repeatLast: options.repeatLast ?? false,
     chunkSize: 32,
     chunkDelayMs: 1,
   })
-  const command = process.platform === 'win32' ? 'cmd.exe' : 'pnpm'
-  const args = process.platform === 'win32'
+  const command = options.cwd !== undefined ? process.execPath : process.platform === 'win32' ? 'cmd.exe' : 'pnpm'
+  const args = options.cwd !== undefined ? ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, fileURLToPath(new URL('../bin.ts', import.meta.url))] : process.platform === 'win32'
     ? ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']
     : ['--dir', 'apps/omdsh', 'omdsh']
   const child = spawn(command, args, {
-    cwd: repoRoot,
+    cwd: options.cwd ?? repoRoot,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,

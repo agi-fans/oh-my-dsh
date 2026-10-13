@@ -9,7 +9,7 @@ description: "Where omdsh stores durable sessions and local data, how the Sessio
 Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back to `$DSH_HOME` and then `~/.dsh`. The logs are the source of truth for replay, projections, and search.
 
 - `omdsh --resume <session-id>` reopens a session from the shell; the second `Ctrl+C` prints that command with the id when the session can be resumed.
-- `/resume` opens a searchable selector with the latest human-message preview, age, event count, and completion state; `/resume <session-id>` skips the selector.
+- `/sessions` opens the Session Library with message previews, age, event counts and completion state; bare `/resume` opens the same library for compatibility. `/resume <session-id>` skips the selector. `Alt+S` searches durable message content, and search results keep rename, pin and archive actions; `Alt+L` returns to all sessions.
 - `/new` starts a clean session rather than branching the current one.
 - `/retry` submits the latest human prompt again as a new turn.
 - `Esc` twice or `/tree` opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
@@ -44,7 +44,7 @@ Sending or explicitly clearing the composer removes its saved draft. Browsing in
 
 ## Logs on disk
 
-Session files may be compressed and carry integrity checks, so do not edit them by hand; keep using omdsh for those sessions. A log written by an earlier release is migrated when the session is written to, and once per session format by a background pass on the first launch after an upgrade, which publishes a version-named successor (`session.v4.jsonl[.zstd]`) beside the unchanged predecessor. A single startup notice reports how many sessions that pass upgraded.
+Session files may be compressed and carry integrity checks, so do not edit them by hand. Startup and Session Library browsing do not migrate historical logs. The library marks them `migration required`, using a previous cached title when available or the session id otherwise. Interactive `/resume` and selected library or search results ask before opening a migration-required session. Accepting writes a version-named successor (`session.v4.jsonl[.zstd]`) beside the unchanged predecessor; cancelling leaves the session unopened. `omdsh --resume <session-id>` and line-input `/resume <session-id>` explicitly activate and migrate that session without an extra interactive prompt. Other explicit writes, such as renaming, can also migrate the selected log.
 
 Sessions first created with v0.5.0 through v0.11.0 may contain the private `omdsh/tools-selected` event: current omdsh recognizes and resumes them, but an unmodified DSH persistence reader refuses that log. Sessions created with v0.12.0 and later do not write the event, so newly created sessions stay loadable by stock DSH persistence.
 
@@ -60,8 +60,7 @@ All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/
 | `omdsh/keybindings.json` | Application keybinding overrides. |
 | `omdsh/model-favorites.json` | The favorite model cycle behind `Ctrl+P` and `Alt+P`. |
 | `omdsh/session-library.json` | Session pins, archive state, and local tree labels. |
-| `omdsh/recent-sessions.json` | Session Library labels reused across launches; delete it to re-read every stored log. |
-| `omdsh/sessions-upgraded.json` | Records the session format the stored logs were upgraded to. |
+| `omdsh/recent-sessions.json` | Session Library labels reused across launches; deleting it re-reads current-format logs and leaves historical logs as header-only rows. |
 | `sessions-query.sqlite` | Derived full-text index behind session content search; delete it to rebuild on the next search. |
 | `profiles/omdsh/` | The user plugin Profile managed by `omdsh plugin`, including the `cordis.patch.yml` that persists settings. |
 

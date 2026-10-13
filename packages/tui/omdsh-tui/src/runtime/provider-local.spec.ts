@@ -8,18 +8,20 @@ import sharp from 'sharp'
 import * as editorDiscovery from '../input/editor-discovery.ts'
 import * as externalEditor from '../input/external-editor.ts'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
 import { TerminalReader } from './terminal-reader.ts'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
+import { editSettingsEntry, pluginSettingsEntries } from './plugin-settings.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
 import { createHistorySearch } from '../views/history-search.ts'
@@ -73,6 +75,40 @@ function ev(type: string, data: unknown, seq: number): SessionEvent {
 const press = (term: { input: PassThrough }, bytes: string): void => {
   term.input.write(bytes)
 }
+
+it.each([['\x1b', false], ['\x03', true]] as const)('keeps progress pending on Enter and cancels on %s (color=%s)', async (cancel, color) => {
+  const term = new FakeTerminal()
+  const tui = new LocalTui(term, 'm', color, 'dark', async () => {})
+  const settled = vi.fn()
+  try {
+    const pending = tui.prompt({ title: 'Installing plugin', question: 'demo', presentation: 'progress', allowCustom: false })
+    void pending.then(settled)
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(settled).not.toHaveBeenCalled()
+    expect(stripAnsi(term.captured)).toContain('Esc cancel')
+    press(term, cancel)
+    await expect(pending).resolves.toBeNull()
+  } finally { tui.dispose() }
+})
+
+it.each([false, true])('updates directory completion and footer without clearing scrollback (color=%s)', color => {
+  const root = mkdtempSync(join(tmpdir(), 'omdsh-directory-completion-'))
+  const cwd = join(root, 'nested')
+  mkdirSync(cwd)
+  execFileSync('git', ['init', '-q', root])
+  const term = new FakeTerminal()
+  term.columns = 200
+  const listed: string[] = []
+  const tui = new LocalTui(term, 'm', color, 'dark', async () => {}, { cwd: root, listDir: dir => { listed.push(dir); return [] } })
+  try {
+    tui.setWorkingDirectory(cwd)
+    press(term, '@./')
+    expect(listed.at(-1)).toBe(cwd)
+    expect(stripAnsi(term.captured)).toContain(cwd)
+    expect(term.captured).not.toContain('\x1b[3J')
+  } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
+})
 
 /** Herdr reporter over a recording transport, so no test touches the real socket. */
 function createHerdrRecorder(): { requests: HerdrRequest[]; reporter: HerdrAgentReporter } {
@@ -1377,7 +1413,7 @@ describe('LocalTui (tty)', () => {
       const restored = term.visible()
       expect(restored.filter(row => row.includes('🐳'))).toHaveLength(1)
       expect(restored.join('\n')).not.toContain('plugin-0')
-      expect(restored.join('\n')).not.toContain('Plugins')
+      expect(restored.join('\n')).not.toContain('Advanced')
     } finally { tui.dispose() }
   })
 
@@ -2680,6 +2716,7 @@ describe('LocalTui (tty)', () => {
     const pending = tui.readline()
     press(term, '/help\r')
     expect(term.captured).toContain('/settings, /set')
+    press(term, '\x1b[F')
     expect(term.captured).toContain('Essential Shortcuts')
     expect(term.captured).toContain('/help [full]')
     press(term, '/help full\r')
@@ -2734,7 +2771,7 @@ describe('LocalTui (tty)', () => {
       tui.applyStoredPrefs({ theme: 'light', colors: color })
       press(term, '\x1b[27u')
       await flushAsyncPaste()
-      expect(term.visible().join('\n')).toContain('● Plugins')
+      expect(term.visible().join('\n')).toContain('● Advanced')
       expect(term.visible().join('\n')).toContain('❯ subagent')
       press(term, '\t')
       expect(term.visible().join('\n')).toContain('light')
@@ -2742,6 +2779,196 @@ describe('LocalTui (tty)', () => {
       expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
       press(term, 'next prompt\r')
       expect(await input).toEqual({ text: 'next prompt', images: [] })
+    } finally { await unbind(); tui.dispose() }
+  })
+
+  it.each([
+    ['Codex', 'codex', false], ['Codex', 'codex', true],
+    ['Claude Code', 'claude', false], ['Claude Code', 'claude', true],
+  ] as const)('keeps %s status visible until dismissed and returns through its settings (color=%s)', async (label, id, color) => {
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', color)
+    const ctx = new Context()
+    const bundle = id === 'codex' ? '@deepseek-ai/dsh-subagent-codex' : '@deepseek-ai/dsh-subagent-claude-code'
+    const row = { name: bundle, availability: 'installation', version: '0.2.1-alpha.2', enabled: false, rows: [] }
+    const listBundles = vi.fn(async () => [row])
+    const listPlugins = vi.fn(async () => [])
+    ctx.provide('settings', { describe: () => [] } as never)
+    ctx.provide('pluginManager', { listBundles, listPlugins } as never)
+    ctx.provide('tui', tui)
+    const unbind = tui.bindPluginSettings({ entries: () => pluginSettingsEntries(ctx), edit: (id, signal) => editSettingsEntry(ctx, id, signal) })
+    try {
+      press(term, `/settings\r\x1b[Z${id === 'claude' ? '\x1b[B' : ''}\r`)
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Installation status')
+      press(term, '\x1b[B\r')
+      await flushAsyncPaste()
+      expect(listPlugins).toHaveBeenCalledTimes(1)
+      expect(term.visible().join('\n')).toContain('Package: available (installation)')
+      // Idle rendering and navigation must leave the report open.
+      await flushAsyncPaste()
+      press(term, '\x1b[B')
+      expect(term.visible().join('\n')).toContain('Profile: disabled')
+      press(term, color ? '\r' : '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Installation status')
+      expect(term.visible().join('\n')).not.toContain('Package: available (installation)')
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(`❯ ${label}`)
+      expect(term.visible().join('\n')).toContain('● Integrations')
+    } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it.each(['field', 'integration'] as const)('settings audit: shows %s save errors before returning to its form', async kind => {
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false), ctx = new Context()
+    const schema = (await import('@deepseek-ai/schemastery')).default
+    ctx.provide('settings', { writable: true, describe: () => kind === 'field' ? [{ ns: 'bash', revision: 1,
+      schema: schema.object({ timeoutMs: schema.number().min(1) }).toJSON(), value: { timeoutMs: 5 }, base: {}, user: {} }] : [],
+      mutate: async () => { throw new Error('Save failed') } } as never)
+    if (kind === 'integration') ctx.provide('pluginManager', {
+      listBundles: async () => [{ name: '@deepseek-ai/dsh-subagent-codex', availability: 'installation', enabled: false, rows: [] }],
+      setBundleEnabled: async () => ({ application: 'failed', error: { diagnostic: 'Save failed' } }),
+    } as never)
+    ctx.provide('tui', tui)
+    const unbind = tui.bindPluginSettings({ entries: () => pluginSettingsEntries(ctx), edit: (id, signal) => editSettingsEntry(ctx, id, signal) })
+    try {
+      press(term, `/settings\r${kind === 'field' ? '\t' : '\x1b[Z'}\r`)
+      await flushAsyncPaste()
+      press(term, '\r'); await flushAsyncPaste()
+      if (kind === 'field') { press(term, '\x1542\r'); await flushAsyncPaste() }
+      expect(term.visible().join('\n')).toContain('Save failed')
+      press(term, '\x1b[27u'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(kind === 'field' ? 'Default timeout' : 'Enable integration')
+    } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it('settings audit: rolls back appearance after a failed async save and retains newer loaded preferences', async () => {
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false)
+    const pending = Promise.withResolvers<void>()
+    const persist = vi.fn(() => pending.promise)
+    tui.setPrefsPersist(persist)
+    try {
+      press(term, '/settings\r\x1b[C')
+      expect(tui.prefs().theme).toBe('light')
+      press(term, '\x1b[C')
+      expect(persist).toHaveBeenCalledTimes(1)
+      pending.reject(new Error('Appearance save failed'))
+      await flushAsyncPaste()
+      expect(tui.prefs().theme).toBe('dark')
+      expect(term.visible().join('\n')).toContain('Appearance save failed')
+      press(term, '\x1b[27u'); await flushAsyncPaste()
+      const raced = Promise.withResolvers<void>()
+      tui.setPrefsPersist(() => raced.promise)
+      press(term, '\x1b[C')
+      tui.applyStoredPrefs({ theme: 'nord', colors: false })
+      raced.reject(new Error('Configuration changed'))
+      await flushAsyncPaste()
+      expect(tui.prefs().theme).toBe('nord')
+    } finally { pending.resolve(); await tui.dispose() }
+  })
+
+  it.each(['resolve', 'reject'] as const)('settings audit: drains an in-flight preference save during idempotent disposal (%s)', async result => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const pending = Promise.withResolvers<void>()
+    tui.setPrefsPersist(() => pending.promise)
+    press(term, '/settings\r\x1b[C')
+    const disposed = tui.dispose()
+    expect(tui.dispose()).toBe(disposed)
+    const output = term.captured
+    let drained = false
+    void disposed.then(() => { drained = true })
+    await flushAsyncPaste()
+    expect(drained).toBe(false)
+    tui.applyStoredPrefs({ theme: 'nord', colors: false })
+    if (result === 'resolve') pending.resolve()
+    else pending.reject(new Error('Late save failure'))
+    await disposed
+    expect(drained).toBe(true)
+    expect(term.captured).toBe(output)
+  })
+
+  it('settings audit: keeps feature values unchanged when their patch cannot be written', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'omdsh-feature-failure-'))
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { featurePatch: directory })
+    try {
+      press(term, '/settings\r\t\x1b[C'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Feature toggles were not saved')
+      press(term, '\x1b[27u'); await flushAsyncPaste()
+      expect(term.visible().find(row => row.includes('Changed-file summary'))).toMatch(/\bon\b/u)
+    } finally { await tui.dispose(); rmSync(directory, { recursive: true, force: true }) }
+  })
+
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)('settings audit: preserves an unreadable but writable Profile patch', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'omdsh-feature-read-failure-')), path = join(directory, 'cordis.patch.yml')
+    const original = '# keep custom settings\n- id: custom-plugin\n  disabled: true\n'
+    writeFileSync(path, original); chmodSync(path, 0o200)
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { featurePatch: path })
+    try {
+      press(term, '/settings\r\t\x1b[C'); await flushAsyncPaste()
+      chmodSync(path, 0o600)
+      expect(readFileSync(path, 'utf8')).toBe(original)
+      expect(term.visible().join('\n')).toContain('Feature toggles were not saved')
+    } finally { await tui.dispose(); chmodSync(path, 0o600); rmSync(directory, { recursive: true, force: true }) }
+  })
+
+  it('serializes inline writes, shows only observed values, and refreshes after a rejected write', async () => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    let value = 'On', revision = 7
+    const settled = Promise.withResolvers<void>()
+    const entries = () => [{ id: 'advisor', label: 'Advisor', description: 'Consultations', section: 'integrations' as const,
+      inline: { path: ['allowModelConsultations'], value, revision, choices: [{ label: 'On', value: 'true' }, { label: 'Off', value: 'false' }] } }]
+    const set = vi.fn(async (entry, choice, signal) => {
+      expect(entry.inline.revision).toBe(7)
+      expect(choice).toBe('false')
+      expect(signal.aborted).toBe(false)
+      await settled.promise
+      value = 'Off'; revision++
+      throw new Error('Configuration changed')
+    })
+    const unbind = tui.bindPluginSettings({ entries, edit: async () => {}, set })
+    try {
+      press(term, '/settings\r\x1b[Z\x1b[C')
+      await flushAsyncPaste()
+      expect(set).toHaveBeenCalledTimes(1)
+      expect(term.visible().join('\n')).toContain('On')
+      press(term, '\x1b[C')
+      await flushAsyncPaste()
+      expect(set).toHaveBeenCalledTimes(1)
+      settled.resolve()
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Configuration changed')
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('❯ Advisor')
+      expect(term.visible().join('\n')).toContain('Off')
+      expect(term.captured).toContain('Configuration changed')
+      expect(tui.prefs()).not.toHaveProperty('allowModelConsultations')
+    } finally { settled.resolve(); await unbind(); tui.dispose() }
+  })
+
+  it('returns to the same product row when a settings edit changes available categories', async () => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    let updated = false
+    const entries = () => [
+      ...(updated ? [{ id: 'child-models', label: 'Subagent models', description: 'Child model selection', section: 'agent' as const }] : []),
+      { id: 'advisor', label: 'Advisor', description: 'Consultations', section: 'integrations' as const },
+    ]
+    const unbind = tui.bindPluginSettings({ entries, edit: async (_id, signal) => {
+      await tui.prompt({ title: 'Advisor', question: 'Model consultations', options: [{ label: 'Off' }], allowCustom: false, signal })
+      updated = true
+    } })
+    try {
+      press(term, '/settings\r\x1b[Z\r')
+      await flushAsyncPaste()
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      const screen = term.visible().join('\n')
+      expect(screen).toContain('● Integrations')
+      expect(screen).toContain('❯ Advisor')
+      expect(screen).not.toContain('❯ Subagent models')
     } finally { await unbind(); tui.dispose() }
   })
 
@@ -2764,7 +2991,7 @@ describe('LocalTui (tty)', () => {
       expect(drained).toBe(false)
       settled.resolve()
       await closed
-      expect(term.visible().join('\n')).not.toContain('Plugins')
+      expect(term.visible().join('\n')).not.toContain('Advanced')
       press(term, '\x1b[27u')
       expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
     } finally { settled.resolve(); await unbind(); tui.dispose() }
@@ -2821,6 +3048,65 @@ describe('LocalTui (tty)', () => {
     press(term, '/settings theme\r')
     expect(term.captured).toContain('Usage: /settings')
     tui.dispose()
+  })
+
+  it('writes only changed preferences and returns from a searched product form to the same result', async () => {
+    const term = new ScrollingTerminal(100, 24)
+    const tui = new LocalTui(term, 'm', false)
+    const persist = vi.fn()
+    tui.setPrefsPersist(persist)
+    const unbind = tui.bindPluginSettings({ entries: () => [{ id: 'shell', label: 'Shell', description: 'Timeout', section: 'tools' }],
+      edit: async (_id, signal) => { await tui.prompt({ title: 'Shell field', question: 'Choose', options: [{ label: 'Timeout' }], signal }) } })
+    try {
+      press(term, '/settings\r\x1b[C')
+      expect(persist.mock.calls[0]?.[1]).toEqual([{ op: 'set', path: ['theme'], value: 'light' }])
+      press(term, 'Shell\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Shell field')
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Search: Shell')
+      expect(term.visible().join('\n')).toContain('❯ Shell')
+    } finally { await unbind(); await tui.dispose() }
+  })
+
+  it('refreshes integration summaries without losing a typed search and ignores a stale refresh', async () => {
+    const term = new ScrollingTerminal(100, 24)
+    const tui = new LocalTui(term, 'm', false)
+    const first = Promise.withResolvers<readonly import('../views/settings-list.ts').PluginSettingsEntry[]>()
+    const second = Promise.withResolvers<readonly import('../views/settings-list.ts').PluginSettingsEntry[]>()
+    const row = { id: 'integration:codex', label: 'Codex', description: 'Registered integration', section: 'integrations' as const }
+    const refresh = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const unbind = tui.bindPluginSettings({ entries: () => [row], edit: async () => {}, refresh })
+    try {
+      press(term, '/settings\r')
+      press(term, 'Codex')
+      tui.applyStoredPrefs({ theme: 'dark', colors: false })
+      second.resolve([{ ...row, summary: 'Enabled' }]); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Search: Codex')
+      expect(term.visible().join('\n')).toContain('Enabled')
+      first.resolve([{ ...row, summary: 'Disabled' }]); await flushAsyncPaste()
+      expect(term.visible().join('\n')).not.toContain('Disabled')
+    } finally { first.resolve([row]); second.resolve([row]); await unbind(); await tui.dispose() }
+  })
+
+  it('opens the registered model selector from Agent settings and returns on cancellation', async () => {
+    const term = new ScrollingTerminal(100, 24)
+    const tui = new LocalTui(term, 'm', false)
+    tui.setCommands([{ name: 'model', description: 'Choose model' }])
+    const input = tui.readline()
+    try {
+      press(term, '/settings\r')
+      press(term, 'Model and reasoning')
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(await input).toBe('/model')
+      const selector = tui.prompt({ title: 'Existing model selector', question: 'Choose a model', options: [{ label: 'Current' }] })
+      expect(term.visible().join('\n')).toContain('Existing model selector')
+      press(term, '\x1b[27u'); expect(await selector).toBeNull(); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Search: Model and reasoning')
+      expect(term.visible().join('\n')).toContain('❯ Model and reasoning')
+    } finally { await tui.dispose(); await input }
   })
 
   it('persists theme changes made in the settings overlay', async () => {
@@ -3111,6 +3397,9 @@ describe('LocalTui (tty)', () => {
     press(term, '\x1b[C')
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Simplified Chinese')
     await flushAsyncPaste()
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Could not save Agent language: disk unavailable')
+    press(term, '\x1b')
+    await new Promise<void>(resolve => { setTimeout(resolve, 120) })
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Auto')
     press(term, '\x1b')
     await new Promise<void>(resolve => { setTimeout(resolve, 120) })
@@ -3323,15 +3612,14 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('summarizes a streamed tool call on one line for a pending decision', () => {
+  it('retains multiline streamed call input for the approval reader', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.event(ev('tool/call', { callId: 'call-9', name: 'bash', arguments: '{"command":"rm -rf build"}' }, 1))
 
     const summary = tui.toolCallContext('call-9')
     expect(summary).toContain('rm -rf build')
-    // The approval prompt renders its detail on a single row.
-    expect(summary).not.toContain('\n')
+    expect(summary).toContain('\n')
     expect(tui.toolCallContext('never-streamed')).toBeUndefined()
     tui.dispose()
   })
@@ -3746,6 +4034,23 @@ describe('LocalTui (tty)', () => {
 })
 
 describe('LocalTui (plain)', () => {
+  it('leaves progress pending on input lines until the operation finishes', async () => {
+    const term = new FakeTerminal()
+    term.input.isTTY = false
+    term.output.isTTY = false
+    const tui = new LocalTui(term, 'm', false)
+    const done = new AbortController()
+    const settled = vi.fn()
+    try {
+      const pending = tui.prompt({ title: 'Install plugin', question: 'demo', presentation: 'progress', signal: done.signal })
+      void pending.then(settled)
+      press(term, '\n')
+      await flushAsyncPaste()
+      expect(settled).not.toHaveBeenCalled()
+      done.abort()
+      await expect(pending).resolves.toBeNull()
+    } finally { tui.dispose() }
+  })
   it('reads lines from a non-tty stream and quits on EOF', async () => {
     const term = new FakeTerminal()
     term.input.isTTY = false
@@ -4501,5 +4806,26 @@ it('persists Mermaid source mode and refreshes the live reply after leaving Sett
     } finally { restored.dispose() }
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
+  } finally { tui.dispose() }
+})
+
+it.each([false, true])('retains checked models across filtering and saves an explicit empty selection (color=%s)', async color => {
+  const term = new FakeTerminal()
+  const tui = new LocalTui(term, 'm', color)
+  try {
+    const request = { title: 'Models', question: '', presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const, filterable: true, multiSelect: true, allowEmptySelection: true, initialValues: ['a'], allowCustom: false,
+      options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }
+    const pending = tui.prompt(request)
+    press(term, 'Beta')
+    press(term, ' ')
+    press(term, '\r')
+    await expect(pending).resolves.toBe('a, b')
+    const empty = tui.prompt(request)
+    press(term, ' ')
+    press(term, '\r')
+    await expect(empty).resolves.toBe('')
+    const input = tui.readline()
+    press(term, 'normal input\r')
+    await expect(input).resolves.toBe('normal input')
   } finally { tui.dispose() }
 })

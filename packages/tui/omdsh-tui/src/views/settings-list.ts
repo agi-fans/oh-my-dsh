@@ -35,6 +35,8 @@ import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
+import { rankSearchResults } from '../input/fuzzy-search.ts'
+import { moveGraphemeLeft } from '../chrome/grapheme.ts'
 
 /** One cycleable row in the overlay. */
 export interface SettingItem {
@@ -48,6 +50,10 @@ export interface SettingItem {
   /** Theme token used to paint the color value. */
   swatch?: ThemeColor
   hidden?: boolean
+  group?: string
+  keywords?: readonly string[]
+  action?: string
+  resettable?: boolean
 }
 
 /** Active plugin configuration available through the Settings overlay. */
@@ -55,6 +61,18 @@ export interface PluginSettingsEntry {
   id: string
   label: string
   description: string
+  section?: 'agent' | 'tools' | 'integrations' | 'advanced'
+  namespace?: string
+  fields?: readonly string[]
+  summary?: string
+  keywords?: readonly string[]
+  /** Schema-derived choices and the revision actually displayed to the user. */
+  inline?: {
+    path: readonly string[]
+    revision: number
+    value: string
+    choices: readonly { label: string; value: string }[]
+  }
 }
 
 /** Session-local TUI prefs the overlay can change. */
@@ -95,6 +113,9 @@ export interface SettingsState {
   editors?: readonly EditorChoice[]
   /** Footer item currently attached to the up/down reorder gesture. */
   moving?: StatusItemId
+  search?: string
+  searchOrigin?: string
+  actions?: readonly SettingItem[]
 }
 
 /** Outcome of one key against the overlay. */
@@ -103,6 +124,9 @@ export type SettingsCommand =
   | { kind: 'apply'; domain: 'tui' | 'agent' | 'features'; state: SettingsState }
   | { kind: 'close' }
   | { kind: 'open-plugin'; id: string }
+  | { kind: 'set-plugin'; entry: PluginSettingsEntry; value: string }
+  | { kind: 'reset'; id: string; label: string; entry?: PluginSettingsEntry }
+  | { kind: 'open-command'; name: string }
   | { kind: 'ignore' }
 
 const COLOR_VALUES = ['on', 'off'] as const
@@ -333,14 +357,11 @@ export function tuiSettingItems(
   features?: FeatureStates,
   plugins?: readonly PluginSettingsEntry[],
   editors?: readonly EditorChoice[],
+  actions?: readonly SettingItem[],
 ): SettingItem[] {
-  return [
-    ...generalSettingItems(prefs, editors),
-    ...agentSettingItems(agent),
-    ...(features === undefined ? [] : featureSettingItems(features)),
-    ...statusSettingItems(prefs),
-    ...(plugins ?? []).map(plugin => ({ ...plugin, id: `plugin:${plugin.id}`, value: 'Edit', values: [] })),
-  ]
+  return settingGroups({ prefs, ...(agent === undefined ? {} : { agent }), ...(features === undefined ? {} : { features }),
+    ...(plugins === undefined ? {} : { plugins }), ...(editors === undefined ? {} : { editors }),
+    ...(actions === undefined ? {} : { actions }) }).flatMap(group => group.items)
 }
 
 function showInOrder<T extends string>(visible: T[], order: readonly T[], id: T): T[] {
@@ -455,8 +476,9 @@ export function createSettings(
   features?: FeatureStates,
   plugins?: readonly PluginSettingsEntry[],
   editors?: readonly EditorChoice[],
+  actions?: readonly SettingItem[],
 ): SettingsState {
-  const items = tuiSettingItems(prefs, agent, features, plugins, editors)
+  const items = tuiSettingItems(prefs, agent, features, plugins, editors, actions)
   const focused = focusId === undefined ? 0 : items.findIndex((item) => item.id === focusId)
   return {
     prefs,
@@ -465,11 +487,12 @@ export function createSettings(
     ...(features === undefined ? {} : { features }),
     ...(plugins === undefined ? {} : { plugins }),
     ...(editors === undefined ? {} : { editors }),
+    ...(actions === undefined ? {} : { actions }),
   }
 }
 
 function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
-  const id = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)[state.selected]?.id
+  const id = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]?.id
   if (id?.startsWith('statusItem:') !== true) return undefined
   const item = id.slice('statusItem:'.length)
   return isStatusItemId(item) ? item : undefined
@@ -480,7 +503,7 @@ function startMoving(state: SettingsState, item: StatusItemId): SettingsState {
   const prefs = statusItemVisible(config, item)
     ? state.prefs
     : { ...state.prefs, statusBar: toggleStatusItem(config, item) }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${item}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${item}`)
   return { ...state, prefs, selected: Math.max(0, selected), moving: item }
 }
 
@@ -518,7 +541,7 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
       direction,
     )
     const prefs = { ...state.prefs, statusBar: { ...config, meta: reordered.visible.concat(config.meta.filter(id => itemSide(config, id) !== side)), metaOrder: reordered.order } }
-    const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
+    const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
     return { ...state, prefs, selected, moving }
   }
   const reordered = reorderVisible(
@@ -528,7 +551,7 @@ function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState 
     direction,
   )
   const prefs = { ...state.prefs, statusBar: { ...config, groups: reordered.visible.concat(config.groups.filter(id => itemSide(config, id) !== side)), order: reordered.order } }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
   return { ...state, prefs, selected, moving }
 }
 
@@ -537,31 +560,46 @@ function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsSta
   if (moving === undefined) return state
   const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
   const prefs = { ...state.prefs, statusBar: assignItemSide(config, moving, side) }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors).findIndex(row => row.id === `statusItem:${moving}`)
+  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
   return { ...state, prefs, selected, moving }
 }
 
 interface SettingsSection {
-  id: 'general' | 'agent' | 'features' | 'status' | 'plugins'
+  id: 'general' | 'agent' | 'tools' | 'status' | 'integrations' | 'advanced'
   label: string
   start: number
   end: number
 }
 
-function settingSections(state: SettingsState): SettingsSection[] {
-  const generalEnd = generalSettingItems(state.prefs, state.editors).length
-  const agentEnd = generalEnd + agentSettingItems(state.agent).length
-  const featuresEnd = agentEnd + (state.features === undefined ? 0 : FEATURE_TOGGLES.length)
-  const statusEnd = featuresEnd + statusSettingItems(state.prefs).length
+function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSection['id']; label: string; items: SettingItem[] }[] {
+  const owned = (section: PluginSettingsEntry['section']): SettingItem[] => (state.plugins ?? [])
+    .filter(entry => (entry.section ?? 'advanced') === section)
+    .map(entry => ({ ...entry, id: `plugin:${entry.id}`, value: entry.inline?.value ?? entry.summary ?? 'Configure',
+      values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
   return [
-    { id: 'general', label: 'General', start: 0, end: generalEnd },
-    ...(agentEnd === generalEnd ? [] : [{ id: 'agent' as const, label: 'Agent', start: generalEnd, end: agentEnd }]),
-    ...(featuresEnd === agentEnd
-      ? []
-      : [{ id: 'features' as const, label: 'Features', start: agentEnd, end: featuresEnd }]),
-    { id: 'status', label: 'Status line', start: featuresEnd, end: statusEnd },
-    ...(!state.plugins?.length ? [] : [{ id: 'plugins' as const, label: 'Plugins', start: statusEnd, end: statusEnd + state.plugins.length }]),
-  ]
+    { id: 'general' as const, label: 'Interface', items: generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
+      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'terminalProgress'].includes(item.id) ? 'Appearance'
+        : ['editor', 'mouseInteraction', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
+          : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
+      description: (item.id === 'notificationFocus' && (state.prefs.notifications ?? 'off') === 'off' ? 'Inactive while Notifications is off. '
+        : item.id === 'notificationThreshold' && state.prefs.notifications !== 'long-running' ? 'Applies only to long-running notifications. ' : '') + item.description,
+    })).sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group) - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group)) },
+    { id: 'agent' as const, label: 'Agent', items: [...state.actions ?? [], ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('agent')] },
+    { id: 'tools' as const, label: 'Tools', items: [...(state.features === undefined ? [] : featureSettingItems(state.features)), ...owned('tools')] },
+    { id: 'status' as const, label: 'Status line', items: [...statusSettingItems(state.prefs).map(item => ({ ...item, resettable: true })),
+      { id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, description: 'Restore the inherited status-line layout, colors and visibility. Confirmation shows what will be restored.' }] },
+    { id: 'integrations' as const, label: 'Integrations', items: owned('integrations') },
+    { id: 'advanced' as const, label: 'Advanced', items: owned('advanced') },
+  ].filter(group => group.items.length > 0)
+}
+
+function settingSections(state: SettingsState): SettingsSection[] {
+  let start = 0
+  return settingGroups(state).map(group => {
+    const section = { id: group.id, label: group.label, start, end: start + group.items.length }
+    start = section.end
+    return section
+  })
 }
 
 function selectedSection(state: SettingsState): SettingsSection {
@@ -570,7 +608,35 @@ function selectedSection(state: SettingsState): SettingsSection {
     ?? sections[0] as SettingsSection
 }
 
+interface SettingsMatch { item: SettingItem; index: number; section: string }
+
+function settingsMatches(state: SettingsState): readonly SettingsMatch[] {
+  let index = 0
+  const rows = settingGroups(state).flatMap(group => group.items.map(item => ({ item, index: index++, section: group.label })))
+  return rankSearchResults(rows, state.search ?? '', row => [row.item.label, row.item.description, row.section, row.item.group ?? '', ...row.item.keywords ?? []])
+}
+
+function searchSettings(state: SettingsState, query: string): SettingsState {
+  const next = { ...state, search: query }
+  const rows = settingsMatches(next)
+  return { ...next, selected: rows.find(row => row.index === state.selected)?.index ?? rows[0]?.index ?? state.selected }
+}
+
+/** Preserve selection and a cross-category search when live configuration refreshes. */
+export function refreshSettings(state: SettingsState, next: SettingsState): SettingsState {
+  const id = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]?.id
+  const selected = tuiSettingItems(next.prefs, next.agent, next.features, next.plugins, next.editors, next.actions).findIndex(item => item.id === id)
+  const updated = { ...next, selected: selected < 0 ? next.selected : selected,
+    ...(state.searchOrigin === undefined ? {} : { searchOrigin: state.searchOrigin }) }
+  return state.search === undefined ? updated : searchSettings(updated, state.search)
+}
+
 function moveSelected(state: SettingsState, next: number): SettingsState {
+  if (state.search !== undefined) {
+    const rows = settingsMatches(state), current = rows.findIndex(row => row.index === state.selected)
+    const index = rows[Math.max(0, Math.min(rows.length - 1, current + next - state.selected))]?.index
+    return index === undefined ? state : { ...state, selected: index }
+  }
   const section = selectedSection(state)
   const selected = Math.max(section.start, Math.min(next, section.end - 1))
   if (selected === state.selected) return state
@@ -582,14 +648,23 @@ function moveSection(state: SettingsState, direction: 1 | -1): SettingsState {
   const active = selectedSection(state)
   const current = sections.findIndex(section => section.id === active.id)
   const next = (current + direction + sections.length) % sections.length
-  return { ...state, selected: sections[next]?.start ?? 0 }
+  const { search: _, searchOrigin: __, ...browse } = state
+  return { ...browse, selected: sections[next]?.start ?? 0 }
 }
 
 function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCommand {
-  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)
   const item = items[state.selected]
   if (item === undefined) return { kind: 'ignore' }
-  if (item.id.startsWith('plugin:')) return { kind: 'ignore' }
+  if (item.action !== undefined) return { kind: 'ignore' }
+  if (item.id.startsWith('plugin:')) {
+    const entry = state.plugins?.find(entry => `plugin:${entry.id}` === item.id)
+    const choices = entry?.inline?.choices
+    if (entry === undefined || choices === undefined || choices.length === 0) return { kind: 'ignore' }
+    const current = choices.findIndex(choice => choice.label === item.value)
+    const next = current < 0 ? direction === 1 ? 0 : choices.length - 1 : (current + direction + choices.length) % choices.length
+    return { kind: 'set-plugin', entry, value: choices[next]!.value }
+  }
   const value = adjacentValue(item.value, item.values, direction)
   if (item.id === 'editor') {
     const editor = state.editors?.find(choice => choice.label === value)?.id ?? 'auto'
@@ -617,9 +692,38 @@ function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCom
 
 /** Apply one decoded event to the overlay. */
 export function applySettingsEvent(state: SettingsState, event: KeyEvent): SettingsCommand {
+  if (state.moving === undefined) {
+    if (event.type === 'text' && (state.search !== undefined || event.value !== ' ')) {
+      const origin = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]?.id
+      const searching = state.search === undefined ? { ...state, search: '', ...(origin === undefined ? {} : { searchOrigin: origin }) } : state
+      return { kind: 'update', state: searchSettings(searching, (searching.search ?? '') + (event.value === '/' && state.search === undefined ? '' : event.value.replace(/[\r\n]/gu, ' '))) }
+    }
+    if (state.search !== undefined && event.type === 'key') {
+      if (event.id === 'escape' || event.id === 'ctrl+c') {
+        if (state.search !== '') return { kind: 'update', state: searchSettings(state, '') }
+        const { search: _, searchOrigin, ...browse } = state
+        const index = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(item => item.id === searchOrigin)
+        return { kind: 'update', state: { ...browse, selected: index < 0 ? state.selected : index } }
+      }
+      if (event.id === 'backspace' || event.id === 'ctrl+u') return { kind: 'update', state: searchSettings(state,
+        event.id === 'ctrl+u' ? '' : state.search.slice(0, moveGraphemeLeft(state.search, state.search.length))) }
+      if (event.id === 'home' || event.id === 'end') {
+        const rows = settingsMatches(state)
+        return { kind: 'update', state: { ...state, selected: (event.id === 'home' ? rows[0] : rows.at(-1))?.index ?? state.selected } }
+      }
+      if (settingsMatches(state).length === 0 && ['enter', 'left', 'right', 'ctrl+r'].includes(event.id)) return { kind: 'ignore' }
+    }
+    const selected = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]
+    if (event.type === 'key' && event.id === 'ctrl+r' && selected?.resettable) {
+      const entry = state.plugins?.find(entry => `plugin:${entry.id}` === selected.id)
+      return { kind: 'reset', id: selected.id, label: selected.label, ...(entry === undefined ? {} : { entry }) }
+    }
+    if (event.type === 'key' && event.id === 'enter' && selected?.id === 'statusReset') return { kind: 'reset', id: selected.id, label: selected.label }
+    if (selected?.action !== undefined && event.type === 'key' && event.id === 'enter') return { kind: 'open-command', name: selected.action }
+  }
   if ((event.type === 'key' && event.id === 'enter') || (event.type === 'text' && event.value === ' ')) {
-    const selected = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)[state.selected]
-    if (selected?.id.startsWith('plugin:')) return { kind: 'open-plugin', id: selected.id.slice('plugin:'.length) }
+    const selected = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]
+    if (selected?.id.startsWith('plugin:') && (event.type === 'key' || selected.values.length === 0)) return { kind: 'open-plugin', id: selected.id.slice('plugin:'.length) }
   }
   if (state.moving !== undefined) {
     if (event.type !== 'key') return { kind: 'ignore' }
@@ -655,7 +759,10 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
     case 'enter':
       {
         const item = selectedStatusItem(state)
-        if (item !== undefined) return { kind: 'apply', domain: 'tui', state: startMoving(state, item) }
+        if (item !== undefined) {
+          const { search: _, searchOrigin: __, ...browse } = state
+          return { kind: 'apply', domain: 'tui', state: startMoving(browse, item) }
+        }
       }
       return cycleSelected(state)
     case 'right':
@@ -690,10 +797,10 @@ export const SETTINGS_ITEM_ROW = 3
 const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate rows' }
 const HOTKEY_CHANGE: HotkeyRow = { keys: '←→', action: 'Change the selected value' }
 const HOTKEY_TOGGLE: HotkeyRow = { keys: 'Space', action: 'Toggle — show or hide a status item, or cycle other rows' }
-const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — move a status item, edit a plugin, or cycle other rows' }
+const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — move a status item, open configuration, or cycle other rows' }
 const HOTKEY_SECTION: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Switch section' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the section edges' }
-const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc', action: 'Close the overlay' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc', action: 'Clear search, return to browsing, or close the overlay' }
 const HOTKEY_CANCEL: HotkeyRow = { keys: 'Ctrl+C', action: 'Close the overlay, or place the grabbed item while moving' }
 const HOTKEY_ORDER: HotkeyRow = { keys: '↑↓', action: 'Order the grabbed item while moving' }
 const HOTKEY_COLUMN: HotkeyRow = { keys: '←→', action: 'Column — choose the footer side while moving' }
@@ -707,6 +814,9 @@ export const SETTINGS_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_MOVE,
   HOTKEY_SECTION,
   HOTKEY_EDGE,
+  { keys: '/ or Text', action: 'Search across all categories' },
+  { keys: 'Backspace / Ctrl+U', action: 'Edit or clear the settings search' },
+  { keys: 'Ctrl+R', action: 'Restore inheritance for the selected setting; status items restore their color' },
   HOTKEY_CLOSE,
   HOTKEY_CANCEL,
   HOTKEY_ORDER,
@@ -718,7 +828,7 @@ export const SETTINGS_HOTKEYS: readonly HotkeyRow[] = [
 function settingsHints(moving: boolean): string {
   return moving
     ? formatOverlayHint([HOTKEY_ORDER, HOTKEY_COLUMN, HOTKEY_PLACE])
-    : formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_CHANGE, HOTKEY_TOGGLE, HOTKEY_MOVE, HOTKEY_CLOSE])
+    : '↑↓ select · ←→ change · Tab sections · / search · Ctrl+R reset · Esc back'
 }
 
 function fit(text: string, width: number): string {
@@ -732,7 +842,7 @@ function border(theme: Theme, text: string): string {
 
 function topBorder(theme: Theme, width: number): string {
   const inner = Math.max(0, width - 2)
-  const title = truncateToWidth(' Settings ', Math.max(0, inner - 2))
+  const title = truncateToWidth(' Settings · Profile ', Math.max(0, inner - 2))
   const fill = Math.max(0, inner - 1 - visibleWidth(title))
   return border(theme, BOX.topLeft + BOX.horizontal)
     + theme.bold(theme.fg('accent', title))
@@ -762,7 +872,9 @@ function renderSectionTabs(
     ? theme.bold(theme.fg('accent', `● ${label}`))
     : theme.fg('muted', `○ ${label}`)
   const all = ' ' + sections.map(section => tab(section.id, section.label)).join('    ')
-  return framedRow(theme, visibleWidth(all) <= width - 4 ? all : ' ' + tab(active, sections.find(section => section.id === active)?.label ?? active), width)
+  const current = sections.findIndex(section => section.id === active)
+  return framedRow(theme, visibleWidth(all) <= width - 4 ? all
+    : ` ‹ ${tab(active, sections[current]?.label ?? active)} · ${current + 1}/${sections.length} ›` , width)
 }
 
 const STATUS_PREVIEW_STATS = {
@@ -813,7 +925,7 @@ export function renderSettings(
   width: number,
   height: number = 24,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors)
+  const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
   const viewState = index === state.selected ? state : { ...state, selected: index }
   const sections = settingSections(viewState)
@@ -830,33 +942,44 @@ export function renderSettings(
     ? renderStatusPreview(state, theme, width, maxPreviewContent)
     : []
   const previewRows = previewLines.length === 0 ? 0 : previewLines.length + 1
-  const viewportHeight = Math.max(1, height - 6 - descriptionRows - previewRows)
-  const localSelection = index - sectionStart
-  const visibleCount = Math.min(viewportHeight, sectionItems.length)
+  const matches = state.search === undefined ? undefined : settingsMatches(state)
+  type Row = { item: SettingItem; index: number; section?: string } | { group: string }
+  let previousGroup: string | undefined
+  const rows: readonly Row[] = matches ?? sectionItems.flatMap<Row>((item, offset) => {
+    const heading = item.group !== undefined && item.group !== previousGroup ? [{ group: item.group }] : []
+    previousGroup = item.group
+    return [...heading, { item, index: sectionStart + offset }]
+  })
+  const viewportHeight = Math.max(1, height - 6 - descriptionRows - previewRows - (matches === undefined ? 0 : 1))
+  const localSelection = rows.findIndex(row => 'item' in row && row.index === index)
+  const visibleCount = Math.min(viewportHeight, rows.length)
   const start = Math.max(0, Math.min(
     localSelection - Math.floor(visibleCount / 2),
-    sectionItems.length - visibleCount,
+    rows.length - visibleCount,
   ))
-  const visibleItems = sectionItems.slice(start, start + visibleCount)
-  const selected = items[index]
-  const lines = [topBorder(theme, width), renderSectionTabs(active, sections, theme, width), divider(theme, width)]
+  const visibleItems = rows.slice(start, start + visibleCount)
+  const selected = matches?.length === 0 ? undefined : items[index]
+  const lines = [topBorder(theme, width), renderSectionTabs(active, sections, theme, width)]
+  if (matches !== undefined) lines.push(framedRow(theme, `Search: ${state.search || 'type to filter'} · ${matches.length} matches`, width))
+  lines.push(divider(theme, width))
   if (previewLines.length > 0) {
     lines.push(...previewLines, divider(theme, width))
   }
   let cursorRow = SETTINGS_ITEM_ROW
   for (let row = 0; row < viewportHeight; row += 1) {
-    const item = visibleItems[row]
-    if (item === undefined) {
-      lines.push(framedRow(theme, '', width))
+    const entry = visibleItems[row]
+    if (entry === undefined) {
+      lines.push(framedRow(theme, row === 0 && matches?.length === 0 ? theme.fg('muted', 'No matching settings') : '', width))
       continue
     }
-    const itemIndex = sectionStart + start + row
-    const selectedRow = itemIndex === index
+    if ('group' in entry) { lines.push(framedRow(theme, theme.fg('dim', ` ${entry.group}`), width)); continue }
+    const item = entry.item
+    const selectedRow = entry.index === index
     if (selectedRow) cursorRow = lines.length
     const above = start > 0 && row === 0 ? theme.fg('dim', '↑ ') : ''
-    const below = start + visibleCount < sectionItems.length && row === viewportHeight - 1 ? theme.fg('dim', '↓ ') : ''
+    const below = start + visibleCount < rows.length && row === viewportHeight - 1 ? theme.fg('dim', '↓ ') : ''
     lines.push(framedRow(theme, renderSettingRow(
-      item,
+      entry.section === undefined ? item : { ...item, label: `${item.label} · ${entry.section}` },
       selectedRow,
       theme,
       Math.max(1, width - 4),
@@ -865,13 +988,21 @@ export function renderSettings(
     ), width))
   }
   lines.push(divider(theme, width))
-  const description = selected?.description ?? ''
+  const description = selected === undefined ? '' : selected.description
   const descriptionLines = wrapText(description, Math.max(1, width - 8)).slice(0, descriptionRows)
   for (let row = 0; row < descriptionRows; row += 1) {
     const text = descriptionLines[row] ?? ''
     lines.push(framedRow(theme, text === '' ? '' : '  ' + theme.fg('muted', text), width))
   }
-  const hints = theme.fg('dim', active === 'plugins' ? '↑↓ navigate · enter edit · tab section · esc close' : settingsHints(state.moving !== undefined))
+  const fullHint = matches !== undefined ? 'Type filter · ↑↓ select · ←→ change · Enter edit · Tab sections · Esc clear/back'
+    : selected?.action !== undefined ? 'Enter open · Tab sections · / search · Esc back'
+      : selected?.id.startsWith('plugin:') === true ? `Enter configure${selected.values.length > 0 ? ' · ←→ change' : ''} · Tab sections · / search${selected.resettable ? ' · Ctrl+R reset' : ''} · Esc back`
+        : selected?.id.startsWith('statusItem:') === true && state.moving === undefined
+          ? 'Space show/hide · Enter move · ←→ color · Ctrl+R reset color · / search · Esc back'
+          : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints(state.moving !== undefined)
+  const hints = theme.fg('dim', width < 60 && state.moving === undefined
+    ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
+    : fullHint)
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))
   return {
     lines,

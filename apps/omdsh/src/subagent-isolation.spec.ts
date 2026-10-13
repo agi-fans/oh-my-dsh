@@ -104,8 +104,8 @@ describe('process-isolated subagent transport', () => {
       expect(candidate.config?.providerName ?? candidate.config?.provider).toBe(provider)
       if (tool !== undefined) expect(candidate.config?.toolName).toBe(tool)
     }
-    // Continuable background delegation survives on the in-process tool.
-    expect(row('tool-subagent').config?.backgroundMode).toBe('continuable')
+    // The runtime owns managed activations; the tool no longer chooses a background mode.
+    expect(row('tool-subagent').config).not.toHaveProperty('backgroundMode')
   })
 
   it('tells the model when to pick the isolated transport', () => {
@@ -128,9 +128,7 @@ describe('process-isolated subagent transport', () => {
     // A numeric depth cap is refused, because the provider cannot enforce
     // recursion depth across a process boundary.
     expect(config.maxDepth).toBe('provider-managed')
-    // The published ACP provider implements no `prepareContinuable`, so a
-    // continuable run is refused at mount.
-    expect(config.backgroundMode).toBe('one-shot')
+    expect(config).not.toHaveProperty('backgroundMode')
     // Each of these is refused outright rather than silently dropped.
     for (const unsupported of ['agentOptions', 'persona', 'toolFilter', 'modelSelectionSettings']) {
       expect(config, `isolated tool must not request ${unsupported}`).not.toHaveProperty(unsupported)
@@ -189,12 +187,11 @@ describe('workflow and Ralph tool box', () => {
     expect(shippedRows().filter(candidate => candidate.name === '@deepseek-ai/dsh-workflow')).toHaveLength(0)
   })
 
-  it('exposes the workflow tool under a name that cannot read as /workflow', () => {
+  it('retains the explicit workflow execution tool name', () => {
     const tool = row('tool-workflow')
     expect(tool.name).toBe('@deepseek-ai/dsh-tool-workflow')
     expect(tool.disabled).toBeUndefined()
-    // omdsh owns a `/workflow` slash command for Default/Plan mode; a bare
-    // `workflow` tool name would be read as that command.
+    // Existing sessions and preset tool policies retain this execution name.
     expect(tool.config?.toolName).toBe('workflow_run')
     expect(tool.config?.toolName).not.toBe('workflow')
   })

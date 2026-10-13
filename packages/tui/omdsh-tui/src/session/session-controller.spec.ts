@@ -420,7 +420,7 @@ describe('capability catalogs', () => {
       { name: 'mcp__github__pulls', description: 'List pulls' },
       { name: 'mcp__memory__search', description: '' },
     ])).toBe([
-      'MCP Servers · 2 connected · 3 tools',
+      'MCP Tools · 2 servers represented · 3 tools',
       '',
       '**github · 2 tools**',
       '| Tool | Description |',

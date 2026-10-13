@@ -337,6 +337,12 @@
     config:
       maxBytes: 65536
 
+  - id: working-directory
+    name: '@deepseek-ai/dsh-working-directory'
+
+  - id: tool-working-directory
+    name: '@deepseek-ai/dsh-tool-working-directory'
+
   - id: tool-skill
     name: '@deepseek-ai/dsh-tool-skill'
 
@@ -512,6 +518,12 @@
   - id: subagent
     name: '@deepseek-ai/dsh-subagent'
 
+  - id: advisor
+    name: '@agi-fans/oh-my-dsh/advisor'
+
+  - id: tui-command-advisor
+    name: '@agi-fans/dsh-tui/command-advisor'
+
   - id: subagent-model-selection-settings
     name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
@@ -536,10 +548,10 @@
   # transport: `spawn`/`fork` stay mounted and keep their parent-shared
   # features, which ACP cannot honour.
   #
-  # ACP advertises no start-time capabilities and implements no continuable
-  # runs, so `providerName: acp` must not be selected by a tool that needs
-  # `agentOptions`, `persona`, `toolFilter`, a numeric `maxDepth`, or
-  # `backgroundMode: continuable`.
+  # ACP advertises no parent-controlled start-time capabilities or follow-ups.
+  # Do not select `providerName: acp` for a tool that needs `agentOptions`,
+  # `persona`, `toolFilter`, or a numeric `maxDepth`. Local continuable
+  # children are managed by the subagent runtime.
   - id: subagent-acp
     name: '@deepseek-ai/dsh-subagent-acp'
     config:
@@ -568,25 +580,21 @@
     config:
       provider: spawn
       toolName: subagent
-      backgroundMode: continuable
 
   - id: tool-subagent-fork
     name: '@deepseek-ai/dsh-tool-subagent'
     config:
       provider: fork
       toolName: subagent_fork
-      backgroundMode: continuable
 
   # The isolated delegation tool. It is a second `dsh-tool-subagent` over the
   # out-of-process backend, so a caller chooses isolation per delegation
   # instead of trading the parent-shared features away globally.
   #
-  # Three settings are forced by ACP's absent capabilities, not preferences:
+  # ACP's absent capabilities constrain the isolated tool:
   #   - `maxDepth: provider-managed` — a numeric cap is refused because the
   #     provider cannot enforce recursion depth across a process boundary, and
   #     the child's own composition already bounds it.
-  #   - `backgroundMode: one-shot` — the published ACP provider implements no
-  #     `prepareContinuable`, so a continuable run is refused at mount.
   #   - no `agentOptions`/`persona`/`toolFilter` — all three are refused.
   # The consequence is user-visible: an isolated child cannot be steered or
   # followed up after dispatch. Use `subagent` when that matters.
@@ -595,7 +603,6 @@
     config:
       provider: acp
       toolName: subagent_isolated
-      backgroundMode: one-shot
       maxDepth: provider-managed
 
   # Workflow and Ralph, as the upstream base bundle mounts them.
@@ -610,10 +617,7 @@
     config:
       provider: spawn
 
-  # `toolName` is renamed because omdsh already owns a `/workflow` slash command
-  # that switches the Default/Plan workflow. The two live in different
-  # namespaces (tool vs command) and never collide at runtime, but a bare
-  # `workflow` entry in `/tools` would read as that command.
+  # Keep the explicit execution name stable for existing sessions and tool policies.
   - id: tool-workflow
     name: '@deepseek-ai/dsh-tool-workflow'
     config:
@@ -640,7 +644,7 @@
       model: !!js process.env.OMDSH_MODEL || 'deepseek-flash'
       # The settings overlay edits the Profile patch for optional features;
       # `disabled` is a Loader option the settings service cannot write, so
-      # this row carries the home whose patch the Features section owns.
+      # this row carries the home whose patch the Tools feature controls own.
       dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh'
 
   - id: agent-behavior
@@ -652,9 +656,7 @@
   - id: tui-session-runtime
     name: '@agi-fans/dsh-tui/session-runtime'
     config:
-      # Product state this runtime owns: Session Library rows reused across
-      # launches (without them a cold process reads every stored log again) and
-      # the marker that upgrades stored sessions once per session format.
+      # Session Library rows reused across launches without rewriting old logs.
       stateDir: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/omdsh'"
 
   - id: tui-human-interaction
@@ -662,6 +664,9 @@
 
   - id: tui-command-session
     name: '@agi-fans/dsh-tui/command-session'
+
+  - id: tui-command-worktree
+    name: '@agi-fans/dsh-tui/command-worktree'
 
   - id: tui-command-session-configuration
     name: '@agi-fans/dsh-tui/command-session-configuration'

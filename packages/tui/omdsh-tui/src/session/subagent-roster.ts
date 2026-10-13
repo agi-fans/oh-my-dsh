@@ -375,7 +375,7 @@ export class SubagentRoster {
     if (status === 'running') phase = 'running'
     else if (stopError) phase = 'error'
     else if (existing.phase === 'error') phase = 'error'
-    else if (existing.mode === 'one-shot') phase = 'completed'
+    else if (existing.mode === 'one-shot' || existing.mode === 'external') phase = 'completed'
     else phase = 'waiting'
     const settled = status === 'gone' && existing.activity.at(-1)?.status === 'running'
       ? settleRunningTool(existing.activity, stopError ? 'error' : 'ok')

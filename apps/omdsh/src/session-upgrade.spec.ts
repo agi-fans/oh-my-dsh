@@ -1,14 +1,11 @@
 /**
- * Stored-session upgrade: the first launch of a new session format publishes a
- * current-format generation for every stored log an earlier release wrote, so
- * later listings and searches stop decoding the historical corpus. The
- * checked-in alpha.3 fixtures are the historical input; they stay untouched.
+ * Browsing historical sessions is read-only; an explicitly opened writer
+ * publishes the current generation while retaining its historical source.
  */
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -55,16 +52,6 @@ function stubTui(notices: string[]): TuiService {
   } as unknown as TuiService
 }
 
-/** Poll until the runtime's background pass publishes its marker. */
-async function settled(markerPath: string): Promise<boolean> {
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    if (existsSync(markerPath)) return true
-    await sleep(25)
-  }
-  return false
-}
-
 /** Mount one runtime over a copied store; `notices` collects what it reports. */
 async function runtimeOver(root: string, stateDir: string, notices: string[]): Promise<{ ctx: Context, runtime: SessionRuntime }> {
   const ctx = new Context()
@@ -75,7 +62,7 @@ async function runtimeOver(root: string, stateDir: string, notices: string[]): P
 }
 
 describe('stored session upgrade', () => {
-  it('publishes a current-format generation once, leaving the source untouched', async () => {
+  it('lists migration status without writing, then migrates on explicit activation and retains the source', async () => {
     const root = temp('omdsh-upgrade-')
     cpSync(join(fixtureRoot, 'zstd'), root, { recursive: true })
     const source = join(root, WS_DIR, PARENT_ID, 'session.jsonl.zstd')
@@ -84,8 +71,14 @@ describe('stored session upgrade', () => {
     const marker = join(stateDir, 'sessions-upgraded.json')
 
     const notices: string[] = []
-    const { ctx } = await runtimeOver(root, stateDir, notices)
-    expect(await settled(marker)).toBe(true)
+    const { ctx, runtime } = await runtimeOver(root, stateDir, notices)
+    await runtime.refreshRecent()
+    expect(runtime.recentSessions.find(row => row.id === PARENT_ID)?.formatStatus).toBe('migration-required')
+    expect(generations(root, PARENT_ID)).toEqual(['session.jsonl.zstd'])
+    expect(existsSync(marker)).toBe(false)
+    expect(notices).toEqual([])
+    const handle = await ctx.sessionPersistence.open(SessionId(PARENT_ID), 'write')
+    await handle.close()
 
     expect(generations(root, PARENT_ID).sort()).toEqual([
       'session.jsonl.zstd',
@@ -93,33 +86,35 @@ describe('stored session upgrade', () => {
       `session.v${SESSION_FORMAT_VERSION}.jsonl.zstd`,
     ].sort())
     expect(readFileSync(source)).toEqual(before)
-    expect(notices).toEqual([`Upgraded 1 stored session to the current format.`])
-    expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ sessionFormat: SESSION_FORMAT_VERSION })
+    expect((await ctx.sessionPersistence.stat(SessionId(PARENT_ID)))?.formatStatus).toBe('current')
+    await runtime.refreshRecent()
+    expect(runtime.recentSessions.find(row => row.id === PARENT_ID)?.formatStatus).not.toBe('migration-required')
     await ctx.fiber.dispose()
 
-    // The marker makes the next launch skip the pass entirely.
+    // A second launch reads the current generation without another upgrade.
     const secondNotices: string[] = []
     const next = await runtimeOver(root, stateDir, secondNotices)
-    await sleep(200)
+    await next.runtime.refreshRecent()
     expect(secondNotices).toEqual([])
     await next.ctx.fiber.dispose()
   })
 
-  it('finishes past a log it cannot upgrade', async () => {
+  it('lists a damaged historical header without migrating it and refuses explicit activation', async () => {
     const root = temp('omdsh-upgrade-damaged-')
     cpSync(join(fixtureRoot, 'zstd'), root, { recursive: true })
     const source = join(root, WS_DIR, PARENT_ID, 'session.jsonl.zstd')
-    // A torn tail is what a killed writer can leave: the pass must skip that
-    // session, finish, and still record that the corpus was visited.
+    // Header-only browsing cannot validate a torn event tail.
     appendFileSync(source, Buffer.from([0x00, 0x01, 0x02, 0xff]))
     const stateDir = temp('omdsh-upgrade-damaged-state-')
     const marker = join(stateDir, 'sessions-upgraded.json')
 
     const notices: string[] = []
-    const { ctx } = await runtimeOver(root, stateDir, notices)
-    expect(await settled(marker)).toBe(true)
+    const { ctx, runtime } = await runtimeOver(root, stateDir, notices)
+    await runtime.refreshRecent()
+    expect(runtime.recentSessions.find(row => row.id === PARENT_ID)?.formatStatus).toBe('migration-required')
+    await expect(ctx.sessionPersistence.open(SessionId(PARENT_ID), 'write')).rejects.toThrow()
     expect(notices).toEqual([])
-    expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ sessionFormat: SESSION_FORMAT_VERSION })
+    expect(existsSync(marker)).toBe(false)
     await ctx.fiber.dispose()
   })
 })

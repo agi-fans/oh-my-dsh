@@ -11,6 +11,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { StreamDelta } from './views/event-views.ts'
 import type { TuiPrefs } from './views/settings-list.ts'
@@ -19,6 +20,14 @@ import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 
 /** Context service name providers publish under. */
 export const TUI_SERVICE = 'tui'
+
+export type TuiAdvisor = 'codex' | 'claude'
+export interface TuiAdvice { provider: TuiAdvisor; question: string; opinion: string; truncated: boolean }
+export interface AdvisorService {
+  /** A bounded, explicit consultation; cancellation waits for native process cleanup. */
+  consult(agent: Agent, provider: TuiAdvisor, question: string, context: string, signal: AbortSignal): Promise<TuiAdvice>
+}
+declare module '@deepseek-ai/cordis' { interface Context { advisor: AdvisorService } }
 
 /** Whole-agent liveness, mirroring the SDK session.status vocabulary. */
 export type TuiStatus = 'idle' | 'running'
@@ -122,13 +131,17 @@ export interface TuiPrompt {
   /** Keep indentation and trailing newlines when editing message text. */
   preserveWhitespace?: boolean
   multiSelect?: boolean
+  /** Values checked when a multi-select editor opens. */
+  initialValues?: readonly string[]
+  /** Submit an empty string when all multi-select choices are cleared. */
+  allowEmptySelection?: boolean
   allowCustom?: boolean
   /** Mask custom input while retaining the real value only in the prompt editor. */
   secret?: boolean
   /** Option value selected when a fixed-choice prompt opens. */
   initialValue?: string
-  /** Full-height searchable list instead of the default prompt card. */
-  presentation?: 'fullscreen-list' | 'fullscreen-tree' | 'plan-review' | 'document'
+  /** A reading surface, searchable list, or non-answerable progress card. */
+  presentation?: 'fullscreen-list' | 'fullscreen-tree' | 'plan-review' | 'document' | 'progress'
   /** Suppress attention notifications for user-initiated browsing surfaces. */
   notify?: boolean
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
@@ -226,7 +239,7 @@ export interface TuiSubagentView {
   /** Edge distance from the active root session; direct children are `1`. */
   readonly depth: number
   readonly label: string
-  readonly mode?: 'one-shot' | 'continuable'
+  readonly mode?: 'one-shot' | 'continuable' | 'external'
   readonly phase: TuiSubagentPhase
   readonly activity: readonly TuiSubagentActivity[]
   /** First durable event and latest hydrated or changed activity/state timestamps. */
@@ -255,7 +268,7 @@ export interface TuiInspectedSubagent {
   readonly id: string
   readonly label: string
   readonly phase: TuiSubagentPhase
-  readonly mode?: 'one-shot' | 'continuable'
+  readonly mode?: 'one-shot' | 'continuable' | 'external'
   /** Continuable children accept composer follow-ups; one-shot runs stay read-only. */
   readonly writable: boolean
 }
@@ -269,6 +282,7 @@ export interface TuiRecentSession {
   updatedAt?: number
   eventCount?: number
   status?: 'done' | 'interrupted' | 'blocked' | 'failed'
+  formatStatus?: 'current' | 'migration-required'
 }
 
 /** Optional whole-session figures shown below the editor. */
@@ -340,6 +354,8 @@ export interface TuiPendingInputs {
 export interface TuiService {
   /** True when the provider owns a keyboard-driven terminal viewport. */
   readonly interactive?: boolean
+  /** Effective directory supplied by the viewed Session's Harness projection. */
+  setWorkingDirectory?(cwd: string): void
   /** Hand the terminal to the configured editor, then restore the live viewport. */
   openFileInEditor?(path: string): void
   /** Add a durably stored file to the editable composer; sending remains explicit. */

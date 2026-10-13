@@ -4,7 +4,9 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 # Commands
 
-Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` for the command list plus the essential shortcuts (`/help full` adds the complete keyboard catalog). The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups what the TUI handles as terminal commands and what the mounted Harness composition provides as agent commands.
+Command completion prioritizes common tasks and matches names, aliases and description keywords. `/help` groups commands by task; third-party contributions remain discoverable.
+
+Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` for the command list plus the essential shortcuts (`/help full` adds the complete keyboard catalog). The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups the catalog by user task, including extension commands.
 
 `[brackets]` mark optional arguments and `|` separates alternatives. A command with a picker runs without arguments.
 
@@ -26,11 +28,10 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | Command | What it does |
 |---|---|
 | `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
-| `/workflow` | Choose the Default or Plan workflow. |
 | `/permission` | Choose the session Access level: Read only, Workspace write, or Full access. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove an omdsh-managed provider choice. |
-| `/settings` | Open appearance, Agent, feature, status-line, and plugin settings. Alias: `/set`. |
+| `/settings` | Open Interface, Agent, Tools, Status line, Integrations and Advanced settings. Alias: `/set`. |
 | `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them. Installation can be cancelled before application. |
 
 ### `/model`
@@ -64,9 +65,11 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/trajectory` | Open the event ledger: Turn and Step grouping, live following, search, folding, timings, token usage, and tool payloads. Requires an interactive terminal. |
+| `/advisor [codex\|claude <question>]` | Request an independent opinion from an installed native advisor. With no arguments, choose a provider and enter a question and optional text context. See [Subagents and delegation](subagents.md#independent-advice). |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
+| `/review` | Choose current changes, a local base branch or one commit, then confirm a review request to the current Agent. Requests findings with file and line references without applying fixes; current Access and Plan mode remain in effect. |
 | `/tools` | List the tools visible to the agent. |
-| `/mcp` | Show connected MCP servers and their tools. |
+| `/mcp` | Inspect MCP plugin registration and available tools in a scrollable reader; transport health and authentication are not verified. |
 | `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
 
 ## Files and terminals
@@ -77,6 +80,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/attach [path]` | Stream a file into durable storage and stage a reference in the composer. Without a path, ask for one. It does not submit a message. |
 | `/attachments` | Preview or externally open original file and image attachments from this session’s user messages. |
 | `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
+| `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
 
 File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, and `E` uses the editor selected in Settings. Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
 
@@ -86,7 +90,7 @@ PNG, JPEG, WebP and GIF files open in an image preview page. `/attachments` incl
 
 Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
-Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. `/files` previews include sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **General → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
+Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. `/files` previews include sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Interface → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 
 `/attach` displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. A draft containing files treats slash-prefixed text as a model message rather than executing a command. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 

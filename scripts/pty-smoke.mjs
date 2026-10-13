@@ -232,13 +232,59 @@ term.write('\x03')
 await sleep(100)
 let mark = out.length
 term.write('/settings\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('General'), 'settings sections', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Interface'), 'settings sections', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('translation')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('No matching settings'), 'removed translation controls', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x15')
+await sleep(100)
+mark = out.length
+term.write('Shell')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Shell'), 'cross-category settings search', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Default timeout') && cleanOutput(out.slice(mark)).includes('Restore inherited setting'), 'searched product form', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Shell'), 'return to searched settings result', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Interface'), 'return to original settings category', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x12')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Restore inherited setting'), 'inherited preference confirmation', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Interface'), 'cancel inherited preference restoration', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\x1b[Z')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Plugins'), 'plugin settings section', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Advanced'), 'Advanced settings section', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -250,7 +296,37 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('text filter'), 
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Plugins'), 'return to Settings after plugin fields', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Advanced'), 'return to Advanced after configuration fields', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[Z')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Integrations') && cleanOutput(out.slice(mark)).includes('Advisor'), 'built-in integration settings', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[F\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integration') && cleanOutput(out.slice(mark)).includes('Claude Code'), 'native integration controls without a model request', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[F\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Package: available') && cleanOutput(out.slice(mark)).includes('Profile: disabled'), 'native status reading page', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integration') && cleanOutput(out.slice(mark)).includes('Installation status'), 'return from native status reading page', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Integrations'), 'return from native integration controls', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -368,14 +444,8 @@ if (!(await waitFor(() => cleanOutput(out).includes('Agent: Cordis'), 'Cordis pr
   term.kill()
   process.exit(1)
 }
-term.write('/workflow\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Choose how this session approaches the next step'), 'Workflow selector', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-term.write('\x1b[B')
-term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Workflow: Plan'), 'Plan workflow', deadline))) {
+term.write('/plan\r')
+if (!(await waitFor(() => cleanOutput(out).includes('Plan mode on.'), 'Plan mode', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -530,7 +600,7 @@ const ok = exitCode === 0
   && clean.includes('ptc')
   && clean.includes('Agent: Minimal')
   && clean.includes('Agent: Cordis')
-  && clean.includes('Workflow: Plan')
+  && clean.includes('Plan mode on.')
   && clean.includes('Access: Read only')
   && clean.includes('Session Tree')
   && clean.includes('Editing from before turn 1.')

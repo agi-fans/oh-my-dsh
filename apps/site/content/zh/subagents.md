@@ -4,7 +4,7 @@ description: "omdsh 的子智能体与委派：三种 transport、Agent Hub、�
 
 # 子智能体与委派
 
-omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私有的任务运行器。何时委派由模型决定；你可以用键盘跟进子代理、就地打开任何一个子转录，并引导支持继续的运行。
+omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私有的任务运行器。何时委派由模型决定；你可以用键盘跟进子代理、就地打开本地子转录，并引导支持继续的运行。
 
 ## 传输通道
 
@@ -18,15 +18,31 @@ omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私�
 
 隔离通道以功能换取隔离：它不接受 model、persona 或 tool filter，没有父级强制的递归上限，派发后也无法引导或追问。它从独立的 home 启动自己的 Harness profile，因此需要 `PATH` 上有一个能提供 `acp` profile 的 `dsh`；`OMDSH_ACP_COMMAND` 与 `OMDSH_ACP_ARGS` 可以覆盖启动方式。
 
-宿主 `subagent` 设置段限制另外两种通道：派发出的子代理起始深度为 1，因此不能再继续委派；同时最多 8 个可继续的子代理处于活动状态。超过任一上限的委派会被拒绝，而不是排队。
+宿主 `subagent` 设置段的 `maxDepth` 默认为 1，供继承它的工具使用：直接孩子不能再通过这些工具委派。工具显式配置的深度（包括 `provider-managed`）优先。`maxActiveSubagents` 默认为 8，限制同一 activation tree 中活动或正在创建的本地与外部孩子；根父代理不占名额。等待、待处理输入和正在停止的孩子仍计入名额，清理后才释放。调高设置可以接纳更多孩子；调低会保留现有孩子，并在占用下降前拒绝新的创建。超过上限的委派会被拒绝，而不是排队。
+
+每次委派会先返回 activation id，执行、结束与结果回传由 Harness 运行时负责。本地孩子可接受追问；ACP 等外部执行没有本地 Session 转录，其结果返回父对话。管道模式下，EOF 会等待仍在推进的孩子及其引发的父级工作完成后退出。会话释放时先清理受管理的后代，再释放父代理。
 
 ## 跟进与引导
 
+Codex 与 Claude Code bundle 随 omdsh 安装且初始关闭，可从 `/settings → Integrations` 或 `/plugins → Bundles` 启用和配置。它们使用自带的固定版本运行时及原生登录／设置，向所有 preset 提供全局 `subagent_codex` 和 `subagent_claude_code` 工具，执行不支持追问的独立纯文本任务。Model and Permissions 编辑其原生权限策略，独立于父级 Access。Installation status 只报告注册状态；认证与运行时启动成功仍需真实委派验证。见[插件](plugins.md)。
+
 子代理运行时，队列与 composer 上方会显示一份 roster，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。composer 为空时按 `Down` 聚焦它、按 `Enter` 打开所选孩子，或直接按 `Alt+A`。
 
-Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息或 `/steer <message>`，因此无需取消就能重定向正在运行的工作。一次性与隔离运行是只读视图。完整浮层按键见[键盘与快捷键](keyboard.md)。
+Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息或 `/steer <message>`，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行在 Agent Hub 显示生命周期状态；尝试打开其转录时，会提示结果位于父会话。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
 Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记录的阶段。可用子任务的检查面板显示所属 Workflow、阶段及成员结果，与实时生命周期状态分别呈现。恢复会话后重放这些记录；Enter 仍可打开子会话查看详细错误。完整事件历史可通过 `/trajectory` 查看；该界面不提供拓扑编辑器或 worker 脚本日志。
+
+## 独立咨询
+
+在 `/settings → Integrations` 启用随包安装的 Codex 或 Claude Code 集成，然后用 `/advisor` 选择顾问、输入问题，并按需粘贴选定代码、Diff 或分析。`/advisor codex <question>` 和 `/advisor claude <question>` 直接咨询，不附加其他上下文。交互模式会先确认；行输入命令本身就是显式请求。调用产生原生模型费用。按 Esc 或选择 Cancel 取消，取消会等待进程清理完成。
+
+当你要求外部第二意见时，主模型可以调用 `consult_advisor`，提供 `provider`（`codex` 或 `claude`）、`question` 和可选 `context`。`/settings → Integrations → Advisor model calls → Model consultations` 可关闭模型调用，同时保留 `/advisor`。Native 和 PTC 工具呈现共享同一结构化结果：来源、问题、意见及截断标记。主模型独立判断意见；手动命令的结果是面向你的文档，不会自动提交给主模型。
+
+每次咨询使用新的私有工作目录，只收到明确提供的问题、上下文及原生 provider 配置的 model／environment，不自动复制对话历史或工作区文件。问题最多 8,000 字符，上下文最多 48,000 字符；超限输入会被拒绝。意见最多显示 48,000 字符，并明确标记截断。顾问作为外部孩子出现在 Agent Hub，共享 Harness activation 容量，不支持继续对话，也没有本地转录。
+
+顾问使用独立权限绑定。Codex 关闭 shell、web、hooks、apps 和原生委派，使用原生只读沙箱，并在临时私有 home 中仅放入原生 `auth.json` 的不解析副本。原生辅助工具可能仍然可见，但外层沙箱会拒绝工作区写入。请在原生 provider 的 profile 设置中配置模型或显式凭证；自定义原生配置和依赖 home 的 keychain 凭证不会导入私有 home。Claude 保留原生认证，使用 safe mode、关闭内置工具与 MCP、关闭 hooks，并采用 plan 权限。外层 Harness 沙箱只允许写入私有状态目录和平台临时目录，不受普通子代理权限设置影响。需要写入其他位置的认证刷新可能失败。Codex 的私有认证副本不会写回原文件。这是文件系统写入边界，不是网络或读取权限沙箱。
+
+无法完整隔离时（包括当前 Windows 后端仅提供部分隔离的情况），咨询会失败，不会降级成可写运行。位于平台临时目录中的工作区也会被拒绝，因为该策略允许写入这些目录。普通 `subagent_codex` 和 `subagent_claude_code` 保持现有原生权限与设置。
 
 ## 编排工具
 
@@ -37,7 +53,7 @@ Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记
 
 `code`（PTC）preset 会 deny `workflow_run`：PTC 把工具注册表呈现为 `run_code` 之上的生成 SDK，否则就会暴露第二个由模型编写的编排面。
 
-`/workflow` 斜杠命令是另一回事：它选择会话的 Default 或 Plan workflow。见[命令](commands.md)。
+使用 `/plan` 进入规划，`/plan off` 返回直接工作。Plan 状态与工作流编排独立。见[命令](commands.md)。
 
 ## 后台任务
 

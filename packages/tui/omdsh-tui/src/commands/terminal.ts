@@ -6,6 +6,7 @@ import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands
 import type { TuiDocumentPosition } from '../definition.ts'
 import { TerminalReader } from '../runtime/terminal-reader.ts'
 import { registerCommands } from './registration.ts'
+import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-terminal'
 export const inject = ['commands', 'terminals', 'tui']
@@ -27,7 +28,7 @@ export async function terminalConsole(ctx: Context, invocation: CommandInvocatio
         selected = answer
       }
       if (selected === 'new') {
-        const session = await ctx.terminals.spawn(owner, { type: 'shell', ...(owner.session.header.cwd === undefined ? {} : { cwd: owner.session.header.cwd }) }, invocation.signal)
+        const session = await ctx.terminals.spawn(owner, { type: 'shell', cwd: currentWorkingDirectory(ctx, owner.session) }, invocation.signal)
         selected = String(session.sessionId)
       }
       const id = TerminalSessionId(selected)

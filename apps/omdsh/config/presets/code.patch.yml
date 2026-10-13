@@ -17,7 +17,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: >-
-                You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Prefer programmatic tool calling for multi-step operations when the generated tools SDK is available.
+                You are a coding agent powered by the {{model}} model. Prefer programmatic tool calling for multi-step operations when the generated tools SDK is available.
 
           # PTC presents the tool registry as a generated SDK over `run_code`, so the
           # general-purpose `workflow_run` tool would be a second model-authored

@@ -25,17 +25,31 @@ async function harness() {
     expect(Buffer.concat(chunks).toString()).toBe('hello')
     return ref
   })
-  const ctx = { tui: { interactive: true, stageFileAttachment }, attachments: { saveFileStream } } as unknown as Context
+  const ctx = new Context()
+  ctx.provide('tui', { interactive: true, stageFileAttachment } as never)
+  ctx.provide('attachments', { saveFileStream } as never)
   const abort = new AbortController()
   const invocation = { rawInput: 'report.txt', agent: { session: { header: { cwd: root } } }, signal: abort.signal } as unknown as CommandInvocation
   return { ctx, invocation, ref, stageFileAttachment, saveFileStream, abort }
 }
 
 describe('file attachment admission', () => {
+  it('resolves attachments from the current directory while retaining the original project header', async () => {
+    const h = await harness()
+    const original = h.invocation.agent.session.header.cwd
+    h.ctx.provide('workingDirectory', { get: () => original } as never)
+    Object.assign(h.invocation.agent.session.header, { cwd: join(original!, 'old-project') })
+    expect(await attachFile(h.ctx, h.invocation)).toMatchObject({ kind: 'success' })
+    expect(h.stageFileAttachment).toHaveBeenCalledWith(h.ref)
+    expect(h.invocation.agent.session.header.cwd).toBe(join(original!, 'old-project'))
+    await h.ctx.fiber.dispose()
+  })
+
   it('streams original bytes to storage and stages only a verified durable reference', async () => {
     const h = await harness()
     expect(await attachFile(h.ctx, h.invocation)).toMatchObject({ kind: 'success' })
     expect(h.stageFileAttachment).toHaveBeenCalledWith(h.ref)
+    await h.ctx.fiber.dispose()
   })
   it('does not put a cancelled file into the composer after storage resolves', async () => {
     const h = await harness()
@@ -46,6 +60,7 @@ describe('file attachment admission', () => {
     })
     await expect(attachFile(h.ctx, h.invocation)).rejects.toThrow('Cancelled')
     expect(h.stageFileAttachment).not.toHaveBeenCalled()
+    await h.ctx.fiber.dispose()
   })
 })
 

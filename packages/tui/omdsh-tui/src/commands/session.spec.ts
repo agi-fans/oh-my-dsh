@@ -33,6 +33,8 @@ interface HarnessOptions {
   promptAnswer?: string | null
   omitQueryService?: boolean
   libraryRows?: readonly TuiRecentSession[]
+  migration?: boolean
+  interactive?: boolean
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -54,11 +56,11 @@ async function harness(options: HarnessOptions = {}) {
   }))
   const renameSession = vi.fn(async () => {})
   ctx.provide('omdshSession', { refreshRecent: vi.fn(), resumeSession, renameSession, openSessionTree, recentSessions: options.libraryRows ?? [], sessionLibraryPath: sessionLibraryPath() } as unknown as SessionRuntime)
-  ctx.provide('tui', { prompt } as unknown as TuiService)
+  ctx.provide('tui', { prompt, notice: vi.fn(), interactive: options.interactive ?? true } as unknown as TuiService)
   if (options.omitQueryService !== true) {
     ctx.provide('sessionQuery', { searchSessions, readTitleSnapshots } as never)
   }
-  if (options.libraryRows !== undefined) ctx.provide('sessionPersistence', {} as never)
+  if (options.libraryRows !== undefined || options.hits !== undefined || options.migration) ctx.provide('sessionPersistence', { stat: async () => ({ formatStatus: options.migration ? 'migration-required' : 'current' }) } as never)
   await ctx.plugin(commandSession)
   const session = ctx.sessions.create(SessionId('session-search-test'))
   const agent = {
@@ -99,7 +101,7 @@ describe('/sessions search', () => {
     expect(searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.objectContaining({ signal: expect.anything() }))
     expect(prompt).toHaveBeenCalledTimes(1)
     const request = prompt.mock.calls[0]?.[0] as { title: string; options: readonly { label: string; value: string; preview: string }[] }
-    expect(request.title).toBe('Session Search')
+    expect(request.title).toBe('Session Library · Search')
     expect(request.options.map(option => [option.label, option.value, option.preview])).toEqual([
       ['Fix the parser', 'session-a', '…needle in the parser…'],
       ['Add export flag', 'session-b', '…needle in export…'],
@@ -148,7 +150,7 @@ describe('/sessions search', () => {
   })
 
   it('keeps the bare library path when no query is given', async () => {
-    const { execute, searchSessions } = await harness({ hits: [hit('session-a', 'snippet')] })
+    const { execute, searchSessions } = await harness({})
 
     const execution = await execute('/sessions')
     expect(searchSessions).not.toHaveBeenCalled()
@@ -216,4 +218,76 @@ describe('Session Library archive actions', () => {
     await f.execute('/sessions')
     expect(readSessionLibrary(path)).toEqual({ pinned: [], archived: ['session-a'], labels: {} })
   })
+})
+
+describe('stored session migration', () => {
+  it('keeps explicit line-input resume compatible without an interactive confirmation', async () => {
+    const h = await harness({ migration: true, interactive: false })
+    expect((await h.execute('/resume old'))?.result.kind).toBe('success')
+    expect(h.prompt).not.toHaveBeenCalled()
+    expect(h.resumeSession).toHaveBeenCalledWith(h.agent, 'old', expect.any(AbortSignal))
+  })
+  it('labels migration-required rows and cancel leaves the session unopened', async () => {
+    isolatedLibrary()
+    const h = await harness({ migration: true, libraryRows: [{ id: 'old', title: 'Old session', createdAt: 1, formatStatus: 'migration-required' }] })
+    h.prompt.mockResolvedValueOnce('old').mockResolvedValueOnce(null)
+    await h.execute('/sessions')
+    expect(h.prompt.mock.calls[0]![0].options![0]!.description).toContain('migration required')
+    expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Migrate session', options: [{ value: 'resume' }] })
+    expect(h.resumeSession).not.toHaveBeenCalled()
+  })
+
+  it.each(['/resume old', '/sessions needle'])('confirms migration before %s', async line => {
+    const h = await harness({ migration: true, hits: [hit('old', 'needle')], libraryRows: [] })
+    if (line.startsWith('/sessions')) h.prompt.mockResolvedValueOnce('old')
+    h.prompt.mockResolvedValueOnce('resume')
+    expect((await h.execute(line))?.result.kind).toBe('success')
+    expect(h.resumeSession).toHaveBeenCalledWith(h.agent, 'old', expect.any(AbortSignal))
+  })
+})
+
+
+describe('Session Library content search', () => {
+  it('searches from the library, keeps management actions, and returns to all sessions', async () => {
+    isolatedLibrary()
+    const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
+    h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('pin:session-a').mockResolvedValueOnce('library:').mockResolvedValueOnce(null)
+    await h.execute('/sessions')
+    expect(h.searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.anything())
+    expect(h.prompt.mock.calls[2]![0]).toMatchObject({ title: 'Session Library · Search', actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'archive:' }), expect.objectContaining({ valuePrefix: 'library:' })]) })
+    expect(h.prompt.mock.calls[4]![0].title).toBe('Session Library')
+    expect(h.resumeSession).not.toHaveBeenCalled()
+    expect(readSessionLibrary(sessionLibraryPath()).pinned).toEqual(['session-a'])
+  })
+})
+
+
+it('returns immediately after resuming a hit selected from library search', async () => {
+  isolatedLibrary()
+  const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
+  h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('session-a')
+  expect((await h.execute('/sessions'))?.result).toMatchObject({ kind: 'success', text: 'Resumed session-a.' })
+  expect(h.prompt).toHaveBeenCalledTimes(3)
+  expect(h.resumeSession).toHaveBeenCalledTimes(1)
+})
+
+it('keeps an empty-search notice visible until acknowledged and returns to the library', async () => {
+  isolatedLibrary()
+  const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [] })
+  h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('back').mockResolvedValueOnce(null)
+  await h.execute('/sessions')
+  expect(h.prompt.mock.calls[2]![0]).toMatchObject({ presentation: 'document', documentSource: { text: expect.stringContaining('No sessions match') } })
+  expect(h.prompt.mock.calls[3]![0].title).toBe('Session Library')
+  expect(h.resumeSession).not.toHaveBeenCalled()
+})
+
+
+it('refreshes renamed search hits from the session inventory without losing the matching snippet', async () => {
+  isolatedLibrary()
+  const rows = [{ id: 'session-a', title: 'Before', createdAt: 1 }]
+  const h = await harness({ libraryRows: rows, hits: [hit('session-a', 'needle')] })
+  h.renameSession.mockImplementation(async () => { rows[0]!.title = 'After' })
+  h.prompt.mockResolvedValueOnce('rename:session-a').mockResolvedValueOnce('After').mockResolvedValueOnce(null)
+  await h.execute('/sessions needle')
+  expect(h.prompt.mock.calls[2]![0].options).toContainEqual(expect.objectContaining({ label: 'After', preview: 'needle' }))
 })

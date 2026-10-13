@@ -10,7 +10,7 @@ Each walkthrough lives on its own page so a later change can update one path wit
 
 | Walkthrough | What it covers |
 |---|---|
-| [Complete your first task](tutorials/first-task.md) | Install, `/login`, Agent / Workflow / Access, and a first request |
+| [Complete your first task](tutorials/first-task.md) | Install, `/login`, Agent / Plan / Access, and a first request |
 | [Give the agent precise context](tutorials/precise-context.md) | `@` mentions, image paste, and structured prompts |
 | [Guide an active turn](tutorials/guide-a-turn.md) | Queue, Loop, Plan, Todo, and `/goal` |
 | [Recover and manage a long session](tutorials/long-session.md) | Resume, rewind, compact, and export |
@@ -33,7 +33,7 @@ The exhaustive lists live in [Commands](commands.md) and [Keyboard and keys](key
 | Open the Agent Hub | `↓` on an empty composer, then `Enter`, or `Alt+A` |
 | Copy the latest reply, code block, or command | `/copy` |
 | Choose Agent preset | `/agent` |
-| Choose Default or Plan workflow | `/workflow` |
+| Enter or leave Plan mode | `/plan` / `/plan off` |
 | Choose session Access | `/permission` |
 | Inspect session statistics | `/session` |
 | Inspect the session event trajectory | `/trajectory` |

@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type { TuiService } from '../definition.ts'
 import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image-paste.ts'
 import type {} from './session-runtime.ts'
@@ -123,7 +124,20 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       // EOF means "no more input", not "discard the accepted work". Let the
       // active turn and every queued follow-up settle so pipe/CI mode observes
       // the same transcript and errors as an interactive terminal.
-      await controller.agent?.whenIdle()
+      const agent = controller.agent
+      if (agent !== undefined) {
+        const stopped = Promise.withResolvers<false>()
+        const stop = (): void => { stopped.resolve(false) }
+        cancelled.addEventListener('abort', stop, { once: true })
+        try {
+          while (!cancelled.aborted) {
+            await Promise.race([agent.whenIdle(), stopped.promise])
+            if (cancelled.aborted) break
+            const joined = await Promise.race([ctx.get('subagents')?.waitForChildren(agent), stopped.promise])
+            if (!joined) break
+          }
+        } finally { cancelled.removeEventListener('abort', stop) }
+      }
     } else {
       // An unmount cancel aborts the in-flight command instead of waiting.
       operation?.abort(new Error('runner unloaded'))

@@ -4,29 +4,46 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 
 # Settings
 
-`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Agent, Features, Status line, and Plugins; `↑`/`↓` move between rows and `←`/`→` change a value. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between Interface, Agent, Tools, Status line, Integrations, and Advanced; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
 
-## Plugin configuration
+## Product configuration
 
-Open `/settings`, switch to **Plugins**, and press `Enter` on a plugin to edit its fields. `Esc` returns to the same Settings row. This section lists active plugins with editable configuration; the field list supports filtering. Fields come from the plugin's published live schema, including Shell timeout/output limits, Subagent depth/concurrency/model policies, Agent loop parallelism, and Web search endpoint/model/token/use limits.
+Built-in capabilities appear in the product category that owns the task. Advisor model calls, Command hooks compatibility, and Subagent model selection show their current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
 
-Each field shows its effective value and whether it is inherited or overridden in this Profile. **Reset to inherited** removes only that field's override; **Set value** validates against the plugin schema and saves with the revision read by the form. A concurrent change refuses the write rather than overwriting it. Strings use plain input; arrays, dictionaries, and other structured fields use JSON. Hidden or disabled schema fields are omitted. Compound fields containing secrets remain protected; use `/auth` or their owning configuration instead.
+| Category | Configuration |
+|---|---|
+| Interface | Appearance, input, notifications and startup preferences. |
+| Agent | Model and reasoning, Access, Agent preset, Language, Subagents and Subagent models. |
+| Tools | Tool parallelism, Shell timeout/output limits and optional feature toggles. |
+| Status line | Footer layout, visibility, context style and colors. |
+| Integrations | Advisor model calls, Command hooks, Web search, Codex, and Claude Code. |
+| Advanced | Unclaimed live fields and installed plugins without a product form. |
+
+In Integrations, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
+
+Web search exposes **Search limit** and **Token limit** in Integrations. Its credential reference, secret API key, endpoint, model, and API version remain under **Advanced → Web search**. These edits retain the search provider’s own credential configuration; `/login` login does not configure Web search.
+
+Advanced honors each plugin's automatic-form policy and omits fields already represented in product controls, including TUI appearance, language, and the structured status-line editor. Hidden, disabled and deprecated fields are omitted. New unclaimed fields remain available without duplicating their owner's product form.
+
+Each field shows its effective value and whether it is inherited or overridden in this Profile. Product fields open directly in an editor with the current choice selected or value prefilled. Durations and byte limits accept readable units such as `30s`, `2m`, `512 KiB` and `2 MiB`. **Restore inherited setting…** opens a field chooser and confirmation; `Ctrl+R` on a settings row also restores inheritance. Advanced keeps its **Set value** / **Reset to inherited** actions. Edits validate against the plugin schema and save with the revision shown by the form. A concurrent change refuses the write rather than overwriting it. Strings use plain input; Subagent allowed models use a catalog selector. Other arrays, dictionaries and structured fields in Advanced use JSON. Hidden or disabled schema fields are omitted. Compound fields containing secrets remain protected; use `/login` or their owning configuration instead.
 
 Secret inputs are masked and are never shown in notices. Setting an `apiKey` beside `apiKeyEnv` saves the key through Harness credentials and writes only its reference into the Profile. Resetting that key removes both Profile fields so inheritance applies again; it does not revoke an inherited credential or erase a key from the credential store. Credential-reference fields retain the Harness environment and credential-source inheritance.
 
-Edits apply live and affect every session using this Profile. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
+Settings are saved to the active Profile. Appearance applies immediately; Agent language applies from the next turn, child-model selection applies to new sessions. **Advisor model calls** controls `consult_advisor`; manual `/advisor` remains available. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
 
-In **Plugins**, select **Subagent model selection settings** (`subagent-model-selection-settings`) to configure optional child-model selection. Set `allowedModels` to a JSON list such as `[{"provider":"deepseek-official","model":"deepseek-flash"}]` before setting `enabled` to `true`. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
+In **Agent → Subagent models → Allowed models**, search the model catalog, press `Space` to toggle models and `Enter` to save. Current routes are preselected; configured routes outside the catalog remain available. Choose at least one model before enabling model selection. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
 
-Plugin names use readable labels; the namespace remains in the description. Schema help appears beside each field.
+Product forms and save notices use task and field labels; Advanced retains technical namespaces and paths. Schema help appears beside each field. Settings continue to write the original plugin entry rather than copying configuration into TUI preferences.
 
 ### Command hooks
 
-In Plugins, choose **Hook settings** (`hook-settings`). Set `configPath` first, then `bridge` to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
+In **Integrations**, choose **Command hooks**. Set **Configuration file** first, then **Hook compatibility** to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
 
 The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
 
-## General
+## Interface
+
+Rows are grouped under Appearance, Input, Notifications and Startup. Notification dependencies remain visible: **Notify when** is inactive while notifications are off, and **Long turn** is used only by the long-running policy.
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
@@ -64,11 +81,13 @@ Mermaid in replies uses terminal characters for supported flowcharts, sequence, 
 |---|---|---|---|
 | Language | Auto / Simplified Chinese / English | Auto | Preferred language for reasoning and replies. |
 
+**Model and reasoning**, **Access** and **Agent preset** open the existing `/model`, `/permission` and `/agent` selectors when those commands are available. Model selection saves the default route; Access and Agent preset affect the current session.
+
 A non-Auto choice applies from the next turn; code, identifiers, commands, tool arguments, logs, quotations, and file contents keep their accurate forms, and an explicit language request for the current task still wins. The preference is user-level, so a resumed session uses the current value rather than a historical snapshot.
 
-## Features
+## Tools
 
-Optional product features that cost context, runtime, or transcript noise. Each row turns one composition row off.
+Shell offers the active platform’s timeout and output limits: Bash on POSIX and PowerShell on Windows use the same form and save to their respective owners. Optional feature rows control capabilities that cost context, runtime, or transcript noise; each row turns one composition row off.
 
 | Row | Default | Effect when off |
 |---|---|---|
@@ -89,6 +108,8 @@ Rows that back a command (`session-query` backs `/sessions`, `workspace` backs `
 | Context label | compact / full | compact | Use `Ctx` or `Context` before the occupancy value. |
 | Context style | percent / bar / tokens / detailed | percent | Show percentage, a ten-cell occupancy bar, used/window tokens, or percentage with tokens. |
 
+`Ctrl+R` on a status item restores only its inherited color. **Restore layout** confirms restoration of the complete inherited layout, visibility and colors.
+
 Status items are reordered and restyled in place: `Space` shows or hides an item, `Enter` starts moving one (`↑`/`↓` reorder, `←`/`→` choose the column), and each item has its own color.
 
 First line, in default order: Model (`deepseek`), Effort (`max`), Path (`~/project`), Git (`main *1`), and Session, which is off by default because the terminal window title carries the session title regardless.
@@ -97,9 +118,11 @@ Second line telemetry groups, all shown by default: Context (`Ctx 1.6%`), Cache 
 
 ## Persistence
 
+Saving an appearance or status-line edit writes only the fields you changed; other fields keep inheriting their defaults. Appearance and status-line changes preview immediately while saving. If saving fails, saved preferences are restored and the error remains visible until dismissed. Feature switches update only after their Profile patch is written; an unreadable existing patch is left intact.
+
 Settings, model preferences, and logged-in credentials are live plugin config persisted into the active Profile's Cordis patch, `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` (with `$DSH_HOME`, then `~/.dsh`, standing in for the home itself); `/settings`, `/model`, and `/login` all write there. A `settings.yaml` left by an earlier release is imported once at startup — each section written into the Profile row with the same id — and the file is then renamed to `settings.yaml.imported`, while a section that no longer matches a row id is logged and stays only in the renamed file. See [Sessions and history](sessions.md) for the complete file list.
 
-## Plugin settings
+## Configuration ownership
 
 Mounted Harness plugins keep their settings in their own Profile row config. The `llm-deepseek` route accepts only Messages-compatible endpoints and rejects a `protocol` key with `protocol is not configurable; remove it and use a Messages-compatible baseURL`. Set a compatible `baseURL` for a custom gateway; the DeepSeek endpoint is selected by base URL.
 

@@ -21,7 +21,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: '/model', text: 'Switch model and reasoning effort' },
   { key: '/login', text: 'Configure a provider API key' },
   { key: '/agent', text: 'Choose Standard, PTC, Minimal, or Cordis' },
-  { key: '/workflow', text: 'Choose Default or Plan workflow' },
+  { key: '/plan', text: 'Enter planning; /plan off leaves' },
   { key: '/loop', text: 'Repeat a prompt after each completed turn' },
   { key: '/permission', text: 'Choose the session access level' },
   { key: '/trajectory', text: 'Inspect the session event trajectory' },
@@ -30,7 +30,7 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
   { key: 'Esc Esc', text: 'Browse conversation turns and branches' },
   { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
   { key: '/tools', text: 'Inspect tools available to the agent' },
-  { key: '/mcp', text: 'Inspect connected MCP servers' },
+  { key: '/mcp', text: 'Inspect MCP registration and tools' },
   { key: '/changelog', text: 'Read recent release notes' },
 ]
 

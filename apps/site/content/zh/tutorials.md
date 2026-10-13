@@ -10,7 +10,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 
 | 教程 | 内容 |
 |---|---|
-| [完成第一个任务](tutorials/first-task.md) | 安装、`/login`、Agent / Workflow / Access，以及第一条请求 |
+| [完成第一个任务](tutorials/first-task.md) | 安装、`/login`、Agent / Plan / Access，以及第一条请求 |
 | [提供精确的项目上下文](tutorials/precise-context.md) | `@` mention、图片粘贴和结构化 Prompt |
 | [引导运行中的任务](tutorials/guide-a-turn.md) | 队列、Loop、Plan、Todo 和 `/goal` |
 | [恢复并管理长会话](tutorials/long-session.md) | 恢复、回退、压缩和导出 |
@@ -33,7 +33,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 | 打开 Agent Hub | 在空 composer 中按 `↓` 再按 `Enter`，或按 `Alt+A` |
 | 复制最近的回复、代码块或命令 | `/copy` |
 | 选择 Agent preset | `/agent` |
-| 选择 Default 或 Plan Workflow | `/workflow` |
+| 进入或退出 Plan 状态 | `/plan` / `/plan off` |
 | 选择会话 Access | `/permission` |
 | 查看会话统计 | `/session` |
 | 查看会话事件轨迹 | `/trajectory` |

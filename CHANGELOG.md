@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- `/review` selects current changes, a base branch or one commit and confirms a review request to the current Agent, retaining its model, Access and Plan state.
+- `/advisor` and `consult_advisor` request independently attributed Codex or Claude Code opinions from explicit text context. Consultations reuse managed child lifecycles, isolate native processes from workspace writes, support cancellation, and can be disabled for model calls in Settings.
+- The `working_directory` tool changes the session’s current directory. File browsing, diffs, attachments, completion, new terminals and the footer follow it while the original project and Access remain unchanged.
+- `/plugins` offers Install and Reinstall for official on-demand bundles at the running Harness version, retaining installation consent, cancellation and build-script approval.
+- `/worktree` creates, enters and switches retained Git checkouts, or returns to the session’s original directory. Creation uses the optional Git Worktrees bundle, off by default, and preserves the current Access policy and source changes.
+- Native Codex and Claude Code bundles offer model and permission settings plus profile diagnostics in Settings, with the same form accessible from `/plugins`. Guidance explains their bundled runtimes, native authentication and independent permission policies.
+
+### Changed
+
+- Command discovery prioritizes common tasks, searches description keywords and groups help by task. Session Library content search retains pin, rename and archive actions.
+- Allowed subagent models use a searchable, preselected multi-select list instead of JSON. Native integration Model and Permissions open directly, and Installation status explicitly reports registration only. Worktree creation can be enabled from its own picker.
+- Approval readers preserve multi-line tool input and reasons without compressing them into one row. MCP diagnostics distinguish plugin registration from available tools and do not infer connection health.
+- Settings adds cross-category search, visible narrow-screen category navigation, current-value preselection and prefilled input with readable duration and byte units. Agent links reuse model, Access and preset selectors; integration summaries show registration state and help explains dependencies and effect scope.
+- Settings saves only edited preference fields and offers confirmed restoration of inherited values, including individual status colors or the complete footer layout. Searching and editing retain the selected result.
+- Settings groups built-in capabilities under Interface, Agent, Tools, Status line and Integrations, with native-provider enablement and configuration. Advanced retains unclaimed fields and installed plugins, honors automatic-form policy, and omits duplicate and deprecated controls. Common switches and Hook compatibility show their current values and change directly; returning from forms preserves the selected row as available settings change. Bash and PowerShell share the Shell form, and Web search keeps connection and credential fields in Advanced.
+- Bundle management offers a confirmed Uninstall for profile-owned packages and explains why shipped integrations use Disable instead.
+- Codex and Claude Code bundles ship with omdsh, disabled until enabled in Integration settings; package availability and profile enablement are shown separately.
+
+- Upgrade the published DeepSeek Harness packages to `0.2.1-alpha.2` and adapt delegation to runtime-managed activations. External executions show lifecycle state and deliver results to the parent without a local transcript. Pipe-mode exit waits for progressing children; session teardown drains descendants first.
+- Session Library browsing shows migration-required logs without opening or upgrading them. Interactive resume asks before migration; explicit line-input and CLI resume remain supported. Startup no longer migrates the entire stored corpus.
+
+### Removed
+
+- `/workflow`; use `/plan` to enter planning and `/plan off` to leave.
+- `/reasoning` and experimental reasoning translation; reasoning remains available in Turn history.
+
+### Fixed
+
+- Settings show save and integration errors before returning to their forms, restore unsaved preferences, and keep feature switches unchanged on write failure. Unreadable Profile patches are no longer replaced as empty files.
+- Codex and Claude Code status checks stay open in a scrollable reading page until dismissed, then return to their settings or bundle picker.
+- Plugin installation ignores Enter while waiting, preventing accidental cancellation. Failed and cancelled attempts no longer claim enablement, and progress updates stay in one card.
+
 ## [0.20.0] - 2026-10-09
 
 ### Added

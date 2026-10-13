@@ -3,6 +3,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { TuiRecentSession } from '../definition.ts'
 import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
@@ -36,23 +38,26 @@ async function newSession(ctx: Context, invocation: CommandInvocation): Promise<
   return { kind: 'success', text: 'Started a new session.' }
 }
 
-async function resumeSession(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+async function resumeSession(ctx: Context, invocation: CommandInvocation, search?: { query: string; rows: readonly TuiRecentSession[] }): Promise<CommandResult> {
   if (ctx.get('sessionPersistence') === undefined) return { kind: 'error', text: 'Session persistence is not configured.' }
   if (invocation.agent.status === 'running') {
     return { kind: 'error', text: 'Finish or interrupt the active turn before resuming another session.' }
   }
   await ctx.omdshSession.refreshRecent()
-  let id = invocation.rawInput.trim()
+  let id = search === undefined ? invocation.rawInput.trim() : ''
   if (id === '') {
     const libraryPath = ctx.omdshSession.sessionLibraryPath
     let archivedView = false
     let selectedId: string | undefined
     while (id === '') {
       const library = readSessionLibrary(libraryPath)
-      const recent = sortSessionRows(ctx.omdshSession.recentSessions.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
-      if (ctx.omdshSession.recentSessions.length === 0) return { kind: 'success', text: 'No durable sessions found.' }
+      const inventory = new Map(ctx.omdshSession.recentSessions.map(row => [row.id, row]))
+      const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
+      const recent = sortSessionRows(source.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
+      if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
       const answer = await ctx.tui.prompt({
-        title: archivedView ? 'Session Library · Archived' : 'Session Library',
+        title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
+        ...(search === undefined ? {} : { detail: `Content search: ${search.query} · up to ${SESSION_SEARCH_LIMIT} matches` }),
         notify: false,
         ...(selectedId === undefined ? {} : { initialValue: selectedId }),
         question: '',
@@ -66,6 +71,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
             ...(library.pinned.includes(row.id) ? ['pinned'] : []),
             formatRelativeAge(row.updatedAt ?? row.createdAt),
             ...(row.eventCount === undefined ? [] : [`${row.eventCount} events`]),
+            ...(row.formatStatus === 'migration-required' ? ['migration required'] : []),
           ].join(' · '),
           ...(row.status === undefined
             ? {}
@@ -81,6 +87,8 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
               }),
         })),
         actions: [
+          ...(search === undefined ? [] : [{ key: 'Alt+L', label: 'all sessions', valuePrefix: 'library:', scope: 'list' as const }]),
+          ...(ctx.get('sessionQuery') === undefined ? [] : [{ key: 'Alt+S', label: 'search content', valuePrefix: 'search:', scope: 'list' as const }]),
           { key: 'r', label: 'rename', valuePrefix: 'rename:' },
           { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
           { key: 'Alt+A', label: archivedView ? 'restore' : 'archive', valuePrefix: 'archive:' },
@@ -93,6 +101,18 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
       })
       if (answer === null) return { kind: 'success' }
       invocation.signal.throwIfAborted()
+      if (answer === 'library:') { search = undefined; archivedView = false; selectedId = undefined; continue }
+      if (answer === 'search:') {
+        const query = await ctx.tui.prompt({ title: 'Search session content', question: 'Enter search text', allowCustom: true, notify: false, signal: invocation.signal })
+        if (query === null || query.trim() === '') continue
+        const result = await findSessions(ctx, { ...invocation, rawInput: query })
+        if (result.kind === 'rows') { search = result; archivedView = false; selectedId = undefined; continue }
+        if (result.text !== undefined) {
+          await ctx.tui.prompt({ title: 'Session search', question: '', presentation: 'document', documentSource: { text: result.text, language: 'text' }, options: [{ label: 'Back to library', value: 'back' }], allowCustom: false, notify: false, signal: invocation.signal })
+          continue
+        }
+        continue
+      }
       if (answer === 'view:') { archivedView = !archivedView; continue }
       if (answer.startsWith('pin:') || answer.startsWith('archive:')) {
         const [action, ...parts] = answer.split(':')
@@ -124,7 +144,18 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
     }
   }
   if (id === invocation.agent.id) return { kind: 'success', text: 'That session is already active.' }
+  return resumeStoredSession(ctx, invocation, id)
+}
+
+async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string): Promise<CommandResult> {
   try {
+    const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
+    if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
+      const answer = await ctx.tui.prompt({ title: 'Migrate session', question: ctx.omdshSession.recentSessions.find(row => row.id === id)?.title ?? id,
+        detail: 'Opening this session writes a current-format generation and retains the historical source. Browsing the Session Library does not migrate it.',
+        options: [{ label: 'Migrate and resume', value: 'resume' }], allowCustom: false, signal: invocation.signal, notify: false })
+      if (answer !== 'resume' || invocation.signal.aborted) return { kind: 'success' }
+    }
     await ctx.omdshSession.resumeSession(invocation.agent, id, invocation.signal)
     return { kind: 'success', text: `Resumed ${id}.` }
   } catch (error: unknown) {
@@ -133,8 +164,10 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation): Promi
   }
 }
 
-/** Search every durable session by content, then resume the chosen hit. */
-async function searchSessions(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+type SessionSearchResult = CommandResult | { kind: 'rows'; query: string; rows: readonly TuiRecentSession[] }
+
+/** Read session content without replacing the active conversation. */
+async function findSessions(ctx: Context, invocation: CommandInvocation): Promise<SessionSearchResult> {
   if (invocation.agent.status === 'running') {
     return { kind: 'error', text: 'Finish or interrupt the active turn before resuming another session.' }
   }
@@ -158,30 +191,18 @@ async function searchSessions(ctx: Context, invocation: CommandInvocation): Prom
       }
     }
   } catch { /* title folding is best-effort; the snippet still identifies the hit */ }
-  const answer = await ctx.tui.prompt({
-    title: 'Session Search',
-    question: '',
-    emptyText: 'No session content matched.',
-    options: hits.map(hit => ({
-      label: titles.get(hit.header.id) ?? hit.bestMatch.snippet,
-      value: hit.header.id,
-      preview: hit.bestMatch.snippet,
-      description: formatRelativeAge(hit.header.createdAt),
-    })),
-    presentation: 'fullscreen-list',
-    filterable: false,
-    allowCustom: false,
-    signal: invocation.signal,
-  })
-  if (answer === null) return { kind: 'success' }
-  if (answer === invocation.agent.id) return { kind: 'success', text: 'That session is already active.' }
-  try {
-    await ctx.omdshSession.resumeSession(invocation.agent, answer, invocation.signal)
-    return { kind: 'success', text: `Resumed ${answer}.` }
-  } catch (error: unknown) {
-    if (invocation.signal.aborted) return { kind: 'error', text: 'Resume cancelled.' }
-    return { kind: 'error', text: 'Resume failed: ' + (error instanceof Error ? error.message : String(error)) }
-  }
+  return { kind: 'rows', query, rows: hits.map(hit => ({
+    id: hit.header.id,
+    title: titles.get(hit.header.id) ?? hit.bestMatch.snippet,
+    preview: hit.bestMatch.snippet,
+    createdAt: hit.header.createdAt,
+  })) }
+}
+
+/** Search every durable session, retaining the library's management actions. */
+async function searchSessions(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const result = await findSessions(ctx, invocation)
+  return result.kind === 'rows' ? resumeSession(ctx, invocation, result) : result
 }
 
 /** `/sessions` opens the library bare, or searches session content when given a query. */
@@ -269,7 +290,7 @@ export function apply(ctx: Context): void {
     { name: 'new', description: 'Start a new session', handler: invocation => newSession(ctx, invocation) },
     {
       name: 'resume',
-      description: 'Resume a durable session',
+      description: 'Resume a session by ID, or open the Session Library',
       input: { hint: '[session-id]' },
       handler: invocation => resumeSession(ctx, invocation),
     },

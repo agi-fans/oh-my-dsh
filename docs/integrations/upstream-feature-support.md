@@ -1,8 +1,17 @@
 # DeepSeek Harness 功能支持盘点
 
-状态：2026-10-04，按 omdsh 当前工作区与 DSH `dsh-v0.2.1-alpha.1` 核对。此文件记录功能覆盖与接入条件，已实现项单独标记，不替代真实平台与环境验收。当前依赖基线见 [DeepSeek Harness 集成与兼容](deepseek-harness.md)。
+状态：原始能力分组于 2026-10-04 按 DSH `dsh-v0.2.1-alpha.1` 核对；2026-10-09 补充 `0.2.1-alpha.2` 适配状态，2026-10-13 更新翻译和独立思考阅读的产品取舍。此文件记录功能覆盖与接入条件，已实现项单独标记，不替代真实平台与环境验收。当前依赖基线见 [DeepSeek Harness 集成与兼容](deepseek-harness.md)。
 
 统计单位是用户能力而不是 npm 包数。一个能力可能由 service、provider、tool 和 UI 多个包组成；已经有一个可用 provider 时，不因没有安装所有替代 provider 而记为整项缺失。产品支持自定义 Profile 与插件组合，因此“未产品化”表示缺少随产品交付、配置、展示和验证的完整路径，不表示底层完全无法挂载。
+
+## 0.2.1-alpha.2 补充
+
+- 工作目录服务与 `working_directory` 已挂载；文件操作、补全、新终端和状态路径跟随当前目录，原项目、权限和现有进程保持不变。
+- 子代理使用 runtime-managed activation；本地孩子继续支持追问，ACP 等外部执行以 `external` 模式呈现生命周期，结果回到父会话，没有本地转录。EOF 与会话释放已接入等待和后代清理。
+- `/plugins` 已支持官方 Codex/Claude Code 精确版本 bundle，随 omdsh 安装且默认关闭，可直接启用；缺失或 Profile 安装的副本仍支持安装／重装、取消和脚本审批，并提供模型／权限设置与 Profile 状态诊断。bundle 自带平台运行时，认证由原生产品管理；真实启动与认证仍需独立验收。
+- Git worktree 已提供 `/worktree` 创建、切换已有 checkout 和返回原目录的入口；创建 bundle 随产品安装，默认关闭，启用后使用公开 service/tool 和原 Access，不自动删除产物。
+- 实验翻译和独立思考阅读未保留为产品能力，思考沿用 Turn 展示与过程展开。Worktree 不包含在下方历史 35 组口径中。
+- Session Library 使用 `formatStatus` 标记历史日志，仅列出 header 与已有标签提示；启动不再批量迁移。列表、搜索结果和 `/resume` 的恢复入口确认后才激活迁移，CLI `--resume` 保留明确恢复语义。
 
 ## 统计结论
 
@@ -23,7 +32,7 @@
 | --- | --- | --- | --- | --- | --- |
 | C01 | 异步问答 timed | 已实现 | timed 默认 120 秒，已接入 claim/倒计时、编辑与 Take time、显式跳过、pending 提示、/questions 和补答转录；legacy 与 -1 保留。 | 已覆盖整批 deadline、排队超时、取消/卸载、重复补答、日志恢复以及 Standard/PTC 真实 CLI；PTC 外层执行预算不随 Take time 暂停，未记录结果的中断问题仍受上游恢复限制。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/interaction/tool-ask-user/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/session/interaction-adapter.ts) |
 | C02 | 运行中的插件管理与 HMR | 已实现 | /plugins 提供运行态条目、bundle 启停与安装/移除，显示阶段、取消及完整诊断路径；已挂 published plugin-manager/HMR。 | CLI 与运行态安装共用 Profile 写锁；待执行脚本显式授权，失败/取消由上游事务恢复文件。已安装代码替换仍要求重启，源码监视需显式指定目录。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/boot/plugin-manager/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/plugins.ts)；[真实入口测试](../../apps/omdsh/src/plugin-management.spec.ts) |
-| C03 | 官方插件配置面板 | 已实现常用配置表单 | /settings 的 Plugins 分区读取公开 live schema，覆盖 Shell、Subagent、Agent loop、Web search；子代理模型白名单默认关闭，并在新会话取样。 | 按路径编辑并校验、显示继承/覆盖、重置、拒绝旧 revision；API-key/ref 配对走 credentials。插件名称使用易读标签，字段显示 schema 帮助；结构化字段使用 JSON；包含密钥的复合字段保留给 /auth 或所属配置入口，普通非 live 选项仍用 Profile。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/settings/settings/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts) |
+| C03 | 官方插件配置面板 | 已实现常用配置表单 | /settings 按 Interface、Agent、Tools、Status line、Integrations 收编自带能力，Advanced 保留未收编 live 字段与后装插件；子代理模型白名单默认关闭，并在新会话取样。 | 按路径编辑并校验、显示继承/覆盖、重置、拒绝旧 revision；API-key/ref 配对走 credentials。插件名称使用易读标签，字段显示 schema 帮助；Subagent 允许模型使用可搜索多选目录，其余结构化字段使用 JSON；包含密钥的复合字段保留给 /login 或所属配置入口，普通非 live 选项仍用 Profile。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/settings/settings/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts) |
 | C04 | Creator/Cordis 创作与 preset 诊断 | 已实现 | Cordis 加载已发布组合/插件开发 Skills、只读 API 查询与权限门控 plugin_manager；/agent 展示 broken preset，/agent inspect 显示声明、激活/隔离失败及当前会话保留的实际模块。 | 安装复用 C02；已有 Agent 保留原 revision。公开 API 不提供可展示的 revision 编号，因此展示其真实保留组成，不发明编号。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/bundle/web-app/presets/cordis.patch.yml)；[omdsh](../../apps/omdsh/config/presets/cordis.patch.yml)；[诊断](../../packages/tui/omdsh-tui/src/commands/session-configuration.ts) |
 | C05 | 逐条 Assistant 消息反馈 | 未接入 | /feedback 是 session 级文字反馈；没有 message-feedback 的评分、分类、编辑、撤回和版本冲突呈现。 | 挂载 message-feedback，选择正式 Assistant 消息后提交反馈；使用公开 log-backed API，不能将反馈写入模型消息。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/feedback/message-feedback/README.md)；[omdsh](../../apps/omdsh/config/cordis.yml) |
 | C06 | 用户可操作的持久终端 | 已实现行输入控制台，部分支持 | `/terminal [id]` 使用会话所有权校验，提供新建/重连、最新 300 行实时输出、输入、中断及确认关闭；Esc 只离开视图。 | 使用会话 sandbox；输入与 Agent 工具共用独占 send。原始 PTY 附着、任意全屏程序及 resize 转发未实现，Windows 尚需实机验收。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/terminal/terminal/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/terminal.ts) |
@@ -39,7 +48,7 @@
 
 | ID | 能力 | 当前支持 | 补齐的实际工作 | 上游限制与来源 |
 | --- | --- | --- | --- | --- |
-| E01 | Claude Code / Codex command hooks 兼容 | 已实现按需启用：Settings 的 Hook settings 选择 off/codex/claude-code 和配置路径，默认关闭 | 已挂发布 bridge；切换前等待旧拦截链卸载，显示 hook/result 失败及阻断。真实 CLI 覆盖两种 bridge 首轮调用；bridge 切换和卸载有生命周期回归；长时间 hook 命令取消仍需对应脚本验收 | 只兼容文档列出的同步 command hooks，不能承诺两种产品的全部 hook 语义；Claude 的部分事件、改写参数和远程子 Agent 注入缺失，Codex 只映射五个事件。[Claude bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-claude-code/README.md)、[Codex bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-codex/README.md) |
+| E01 | Claude Code / Codex command hooks 兼容 | 已实现按需启用：Settings → Integrations 的 Command hooks 选择 off/codex/claude-code 和配置路径，默认关闭 | 已挂发布 bridge；切换前等待旧拦截链卸载，显示 hook/result 失败及阻断。真实 CLI 覆盖两种 bridge 首轮调用；bridge 切换和卸载有生命周期回归；长时间 hook 命令取消仍需对应脚本验收 | 只兼容文档列出的同步 command hooks，不能承诺两种产品的全部 hook 语义；Claude 的部分事件、改写参数和远程子 Agent 注入缺失，Codex 只映射五个事件。[Claude bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-claude-code/README.md)、[Codex bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-codex/README.md) |
 | E02 | 持久提醒与定时任务 | 未产品化；现有 `/loop` 是进程内重复提示，不等同持久 schedule | 挂载 `dsh-schedule` 与 `dsh-tool-schedule`，提供其需要的 `sessionController` 生命周期适配、任务列表/编辑/删除/记录 UI，确保冷会话恢复不会抢占当前 TUI | 支持一次、固定间隔、daily、weekly、五字段 cron；宿主必须运行，非恰好一次、没有自动失败重试定时器；任务只投递原会话，不支持子 Agent 创建。[Schedule](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/schedule/README.md)、[工具](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/tool-schedule/README.md)、[所需服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/schedule/src/index.ts)、[现有 loop](../../packages/tui/omdsh-tui/src/commands/loop.ts) |
 | E03 | 模型时间与时区上下文 | 未产品化：当前没有 `dsh-time-context` | 挂载公开插件，明确终端宿主时区来源，测试新消息/恢复/压缩和多个时区；必要时在 TUI 展示注入来源 | 默认至少间隔十分钟注入；没有唯一用户时区时指导模型澄清，fallback 时区不代表用户授权，也不替定时工具补时区。[Time context](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/context/time-context/README.md) |
 | E04 | tmux 所在窗格上下文 | 未产品化；上游也是显式 opt-in | 挂载 `dsh-tmux-context`，以真实控制终端验证，不把继承环境变量误判为 tmux 内运行 | 每个 Turn 首步检查自己的位置，只提供 pane/window/layout，不读取相邻窗格正文；POSIX 检测不可用时不注入。[tmux context](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/context/tmux-context/README.md) |

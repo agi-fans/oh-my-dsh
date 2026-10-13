@@ -54,10 +54,10 @@ describe('scoreCommandTextMatch', () => {
 })
 
 describe('buildSlashCommandCompletions', () => {
-  it('keeps registry order for an empty prefix', () => {
+  it('prioritizes common commands for an empty prefix', () => {
     const items = buildSlashCommandCompletions(BUILTIN_SLASH_COMMANDS, '')
     expect(items.map((item) => item.value)).toEqual([
-      'help', 'settings', 'copy', 'tools', 'clear', 'quit',
+      'settings', 'help', 'copy', 'tools', 'clear', 'quit',
     ])
   })
 
@@ -196,8 +196,8 @@ describe('formatHelpText / renderAutocomplete', () => {
     ])
     const lines = text.split('\n')
     expect(lines[0]).toBe('Commands · 7 core · 2 skills')
-    expect(text).toContain('**Terminal Commands · 6**')
-    expect(text).toContain('**Agent Commands · 1**')
+    expect(text).toContain('**Application · 2**')
+    expect(text).toContain('**Session · 2**')
     expect(text).not.toContain('| Command | Description |')
     expect(text).toContain('/resume [session-id]')
     expect(text).toContain('**Skills · 2**')
@@ -262,4 +262,12 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('notes') && !line.includes('/notes'))).toBe(true)
     expect(lines.at(-1)).toContain('↑↓ select')
   })
+})
+
+
+it('finds commands by their descriptions without duplicating aliases or hiding extensions', () => {
+  const commands = [...BUILTIN_SLASH_COMMANDS, { name: 'plugin-demo', description: 'Inspect deployment health' }]
+  expect(buildSlashCommandCompletions(commands, 'deployment')).toEqual([expect.objectContaining({ value: 'plugin-demo', label: 'plugin-demo' })])
+  expect(formatHelpText(commands)).toContain('**Extensions · 1**')
+  expect(buildSlashCommandCompletions(commands, 'set').filter(item => item.value === 'settings')).toHaveLength(1)
 })

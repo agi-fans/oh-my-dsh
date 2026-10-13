@@ -78,7 +78,7 @@ describe('collect-only diff command', () => {
     const session = ctx.sessions.create(SessionId('command-diff-test'))
     const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['diff'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['diff', 'review'])
     expect(session.snapshotEvents().filter(event => event.type === 'command/run')).toEqual([])
 
     await fiber.dispose()
@@ -163,5 +163,64 @@ describe('interactive workspace comparison from a subdirectory', () => {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('/review target selection', () => {
+  async function reviewHarness(answers: (string | null)[]) {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'omdsh-review-')))
+    execFileSync('git', ['init', '--quiet'], { cwd: root })
+    await writeFile(join(root, 'hello.ts'), 'before\n')
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'base'], { cwd: root })
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+    await writeFile(join(root, 'hello.ts'), 'after\n')
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'change'], { cwd: root })
+    await writeFile(join(root, 'untracked.txt'), 'keep me\n')
+    const before = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const session = ctx.sessions.create(SessionId('review-target'), { meta: { cwd: root } })
+    const steer = vi.fn()
+    const prompt = vi.fn(async (_request: import('../definition.ts').TuiPrompt) => answers.shift() ?? null)
+    ctx.provide('tui', { prompt, interactive: true } as never)
+    await ctx.plugin(commandDiff)
+    const agent = { id: session.id, session, status: 'idle', steer } as unknown as Agent
+    return { root, ctx, base, before, steer, prompt, agent,
+      execute: () => ctx.commands.execute(agent, '/review', [], new AbortController().signal),
+      dispose: async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) } }
+  }
+
+  it.each(['changes', 'base', 'commit'])('queues an explicitly confirmed %s review with a verified Git target and preserves the worktree', async target => {
+    const h = await reviewHarness(target === 'changes' ? [target, 'start'] : [target, 'HEAD~1', 'start'])
+    try {
+      expect((await h.execute())?.result.kind).toBe('success')
+      expect(h.steer).toHaveBeenCalledTimes(1)
+      const text = h.steer.mock.calls[0]![0].content[0].text
+      expect(text).toContain(`Working directory: ${h.root}`)
+      expect(text).toContain('Do not edit files')
+      if (target === 'changes') expect(text).toContain('staged, unstaged and untracked')
+      else expect(text).toContain(h.base)
+      if (target === 'base') expect(text).toContain('Exclude staged, unstaged and untracked changes')
+      if (target === 'commit') expect(text).toContain('only changes introduced by commit')
+      expect(execFileSync('git', ['status', '--porcelain'], { cwd: h.root, encoding: 'utf8' })).toBe(h.before)
+    } finally { await h.dispose() }
+  })
+
+  it.each([[null], ['changes', null], ['base', '--help'], ['commit', 'missing-revision']])('does not start a cancelled or invalid review (%j)', async (...answers) => {
+    const h = await reviewHarness(answers as (string | null)[])
+    try { await h.execute(); expect(h.steer).not.toHaveBeenCalled() } finally { await h.dispose() }
+  })
+
+  it('rejects review selection while a turn is running', async () => {
+    const h = await reviewHarness([])
+    try {
+      Object.assign(h.agent, { status: 'running' })
+      expect((await h.execute())?.result.kind).toBe('error')
+      expect(h.prompt).not.toHaveBeenCalled()
+      expect(h.steer).not.toHaveBeenCalled()
+    } finally { await h.dispose() }
   })
 })

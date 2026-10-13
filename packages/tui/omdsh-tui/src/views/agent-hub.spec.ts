@@ -31,6 +31,13 @@ const roster: TuiSubagentRoster = {
 }
 
 describe('Agent Hub', () => {
+  it('keeps external executions in the inspector rather than opening a nonexistent transcript', () => {
+    const state = createAgentHub({ agents: [{ id: 'external', mode: 'external', label: 'Codex', depth: 1, phase: 'running', activity: [] }] })
+    const command = applyAgentHubEvent(state, { type: 'key', id: 'enter' })
+    expect(command).toEqual({ state: { ...state, inspector: true, detailScroll: 0 } })
+    expect(renderAgentHub(state, createTheme('dark', false), 120, 20).lines.join('\n')).toContain('results appear in the parent session')
+  })
+
   it('navigates, scrolls details, and opens the selected transcript', () => {
     let state = createAgentHub(roster)
     state = (applyAgentHubEvent(state, { type: 'key', id: 'down' }) as { state: typeof state }).state

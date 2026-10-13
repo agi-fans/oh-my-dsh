@@ -20,7 +20,7 @@ describe('session configuration commands', () => {
     expect(text).toContain('Existing sessions retain their mounted revision')
   })
 
-  it('routes Agent and Workflow selectors through their owning runtime seams', async () => {
+  it('routes the Agent selector through their owning runtime seams', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -33,9 +33,7 @@ describe('session configuration commands', () => {
     } as unknown as Agent
     const prompt = vi.fn()
       .mockResolvedValueOnce('code')
-      .mockResolvedValueOnce('plan')
     const changeAgentPreset = vi.fn(async () => 'code')
-    const changeWorkflow = vi.fn(() => 'committed' as const)
     ctx.provide('tui', { prompt } as unknown as TuiService)
     ctx.provide('agentPresets', {} as never)
     ctx.provide('planMode', { get: () => ({ active: false }) } as never)
@@ -46,19 +44,20 @@ describe('session configuration commands', () => {
         { id: 'code', name: 'PTC', trust: 'system', path: '/code', order: 2 },
       ],
       changeAgentPreset,
-      changeWorkflow,
     } as unknown as SessionRuntime)
 
     const fiber = await ctx.plugin(commandSessionConfiguration)
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['agent', 'workflow'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['agent'])
 
     await expect(ctx.commands.execute(agent, '/agent', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Agent: PTC' } })
-    await expect(ctx.commands.execute(agent, '/workflow', [], new AbortController().signal))
-      .resolves.toMatchObject({ result: { kind: 'success', text: 'Workflow: Plan' } })
+    expect(await ctx.commands.execute(agent, '/workflow', [], new AbortController().signal)).toBeUndefined()
 
     expect(changeAgentPreset).toHaveBeenCalledWith(agent, 'code')
-    expect(changeWorkflow).toHaveBeenCalledWith(agent, true)
+    session.append('user/message', { content: [{ type: 'text', text: 'Hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    prompt.mockClear()
+    expect((await ctx.commands.execute(agent, '/agent', [], new AbortController().signal))?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('fixed for this conversation') })
+    expect(prompt).not.toHaveBeenCalled()
     await fiber.dispose()
     await ctx.fiber.dispose()
   })

@@ -114,11 +114,16 @@ import { type EditorCommand, InputEditor, lineEnd, lineStart } from '../input/ed
 import {
   applySettingsEvent,
   createSettings,
+  refreshSettings,
   type SettingsState,
   type PluginSettingsEntry,
+  tuiSettingItems,
   type TuiPrefs,
+  type SettingItem,
 } from '../views/settings-list.ts'
-import { editPluginSettings, pluginSettingsEntries } from './plugin-settings.ts'
+import { editSettingsEntry, pluginSettingsEntries, resetSettingsControl, setSettingsEntry, showSettingsError } from './plugin-settings.ts'
+import { preferenceChanges } from './settings-preferences.ts'
+import type { BundleInfo } from '@deepseek-ai/dsh-plugin-manager'
 import {
   appendTrajectoryEvent,
   applyTrajectoryEvent,
@@ -302,6 +307,9 @@ type PendingPrompt = PromptSelectorState & {
 interface PluginSettingsBinding {
   entries(): readonly PluginSettingsEntry[]
   edit(id: string, signal: AbortSignal): Promise<void>
+  set?(entry: PluginSettingsEntry, value: string, signal: AbortSignal): Promise<void>
+  reset?(id: string, entry: PluginSettingsEntry | undefined, signal: AbortSignal, label: string): Promise<void>
+  refresh?(): Promise<readonly PluginSettingsEntry[]>
 }
 
 /** One overlay surface displaced by an in-flight human prompt. */
@@ -413,7 +421,7 @@ export class LocalTui implements TuiService {
   #settings: SettingsState | null = null
   /** Optional-feature state read from the Profile patch this process booted with. */
   #features: FeatureStates | undefined
-  /** Profile patch the Features section writes; absent hides that section. */
+  /** Profile patch the Tools feature controls write; absent hides those controls. */
   #featurePatch: string | undefined
   #copySelector: CopySelectorState | null = null
   #trajectory: TrajectoryState | null = null
@@ -564,15 +572,19 @@ export class LocalTui implements TuiService {
   readonly #readImagePath: ImagePathReader
   readonly #historyStore: HistoryStore | undefined
   readonly #keybindings: Record<string, TuiAction>
-  readonly #cwd: string
-  readonly #projectRoot: string
+  #cwd: string
+  #projectRoot: string
   readonly #home: string
   readonly #listDir: DirReader
   readonly #searchFiles: PathSearcher
   #searchFileMentions: FileSearcher | undefined
   #searchSessions: SessionSearcher | undefined
   readonly #autocompleteDebounceMs: number
-  #persistPrefs: ((prefs: TuiPrefs) => void) | null = null
+  #persistPrefs: ((prefs: TuiPrefs, changes: readonly SettingsPathOp[]) => void | Promise<void>) | null = null
+  #catalogVersion = 0
+  #prefsSaveTask: Promise<void> | undefined
+  #disposeTask: Promise<void> | undefined
+  #prefsVersion = 0
   #agentBehavior: TuiAgentBehaviorSettings | undefined
   #updateAgentBehavior: ((next: TuiAgentBehaviorSettings) => Promise<void>) | undefined
   #offAgentBehaviorWatch: (() => void) | undefined
@@ -606,7 +618,7 @@ export class LocalTui implements TuiService {
       draftsPath?: string
       keybindingsPath?: string
       /**
-       * Profile patch the Features section edits. Absent leaves the section
+       * Profile patch the Tools feature controls edit. Absent leaves the controls
        * out entirely rather than presenting toggles that cannot be written.
        */
       featurePatch?: string
@@ -674,7 +686,7 @@ export class LocalTui implements TuiService {
       promptRequest: () => this.#prompt?.request,
       finishPrompt: answer => { this.#finishPrompt(answer) },
     })
-    this.#pwd = shortenPath(project.root)
+    this.#pwd = shortenPath(this.#cwd)
     this.#branch = project.gitLabel
     this.#renderer = new MainScreenRenderer(
       { write: (chunk) => { this.#term.output.write(chunk) } },
@@ -725,7 +737,19 @@ export class LocalTui implements TuiService {
     this.#herdr.start()
   }
 
-  /** Refresh Git workspace metadata after a turn; the footer shows realtime branch/dirty state. */
+  /** Follow the viewed Session without replacing its transcript or native history. */
+  setWorkingDirectory(cwd: string): void {
+    if (cwd === this.#cwd && cwd === this.#projectRoot) return
+    this.#cwd = cwd
+    const project = resolveProjectContext(cwd)
+    this.#projectRoot = cwd
+    this.#pwd = shortenPath(cwd)
+    this.#branch = project.gitLabel
+    this.#refreshAutocomplete()
+    if (this.#tty) this.#render()
+  }
+
+  /** Refresh Git metadata without changing the Session's effective directory. */
   #refreshProjectContext(): void {
     const branch = refreshProjectContext(this.#cwd).gitLabel
     if (branch === this.#branch) return
@@ -806,6 +830,7 @@ export class LocalTui implements TuiService {
   setModel(model: string, reasoningEffort?: string): void {
     this.#model = model
     this.#reasoningEffort = reasoningEffort
+    if (this.#settings !== null) this.#settings = { ...this.#settings, actions: this.#settingsActions() }
     if (this.#tty) this.#render()
   }
 
@@ -911,9 +936,7 @@ export class LocalTui implements TuiService {
       candidate => candidate.kind === 'tool' && String(candidate.callId) === callId,
     )
     if (block?.kind !== 'tool') return undefined
-    // Reuse the card renderer so a decision explains the call the same way the
-    // transcript already does. The approval prompt renders its detail on one
-    // line, so the parts are joined here rather than handed over as rows.
+    // Keep the provider-owned presentation and input intact in the approval reader.
     const view = renderTool({
       name: block.name,
       arguments: block.args,
@@ -922,15 +945,9 @@ export class LocalTui implements TuiService {
       expanded: false,
       ...(block.presentation === undefined ? {} : { presentation: block.presentation }),
     })
-    const detail = view.summary === undefined || view.summary === ''
-      ? view.input.join(' ').replace(/\s+/gu, ' ').trim()
-      : ''
-    // A card with a summary already says what the call is. Without one the raw
-    // argument text is all there is, and its pretty-printed form would reduce to
-    // a lone brace on a single row, so the whole body is folded into one line.
-    return [view.title, view.summary, detail === '' ? undefined : detail]
+    return [view.title, view.summary, ...view.input]
       .filter((part): part is string => part !== undefined && part !== '')
-      .join(' · ')
+      .join('\n')
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
@@ -990,7 +1007,7 @@ export class LocalTui implements TuiService {
     return new Promise((resolve) => {
       const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
-      const pending: PendingPrompt = { request, selected, checked: new Set(), resolve, savedInput,
+      const pending: PendingPrompt = { request, selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
         ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query,
           documentWordWrap: request.documentPosition.wordWrap, documentColumn: request.documentPosition.column }),
         ...(request.documentTail === true && request.documentPosition?.following !== false ? { documentScroll: Number.POSITIVE_INFINITY } : {}) }
@@ -1102,6 +1119,7 @@ export class LocalTui implements TuiService {
           ...info.controls,
           ...(info.controls.plan === undefined ? {} : { plan: { ...info.controls.plan } }),
         }
+    if (this.#settings !== null) this.#settings = { ...this.#settings, actions: this.#settingsActions() }
     if (!this.#tty) return
     this.#syncWindowTitle()
     if (this.#reveal !== undefined && this.#motion !== 'off') return
@@ -1131,8 +1149,11 @@ export class LocalTui implements TuiService {
 
   /** Apply prefs loaded from this entry's config (does not persist). */
   applyStoredPrefs(prefs: TuiPrefs): void {
+    if (this.#disposed) return
+    this.#prefsVersion++
     this.#applyPrefs(prefs, { persist: false, forceToolsSync: true })
     if (this.#settings !== null) this.#settings = { ...this.#settings, prefs }
+    this.#refreshSettingsCatalog()
     if (this.#tty) this.#render()
   }
 
@@ -1167,11 +1188,11 @@ export class LocalTui implements TuiService {
   }
 
   /** Called after a live `/settings` change. */
-  setPrefsPersist(persist: (prefs: TuiPrefs) => void): void {
+  setPrefsPersist(persist: (prefs: TuiPrefs, changes?: readonly SettingsPathOp[]) => void): void {
     this.#persistPrefs = persist
   }
 
-  /** Bind the native Plugins section; unbinding cancels and drains its active form. */
+  /** Bind product configuration and Advanced forms; unbinding cancels and drains its active form. */
   bindPluginSettings(binding: PluginSettingsBinding): () => Promise<void> {
     if (this.#pluginSettings !== undefined) throw new Error('omdsh-tui: Plugin settings are already bound')
     this.#pluginSettings = binding
@@ -1180,7 +1201,7 @@ export class LocalTui implements TuiService {
       this.#pluginSettings = undefined
       this.#pluginSettingsAbort?.abort()
       await this.#pluginSettingsTask
-      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, undefined, discoverEditors(this.#externalEditor))
+      this.#rebuildSettings([])
       if (this.#tty && !this.#disposed) this.#render()
     }
   }
@@ -1201,7 +1222,7 @@ export class LocalTui implements TuiService {
       this.#updateAgentBehavior = undefined
       this.#agentBehavior = undefined
       this.#agentBehaviorPending = false
-      if (this.#settings !== null) this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor))
+      this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])
       if (this.#tty && !this.#disposed) this.#render()
     }
   }
@@ -1357,7 +1378,7 @@ export class LocalTui implements TuiService {
   }
 
   dispose(): Promise<void> {
-    if (this.#disposed) return this.#herdr.release()
+    if (this.#disposed) return this.#disposeTask ?? this.#herdr.release()
     this.#flushPasteBurst(true)
     this.#flushDraft()
     this.#disposed = true
@@ -1423,7 +1444,8 @@ export class LocalTui implements TuiService {
     this.#offAgentBehaviorWatch = undefined
     this.#settlePending(null)
     this.#finishPrompt(null)
-    return this.#herdr.release()
+    this.#disposeTask = Promise.all([this.#herdr.release(), this.#prefsSaveTask]).then(() => {})
+    return this.#disposeTask
   }
 
   /** Settle one pending read, detaching its abort listener. */
@@ -2303,6 +2325,13 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
+    if (prompt.request.presentation === 'progress') {
+      if (event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) {
+        this.#finishPrompt(null)
+        this.#render()
+      }
+      return true
+    }
     const takeTime = event.type === 'key' && event.id === 'ctrl+t'
     const editing = event.type === 'text' || (event.type === 'key'
       && ['backspace', 'delete', 'up', 'down', 'tab', 'shift+tab'].includes(event.id))
@@ -2324,8 +2353,8 @@ export class LocalTui implements TuiService {
         return true
       }
     }
-    if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true && this.#editor.text === '') {
-      this.#prompt = togglePromptSelection(prompt) as PendingPrompt
+    if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true) {
+      this.#prompt = togglePromptSelection(prompt, this.#editor.text) as PendingPrompt
       this.#render()
       return true
     }
@@ -2400,7 +2429,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
-    if (event.id === 'enter' && this.#editor.text === '') {
+    if (event.id === 'enter' && (this.#editor.text === '' || prompt.request.multiSelect === true)) {
       const answer = selectedPromptAnswer(prompt)
       if (prompt.request.multiSelect === true && answer === null) return true
       this.#finishPrompt(answer)
@@ -2643,6 +2672,8 @@ export class LocalTui implements TuiService {
   }
 
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
+    const previous = options.persist ? this.prefs() : undefined
+    const version = this.#prefsVersion
     const previousMotion = this.#motion
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
@@ -2670,7 +2701,28 @@ export class LocalTui implements TuiService {
       this.#reveal = undefined
     }
     this.#syncTick()
-    if (options.persist) this.#persistPrefs?.(prefs)
+    if (options.persist && this.#persistPrefs !== null) {
+      const failed = async (error: unknown): Promise<void> => {
+        if (this.#disposed) return
+        if (this.#prefsVersion === version && previous !== undefined) this.applyStoredPrefs(previous)
+        await this.#settingsError(`Settings were not saved: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      try {
+        const changes = previous === undefined ? [] : preferenceChanges(previous, prefs)
+        const result = changes.length === 0 ? undefined : this.#persistPrefs(prefs, changes)
+        if (result !== undefined && result !== null && typeof result === 'object' && typeof result.then === 'function') {
+          this.#prefsSaveTask = Promise.resolve(result).catch(failed).finally(() => { this.#prefsSaveTask = undefined })
+        }
+      } catch (error) {
+        this.#prefsSaveTask = failed(error).finally(() => { this.#prefsSaveTask = undefined })
+      }
+    }
+  }
+
+  async #settingsError(detail: string): Promise<void> {
+    if (this.#disposed) return
+    if (this.#settings === null) this.notice(detail, { level: 'error' })
+    else await showSettingsError(this, detail)
   }
 
   #applyStoredAgentBehavior(next: TuiAgentBehaviorSettings): void {
@@ -2691,10 +2743,7 @@ export class LocalTui implements TuiService {
       if (this.#settings !== null && this.#agentBehavior !== undefined) {
         this.#settings = { ...this.#settings, agent: { ...this.#agentBehavior } }
       }
-      this.notice(
-        `Could not save Agent language: ${error instanceof Error ? error.message : String(error)}`,
-        { level: 'error' },
-      )
+      await this.#settingsError(`Could not save Agent language: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       this.#agentBehaviorPending = false
       if (this.#tty && !this.#disposed) this.#render()
@@ -2702,35 +2751,47 @@ export class LocalTui implements TuiService {
   }
 
   /**
-   * Write the Features section's state into the Profile patch.
+   * Write the Tools feature controls' state into the Profile patch.
    *
    * `disabled` is a Loader option rather than plugin config, so the settings
    * service cannot express it; the Profile patch is the documented surface
    * that can, and the Harness reads it while composing the tree. Only the
    * managed block is rewritten, so hand-authored rows and comments survive.
-   * A failure is reported and the overlay keeps the value it shows.
+   * The displayed feature state changes only after the patch is written.
    */
-  #writeFeaturePatch(): void {
+  #writeFeaturePatch(features: FeatureStates): void {
     const path = this.#featurePatch
-    const features = this.#features
-    if (path === undefined || features === undefined) return
-    try {
-      let current = ''
-      try { current = readFileSync(path, 'utf8') } catch { current = '' }
-      mkdirSync(dirname(path), { recursive: true })
-      writeFileSync(path, replaceFeatureBlock(current, renderFeatureBlock(features)), 'utf8')
-    } catch (error) {
-      this.notice(`Feature toggles were not saved: ${error instanceof Error ? error.message : String(error)}`)
-      this.#render()
+    if (path === undefined) return
+    let current = ''
+    try { current = readFileSync(path, 'utf8') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, replaceFeatureBlock(current, renderFeatureBlock(features)), 'utf8')
   }
 
   #applySettings(event: KeyEvent): void {
     if (this.#settings === null) return
     if (this.#pluginSettingsTask !== undefined) return
     const command = applySettingsEvent(this.#settings, event)
+    if (command.kind === 'open-command') {
+      if (this.#prefsSaveTask === undefined) this.#runSlash(command.name)
+      return
+    }
+    if (command.kind === 'reset') {
+      if (this.#prefsSaveTask !== undefined) return
+      if (this.#pluginSettings?.reset === undefined) { void this.#settingsError('Restoring inheritance requires a writable Profile settings service.'); return }
+      this.#runPluginSettings((binding, signal) => binding.reset!(command.id, command.entry, signal, command.label))
+      return
+    }
     if (command.kind === 'open-plugin') {
-      this.#openPluginSettings(command.id)
+      if (this.#prefsSaveTask !== undefined) return
+      this.#runPluginSettings((binding, signal) => binding.edit(command.id, signal))
+      return
+    }
+    if (command.kind === 'set-plugin') {
+      if (this.#prefsSaveTask !== undefined) return
+      this.#runPluginSettings(async (binding, signal) => { await binding.set?.(command.entry, command.value, signal) })
       return
     }
     if (command.kind === 'update') {
@@ -2739,12 +2800,16 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.kind === 'apply') {
+      if (this.#prefsSaveTask !== undefined) return
       if (command.domain === 'features') {
         if (command.state.features === undefined) return
+        try { this.#writeFeaturePatch(command.state.features) } catch (error) {
+          void this.#settingsError(`Feature toggles were not saved: ${error instanceof Error ? error.message : String(error)}`)
+          return
+        }
         this.#settings = command.state
         this.#features = command.state.features
         this.#render()
-        this.#writeFeaturePatch()
         return
       }
       if (command.domain === 'agent') {
@@ -2766,19 +2831,22 @@ export class LocalTui implements TuiService {
     }
   }
 
-  #openPluginSettings(id: string): void {
+  #runPluginSettings(operation: (binding: PluginSettingsBinding, signal: AbortSignal) => Promise<void>): void {
     const binding = this.#pluginSettings
     if (binding === undefined) return
     const closing = new AbortController()
+    const selected = this.#settings === null ? undefined : tuiSettingItems(this.#settings.prefs, this.#settings.agent, this.#settings.features, this.#settings.plugins, this.#settings.editors, this.#settings.actions)[this.#settings.selected]?.id
+    this.#catalogVersion++
     this.#pluginSettingsAbort = closing
-    this.#pluginSettingsTask = Promise.resolve().then(() => binding.edit(id, closing.signal)).catch((error: unknown) => {
-      if (!closing.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-    }).finally(() => {
+    this.#pluginSettingsTask = Promise.resolve().then(() => operation(binding, closing.signal)).catch(async (error: unknown) => {
+      if (closing.signal.aborted || this.#disposed) return
+      const detail = error instanceof Error ? error.message : String(error)
+      await showSettingsError(this, detail, closing.signal)
+    }).finally(async () => {
+      const entries = await this.#pluginSettings?.refresh?.().catch(() => this.#pluginSettings?.entries() ?? []) ?? this.#pluginSettings?.entries() ?? []
       this.#pluginSettingsAbort = undefined
       this.#pluginSettingsTask = undefined
-      if (this.#settings !== null) this.#settings = { ...this.#settings, prefs: this.prefs(),
-        ...(this.#agentBehavior === undefined ? {} : { agent: this.#agentBehavior }),
-        ...(this.#features === undefined ? {} : { features: this.#features }), plugins: this.#pluginSettings?.entries() ?? [] }
+      if (!this.#disposed) this.#rebuildSettings(entries, selected)
       if (this.#tty && !this.#disposed) this.#render()
     })
   }
@@ -3116,6 +3184,7 @@ export class LocalTui implements TuiService {
 
   #submit(text: string): void {
     if (this.#prompt !== null) {
+      if (this.#prompt.request.presentation === 'progress') return
       this.#editor.setText('')
       const answer = this.#prompt.request.preserveWhitespace === true ? text : text.trim()
       this.#finishPrompt(answer.trim() === '' ? null : answer)
@@ -3400,8 +3469,34 @@ export class LocalTui implements TuiService {
     }
     this.#search = null
     this.#ac = null
-    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor))
+    this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor), this.#settingsActions())
+    this.#refreshSettingsCatalog()
     this.#render()
+  }
+
+  #settingsActions(): SettingItem[] {
+    return [
+      { id: 'command:model', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
+      { id: 'command:permission', label: 'Access', description: 'Open /permission to choose access for this session.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
+      { id: 'command:agent', label: 'Agent preset', description: 'Open /agent to choose the session Agent preset.', value: this.#sessionControls?.agentPreset ?? 'Choose', values: [], action: 'agent' },
+    ].filter(item => this.#runtimeCommands.some(command => command.name === item.action))
+  }
+
+  #refreshSettingsCatalog(): void {
+    const binding = this.#pluginSettings
+    if (this.#settings === null || binding?.refresh === undefined || this.#disposed) return
+    const version = ++this.#catalogVersion
+    void binding.refresh().then(entries => {
+      if (version !== this.#catalogVersion || binding !== this.#pluginSettings || this.#settings === null || this.#disposed) return
+      this.#rebuildSettings(entries)
+      this.#render()
+    }).catch(() => {})
+  }
+
+  #rebuildSettings(entries: readonly PluginSettingsEntry[], focus?: string): void {
+    if (this.#settings === null || this.#disposed) return
+    this.#settings = refreshSettings(this.#settings, createSettings(this.prefs(), focus, this.#agentBehavior, this.#features,
+      entries, discoverEditors(this.#externalEditor), this.#settingsActions()))
   }
 
   #notice(text: string): void {
@@ -3835,16 +3930,30 @@ export function apply(ctx: Context, config: Config): void {
   // Persistence needs the settings service; without one the provider still runs
   // and an in-app change stays session-local, as it did before.
   ctx.inject(['settings'], (settingsCtx) => {
-    tui.setPrefsPersist((prefs) => {
-      const ops: SettingsPathOp[] = Object.entries(prefs).map(([key, value]) => ({ op: 'set', path: [key], value }))
-      void settingsCtx.settings.mutate(TUI_SETTINGS_ENTRY, ops)
-        .catch((error: unknown) => { settingsCtx.logger.warn(error) })
+    tui.setPrefsPersist((_prefs, changes) => {
+      return settingsCtx.settings.mutate(TUI_SETTINGS_ENTRY, [...changes ?? []])
+        .catch((error: unknown) => { tui.applyStoredPrefs(storedPrefs()); throw error })
     })
   })
   ctx.inject(['settings', 'credentials'], (settingsCtx) => {
-    settingsCtx.effect(() => tui.bindPluginSettings({
-      entries: () => pluginSettingsEntries(settingsCtx),
-      edit: (id, signal) => editPluginSettings(settingsCtx, id, signal),
-    }))
+    settingsCtx.effect(() => {
+      let bundles: readonly BundleInfo[] | undefined
+      let inventoryVersion = 0
+      return tui.bindPluginSettings({
+        entries: () => pluginSettingsEntries(settingsCtx, bundles),
+        refresh: async () => {
+          const version = ++inventoryVersion
+          const fresh = await settingsCtx.get('pluginManager')?.listBundles()
+          if (version === inventoryVersion) bundles = fresh
+          return pluginSettingsEntries(settingsCtx, fresh)
+        },
+        edit: (id, signal) => editSettingsEntry(settingsCtx, id, signal),
+        set: (entry, value, signal) => setSettingsEntry(settingsCtx, entry, value, signal),
+        reset: async (id, entry, signal, label) => {
+          await resetSettingsControl(settingsCtx, id, entry, signal, label)
+          tui.applyStoredPrefs(storedPrefs())
+        },
+      })
+    })
   })
 }

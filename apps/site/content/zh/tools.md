@@ -13,6 +13,16 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 | `bash` / `pwsh` | 在宿主对应的受限 shell 中执行一次性命令。调用带有 120 秒超时；模型可以按调用提高限制，或改为后台运行。 |
 | `terminal_open`、`terminal_send`、`terminal_read`、`terminal_signal`、`terminal_close`、`terminal_list` | 持久终端会话，跨调用保留 cwd、环境与交互式子进程。 |
 
+## 工作目录
+
+`working_directory` 读取当前目录，也可以用 `cd` 切换到已存在的目录。后续文件操作、新启动的 shell、文件补全与底部路径跟随该目录。会话仍按原始项目归类并沿用已有权限；切换目录不会扩大 Access，也不会移动已经运行的终端。Minimal 保持双工具目录。
+
+## Git worktree
+
+在 `/plugins` → Bundles 启用 `@deepseek-ai/dsh-experimental-tool-worktree`，模型即可使用 `create_worktree`。bundle 随 omdsh 提供，默认关闭；Minimal 仍限制其模型工具。`/worktree` 可从本地 revision 创建 checkout、进入已有注册 checkout，或用 `/worktree return` 返回会话原始目录。对话、原始项目和 Access 保持不变，文件操作、新 shell 和状态栏跟随当前目录。
+
+创建需要同一执行环境中的 Git 2.45 或更高版本及 Node。它只检出已提交的文件，跳过配置的 Git filter，不初始化 submodule 或安装依赖；源 checkout 的改动留在原处。离开、禁用 bundle 或取消创建都不会自动删除分支或文件，失败也可能留下部分产物。请明确返回，并检查保留的产物后再用 Git 管理它们。
+
 ## 文件与搜索
 
 `read`、`write`、`edit` 与 `str_replace_editor` 处理文件内容，`grep` 与 `glob` 搜索工作区。可写工具遵守会话的 Access preset，沙箱之外的写操作返回[权限与 Access](permissions.md)中描述的共享拒绝。超过上下文预算的结果会溢写到私有文件，转录中只保留有界预览；原始内容仍可用 `read` 或 `grep` 读取。
@@ -44,6 +54,8 @@ omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T`
 ## 委派
 
 `subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理，`workflow_run` 用脚本把工作扇出到多个子代理。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
+
+`consult_advisor` 在用户要求第二意见时，基于明确的问题与文本上下文获取 Codex 或 Claude Code 的意见。它返回带来源的建议供主模型独立判断，并使用独立的文件系统隔离。调用产生原生模型费用；Settings 可关闭模型咨询。设置与限制见[独立咨询](subagents.md#独立咨询)。
 
 ## 相关
 

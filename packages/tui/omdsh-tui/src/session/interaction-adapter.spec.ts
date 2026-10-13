@@ -33,7 +33,7 @@ describe('approvalDetail', () => {
   it('puts the rendered call before the asker explanation', () => {
     const tui = { toolCallContext: (callId: string) => callId === 'call-1' ? 'bash · rm -rf build' : undefined }
     expect(approvalDetail(tui as unknown as TuiService, request({ callId: 'call-1', reason: 'outside the workspace' })))
-      .toEqual({ detail: 'bash · rm -rf build · outside the workspace' })
+      .toEqual({ detail: 'bash · rm -rf build\n\noutside the workspace' })
   })
 
   it('falls back to the reason alone when the call did not stream', () => {

@@ -25,15 +25,45 @@ describe('runtime plugin management', () => {
 import assert from 'node:assert/strict'
 import { appendFileSync } from 'node:fs'
 import { runOmdsh } from ${JSON.stringify(pathToFileURL(join(appRoot, 'src', 'boot.ts')).href)}
+import { pluginSettingsEntries, setSettingsEntry } from ${JSON.stringify(pathToFileURL(join(appRoot, '../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts')).href)}
 const { ctx, shutdown } = await runOmdsh([])
 try {
   assert.ok(ctx.get('hmr'), 'HMR activated')
   const manager = ctx.pluginManager
+  const forms = pluginSettingsEntries(ctx)
+  assert.ok(!forms.some(row => ['tui', 'agent-behavior', 'llm-deepseek', 'llm-pi-ai'].includes(row.id)), 'dedicated and automatic-form-disabled settings stay out of Advanced')
+  assert.equal(forms.find(row => row.id === 'advisor').section, 'integrations')
+  assert.equal(forms.find(row => row.id === (process.platform === 'win32' ? 'pwsh' : 'bash')).label, 'Shell')
+  assert.equal(ctx.get('translator'), undefined)
+  assert.ok(![...ctx.loader.entries()].some(entry => entry.options.id === 'tui-command-reasoning'), 'retired reasoning plugin is not mounted')
+  assert.ok(!forms.some(row => row.namespace === 'tui-command-reasoning'), 'retired reasoning settings are absent')
+  assert.equal(forms.find(row => row.id === 'subagent').section, 'agent')
+  assert.equal(forms.find(row => row.id === 'integration:codex').section, 'integrations')
+  const advisor = ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'advisor')
+  await setSettingsEntry(ctx, forms.find(row => row.id === 'advisor'), 'false', new AbortController().signal)
+  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'Off')
+  const changedAdvisor = ctx.settings.describe().find(row => row.ns === advisor.ns)
+  assert.equal(changedAdvisor.value.allowModelConsultations, false)
+  await ctx.settings.mutate(advisor.ns, [{ op: 'unset', path: ['allowModelConsultations'] }], changedAdvisor.revision)
   const bundles = await manager.listBundles()
   assert.equal(bundles.find(row => row.name === '@agi-fans/oh-my-dsh').readOnlyReason, 'management-required')
+  for (const name of ['@deepseek-ai/dsh-subagent-codex', '@deepseek-ai/dsh-subagent-claude-code']) {
+    const bundle = bundles.find(row => row.name === name)
+    assert.equal(bundle.availability, 'installation', name + ' ships with omdsh')
+    assert.equal(bundle.enabled, false, name + ' starts disabled')
+    assert.equal(bundle.removable, false, name + ' is installation-owned')
+    assert.equal((await manager.setBundleEnabled(name, true)).application, 'applied')
+    assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, true)
+    assert.equal((await manager.setBundleEnabled(name, false)).application, 'applied')
+    assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, false)
+  }
   const installed = await manager.installBundle(${JSON.stringify(bundle)})
   assert.equal(installed.application, 'applied', JSON.stringify(installed))
   assert.equal(ctx.get('omdshRuntimeProbe'), true)
+  const refreshed = (await manager.listBundles()).find(row => row.name === 'omdsh-runtime-probe')
+  assert.equal(refreshed.availability, 'profile', 'installed bundle is immediately readable')
+  assert.equal(refreshed.installed, true)
+  assert.equal(refreshed.enabled, true)
   assert.equal((await manager.setBundleEnabled('omdsh-runtime-probe', false)).application, 'applied')
   assert.equal(ctx.get('omdshRuntimeProbe'), undefined)
   assert.equal((await manager.setBundleEnabled('omdsh-runtime-probe', true)).application, 'applied')

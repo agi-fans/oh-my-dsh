@@ -8,7 +8,7 @@
  */
 
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
+import type { SubagentCatalogEntry, SubagentRunInfo, SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentRoster } from '../definition.ts'
 import { SubagentRoster } from './subagent-roster.ts'
 
@@ -32,6 +32,7 @@ export class SubagentTracker {
   readonly #roster = new SubagentRoster()
   #published: TuiSubagentRoster | undefined
   #epoch = 0
+  readonly #externalRuns = new Map<string, SubagentRunInfo | SubagentRunEndInfo>()
 
   constructor(deps: SubagentTrackerDeps) {
     this.#deps = deps
@@ -51,6 +52,7 @@ export class SubagentTracker {
   reset(): void {
     this.#epoch += 1
     this.#roster.reset()
+    this.#externalRuns.clear()
   }
 
   /** Remember a freshly created session when it descends from the root. */
@@ -100,6 +102,15 @@ export class SubagentTracker {
     this.#publish()
   }
 
+  /** External executions have lifecycle edges, but no local Agent or transcript. */
+  noteExternalRun(info: SubagentRunInfo | SubagentRunEndInfo): void {
+    if (info.local || !this.#roster.owns(info.id)) return
+    this.#externalRuns.set(info.id, info)
+    this.#roster.setAgentStatus(info.id, 'stopReason' in info ? 'gone' : 'running',
+      'stopReason' in info && info.stopReason !== 'completed' && info.stopReason !== 'aborted')
+    this.#publish()
+  }
+
   /**
    * Rebuild the roster around the active root: live sessions hydrate from
    * their own events, then the durable catalog lists children that are not
@@ -132,8 +143,10 @@ export class SubagentTracker {
           // A listing may declare that it does not know the child's mode.
           ...(entry.mode === 'unknown' ? {} : { mode: entry.mode }),
           ...(entry.label === undefined ? {} : { label: entry.label }),
-          phase: this.#deps.agentStatus(entry.id) === 'running' ? 'running' : 'waiting',
+          phase: this.#deps.agentStatus(entry.id) === 'running' ? 'running' : entry.mode === 'external' ? 'completed' : 'waiting',
         })
+        const external = this.#externalRuns.get(entry.id)
+        if (entry.mode === 'external' && external !== undefined) this.noteExternalRun(external)
       }
       this.#publish()
     }, () => undefined)

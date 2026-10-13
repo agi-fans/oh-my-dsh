@@ -1,16 +1,15 @@
-/** Interactive selectors for the independent Agent and Workflow concepts. */
+/** Agent composition selection and diagnostics. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '../runtime/session-runtime.ts'
-import { formatAgentPreset } from '../session/session-configuration.ts'
+import { isBlankSession, formatAgentPreset } from '../session/session-configuration.ts'
 import { registerCommands } from './registration.ts'
 import type { AgentPresetRegistry } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 export const name = 'omdsh-command-session-configuration'
-export const inject = ['commands', 'omdshSession', 'tui', 'agentPresets', 'planMode']
+export const inject = ['commands', 'omdshSession', 'tui', 'agentPresets']
 
 async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const args = invocation.rawInput.trim().split(/\s+/u)
@@ -18,6 +17,9 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'success', text: await presetDiagnostics(ctx.agentPresets, invocation.agent, args[1]) }
   }
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /agent [inspect [preset-id]]' }
+  if (!isBlankSession(invocation.agent.session)) {
+    return { kind: 'success', text: 'The Agent preset is fixed for this conversation. Start /new to choose a different preset before sending a message. Use /agent inspect to view its composition.' }
+  }
   const controls = ctx.omdshSession.controls(invocation.agent)
   const presets = await ctx.omdshSession.agentPresets()
   if (presets.length === 0) return { kind: 'error', text: 'No Agent presets are configured.' }
@@ -70,32 +72,8 @@ export async function presetDiagnostics(registry: AgentPresetRegistry, agent: Ag
   ].join('\n')
 }
 
-async function selectWorkflow(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /workflow' }
-  const state = ctx.planMode.get(invocation.agent)
-  const current = state.pending ?? state.active
-  const selected = await ctx.tui.prompt({
-    title: 'Workflow',
-    question: 'Choose how this session approaches the next step',
-    options: [
-      { label: 'Default', value: 'default', description: `${current ? '' : 'Current · '}Work directly on the request.` },
-      { label: 'Plan', value: 'plan', description: `${current ? 'Current · ' : ''}Explore and present a reviewable plan before implementation.` },
-    ],
-    initialValue: current ? 'plan' : 'default',
-    allowCustom: false,
-    submitLabel: 'apply',
-    signal: invocation.signal,
-  })
-  if (selected === null) return { kind: 'success' }
-  const active = selected === 'plan'
-  const outcome = ctx.omdshSession.changeWorkflow(invocation.agent, active)
-  const suffix = outcome === 'queued' ? ' (next step)' : ''
-  return { kind: 'success', text: `Workflow: ${active ? 'Plan' : 'Default'}${suffix}` }
-}
-
 export function apply(ctx: Context): void {
   registerCommands(ctx, [
     { name: 'agent', description: 'Choose the session Agent preset', handler: invocation => selectAgent(ctx, invocation) },
-    { name: 'workflow', description: 'Choose Default or Plan workflow', handler: invocation => selectWorkflow(ctx, invocation) },
   ], 'omdsh session configuration commands')
 }

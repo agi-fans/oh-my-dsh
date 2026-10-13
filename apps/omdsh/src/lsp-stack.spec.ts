@@ -17,6 +17,9 @@ import LocalSubprocess from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const fixture = fileURLToPath(new URL('./fixtures/fake-lsp-server.mjs', import.meta.url))
@@ -86,6 +89,9 @@ describe('composed language-server stack', () => {
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(LocalSubprocess)
       await ctx.plugin(SystemPrompt)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjections)
+      await ctx.plugin(WorkingDirectory)
       await ctx.plugin(ToolRuntime)
       await ctx.plugin(Lsp)
       await ctx.plugin(LspStdio, {

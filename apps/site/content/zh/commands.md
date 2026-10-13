@@ -4,7 +4,9 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 # 命令
 
-在 composer 中输入 `/` 即可浏览实时命令目录并查看参数提示；输入 `/help` 可以查看命令列表与常用快捷键（`/help full` 会补全完整键盘目录）。命令目录由当前挂载的插件组成，因此 Skills 与用户插件包贡献的命令会和内置命令一起出现。`/help` 会把 TUI 自身处理的命令列为 terminal commands，把 Harness 组合提供的命令列为 agent commands。
+命令补全优先展示常用操作，可按名称、别名与描述关键词查找。`/help` 按任务分组；第三方插件命令仍可发现。
+
+在 composer 中输入 `/` 即可浏览实时命令目录并查看参数提示；输入 `/help` 可以查看命令列表与常用快捷键（`/help full` 会补全完整键盘目录）。命令目录由当前挂载的插件组成，因此 Skills 与用户插件包贡献的命令会和内置命令一起出现。`/help` 按用户任务分组展示目录，包括扩展命令。
 
 `[方括号]` 表示可选参数，`|` 表示多选一。带选择器的命令不需要参数。
 
@@ -26,11 +28,10 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | 命令 | 作用 |
 |---|---|
 | `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；不可用的 preset 会显示失败原因。`/agent inspect [preset-id]` 查看声明及当前会话保留的 composition。`code`（PTC）preset 把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
-| `/workflow` | 选择 Default 或 Plan workflow。 |
 | `/permission` | 选择会话 Access 级别：Read only、Workspace write 或 Full access。 |
 | `/login` | 登录 provider：目录条目、API key，或自定义 provider（自带 id、base URL、协议与模型 id）。 |
 | `/logout` | 移除由 omdsh 管理的 provider 选择。 |
-| `/settings` | 打开外观、Agent、功能、状态栏和插件设置。别名：`/set`。 |
+| `/settings` | 打开 Interface、Agent、Tools、Integrations、Status line 与 Advanced 设置。别名：`/set`。 |
 | `/plugins` | 查看 Profile 插件和 bundle，启用、停用、安装或移除。安装可在应用前取消。 |
 
 ### `/model`
@@ -64,9 +65,11 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 |---|---|
 | `/context` | 在转录中打印基于 projection 的上下文用量分解，内容会保留在转录里。 |
 | `/trajectory` | 打开事件账本：Turn 与 Step 分组、实时跟随、搜索、折叠、耗时、Token 用量与工具载荷。需要交互式终端。 |
+| `/advisor [codex\|claude <question>]` | 向已安装的原生顾问请求独立意见。不带参数时可选择 provider、输入问题与可选文本上下文。见[子智能体与委派](subagents.md#独立咨询)。 |
 | `/diff [path\|turn [number]]` | 交互模式逐文件查看当前 Git 改动；`turn` 查看保留的回合快照，不带编号时取最近一次。非交互模式保留文字汇总；不会暂存或提交。 |
+| `/review` | 选择当前改动、本地基准分支或单个提交，确认后向当前 Agent 发起审查请求。要求输出带文件与行号的发现，不实施修复；沿用当前 Access 与 Plan 状态。 |
 | `/tools` | 列出 agent 可见的工具。 |
-| `/mcp` | 显示已连接的 MCP 服务器及其工具。 |
+| `/mcp` | 在可滚动阅读页中查看 MCP 插件注册与可用工具；不验证连接健康状态或认证。 |
 | `/feedback <text>` | 记录一条关于当前会话的私密备注。它追加一条模型永远看不到的 log-only 事件——不离开本机——并确认会话与匿名用户 id。 |
 
 ## 文件与终端
@@ -77,6 +80,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/attach [path]` | 流式保存文件，并把引用暂存到 composer；不带路径时询问路径，不会直接发送消息。 |
 | `/attachments` | 预览或通过外部应用打开本会话用户消息中的原始文件和图片附件。 |
 | `/terminal [terminal-id]` | 打开本会话的持久终端控制台，或使用会话 sandbox 新建 shell。 |
+| `/worktree [return]` | 浏览并切换 Git worktree。在 `/plugins` 启用 Git Worktrees bundle 后可创建 checkout；`return` 回到会话的原始目录。 |
 
 文件文档支持方向键、PgUp/PgDn 和 Home/End 滚动。`N`/`P` 切换文件，`V` 切换 diff/预览，`O` 打开原件；`E` 使用 Settings 中选定的编辑器。Esc 返回选择器。源码视图分别保留每个文件和 Diff 的阅读位置与搜索词，从编辑器返回后也会恢复。外部编辑器临时接管真实终端，返回后 omdsh 恢复 raw input。
 
@@ -86,7 +90,7 @@ PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attachments` 收录
 
 代码预览使用 Prism 语法高亮，颜色跟随所选终端主题。语言根据文件名识别，包括 `Dockerfile` 和 `Makefile`。Markdown 文件默认显示带行号的源码，按 `M` 切换源码与渲染视图；搜索和行号跳转在源码视图中使用。高亮预算内的跨行注释和字符串保留各自的语法颜色，大型预览回退为普通文本。未知语言保持普通文本，关闭颜色后保留源码内容。
 
-用 Tab 或左右方向键选择文档按钮，再按 Enter 执行；`›` 标出当前选项。字母快捷键大小写均可。`/files` 预览包含同目录文件，供 Previous／Next 切换；只有一个文件时隐藏这两个按钮。`F` 返回文件列表。Open 使用系统默认应用；Editor 使用 `/settings` 的 **General → Editor** 设置，默认自动探测已安装的编辑器。在编辑器中保存并关闭文件即可返回 omdsh。操作失败和外部打开的确认会留在预览页，文件导航不会发送需要关注的通知。
+用 Tab 或左右方向键选择文档按钮，再按 Enter 执行；`›` 标出当前选项。字母快捷键大小写均可。`/files` 预览包含同目录文件，供 Previous／Next 切换；只有一个文件时隐藏这两个按钮。`F` 返回文件列表。Open 使用系统默认应用；Editor 使用 `/settings` 的 **Interface → Editor** 设置，默认自动探测已安装的编辑器。在编辑器中保存并关闭文件即可返回 omdsh。操作失败和外部打开的确认会留在预览页，文件导航不会发送需要关注的通知。
 
 `/attach` 显示文件标记与字节数回执；删除标记即可移除草稿附件。补充消息后按 Enter 一起发送，也支持只发文件。排队消息和回退会保留文件引用。带文件的草稿把斜杠开头的文字作为模型消息，而不是执行命令。Ctrl+C 取消附件操作；取消后不会暂存草稿。
 

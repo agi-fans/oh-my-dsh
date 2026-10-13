@@ -9,7 +9,7 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 每个会话都是一份持久 JSONL 日志，存放在 `$OMDSH_HOME/sessions`，回退到 `$DSH_HOME`，再到 `~/.dsh`。日志是回放、projection 与搜索的事实来源。
 
 - `omdsh --resume <session-id>` 可以从 shell 重新打开会话；第二次按 `Ctrl+C` 时，如果会话可恢复，omdsh 会打印带 id 的这条命令。
-- `/resume` 打开可搜索的选择器，显示最近一条人类消息的预览、时间、事件数与完成状态；`/resume <session-id>` 直接跳过选择器。
+- `/sessions` 打开会话库，显示消息预览、时间、事件数与完成状态；无参数的 `/resume` 兼容打开同一会话库，`/resume <session-id>` 直接跳过选择器。`Alt+S` 搜索持久消息正文，搜索结果也支持重命名、标记与归档；`Alt+L` 返回全部会话。
 - `/new` 新建干净会话，而不是从当前会话分叉。
 - `/retry` 把最近一条人类提示作为新回合再次提交。
 - 连按两次 `Esc` 或运行 `/tree` 打开 Session Tree，浏览当前对话的回合与分支。选中节点只预览内容；在 Turn 上按 Enter 会从该消息之前创建分支并恢复提示，在分支节点上按 Enter 或使用 `Alt+Enter` 则从该分支的最新状态继续。
@@ -44,7 +44,7 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 
 ## 磁盘上的日志
 
-会话文件可能经过压缩并带有完整性校验，请不要手工修改；请继续使用 omdsh 打开这些旧会话。旧版本写入的日志会在该会话被写入时迁移，并在升级后的首次启动由后台任务按会话格式迁移一次，发布一个带版本名的后继文件（`session.v4.jsonl[.zstd]`），前驱文件保持不变。启动时会有一条提示，说明本次迁移了多少个会话。
+会话文件可能经过压缩并带有完整性校验，请不要手工修改。启动和浏览 Session Library 不会迁移历史日志。列表用 `migration required` 标记它们，有缓存时显示旧标题，否则显示会话 ID。交互式 `/resume`、从列表或搜索结果选中旧会话时，会先询问是否迁移；接受后发布一个带版本名的后继文件（`session.v4.jsonl[.zstd]`），前驱文件保持不变，取消则不打开该会话。`omdsh --resume <session-id>` 和行输入模式的 `/resume <session-id>` 明确激活并迁移指定会话，不增加交互确认。重命名等其他明确写入操作也可能迁移所选日志。
 
 最初使用 v0.5.0 至 v0.11.0 创建的会话可能包含私有的 `omdsh/tools-selected` 事件：当前 omdsh 可以识别并恢复它们，但未经扩展的 DSH 持久化读取器会拒绝该日志。v0.12.0 及更高版本创建的会话不再写入该事件，因此新建会话可被原版 DSH 持久化读取。
 
@@ -60,8 +60,7 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 | `omdsh/keybindings.json` | 应用级键位覆盖。 |
 | `omdsh/model-favorites.json` | `Ctrl+P` 与 `Alt+P` 使用的收藏模型循环。 |
 | `omdsh/session-library.json` | 会话置顶、归档状态与本地树节点标记。 |
-| `omdsh/recent-sessions.json` | 跨启动复用的会话库标签；删除后下次启动会重新读取每个存储日志。 |
-| `omdsh/sessions-upgraded.json` | 记录已存日志已迁移到的会话格式。 |
+| `omdsh/recent-sessions.json` | 跨启动复用的会话库标签；删除后重新读取当前格式日志，历史日志仍只按 header 展示。 |
 | `sessions-query.sqlite` | 会话内容搜索使用的派生全文索引；删除后会在下次搜索时重建。 |
 | `profiles/omdsh/` | 由 `omdsh plugin` 管理的用户插件 Profile，其中包括持久化设置的 `cordis.patch.yml`。 |
 

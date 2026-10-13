@@ -30,7 +30,7 @@ A version mismatch, a bundle without a `dsh.bundle.patch` declaration, or an unr
 
 ## Updates and notifications
 
-The daily update check only reports a newer npm version; it never installs one. Post-upgrade release notes, the update check, and terminal notifications are configured in `/settings` → General. See [Settings](settings.md).
+The daily update check only reports a newer npm version; it never installs one. Post-upgrade release notes, the update check, and terminal notifications are configured in `/settings` → Interface. See [Settings](settings.md).
 
 ## Piped input
 

@@ -4,6 +4,7 @@ import {
   applySettingsEvent,
   createSettings,
   renderSettings,
+  refreshSettings,
   tuiSettingItems,
   type TuiPrefs,
 } from './settings-list.ts'
@@ -18,7 +19,109 @@ const key = (id: string): KeyEvent => ({ type: 'key', id })
 const prefs = { theme: 'dark' as const, colors: true }
 const agent = { language: 'auto' as const }
 
+describe('settings search and inheritance', () => {
+  const entries = [{ id: 'bash', label: 'Shell', description: 'Timeouts', section: 'tools' as const, fields: ['timeoutMs'], keywords: ['maxOutputBytes'] },
+    { id: 'advisor', label: 'Advisor model calls', description: 'Manual advisor remains available', section: 'integrations' as const }]
+  const update = (state: ReturnType<typeof createSettings>, event: KeyEvent) => {
+    const command = applySettingsEvent(state, event)
+    if (command.kind !== 'update') throw new Error(`Expected search update, got ${command.kind}`)
+    return command.state
+  }
+
+  it.each([false, true])('searches field keywords across categories and restores the original row (color=%s)', color => {
+    const start = createSettings(prefs, 'colors', agent, undefined, entries)
+    const state = update(start, { type: 'text', value: 'maxOutputBytes' })
+    expect(applySettingsEvent(state, key('enter'))).toEqual({ kind: 'open-plugin', id: 'bash' })
+    for (const width of [32, 80, 160]) {
+      const frame = renderSettings(state, createTheme(color), width, 20)
+      expect(frame.lines.join('\n')).toContain('Shell')
+      expect(frame.lines.join('\n')).not.toContain('Advisor model calls')
+      expect(frame.lines).toHaveLength(20)
+      expect(frame.lines.every(row => visibleWidth(row) <= width)).toBe(true)
+    }
+    const cleared = update(state, key('escape'))
+    expect(cleared.search).toBe('')
+    const browsing = update(cleared, key('escape'))
+    expect(browsing.search).toBeUndefined()
+    expect(browsing.selected).toBe(start.selected)
+    expect(applySettingsEvent(browsing, key('escape'))).toEqual({ kind: 'close' })
+  })
+
+  it('keeps the query and selected identity through catalog insertion and refresh', () => {
+    const state = update(createSettings(prefs, undefined, agent, undefined, entries), { type: 'text', value: 'Shell' })
+    const next = refreshSettings(state, createSettings(prefs, undefined, agent, undefined,
+      [{ id: 'child-models', label: 'Subagent models', description: '', section: 'agent' }, ...entries]))
+    expect(next.search).toBe('Shell')
+    expect(applySettingsEvent(next, key('enter'))).toEqual({ kind: 'open-plugin', id: 'bash' })
+    expect(update(next, key('tab')).search).toBeUndefined()
+  })
+
+  it('handles grapheme deletion and blocks editing an empty result', () => {
+    const state = update(createSettings(prefs), { type: 'text', value: '中文🐳e\u0301' })
+    expect(update(state, key('backspace')).search).toBe('中文🐳')
+    expect(update(state, key('ctrl+u')).search).toBe('')
+    for (const id of ['enter', 'left', 'right', 'ctrl+r']) expect(applySettingsEvent(state, key(id))).toEqual({ kind: 'ignore' })
+    expect(renderSettings(state, theme, 40, 12).lines.join('\n')).toContain('No matching settings')
+  })
+
+  it('exposes narrow-screen section navigation, dependencies, reset and existing command links', () => {
+    const start = createSettings(prefs, 'notificationFocus', agent, undefined, entries)
+    const frame = renderSettings(start, theme, 40, 20).lines.join('\n')
+    expect(frame).toContain('1/5')
+    expect(frame).toContain('Tab sections')
+    expect(frame).toContain('Inactive while Notifications is')
+    expect(applySettingsEvent(start, key('ctrl+r'))).toEqual({ kind: 'reset', id: 'notificationFocus', label: 'Notify when' })
+    const action = { id: 'command:model', label: 'Model and reasoning', description: 'Session route', value: 'm', values: [], action: 'model' }
+    expect(applySettingsEvent(createSettings(prefs, action.id, agent, undefined, [], undefined, [action]), key('enter')))
+      .toEqual({ kind: 'open-command', name: 'model' })
+    expect(applySettingsEvent(createSettings(prefs, 'statusReset'), key('enter')))
+      .toEqual({ kind: 'reset', id: 'statusReset', label: 'Restore layout' })
+  })
+})
+
 describe('tuiSettingItems / applySettingValue', () => {
+  it.each([false, true])('shows schema choices and dispatches inline edits without copying preferences (color=%s)', color => {
+    const entry = { id: 'advisor', label: '咨询 🐳', description: 'Inherited', section: 'integrations' as const, namespace: 'advisor',
+      inline: { path: ['allowModelConsultations'], revision: 7, value: 'On', choices: [{ label: 'On', value: 'true' }, { label: 'Off', value: 'false' }] } }
+    const state = createSettings(prefs, 'plugin:advisor', undefined, undefined, [entry])
+    for (const event of [key('left'), key('right'), { type: 'text' as const, value: ' ' }]) {
+      expect(applySettingsEvent(state, event)).toEqual({ kind: 'set-plugin', entry, value: 'false' })
+    }
+    expect(applySettingsEvent(state, key('enter'))).toEqual({ kind: 'open-plugin', id: 'advisor' })
+    expect(state.prefs).toEqual(prefs)
+    expect(state.plugins?.[0]?.inline?.value).toBe('On')
+    for (const width of [32, 80, 160]) {
+      const rendered = renderSettings(state, createTheme(color), width, 20)
+      expect(rendered.lines.join('\n')).toContain('On')
+      expect(rendered.lines.every(row => visibleWidth(row) <= width)).toBe(true)
+    }
+    entry.inline.choices = []
+    expect(applySettingsEvent(state, key('right'))).toEqual({ kind: 'ignore' })
+  })
+  it.each([false, true])('groups owned forms beside product settings and bounds section navigation (color=%s)', color => {
+    const plugins = [
+      { id: 'advisor', label: 'Advisor', description: 'Consultations', section: 'integrations' as const },
+      { id: 'child-models', label: 'Subagent models', description: 'Child model selection', section: 'agent' as const },
+      { id: 'parallel', label: 'Tool parallelism', description: 'Concurrency', section: 'agent' as const },
+      { id: 'shell', label: 'Shell', description: 'Timeout', section: 'tools' as const },
+      { id: 'custom', label: 'Custom plugin', description: 'Advanced' },
+    ]
+    const categories = [['parallel', 'Agent'], ['child-models', 'Agent'], ['shell', 'Tools'], ['advisor', 'Integrations'], ['custom', 'Advanced']]
+    for (const [id, label] of categories) {
+      const state = createSettings(prefs, `plugin:${id}`, agent, defaultFeatureStates(), plugins)
+      expect(applySettingsEvent(state, key('enter'))).toEqual({ kind: 'open-plugin', id })
+      for (const width of [32, 80, 160]) {
+        const frame = renderSettings(state, createTheme(color), width, 20)
+        expect(frame.lines.join('\n')).toContain(`● ${label}`)
+        expect(frame.lines).toHaveLength(20)
+        expect(frame.lines.every(row => visibleWidth(row) <= width)).toBe(true)
+      }
+      const end = applySettingsEvent(state, key('end'))
+      expect(end.kind).toBe('update')
+      const last = end.kind === 'update' ? end.state : state
+      expect(applySettingsEvent(last, key('down'))).toEqual({ kind: 'update', state: last })
+    }
+  })
   it('keeps plugin entries in their own section and opens them without cycling a preference', () => {
     const plugins = [{ id: 'shell', label: 'Shell', description: 'Live plugin settings' }]
     const state = createSettings(prefs, 'plugin:shell', undefined, undefined, plugins)
@@ -27,7 +130,7 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(applySettingsEvent(state, { type: 'key', id: 'right' })).toEqual({ kind: 'ignore' })
     for (const width of [32, 80]) {
       const rendered = renderSettings(state, createTheme(false, 'dark'), width, 20)
-      expect(rendered.lines.join('\n')).toContain('● Plugins')
+      expect(rendered.lines.join('\n')).toContain('● Advanced')
       expect(rendered.lines.join('\n')).toContain('Shell')
       for (const row of rendered.lines) expect(visibleWidth(row)).toBeLessThanOrEqual(width)
     }
@@ -41,16 +144,16 @@ describe('tuiSettingItems / applySettingValue', () => {
       'motion',
       'mathMode',
       'mermaidMode',
+      'terminalProgress',
       'editor',
       'mouseInteraction',
       'pasteProtection',
       'copyOnSelect',
-      'terminalProgress',
-      'checkUpdates',
-      'startupChangelog',
       'notifications',
       'notificationFocus',
       'notificationThreshold',
+      'checkUpdates',
+      'startupChangelog',
       'statusEnabled',
       'statusLabels',
       'statusContextStyle',
@@ -65,6 +168,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'statusItem:speed',
       'statusItem:durations',
       'statusItem:counts',
+      'statusReset',
     ])
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
@@ -182,7 +286,7 @@ describe('applySettingsEvent', () => {
   })
 
   it('keeps up and down inside the active settings tab', () => {
-    const lastGeneral = createSettings(prefs, 'notificationThreshold')
+    const lastGeneral = createSettings(prefs, 'startupChangelog')
     const down = applySettingsEvent(lastGeneral, key('down'))
     expect(down).toEqual({ kind: 'update', state: lastGeneral })
     const firstStatus = createSettings(prefs, 'statusEnabled')
@@ -276,10 +380,10 @@ describe('applySettingsEvent', () => {
       && tuiSettingItems(shown.state.prefs)[shown.state.selected]?.id).toBe('statusItem:cache')
   })
 
-  it('ignores unrelated keys and non-space text', () => {
+  it('ignores unrelated keys and searches typed text', () => {
     const open = createSettings(prefs)
     expect(applySettingsEvent(open, key('ctrl+k'))).toEqual({ kind: 'ignore' })
-    expect(applySettingsEvent(open, { type: 'text', value: 'x' })).toEqual({ kind: 'ignore' })
+    expect(applySettingsEvent(open, { type: 'text', value: 'x' })).toMatchObject({ kind: 'update', state: { search: 'x' } })
   })
 })
 
@@ -288,8 +392,8 @@ describe('Features section', () => {
 
   it('appears only when a feature registry is supplied', () => {
     expect(renderSettings(createSettings(prefs, undefined, undefined, features), theme, 80, 40).lines.join('\n'))
-      .toContain('Features')
-    expect(renderSettings(createSettings(prefs), theme, 80, 40).lines.join('\n')).not.toContain('Features')
+      .toContain('Tools')
+    expect(renderSettings(createSettings(prefs), theme, 80, 40).lines.join('\n')).not.toContain('Tools')
   })
 
   it('lists every feature with its shipped state', () => {
@@ -345,7 +449,7 @@ describe('renderSettings', () => {
     expect(lines).toContain('dark')
     expect(lines).toContain('Color')
     expect(lines).toContain('on')
-    expect(lines).toContain('←→ change')
+    expect(lines).toContain('Tab sections')
     expect(lines).toContain('Color palette')
     expect(lines).not.toContain('Transcript')
     const terminalActivity = renderSettings(createSettings(prefs, 'terminalProgress'), theme, 40, 12).lines.join('\n')

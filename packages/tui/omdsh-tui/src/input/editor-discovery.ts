@@ -83,10 +83,10 @@ export function resolveEditor(id: EditorId = 'auto', discovery: EditorDiscovery 
       const found = findEditor(candidate, discovery)
       if (found !== undefined) return found
     }
-    throw new Error('No editor was found. Install an editor, then select it in /settings → General → Editor.')
+    throw new Error('No editor was found. Install an editor, then select it in /settings → Interface → Editor.')
   }
   const found = findEditor(id, discovery)
-  if (found === undefined) throw new Error(`${LABELS[id] ?? id} is unavailable. Choose an installed editor in /settings → General → Editor.`)
+  if (found === undefined) throw new Error(`${LABELS[id] ?? id} is unavailable. Choose an installed editor in /settings → Interface → Editor.`)
   return found
 }
 
