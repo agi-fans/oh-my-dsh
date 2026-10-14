@@ -104,8 +104,9 @@ describe('slashSuggestions', () => {
 
 describe('slashInlineHint', () => {
   it('shows the catalog after /name and remaining chars of a prefix', () => {
-    expect(slashInlineHint('/copy ', 6)).toBe('text|code|cmd')
+    expect(slashInlineHint('/copy ', 6)).toBe('text|code|cmd|output')
     expect(slashInlineHint('/copy com', 9)).toBe('mand')
+    expect(slashInlineHint('/copy out', 9)).toBe('put')
     expect(slashInlineHint('/settings ', 10)).toBe(null)
     expect(slashInlineHint('/help ', 6)).toBe('full')
   })
@@ -173,7 +174,7 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(text).not.toContain('/theme')
     expect(text).not.toContain('/hotkeys')
     expect(text).toContain('/help [full]')
-    expect(text).toContain('/copy [text|code|cmd]')
+    expect(text).toContain('/copy [text|code|cmd|output]')
     expect(text).not.toContain('/settings [')
     expect(text).toContain('/tools')
     expect(text).not.toContain('/pwd')

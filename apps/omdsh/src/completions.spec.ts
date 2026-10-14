@@ -7,6 +7,8 @@ describe('generateCompletions', () => {
     expect(script).toContain('omdsh')
     expect(script).toContain('completions')
     expect(script).toContain('plugin')
+    expect(script).toContain('doctor')
+    expect(script).toContain('json')
     expect(script).toContain('resume')
     expect(script).toContain('provider')
   })

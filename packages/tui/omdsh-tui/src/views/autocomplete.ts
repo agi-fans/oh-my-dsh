@@ -38,6 +38,7 @@ const COPY_ARGUMENTS: readonly SlashArgument[] = [
   { value: 'text', description: 'Last assistant reply' },
   { value: 'code', description: 'Last fenced code block' },
   { value: 'cmd', aliases: ['command'], description: 'Last bash command' },
+  { value: 'output', aliases: ['out'], description: 'Last tool output' },
 ]
 
 const HELP_ARGUMENTS: readonly SlashArgument[] = [
@@ -48,7 +49,7 @@ const HELP_ARGUMENTS: readonly SlashArgument[] = [
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', aliases: ['h', '?'], description: 'Show commands and essential shortcuts', arguments: HELP_ARGUMENTS },
   { name: 'settings', aliases: ['set'], description: 'Open settings' },
-  { name: 'copy', description: 'Pick text, code, or a command to copy', arguments: COPY_ARGUMENTS },
+  { name: 'copy', description: 'Pick text, code, a command, or tool output to copy', arguments: COPY_ARGUMENTS },
   { name: 'tools', description: 'Show tools visible to the agent' },
   { name: 'clear', description: 'Clear the transcript display' },
   { name: 'quit', aliases: ['q', 'exit'], description: 'Quit the application' },
@@ -58,8 +59,8 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
 const COMMAND_GROUPS: readonly { label: string; names: readonly string[] }[] = [
   { label: 'Session', names: ['new', 'sessions', 'resume', 'tree', 'rename', 'fork', 'retry', 'clear'] },
   { label: 'Model and access', names: ['model', 'plan', 'permission', 'agent', 'login', 'logout'] },
-  { label: 'Files and output', names: ['files', 'diff', 'review', 'attach', 'attachments', 'terminal', 'copy', 'export', 'worktree'] },
-  { label: 'Tasks', names: ['queue', 'steer', 'questions', 'todo', 'jobs', 'goal', 'loop', 'compact'] },
+  { label: 'Files and output', names: ['files', 'diff', 'review', 'attach', 'attachments', 'terminal', 'copy', 'export', 'import', 'worktree'] },
+  { label: 'Tasks', names: ['queue', 'steer', 'btw', 'questions', 'todo', 'jobs', 'goal', 'loop', 'compact'] },
   { label: 'Settings and integrations', names: ['settings', 'advisor', 'plugins', 'mcp'] },
   { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'feedback', 'changelog'] },
   { label: 'Application', names: ['help', 'quit'] },

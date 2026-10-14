@@ -58,6 +58,15 @@ describe('session configuration commands', () => {
     prompt.mockClear()
     expect((await ctx.commands.execute(agent, '/agent', [], new AbortController().signal))?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('fixed for this conversation') })
     expect(prompt).not.toHaveBeenCalled()
+
+    Object.assign(ctx.tui, { interactive: true })
+    prompt.mockResolvedValueOnce('close')
+    expect((await ctx.commands.execute(agent, '/agent', [], new AbortController().signal))?.result).toEqual({ kind: 'success' })
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Agent',
+      question: 'The Agent preset is fixed for this conversation',
+      notify: false,
+    }))
     await fiber.dispose()
     await ctx.fiber.dispose()
   })

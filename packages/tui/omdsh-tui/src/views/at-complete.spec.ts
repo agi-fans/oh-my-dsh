@@ -163,6 +163,25 @@ describe('searchAtSuggestions', () => {
     expect(sessions).toBe(false)
     expect(result?.items.some(item => item.kind === 'session') ?? false).toBe(false)
   })
+
+  it('includes @diff, @staged, and @git workspace context shortcuts when gitContext has changes', async () => {
+    const result = await searchAtSuggestions('@d', 2, {
+      ...opts,
+      gitContext: {
+        changedFiles: ['src/a.ts', 'src/b.ts'],
+        stagedFiles: ['src/a.ts'],
+      },
+    })
+    expect(result?.items.slice(0, 2)).toEqual([
+      { value: '', label: 'Workspace context', kind: 'heading' },
+      {
+        value: '@src/a.ts @src/b.ts',
+        label: '@diff',
+        description: 'Mention 2 changed workspace files',
+        kind: 'path',
+      },
+    ])
+  })
 })
 
 describe('nextSelectableAutocompleteIndex', () => {

@@ -1,0 +1,20 @@
+# Internal composition for durable side consultations, including after resume.
+- insert:
+    - id: preset-btw
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: btw
+        name: Side consultation
+        description: Answer from a fixed conversation snapshot without tools.
+        order: 100
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                You are answering a separate side question about the copied conversation. Answer the current question briefly and directly using that context. Do not execute tasks, use tools, or ask follow-up questions. Your answer is independent advice and is not sent to the primary agent.{{omdsh_agent_behavior}}
+              complete: true
+              includeRuntimeContext: false
+
+          - id: policy
+            name: '@agi-fans/dsh-tui/btw-policy'

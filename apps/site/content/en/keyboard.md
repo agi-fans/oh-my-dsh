@@ -30,12 +30,14 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+K` | Delete to the end of the line. |
 | `Ctrl+Y` | Yank deleted text. |
 | `Alt+Y` | Cycle the yank ring. |
-| `Ctrl+-` | Undo the last edit. |
+| `Ctrl+-` | Undo the last edit or restore a cleared draft. |
 | `Ctrl+D` | Delete forward, or quit when the composer is empty. |
 | `Ctrl+V` | Paste clipboard text or an image. |
 | `Alt+M` | Preview composer images without sending them. |
 | `Alt+I` | Expand a folded pasted block for editing. |
+| `Alt+Up` | Recall the latest queued message into the composer when the composer is empty. |
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
+| `Ctrl+S` | Stash or restore the current composer draft; a stashed draft returns automatically after you send a message. |
 | `Alt+S` | Send text guidance to the active Turn’s next model step. |
 | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `Ctrl+Alt+C` | Copy the current line. |
@@ -65,17 +67,19 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
 | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
-| `Alt+V` | Review changed files for the Turn being read; use the current workspace when no Turn summary is available. |
+| `Alt+V` | Preview the tool’s declared files when a tool is under the reading position; otherwise review the Turn’s changed files or current workspace. |
 | `Ctrl+F` | Search the current transcript when the composer is empty; `n`/`N` step across matches. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
-When the transcript can scroll, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its interrupt/exit behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
+When the transcript can scroll or contains actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its interrupt/exit behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
+
+Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` still opens retained Turn comparisons outside a tool, and a completed Turn summary does not make hidden tool cards clickable. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
 
 **Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
 
 Full-screen pages temporarily suspend application mouse handling. Reading views such as `/trajectory` restore the inspected position on close; commands that return transcript text move to the live tail to show their result.
 
-File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
+File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text, `Q` quotes `@path:line` into the composer, and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
 
 Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. The terminal console uses the same reading keys.
 
@@ -109,23 +113,24 @@ The `/terminal` console uses the same search and matching-line keys. `L` loads e
 | Transcript search (`Ctrl+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `↑`/`↓`, `Home`/`End`, `PgUp`/`PgDn` navigate, `Enter` open details, `Tab`/`←`/`→` switch sections, `/` search, `n`/`N` and `Ctrl+N`/`Ctrl+P` step matches, `t` collapse turns, `c` collapse calls, `Esc`/`Ctrl+C` close. |
 | Session Library | `p` pins/unpins and `r` renames with an empty search; `Alt+A` archives/restores the selection, `Alt+V` switches active/archived lists even when empty or searching. |
-| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Alt+L` labels a node, `Alt+U` clears its label, `Alt+B` toggles marked nodes, `Esc` clears search then closes, `Ctrl+C` cancels. |
-| Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
+| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Alt+L` labels a node, `Alt+U` clears its label, `Alt+B` toggles marked nodes, `Alt+R` reviews Turn file recovery, `Esc` clears search then closes, `Ctrl+C` cancels. |
+| Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `Alt+Left` return to the previous question in multi-question prompts, `Ctrl+X` edit Plan Review feedback in the external editor, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
 
 Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/sessions <query>` retain their own search rules.
 
 ## Custom keybindings
 
-Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back to `$DSH_HOME`, then `~/.dsh`), the same home that stores sessions, settings, and MCP files. The document maps lower-case key ids to action ids:
+Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back to `$DSH_HOME`, then `~/.dsh`), the same home that stores sessions, settings, and MCP files. You can remap or unbind shortcuts interactively in `/settings` under **Interface → Input → Keybindings** (which saves and applies changes immediately), or edit the JSON file directly:
 
 ```json
 {
   "ctrl+j": "search-transcript",
-  "ctrl+r": "retry"
+  "ctrl+r": "retry",
+  "ctrl+s": null
 }
 ```
 
-Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below; an unknown action or a malformed file leaves the shipped binding in place for that entry. Bindings are read once at startup, so restart omdsh after editing the file, and `/help` then shows the effective keys.
+Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below, or `null` to unbind a default key; an unknown action or a malformed file leaves the shipped binding in place for that entry. `/help` shows the effective keys.
 
 | Action id | Default key | Effect |
 |---|---|---|
@@ -133,6 +138,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
 | `steer-turn` | `Alt+S` | Send text guidance to the active Turn’s next model step. |
+| `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
 | `external-editor` | `Ctrl+X` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Run the most recent human prompt again. |
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
@@ -144,13 +150,21 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `cycle-reasoning` | `Ctrl+T` | Cycle the current model's reasoning effort. |
 | `toggle-tools` | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
-| `review-changes` | `Alt+V` | Review the current Turn’s files. |
+| `review-changes` | `Alt+V` | Preview tool files or review the current Turn’s changes. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |
 | `scroll-fast-down` | `Shift+Down` | Scroll quickly down. |
 | `search-history` | `Ctrl+R` | Search prompt history. |
 | `search-transcript` | `Ctrl+F` | Search the current transcript. |
+
+## Composer Shell
+
+Type `!command` in the composer to run a line in this session’s persistent Shell. It opens the live terminal reader directly. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
+
+Output stays outside model context and does not start a model Turn. `Esc` returns to chat while the Shell continues; `Ctrl+C` interrupts and returns. `I` sends more input and `C` signals the foreground command. Use `/terminal` to return to a detached Shell or close it. The reader yields to approvals, and the configured Access level remains in force.
+
+Shell history and environment last for this live Agent; resuming a saved session creates a new Shell. A marked paste beginning with `!` remains ordinary message text. Type the leading `!` deliberately to execute; an unmarked single-line paste cannot always be distinguished from typing. Attachments keep a submission in message mode. This shortcut requires an interactive terminal; terminal readiness is not reported as a command exit code.
 
 ## Related
 

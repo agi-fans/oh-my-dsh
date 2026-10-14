@@ -13,7 +13,7 @@ function harness(answers: readonly (string | null)[], rawInput = '') {
     read: vi.fn(() => ({ text: 'output', truncated: false, lineBegin: 0, lineEnd: 1, totalLines: 1 })),
     startSend: vi.fn(() => ({ done: Promise.resolve() })), signal: vi.fn(async () => {}), kill: vi.fn(async () => {}),
   }
-  const ctx = { tui: { interactive: true, prompt, notice: vi.fn() }, terminals, logger: { warn: vi.fn() } } as unknown as Context
+  const ctx = { tui: { interactive: true, prompt, notice: vi.fn() }, terminals, get: (key: string) => key === 'terminals' ? terminals : undefined, logger: { warn: vi.fn() } } as unknown as Context
   const invocation = { agent: owner, signal: new AbortController().signal, rawInput } as unknown as CommandInvocation
   return { ctx, invocation, terminals, prompt, owner }
 }
@@ -53,6 +53,18 @@ describe('persistent terminal console', () => {
     expect(h.terminals.read).not.toHaveBeenCalled()
   })
 
+  it.each(['input', 'close'])('yields the %s dialog to an approval without reopening the console', async action => {
+    const h = harness([], 'owned')
+    h.prompt.mockImplementationOnce(async () => action).mockImplementationOnce(async request => {
+      request.onSuperseded!('')
+      return null
+    })
+    expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
+    expect(h.prompt).toHaveBeenCalledTimes(2)
+    expect(h.terminals.startSend).not.toHaveBeenCalled()
+    expect(h.terminals.kill).not.toHaveBeenCalled()
+  })
+
   it('retains a paused reading position and search across input cancellation and older-page loading', async () => {
     const h = harness([], 'owned')
     const lines = Array.from({ length: 800 }, (_, at) => `line ${at + 1}`)
@@ -81,5 +93,15 @@ describe('persistent terminal console', () => {
     expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
     expect(documents).toBe(3)
     expect(h.terminals.startSend).not.toHaveBeenCalled()
+  })
+
+  it('supports quoting output to composer and copying output to clipboard', async () => {
+    const insertText = vi.fn()
+    const copyText = vi.fn(async () => {})
+    const h = harness(['copy', 'quote'], 'owned')
+    Object.assign(h.ctx.tui, { insertText, copyText })
+    expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
+    expect(copyText).toHaveBeenCalledWith('output', 'terminal output')
+    expect(insertText).toHaveBeenCalledWith('```text\noutput\n```')
   })
 })

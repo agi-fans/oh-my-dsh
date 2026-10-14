@@ -6,6 +6,8 @@
 
 import type { CopyPick } from './copy-targets.ts'
 import type { KeyEvent } from '../input/keys.ts'
+import { moveGraphemeLeft } from '../input/editor.ts'
+import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { expandTabs, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
@@ -23,6 +25,7 @@ export const COPY_SELECTOR_ITEM_ROW = 3
 export interface CopySelectorState {
   items: readonly CopyPick[]
   selected: number
+  search?: string
 }
 
 /** Outcome of one key against the overlay. */
@@ -35,6 +38,13 @@ export type CopySelectorCommand =
 /** Open the picker on the assembled targets. */
 export function createCopySelector(items: readonly CopyPick[], selected = 0): CopySelectorState {
   return { items, selected: Math.max(0, Math.min(selected, Math.max(0, items.length - 1))) }
+}
+
+/** Filtered targets matching the active search query. */
+export function filteredCopyItems(state: CopySelectorState): readonly CopyPick[] {
+  const query = state.search?.trim() ?? ''
+  if (query === '') return state.items
+  return rankSearchResults(state.items, query, item => [item.label, item.hint, item.copyMessage, item.text])
 }
 
 /** Visible item-index window around `selected`. */
@@ -50,8 +60,9 @@ export function copySelectorVisibleRange(
 }
 
 function moveSelected(state: CopySelectorState, next: number): CopySelectorState {
-  if (state.items.length === 0) return state
-  const n = state.items.length
+  const items = filteredCopyItems(state)
+  if (items.length === 0) return state
+  const n = items.length
   const selected = (next % n + n) % n
   if (selected === state.selected) return state
   return { ...state, selected }
@@ -59,19 +70,32 @@ function moveSelected(state: CopySelectorState, next: number): CopySelectorState
 
 /** Apply one decoded event to the overlay. */
 export function applyCopySelectorEvent(state: CopySelectorState, event: KeyEvent): CopySelectorCommand {
-  if (event.type === 'text' && event.value === ' ') {
-    const item = state.items[state.selected]
-    return item === undefined ? { kind: 'ignore' } : { kind: 'pick', item }
+  if (event.type === 'text') {
+    if (state.search === undefined && event.value === ' ') {
+      const item = filteredCopyItems(state)[state.selected]
+      return item === undefined ? { kind: 'ignore' } : { kind: 'pick', item }
+    }
+    const query = (state.search ?? '') + (event.value === '/' && state.search === undefined ? '' : event.value.replace(/[\r\n]/gu, ' '))
+    return { kind: 'update', state: { ...state, search: query, selected: 0 } }
   }
   if (event.type !== 'key') return { kind: 'ignore' }
+  if (state.search !== undefined && (event.id === 'backspace' || event.id === 'ctrl+u')) {
+    const query = event.id === 'ctrl+u' ? '' : state.search.slice(0, moveGraphemeLeft(state.search, state.search.length))
+    return { kind: 'update', state: { ...state, search: query, selected: 0 } }
+  }
   switch (event.id) {
     case 'enter': {
-      const item = state.items[state.selected]
+      const item = filteredCopyItems(state)[state.selected]
       return item === undefined ? { kind: 'ignore' } : { kind: 'pick', item }
     }
     case 'escape':
-    case 'ctrl+c':
+    case 'ctrl+c': {
+      if (state.search !== undefined) {
+        const { search: _, ...rest } = state
+        return { kind: 'update', state: { ...rest, selected: 0 } }
+      }
       return { kind: 'close' }
+    }
     case 'up':
     case 'shift+tab':
       return { kind: 'update', state: moveSelected(state, state.selected - 1) }
@@ -85,7 +109,7 @@ export function applyCopySelectorEvent(state: CopySelectorState, event: KeyEvent
     case 'home':
       return { kind: 'update', state: moveSelected(state, 0) }
     case 'end':
-      return { kind: 'update', state: moveSelected(state, state.items.length - 1) }
+      return { kind: 'update', state: moveSelected(state, Math.max(0, filteredCopyItems(state).length - 1)) }
     default:
       return { kind: 'ignore' }
   }
@@ -97,9 +121,11 @@ const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate targets' 
 const HOTKEY_TAB: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Navigate targets, like ↑↓' }
 const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Page — jump one page of targets' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last target' }
+const HOTKEY_FILTER: HotkeyRow = { keys: '/ or Text', action: 'Filter copy targets by label, kind, or content' }
+const HOTKEY_EDIT_FILTER: HotkeyRow = { keys: 'Backspace / Ctrl+U', action: 'Edit or clear the active filter' }
 const HOTKEY_COPY: HotkeyRow = { keys: 'Enter', action: 'Copy the selected target' }
 const HOTKEY_COPY_SPACE: HotkeyRow = { keys: 'Space', action: 'Copy the selected target, like Enter' }
-const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Close the picker' }
+const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc / Ctrl+C', action: 'Clear filter or close the picker' }
 
 /** Keys the copy picker accepts; `/help` and its bottom hint read this list. */
 export const COPY_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
@@ -107,6 +133,8 @@ export const COPY_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_TAB,
   HOTKEY_PAGE,
   HOTKEY_EDGE,
+  HOTKEY_FILTER,
+  HOTKEY_EDIT_FILTER,
   HOTKEY_COPY,
   HOTKEY_COPY_SPACE,
   HOTKEY_CLOSE,
@@ -119,16 +147,20 @@ export function renderCopySelector(
   width: number,
   maxVisible = COPY_SELECTOR_MAX_VISIBLE,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const count = state.items.length
+  const items = filteredCopyItems(state)
+  const count = items.length
   const index = Math.max(0, Math.min(state.selected, Math.max(0, count - 1)))
-  const title = ' ' + theme.bold(theme.fg('accent', '⎘ Copy'))
+  const searchBadge = state.search === undefined
+    ? ''
+    : theme.fg('dim', ' · Search: ') + (state.search === '' ? theme.fg('muted', 'type to filter') : theme.fg('text', state.search))
+  const title = truncateToWidth(' ' + theme.bold(theme.fg('accent', '⎘ Copy')) + searchBadge, width)
   const { start, end } = copySelectorVisibleRange(count, index, maxVisible)
   const rows: string[] = []
   if (count === 0) {
-    rows.push('  ' + theme.fg('muted', SYMBOL.info + ' Nothing to copy.'))
+    rows.push('  ' + theme.fg('muted', SYMBOL.info + (state.search ? ' No matching copy targets.' : ' Nothing to copy.')))
   } else {
     for (let i = start; i < end; i += 1) {
-      const item = state.items[i]
+      const item = items[i]
       if (item === undefined) continue
       rows.push(renderCopyRow(item, i === index, theme, width))
     }
@@ -136,8 +168,8 @@ export function renderCopySelector(
       rows.push(theme.fg('dim', '  ' + String(index + 1) + '/' + String(count)))
     }
   }
-  const preview = renderCopyPreview(state.items[index], theme, width)
-  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_COPY, HOTKEY_CLOSE]))
+  const preview = renderCopyPreview(items[index], theme, width)
+  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_FILTER, HOTKEY_COPY, HOTKEY_CLOSE]))
   const lines = ['', title, '', ...rows, '', ...preview, '', truncateToWidth(hints, width)]
   return {
     lines,

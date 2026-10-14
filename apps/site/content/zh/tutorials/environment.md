@@ -39,3 +39,18 @@ Interface 分区的 Motion 只控制显示效果。`full` 会平滑揭示流式 
 Theme 一行可在 `dark`、`light`、`midnight`、`solarized`、`catppuccin`、`dracula`、`nord`、`gruvbox`、`rose-pine` 和 `mono` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。Context 默认显示百分比；Context style 还可选择占用条、已用/窗口 Token 数及详细组合，所有样式都会随压力升高切换为警告色和错误色。Telemetry 只隐藏第二行指标，模型与工作区一行仍然显示。输入框顶栏左侧是 🐳，右侧是当前 Access Level。
 
 运行 `/help` 可以查看完整的命令与快捷键目录。命令列表由当前启用的插件共同组成，因此也会包含 Skills 和其他运行时集成贡献的能力。
+
+### 诊断本地安装
+
+在平时使用的工作区运行诊断：
+
+```sh
+omdsh doctor
+omdsh doctor --json
+```
+
+Doctor 读取启动环境、Profile、Bundle 补丁、插件入口文件与 DSH peer 要求、Shell 可执行文件、MCP/LSP 配置与可执行文件，以及凭证文档元数据。它不会初始化或改写 Profile、执行配置表达式、导入已配置插件、启动服务器、发送终端探测或发起模型请求。缺少 Profile 时报告产品默认配置；有配置层被拒绝时会明确提示检查覆盖不完整。凭证值和原始解析错误不会输出。
+
+每一项用 `ok` 表示该项明确说明的本地事实成立，用 `failed` 表示发现问题，用 `not-configured` 表示可选配置不存在，用 `not-checked` 表示仍需运行时验证。配置有效、可执行文件可用，不代表认证或连接成功。动态凭证路径需要运行时解析；默认凭证存储会单独检查。按提示修复失败项，再通过 `/model` 或 `/auth` 验证所选模型，并在正常运行流程中验证集成。
+
+JSON 包含 `schemaVersion: 1`、`version` 与 `checks` 数组；检查项包含 `id`、`status`、`summary` 和可选的 `remedy`。退出码 `0` 表示没有失败项，即使存在未检查的能力；`1` 表示检查失败；`2` 表示 CLI 参数无效。两种输出格式都不含 ANSI 着色。

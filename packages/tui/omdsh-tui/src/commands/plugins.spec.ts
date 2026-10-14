@@ -12,7 +12,7 @@ import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
 
 describe('omdsh command plugins', () => {
-  it('registers transcript export without a search command', async () => {
+  it('registers transcript export and archive import without a search command', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -20,7 +20,7 @@ describe('omdsh command plugins', () => {
     const session = ctx.sessions.create(SessionId('command-export-test'))
     const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['export'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['export', 'import'])
 
     await fiber.dispose()
     await ctx.fiber.dispose()

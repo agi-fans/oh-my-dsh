@@ -52,7 +52,10 @@ Rows are grouped under Appearance, Input, Notifications and Startup. Notificatio
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Math in replies | auto / source | auto | Format supported formulas as terminal text, or retain LaTeX delimiters and commands. |
 | Mermaid in replies | auto / source | auto | Draw complete diagrams that fit, or show Mermaid source. |
+| Terminal title | status / session / workspace / off | status | Show the root Agent state with the session name, retain only the session name, show state with workspace and Git branch, or stop setting the title. |
+| Program status | auto / on / off | auto | Report root Agent lifecycle to supporting terminals; Auto waits for a capability reply, On forces reporting, and Off disables it. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
+| Keybindings | Default / custom count | Default | Open the shortcut remapping picker, save to `keybindings.json`, and apply immediately. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
@@ -64,6 +67,8 @@ Rows are grouped under Appearance, Input, Notifications and Startup. Notificatio
 | Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
 
 Notifications coalesce brief event bursts, prioritizing questions, approvals, and failures over successful completion. Returning to the terminal before a pending notification is sent cancels it when **Notify when** is `unfocused`.
+
+Terminal title and Program status share the root Agent lifecycle with Herdr. Pending prompts take priority over running work; completion and failure remain visible until new work or a session switch. Inspecting a subagent does not replace the root state. Program status uses OSC 7501 and sends only the session name as optional metadata, never prompt bodies, tool arguments or errors. These controls apply immediately and clear owned metadata on exit; redirected input or output sends no terminal control sequences. Terminal activity remains the separate opt-in OSC 9 progress indicator.
 
 Tool previews use the active theme's background colors with padding on every side. Prompt and tool-card backgrounds have paired text colors; ordinary reply text keeps the terminal's default foreground. Match `light` to a light terminal and the other palettes to a dark terminal. In 16-color mode, cards use neutral backgrounds and retain status labels and symbols. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
 
@@ -88,6 +93,8 @@ A non-Auto choice applies from the next turn; code, identifiers, commands, tool 
 ## Tools
 
 Shell offers the active platform’s timeout and output limits: Bash on POSIX and PowerShell on Windows use the same form and save to their respective owners. Optional feature rows control capabilities that cost context, runtime, or transcript noise; each row turns one composition row off.
+
+**File recovery snapshots** is Off by default. Turn it on to save private file contents for new Turns and restore selected files with Session Tree’s `Alt+R`. Captures use disk space and add work. Changes apply to the next Turn; a capture already started continues when the switch is turned Off. Existing complete snapshots remain readable when Off. See [Restore Turn files](sessions.md#restore-turn-files). This switch edits the recovery plugin’s configuration; the feature rows below instead enable or disable composition rows.
 
 | Row | Default | Effect when off |
 |---|---|---|

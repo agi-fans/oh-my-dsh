@@ -11,6 +11,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
   UserQuestionError,
   type UserQuestionService,
@@ -19,6 +20,10 @@ import {
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
 import type { TuiService } from '../definition.ts'
+import type {} from '../runtime/approval-rules.ts'
+import { approvalActionDetail } from '../views/approval-rule.ts'
+
+const QUESTION_BACK_VALUE = '__back__'
 
 /** Resolve a label/number list while preserving unmatched input as custom text. */
 export function parsePromptAnswer(
@@ -48,6 +53,7 @@ async function askQuestions(
   tui: TuiService,
   request: AskUserQuestionRequest,
   service?: UserQuestionService,
+  notify = true,
 ): Promise<AskUserQuestionAnswer> {
   const lifetime = new AbortController()
   const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
@@ -74,8 +80,28 @@ async function askQuestions(
       timer = setTimeout(() => { lifetime.abort(timedOut()) }, first.value.remainingMs)
     }
     const answers: AskUserQuestionAnswer['answers'] = []
-    for (const [index, question] of request.questions.entries()) {
+    const rawAnswers = new Map<number, string>()
+    let index = 0
+    let shouldNotify = notify
+    while (index < request.questions.length) {
+      const question = request.questions[index]!
       signal.throwIfAborted()
+      const previousRaw = rawAnswers.get(index)
+      const previousParsed = previousRaw === undefined ? undefined : parsePromptAnswer(previousRaw, question)
+      const restoredAnswer = previousParsed === undefined
+        ? {}
+        : question.multiSelect === true
+          ? {
+              ...(previousParsed.selected.length === 0 ? {} : { initialValues: previousParsed.selected }),
+              ...(previousParsed.selected.length === 0 && previousParsed.custom !== undefined ? { initialInput: previousParsed.custom } : {}),
+            }
+          : previousParsed.custom !== undefined
+            ? { initialInput: previousParsed.custom }
+            : previousParsed.selected[0] !== undefined
+              ? { initialValue: previousParsed.selected[0] }
+              : {}
+      const promptNotify = shouldNotify
+      shouldNotify = false
       const raw = await tui.prompt({
         title: question.intent?.kind === 'plan-review' ? 'Plan review' : (question.header ?? 'Question'),
         question: question.question,
@@ -86,8 +112,16 @@ async function askQuestions(
           ? { presentation: 'plan-review' as const, approveValue: question.intent.approve }
           : {}),
         ...(request.questions.length > 1 ? { title: `${question.header ?? 'Question'} · ${index + 1}/${request.questions.length}` } : {}),
+        ...(index > 0 ? { actions: [{ key: 'alt+left', label: 'previous question', valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
+        ...restoredAnswer,
+        ...(tui.insertText === undefined ? {} : {
+          onCancelDraft: (draft: string) => {
+            if (draft.trim() !== '') tui.insertText?.(draft)
+          },
+        }),
         ...(wait === undefined ? {} : { wait }),
         ...(request.wait?.timed === true ? { dismissLabel: 'Later' } : {}),
+        ...(promptNotify ? {} : { notify: false }),
         skippable: question.intent === undefined,
         allowCustom: true,
         interrupt: () => { lifetime.abort(new UserQuestionError('The user interrupted the question.', 'ASK_ABORTED')) },
@@ -98,7 +132,13 @@ async function askQuestions(
         if (request.wait?.timed === true) throw timedOut()
         throw new UserQuestionError('The user dismissed the question.', 'ASK_CANCELLED')
       }
-      answers.push({ id: question.id, ...parsePromptAnswer(raw, question) })
+      if (raw === QUESTION_BACK_VALUE && index > 0) {
+        index -= 1
+        continue
+      }
+      rawAnswers.set(index, raw)
+      answers[index] = { id: question.id, ...parsePromptAnswer(raw, question) }
+      index += 1
     }
     return { answers }
   } finally {
@@ -130,6 +170,7 @@ async function answerPendingQuestions(
     presentation: 'fullscreen-list',
     filterable: true,
     allowCustom: false,
+    notify: false,
     signal,
   })
   if (id === null || id === undefined || signal.aborted) return undefined
@@ -137,7 +178,7 @@ async function answerPendingQuestions(
   if (question === undefined) return 'This question has already been answered.'
   let answer: AskUserQuestionAnswer
   try {
-    answer = await askQuestions(tui, { agent, questions: [...question.questions], signal })
+    answer = await askQuestions(tui, { agent, questions: [...question.questions], signal }, undefined, false)
   } catch (error) {
     if (signal.aborted || (error instanceof UserQuestionError && error.code === 'ASK_CANCELLED')) return undefined
     throw error
@@ -156,19 +197,59 @@ export function approvalDetail(tui: TuiService, request: ApprovalRequest): { det
   return parts.length === 0 ? {} : { detail: parts.join('\n\n') }
 }
 
-async function askApproval(tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
+async function askApproval(ctx: Context, tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
+  const rules = ctx.get('omdshApprovalRules')
+  const action = rules?.describe(request)
   const raw = await tui.prompt({
     title: 'Approval required',
     question: `Allow ${request.toolName} once?`,
     presentation: 'document',
+    armMs: 500,
     documentSource: { text: approvalDetail(tui, request).detail ?? request.toolName, language: 'text' },
     options: [
       { label: 'Allow once', description: 'Run only this requested action.' },
       { label: 'Reject', description: 'Deny this action.' },
+      { label: 'Reject with note', value: 'reject-note', description: 'Deny this action and guide the next step.' },
+      ...(action === undefined ? [] : [
+        { label: 'Remember allow', value: 'remember-allow', description: 'Preview an exact invocation rule and choose its scope.' },
+        { label: 'Remember reject', value: 'remember-reject', description: 'Reject matching approval requests until revoked.' },
+      ]),
     ],
     ...(request.signal === undefined ? {} : { signal: request.signal }),
   })
   if (raw === null) return 'cancelled'
+  if (raw === 'reject-note') {
+    const note = await tui.prompt({
+      title: 'Reject with note',
+      question: `Why reject ${request.toolName}, or what should the agent do instead?`,
+      allowCustom: true,
+      notify: false,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    })
+    if (note === null) return 'cancelled'
+    const trimmed = note.trim()
+    if (trimmed !== '') {
+      if (typeof request.agent?.steer === 'function') {
+        request.agent.steer(createUserMessage({ content: [{ type: 'text', text: trimmed }], source: { kind: 'user' } }))
+      } else {
+        tui.insertText?.(trimmed)
+      }
+    }
+    return 'rejected'
+  }
+  if ((raw === 'remember-allow' || raw === 'remember-reject') && action !== undefined && rules !== undefined) {
+    const decision = raw === 'remember-allow' ? 'allow' : 'reject'
+    const scope = await tui.prompt({ title: 'Remember approval decision', question: `Where should this exact invocation be ${decision === 'allow' ? 'allowed' : 'rejected'}?`,
+      presentation: 'document', documentSource: { text: approvalActionDetail(action), language: 'text' },
+      detail: 'Matches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.',
+      options: [{ label: 'This session', value: 'session', description: 'Retained on resume; not inherited by forks or children.' },
+        { label: 'This workspace', value: 'workspace', description: 'Applies to sessions with this same workspace boundary.' },
+        { label: 'Cancel', value: 'cancel', description: 'Save nothing and cancel this request.' }],
+      initialValue: 'cancel', allowCustom: false, notify: false, ...(request.signal === undefined ? {} : { signal: request.signal }) })
+    if (scope !== 'session' && scope !== 'workspace') return 'cancelled'
+    rules.remember(request, scope, decision)
+    return decision === 'allow' ? 'allowed-once' : 'rejected'
+  }
   const normalized = raw.trim().toLowerCase()
   return normalized === '1' || normalized === 'allow' || normalized === 'allow once'
     || normalized === 'y' || normalized === 'yes'
@@ -234,7 +315,7 @@ export function bindHumanInteraction(
     disposers.push(ctx.on('approval/request', async (request, next) => {
       if (request.agent !== activeAgent()) return next()
       const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
-      return enqueue(signal, () => askApproval(tui, { ...request, signal }))
+      return enqueue(signal, () => askApproval(ctx, tui, { ...request, signal }))
     }))
   }
   return async () => {

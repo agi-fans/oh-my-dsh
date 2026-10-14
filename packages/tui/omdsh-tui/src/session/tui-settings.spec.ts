@@ -23,6 +23,8 @@ describe('TUI row settings', () => {
       mermaidMode: 'auto',
       editor: 'auto',
       terminalProgress: false,
+      terminalTitle: 'status',
+      terminalState: 'auto',
       copyOnSelect: true,
       pasteProtection: true,
       mouseInteraction: 'auto',

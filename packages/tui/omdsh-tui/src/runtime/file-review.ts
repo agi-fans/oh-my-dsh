@@ -2,11 +2,12 @@
 
 import { execFile } from 'node:child_process'
 import { open, stat } from 'node:fs/promises'
-import { extname, resolve } from 'node:path'
+import { extname, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { StringDecoder } from 'node:string_decoder'
 import type { TuiDocumentPosition, TuiDocumentSource, TuiService } from '../definition.ts'
 import { stripAnsi } from '../chrome/width.ts'
+import { documentModel } from '../views/document-reader.ts'
 import { openSystemFile } from './file-open.ts'
 import { imageFile, imageMediaType } from './image-preview.ts'
 import type { PreviewImage } from '../chrome/terminal-images.ts'
@@ -19,6 +20,26 @@ export const PREVIEW_BYTES = 128 * 1024
 export const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
 
 export interface FileDocument extends TuiDocumentSource { truncated?: boolean; binary?: boolean }
+
+export function formatQuoteReference(cwd: string, file: ReviewFile, source: TuiDocumentSource | undefined, position: TuiDocumentPosition | undefined): string {
+  const rel = relative(cwd, resolve(cwd, file.path)).replaceAll('\\', '/')
+  const rawPath = rel !== '' && !rel.startsWith('..') ? rel : file.path.replaceAll('\\', '/')
+  const quotedPath = /\s/u.test(rawPath) ? `"${rawPath.replaceAll('"', '\\"')}"` : rawPath
+  let line = file.line
+  if (source !== undefined) {
+    const model = documentModel(source)
+    const startRow = Math.max(0, Math.min(position?.row ?? 0, Math.max(0, model.numbers.length - 1)))
+    for (let at = startRow; at < model.numbers.length; at += 1) {
+      const candidate = model.numbers[at]?.next ?? model.numbers[at]?.old
+      if (candidate !== undefined) {
+        line = candidate
+        break
+      }
+    }
+    if (line === undefined && source.diff !== true) line = (source.firstLine ?? 1) + startRow
+  }
+  return `@${quotedPath}${line === undefined ? '' : `:${line}`}`
+}
 
 /** Fence untrusted text without letting its own backticks end the block. */
 export function codeDocument(text: string, language = ''): string {
@@ -51,7 +72,7 @@ export async function filePreview(path: string, signal: AbortSignal): Promise<st
 }
 
 /** Read an explicitly bounded prefix; incomplete UTF-8 characters await the next load. */
-export async function fileDocument(path: string, signal: AbortSignal, limit = PREVIEW_BYTES): Promise<FileDocument> {
+export async function fileDocument(path: string, signal: AbortSignal, limit = PREVIEW_BYTES, sourcePath = path): Promise<FileDocument> {
   signal.throwIfAborted()
   if (!(await stat(path)).isFile()) throw new Error('Select a regular file to preview.')
   const handle = await open(path, 'r')
@@ -68,20 +89,23 @@ export async function fileDocument(path: string, signal: AbortSignal, limit = PR
     }
     signal.throwIfAborted()
     const data = bytes.subarray(0, bytesRead)
-    if (data.includes(0) || ['.pdf', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.zip'].includes(extname(path).toLowerCase())) return { binary: true, text: `Binary file · ${stat.size.toLocaleString()} bytes. Use Open to view it in its application.` }
     const truncated = bytesRead < stat.size
+    let invalidUtf8 = false
+    try { new TextDecoder('utf-8', { fatal: true }).decode(data, { stream: truncated }) } catch { invalidUtf8 = true }
+    if (invalidUtf8 || data.includes(0) || ['.pdf', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.zip'].includes(extname(sourcePath).toLowerCase())) return { binary: true, text: `Binary file · ${stat.size.toLocaleString()} bytes. Use Open to view it in its application.` }
     const decoder = new StringDecoder('utf8')
     const text = stripAnsi(decoder.write(data) + (truncated ? '' : decoder.end())).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '')
-    const language = languageFromPath(path)
+    const language = languageFromPath(sourcePath)
     return { text, ...(language === undefined ? {} : { language }), truncated,
       ...(truncated ? { status: `${Math.ceil(bytesRead / 1024)} KiB of ${Math.ceil(stat.size / 1024)} KiB · ${bytesRead >= MAX_PREVIEW_BYTES ? 'Preview limit reached; Open reads the original.' : 'L loads more'}` } : {}) }
   } finally { await handle.close() }
 }
 
-export interface ReviewFile { path: string; label: string; description?: string }
+export interface ReviewFile { path: string; label: string; description?: string; line?: number }
+export type FileReviewSurface = Pick<TuiService, 'prompt' | 'notice' | 'openFileInEditor' | 'insertText'>
 
 /** Keep file selection, document scrolling, and external opening in one loop. */
-export async function reviewFiles(tui: TuiService, title: string, cwd: string, files: readonly ReviewFile[],
+export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: string, files: readonly ReviewFile[],
   readDiff: (index: number) => Promise<string | TuiDocumentSource>, signal: AbortSignal, initial?: number, hasDiff = true): Promise<void> {
   let index = initial
   let selected: string | undefined
@@ -127,9 +151,11 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
       const options = [{ label: 'Files', value: 'files' }, ...(hasDiff ? [{ label: preview ? 'Diff' : 'Preview', value: 'preview' }] : []),
         ...(multiple ? [{ label: 'Previous', value: 'previous' }, { label: 'Next', value: 'next' }] : []), { label: 'Open', value: 'open' },
         ...(tui.openFileInEditor === undefined ? [] : [{ label: 'Editor', value: 'editor' }]),
+        ...(tui.insertText === undefined ? [] : [{ label: 'Quote', value: 'quote' }]),
         ...(preview && extname(file.path).toLowerCase() === '.md' && loaded !== undefined && loaded.binary !== true ? [{ label: mode === 'markdown' ? 'Source' : 'Markdown', value: 'markdown' }] : []),
         ...(loaded?.truncated === true && (limits.get(index) ?? PREVIEW_BYTES) < MAX_PREVIEW_BYTES ? [{ label: 'Load more', value: 'more' }] : [])]
-      const position = positions.get(key)
+      const position = positions.get(key) ?? (preview && file.line !== undefined
+        ? { row: Math.max(0, file.line - (source?.firstLine ?? 1)), wrap: 0, query: '' } : undefined)
       const action = await tui.prompt({ title: `${title} · ${index + 1}/${files.length}`, question: file.label, detail,
         ...(image === undefined ? {} : { documentImage: image }),
         ...(source === undefined ? {} : { documentSource: source }), ...(position === undefined ? {} : { documentPosition: position }), onDocumentPosition: position => { positions.set(key, position) },
@@ -137,6 +163,7 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
         actions: [{ key: 'f', label: 'files', valuePrefix: 'files' }, ...(hasDiff ? [{ key: 'v', label: 'preview/diff', valuePrefix: 'preview' }] : []),
           ...(multiple ? [{ key: 'n', label: 'next', valuePrefix: 'next' }, { key: 'p', label: 'previous', valuePrefix: 'previous' }] : []), { key: 'o', label: 'open', valuePrefix: 'open' },
           ...(tui.openFileInEditor === undefined ? [] : [{ key: 'e', label: 'editor', valuePrefix: 'editor' }]),
+          ...(tui.insertText === undefined ? [] : [{ key: 'q', label: 'quote', valuePrefix: 'quote' }]),
           ...(options.some(option => option.value === 'markdown') ? [{ key: 'm', label: 'source/markdown', valuePrefix: 'markdown' }] : []),
           ...(options.some(option => option.value === 'more') ? [{ key: 'l', label: 'load more', valuePrefix: 'more' }] : [])] })
       if (action === null || action === 'files') { index = undefined; break }
@@ -144,6 +171,12 @@ export async function reviewFiles(tui: TuiService, title: string, cwd: string, f
       if (action === 'markdown') { modes.set(index, mode === 'markdown' ? 'source' : 'markdown'); feedback = ''; continue }
       if (action === 'more') { limits.set(index, Math.min(MAX_PREVIEW_BYTES, (limits.get(index) ?? PREVIEW_BYTES) * 2)); feedback = ''; continue }
       if (action === 'next' || action === 'previous') { index = (index + files.length + (action === 'next' ? 1 : -1)) % files.length; break }
+      if (action === 'quote') {
+        const ref = formatQuoteReference(cwd, file, source, positions.get(key) ?? position)
+        tui.insertText?.(ref)
+        tui.notice(`Quoted ${ref} in composer.`)
+        return
+      }
       try {
         if (action === 'editor') {
           tui.openFileInEditor?.(resolve(cwd, file.path))

@@ -647,6 +647,12 @@ export class MainScreenRenderer {
   /** Canonical physical rows, including viewport-only prompt headers. */
   viewport(): readonly string[] { return [...(this.#altActive ? this.#altScreen : this.#screen)] }
 
+  /** Physical transcript rows only; chrome, sticky labels and alternate overlays have no source. */
+  documentRowAt(row: number): number | undefined {
+    return this.#altActive || !this.#screenSourceKnown || this.#screenSource === null || !Number.isInteger(row) || row < 0
+      ? undefined : this.#screenRowSource[row]
+  }
+
   /** Render canonical content, then decorate the viewport without changing history. */
   render(frame: Frame, decorate?: (rows: readonly string[]) => readonly string[]): void {
     // Remove the previous selection before any canonical rows can cross into history.

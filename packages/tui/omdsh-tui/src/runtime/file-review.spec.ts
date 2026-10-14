@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TuiService } from '../definition.ts'
-import { changedPaths, codeDocument, fileDocument, filePreview, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
+import { changedPaths, codeDocument, fileDocument, filePreview, formatQuoteReference, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -18,6 +18,29 @@ async function directory() { const root = await mkdtemp(join(tmpdir(), 'omdsh-re
 const signal = () => new AbortController().signal
 
 describe('file inspection', () => {
+  it('identifies invalid UTF-8 and uses the original name for cached source documents', async () => {
+    const root = await directory(), path = join(root, 'content-hash')
+    await writeFile(path, Buffer.from([255, 254, 128]))
+    expect(await fileDocument(path, signal())).toMatchObject({ binary: true })
+    await writeFile(path, 'const 中文 = "🐳";\n')
+    const source = await fileDocument(path, signal(), PREVIEW_BYTES, 'source.ts')
+    expect(source.language).toBe('ts')
+    expect(source.binary).not.toBe(true)
+    expect(await fileDocument(path, signal(), PREVIEW_BYTES, 'image.png')).toMatchObject({ binary: true })
+  })
+  it('starts a source preview at the provider-declared line and preserves the reader position after actions', async () => {
+    const root = await directory(), path = join(root, 'a.ts')
+    await writeFile(path, 'const value = 1\n'.repeat(100))
+    const answers = ['editor', null, null]
+    const prompt = vi.fn<TuiService['prompt']>(async request => {
+      request.onDocumentPosition?.({ row: 70, wrap: 0, query: '' })
+      return answers.shift() ?? null
+    })
+    await reviewFiles({ prompt, notice: vi.fn(), openFileInEditor: vi.fn() }, 'Tool files', root,
+      [{ path, label: 'a.ts', line: 40 }], async () => '', signal(), 0, false)
+    expect(prompt.mock.calls[0]?.[0].documentPosition?.row).toBe(39)
+    expect(prompt.mock.calls[1]?.[0].documentPosition?.row).toBe(70)
+  })
   it('loads bounded prefixes without replacing a split UTF-8 character and caps explicit loads', async () => {
     const root = await directory(), path = join(root, 'large.txt')
     await writeFile(path, 'x'.repeat(PREVIEW_BYTES - 1) + '🐳 tail')
@@ -175,4 +198,21 @@ it('opens file images through the graphics reader and keeps next-file navigation
   expect(prompt.mock.calls[0]?.[0].documentImage).toMatchObject({ width: 20, height: 10 })
   expect(prompt.mock.calls[1]?.[0].documentImage).toBeUndefined()
   expect(prompt.mock.calls[1]?.[0].documentSource?.text).toBe('text file')
+})
+
+it('inserts @path:line into the composer when Quote is chosen in the reader', async () => {
+  expect(formatQuoteReference('/workspace', { path: 'src/a.ts', label: 'a.ts', line: 12 }, undefined, undefined)).toBe('@src/a.ts:12')
+  expect(formatQuoteReference('/workspace', { path: 'src/with space.ts', label: 'with space.ts' }, undefined, undefined)).toBe('@"src/with space.ts"')
+  const root = await directory()
+  await writeFile(join(root, 'a.ts'), 'line\n'.repeat(20))
+  const prompt = vi.fn<TuiService['prompt']>(async request => {
+    request.onDocumentPosition?.({ row: 14, wrap: 0, query: '' })
+    return 'quote'
+  })
+  const insertText = vi.fn()
+  const notice = vi.fn()
+  await reviewFiles({ prompt, notice, insertText }, 'File', root,
+    [{ path: 'a.ts', label: 'a.ts' }], async () => '', signal(), 0, false)
+  expect(insertText).toHaveBeenCalledWith('@a.ts:15')
+  expect(notice).toHaveBeenCalledWith('Quoted @a.ts:15 in composer.')
 })

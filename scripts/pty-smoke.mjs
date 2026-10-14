@@ -34,6 +34,11 @@ if (seeded.status !== 0) {
   process.exit(1)
 }
 
+// Partial preference patches must not remove the initial model label or crash
+// the welcome card before the Session supplies its effective model.
+writeFileSync(join(omdshHome, 'profiles', 'omdsh', 'cordis.patch.yml'),
+  '- id: tui\n  config:\n    terminalTitle: workspace\n    terminalState: on\n')
+
 const term = pty.spawn(spawnCmd[0], spawnCmd[1], {
   name: 'xterm-256color',
   cols: 80,

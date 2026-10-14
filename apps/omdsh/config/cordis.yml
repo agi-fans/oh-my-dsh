@@ -219,6 +219,11 @@
     config:
       policy: !!js "(process.env.OMDSH_PERMISSION_MODE || 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'"
 
+  - id: approval-rules
+    name: '@agi-fans/dsh-tui/approval-rules'
+    config:
+      stateDir: !!js (process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/omdsh/approval-rules'
+
   # Every session starts with one explicit access preset. The environment is a
   # deployment override; the TUI switches it later through the /permission picker.
   - id: sandbox
@@ -235,6 +240,12 @@
 
   - id: fs-observation-policy
     name: '@deepseek-ai/dsh-fs-observation-policy'
+
+  - id: file-recovery
+    name: '@agi-fans/dsh-tui/file-recovery-local'
+    config:
+      enabled: false
+      stateDir: !!js (process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/omdsh/file-recovery'
 
   - id: subprocess
     name: '@deepseek-ai/dsh-subprocess-local'
@@ -523,6 +534,14 @@
 
   - id: tui-command-advisor
     name: '@agi-fans/dsh-tui/command-advisor'
+
+  - id: btw
+    name: '@agi-fans/dsh-tui/btw'
+    config:
+      stateDir: !!js "(process.env.OMDSH_HOME || process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/omdsh/btw'"
+
+  - id: tui-command-btw
+    name: '@agi-fans/dsh-tui/command-btw'
 
   - id: subagent-model-selection-settings
     name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'

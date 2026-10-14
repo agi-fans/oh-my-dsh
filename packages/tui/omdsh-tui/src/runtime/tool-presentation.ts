@@ -6,6 +6,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
+import type {} from '@deepseek-ai/dsh-working-directory'
 
 export const name = 'omdsh-tool-presentation'
 export const inject = ['tools']
@@ -37,6 +38,14 @@ function parsedArguments(raw: unknown): unknown {
   }
 }
 
+interface CallRecord { event: SessionEvent; cwd: string | undefined }
+function callKey(event: SessionEvent): string | undefined {
+  if (event.type === 'tool/call') return event.data.callId
+  if (event.type === 'tool/result') return event.data.message.source.callId
+  if (event.type === 'tool/ptc-dispatch-start' || event.type === 'tool/ptc-dispatch') return event.data.subCallId
+  return undefined
+}
+
 class HarnessToolPresentation implements ToolPresentationBridge {
   readonly #ctx: Context
   /**
@@ -44,22 +53,37 @@ class HarnessToolPresentation implements ToolPresentationBridge {
    * `event()`, so each tool/result resolves its call in O(1) instead of
    * rescanning the growing session log the way `findLast` did.
    */
-  readonly #liveCalls = new WeakMap<Session, Map<string, SessionEvent>>()
+  readonly #liveCalls = new WeakMap<Session, Map<string, CallRecord>>()
 
   constructor(ctx: Context) {
     this.#ctx = ctx
   }
 
   event(agent: Agent, event: SessionEvent): TuiToolPresentation | undefined {
-    if (event.type === 'tool/call') {
+    if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') {
       let calls = this.#liveCalls.get(agent.session)
       if (calls === undefined) {
         calls = new Map()
         this.#liveCalls.set(agent.session, calls)
       }
-      calls.set(event.data.callId, event)
+      calls.set(callKey(event)!, { event, cwd: this.#directory(agent) })
     }
     return this.#event(agent, event, undefined)
+  }
+
+  #directory(agent: Agent, initial = false): string | undefined {
+    const service = typeof this.#ctx.get === 'function' ? this.#ctx.get('workingDirectory') : undefined
+    return initial ? agent.session.header?.cwd ?? service?.defaultDirectory : service?.get(agent.session) ?? agent.session.header?.cwd
+  }
+
+  #records(agent: Agent, events: readonly SessionEvent[], initial = this.#directory(agent, true)): Map<string, CallRecord> {
+    const records = new Map<string, CallRecord>()
+    let cwd = initial
+    for (const event of events) {
+      if (event.type === 'working-directory/change') cwd = event.data.cwd
+      if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') records.set(callKey(event)!, { event, cwd })
+    }
+    return records
   }
 
   #presentCall(agent: Agent, name: string, args: unknown): ToolCallView | undefined {
@@ -103,42 +127,51 @@ class HarnessToolPresentation implements ToolPresentationBridge {
   #event(
     agent: Agent,
     event: SessionEvent,
-    callIndex: ReadonlyMap<string, SessionEvent> | undefined,
+    callIndex: ReadonlyMap<string, CallRecord> | undefined,
   ): TuiToolPresentation | undefined {
+    const key = callKey(event)
+    if (key === undefined) return undefined
+    const record = callIndex?.get(key) ?? this.#liveCalls.get(agent.session)?.get(key)
+      ?? this.#records(agent, agent.session.snapshotEvents()).get(key)
+    const cwd = record?.cwd
+    const located = (presentation: TuiToolPresentation | undefined): TuiToolPresentation | undefined => presentation === undefined
+      ? undefined : cwd === undefined ? presentation : { ...presentation, cwd }
     // A PTC sub-dispatch carries the tool name and its normalized arguments on
     // both halves of the pair, so it resolves a card without a call index — the
     // same cards a native call of the same tool would get.
     if (event.type === 'tool/ptc-dispatch-start') {
       const call = this.#presentCall(agent, event.data.name, event.data.arguments)
-      return call === undefined ? undefined : { call }
+      return located(call === undefined ? undefined : { call })
     }
     if (event.type === 'tool/ptc-dispatch') {
-      return this.#present(agent, event.data.name, event.data.arguments, event.data.content, event.data.isError, undefined)
+      return located(this.#present(agent, event.data.name, event.data.arguments, event.data.content, event.data.isError, undefined))
     }
     if (event.type === 'tool/call') {
       const call = this.#presentCall(agent, event.data.name, parsedArguments(event.data.arguments))
-      return call === undefined ? undefined : { call }
+      return located(call === undefined ? undefined : { call })
     }
     if (event.type !== 'tool/result') return undefined
-    const callId = event.data.message.source.callId
-    const callEvent = callIndex?.get(callId)
-      ?? this.#liveCalls.get(agent.session)?.get(callId)
-      ?? agent.session.snapshotEvents().findLast(candidate =>
-        candidate.type === 'tool/call' && candidate.data.callId === callId)
+    const callEvent = record?.event
     if (callEvent?.type !== 'tool/call') return undefined
-    return this.#present(
+    return located(this.#present(
       agent, callEvent.data.name, callEvent.data.arguments,
       event.data.message.content, event.data.message.isError === true, event.data.meta,
-    )
+    ))
   }
 
   session(agent: Agent, events: readonly SessionEvent[]): ReadonlyMap<number, TuiToolPresentation> {
     // One pass builds a callId index instead of the per-result backwards
     // log scan, keeping replay linear in the event count.
-    const callIndex = new Map<string, SessionEvent>()
-    for (const event of events) {
-      if (event.type === 'tool/call') callIndex.set(event.data.callId, event)
+    let initial = this.#directory(agent, true)
+    // An inspected child's own events may omit its inherited directory changes.
+    const first = events[0]?.seq
+    if (first !== undefined && first > 1) {
+      for (const event of agent.session.snapshotEvents()) {
+        if (event.seq >= first) break
+        if (event.type === 'working-directory/change') initial = event.data.cwd
+      }
     }
+    const callIndex = this.#records(agent, events, initial)
     const presentations = new Map<number, TuiToolPresentation>()
     for (const event of events) {
       const presentation = this.#event(agent, event, callIndex)

@@ -36,6 +36,29 @@ it.each([false, true])('renders progress with cancellation hints and no answer e
 })
 
 describe('plan review page', () => {
+  it.each([false, true])('does not leave an empty separator when a source reader has no custom actions (color=%s)', color => {
+    for (const width of [30, 60, 130]) {
+      const frame = renderPlanReviewPage({ request: { title: 'Approval', question: 'Exact invocation', presentation: 'document',
+        documentSource: { text: 'command: echo hello' }, allowCustom: false, options: [{ label: 'Cancel' }] },
+        selected: 0, checked: new Set() }, createTheme(color), width, 24, '', 0, 'omdsh')
+      expect(stripAnsi(frame.lines.join('\n'))).not.toMatch(/·\s*·/u)
+      expect(frame.lines.every(line => visibleWidth(line) === width)).toBe(true)
+    }
+  })
+  it.each([false, true])('shows Ctrl+C only when a source reader supports interruption (color=%s)', color => {
+    for (const width of [30, 40, 60, 100]) {
+      const request = { title: 'Shell 中文 🐳', question: 'Output', presentation: 'document' as const,
+        documentSource: { text: 'hello\n', status: '1 loaded' }, allowCustom: false,
+        options: [{ label: 'Input', value: 'input' }] }
+      const state = { request, selected: 0, checked: new Set<number>() }
+      const ordinary = renderPlanReviewPage(state, createTheme(color), width, 24, '', 0, 'omdsh')
+      expect(stripAnsi(ordinary.lines.join('\n'))).not.toContain('Ctrl+C interrupt')
+      const shell = renderPlanReviewPage({ ...state, request: { ...request, interrupt: () => {} } }, createTheme(color), width, 24, '', 0, 'omdsh')
+      expect(stripAnsi(shell.lines.join('\n'))).toContain('Ctrl+C interrupt')
+      expect(shell.lines).toHaveLength(24)
+      expect(shell.lines.every(line => visibleWidth(line) === width)).toBe(true)
+    }
+  })
   it.each([false, true])('keeps every document action visible with an explicit selection at narrow widths (color=%s)', color => {
     for (const width of [30, 40, 60, 100]) {
       const labels = ['Files', 'Previous', 'Next', 'Open', 'Editor']

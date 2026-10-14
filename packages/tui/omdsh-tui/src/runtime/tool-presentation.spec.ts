@@ -5,6 +5,29 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createToolPresentationBridge } from './tool-presentation.ts'
 
 describe('ToolPresentationBridge', () => {
+  it('retains the directory at call start across working-directory changes and replay', () => {
+    const call = { type: 'tool/call', seq: 1, data: { callId: 'c1', name: 'owned', arguments: '{}' } } as unknown as SessionEvent
+    const change = { type: 'working-directory/change', seq: 2, data: { cwd: '/later' } } as SessionEvent
+    const result = { type: 'tool/result', seq: 3, data: { message: { source: { callId: 'c1' }, content: [] } } } as unknown as SessionEvent
+    const next = { type: 'tool/ptc-dispatch-start', seq: 4, data: { subCallId: 'sub', name: 'owned', arguments: {} } } as unknown as SessionEvent
+    const childResult = { type: 'tool/ptc-dispatch', seq: 6, data: { subCallId: 'sub', name: 'owned', arguments: {}, content: [] } } as unknown as SessionEvent
+    const events = [call, change, result, next, { ...change, seq: 5, data: { cwd: '/last' } }, childResult]
+    let cwd = '/original'
+    const agent = { session: { header: { cwd }, snapshotEvents: () => events } } as unknown as Agent
+    const bridge = createToolPresentationBridge({ tools: { get: () => ({ presentCall: () => ({ card: 'generic', title: 'Read', locations: [{ path: 'a.ts' }] }) }) },
+      get: () => ({ get: () => cwd, defaultDirectory: '/fallback' }) } as unknown as Context)
+    expect(bridge.event(agent, call)?.cwd).toBe('/original')
+    cwd = '/later'
+    expect(bridge.event(agent, result)?.cwd).toBe('/original')
+    expect(bridge.event(agent, next)?.cwd).toBe('/later')
+    cwd = '/last'
+    expect(bridge.event(agent, childResult)?.cwd).toBe('/later')
+    const replay = bridge.session(agent, events)
+    expect(replay.get(3)?.cwd).toBe('/original')
+    expect(replay.get(6)?.cwd).toBe('/later')
+    // Inspection can replay only the child's owned suffix, after inherited cwd changes.
+    expect(bridge.session(agent, events.slice(3)).get(6)?.cwd).toBe('/later')
+  })
   it('gives a PTC sub-call the same cards a native call of that tool gets', () => {
     const start = {
       type: 'tool/ptc-dispatch-start', seq: 2, time: 2, surfaceOp: 'append',

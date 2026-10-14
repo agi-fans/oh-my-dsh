@@ -259,6 +259,7 @@ describe('plugin configuration', () => {
   })
 
   it.each([
+    ['file-recovery', 'enabled', z.boolean(), false, 'true', 'On'],
     ['advisor', 'allowModelConsultations', z.boolean(), true, 'false', 'Off'],
     ['hook-settings', 'bridge', z.union(['off', 'codex', 'claude-code']), 'off', '"codex"', 'codex'],
   ] as const)('derives inline %s choices from its schema and writes its owner revision', async (ns, path, schema, current, choice, label) => {

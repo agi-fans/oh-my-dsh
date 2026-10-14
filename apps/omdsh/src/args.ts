@@ -9,6 +9,8 @@ export type CompletionShell = 'bash' | 'zsh' | 'fish'
 export const OMDSH_CLI_COMMANDS = [
   { name: 'plugin', description: 'Manage profile plugins' },
   { name: 'completions', description: 'Generate shell completion scripts' },
+  { name: 'doctor', description: 'Check configuration and local prerequisites' },
+  { name: 'exec', description: 'Run a prompt with versioned JSON output' },
 ] as const
 
 export const OMDSH_CLI_OPTIONS = [
@@ -39,6 +41,10 @@ export interface OmdshInvocation {
   completions: CompletionShell | undefined
   /** --help requested. */
   help: boolean
+  /** Read-only diagnostics; no application or plugin is mounted. */
+  doctor?: { json: boolean }
+  /** Independent machine-output execution, without the interactive frontend. */
+  exec?: { json: true }
 }
 
 const HELP = `
@@ -50,6 +56,8 @@ Usage:
   omdsh plugin remove <package>
   omdsh plugin <pnpm-args...>
   omdsh completions bash|zsh|fish
+  omdsh doctor [--json]
+  omdsh exec --json [--resume <id>] [prompt...]
 
 Options:
   --model <name>      model route (default deepseek-flash)
@@ -70,6 +78,40 @@ Environment:
  * @returns the invocation, or prints help/version and exits.
  */
 export function parseOmdshArgs(argv: readonly string[], version: string): OmdshInvocation {
+  if (argv[0] === 'exec') {
+    let json = false, model: string | undefined, provider: string | undefined, resume: string | undefined
+    const prompt: string[] = []
+    for (let index = 1; index < argv.length; index++) {
+      const arg = argv[index]!
+      if (arg === '--help' || arg === '-h') {
+        console.log('Usage: omdsh exec --json [--model <route>] [--provider <route>] [--resume <id>] [--] [prompt...]\nUse - or omit the prompt to read one UTF-8 prompt from stdin through EOF.\nExit codes: 0 completed; 1 failed; 2 invalid input; 3 requires human input; 130 SIGINT; 143 SIGTERM.')
+        process.exit(0)
+      }
+      if (arg === '--') { prompt.push(...argv.slice(index + 1)); break }
+      if (arg === '--json') { json = true; continue }
+      if (arg === '--model' || arg === '--provider' || arg === '--resume' || arg === '-r') {
+        const value = argv[++index]
+        if (value === undefined || value.startsWith('-')) usageError(`${arg} requires a value`)
+        if (arg === '--model') model = value
+        else if (arg === '--provider') provider = value
+        else resume = value
+      } else if (arg === '-' || !arg.startsWith('-')) prompt.push(arg)
+      else usageError('unknown exec option ' + arg)
+    }
+    if (!json) usageError('exec requires --json')
+    return { prompt, model, provider, resume, dumpConfig: false, plugin: false, pluginArgs: [], completions: undefined, help: false, exec: { json: true } }
+  }
+  if (argv[0] === 'doctor') {
+    if (argv.slice(1).some(arg => arg !== '--json' && arg !== '--help' && arg !== '-h')) usageError('doctor accepts only --json or --help')
+    if (argv.includes('--help') || argv.includes('-h')) {
+      console.log('Usage: omdsh doctor [--json]\nRead-only diagnostics. No plugins, servers or model requests are started.\nExit codes: 0 = no failed checks; 1 = failed checks; 2 = invalid arguments.')
+      process.exit(0)
+    }
+    return {
+      prompt: [], model: undefined, provider: undefined, resume: undefined, dumpConfig: false,
+      plugin: false, pluginArgs: [], completions: undefined, help: false, doctor: { json: argv.includes('--json') },
+    }
+  }
   if (argv[0] === 'plugin') {
     return {
       prompt: [],

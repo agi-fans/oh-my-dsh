@@ -14,6 +14,8 @@
  */
 
 import { connect, type Socket } from 'node:net'
+import { AgentActivityController, type TerminalProgramStatus } from './terminal-state.ts'
+export { AgentActivityController as HerdrAgentStatusController } from './terminal-state.ts'
 
 /** Stable, integration-unique source namespace Herdr requires for custom reports. */
 export const HERDR_REPORT_SOURCE = 'custom:omdsh'
@@ -61,71 +63,6 @@ export function herdrEnvironment(env: NodeJS.ProcessEnv = process.env): HerdrEnv
   return { paneId, socketPath }
 }
 
-const HERDR_MESSAGE_LIMIT = 240
-
-function cleanHerdrMessage(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined
-  const cleaned = value
-    .replace(/[\x00-\x1f\x7f-\x9f]/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-    .slice(0, HERDR_MESSAGE_LIMIT)
-  return cleaned === '' ? undefined : cleaned
-}
-
-/**
- * Pure state projection: an active driver plus the human prompts it is blocked
- * on decide the single semantic state Herdr understands. `blocked` wins over
- * `working` because a blocked pane must reject `herdr agent prompt` input.
- */
-export class HerdrAgentStatusController {
-  #running = false
-  #prompts = 0
-  #promptMessage: string | undefined
-  #last: string | undefined
-
-  /** The initial report makes Herdr attach the agent to the pane before any turn. */
-  start(): HerdrAgentStatus {
-    return this.#publish(true) as HerdrAgentStatus
-  }
-
-  setRunning(running: boolean): HerdrAgentStatus | undefined {
-    this.#running = running
-    return this.#publish()
-  }
-
-  prompt(message?: string): HerdrAgentStatus | undefined {
-    this.#prompts += 1
-    const cleaned = cleanHerdrMessage(message)
-    if (cleaned !== undefined) this.#promptMessage = cleaned
-    return this.#publish()
-  }
-
-  promptResolved(): HerdrAgentStatus | undefined {
-    if (this.#prompts === 0) return undefined
-    this.#prompts -= 1
-    if (this.#prompts === 0) this.#promptMessage = undefined
-    return this.#publish()
-  }
-
-  #desired(): HerdrAgentStatus {
-    if (this.#prompts > 0) {
-      return this.#promptMessage === undefined
-        ? { state: 'blocked' }
-        : { state: 'blocked', message: this.#promptMessage }
-    }
-    return this.#running ? { state: 'working' } : { state: 'idle' }
-  }
-
-  #publish(force = false): HerdrAgentStatus | undefined {
-    const next = this.#desired()
-    const signature = `${next.state}\u0000${next.message ?? ''}`
-    if (!force && signature === this.#last) return undefined
-    this.#last = signature
-    return next
-  }
-}
-
 export interface HerdrAgentReporterOptions {
   /** Whether the provider owns interactive input and output. Defaults to true. */
   readonly interactive?: boolean
@@ -146,7 +83,7 @@ const owners = new Map<string, () => void>()
 export class HerdrAgentReporter {
   readonly #environment: HerdrEnvironment | undefined
   readonly #transport: HerdrTransport | undefined
-  readonly #controller = new HerdrAgentStatusController()
+  readonly #controller = new AgentActivityController()
   readonly #now: () => number
   readonly #ownerKey: string | undefined
   #pending: HerdrRequest | undefined
@@ -177,6 +114,9 @@ export class HerdrAgentReporter {
     return this.#transport !== undefined
   }
 
+  get programStatus(): TerminalProgramStatus { return this.#controller.program }
+  settled(reason: string): void { this.#controller.settled(reason) }
+
   start(): void {
     this.#report(this.#controller.start())
   }
@@ -199,6 +139,7 @@ export class HerdrAgentReporter {
     const next = trimmed === undefined || trimmed === '' ? undefined : trimmed
     if (next === this.#sessionId) return
     this.#sessionId = next
+    this.#controller.resetResult()
     this.#report(this.#controller.start())
   }
 
@@ -229,7 +170,10 @@ export class HerdrAgentReporter {
       state: status.state,
     }
     if (status.message !== undefined) params.message = status.message
-    if (this.#sessionId !== undefined) params.agent_session_id = this.#sessionId
+    if (this.#sessionId !== undefined) {
+      params.agent_session_id = this.#sessionId
+      if (canRestoreHerdrSessionId(this.#sessionId)) params.resume_argv = ['omdsh', '--resume', this.#sessionId]
+    }
     this.#enqueue({ id: '', method: 'pane.report_agent', params })
   }
 
@@ -338,4 +282,13 @@ export function herdrSocketTarget(socketPath: string, platform: NodeJS.Platform 
     return socketPath
   }
   return `\\\\.\\pipe\\${socketPath}`
+}
+
+/** Herdr rejects resume_argv entries that contain apostrophes or ASCII/C1 control characters. */
+function canRestoreHerdrSessionId(sessionId: string): boolean {
+  for (let index = 0; index < sessionId.length; index += 1) {
+    const code = sessionId.charCodeAt(index)
+    if (code === 0x27 || code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return false
+  }
+  return sessionId.length > 0
 }

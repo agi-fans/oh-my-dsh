@@ -8,19 +8,39 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Optional File recovery snapshots in Settings → Tools retain durable Turn file contents. Session Tree’s Alt+R selects and previews files, confirms confined restoration, preserves later edits, and reports partial results and backups without rewinding messages or the Git index.
+
+- Approval prompts can remember an exact invocation decision for a session or workspace; `/permission` previews and revokes rules while Harness retains approval audit, cancellation and independent protections.
+
+- `/btw` opens tool-free side consultations from a fixed conversation snapshot. Saved topics support follow-ups and separate request usage; responses stay outside the primary model context, and cancelling the reader leaves the main Turn running.
+
+- `omdsh exec --json` runs prompts through an independent script consumer, with versioned NDJSON events, a final result, durable resume, Harness telemetry, explicit exit codes and managed-child draining. Human questions and approvals fail closed, while diagnostics stay on stderr.
+
+- Composer `!command` opens a session-owned persistent Shell with live output, an interrupt hint and explicit separation from model context. Marked pasted commands remain message text, Esc detaches, and Ctrl+C interrupts without cancelling an unrelated model Turn.
+
+- Tool cards and Changed files open current file previews and the configured Editor through right-click; `Alt+V` also previews a tool’s declared files. Paths retain their invocation or summary directory, text selections keep right-click copying, and approvals take priority over previews.
+- `omdsh doctor` provides read-only local diagnostics with text or versioned JSON output, explicit failed/unconfigured/unchecked states, secret-free reports and actionable fixes.
+- Settings configures terminal titles and program status, sharing the root lifecycle with Herdr and keeping pending-input, completion and failure states visible without exporting prompt bodies.
 - `/review` selects current changes, a base branch or one commit and confirms a review request to the current Agent, retaining its model, Access and Plan state.
 - `/advisor` and `consult_advisor` request independently attributed Codex or Claude Code opinions from explicit text context. Consultations reuse managed child lifecycles, isolate native processes from workspace writes, support cancellation, and can be disabled for model calls in Settings.
 - The `working_directory` tool changes the session’s current directory. File browsing, diffs, attachments, completion, new terminals and the footer follow it while the original project and Access remain unchanged.
 - `/plugins` offers Install and Reinstall for official on-demand bundles at the running Harness version, retaining installation consent, cancellation and build-script approval.
 - `/worktree` creates, enters and switches retained Git checkouts, or returns to the session’s original directory. Creation uses the optional Git Worktrees bundle, off by default, and preserves the current Access policy and source changes.
 - Native Codex and Claude Code bundles offer model and permission settings plus profile diagnostics in Settings, with the same form accessible from `/plugins`. Guidance explains their bundled runtimes, native authentication and independent permission policies.
+- `/import <archive.zip>` imports a portable `/export archive` bundle into local storage, remapping attachment references, rejecting session ID collisions or oversized archives, and resuming the imported root session.
+- `Ctrl+S` (`stash-draft`) stashes or swaps the current composer draft and automatically restores it after sending an intervening message; `Ctrl+-` restores a draft cleared with `Ctrl+C`, and `Alt+Up` recalls the latest queued message into the composer even when an unsent draft is present.
+- Source and diff readers add a `Quote` (`Q`) action that inserts `@path:line` at the current reading line into the composer, `/terminal` adds `Quote to composer` (`Q`) and `Copy output` (`Y`), and Plan Review supports `Ctrl+X` to edit multiline revision feedback in the configured external editor.
+- Interactive Keybindings in `/settings` (**Interface → Input → Keybindings**) remaps or unbinds shortcuts and reloads `keybindings.json` without restarting.
+- `@` autocomplete offers `@diff`, `@staged` and `@git` workspace context shortcuts to insert all modified or staged Git file mentions at once, `/copy` supports live type-to-filter search and `/copy output` (`out`) for tool outputs, and `/files` supports workspace-wide fuzzy search via `Shift+F` or `/files <query>`.
 
 ### Changed
 
+- Multi-question prompts support `Alt+Left` to step back to the previous question and rescue any unsent custom answer draft into the composer if cancelled or timed out. Approval prompts guard against accidental confirmation for 500ms after opening and add **Reject with note** to deny an action and steer the next model step in one flow.
+- Per-turn `Changed files` summaries are persisted as ignorable session records so resumed sessions retain changed-file cards, file previews and `/diff turn` navigation; terminal transcripts also emit `OSC 133;A` semantic prompt markers on user turns.
 - Command discovery prioritizes common tasks, searches description keywords and groups help by task. Session Library content search retains pin, rename and archive actions.
 - Allowed subagent models use a searchable, preselected multi-select list instead of JSON. Native integration Model and Permissions open directly, and Installation status explicitly reports registration only. Worktree creation can be enabled from its own picker.
 - Approval readers preserve multi-line tool input and reasons without compressing them into one row. MCP diagnostics distinguish plugin registration from available tools and do not infer connection health.
-- Settings adds cross-category search, visible narrow-screen category navigation, current-value preselection and prefilled input with readable duration and byte units. Agent links reuse model, Access and preset selectors; integration summaries show registration state and help explains dependencies and effect scope.
+- Settings adds cross-category search, visible narrow-screen category navigation, current-value preselection and prefilled input with readable duration and byte units. Agent links reuse model, Access and preset selectors and return to `/settings` with refreshed values; integration summaries show registration state and help explains dependencies and effect scope.
 - Settings saves only edited preference fields and offers confirmed restoration of inherited values, including individual status colors or the complete footer layout. Searching and editing retain the selected result.
 - Settings groups built-in capabilities under Interface, Agent, Tools, Status line and Integrations, with native-provider enablement and configuration. Advanced retains unclaimed fields and installed plugins, honors automatic-form policy, and omits duplicate and deprecated controls. Common switches and Hook compatibility show their current values and change directly; returning from forms preserves the selected row as available settings change. Bash and PowerShell share the Shell form, and Web search keeps connection and credential fields in Advanced.
 - Bundle management offers a confirmed Uninstall for profile-owned packages and explains why shipped integrations use Disable instead.
@@ -36,6 +56,15 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Herdr agent state reporting ignores user-initiated UI pickers, settings forms, file/diff/terminal readers and idle session rehydrations so opening or closing dialogs no longer triggers false `blocked` or `done` notifications, and advertises `resume_argv` (`omdsh --resume <id>`) for session recovery.
+- File previews recognize invalid UTF-8 as binary and retain source syntax when viewing cached snapshot content.
+
+- Source-reader shortcut hints omit empty separators when a document has no custom actions.
+
+- Terminal input and close dialogs yield to background approvals, and input failures remain visible in the TUI.
+- File shortcuts find visible tools in short expanded turns even when welcome chrome and startup notices remain above the call, instead of falling back to an unrelated workspace diff.
+- Partial TUI preference patches no longer crash the welcome card when the initial model label is omitted. The first session frame uses its effective model and reasoning effort.
+- Redirected output no longer activates raw terminal rendering or emits title and program-state control sequences.
 - Settings show save and integration errors before returning to their forms, restore unsaved preferences, and keep feature switches unchanged on write failure. Unreadable Profile patches are no longer replaced as empty files.
 - Codex and Claude Code status checks stay open in a scrollable reading page until dismissed, then return to their settings or bundle picker.
 - Plugin installation ignores Enter while waiting, preventing accidental cancellation. Failed and cancelled attempts no longer claim enablement, and progress updates stay in one card.
@@ -102,7 +131,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Markdown code retains literal HTML tags, entities and emphasis characters. Incomplete formulas remain readable while streaming, and compound exponents no longer convert only their first digit.
 
-- Herdr status follows the root Agent during session updates and subagent inspection, retries failed reports, and waits briefly for release on exit. Background runs and smoke-test terminals no longer claim their caller's Herdr pane.
+- Herdr status follows the root Agent during session updates and subagent inspection, includes `resume_argv` for session restore, retries failed reports, and waits briefly for release on exit. User-initiated settings and command pickers no longer trigger false `blocked` / `done` status transitions or notification sounds, and background runs and smoke-test terminals no longer claim their caller's Herdr pane.
 
 - Pasting a search term into a source reader updates matching lines immediately.
 

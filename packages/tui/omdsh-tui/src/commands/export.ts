@@ -1,6 +1,6 @@
-/** Transcript export command registered through dsh-commands. */
+/** Transcript export and archive import commands registered through dsh-commands. */
 
-import { open, unlink, writeFile } from 'node:fs/promises'
+import { open, readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -8,7 +8,7 @@ import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { registerCommands } from './registration.ts'
 import { formatTranscriptHtml, formatTranscriptMarkdown } from '../views/transcript-export.ts'
-import { sessionArchive } from '../runtime/session-archive.ts'
+import { importSessionArchive, sessionArchive } from '../runtime/session-archive.ts'
 
 export const name = 'omdsh-command-export'
 export const inject = ['commands']
@@ -52,11 +52,36 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
   }
 }
 
+async function importArchiveCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const unquoted = invocation.rawInput.trim().replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
+  if (unquoted === '') return { kind: 'error', text: 'Usage: /import <archive.zip>' }
+  const path = resolve(unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
+  try {
+    const data = await readFile(path, { signal: invocation.signal })
+    const imported = await importSessionArchive(ctx, data, invocation.signal)
+    await ctx.get('omdshSession')?.refreshRecent()
+    return {
+      kind: 'success',
+      text: `Imported session ${imported.rootSession} (${imported.importedSessions} session${imported.importedSessions === 1 ? '' : 's'}, ${imported.importedAttachments} attachment${imported.importedAttachments === 1 ? '' : 's'}). Use /resume ${imported.rootSession} to open it.`,
+    }
+  } catch (error: unknown) {
+    return { kind: 'error', text: 'Import failed: ' + (error instanceof Error ? error.message : String(error)) }
+  }
+}
+
 export function apply(ctx: Context): void {
-  registerCommands(ctx, [{
-    name: 'export',
-    description: 'Export a transcript or archive session logs and attachments',
-    input: { hint: '[html|markdown|archive] [path]' },
-    handler: invocation => exportTranscript(ctx, invocation),
-  }], 'omdsh export command')
+  registerCommands(ctx, [
+    {
+      name: 'export',
+      description: 'Export a transcript or archive session logs and attachments',
+      input: { hint: '[html|markdown|archive] [path]' },
+      handler: invocation => exportTranscript(ctx, invocation),
+    },
+    {
+      name: 'import',
+      description: 'Import a session archive (.zip) created by /export archive',
+      input: { hint: '<archive.zip>' },
+      handler: invocation => importArchiveCommand(ctx, invocation),
+    },
+  ], 'omdsh export command')
 }

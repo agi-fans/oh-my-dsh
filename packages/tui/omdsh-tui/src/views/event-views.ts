@@ -16,8 +16,9 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '@deepseek-ai/dsh-workspace-changes'
+import type {} from '../runtime/approval-rules.ts'
 import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { pluginRecordOf, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { formatTokens } from '../chrome/status-line.ts'
@@ -346,6 +347,23 @@ function foldEvent(
   indexes?: ReplayIndexes,
   workspace?: WorkspaceChangesSummary,
 ): TranscriptState {
+  const record = pluginRecordOf(event)
+  if (record !== undefined && record.data !== null && typeof record.data === 'object' && !Array.isArray(record.data)) {
+    const data = record.data as Record<string, unknown>
+    if (record.type === 'plugin:omdsh/workspace-changes' && typeof data.turn === 'number'
+      && data.summary !== null && typeof data.summary === 'object'
+      && Array.isArray((data.summary as { files?: unknown }).files)) {
+      return withWorkspaceSummary(state, data.turn, data.summary as unknown as WorkspaceChangesSummary)
+    }
+    const rejected = record.type === 'plugin:omdsh/approval-rule-matched' && typeof data.id === 'string'
+      && (data.scope === 'session' || data.scope === 'workspace') && data.decision === 'reject'
+    const error = record.type === 'plugin:omdsh/approval-rule-error' && typeof data.message === 'string' && data.message.length <= 4096
+    if (rejected || error) {
+      const blocks = editableBlocks(state, mutable)
+      blocks.push({ kind: 'notice', level: 'error', text: rejected ? 'Rejected by an approval rule. Use /permission → Approval rules to revoke it.' : data.message as string })
+      return { ...state, blocks }
+    }
+  }
   switch (event.type) {
     case 'turn/start':
       return {

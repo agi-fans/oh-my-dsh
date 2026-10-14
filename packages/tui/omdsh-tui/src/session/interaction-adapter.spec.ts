@@ -63,6 +63,68 @@ describe('bindHumanInteraction', () => {
     await dispose()
     await ctx.fiber.dispose()
   })
+
+  it('supports Alt+Left back navigation across multi-question batches and rescues cancelled custom drafts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    const answers = ['1', '__back__', '2', null]
+    const prompt = vi.fn(async (req: TuiPrompt) => {
+      const next = answers.shift() ?? null
+      if (next === null) req.onCancelDraft?.('half-typed custom answer')
+      return next
+    })
+    const insertText = vi.fn()
+    const dispose = bindHumanInteraction(ctx, { prompt, insertText } as unknown as TuiService, () => undefined)
+
+    await expect(ctx.userQuestions.ask({
+      questions: [
+        { id: 'q1', question: 'First?', options: [{ label: 'Alpha' }, { label: 'Beta' }] },
+        { id: 'q2', question: 'Second?', options: [{ label: 'Gamma' }] },
+      ],
+    })).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+    expect(prompt).toHaveBeenCalledTimes(4)
+    expect(prompt.mock.calls[0]?.[0].notify).toBeUndefined()
+    expect(prompt.mock.calls[1]?.[0].notify).toBe(false)
+    expect(prompt.mock.calls[2]?.[0].notify).toBe(false)
+    expect(prompt.mock.calls[3]?.[0].notify).toBe(false)
+    expect(prompt.mock.calls[1]?.[0].actions).toContainEqual(expect.objectContaining({ key: 'alt+left', valuePrefix: '__back__' }))
+    expect(prompt.mock.calls[2]?.[0].initialValue).toBe('Alpha')
+    expect(insertText).toHaveBeenCalledWith('half-typed custom answer')
+
+    await dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('arms approval prompts with armMs: 500 and steers the agent when Reject with note is chosen', async () => {
+    const ctx = new Context()
+    const prompt = vi.fn()
+      .mockResolvedValueOnce('reject-note')
+      .mockResolvedValueOnce('use ripgrep instead of find')
+    const steer = vi.fn()
+    const agent = { id: SessionId('approval-agent'), steer } as unknown as Agent
+    let approvalHandler: ((request: ApprovalRequest, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+    ;(ctx as unknown as { get: (name: string) => unknown }).get = (name: string) => name === 'approval' ? {} : undefined
+    ;(ctx as unknown as { on: (name: string, fn: (req: ApprovalRequest, next: () => Promise<unknown>) => Promise<unknown>) => () => void }).on = (name, fn) => {
+      if (name === 'approval/request') approvalHandler = fn
+      return () => {}
+    }
+    const dispose = bindHumanInteraction(ctx, { prompt, toolCallContext: () => undefined } as unknown as TuiService, () => agent)
+    expect(approvalHandler).toBeDefined()
+    const decision = await approvalHandler!({
+      toolName: 'bash',
+      agent,
+      signal: new AbortController().signal,
+    } as unknown as ApprovalRequest, async () => 'rejected')
+    expect(decision).toBe('rejected')
+    expect(prompt.mock.calls[0]?.[0].armMs).toBe(500)
+    expect(prompt.mock.calls[0]?.[0].notify).toBeUndefined()
+    expect(prompt.mock.calls[1]?.[0].notify).toBe(false)
+    expect(prompt.mock.calls[0]?.[0].options).toContainEqual(expect.objectContaining({ label: 'Reject with note', value: 'reject-note' }))
+    expect(steer).toHaveBeenCalledOnce()
+
+    await dispose()
+    await ctx.fiber.dispose()
+  })
 })
 
 const questionBatch = [{ id: 'scope', question: 'Choose the scope', options: [{ label: 'Project' }, { label: 'Global' }] }]

@@ -9,6 +9,8 @@
 
 /** Transcript viewport after the height clip (OMP ScrollView equivalent). */
 export interface TranscriptScroll {
+  /** Actual painted file-bearing spans, in document rows; folded-away calls are absent. */
+  fileRegions?: readonly TranscriptFileRegion[]
   /** First body row shown (0 = top of the welcome/transcript). */
   start: number
   /** Largest start that still pins the tail. */
@@ -52,6 +54,14 @@ export interface TranscriptScroll {
    * block's own drawn start, which does not move for a search.
    */
   blockDrawStarts?: readonly number[]
+}
+
+export interface TranscriptFileRegion {
+  start: number
+  end: number
+  block: number
+  /** Changed-file row to open directly; omitted for a tool or summary picker. */
+  file?: number
 }
 
 /** One open surface of the transcript, keyed by what it is and how it is open. */
@@ -144,7 +154,7 @@ export function sanitizeDisplayLine(value: string): string {
   for (const match of value.matchAll(DISPLAY_ESCAPE)) {
     output += plain(value.slice(cursor, match.index))
     const sequence = match[0]
-    if ((sequence.startsWith('\x1b[') && sequence.endsWith('m')) || sequence.startsWith('\x1b]8;')) {
+    if ((sequence.startsWith('\x1b[') && sequence.endsWith('m')) || sequence.startsWith('\x1b]8;') || sequence.startsWith('\x1b]133;')) {
       output += sequence
     }
     cursor = match.index + sequence.length

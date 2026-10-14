@@ -76,6 +76,18 @@ describe('workspace/changes fold', () => {
     expect(before.blocks).toHaveLength(0)
     expect(after.blocks).toHaveLength(1)
   })
+
+  it('restores the workspace summary from a durable plugin:omdsh/workspace-changes record on cold resume', () => {
+    const persisted = {
+      type: 'plugin:omdsh/workspace-changes',
+      seq: 8,
+      time: 0,
+      ignorable: true as const,
+      data: { turn: 3, summary: summary() },
+    } as unknown as SessionEvent
+    const state = replayEvents([changesEvent(7, 3), persisted])
+    expect(state.blocks).toEqual([{ kind: 'workspace', turn: 3, summary: summary() }])
+  })
 })
 
 describe('withWorkspaceSummary', () => {

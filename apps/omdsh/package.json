@@ -50,7 +50,8 @@
         "./config/presets/standard.patch.yml",
         "./config/presets/code.patch.yml",
         "./config/presets/minimal.patch.yml",
-        "./config/presets/cordis.patch.yml"
+        "./config/presets/cordis.patch.yml",
+        "./config/presets/btw.patch.yml"
       ]
     }
   },

@@ -30,6 +30,7 @@ function fixedChoice(optionCount: number) {
     optionLayout: 'compact' as const,
     filterable: fullscreen,
     allowCustom: false,
+    notify: false,
   }
 }
 

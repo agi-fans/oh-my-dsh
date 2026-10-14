@@ -10,6 +10,7 @@ import { deliverableFiles, logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
 import { previewImages } from '../runtime/image-preview.ts'
 import { registerCommands } from './registration.ts'
+import { loadProjectPaths, rankProjectPaths } from '../session/project-file-search.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-files'
@@ -20,11 +21,46 @@ export function userPath(input: string, cwd: string): string {
   return resolve(cwd, unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
 }
 
+async function searchWorkspaceFile(ctx: Context, root: string, initialQuery: string, signal: AbortSignal): Promise<string | null> {
+  const entries = (await loadProjectPaths(root, signal)).filter(entry => !entry.directory)
+  const ranked = initialQuery.trim() === '' ? entries.slice(0, 1000) : rankProjectPaths(entries, initialQuery, 500)
+  if (ranked.length === 0) return null
+  if (ranked.length === 1 && initialQuery.trim() !== '') return resolve(root, ranked[0]!.path)
+  const answer = await ctx.tui.prompt({
+    title: `Workspace files · ${root}`,
+    question: initialQuery.trim() === '' ? 'Search workspace files' : `Matches for "${initialQuery.trim()}"`,
+    presentation: 'fullscreen-list',
+    optionLayout: 'compact',
+    allowCustom: false,
+    filterable: true,
+    signal,
+    notify: false,
+    options: ranked.map(entry => ({ label: entry.path, value: resolve(root, entry.path) })),
+  })
+  return answer
+}
+
 async function browse(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
-  let path = userPath(invocation.rawInput.trim(), cwd)
+  const rawQuery = invocation.rawInput.trim()
+  let path = userPath(rawQuery, cwd)
   while (!invocation.signal.aborted) {
-    const info = await stat(path)
+    let info
+    try {
+      info = await stat(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' && rawQuery !== '' && ctx.tui.interactive === true) {
+        const matched = await searchWorkspaceFile(ctx, cwd, rawQuery, invocation.signal)
+        if (matched !== null) {
+          path = matched
+          info = await stat(path)
+        } else {
+          throw error
+        }
+      } else {
+        throw error
+      }
+    }
     if (info.isFile()) {
       if (ctx.tui.interactive !== true) return { kind: 'success', text: await filePreview(path, invocation.signal) }
       const directory = dirname(path)
@@ -43,10 +79,16 @@ async function browse(ctx: Context, invocation: CommandInvocation): Promise<Comm
     if (ctx.tui.interactive !== true) return { kind: 'success', text: page.map(entry => entry.name + (entry.isDirectory() ? '/' : '')).join('\n') }
     const answer = await ctx.tui.prompt({ title: `Files · ${path}`, question: path, presentation: 'fullscreen-list', optionLayout: 'compact',
       allowCustom: false, filterable: true, signal: invocation.signal, notify: false,
-      detail: entries.length > page.length ? `Showing ${page.length} of ${entries.length} entries; /files <path> opens a specific path.` : 'Shift+P shows this session’s deliverables.',
+      detail: entries.length > page.length ? `Showing ${page.length} of ${entries.length} entries; Shift+F searches all workspace files.` : 'Shift+F searches workspace files · Shift+P shows this session’s deliverables.',
       options: [{ label: '../', value: dirname(path) }, ...page.map(entry => ({ label: entry.name + (entry.isDirectory() ? '/' : ''), value: resolve(path, entry.name) }))],
-      actions: [{ key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
+      actions: [{ key: 'F', label: 'search workspace', valuePrefix: 'search:' }, { key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
     if (answer === null) break
+    if (answer.startsWith('search:')) {
+      const picked = await searchWorkspaceFile(ctx, path, '', invocation.signal)
+      if (picked === null) continue
+      path = picked
+      continue
+    }
     if (answer.startsWith('present:')) {
       const files = deliverableFiles(invocation.agent.session.snapshotEvents()).map(path => ({ path, label: path }))
       if (files.length === 0) { ctx.tui.notice('No deliverables in this session.'); continue }
@@ -59,7 +101,7 @@ async function browse(ctx: Context, invocation: CommandInvocation): Promise<Comm
 export async function attachFile(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (ctx.tui.interactive !== true || ctx.tui.stageFileAttachment === undefined) return { kind: 'error', text: 'File drafts require an interactive composer.' }
   let input = invocation.rawInput.trim()
-  if (input === '') input = await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, signal: invocation.signal }) ?? ''
+  if (input === '') input = await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, notify: false, signal: invocation.signal }) ?? ''
   if (input === '' || invocation.signal.aborted) return { kind: 'success' }
   const path = userPath(input, currentWorkingDirectory(ctx, invocation.agent.session))
   const info = await stat(path)

@@ -10,6 +10,7 @@ export type KeyEvent =
   | { type: 'key'; id: string }
   | { type: 'text'; value: string }
   | { type: 'focus'; focused: boolean }
+  | { type: 'program-status-support' }
   | { type: 'cell-size'; width: number; height: number }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
@@ -186,6 +187,14 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
       const tail = input.slice(i)
       const second = tail[1]
       if (second === undefined) return { events, rest: tail }
+      if (second === ']') {
+        const end = /\x07|\x1b\\/u.exec(tail.slice(2))
+        if (end === null) return tail.length < 4096 ? { events, rest: tail } : { events, rest: '' }
+        const body = tail.slice(2, 2 + end.index)
+        if (/^7501;\?(?:[:;].*)?$/u.test(body)) events.push({ type: 'program-status-support' })
+        i += 2 + end.index + end[0].length
+        continue
+      }
       if (second === '[') {
         const parsed = parseCsi(tail.slice(1))
         if (parsed === 'partial') return { events, rest: tail }

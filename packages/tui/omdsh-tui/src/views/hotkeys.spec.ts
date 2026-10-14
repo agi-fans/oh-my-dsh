@@ -23,7 +23,7 @@ const OVERLAY_CATALOGS: readonly { label: string; rows: readonly HotkeyRow[]; ke
   {
     label: 'Copy picker',
     rows: COPY_SELECTOR_HOTKEYS,
-    keys: ['↑↓', 'Tab / Shift+Tab', 'PgUp / PgDn', 'Home / End', 'Enter', 'Space', 'Esc / Ctrl+C'],
+    keys: ['↑↓', 'Tab / Shift+Tab', 'PgUp / PgDn', 'Home / End', '/ or Text', 'Backspace / Ctrl+U', 'Enter', 'Space', 'Esc / Ctrl+C'],
   },
   {
     label: 'Agent Hub',

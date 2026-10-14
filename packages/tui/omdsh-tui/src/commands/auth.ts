@@ -416,6 +416,7 @@ async function pickLoginChoice(
       },
     ],
     allowCustom: false,
+    notify: false,
     signal: invocation.signal,
   })
   if (raw === null) return undefined
@@ -448,6 +449,7 @@ async function pickAuthorizationMethod(
       value: method.id,
     })),
     allowCustom: false,
+    notify: false,
     signal: invocation.signal,
   })
   if (raw === null) return undefined
@@ -472,7 +474,10 @@ async function loginAuthorization(
     const outcome = await authorization.begin({
       key: flow.key,
       method,
-      interaction: createAuthorizationInteraction(ctx.tui, `Login to ${flow.label}`),
+      interaction: createAuthorizationInteraction({
+        notice: message => { ctx.tui.notice(message) },
+        prompt: request => ctx.tui.prompt({ ...request, notify: false }),
+      }, `Login to ${flow.label}`),
       signal: invocation.signal,
     })
     if (outcome.status === 'cancelled') return { kind: 'success' }
@@ -532,6 +537,7 @@ async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config
     detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated, stored locally, and preferred over DEEPSEEK_API_KEY.`,
     allowCustom: true,
     secret: true,
+    notify: false,
     submitLabel: 'validate',
     signal: invocation.signal,
   })
@@ -577,6 +583,7 @@ async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: 
     detail: `The key is stored locally and activates the ${entry.provider} route for the next model request. Use /model to select it.`,
     allowCustom: true,
     secret: true,
+    notify: false,
     submitLabel: 'save',
     signal: invocation.signal,
   })
@@ -633,6 +640,7 @@ async function collectCustomModels(
     ],
     initialValue: 'enter',
     allowCustom: false,
+    notify: false,
     signal: invocation.signal,
   })
   if (source === null) return undefined
@@ -655,6 +663,7 @@ async function collectCustomModels(
           })),
           multiSelect: true,
           allowCustom: false,
+          notify: false,
           filterable: discovered.length > FULLSCREEN_CHOICE_THRESHOLD,
           ...(discovered.length > FULLSCREEN_CHOICE_THRESHOLD ? { presentation: 'fullscreen-list' as const } : {}),
           signal: invocation.signal,
@@ -670,6 +679,7 @@ async function collectCustomModels(
         question: 'Enter model ids',
         detail: `Could not fetch models (${detail}). Type one or more ids, separated by commas.`,
         allowCustom: true,
+        notify: false,
         signal: invocation.signal,
       })
       if (fallback === null) return undefined
@@ -681,6 +691,7 @@ async function collectCustomModels(
     question: 'Enter model ids',
     detail: 'Separate multiple ids with commas. Example: llama3.1, qwen2.5-coder',
     allowCustom: true,
+    notify: false,
     signal: invocation.signal,
   })
   if (typed === null) return undefined
@@ -693,6 +704,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     question: 'Provider id',
     detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
     allowCustom: true,
+    notify: false,
     signal: invocation.signal,
   })
   if (idRaw === null) return { kind: 'success' }
@@ -711,6 +723,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     question: 'Base URL',
     detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
     allowCustom: true,
+    notify: false,
     signal: invocation.signal,
   })
   if (urlRaw === null) return { kind: 'success' }
@@ -733,6 +746,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     })),
     initialValue: 'openai-completions',
     allowCustom: false,
+    notify: false,
     signal: invocation.signal,
   })
   if (api === null) return { kind: 'success' }
@@ -746,6 +760,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     detail: 'Leave empty if the endpoint does not need a key.',
     allowCustom: true,
     secret: true,
+    notify: false,
     submitLabel: 'continue',
     signal: invocation.signal,
   })
@@ -851,6 +866,7 @@ async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Prom
     ],
     initialValue: 'cancel',
     allowCustom: false,
+    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
   })
@@ -891,6 +907,7 @@ async function pickLogoutChoice(
               description: 'signed in',
             }),
     allowCustom: false,
+    notify: false,
     signal: invocation.signal,
   })
   if (raw === null) return undefined
@@ -927,6 +944,7 @@ async function logoutRecord(
     ],
     initialValue: 'cancel',
     allowCustom: false,
+    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
   })
@@ -970,6 +988,7 @@ async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry:
     ],
     initialValue: 'cancel',
     allowCustom: false,
+    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
   })

@@ -17,6 +17,7 @@ export interface SessionTreeNode {
   sessionId: string
   kind: 'branch' | 'turn'
   messageIndex?: number
+  turn?: number
   label: string
   preview: string
   description: string
@@ -96,7 +97,7 @@ export function buildSessionTree(branches: readonly SessionTreeBranch[], current
       const fileCount = message.type === 'user/message' ? message.data.content.filter(block => block.type === 'file').length : 0
       const attachments = [turn.imageCount > 0 ? `${turn.imageCount} images` : '', fileCount > 0 ? `${fileCount} files` : ''].filter(Boolean).join(' · ')
       nodes.push({
-        id, parentId: previous, sessionId: branch.id, kind: 'turn', messageIndex: turn.messageIndex,
+        id, parentId: previous, sessionId: branch.id, kind: 'turn', messageIndex: turn.messageIndex, turn: turn.turn,
         label: `Turn ${turn.turn} · ${turn.preview}`, description: outcome, current: false,
         preview: `## Turn ${turn.turn} · ${outcome}\n\n### User\n\n${content || turn.preview}${attachments === '' ? '' : `\n\nAttachments: ${attachments}`}\n\n### Assistant\n\n${replies.at(-1) ?? 'No final reply recorded.'}`,
       })

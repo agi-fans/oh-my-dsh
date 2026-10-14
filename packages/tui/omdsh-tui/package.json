@@ -26,6 +26,14 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
+    "./file-recovery-local": {
+      "types": "./lib/runtime/file-recovery-local.d.ts",
+      "default": "./lib/runtime/file-recovery-local.js"
+    },
+    "./approval-rules": {
+      "types": "./lib/runtime/approval-rules.d.ts",
+      "default": "./lib/runtime/approval-rules.js"
+    },
     "./command-advisor": {
       "types": "./lib/commands/advisor.d.ts",
       "default": "./lib/commands/advisor.js"
@@ -138,6 +146,18 @@
     "./hook-settings": {
       "types": "./lib/runtime/hook-settings.d.ts",
       "default": "./lib/runtime/hook-settings.js"
+    },
+    "./btw-policy": {
+      "types": "./lib/runtime/btw-policy.d.ts",
+      "default": "./lib/runtime/btw-policy.js"
+    },
+    "./btw": {
+      "types": "./lib/runtime/btw.d.ts",
+      "default": "./lib/runtime/btw.js"
+    },
+    "./command-btw": {
+      "types": "./lib/commands/btw.d.ts",
+      "default": "./lib/commands/btw.js"
     }
   },
   "files": [
@@ -167,6 +187,7 @@
     "@deepseek-ai/dsh-credentials": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-experimental-worktree": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-file-reference": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-fs": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-goal": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-hook-protocol": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-hooks-claude-code": "0.2.1-alpha.2",
@@ -190,6 +211,7 @@
     "@deepseek-ai/dsh-skill": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-subagent": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-terminal": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-token-meter": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-tool-present": "0.2.1-alpha.2",

@@ -2,6 +2,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-session-projection'
 
 export const name = 'omdsh-agent-profile'
 export const inject = ['tools']
@@ -13,6 +16,17 @@ export const inject = ['tools']
  * tool registered.
  */
 export const SHELL_TOOL_ALIAS = 'shell'
+
+/** Compose a model selection and the session's preset before Agent publication. */
+export async function configureAgentContext(ctx: Context, agent: Agent, selection: ModelSelectionRef): Promise<{ agentPreset: string }> {
+  installModelSelection(ctx, selection)
+  const presets = ctx.get('agentPresets')
+  const projections = ctx.get('sessionProjections')
+  if (presets === undefined || projections === undefined) throw new Error('agent configuration services are unavailable')
+  const preset = projections.stateOf(agent.session, 'agentPreset') ?? presets.defaultId
+  const mounted = await presets.mount(ctx, preset)
+  return { agentPreset: mounted.id }
+}
 
 export interface Config {
   /** Restrict inherited tools while preserving tools registered by this preset. */

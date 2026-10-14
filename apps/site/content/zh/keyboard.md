@@ -30,12 +30,14 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+K` | 删除到行尾。 |
 | `Ctrl+Y` | 粘贴回已删除的文本。 |
 | `Alt+Y` | 在删除环中循环。 |
-| `Ctrl+-` | 撤销上一次编辑。 |
+| `Ctrl+-` | 撤销上一次编辑，或恢复刚清空的草稿。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `Alt+M` | 预览 composer 图片，不发送消息。 |
 | `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
+| `Alt+Up` | composer 为空时，将最近一条排队消息取回 composer。 |
 | `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
+| `Ctrl+S` | 暂存或恢复当前 composer 草稿；发送一条消息后会自动恢复暂存的草稿。 |
 | `Alt+S` | 将文本纠正消息送到当前 Turn 的下一次模型步骤。 |
 | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
@@ -65,17 +67,19 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `End` / 点击跳转浮层 | 回到最新消息并关闭回合详情。在实时底部，`End` 仍移动到 composer 当前行末尾。 |
 | `Ctrl+O` | 将视口所在的已完成回合恢复为运行时的展示；再按一次回到折叠的实时底部。运行中的回合保持不变；在工具目录上则切换描述详略。 |
 | `Alt+O` | 切换当前阅读回合的完整工具输入和结果，运行中的回合也可使用。 |
-| `Alt+V` | 审查当前阅读回合的文件改动；没有回合摘要时查看当前工作区。 |
+| `Alt+V` | 阅读位置对应工具时预览其声明的文件；否则审查回合文件改动或当前工作区。 |
 | `Ctrl+F` | composer 为空时搜索当前转录；`n`/`N` 在匹配间跳转。 |
 | `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
 
-转录可以滚动时，折叠和展开视图都支持在当前视口内拖选文字。双击选择单词或路径，三击选择整行，Shift 点击扩展选区；默认松开鼠标后复制。可在 Settings 关闭 **Copy on select**，改用 `Alt+C`、`Enter` 或右键复制；`Esc` 清除选区，`Ctrl+C` 保留中断与退出行为。滚动、调整窗口、输入文字或所选行内容变化时会清除选区。
+转录可以滚动或包含可操作文件时，折叠和展开视图都支持在当前视口内拖选文字。双击选择单词或路径，三击选择整行，Shift 点击扩展选区；默认松开鼠标后复制。可在 Settings 关闭 **Copy on select**，改用 `Alt+C`、`Enter` 或右键复制；`Esc` 清除选区，`Ctrl+C` 保留中断与退出行为。滚动、调整窗口、输入文字或所选行内容变化时会清除选区。
+
+没有文本选区时，右键带文件位置声明的工具卡片可预览其文件，右键 Changed files 的文件行可直接预览该文件。阅读器复用 Open 和已配置的 Editor。工具的相对路径保留调用发生时的目录；Changed files 保留摘要所属目录。这些预览展示宿主文件的当前内容。在工具之外，`Alt+V` 仍打开保留的回合比较；已完成的回合摘要不会使隐藏的工具卡片变成点击目标。Native 鼠标模式保留键盘入口。审批或其他用户提问会取消文件操作，避免争抢输入。
 
 **Mouse interaction** 默认 `auto`，尊重 tmux 的 mouse off 设置；`tui` 显式启用应用接管，`native` 将鼠标交给终端，键盘滚动和 `End` 仍然可用。终端原生历史继续保留，可用终端选择或 tmux copy-mode 复制。
 
 全屏页面暂时关闭应用鼠标接管。`/trajectory` 等浏览界面关闭后恢复原来的检视位置；命令返回转录文本时，会回到实时底部显示结果。
 
-文件和 Diff 的源码阅读器用 `/` 或 `Ctrl+F` 搜索已加载文本，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，`G` 或 `Ctrl+G` 跳到文件行号。`[`／`]` 切换 Diff 变更块；提供相应按钮时，`L` 加载更多文本，`M` 切换 Markdown 渲染。Enter 应用搜索或行号输入，Esc 先取消输入，再返回文件列表。预览上限和视图行为见[文件命令](commands.md)。
+文件和 Diff 的源码阅读器用 `/` 或 `Ctrl+F` 搜索已加载文本，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，`G` 或 `Ctrl+G` 跳到文件行号。`[`／`]` 切换 Diff 变更块；提供相应按钮时，`L` 加载更多文本，`Q` 将 `@path:line` 插入 composer，`M` 切换 Markdown 渲染。Enter 应用搜索或行号输入，Esc 先取消输入，再返回文件列表。预览上限和视图行为见[文件命令](commands.md)。
 
 源码阅读器默认将长行折行。`W` 切换折行；`Alt+Left`／`Alt+Right` 横向移动八个显示单元格，并切换为不折行模式。行号保持固定，阅读器操作之间保留折行状态和横向位置。普通左右方向键仍用于选择操作按钮；终端控制台沿用相同的阅读快捷键。
 
@@ -109,23 +113,24 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 转录搜索（`Ctrl+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `↑`/`↓`、`Home`/`End`、`PgUp`/`PgDn` 导航，`Enter` 打开详情，`Tab`/`←`/`→` 切换分区，`/` 搜索，`n`/`N` 与 `Ctrl+N`/`Ctrl+P` 跳转匹配，`t` 折叠回合，`c` 折叠调用，`Esc`/`Ctrl+C` 关闭。 |
 | Session Library | 清空搜索后 `p` 置顶／取消置顶、`r` 重命名；`Alt+A` 归档／恢复选中会话，`Alt+V` 切换默认／归档列表，列表为空或正在搜索时也可切换。 |
-| Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Alt+L` 添加标记，`Alt+U` 清除标记，`Alt+B` 切换已标记节点，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
-| 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
+| Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Alt+L` 添加标记，`Alt+U` 清除标记，`Alt+B` 切换已标记节点，`Alt+R` 检查 Turn 文件恢复，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
+| 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，多题提问中按 `Alt+Left` 返回上一题，Plan Review 中按 `Ctrl+X` 用外部编辑器编写修改意见，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
 
 可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/sessions <query>` 保留各自的搜索规则。
 
 ## 自定义键位
 
-应用级绑定存放在 `$OMDSH_HOME/omdsh/keybindings.json`（回退到 `$DSH_HOME`，再到 `~/.dsh`），与会话、设置和 MCP 文件使用同一个 home。文件把小写 key id 映射到 action id：
+应用级绑定存放在 `$OMDSH_HOME/omdsh/keybindings.json`（回退到 `$DSH_HOME`，再到 `~/.dsh`），与会话、设置和 MCP 文件使用同一个 home。你可以在 `/settings` 的 **Interface → Input → Keybindings** 中交互式重绑或解绑快捷键（保存后立即生效），也可以直接编辑 JSON 文件：
 
 ```json
 {
   "ctrl+j": "search-transcript",
-  "ctrl+r": "retry"
+  "ctrl+r": "retry",
+  "ctrl+s": null
 }
 ```
 
-key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名键用小写拼写（`pageup`、`pagedown`、`escape`、`left`、`right`、`up`、`down`）。值必须是下表中的 action id；无法识别的 action 或格式错误的文件只会让对应条目保留出厂绑定。绑定在启动时读取一次，编辑文件后需要重启 omdsh，之后 `/help` 会显示实际生效的按键。
+key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名键用小写拼写（`pageup`、`pagedown`、`escape`、`left`、`right`、`up`、`down`）。值必须是下表中的 action id，或用 `null` 解除默认按键绑定；无法识别的 action 或格式错误的文件只会让对应条目保留出厂绑定。`/help` 会显示实际生效的按键。
 
 | Action id | 默认键 | 作用 |
 |---|---|---|
@@ -133,6 +138,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `expand-paste` | `Alt+I` | 展开粘贴块进行编辑。 |
 | `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
 | `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |
+| `stash-draft` | `Ctrl+S` | 暂存或恢复当前 composer 草稿。 |
 | `external-editor` | `Ctrl+X` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 重试最近一条人类提示。 |
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
@@ -144,13 +150,21 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `cycle-reasoning` | `Ctrl+T` | 循环切换当前模型的推理强度。 |
 | `toggle-tools` | `Ctrl+O` | 将视口所在的已完成回合恢复为运行时的展示；再按一次回到折叠的实时底部。运行中的回合保持不变；在工具目录上则切换描述详略。 |
 | `toggle-tool-details` | `Alt+O` | 切换当前阅读回合的完整工具输入和结果。 |
-| `review-changes` | `Alt+V` | 审查当前回合的文件。 |
+| `review-changes` | `Alt+V` | 预览工具文件或审查当前回合的文件改动。 |
 | `scroll-page-up` | `PgUp` | 向上翻一页。 |
 | `scroll-page-down` | `PgDn` | 向下翻一页。 |
 | `scroll-fast-up` | `Shift+Up` | 快速向上滚动。 |
 | `scroll-fast-down` | `Shift+Down` | 快速向下滚动。 |
 | `search-history` | `Ctrl+R` | 搜索输入历史。 |
 | `search-transcript` | `Ctrl+F` | 搜索当前转录。 |
+
+## Composer Shell
+
+在输入框中键入 `!command`，即可在当前会话的持久 Shell 中执行一行命令，并直接打开实时终端阅读页。Shell 使用当前 Access 级别，从当前工作目录启动，后续调用保留它自己的目录和环境变量。它与 Agent 的工具 Shell 相互独立。
+
+输出不会自动进入模型上下文，也不会启动模型 Turn。`Esc` 返回聊天，Shell 继续运行；`Ctrl+C` 中断并返回。`I` 发送更多输入，`C` 向前台命令发送中断信号。使用 `/terminal` 返回已离开的 Shell 或关闭它。阅读页会让位给审批，执行仍受当前 Access 级别约束。
+
+Shell 历史和环境仅保留在当前运行的 Agent 中；恢复已保存的会话会创建新 Shell。带粘贴标记且以 `!` 开头的文本仍作为普通消息处理。需要执行时，请主动键入开头的 `!`；无标记的单行粘贴有时无法与键入区分。携带附件的输入仍按消息处理。快捷执行需要交互式终端；Shell 返回控制权不代表命令已退出。
 
 ## 相关
 

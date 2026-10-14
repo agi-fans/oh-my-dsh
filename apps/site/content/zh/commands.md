@@ -17,7 +17,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/new` | 新建会话。 |
 | `/sessions [query]` | 不带参数时打开 Session Library；带查询时通过全文索引搜索持久会话内容并恢复选中的结果。在库中按 `p` 置顶、按 `r` 重命名。 |
 | `/resume [session-id]` | 恢复一个持久会话；不带 id 时从最近会话列表中选择。 |
-| `/tree` | 浏览当前对话的回合与分支，预览内容，从历史消息创建分支，或恢复已有分支。 |
+| `/tree` | 浏览回合与分支，从历史消息创建分支，恢复已有分支，或在快照可用时用 `Alt+R` 恢复选中的 Turn 文件。 |
 | `/session` | 显示当前会话的详细信息。 |
 | `/retry` | 重新执行最近一条人类提示。 |
 | `/todo` | 把当前会话的 todo 列表打印到转录中。 |
@@ -28,7 +28,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | 命令 | 作用 |
 |---|---|
 | `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；不可用的 preset 会显示失败原因。`/agent inspect [preset-id]` 查看声明及当前会话保留的 composition。`code`（PTC）preset 把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
-| `/permission` | 选择会话 Access 级别：Read only、Workspace write 或 Full access。 |
+| `/permission` | 选择会话 Access 级别，或查看、撤销记住的审批规则。 |
 | `/login` | 登录 provider：目录条目、API key，或自定义 provider（自带 id、base URL、协议与模型 id）。 |
 | `/logout` | 移除由 omdsh 管理的 provider 选择。 |
 | `/settings` | 打开 Interface、Agent、Tools、Integrations、Status line 与 Advanced 设置。别名：`/set`。 |
@@ -52,12 +52,19 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 |---|---|
 | `/queue` | 逐条查看、编辑、删除和调整待处理用户消息的顺序。 |
 | `/steer <message>` | 在活动回合的下一个模型步骤前引导它。 |
+| `/btw [question]` | 基于当前已提交的会话快照另问一个问题，或重新打开已保存的话题。 |
 | `/questions` | 回答限时等待后留下的问题，也可用于恢复的会话。 |
 | `/loop [count\|duration] [prompt]` | 在每个完成的回合后重复一条提示：count 或 duration 决定重复次数或持续时长；只给 count 时，下一条 composer 消息会成为被重复的提示。再次运行 `/loop` 关闭。见[引导运行中的任务](tutorials/guide-a-turn.md)。 |
 | `/plan [off\|<message>]` | 进入 Plan 模式并可同时发送首个规划请求，`off` 直接退出。composer 中的图片会随规划请求一起发送。 |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | 为会话设置或查看长期目标。 |
 | `/compact` | 压缩较早的对话历史。 |
 | `/jobs [kill <id>]` | 列出后台任务，或按 id 停止一个。 |
+
+## 旁路咨询
+
+`/btw` 使用当前模型与推理设置，在独立的持久会话中回答问题。第一问捕获调用时已提交的消息；主会话后续消息及尚未提交的流式文本不在快照中。追问保留最初快照，并包含该话题自己的问答。咨询不能调用工具，恢复后仍受此约束；它从 Read only Access 开始，并清除复制来的 Goal 和 Plan 执行状态，不改变父会话。回复的输出上限为 8,192 tokens。
+
+阅读页实时显示回答；Esc 或 Ctrl+C 只取消旁路咨询。父会话的审批优先。完成后可选择 Follow-up 追问、Topics 查看话题，或返回原会话。建议不会自动发送给主模型。模型请求及复制的输入上下文会单独产生费用；显示的用量只覆盖本次咨询的新请求尝试，不包含继承的历史。中断或失败的话题仍保留在历史中，并显示已保存的部分输出。话题与会话日志保存在 `OMDSH_HOME` 下。
 
 ## 可观测性
 
@@ -82,7 +89,11 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/terminal [terminal-id]` | 打开本会话的持久终端控制台，或使用会话 sandbox 新建 shell。 |
 | `/worktree [return]` | 浏览并切换 Git worktree。在 `/plugins` 启用 Git Worktrees bundle 后可创建 checkout；`return` 回到会话的原始目录。 |
 
-文件文档支持方向键、PgUp/PgDn 和 Home/End 滚动。`N`/`P` 切换文件，`V` 切换 diff/预览，`O` 打开原件；`E` 使用 Settings 中选定的编辑器。Esc 返回选择器。源码视图分别保留每个文件和 Diff 的阅读位置与搜索词，从编辑器返回后也会恢复。外部编辑器临时接管真实终端，返回后 omdsh 恢复 raw input。
+在输入框中键入 `!command`，即可在持久 Shell 中执行一行命令，输出不会自动进入模型上下文；详见 [Composer Shell](keyboard.md#composer-shell)。
+
+文件文档支持方向键、PgUp/PgDn 和 Home/End 滚动。`N`/`P` 切换文件，`V` 切换 diff/预览，`O` 打开原件，`E` 使用 Settings 中选定的编辑器，`Q` 将当前阅读位置的 `@path:line` 引用插入 composer。Esc 返回选择器。源码视图分别保留每个文件和 Diff 的阅读位置与搜索词，从编辑器返回后也会恢复。外部编辑器临时接管真实终端，返回后 omdsh 恢复 raw input。
+
+没有文本选区时，右键工具卡片或 Changed files 也会打开同一个阅读器。`Alt+V` 预览阅读位置对应工具声明的文件，否则保留原来的回合比较行为。预览按调用或摘要的原始目录解析路径，读取文件当前内容；提供方声明的行号会在已加载前缀内初始化源码位置。这些操作不提交模型消息、不修改 Access，也不创建文件检查点。
 
 在源码视图按 `/` 或 `Ctrl+F`，对已加载文本进行不区分大小写的字面搜索；Enter 保留搜索词，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，Esc 取消本次编辑而不关闭阅读器。`G` 或 `Ctrl+G` 跳到文件行号。Diff 显示修改前后的两列行号，跳转使用新文件一侧的行号，`[`／`]` 切换变更块；无法跳到已显示变更块之外的行。文本初次加载 128 KiB，按 `L` 或 **Load more** 将已加载前缀翻倍，最多 4 MiB。超过上限可用 Open 阅读原件；其他二进制格式交给对应应用。
 
@@ -104,6 +115,7 @@ PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attachments` 收录
 |---|---|
 | `/copy [text\|code\|cmd]` | 复制最近的助手回复、最近的围栏代码块或最近的 bash 命令；不带参数时打开复制选择器。`command` 与 `cmd` 等价。 |
 | `/export [html\|markdown\|archive] [path]` | 导出 Markdown/HTML 转录，或包含逻辑日志、子会话及原始附件的 ZIP。 |
+| `/import <archive.zip>` | 将 `/export archive` 导出的便携式 ZIP 归档导入本地存储，并恢复其根会话。 |
 | `/changelog [full]` | 显示最近的版本说明；`full` 显示打包的完整历史。 |
 
 ## Skills

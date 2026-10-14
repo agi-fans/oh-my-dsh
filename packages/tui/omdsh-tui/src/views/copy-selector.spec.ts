@@ -36,10 +36,19 @@ describe('applyCopySelectorEvent', () => {
     expect(applyCopySelectorEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
   })
 
-  it('ignores unrelated keys', () => {
+  it('filters rows with text input and clears filter on escape before closing', () => {
     const open = createCopySelector(items)
     expect(applyCopySelectorEvent(open, key('ctrl+k'))).toEqual({ kind: 'ignore' })
-    expect(applyCopySelectorEvent(open, { type: 'text', value: 'x' })).toEqual({ kind: 'ignore' })
+    const filtered = applyCopySelectorEvent(open, { type: 'text', value: 'pwd' })
+    expect(filtered).toEqual({ kind: 'update', state: { items, selected: 0, search: 'pwd' } })
+    if (filtered.kind === 'update') {
+      expect(applyCopySelectorEvent(filtered.state, key('enter'))).toEqual({ kind: 'pick', item: items[2] })
+      const cleared = applyCopySelectorEvent(filtered.state, key('escape'))
+      expect(cleared).toEqual({ kind: 'update', state: { items, selected: 0 } })
+      if (cleared.kind === 'update') {
+        expect(applyCopySelectorEvent(cleared.state, key('escape'))).toEqual({ kind: 'close' })
+      }
+    }
   })
 })
 
@@ -54,4 +63,9 @@ describe('renderCopySelector', () => {
     expect(lines).toContain('enter copy')
   })
 
+  it('shows active filter query and empty match state', () => {
+    const filtered = renderCopySelector({ items, selected: 0, search: 'nomatch' }, theme, 50).lines.join('\n')
+    expect(filtered).toContain('Search: nomatch')
+    expect(filtered).toContain('No matching copy targets.')
+  })
 })

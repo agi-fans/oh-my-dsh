@@ -7,7 +7,7 @@
 import type { Block } from './event-views.ts'
 
 /** What `/copy` should pull from the transcript. */
-export type CopyKind = 'text' | 'code' | 'cmd'
+export type CopyKind = 'text' | 'code' | 'cmd' | 'output'
 
 /** One clipboard payload plus the status label shown after a successful copy. */
 export interface CopyTarget {
@@ -23,6 +23,7 @@ export function parseCopyKind(args: string): CopyKind | undefined {
   if (token === '' || token === 'text') return 'text'
   if (token === 'code') return 'code'
   if (token === 'cmd' || token === 'command') return 'cmd'
+  if (token === 'output' || token === 'out') return 'output'
   return undefined
 }
 
@@ -50,7 +51,7 @@ export function extractCodeBlocks(text: string): { lang: string; code: string }[
 /** Cap on how many picker rows `/copy` lists (OMP recent-message window). */
 export const COPY_TARGET_LIMIT = 50
 
-/** One row in the `/copy` picker (flat: messages, fences, bash commands). */
+/** One row in the `/copy` picker (flat: messages, fences, bash commands, tool outputs). */
 export interface CopyPick {
   id: string
   label: string
@@ -100,6 +101,7 @@ export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_L
   let messages = 0
   let codes = 0
   let commands = 0
+  let outputs = 0
   const cap = Math.max(0, limit)
   for (let i = blocks.length - 1; i >= 0 && items.length < cap; i -= 1) {
     const block = blocks[i]
@@ -128,17 +130,30 @@ export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_L
       })
     }
     if (items.length >= cap) break
-    if (block.name !== 'bash') continue
-    const command = bashCommand(block.args)
-    if (command === undefined) continue
-    commands += 1
-    items.push({
-      id: 'cmd:' + String(commands),
-      label: firstLine(command),
-      hint: 'bash · ' + pluralLines(command),
-      text: command,
-      copyMessage: 'bash command',
-    })
+    if (block.name === 'bash') {
+      const command = bashCommand(block.args)
+      if (command !== undefined) {
+        commands += 1
+        items.push({
+          id: 'cmd:' + String(commands),
+          label: firstLine(command),
+          hint: 'bash · ' + pluralLines(command),
+          text: command,
+          copyMessage: 'bash command',
+        })
+      }
+    }
+    if (items.length >= cap) break
+    if (block.output.trim() !== '') {
+      outputs += 1
+      items.push({
+        id: 'out:' + String(outputs),
+        label: firstLine(block.output),
+        hint: block.name + ' output · ' + pluralLines(block.output),
+        text: block.output,
+        copyMessage: block.name + ' output',
+      })
+    }
   }
   return items.slice(0, cap)
 }
@@ -178,6 +193,9 @@ export function extractCopyTarget(blocks: readonly Block[], kind: CopyKind): Cop
     if (kind === 'cmd' && block.kind === 'tool' && block.name === 'bash') {
       const command = bashCommand(block.args)
       if (command !== undefined) return { text: command, label: 'bash command' }
+    }
+    if (kind === 'output' && block.kind === 'tool' && block.output.trim() !== '') {
+      return { text: block.output, label: block.name + ' output' }
     }
   }
   return undefined

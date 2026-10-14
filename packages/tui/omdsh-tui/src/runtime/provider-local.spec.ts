@@ -20,7 +20,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
 import { TerminalReader } from './terminal-reader.ts'
-import { LocalTui, type TerminalLike } from './provider-local.ts'
+import { Config, LocalTui, type TerminalLike } from './provider-local.ts'
 import { editSettingsEntry, pluginSettingsEntries } from './plugin-settings.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
@@ -76,6 +76,18 @@ const press = (term: { input: PassThrough }, bytes: string): void => {
   term.input.write(bytes)
 }
 
+it('renders a partial TUI configuration without an initial model label', async () => {
+  const config = Config({ terminalTitle: 'workspace', terminalState: 'on' })
+  const term = new FakeTerminal()
+  const tui = new LocalTui(term, config.model, false, 'dark', copyToClipboard, { deferInitialRender: true })
+  try {
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: config.terminalTitle.get(), terminalState: config.terminalState.get() })
+    expect(() => tui.replaceSession([])).not.toThrow()
+    expect(term.captured).toContain('Into the Unknown')
+    expect(term.captured).not.toContain('undefined')
+  } finally { await tui.dispose() }
+})
+
 it.each([['\x1b', false], ['\x03', true]] as const)('keeps progress pending on Enter and cancels on %s (color=%s)', async (cancel, color) => {
   const term = new FakeTerminal()
   const tui = new LocalTui(term, 'm', color, 'dark', async () => {})
@@ -125,7 +137,7 @@ function emulatedScreenRows(output: string): string[] {
   const rows: string[] = ['']
   let row = 0
   let column = 0
-  const tokens = output.match(/\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[?0-9;]*[ -/]*[@-~]|\r|\n|[^\x1b\r\n]+/gu) ?? []
+  const tokens = output.match(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[?0-9;]*[ -/]*[@-~]|\r|\n|[^\x1b\r\n]+/gu) ?? []
   for (const token of tokens) {
     if (token === '\r') {
       column = 0
@@ -196,7 +208,8 @@ class ScrollingTerminal implements TerminalLike {
   scrollback(): string[] { return this.history.map(row => stripAnsi(row)) }
   #write(chunk: string): void {
     this.captured += chunk
-    for (const token of chunk.match(/\x1b\[[?0-9;]*[ -/]*[@-~]|\r\n|\r|\n|[^\r\n\x1b]+/gu) ?? []) {
+    for (const token of chunk.match(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[?0-9;]*[ -/]*[@-~]|\r\n|\r|\n|[^\r\n\x1b]+/gu) ?? []) {
+      if (token.startsWith('\x1b]')) continue
       if (token === '\r\n' || token === '\n') {
         if (this.#row === this.rows - 1) {
           this.history.push(this.screen.shift() ?? '')
@@ -220,6 +233,119 @@ class ScrollingTerminal implements TerminalLike {
     }
   }
 }
+
+it.each([false, true].flatMap(color => (['keyboard', 'mouse'] as const).map(input => ({ color, input }))))('previews an original tool file via $input (color=$color) and restores the draft', async ({ color, input }) => {
+  const root = mkdtempSync(join(tmpdir(), 'omdsh-file-action-'))
+  const original = join(root, 'original'), later = join(root, 'later')
+  mkdirSync(original); mkdirSync(later)
+  writeFileSync(join(original, '中文 🐳.ts'), 'original contents\n')
+  writeFileSync(join(later, '中文 🐳.ts'), 'wrong directory\n')
+  const term = new ScrollingTerminal(80, 60), tui = new LocalTui(term, 'm', color, 'dark', async () => {}, { cwd: later })
+  const prompt = vi.spyOn(tui, 'prompt')
+  const editor = vi.spyOn(tui, 'openFileInEditor').mockImplementation(() => {})
+  const pending = tui.readline()
+  try {
+    tui.event(ev('user/message', { content: [{ type: 'text', text: 'Read a file' }], source: { kind: 'user' } }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    tui.event(ev('tool/call', { callId: 'c', turn: 1, step: 1, name: 'owned', arguments: '{}' }, 3),
+      { cwd: original, call: { card: 'generic', title: 'Read 中文 🐳.ts', locations: [{ path: '中文 🐳.ts' }] } })
+    press(term, 'keep draft')
+    await flushAsyncPaste()
+    if (input === 'keyboard') press(term, '\x1bv')
+    else {
+      const row = term.visible().findIndex(line => line.includes('Read 中文 🐳.ts'))
+      expect(row).toBeGreaterThanOrEqual(0)
+      press(term, `\x1b[<2;4;${row + 1}M`)
+    }
+    await vi.waitFor(() => expect(prompt.mock.calls[0]?.[0].documentSource?.text).toBe('original contents\n'))
+    expect(term.visible().join('\n')).not.toContain('wrong directory')
+    press(term, 'e')
+    await vi.waitFor(() => expect(editor).toHaveBeenCalledWith(join(original, '中文 🐳.ts')))
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+    press(term, '\x1b[27u')
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+    press(term, '\x1b[27u')
+    await vi.waitFor(() => expect(term.visible().join('\n')).toContain('keep draft'))
+    expect(term.history.some(row => row.includes('original contents'))).toBe(false)
+    press(term, '\r')
+    await expect(pending).resolves.toBe('keep draft')
+  } finally { await tui.dispose(); await pending; rmSync(root, { recursive: true, force: true }) }
+})
+
+it('previews the clicked Changed files row, preserves right-click copying, and respects native mouse mode', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'omdsh-workspace-file-action-'))
+  writeFileSync(join(root, 'a.ts'), 'first file')
+  writeFileSync(join(root, 'b.ts'), 'second file')
+  const copy = vi.fn(async () => {})
+  const term = new ScrollingTerminal(80, 60), tui = new LocalTui(term, 'm', false, 'dark', copy)
+  const prompt = vi.spyOn(tui, 'prompt')
+  const input = tui.readline()
+  try {
+    tui.event(ev('workspace/changes', { turn: 1 }, 1), undefined, { turn: 1, cwd: root, total: 2, added: 2, deleted: 0,
+      files: [{ path: 'a.ts', display: 'a.ts', added: 1, deleted: 0 }, { path: 'b.ts', display: 'b.ts', added: 1, deleted: 0 }] } as WorkspaceChangesSummary)
+    const row = term.visible().findIndex(line => line.includes('b.ts'))
+    expect(row).toBeGreaterThanOrEqual(0)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, mouseInteraction: 'native' })
+    press(term, `\x1b[<2;4;${row + 1}M`)
+    await flushAsyncPaste()
+    expect(prompt).not.toHaveBeenCalled()
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, mouseInteraction: 'tui', copyOnSelect: false })
+    press(term, `\x1b[<0;3;${row + 1}M\x1b[<32;6;${row + 1}M\x1b[<0;6;${row + 1}m\x1b[<2;4;${row + 1}M`)
+    await vi.waitFor(() => expect(copy).toHaveBeenCalled())
+    expect(prompt).not.toHaveBeenCalled()
+    press(term, '\x1b[27u')
+    press(term, `\x1b[<2;4;${row + 1}M`)
+    await vi.waitFor(() => expect(prompt.mock.calls[0]?.[0].documentSource?.text).toBe('second file'))
+    expect(prompt.mock.calls[0]?.[0].question).toBe('b.ts')
+    // A session switch cancels both the reader and its asynchronous continuation.
+    tui.setSession({ id: 'other-session', recent: [] })
+    await flushAsyncPaste()
+    expect(prompt).toHaveBeenCalledTimes(1)
+  } finally { await tui.dispose(); await input; rmSync(root, { recursive: true, force: true }) }
+})
+
+it('lets an approval supersede a file preview without reopening a picker over the approval', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'omdsh-file-priority-'))
+  writeFileSync(join(root, 'a.ts'), 'file contents')
+  const term = new ScrollingTerminal(80, 60), tui = new LocalTui(term, 'm', false, 'dark', async () => {}, { cwd: root })
+  const prompt = vi.spyOn(tui, 'prompt')
+  const input = tui.readline()
+  try {
+    tui.event(ev('tool/call', { callId: 'c', name: 'owned', arguments: '{}' }, 1), { cwd: root, call: { card: 'generic', title: 'Read a.ts', locations: [{ path: 'a.ts' }] } })
+    press(term, '\x1bv')
+    await vi.waitFor(() => expect(prompt.mock.calls[0]?.[0].documentSource?.text).toBe('file contents'))
+    const approval = tui.prompt({ title: 'Approval required', question: 'Allow?', options: [{ label: 'Allow once' }] })
+    await flushAsyncPaste()
+    expect(prompt).toHaveBeenCalledTimes(2)
+    expect(term.visible().join('\n')).toContain('Approval required')
+    press(term, '\r')
+    await expect(approval).resolves.toBe('Allow once')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  } finally { await tui.dispose(); await input; rmSync(root, { recursive: true, force: true }) }
+})
+
+it('previews a tool in a short expanded turn even when startup chrome stays above the call', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'omdsh-short-file-action-'))
+  writeFileSync(join(root, 'a.ts'), 'short tool file')
+  const term = new ScrollingTerminal(80, 60), tui = new LocalTui(term, 'm', false, 'dark', async () => {}, { cwd: root })
+  const prompt = vi.spyOn(tui, 'prompt')
+  const input = tui.readline()
+  try {
+    tui.notice('Started a new session.')
+    tui.event(ev('user/message', { content: [{ type: 'text', text: 'Read a file' }], source: { kind: 'user' } }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    const presentation = { cwd: root, call: { card: 'generic' as const, title: 'Read a.ts', locations: [{ path: 'a.ts' }] } }
+    tui.event(ev('tool/call', { callId: 'c', name: 'owned', turn: 1, step: 1, arguments: '{}' }, 3), presentation)
+    tui.event(ev('tool/result', { message: { toolCallId: 'c', source: { callId: 'c' }, content: [] } }, 4), presentation)
+    tui.event(ev('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'Done' }] } }, 5))
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 6))
+    tui.setStatus('idle')
+    press(term, '\x0f')
+    expect(term.visible().join('\n')).toContain('Read a.ts')
+    press(term, '\x1bv')
+    await vi.waitFor(() => expect(prompt.mock.calls[0]?.[0].documentSource?.text).toBe('short tool file'))
+  } finally { await tui.dispose(); await input; rmSync(root, { recursive: true, force: true }) }
+})
 
 /** One turn with many steps, each a thought and two reads, then an answer. */
 function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true, turn = 1): void {
@@ -1344,6 +1470,20 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it.each([false, true])('keeps the main Turn running when a side operation handles Ctrl+C (color=%s)', async color => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', color)
+    const interrupted = vi.fn(), sideInterrupted = vi.fn(() => true)
+    tui.onInterrupt(interrupted)
+    tui.setStatus('running')
+    try {
+      const answer = tui.prompt({ title: 'Side question', question: 'Separate request', interrupt: sideInterrupted })
+      press(term, '\x03')
+      expect(await answer).toBeNull()
+      expect(sideInterrupted).toHaveBeenCalledOnce()
+      expect(interrupted).not.toHaveBeenCalled()
+    } finally { await tui.dispose() }
+  })
+
   it('repaints a countdown even with motion disabled and restores input on timeout', async () => {
     vi.useFakeTimers()
     const term = new FakeTerminal()
@@ -1986,9 +2126,31 @@ describe('LocalTui (tty)', () => {
     expect(recorder.requests.at(-1)?.params.state).toBe('working')
 
     tui.setSession({ id: 'herdr-session', recent: [] })
-    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'working', agent_session_id: 'herdr-session' })
+    expect(recorder.requests.at(-1)?.params).toMatchObject({
+      state: 'working',
+      agent_session_id: 'herdr-session',
+      resume_argv: ['omdsh', '--resume', 'herdr-session'],
+    })
     tui.setStatus('idle')
-    expect(recorder.requests.at(-1)?.params).toMatchObject({ state: 'idle', agent_session_id: 'herdr-session' })
+    expect(recorder.requests.at(-1)?.params).toMatchObject({
+      state: 'idle',
+      agent_session_id: 'herdr-session',
+      resume_argv: ['omdsh', '--resume', 'herdr-session'],
+    })
+
+    // User-initiated prompts (notify: false) must not trigger Herdr blocked/done transitions or sounds.
+    const countBeforeQuietPrompt = recorder.requests.length
+    const quiet = tui.prompt({
+      title: 'Settings',
+      question: 'Choose a setting',
+      options: [{ label: 'On', value: 'true' }, { label: 'Off', value: 'false' }],
+      allowCustom: false,
+      notify: false,
+    })
+    expect(recorder.requests).toHaveLength(countBeforeQuietPrompt)
+    press(term, '\r')
+    expect(await quiet).toBe('true')
+    expect(recorder.requests).toHaveLength(countBeforeQuietPrompt)
 
     tui.dispose()
     expect(recorder.requests.at(-1)?.method).toBe('pane.release_agent')
@@ -2631,7 +2793,7 @@ describe('LocalTui (tty)', () => {
     press(term, '/copy\r')
     expect(term.captured).toContain('Nothing to copy.')
     press(term, '/copy nope\r')
-    expect(term.captured).toContain('Usage: /copy [code|cmd]')
+    expect(term.captured).toContain('Usage: /copy [code|cmd|output]')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()
@@ -3124,6 +3286,8 @@ describe('LocalTui (tty)', () => {
       mathMode: 'auto',
       mermaidMode: 'auto',
       editor: 'auto',
+      terminalTitle: 'status',
+      terminalState: 'auto',
       terminalProgress: false,
       copyOnSelect: true,
       mouseInteraction: 'auto',
@@ -3340,6 +3504,7 @@ describe('LocalTui (tty)', () => {
   it('mirrors the folded session title into the terminal window title', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'session', terminalState: 'off' })
     const titleWrites = (sequence: string): number => term.captured.split(sequence).length - 1
 
     tui.setSession({ id: 'session-1', title: 'Fix \u001b[31mthe parser\u0007', recent: [] })
@@ -4828,4 +4993,151 @@ it.each([false, true])('retains checked models across filtering and saves an exp
     press(term, 'normal input\r')
     await expect(input).resolves.toBe('normal input')
   } finally { tui.dispose() }
+})
+
+it('detects program-status support, reports root outcomes, preserves editor input and clears on exit', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    tui.setSession({ id: 'root', title: 'Fix parser', recent: [] })
+    expect(term.captured).toContain('\x1b]7501;?\x1b\\')
+    expect(term.captured).not.toContain('state=idle:app=omdsh')
+    press(term, '\x1b]7501;?')
+    press(term, '\x1b\\')
+    tui.setStatus('running', { root: true })
+    expect(term.captured).toContain('state=working:app=omdsh')
+    const question = tui.prompt({ title: 'Approval required', question: 'private body', options: [{ label: 'Allow' }] })
+    expect(term.captured).toContain('state=blocked:app=omdsh')
+    tui.setStatus('idle', { root: true, outcome: 'error' })
+    press(term, '\x1b')
+    await expect(question).resolves.toBeNull()
+    expect(term.captured).toContain('state=error:app=omdsh')
+    const input = tui.readline()
+    press(term, 'normal input\r')
+    await expect(input).resolves.toBe('normal input')
+    tui.setSession({ id: 'new-root', recent: [] })
+    expect(term.captured).toContain('state=idle:app=omdsh')
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'off', terminalState: 'off' })
+    expect(term.captured).toContain('state=clear:app=omdsh')
+  } finally { await tui.dispose() }
+})
+
+it.each([[false, true], [true, false]])('emits no terminal protocol when stdin TTY=%s and stdout TTY=%s', async (inputTTY, outputTTY) => {
+  const term = new FakeTerminal()
+  term.input.isTTY = inputTTY; term.output.isTTY = outputTTY
+  const tui = new LocalTui(term, 'm', false)
+  tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'status', terminalState: 'on' })
+  tui.setSession({ id: 'pipe-root', title: 'Pipe test', recent: [] })
+  tui.setStatus('running', { root: true })
+  tui.notice('Plain output')
+  await tui.dispose()
+  expect(term.captured).toContain('Plain output')
+  expect(term.captured).not.toContain('\x1b')
+  expect(term.raw).toBe(false)
+})
+
+it('keeps unsupported terminals quiet and supports explicit state enablement and cleanup', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+  tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'off', terminalState: 'off' })
+  expect(term.captured).not.toContain('\x1b]2;')
+  expect(term.captured).not.toContain('\x1b]7501;')
+  tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'status', terminalState: 'auto' })
+  tui.setStatus('running', { root: true })
+  expect(term.captured).toContain('Working')
+  expect(term.captured).not.toContain('state=working:app=omdsh')
+  tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'status', terminalState: 'on' })
+  expect(term.captured).toContain('state=working:app=omdsh')
+  tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: false })
+  tui.setStatus('idle')
+  expect(term.captured).not.toContain('state=idle:app=omdsh')
+  tui.setStatus('idle', { root: true, outcome: 'completed' })
+  expect(term.captured).toContain('state=done:app=omdsh')
+  const completedAt = term.captured.lastIndexOf('state=done:app=omdsh')
+  tui.setStatus('running')
+  expect(term.captured.slice(completedAt)).not.toContain('state=working:app=omdsh')
+  await tui.dispose()
+  expect(term.captured).toContain('\x1b]2;\x07')
+  expect(term.captured).toContain('state=clear:app=omdsh')
+})
+
+it('restores a Ctrl+C cleared draft with Ctrl+- and stashes/restores drafts with Ctrl+S across a submission', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    const first = tui.readline()
+    press(term, 'long draft in progress')
+    press(term, '\x03') // Ctrl+C clears composer
+    press(term, '\x1f') // Ctrl+- restores cleared draft
+    press(term, '\x13') // Ctrl+S stashes the draft
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Stashed composer draft')
+    press(term, 'quick side question\r')
+    await expect(first).resolves.toBe('quick side question')
+    // Stashed draft is automatically restored into the composer after submitting the intervening prompt
+    const second = tui.readline()
+    press(term, '\r')
+    await expect(second).resolves.toBe('long draft in progress')
+  } finally { await tui.dispose() }
+})
+
+it('recalls the latest queued submission into the composer on Alt+Up and guards armed prompts against accidental Enter', async () => {
+  vi.useFakeTimers()
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    // Submit while no readInput() is waiting so it enters the local queue, then recall with Alt+Up
+    press(term, 'queued follow-up\r')
+    press(term, 'unsent draft')
+    press(term, '\x1b[1;3A') // Alt+Up recalls the queued submission even when composer has a draft
+    const first = tui.readline()
+    press(term, ' edited\r')
+    await expect(first).resolves.toBe('queued follow-up edited')
+    const second = tui.readline()
+    await expect(second).resolves.toBe('unsent draft')
+
+    let settled = false
+    const approval = tui.prompt({
+      title: 'Approval required',
+      question: 'Run command?',
+      options: [{ label: 'Allow once', value: 'approved' }, { label: 'Reject', value: 'rejected' }],
+      allowCustom: false,
+      armMs: 500,
+    }).then(val => { settled = true; return val })
+    // Pressing Enter during the 500ms arming window is ignored
+    press(term, '\r')
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(500)
+    press(term, '\r')
+    await expect(approval).resolves.toBe('approved')
+  } finally {
+    vi.useRealTimers()
+    await tui.dispose()
+  }
+})
+
+it('returns to /settings with refreshed action values after opening a sub-command dialog', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'old-model', false)
+  try {
+    tui.setCommands([{ name: 'model', description: 'Select model' }])
+    const pending = tui.readline()
+    press(term, '/settings\r')
+    press(term, '\t') // Switch from Interface to Agent section
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Model and reasoning')
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('old-model')
+    // Press Enter on the first row (Model and reasoning) to dispatch /model
+    press(term, '\r')
+    await expect(pending).resolves.toBe('/model')
+    // Simulate /model opening a prompt, updating the model, and settling
+    const modelPrompt = tui.prompt({
+      title: 'Model',
+      question: 'Select model',
+      options: [{ label: 'new-model', value: 'new-model' }],
+      allowCustom: false,
+      notify: false,
+    })
+    tui.setModel('new-model', 'high')
+    press(term, '\r')
+    await expect(modelPrompt).resolves.toBe('new-model')
+    const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(screen).toContain('Settings')
+    expect(screen).toContain('new-model · high')
+  } finally {
+    await tui.dispose()
+  }
 })

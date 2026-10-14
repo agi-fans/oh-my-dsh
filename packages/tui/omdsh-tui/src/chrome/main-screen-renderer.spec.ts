@@ -13,6 +13,23 @@ import { stripAnsi } from './width.ts'
 import type { Block, TranscriptState } from '../views/transcript-types.ts'
 import type { Frame } from './renderer.ts'
 
+it('maps physical transcript rows while excluding chrome, sticky labels and alternate overlays', () => {
+  const renderer = new MainScreenRenderer({ write: () => {} }, { width: 20, height: 6, alternateScreenOverlays: true })
+  const frame: Frame = { lines: ['header', 'file', 'footer'], liveStart: 2, documentRows: { documentStart: 0, documentEnd: 2, frameStart: 0 } }
+  renderer.render(frame)
+  const rows = renderer.viewport()
+  expect(renderer.documentRowAt(rows.findIndex(row => row === 'file'))).toBe(1)
+  expect(renderer.documentRowAt(rows.findIndex(row => row === 'footer'))).toBeUndefined()
+  renderer.render({ lines: ['overlay'], liveStart: 0, transientSurface: 'overlay', documentRows: null })
+  expect(renderer.documentRowAt(0)).toBeUndefined()
+  renderer.render({ lines: Array.from({ length: 10 }, (_, at) => `row${at}`), liveStart: 9,
+    documentRows: { documentStart: 0, documentEnd: 9, frameStart: 0 }, stickyHeaders: [{ start: 1, end: 10, text: 'pinned' }] })
+  expect(renderer.viewport()[0]).toBe('pinned')
+  expect(renderer.documentRowAt(0)).toBeUndefined()
+  renderer.render({ lines: ['unknown source'], liveStart: 1 })
+  expect(renderer.documentRowAt(0)).toBeUndefined()
+})
+
 /**
  * Minimal VT-style emulator with a fixed-height screen and a scrollback buffer.
  * Interprets only the escape sequences our renderer emits: cursor movement,

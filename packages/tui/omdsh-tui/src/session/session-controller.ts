@@ -14,7 +14,6 @@ import { WorkflowProjection } from './workflow-projection.ts'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  installModelSelection,
   type Agent,
   type AgentHandle,
   type ModelSelection,
@@ -40,7 +39,7 @@ import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/type
 import { readColdSessionLog } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ContextBreakdownProjection, ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { appendPluginRecord, pluginRecordOf, SessionId, SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-file-reference'
 import type {} from '@deepseek-ai/dsh-goal'
@@ -74,6 +73,9 @@ import { currentWorkingDirectory } from './working-directory.ts'
 import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
+import { configureAgentContext } from '../runtime/agent-profile.ts'
+import { BTW_PRESET } from '../runtime/btw-policy.ts'
+import { reviewFileRecovery } from '../runtime/file-recovery-review.ts'
 import {
   isBlankSession,
 } from './session-configuration.ts'
@@ -93,16 +95,9 @@ interface ConfiguredAgentContext {
 }
 
 async function setupAgentContext(agentCtx: Context, agent: Agent, selection: ModelSelectionRef): Promise<ConfiguredAgentContext> {
-  installModelSelection(agentCtx, selection)
-  const agentPresets = agentCtx.get('agentPresets')
-  const sessionProjections = agentCtx.get('sessionProjections')
-  if (agentPresets === undefined || sessionProjections === undefined) {
-    throw new Error('agent configuration services are unavailable')
-  }
-  const agentPreset = sessionProjections.stateOf(agent.session, 'agentPreset') ?? agentPresets.defaultId
-  const mounted = await agentPresets.mount(agentCtx, agentPreset)
+  const configured = await configureAgentContext(agentCtx, agent, selection)
   await agentCtx.plugin(commandPermission(agent))
-  return { agentPreset: mounted.id }
+  return configured
 }
 
 function parseControl(line: string): { name: string; input: string } | undefined {
@@ -578,6 +573,7 @@ export class SessionRuntime {
         return
       }
       if (session === active.handle.agent.session) {
+        if (event.type === 'turn/end') tui.setStatus(active.handle.agent.status, { root: true, outcome: event.data.reason.kind })
         if (this.#workflows.apply(event)) tui.setSubagents(this.#workflows.roster(this.#tracker.snapshot()))
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))
@@ -771,11 +767,11 @@ export class SessionRuntime {
     active.contextWindow = resolved?.context?.contextWindow
     const status = modelStatus(selection, resolved)
     active.reasoningEffort = status.reasoningEffort
-    this.#tui.setModel(status.model, status.reasoningEffort)
-    this.#pushSessionInfo()
     if (options?.persist !== false) {
       await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
     }
+    this.#tui.setModel(status.model, status.reasoningEffort)
+    this.#pushSessionInfo()
   }
 
   /** Start a new top-level session with the current model selection. */
@@ -901,6 +897,7 @@ export class SessionRuntime {
           { key: 'Alt+L', label: 'label', valuePrefix: 'label:' },
           { key: 'Alt+U', label: 'clear label', valuePrefix: 'unlabel:' },
           { key: 'Alt+B', label: markedOnly ? 'full tree' : 'marked nodes', valuePrefix: 'marked:', scope: 'list' },
+          ...(this.#ctx.get('omdshFileRecovery') === undefined ? [] : [{ key: 'Alt+R', label: 'restore Turn files', valuePrefix: 'restore:' }]),
         ],
         ...(selectedId === undefined ? {} : { initialValue: selectedId }), presentation: 'fullscreen-tree', filterable: true, allowCustom: false, signal,
       })
@@ -909,6 +906,14 @@ export class SessionRuntime {
       signal.throwIfAborted()
       if (agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before navigating the Session Tree.')
       if (answer === 'marked:') { markedOnly = !markedOnly; continue }
+      if (answer.startsWith('restore:')) {
+        const restoreId = answer.slice('restore:'.length)
+        const node = visible.find(item => item.id === restoreId)
+        if (node?.kind !== 'turn' || node.turn === undefined) { this.#tui.notice('Select a Turn to restore its files.'); continue }
+        selectedId = node.id
+        await reviewFileRecovery(this.#ctx, agent, node.sessionId, node.turn, signal, () => this.assertActive(agent))
+        continue
+      }
       const clear = answer.startsWith('unlabel:')
       if (clear || answer.startsWith('label:')) {
         const id = answer.slice(clear ? 'unlabel:'.length : 'label:'.length)
@@ -1054,7 +1059,7 @@ export class SessionRuntime {
 
   /** Agent presets available from the live Harness roster. */
   async agentPresets(): Promise<readonly AgentPreset[]> {
-    return (await this.#ctx.agentPresets.list()).sort((left, right) =>
+    return (await this.#ctx.agentPresets.list()).filter(preset => preset.id !== BTW_PRESET).sort((left, right) =>
       (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER)
       || left.id.localeCompare(right.id))
   }
@@ -1106,7 +1111,22 @@ export class SessionRuntime {
     const { seq, data } = event
     queueMicrotask(() => {
       const summary = service.summary(id, seq)
-      if (summary !== undefined) tui.setWorkspaceSummary(data.turn, summary)
+      if (summary === undefined) return
+      tui.setWorkspaceSummary(data.turn, summary)
+      const recorded = session.snapshotEvents().some(candidate => {
+        const record = pluginRecordOf(candidate)
+        return record?.type === 'plugin:omdsh/workspace-changes'
+          && typeof record.data === 'object'
+          && record.data !== null
+          && (record.data as { turn?: unknown }).turn === data.turn
+      })
+      if (!recorded) {
+        try {
+          appendPluginRecord(session, 'plugin:omdsh/workspace-changes', { turn: data.turn, summary })
+        } catch {
+          // A read-only or closed session log still keeps the in-memory summary.
+        }
+      }
     })
   }
 
@@ -1344,15 +1364,15 @@ export class SessionRuntime {
     this.#tui.setStatus(agent.status)
     this.#tracker.sync()
     this.#tui.setSubagents(this.#workflows.roster(this.#tracker.snapshot()))
+    const selected = this.selection(agent)
+    const status = modelStatus(selected, undefined)
+    this.#tui.setModel(status.model, status.reasoningEffort ?? active.reasoningEffort)
     // Seed welcome metadata before replaceSession commits the startup header to
     // native scrollback; later updates cannot rewrite that frozen first frame.
     this.#pushSessionInfo()
     this.#replaceTranscript(agent, reason)
     this.#pushTools()
     this.#pushCommands()
-    const selected = this.selection(agent)
-    const status = modelStatus(selected, undefined)
-    this.#tui.setModel(status.model, status.reasoningEffort ?? active.reasoningEffort)
   }
 
   /** Retire one agent handle once; a raced dispose takes it directly. */

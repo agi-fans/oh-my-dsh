@@ -18,7 +18,37 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
   }
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /agent [inspect [preset-id]]' }
   if (!isBlankSession(invocation.agent.session)) {
-    return { kind: 'success', text: 'The Agent preset is fixed for this conversation. Start /new to choose a different preset before sending a message. Use /agent inspect to view its composition.' }
+    const lockedMessage = 'The Agent preset is fixed for this conversation. Start /new to choose a different preset before sending a message. Use /agent inspect to view its composition.'
+    if (ctx.tui.interactive !== true) {
+      return { kind: 'success', text: lockedMessage }
+    }
+    const action = await ctx.tui.prompt({
+      title: 'Agent',
+      question: 'The Agent preset is fixed for this conversation',
+      detail: 'Start /new to choose a different preset before sending a message.',
+      options: [
+        { label: 'Close', value: 'close', description: 'Return to the current conversation' },
+        { label: 'Inspect composition', value: 'inspect', description: 'View declared presets and this session’s retained composition' },
+      ],
+      initialValue: 'close',
+      allowCustom: false,
+      notify: false,
+      signal: invocation.signal,
+    })
+    if (action === 'inspect') {
+      const diagnostics = await presetDiagnostics(ctx.agentPresets, invocation.agent)
+      await ctx.tui.prompt({
+        title: 'Agent composition',
+        question: 'Declared presets and this session’s retained composition',
+        detail: diagnostics,
+        presentation: 'document',
+        allowCustom: false,
+        notify: false,
+        options: [{ label: 'Close', value: 'close' }],
+        signal: invocation.signal,
+      })
+    }
+    return { kind: 'success' }
   }
   const controls = ctx.omdshSession.controls(invocation.agent)
   const presets = await ctx.omdshSession.agentPresets()
@@ -35,6 +65,7 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
     })),
     ...(controls.agentPreset === undefined ? {} : { initialValue: controls.agentPreset }),
     allowCustom: false,
+    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
   })

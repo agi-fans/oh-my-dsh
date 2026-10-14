@@ -52,7 +52,10 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
 | Mermaid in replies | auto / source | auto | 绘制能够完整容纳的图形，或显示 Mermaid 源码。 |
+| Terminal title | status / session / workspace / off | status | 显示根 Agent 状态与会话名、仅保留会话名、显示状态与工作区及 Git 分支，或停止设置标题。 |
+| Program status | auto / on / off | auto | 向支持的终端报告根 Agent 生命周期；Auto 等待能力响应，On 强制报告，Off 关闭。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
+| Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |
@@ -64,6 +67,8 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 | Long turn | 15s / 30s / 1m / 2m | 30s | 触发长任务通知的最短时长。 |
 
 通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。当 **Notify when** 为 `unfocused` 时，在待发通知送出前回到终端会取消该通知。
+
+Terminal title 和 Program status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Program status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。Terminal activity 仍是单独启用的 OSC 9 进度提示。
 
 工具预览使用当前主题的背景色，四周保留内边距。用户消息和工具卡片的背景有配套文字色，普通回复正文继续使用终端默认前景色。浅色终端应选择 `light`，深色终端选择其他主题。16 色模式下，卡片使用中性背景，保留状态说明和符号。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 
@@ -88,6 +93,8 @@ Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态�
 ## Tools
 
 Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows 的 PowerShell 使用同一套表单，分别写回各自配置。可选功能各自消耗上下文、运行时间或转录噪声；每一行关闭一个组合行。
+
+**File recovery snapshots** 默认关闭。开启后为新 Turn 保存私有文件内容，并通过 Session Tree 的 `Alt+R` 恢复选中文件。捕获消耗磁盘空间并增加工作。设置修改从下一个 Turn 生效；关闭开关时，已经开始的捕获仍会完成。关闭后仍可读取已有完整快照。见[恢复 Turn 文件](sessions.md#恢复-turn-文件)。该开关修改恢复插件的配置；下方功能行则启用或禁用组合行。
 
 | 行 | 默认 | 关闭后 |
 |---|---|---|

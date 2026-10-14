@@ -38,7 +38,7 @@ const OVERLAY_CATALOGS: readonly OverlayCatalog[] = [
   { label: 'Prompts', rows: PROMPT_SELECTOR_HOTKEYS },
 ]
 
-function displayKey(key: string): string {
+export function displayKey(key: string): string {
   return key.split('+').map((part) => {
     const normalized = part.toLowerCase()
     if (normalized === 'ctrl') return 'Ctrl'
@@ -89,8 +89,10 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'Ctrl+K', action: 'Delete to the end of the line' },
         { keys: 'Ctrl+Y', action: 'Yank deleted text' },
         { keys: 'Alt+Y', action: 'Cycle the yank ring' },
-        { keys: 'Ctrl+-', action: 'Undo the last edit' },
+        { keys: 'Ctrl+-', action: 'Undo the last edit or restore a cleared draft' },
         { keys: 'Ctrl+D', action: 'Delete forward / quit when the editor is empty' },
+        { keys: 'Alt+Up', action: 'Recall the latest queued message into the composer' },
+        { keys: keysForAction(bindings, 'stash-draft'), action: 'Stash or restore the current composer draft' },
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
         { keys: keysForAction(bindings, 'expand-paste'), action: 'Expand a pasted block for editing' },
         { keys: keysForAction(bindings, 'preview-images'), action: 'Preview draft images' },
@@ -109,7 +111,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'End / click jump label', action: 'Return to the latest message while browsing' },
         { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
         { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
-        { keys: keysForAction(bindings, 'review-changes'), action: 'Review the current turn’s changed files' },
+        { keys: keysForAction(bindings, 'review-changes'), action: 'Preview the visible tool’s files, or review this turn’s changes' },
         { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript; n/N step across matches' },
         { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],
@@ -127,6 +129,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: keysForAction(bindings, 'cycle-model-backward'), action: 'Cycle to the previous favorite model' },
         { keys: keysForAction(bindings, 'cycle-reasoning'), action: 'Cycle the current model reasoning effort' },
         { keys: '/', action: 'Open slash-command completion' },
+        { keys: '!command', action: 'Run a persistent Shell line; output stays outside model context' },
         { keys: '@ / ./ / ~/', action: 'Complete file paths' },
         { keys: 'Tab', action: 'Accept command or path completion' },
         { keys: '/copy', action: 'Open the copy picker' },

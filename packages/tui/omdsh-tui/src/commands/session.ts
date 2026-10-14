@@ -135,6 +135,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
           question: `New title for “${row.title}”`,
           initialInput: row.title,
           allowCustom: true,
+          notify: false,
           signal: invocation.signal,
         })
         if (title !== null) await ctx.omdshSession.renameSession(invocation.agent, target, title, invocation.signal)

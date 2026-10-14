@@ -28,6 +28,16 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 
 按 `Alt+L` 为 Turn 或分支添加标记、编辑已有标记；`Alt+U` 清除标记。标记可搜索，最多 120 个字符。`Alt+B` 在完整树与已标记节点之间切换，筛选时保留祖先路径，没有标记时也可以切回完整树。标记和筛选保留当前会话与 composer 草稿；标记仅保存在本地，不进入模型上下文。
 
+### 恢复 Turn 文件
+
+在新 Turn 开始前，通过 `/settings` → Tools 打开 **File recovery snapshots**。它默认关闭，因为会保存私有文件内容并增加捕获开销。在 Session Tree 选择 Turn 后按 `Alt+R`，选择文件，检查前后内容，再确认 **Restore selected files**；初始选中 Cancel。设置修改从下一个 Turn 生效；关闭开关时，已经开始的捕获仍会完成。较早 Turn 没有完整快照时，不能从 diff 摘要恢复文件。
+
+恢复保留消息、当前分支、工作目录和 Git 暂存区。它恢复普通文件的原始字节与模式位，重新创建已删除文件，并移除新建文件。每个文件都会重新与保留的 Turn 结束版本比较；后续用户或其他进程的修改作为冲突保留。快照覆盖一个时间窗口，可能包含其他进程的改动，不会自动归因给模型。Turn 内切换工作目录会让该检查点不可用。离开目录后仍可恢复其保存的文件，但受当前 Access 约束；Read only 阻止恢复，即使在 Full access 下，恢复进程也保持受限。下一个模型步骤会收到重新读取相关文件的提示。
+
+在恢复文件选择页按 `Alt+H` 可查看保存的报告；没有可恢复文件时，阅读页也会包含较早的报告。报告区分 restored、already-restored、conflict、failed、cancelled 和 uncertain。取消可能留下部分恢复。被替换的条目保存在 `.omdsh-recovery-<operation-id>.backup` 保留路径中；中断报告中 planned 操作的完成情况未经确认，不会自动重试。备份保留原 inode，持有旧文件描述符的写入方不会丢失数据。恢复逐文件执行，不承诺所有文件一起成功的事务。
+
+Git 捕获覆盖当前目录的已跟踪和未被忽略的未跟踪文件；原有忽略路径、submodule、嵌套仓库与 Git 元数据被排除或保护。非 Git 目录不会沿链接递归。私有快照与报告保存在 `omdsh/file-recovery/`，恢复会话后仍可读取。不会自动清理；删除该目录会移除恢复数据，但不会删除消息或工作区备份。空目录、所有权、ACL 与扩展属性不属于内容恢复契约。硬链接、特殊文件或权限位、Windows reparse point、含义不明确的路径、不稳定的扫描、超过 10,000 个条目、文件超过 128 MiB 或快照超过 1 GiB，都会让捕获不可用，而不是生成不完整检查点。
+
 ## Session Library
 
 `/sessions` 打开 Session Library：`p` 置顶或取消置顶，`r` 编辑会话标题，`Alt+A` 归档选中会话。`Alt+V` 切换到归档列表，在那里按 `Alt+A` 恢复选中会话。列表为空或正在搜索时也能切换视图；单字母操作需要先清空搜索。归档会话从默认列表和最近会话快捷入口中隐藏，日志与附件仍然保留。你仍可以按 ID 直接恢复，或用 `/sessions <query>` 搜索；继续归档会话不会自动将它移回默认列表。
@@ -55,6 +65,7 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 | 路径 | 内容 |
 |---|---|
 | `sessions/` | 持久会话日志。 |
+| `omdsh/file-recovery/` | 私有 Turn 文件快照、带校验的清单与恢复报告。 |
 | `omdsh/drafts/` | 未发送的 composer 草稿及其图片字节，按会话 ID 的哈希分组。 |
 | `omdsh/history.jsonl` | `Ctrl+R` 使用的输入历史。 |
 | `omdsh/keybindings.json` | 应用级键位覆盖。 |
@@ -77,3 +88,5 @@ Session Tree 把分支挂在继承历史的真实分叉点，标记当前分支�
 - [命令](commands.md) —— `/sessions`、`/resume`、`/retry`、`/new` 与 `/export`
 - [恢复并管理长会话](tutorials/long-session.md) —— 恢复、回退、压缩与导出
 - [用户插件](plugins.md) —— Profile 目录与 `omdsh plugin`
+
+文件恢复快照与报告仅保存在 Profile 所在环境，不包含在可移植归档中。

@@ -111,3 +111,12 @@ it('consumes fragmented cell-size reports without inserting terminal responses',
   expect(parseKeys('\x1b[6;0;0t\x1b[6;2000;9t').events).toEqual([])
   expect(parseKeys('\x1b[6;18;9ttext').events).toEqual([{ type: 'cell-size', width: 9, height: 18 }, { type: 'text', value: 'text' }])
 })
+
+it('consumes fragmented program-status responses, unknown OSCs and trailing keys without leaking text', () => {
+  const partial = parseKeys('\x1b]7501;?')
+  expect(partial.events).toEqual([])
+  expect(parseKeys(partial.rest + '\x1b\\hi').events).toEqual([{ type: 'program-status-support' }, { type: 'text', value: 'hi' }])
+  expect(parseKeys('\x1b]7501;?;v=0.4\x07').events).toEqual([{ type: 'program-status-support' }])
+  expect(parseKeys('\x1b]11;rgb:0000/0000/0000\x07').events).toEqual([])
+  expect(parseKeys('\x1b]' + 'x'.repeat(5000))).toEqual({ events: [], rest: '' })
+})

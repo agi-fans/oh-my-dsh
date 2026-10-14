@@ -72,3 +72,33 @@ function resolveProjectContextFresh(cwd: string, runner: GitRunner): ProjectCont
     + (untracked > 0 ? ` ?${untracked}` : '')
   return { root, branch, modified, untracked, gitLabel }
 }
+
+/** Resolve workspace-relative changed and staged file paths from Git status. */
+export function resolveGitStatusFiles(cwd: string, runner: GitRunner = runGit): { changedFiles: string[]; stagedFiles: string[] } {
+  const root = attempt(runner, cwd, ['rev-parse', '--show-toplevel'])
+  if (root === undefined) return { changedFiles: [], stagedFiles: [] }
+  try {
+    const raw = runner(root, ['status', '--porcelain=v1', '--untracked-files=normal']).replace(/[\r\n]+$/u, '')
+    if (raw === '') return { changedFiles: [], stagedFiles: [] }
+    const changedFiles: string[] = []
+    const stagedFiles: string[] = []
+    for (const row of raw.split('\n')) {
+      if (row.length < 4) continue
+      const code = row.slice(0, 2)
+      if (code === '!!') continue
+      let file = row.slice(3).trim()
+      const arrow = file.lastIndexOf(' -> ')
+      if (arrow >= 0) file = file.slice(arrow + 4).trim()
+      file = file.replace(/^"(.*)"$/u, '$1')
+      if (file === '') continue
+      changedFiles.push(file)
+      const indexCode = code[0] ?? ' '
+      if (indexCode !== ' ' && indexCode !== '?' && indexCode !== '!') {
+        stagedFiles.push(file)
+      }
+    }
+    return { changedFiles, stagedFiles }
+  } catch {
+    return { changedFiles: [], stagedFiles: [] }
+  }
+}

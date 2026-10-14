@@ -31,6 +31,7 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   'subagent-model-selection-settings': { label: 'Subagent models', section: 'agent', fields: { enabled: 'Model selection', allowedModels: 'Allowed models' }, inline: 'enabled', effect: 'Applies to new sessions; existing sessions keep their routes.' },
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
+  'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
   advisor: { label: 'Advisor model calls', section: 'integrations', fields: { allowModelConsultations: 'Model consultations' }, inline: 'allowModelConsultations', effect: 'Controls consult_advisor; manual /advisor remains available.' },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   'web-search-deepseek': { label: 'Web search', section: 'integrations', fields: { maxTokens: 'Token limit', maxUses: 'Search limit' } },
@@ -38,7 +39,7 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
 
 // Already represented by dedicated controls, or accepted solely for migration.
 const DEDICATED_FIELDS: Record<string, readonly string[]> = {
-  tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
+  tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
   'agent-behavior': ['language'],
   'subagent-codex': ['model', 'permissionMode', 'env'],
   'subagent-claude-code': ['model', 'permissionMode', 'env'],
@@ -142,7 +143,7 @@ export function parseConfigValue(field: ConfigField, text: string): unknown {
   return value
 }
 
-const list = { presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const, filterable: true, allowCustom: false }
+const list = { presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const, filterable: true, allowCustom: false, notify: false }
 
 function constantValues(field: ConfigField): unknown[] | undefined {
   return field.schema.type === 'boolean' ? [true, false] : field.schema.type === 'union'
@@ -313,7 +314,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
     const label = presentation?.fields[field.path.join('.')] ?? field.path.join('.')
     const action = presentation !== undefined && !restore ? 'set' : await ctx.tui.prompt({ title: label, question: restore ? 'Restore inherited value?' : 'Set a value or restore inheritance',
       detail: field.secret ? 'Secret values are never shown. Reset removes the profile value and its paired credential reference; inherited credentials may still apply.' : `Current: ${presentation === undefined ? display(configValue(section.value, field.path)) : fieldDisplay(field, configValue(section.value, field.path))}\nInherited: ${presentation === undefined ? display(configValue(section.base, field.path)) : fieldDisplay(field, configValue(section.base, field.path))}`,
-      options: [...(restore ? [] : [{ label: 'Set value', value: 'set' }]), { label: 'Reset to inherited', value: 'reset' }], allowCustom: false, signal })
+      options: [...(restore ? [] : [{ label: 'Set value', value: 'set' }]), { label: 'Reset to inherited', value: 'reset' }], allowCustom: false, notify: false, signal })
     if (action === null || signal.aborted) continue
     try {
       if (action === 'reset') {
@@ -336,7 +337,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
           ...(field.secret ? {} : { detail: presentation === undefined ? field.schema.toString() : [`Current: ${fieldDisplay(field, current)}`, field.schema.meta.description, unitHelp].filter(Boolean).join('\n') }), secret: field.secret,
           ...(field.secret ? {} : constants === undefined ? { initialInput: current === undefined ? '' : presentation !== undefined && field.schema.type === 'number' ? fieldDisplay(field, current) : field.schema.type === 'string' ? String(current) : JSON.stringify(current) }
             : { initialValue: JSON.stringify(current) }),
-          ...(constants === undefined ? { allowCustom: true } : { allowCustom: false, options: constants.map(value => ({ label: presentation !== undefined && typeof value === 'boolean' ? value ? 'On' : 'Off' : display(value), value: JSON.stringify(value) })) }), signal })
+          ...(constants === undefined ? { allowCustom: true } : { allowCustom: false, options: constants.map(value => ({ label: presentation !== undefined && typeof value === 'boolean' ? value ? 'On' : 'Off' : display(value), value: JSON.stringify(value) })) }), notify: false, signal })
         if (text === null || signal.aborted) { if (directField) return; continue }
         const value = presentation === undefined ? parseConfigValue(field, text) : parseProductValue(field, text)
         await saveValue(ctx, section, field, value)

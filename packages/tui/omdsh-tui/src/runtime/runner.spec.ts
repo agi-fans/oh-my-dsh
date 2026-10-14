@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import * as runner from './runner.ts'
+import type { TuiSubmission } from '../definition.ts'
 
 describe('runner managed children on EOF', () => {
   it('releases an unloaded runner while children are pending without exiting the surviving host', async () => {
@@ -50,5 +51,38 @@ describe('runner managed children on EOF', () => {
       expect(order).toEqual(['idle', 'children', 'idle'])
       expect(waitForChildren).toHaveBeenCalledTimes(2)
     } finally { releaseChild.resolve(false); await ctx.fiber.dispose() }
+  })
+})
+
+describe('runner Composer Shell dispatch', () => {
+  it.each([false, true])('routes deliberate ! to the terminal and literal ! to the Agent (literal=%s)', async literal => {
+    const ctx = new Context()
+    const input: TuiSubmission[] = [{ text: '!echo hello', images: [], ...(literal ? { literal: true } : {}) }]
+    const send = vi.fn(), execute = vi.fn(), exit = vi.fn(), prompt = vi.fn(async () => null), notice = vi.fn(), restoreInput = vi.fn()
+    const agent = { session: { header: { cwd: '/workspace' } }, whenIdle: async () => {} }
+    const spawn = vi.fn(async () => ({ sessionId: 'owned' })), startSend = vi.fn(() => ({ done: Promise.resolve(), cancel: vi.fn() }))
+    const off = () => () => {}
+    ctx.provide('tui', { interactive: true, readInput: async () => input.shift() ?? null, notice, restoreInput,
+      prompt, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
+    ctx.provide('omdshSession', { start: async () => {}, agent, send, execute } as never)
+    ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+    ctx.provide('omdshLoop', { disable: () => {}, syncAgent: () => {}, submit: async () => false } as never)
+    ctx.provide('terminals', { spawn, startSend, list: () => [{ sessionId: 'owned', type: 'shell', status: { kind: 'running' } }],
+      read: () => ({ text: '', lineBegin: 0, lineEnd: 0, totalLines: 0, truncated: false }) } as never)
+    ctx.provide('appExit', exit)
+    try {
+      await ctx.plugin(runner)
+      await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
+      expect(execute).not.toHaveBeenCalled()
+      expect(restoreInput).not.toHaveBeenCalled()
+      if (literal) {
+        expect(send).toHaveBeenCalledWith(expect.objectContaining({ text: '!echo hello', literal: true }))
+        expect(startSend).not.toHaveBeenCalled()
+      } else {
+        expect(send).not.toHaveBeenCalled()
+        expect(prompt).toHaveBeenCalledOnce()
+        expect(startSend).toHaveBeenCalledWith(agent, 'owned', expect.objectContaining({ text: 'echo hello', submit: true }))
+      }
+    } finally { await ctx.fiber.dispose() }
   })
 })

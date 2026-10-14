@@ -35,8 +35,74 @@ export type FileSearcher = (
   signal?: AbortSignal,
 ) => Promise<readonly FileReferenceCandidate[]>
 
+const WORKSPACE_HEADING: AutocompleteItem = { value: '', label: 'Workspace context', kind: 'heading' }
 const FILE_HEADING: AutocompleteItem = { value: '', label: 'Files & folders', kind: 'heading' }
 const SESSION_HEADING: AutocompleteItem = { value: '', label: 'Session conversations', kind: 'heading' }
+
+/** Git status file lists used to expand `@diff`, `@staged`, and `@git` mentions. */
+export interface AtGitContext {
+  readonly changedFiles?: readonly string[]
+  readonly stagedFiles?: readonly string[]
+}
+
+const AT_SHORTCUT_KEYWORDS = ['diff', 'changes', 'staged', 'git', 'status'] as const
+
+/** True when an unquoted `@query` can match a workspace context shortcut. */
+export function matchesAtShortcutQuery(query: string, quoted = false): boolean {
+  if (filesOnlyAtQuery(query, quoted)) return false
+  const normalized = query.trim().toLowerCase()
+  if (normalized === '') return false
+  return AT_SHORTCUT_KEYWORDS.some(keyword => keyword.startsWith(normalized))
+}
+
+function formatMentionBundle(paths: readonly string[]): string | undefined {
+  const mentions = paths
+    .slice(0, 12)
+    .map(path => formatFileMention({ path, kind: 'file' }, false))
+    .filter((value): value is string => value !== undefined)
+  return mentions.length > 0 ? mentions.join(' ') : undefined
+}
+
+function gitContextItems(query: string, quoted: boolean, gitContext?: AtGitContext): AutocompleteItem[] {
+  if (gitContext === undefined || !matchesAtShortcutQuery(query, quoted)) return []
+  const normalized = query.trim().toLowerCase()
+  const changed = gitContext.changedFiles ?? []
+  const staged = gitContext.stagedFiles ?? []
+  const changedBundle = formatMentionBundle(changed)
+  const stagedBundle = formatMentionBundle(staged)
+  const items: AutocompleteItem[] = []
+  if ('diff'.startsWith(normalized) || 'changes'.startsWith(normalized)) {
+    items.push({
+      value: changedBundle ?? '`git diff HEAD`',
+      label: '@diff',
+      description: changed.length > 0
+        ? `Mention ${changed.length} changed workspace file${changed.length === 1 ? '' : 's'}`
+        : 'Reference working tree git diff',
+      kind: 'path',
+    })
+  }
+  if ('staged'.startsWith(normalized)) {
+    items.push({
+      value: stagedBundle ?? '`git diff --staged`',
+      label: '@staged',
+      description: staged.length > 0
+        ? `Mention ${staged.length} staged file${staged.length === 1 ? '' : 's'}`
+        : 'Reference staged git diff',
+      kind: 'path',
+    })
+  }
+  if ('git'.startsWith(normalized) || 'status'.startsWith(normalized)) {
+    items.push({
+      value: changedBundle ?? '`git status --short`',
+      label: '@git',
+      description: changed.length > 0
+        ? `Mention ${changed.length} modified/untracked file${changed.length === 1 ? '' : 's'}`
+        : 'Reference git workspace status',
+      kind: 'path',
+    })
+  }
+  return items
+}
 
 /** Quoted `@"` / `@'` tokens, or path fragments, stay file-only. */
 export function filesOnlyAtQuery(raw: string, quoted = false): boolean {
@@ -79,10 +145,12 @@ function sessionItems(candidates: readonly SessionMentionCandidate[]): Autocompl
 }
 
 function mergeAtItems(
+  shortcuts: readonly AutocompleteItem[],
   files: readonly AutocompleteItem[],
   sessions: readonly AutocompleteItem[],
 ): AutocompleteItem[] {
   const items: AutocompleteItem[] = []
+  if (shortcuts.length > 0) items.push(WORKSPACE_HEADING, ...shortcuts)
   if (files.length > 0) items.push(FILE_HEADING, ...files)
   if (sessions.length > 0) items.push(SESSION_HEADING, ...sessions)
   return items
@@ -104,6 +172,7 @@ export async function searchAtSuggestions(
     searchFiles: PathSearcher
     searchFileMentions?: FileSearcher
     searchSessions?: SessionSearcher
+    gitContext?: AtGitContext
     signal?: AbortSignal
   },
   commands: readonly SlashCommand[] = [],
@@ -111,6 +180,7 @@ export async function searchAtSuggestions(
   const { line, col } = editorLineAt(text, cursor)
   const at = activeAtToken(line, col)
   if (at === undefined) return searchPathSuggestions(text, cursor, opts, commands)
+  const shortcuts = gitContextItems(at.query, at.quoted, opts.gitContext)
   let files: AutocompleteItem[] = []
   if (opts.searchFileMentions !== undefined) {
     try {
@@ -131,7 +201,7 @@ export async function searchAtSuggestions(
       sessions = []
     }
   }
-  const items = mergeAtItems(files, sessions)
+  const items = mergeAtItems(shortcuts, files, sessions)
   if (items.length === 0) return null
   return { items, prefix: at.prefix }
 }

@@ -7,7 +7,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
-import type {} from '@deepseek-ai/dsh-workspace-changes'
+import { pluginRecordOf } from '@deepseek-ai/dsh-session'
+import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import { changedPaths, fileDocument, gitOutput, reviewFiles } from '../runtime/file-review.ts'
 
 export const name = 'omdsh-command-diff'
@@ -112,15 +113,37 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
     if (tui?.interactive === true) {
       const turn = /^turn(?:\s+(\d+))?$/u.exec(target)
       if (turn !== null) {
-        const event = invocation.agent.session.snapshotEvents().findLast(event => event.type === 'workspace/changes'
+        const events = invocation.agent.session.snapshotEvents()
+        const event = events.findLast((event): event is Extract<import('@deepseek-ai/dsh-session').SessionEvent, { type: 'workspace/changes' }> => event.type === 'workspace/changes'
           && (turn[1] === undefined || event.data.turn === Number(turn[1])))
         const service = ctx.get('workspaceChanges')
-        const summary = event === undefined ? undefined : service?.summary(invocation.agent.id, event.seq)
+        let summary = event === undefined ? undefined : service?.summary(invocation.agent.id, event.seq)
+        if (summary === undefined && event !== undefined) {
+          for (let index = events.length - 1; index >= 0; index -= 1) {
+            const record = pluginRecordOf(events[index]!)
+            if (record?.type === 'plugin:omdsh/workspace-changes'
+              && typeof record.data === 'object'
+              && record.data !== null
+              && (record.data as { turn?: unknown }).turn === event.data.turn
+              && typeof (record.data as { summary?: unknown }).summary === 'object'
+              && (record.data as { summary?: unknown }).summary !== null) {
+              summary = (record.data as { summary: WorkspaceChangesSummary }).summary
+              break
+            }
+          }
+        }
         if (event === undefined || summary === undefined) return { kind: 'error', text: 'This turn has no retained file comparison. Use /diff to review the current workspace.' }
         await reviewFiles(tui, `Turn ${summary.turn} changes`, summary.cwd,
           summary.files.map(file => ({ path: file.path, label: file.display, description: `+${file.added} −${file.deleted}` })), async index => {
             const diff = await service?.diff(invocation.agent.id, event.seq, index, invocation.signal)
-            if (diff === undefined) return 'This comparison is no longer retained.'
+            if (diff === undefined) {
+              const targetFile = summary.files[index]
+              if (targetFile !== undefined) {
+                try { return await fileDocument(resolve(summary.cwd, targetFile.path), invocation.signal) }
+                catch { /* fall through to retained comparison message */ }
+              }
+              return 'This comparison is no longer retained.'
+            }
             if (diff.kind !== 'text') return diff.kind === 'binary' ? 'Binary file; open the original to inspect it.' : 'File exceeds the turn comparison limit.'
             return { text: diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), diff: true,
               ...(diff.coarse ? { status: 'Comparison time limit reached; complete replacement shown.' } : {}) }

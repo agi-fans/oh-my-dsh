@@ -35,6 +35,14 @@ const composerRows = (lines: readonly string[], start: number): number => {
 }
 
 describe('applyEvent', () => {
+  it('explains remembered rejections on live and replayed transcripts without adding grant chatter', () => {
+    const allowed = { ...ev('plugin:omdsh/approval-rule-matched', { id: 'allow', scope: 'session', decision: 'allow' }, 0), ignorable: true as const }
+    const rejected = { ...ev('plugin:omdsh/approval-rule-matched', { id: 'reject', scope: 'workspace', decision: 'reject' }, 1), ignorable: true as const }
+    expect(applyEvent(initialTranscript(), allowed).blocks).toEqual([])
+    const live = applyEvent(applyEvent(initialTranscript(), allowed), rejected)
+    expect(live.blocks).toEqual([{ kind: 'notice', level: 'error', text: 'Rejected by an approval rule. Use /permission → Approval rules to revoke it.' }])
+    expect(replayEvents([allowed, rejected]).blocks).toEqual(live.blocks)
+  })
   it('skips relay frames for both the legacy and the new agent-message source kinds', () => {
     for (const kind of ['subagent-report', 'agent-message'] as const) {
       const state = applyEvent(

@@ -385,6 +385,48 @@ describe('session transcript boundaries', () => {
     }
   })
 
+  it('reviews Turn file recovery through the real keyboard path and defaults to Cancel without changing the session or scrollback', async () => {
+    const f = await fixture(true)
+    const restore = vi.fn()
+    try {
+      f.ctx.provide('tui', f.tui)
+      f.ctx.provide('omdshFileRecovery', {
+        checkpoint: vi.fn(async () => ({ status: 'ready', before: 'before', after: 'after' })),
+        savedReports: vi.fn(async () => []), restore,
+        store: { plan: vi.fn(async () => ({ root: '/workspace', operations: [{ path: 'created-link', status: 'ready',
+          before: { kind: 'missing' }, after: { kind: 'link', target: Buffer.from('hello').toString('base64') } }] })) },
+      } as never)
+      await f.runtime.start()
+      const original = f.runtime.agent!
+      original.session.append('turn/start', { turn: 1 })
+      original.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Create the link' }] }), { surfaceOp: 'append' })
+      original.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      const events = original.session.snapshotEvents(), history = f.terminal!.scrollback()
+      f.tui.restoreInput({ text: 'Keep my recovery draft', images: [] })
+      const prompt = vi.spyOn(f.tui, 'prompt')
+      const pending = f.runtime.openSessionTree(new AbortController().signal)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+      f.input.write('\x1br')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+      expect(prompt.mock.calls[1]![0].title).toBe('Restore Turn 1 files')
+      f.input.write('\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+      expect(prompt.mock.calls[2]![0].detail).toContain('Symbolic link')
+      f.input.write('\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(4))
+      expect(prompt.mock.calls[3]![0]).toMatchObject({ title: 'Confirm file recovery', initialValue: 'cancel' })
+      f.input.write('\r')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(5))
+      f.input.write('\x03')
+      await pending
+      expect(restore).not.toHaveBeenCalled()
+      expect(f.runtime.agent).toBe(original)
+      expect(original.session.snapshotEvents()).toEqual(events)
+      expect(f.terminal!.scrollback()).toEqual(history)
+      expect(f.terminal!.visible().join('\n')).toContain('Keep my recovery draft')
+    } finally { await f.dispose() }
+  })
+
   it('labels and filters turns through the real TTY without changing logs, scrollback or the draft', async () => {
     const root = mkdtempSync(join(tmpdir(), 'omdsh-tree-labels-'))
     const f = await fixture(true, root)

@@ -42,7 +42,7 @@ function bundleStatus(row: BundleInfo): string {
   return `Installed · ${row.enabled ? 'Enabled' : 'Disabled'}`
 }
 
-const list = { presentation: 'fullscreen-list' as const, filterable: true, allowCustom: false, optionLayout: 'compact' as const }
+const list = { presentation: 'fullscreen-list' as const, filterable: true, allowCustom: false, optionLayout: 'compact' as const, notify: false }
 
 async function install(ctx: Context, spec: string, signal: AbortSignal, approvedBuilds?: string[], saveExact = false): Promise<ChangeResult> {
   signal.throwIfAborted()
@@ -74,14 +74,14 @@ async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, s
   if (inspected.status === 'refused') { ctx.tui.notice(inspected.reason, { level: 'error' }); return }
   const consent = await ctx.tui.prompt({ title: 'Install bundle', question: inspected.name ?? spec,
     detail: `${inspected.version ?? ''} ${inspected.description ?? ''}\nInstalled Host code runs with your user permissions and affects all sessions in this profile.`,
-    options: [{ label: 'Install and enable', value: 'install' }], allowCustom: false, signal })
+    options: [{ label: 'Install and enable', value: 'install' }], allowCustom: false, notify: false, signal })
   if (consent !== 'install' || signal.aborted) return
   let result = await install(ctx, spec, signal, undefined, saveExact)
   if (result.pendingBuilds?.length && !signal.aborted) {
     ctx.tui.commandOutput('/plugins', changeText(result))
     const approved = await ctx.tui.prompt({ title: 'Dependency scripts', question: 'Allow these scripts and retry?',
       detail: `${result.pendingBuilds.join('\n')}\nPermission persists by package name in this profile. Scripts run with your user permissions.`,
-      options: [{ label: 'Allow scripts and retry', value: 'approve' }], allowCustom: false, signal })
+      options: [{ label: 'Allow scripts and retry', value: 'approve' }], allowCustom: false, notify: false, signal })
     if (approved === 'approve' && !signal.aborted) result = await install(ctx, spec, signal, result.pendingBuilds, saveExact)
   }
   return result
@@ -106,7 +106,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       const reason = pluginReadOnly(row)
       if (reason !== undefined) { ctx.tui.notice(`${row.moduleName}: read-only (${reason}).`); continue }
       const choice = await ctx.tui.prompt({ title: 'Plugin entry', question: row.moduleName,
-        options: [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }], allowCustom: false, signal })
+        options: [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }], allowCustom: false, notify: false, signal })
       if (choice === 'toggle' && !signal.aborted) result = await ctx.pluginManager.setPluginEnabled(row.entryId, !row.enabled)
     } else if (action === 'bundles') {
       const rows = await ctx.pluginManager.listBundles()
@@ -129,7 +129,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
           ...(row.installTarget === undefined || row.availability === 'installation' ? [] : [{ label: row.availability === 'missing' ? 'Install' : 'Reinstall', value: 'install' }]),
           ...(integration !== undefined || row.availability === 'missing' || row.error !== undefined && !row.enabled ? [] : [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }]),
           ...(row.removable ? [{ label: row.installed ? 'Uninstall' : 'Remove from profile', value: 'remove' }] : []),
-        ], allowCustom: false, signal })
+        ], allowCustom: false, notify: false, signal })
       if (signal.aborted) break
       if (choice === 'check' && guide !== undefined) await showIntegrationStatus(ctx, row.name, signal)
       if (choice === 'settings' && integration !== undefined) await editSettingsEntry(ctx, integration, signal)
@@ -143,7 +143,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
         if (consent === 'uninstall' && !signal.aborted) result = await ctx.pluginManager.removeBundle(row.name)
       }
     } else if (action === 'install') {
-      const spec = await ctx.tui.prompt({ title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', allowCustom: true, signal })
+      const spec = await ctx.tui.prompt({ title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', allowCustom: true, notify: false, signal })
       if (spec === null || spec.trim() === '' || signal.aborted) continue
       result = await confirmInstall(ctx, spec.trim(), signal)
     }

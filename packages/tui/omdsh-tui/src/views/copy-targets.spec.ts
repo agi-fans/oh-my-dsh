@@ -16,6 +16,8 @@ describe('parseCopyKind', () => {
     expect(parseCopyKind('code')).toBe('code')
     expect(parseCopyKind('cmd')).toBe('cmd')
     expect(parseCopyKind('command')).toBe('cmd')
+    expect(parseCopyKind('output')).toBe('output')
+    expect(parseCopyKind('out')).toBe('output')
     expect(parseCopyKind('nope')).toBeUndefined()
   })
 })
@@ -58,25 +60,35 @@ describe('extractCopyTarget', () => {
     expect(target).toEqual({ text: 'pwd', label: 'bash command' })
   })
 
+  it('takes the last non-empty tool output', () => {
+    const target = extractCopyTarget([
+      tool('bash', '{"command":"ls"}', 'file-a\nfile-b\n'),
+      tool('fs', '{"path":"/tmp"}', '   '),
+    ], 'output')
+    expect(target).toEqual({ text: 'file-a\nfile-b\n', label: 'bash output' })
+  })
+
   it('returns undefined when the transcript has no match', () => {
     expect(extractCopyTarget([], 'text')).toBeUndefined()
     expect(extractCopyTarget([assistant('no fence')], 'code')).toBeUndefined()
     expect(extractCopyTarget([tool('fs', '{}')], 'cmd')).toBeUndefined()
+    expect(extractCopyTarget([tool('fs', '{}', '  ')], 'output')).toBeUndefined()
   })
 })
 
 describe('buildCopyTargets', () => {
-  it('lists newest assistant text, its fences, and bash commands', () => {
+  it('lists newest assistant text, its fences, bash commands, and tool outputs', () => {
     const items = buildCopyTargets([
       assistant('first reply'),
-      tool('bash', '{"command":"ls -la"}'),
+      tool('bash', '{"command":"ls -la"}', 'total 8\ndrwxr-xr-x'),
       assistant('see\n```ts\nconst x = 1\n```'),
     ])
-    expect(items.map((item) => item.id)).toEqual(['msg:1', 'code:1', 'cmd:1', 'msg:2'])
+    expect(items.map((item) => item.id)).toEqual(['msg:1', 'code:1', 'cmd:1', 'out:1', 'msg:2'])
     expect(items[0]).toMatchObject({ label: 'see', hint: '4 lines', copyMessage: 'last message' })
     expect(items[1]).toMatchObject({ label: 'const x = 1', hint: 'ts · 1 line', text: 'const x = 1', copyMessage: 'ts block' })
     expect(items[2]).toMatchObject({ label: 'ls -la', hint: 'bash · 1 line', text: 'ls -la', copyMessage: 'bash command' })
-    expect(items[3]?.label).toBe('first reply')
+    expect(items[3]).toMatchObject({ label: 'total 8', hint: 'bash output · 2 lines', text: 'total 8\ndrwxr-xr-x', copyMessage: 'bash output' })
+    expect(items[4]?.label).toBe('first reply')
   })
 
   it('returns an empty list when nothing is copyable', () => {

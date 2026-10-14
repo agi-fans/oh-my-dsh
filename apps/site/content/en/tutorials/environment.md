@@ -39,3 +39,18 @@ The Interface section's Motion row controls presentation only. `full` smoothly r
 The Theme row cycles `dark`, `light`, `midnight`, `solarized`, `catppuccin`, `dracula`, `nord`, `gruvbox`, `rose-pine`, and `mono`. Each status preview item — Model, Effort, Path, Git, and the telemetry groups — has its own color, left or right column, visibility, and order. Context defaults to a percentage; Context style also offers an occupancy bar, used/window tokens, and a detailed combination. Every style changes to warning and error colors as pressure rises. Telemetry hides only second-line metrics, preserving the model and workspace row. The composer top border keeps 🐳 on the left and the current Access level on the right.
 
 Run `/help` for the complete command and keyboard-shortcut catalog. The list is assembled from the active plugins, so it also includes capabilities contributed by Skills and other runtime integrations.
+
+### Diagnose the local installation
+
+Run diagnostics from your normal workspace:
+
+```sh
+omdsh doctor
+omdsh doctor --json
+```
+
+Doctor reads the launch environment, Profile, bundle patches, plugin entry files and DSH peer requirements, Shell executable, MCP/LSP configuration and executables, and credential document metadata. It does not initialize or rewrite a Profile, execute config expressions, import configured plugins, start servers, send terminal probes or make model requests. A missing Profile reports shipped defaults; rejected layers leave explicit incomplete-coverage notices. Credential values and raw parser errors are omitted.
+
+Each check reports `ok` for its stated local fact, `failed` for a detected problem, `not-configured` for an absent optional configuration, or `not-checked` when runtime verification is still needed. Valid configuration and an available executable do not prove authentication or connectivity. Dynamic credential locations require runtime resolution; the default store is inspected separately. Fix failed checks using their guidance, then verify the selected model in `/model` or `/auth` and integrations through their normal runtime.
+
+JSON uses `schemaVersion: 1`, `version` and a `checks` array whose entries contain `id`, `status`, `summary` and an optional `remedy`. Exit code `0` means no failed checks, including reports with unchecked capabilities; `1` means a check failed; `2` means invalid CLI arguments. Neither format includes ANSI styling.

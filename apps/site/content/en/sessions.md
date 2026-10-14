@@ -28,6 +28,16 @@ The footer names the action for Enter: **edit from here** prepares a new branch 
 
 Use `Alt+L` to label a Turn or branch and edit its existing label; `Alt+U` clears it. Labels are searchable and limited to 120 characters. `Alt+B` switches between the full tree and marked nodes with their ancestors, including when no nodes are marked. Labelling and filtering preserve the active session and composer; labels stay local and never enter the model context.
 
+### Restore Turn files
+
+Enable **File recovery snapshots** in `/settings` → Tools before starting a Turn. It is Off by default because it saves private file contents and adds capture work. In Session Tree, select a Turn and press `Alt+R`, choose files, review their before/after contents and confirm **Restore selected files**; Cancel is selected initially. Changes apply to the next Turn; a capture already started continues when the switch is turned Off. Earlier Turns without complete snapshots cannot be recovered from their diff summaries.
+
+Recovery keeps messages, the active branch, working directory and Git index unchanged. It restores ordinary file bytes and mode bits, recreates deleted files and removes created files. It rechecks each file against its retained post-Turn version, preserving later user or process changes as conflicts. Snapshot changes cover a time window and may include other processes’ edits; they are not automatically attributed to the model. A working-directory change within a Turn makes that checkpoint unavailable. Restore can target a saved directory after navigation, subject to current Access; Read only blocks restoration, and the worker remains confined even under Full access. The next model step receives a notice to reread affected files.
+
+Open saved reports with `Alt+H` in the recovery file picker; when no files are restorable, that reading page includes the earlier reports. The report distinguishes restored, already-restored, conflict, failed, cancelled and uncertain results. Cancellation can leave a partial restoration. Displaced entries remain under reserved `.omdsh-recovery-<operation-id>.backup` paths; an interrupted receipt’s planned operations have unconfirmed completion and are never automatically retried. Backups retain the original inode so a writer holding its old descriptor does not lose data. Recovery is per file, not an all-files transaction.
+
+Git capture covers tracked and nonignored untracked files in the active directory; ignored existing paths, submodules, embedded repositories and Git metadata are excluded or protected. Non-Git capture walks that directory without following links. Private snapshots and receipts stay under `omdsh/file-recovery/` and survive resume. No automatic pruning occurs; deleting this directory removes recovery data, without deleting messages or workspace backups. Empty directories, ownership, ACLs and extended attributes are outside the content contract. Hard links, special files or permission bits, Windows reparse points, ambiguous paths, unstable scans, more than 10,000 entries, files above 128 MiB or snapshots above 1 GiB make capture unavailable rather than produce an incomplete checkpoint.
+
 ## Session Library
 
 `/sessions` opens the Session Library: `p` pins or unpins a session, `r` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search; letter actions require an empty search. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/sessions <query>`; resuming does not automatically restore it to the default list.
@@ -55,6 +65,7 @@ All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/
 | Path | Contents |
 |---|---|
 | `sessions/` | The durable session logs. |
+| `omdsh/file-recovery/` | Private Turn file snapshots, checksummed manifests and recovery receipts. |
 | `omdsh/drafts/` | Unsent composer drafts and their image bytes, grouped by hashed session id. |
 | `omdsh/history.jsonl` | Prompt history behind `Ctrl+R`. |
 | `omdsh/keybindings.json` | Application keybinding overrides. |
@@ -77,3 +88,5 @@ The archive has a 64 MiB uncompressed limit, refuses an existing destination and
 - [Commands](commands.md) — `/sessions`, `/resume`, `/retry`, `/new`, and `/export`
 - [Recover and manage a long session](tutorials/long-session.md) — resume, rewind, compact, and export
 - [User plugins](plugins.md) — the Profile directory and `omdsh plugin`
+
+File recovery snapshots and receipts are profile-local and are not included in portable archives.

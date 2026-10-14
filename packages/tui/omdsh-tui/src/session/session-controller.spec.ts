@@ -692,21 +692,24 @@ describe('SessionRuntime workspace claim', () => {
     })
     ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
     if (registry !== undefined) ctx.provide('workspaceRegistry', registry)
-    const tui = new Proxy(stubTui() as unknown as Record<string, unknown>, {
+    const calls: string[] = []
+    const tui = new Proxy({ ...stubTui(), setModel: () => { calls.push('model') }, replaceSession: () => { calls.push('transcript') } } as unknown as Record<string, unknown>, {
       get(target, prop) {
         return prop in target ? target[prop] : () => () => {}
       },
     }) as unknown as TuiService
-    return { ctx, agentCtx, runtime: new SessionRuntime(ctx, tui) }
+    return { ctx, agentCtx, calls, runtime: new SessionRuntime(ctx, tui) }
   }
 
   it('adopts the cwd workspace and attaches the activated session', async () => {
     const attachSession = vi.fn(async () => undefined)
     const create = vi.fn(async () => ({ attachSession }))
     const resolveByPath = vi.fn(async () => undefined)
-    const { ctx, agentCtx, runtime } = await harness('/tmp/omdsh-ws', { resolveByPath, create })
+    const { ctx, agentCtx, calls, runtime } = await harness('/tmp/omdsh-ws', { resolveByPath, create })
     try {
       await runtime.start()
+      expect(calls.indexOf('model')).toBeGreaterThanOrEqual(0)
+      expect(calls.indexOf('model')).toBeLessThan(calls.indexOf('transcript'))
       await new Promise(resolve => { setTimeout(resolve, 0) })
       expect(resolveByPath).toHaveBeenCalledWith('/tmp/omdsh-ws')
       expect(create).toHaveBeenCalledWith('/tmp/omdsh-ws')

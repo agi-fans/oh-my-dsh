@@ -33,6 +33,8 @@ export interface PromptSelectorState {
   feedback?: boolean
   /** Editing or Take time paused this local countdown. */
   waitHeld?: boolean
+  /** Timestamp before which keyboard confirmation is ignored. */
+  armedUntil?: number
 }
 
 export interface PromptSelectorFrame {
@@ -457,9 +459,10 @@ export function renderPlanReviewPage(
   const feedback = state.feedback === true
   const actionRows = documentActionRows(state, theme, width, pageHeight)
   const readerInput = source !== undefined && state.documentInput !== undefined
+  const customHints = (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`)
   let readerHints = source === undefined ? [] : wrapText(readerInput ? 'Enter apply · Esc cancel'
-    : 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
-      + ' · Tab/←→ actions · Enter activate · ' + (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back', width - 4)
+    : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
+      + ' · ' + ['Tab/←→ actions', 'Enter activate', ...customHints, 'Esc back'].join(' · '), width - 4)
   const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))
   if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
   const compactReader = source !== undefined && pageHeight < 10
@@ -513,7 +516,7 @@ export function renderPlanReviewPage(
     const inputRow = lines.length
     lines.push(pageRow(theme, ' ' + prefix + value, width))
     // "empty Enter keeps planning" is prose, but it names the key through the catalog.
-    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_SUBMIT, HOTKEY_BACK, HOTKEY_CANCEL_CTRL])} · empty ${formatHotkeyKeys(HOTKEY_SUBMIT)} keeps planning]`), width))
+    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_SUBMIT, HOTKEY_BACK, HOTKEY_CANCEL_CTRL])} · Ctrl+X editor · empty ${formatHotkeyKeys(HOTKEY_SUBMIT)} keeps planning]`), width))
     lines.push(pageBottom(theme, width))
     cursor = {
       row: inputRow,
@@ -541,6 +544,7 @@ export function renderPlanReviewPage(
     const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
       : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])
+        + (state.request.presentation === 'plan-review' ? ' · Ctrl+X editor' : '')
     lines.push(...(source === undefined ? [`[${shortcuts}]`] : readerHints).map(hint => pageRow(theme, theme.fg('dim', hint), width)))
     lines.push(pageBottom(theme, width))
   }
@@ -594,9 +598,11 @@ export function renderPromptSelector(
         ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
         : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
   const dismiss = state.request.dismissLabel
+  const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`)
   const hints = [
     dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL]), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
     ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP])] : []),
+    ...actionHints,
   ]
   body.push('', theme.fg('dim', hints.join(' · ')))
 

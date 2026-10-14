@@ -1,9 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
-import { ARCHIVE_MAX_BYTES, sessionArchive } from './session-archive.ts'
+import { ARCHIVE_MAX_BYTES, importSessionArchive, sessionArchive } from './session-archive.ts'
 
 function harness() {
   const ref = { attachmentId: '../opaque-id', name: '..\\report.txt', bytes: 5 }
@@ -56,5 +56,44 @@ describe('portable session archive', () => {
     abort.abort(new Error('Cancelled'))
     await expect(sessionArchive(h.ctx, h.agent, abort.signal)).rejects.toThrow('Cancelled')
     expect(h.close).toHaveBeenCalledOnce()
+  })
+  it('imports a portable session archive, remapping attachments and writing sessions to persistence', async () => {
+    const h = harness()
+    const zipBytes = await sessionArchive(h.ctx, h.agent, new AbortController().signal)
+    const append = vi.fn(async () => undefined)
+    const close = vi.fn(async () => undefined)
+    const create = vi.fn(async () => ({ append, close }))
+    const saveFile = vi.fn(async () => ({ attachmentId: 'new-att-id', bytes: 5 }))
+    const destStorage = {
+      stat: vi.fn(async () => undefined),
+      create,
+    }
+    const destCtx = {
+      sessionPersistence: destStorage,
+      attachments: { saveFile },
+      get: (name: string) => name === 'sessionPersistence' ? destStorage : name === 'attachments' ? { saveFile } : undefined,
+    } as unknown as Context
+    const result = await importSessionArchive(destCtx, zipBytes, new AbortController().signal)
+    expect(result).toEqual({ rootSession: 'root', importedSessions: 3, importedAttachments: 1 })
+    expect(saveFile).toHaveBeenCalledOnce()
+    expect(create).toHaveBeenCalledTimes(3)
+    expect(append).toHaveBeenCalledTimes(3)
+    expect(close).toHaveBeenCalledTimes(3)
+  })
+  it('rejects importing when a session ID already exists or the archive is invalid', async () => {
+    const h = harness()
+    const zipBytes = await sessionArchive(h.ctx, h.agent, new AbortController().signal)
+    const existingStorage = { stat: vi.fn(async () => ({ eventCount: 1 })) }
+    const existingAttachments = { saveFile: vi.fn() }
+    const existingCtx = {
+      sessionPersistence: existingStorage,
+      attachments: existingAttachments,
+      get: (name: string) => name === 'sessionPersistence' ? existingStorage : name === 'attachments' ? existingAttachments : undefined,
+    } as unknown as Context
+    await expect(importSessionArchive(existingCtx, zipBytes, new AbortController().signal))
+      .rejects.toThrow('already exists in local storage')
+    const invalidZip = zipSync({ 'manifest.json': strToU8(JSON.stringify({ format: 'wrong' })) })
+    await expect(importSessionArchive(existingCtx, invalidZip, new AbortController().signal))
+      .rejects.toThrow('Unsupported session archive format or version.')
   })
 })

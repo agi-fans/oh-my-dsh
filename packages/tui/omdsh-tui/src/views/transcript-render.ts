@@ -50,7 +50,9 @@ import {
   alignFileDiffs,
   wrapPaintedDiffRows,
 } from '../chrome/diff-render.ts'
-import { workspaceBlockLines } from './workspace-changes.ts'
+import { workspaceBlockLines, WORKSPACE_COLLAPSED_LINES } from './workspace-changes.ts'
+import { blockFileAction } from './file-actions.ts'
+import type { TranscriptFileRegion } from '../chrome/renderer.ts'
 import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
@@ -273,7 +275,8 @@ function userBubble(text: string, theme: Theme, width: number): string[] {
   // anything else on the screen.
   return rows.map((row, index) => {
     if (row === '') return paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth('', width))
-    const content = padToWidth((index === 1 ? gutter : '') + row, width)
+    const promptMark = index === 1 && theme.colors ? '\x1b]133;A\x07' : ''
+    const content = padToWidth((index === 1 ? promptMark + gutter : '') + row, width)
     return paintSurface(theme, 'userMessageBg', 'userMessageText', content)
   })
 }
@@ -614,16 +617,18 @@ function processNoticeLine(block: Extract<Block, { kind: 'notice' }>, theme: The
 const groupMemberCache = new WeakMap<Block, { signature: string; lines: readonly string[] }>()
 
 /** Flat chronological content, shared by live and opened turns. */
-function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { lines: string[]; offsets: Map<number, number> } {
+function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { lines: string[]; offsets: Map<number, number>; spans: { index: number; start: number; end: number }[] } {
   const lines: string[] = []
   const offsets = new Map<number, number>()
+  const spans: { index: number; start: number; end: number }[] = []
   for (const index of groupMembers(group)) {
     const rows = groupMemberLines(index, context, index === group.answer && group.tookThought)
     if (rows.length > 0 && lines.length > 0) lines.push('')
     offsets.set(index, lines.length)
+    if (context.blocks[index]?.kind === 'tool') spans.push({ index, start: lines.length, end: lines.length + rows.length })
     for (const row of rows) lines.push(row)
   }
-  return { lines, offsets }
+  return { lines, offsets, spans }
 }
 
 /** A settled turn's length, the way a person would say it. */
@@ -782,6 +787,7 @@ function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
 }
 
 interface TranscriptBodyCache {
+  fileRegions: readonly TranscriptFileRegion[]
   mathMode: import('../chrome/math.ts').MathMode | undefined
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
@@ -1128,6 +1134,7 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
 
 /** A rendered transcript body and what the host needs to aim at and freeze it. */
 interface TranscriptBody {
+  fileRegions: readonly TranscriptFileRegion[]
   lines: readonly string[]
   blockStarts: readonly number[]
   /** See {@link TranscriptScroll.blockDrawStarts}. */
@@ -1206,6 +1213,7 @@ function renderTranscriptBody(
     && cached.focusBlock === options.focusBlock) {
     return {
       lines: cached.lines,
+      fileRegions: cached.fileRegions,
       blockStarts: cached.blockStarts,
       blockDrawStarts: cached.blockDrawStarts,
       foldShape: cached.foldShape,
@@ -1216,6 +1224,16 @@ function renderTranscriptBody(
 
   const matches = new Set(search?.matches ?? [])
   const lines: string[] = []
+  const fileRegions: TranscriptFileRegion[] = []
+  const filesAt = (index: number, start: number, length: number, expanded = false): void => {
+    const block = state.blocks[index]!
+    if (length === 0 || blockFileAction(block) === undefined) return
+    if (block.kind === 'workspace') {
+      fileRegions.push({ block: index, start, end: start + 1 })
+      const visible = Math.min(block.summary!.files.length, expanded ? length - 1 : WORKSPACE_COLLAPSED_LINES)
+      for (let file = 0; file < visible; file += 1) fileRegions.push({ block: index, start: start + file + 1, end: start + file + 2, file })
+    } else fileRegions.push({ block: index, start, end: start + length })
+  }
   const blockStarts: number[] = []
   // Where each block is drawn, apart from the offsets above: a search can aim a
   // block's offset at the thought it also carries, but its drawn span does not
@@ -1312,13 +1330,16 @@ function renderTranscriptBody(
         const body = processGroupBody(group, context)
         for (const line of body.lines) lines.push(line)
         offsets = body.offsets
+        for (const span of body.spans) filesAt(span.index, bodyRow + span.start, span.end - span.start)
       } else {
         for (let at = group.start; at < (group.answer ?? group.until); at += 1) {
           const member = state.blocks[at]!
           if (!(member.kind === 'tool' && member.status === 'error')
             && !(member.kind === 'notice' && member.level === 'error')) continue
           offsets.set(at, lines.length - bodyRow)
-          lines.push(...(member.kind === 'tool' ? toolRowLine(member, theme, options.width, spinnerFrame) : groupMemberLines(at, context)))
+          const rows = member.kind === 'tool' ? toolRowLine(member, theme, options.width, spinnerFrame) : groupMemberLines(at, context)
+          filesAt(at, lines.length, rows.length)
+          lines.push(...rows)
         }
       }
       // The turn's answer, painted as a row of its own between the run's work
@@ -1376,6 +1397,7 @@ function renderTranscriptBody(
           const rows = !group.live && !opened && trailing?.kind === 'tool'
             ? toolRowLine(trailing, theme, options.width, spinnerFrame)
             : groupMemberLines(at, context)
+          filesAt(at, lines.length, rows.length)
           for (const line of rows) lines.push(line)
         }
       }
@@ -1436,6 +1458,7 @@ function renderTranscriptBody(
       block, options, theme, themeName, trueColor, expanded,
       absorbed.has(index),
     )
+    filesAt(index, lines.length, rendered.length, expanded)
     lines.push(...(search !== undefined && matches.has(index)
       ? rendered.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
       : rendered))
@@ -1446,6 +1469,7 @@ function renderTranscriptBody(
   // this; opening, folding, or a run settling at turn end do.
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
+    fileRegions,
     mathMode: options.mathMode,
     mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
@@ -1470,7 +1494,7 @@ function renderTranscriptBody(
     lines,
     blockStarts,
   })
-  return { lines, blockStarts, blockDrawStarts, foldShape, foldMarks, liveFrom }
+  return { lines, blockStarts, blockDrawStarts, fileRegions, foldShape, foldMarks, liveFrom }
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -1878,16 +1902,18 @@ export function renderQueuedSubmissions(
     const paintedLeft = truncateToWidth(left, width - actionWidth - 2)
     return paintedLeft + '  ' + action
   }
+  const editSingleHint = width >= 72 ? '↑/Alt+Up edit · Alt+Q queue' : '↑ edit'
+  const editMultiHint = width >= 72 ? '↑/Alt+Up edit latest · Alt+Q queue' : '↑ edit latest'
   if (labels.length === 1) {
     return [alignAction(
       rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', 'next turn · ') + theme.fg('text', labels[0] ?? ''),
-      theme.fg('dim', '↑ edit'),
+      theme.fg('dim', editSingleHint),
     )]
   }
   const summary = ` · ${labels.length} · next turn${hidden === 0 ? '' : ` · ${hidden} earlier`}`
   const visibleLabels = labels.slice(start)
   const lines = [
-    alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', '↑ edit latest'), false),
+    alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', editMultiHint), false),
     ...visibleLabels.map((label, index) =>
       rail + theme.fg(index === visibleLabels.length - 1 ? 'accent' : 'dim', String(start + index + 1))
         + '  ' + theme.fg('text', label)),
@@ -2236,6 +2262,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         hiddenBelow: 0,
       }),
       blockStarts: transcript.blockStarts,
+      fileRegions: transcript.fileRegions.map(region => ({ ...region, start: transcriptStart + region.start, end: transcriptStart + region.end })),
       blockDrawStarts: transcript.blockDrawStarts,
       foldShape: transcript.foldShape,
       foldMarks: transcript.foldMarks,

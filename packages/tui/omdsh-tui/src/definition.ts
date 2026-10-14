@@ -152,6 +152,10 @@ export interface TuiPrompt {
   refreshOptions?: () => NonNullable<TuiPrompt['options']>
   /** Yield this reading surface to an attention-requesting prompt and recover any entered text. */
   onSuperseded?: (input: string) => void
+  /** Rescue partially typed custom text when the prompt is dismissed or aborted. */
+  onCancelDraft?: (draft: string) => void
+  /** Delay in milliseconds before keyboard confirmation is accepted on a freshly opened prompt. */
+  armMs?: number
   /** Open a live document at its latest rows. */
   documentTail?: boolean
   /** Prepared PNG shown in a dedicated image reader; original bytes remain untouched. */
@@ -175,8 +179,8 @@ export interface TuiPrompt {
   skippable?: boolean
   /** Local countdown for a claimed Harness wait; editing or Ctrl+T holds the wait. */
   wait?: { deadline: number; hold(): void }
-  /** Distinguish Ctrl+C interruption from dismissing an answerable question. */
-  interrupt?(): void
+  /** Ctrl+C interrupts this operation; returning true keeps the primary Turn running. */
+  interrupt?(): boolean | void
   signal?: AbortSignal
 }
 
@@ -358,6 +362,10 @@ export interface TuiService {
   setWorkingDirectory?(cwd: string): void
   /** Hand the terminal to the configured editor, then restore the live viewport. */
   openFileInEditor?(path: string): void
+  /** Insert text at the composer cursor while preserving existing draft text and attachments. */
+  insertText?(text: string): void
+  /** Copy text to the user's clipboard and display a confirmation notice. */
+  copyText?(text: string, label?: string): Promise<void>
   /** Add a durably stored file to the editable composer; sending remains explicit. */
   stageFileAttachment?(file: FileAttachmentRef): void
   /**
@@ -385,7 +393,7 @@ export interface TuiService {
   /** Fold one live `agent/assistant-stream` chunk into the transcript. */
   streamDelta(delta: StreamDelta): void
   /** Update status liveness; root signals also update pane lifecycle while inspecting a child. */
-  setStatus(status: TuiStatus, options?: { root?: boolean }): void
+  setStatus(status: TuiStatus, options?: { root?: boolean; outcome?: string }): void
   /** Update the model and effective reasoning effort shown in the composer. */
   setModel(model: string, reasoningEffort?: string): void
   /** Update the optional process-local Loop indicator in the fixed footer. */

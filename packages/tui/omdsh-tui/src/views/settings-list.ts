@@ -4,6 +4,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { TERMINAL_TITLE_MODES, TERMINAL_STATE_MODES, type TerminalTitleMode, type TerminalStateMode } from '../runtime/terminal-state.ts'
 import type { EditorChoice, EditorId } from '../input/editor-discovery.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from '../session/release-notes.ts'
@@ -84,6 +85,8 @@ export interface TuiPrefs {
   mermaidMode?: MermaidMode
   editor?: EditorId
   terminalProgress?: boolean
+  terminalTitle?: TerminalTitleMode
+  terminalState?: TerminalStateMode
   pasteProtection?: boolean
   copyOnSelect?: boolean
   mouseInteraction?: 'auto' | 'tui' | 'native'
@@ -247,6 +250,12 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       description: 'Copy selected text when the mouse is released. With this off, use Alt+C, Enter, or right-click to copy.',
       value: prefs.copyOnSelect === false ? 'off' : 'on',
       values: COLOR_VALUES,
+    },
+    {
+      id: 'terminalTitle', label: 'Terminal title', description: 'Status and session, session only, status and workspace, or Off. Changes the terminal tab title.', value: prefs.terminalTitle ?? 'status', values: TERMINAL_TITLE_MODES,
+    },
+    {
+      id: 'terminalState', label: 'Program status', description: 'Auto detects OSC 7501 support. On forces reports; Off clears reports. Reports the root agent, including when inspecting a child.', value: prefs.terminalState ?? 'auto', values: TERMINAL_STATE_MODES,
     },
     {
       id: 'terminalProgress',
@@ -426,6 +435,8 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {
     return { ...prefs, mouseInteraction: value as NonNullable<TuiPrefs['mouseInteraction']> }
   }
+  if (id === 'terminalTitle' && TERMINAL_TITLE_MODES.includes(value as TerminalTitleMode)) return { ...prefs, terminalTitle: value as TerminalTitleMode }
+  if (id === 'terminalState' && TERMINAL_STATE_MODES.includes(value as TerminalStateMode)) return { ...prefs, terminalState: value as TerminalStateMode }
   if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
@@ -577,14 +588,14 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
     .map(entry => ({ ...entry, id: `plugin:${entry.id}`, value: entry.inline?.value ?? entry.summary ?? 'Configure',
       values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
   return [
-    { id: 'general' as const, label: 'Interface', items: generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
-      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'terminalProgress'].includes(item.id) ? 'Appearance'
+    { id: 'general' as const, label: 'Interface', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
+      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'terminalTitle', 'terminalState', 'terminalProgress'].includes(item.id) ? 'Appearance'
         : ['editor', 'mouseInteraction', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
           : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
       description: (item.id === 'notificationFocus' && (state.prefs.notifications ?? 'off') === 'off' ? 'Inactive while Notifications is off. '
         : item.id === 'notificationThreshold' && state.prefs.notifications !== 'long-running' ? 'Applies only to long-running notifications. ' : '') + item.description,
-    })).sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group) - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group)) },
-    { id: 'agent' as const, label: 'Agent', items: [...state.actions ?? [], ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('agent')] },
+    })), ...(state.actions ?? []).filter(item => item.group === 'Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')) },
+    { id: 'agent' as const, label: 'Agent', items: [...(state.actions ?? []).filter(item => item.group !== 'Input'), ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('agent')] },
     { id: 'tools' as const, label: 'Tools', items: [...(state.features === undefined ? [] : featureSettingItems(state.features)), ...owned('tools')] },
     { id: 'status' as const, label: 'Status line', items: [...statusSettingItems(state.prefs).map(item => ({ ...item, resettable: true })),
       { id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, description: 'Restore the inherited status-line layout, colors and visibility. Confirmation shows what will be restored.' }] },

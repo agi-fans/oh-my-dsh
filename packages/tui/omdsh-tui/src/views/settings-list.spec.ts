@@ -144,6 +144,8 @@ describe('tuiSettingItems / applySettingValue', () => {
       'motion',
       'mathMode',
       'mermaidMode',
+      'terminalTitle',
+      'terminalState',
       'terminalProgress',
       'editor',
       'mouseInteraction',

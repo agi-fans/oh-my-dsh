@@ -12,6 +12,8 @@ import {
 } from './tool-args.ts'
 
 export interface TuiToolPresentation {
+  /** Directory when the invocation began; later directory changes cannot retarget file actions. */
+  readonly cwd?: string
   readonly call?: ToolCallView
   readonly result?: ToolResultView
 }

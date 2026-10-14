@@ -23,6 +23,6 @@ export function preferencePaths(id: string): string[][] | undefined {
   if (id.startsWith('statusItem:') && isStatusItemId(id.slice('statusItem:'.length))) return [['statusBar', 'colors', id.slice('statusItem:'.length)]]
   const status: Record<string, string> = { statusEnabled: 'enabled', statusLabels: 'labels', statusContextStyle: 'contextStyle' }
   if (Object.hasOwn(status, id)) return [['statusBar', status[id]!]]
-  if (['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold'].includes(id)) return [[id]]
+  if (['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold'].includes(id)) return [[id]]
   return undefined
 }

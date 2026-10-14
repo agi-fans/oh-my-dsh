@@ -24,6 +24,8 @@ import { THEME_NAMES, type ThemeName } from '../chrome/theme.ts'
 import { MATH_MODES, type MathMode } from '../chrome/math.ts'
 import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 
+import { TERMINAL_TITLE_MODES, TERMINAL_STATE_MODES, type TerminalTitleMode, type TerminalStateMode } from '../runtime/terminal-state.ts'
+
 /** Available terminal animation policies. */
 export const MOTION_MODES = ['full', 'reduced', 'off'] as const
 export type MotionMode = typeof MOTION_MODES[number]
@@ -44,6 +46,8 @@ export interface TuiSettings {
   mermaidMode: Volatile<MermaidMode>
   editor: Volatile<EditorId>
   terminalProgress: Volatile<boolean>
+  terminalTitle: Volatile<TerminalTitleMode>
+  terminalState: Volatile<TerminalStateMode>
   pasteProtection: Volatile<boolean>
   copyOnSelect: Volatile<boolean>
   mouseInteraction: Volatile<'auto' | 'tui' | 'native'>
@@ -107,6 +111,8 @@ export const TUI_SETTINGS_FIELDS = {
   mathMode: z.union([...MATH_MODES]).default('auto').volatile(),
   mermaidMode: z.union([...MERMAID_MODES]).default('auto').volatile(),
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
+  terminalTitle: z.union([...TERMINAL_TITLE_MODES]).default('status').volatile(),
+  terminalState: z.union([...TERMINAL_STATE_MODES]).default('auto').volatile(),
   terminalProgress: z.boolean().default(false).volatile(),
   pasteProtection: z.boolean().default(true).volatile(),
   copyOnSelect: z.boolean().default(true).volatile(),

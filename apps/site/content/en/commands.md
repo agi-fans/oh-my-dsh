@@ -17,7 +17,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/new` | Start a new session. |
 | `/sessions [query]` | Without an argument, open the Session Library; with a query, search durable session content through the full-text index and resume the chosen hit. In the library, `p` pins a session and `r` renames it. |
 | `/resume [session-id]` | Resume a durable session. Without an id, choose from the recent-session list. |
-| `/tree` | Browse the current conversation’s turns and forks with content previews, edit from a historical message, or continue an existing branch. |
+| `/tree` | Browse turns and forks, edit from a historical message, continue a branch, or restore selected Turn files with `Alt+R` when snapshots exist. |
 | `/session` | Show the current session's details. |
 | `/retry` | Run the most recent human prompt again. |
 | `/todo` | Print the current session todo list into the transcript. |
@@ -28,7 +28,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | Command | What it does |
 |---|---|
 | `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
-| `/permission` | Choose the session Access level: Read only, Workspace write, or Full access. |
+| `/permission` | Choose the session Access level, or inspect and revoke remembered approval rules. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove an omdsh-managed provider choice. |
 | `/settings` | Open Interface, Agent, Tools, Status line, Integrations and Advanced settings. Alias: `/set`. |
@@ -52,12 +52,19 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/queue` | Review, edit, delete, and reorder pending human messages. |
 | `/steer <message>` | Guide the active turn before its next model step. |
+| `/btw [question]` | Ask a separate question from the current committed conversation snapshot, or reopen a saved topic. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
 | `/compact` | Compact older conversation history. |
 | `/jobs [kill <id>]` | List background jobs, or stop one by id. |
+
+## Side questions
+
+`/btw` uses the current model and reasoning selection in a separate, durable session. The first question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. Follow-ups keep that original snapshot and the topic’s own questions and answers. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
+
+The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Parent approvals take priority. After completion, choose Follow-up or Topics, or return to the conversation. Advice is not automatically sent to the primary model. Model requests, including the copied input context, incur separate charges; displayed usage covers only this consultation’s latest request attempts, not inherited history. An interrupted or failed topic remains in history with any retained output. Topics and their session logs are stored under `OMDSH_HOME`.
 
 ## Observability
 
@@ -82,7 +89,11 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
 | `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
 
-File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, and `E` uses the editor selected in Settings. Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
+Type `!command` in the composer to run a line in a persistent Shell without adding output to model context; see [Composer Shell](keyboard.md#composer-shell).
+
+File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, `E` uses the editor selected in Settings, and `Q` quotes `@path:line` into the composer. Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
+
+Tool cards and Changed files also open this reader through right-click when no text is selected. `Alt+V` previews declared tool files at the reading position, otherwise retaining its Turn-comparison behavior. The preview uses the original invocation or summary directory and reads current file contents; provider-declared line locations initialize the source position within the loaded prefix. These actions do not submit a model message, change Access, or create a file checkpoint.
 
 In source views, `/` or `Ctrl+F` opens a case-insensitive literal search over the loaded text; Enter keeps the query, `Ctrl+N`/`Ctrl+P` cycle through matching lines, and Esc cancels an edit without closing the reader. `G` or `Ctrl+G` jumps to a file line. Diff views show both line-number columns, use new-file line numbers for jumps, and navigate hunks with `[`/`]`; lines outside the displayed hunks cannot be reached. Text loads start at 128 KiB; `L` or **Load more** doubles the loaded prefix up to 4 MiB. Open reads the original beyond that limit; other binary formats open in their application.
 
@@ -104,6 +115,7 @@ The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or
 |---|---|
 | `/copy [text\|code\|cmd]` | Copy the last assistant reply, the last fenced code block, or the last bash command; without an argument, open the copy picker. `command` is accepted for `cmd`. |
 | `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
+| `/import <archive.zip>` | Import a portable `/export archive` ZIP bundle into local storage and resume its root session. |
 | `/changelog [full]` | Show recent release notes, or the complete packaged release history with `full`. |
 
 ## Skills

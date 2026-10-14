@@ -87,8 +87,8 @@ describe('HerdrAgentStatusController', () => {
     controller.setRunning(true)
     controller.prompt('Question')
     expect(controller.prompt('Approval required')).toEqual({ state: 'blocked', message: 'Approval required' })
-    // One of two prompts settling keeps the projection blocked, so it republishes nothing.
-    expect(controller.promptResolved()).toBeUndefined()
+    // Resolving the nested prompt restores the earlier prompt's message.
+    expect(controller.promptResolved()).toEqual({ state: 'blocked', message: 'Question' })
     expect(controller.promptResolved()).toEqual({ state: 'working' })
   })
 
@@ -180,11 +180,20 @@ describe('HerdrAgentReporter', () => {
     const blocked = recorder.requests.find(request => request.params.state === 'blocked')
     expect(blocked?.params.message).toBe('Approval required')
     expect(blocked?.params.agent_session_id).toBe('session-42')
+    expect(blocked?.params.resume_argv).toEqual(['omdsh', '--resume', 'session-42'])
     const release = recorder.requests.at(-1)
     expect(release?.method).toBe('pane.release_agent')
     expect(release?.params).toMatchObject({ source: HERDR_REPORT_SOURCE, agent: HERDR_AGENT_LABEL, pane_id: 'w1:p2' })
     const sequences = recorder.requests.map(request => Number(request.params.seq))
     expect(sequences).toEqual([...sequences].sort((left, right) => left - right))
+  })
+
+  it('omits resume_argv when a session id contains characters Herdr rejects for restore', () => {
+    const recorder = createRecorder()
+    const reporter = new HerdrAgentReporter({ env: ACTIVE_ENV, transport: recorder.transport })
+    reporter.setSession("bad'session")
+    expect(recorder.requests.at(-1)?.params.agent_session_id).toBe("bad'session")
+    expect(recorder.requests.at(-1)?.params.resume_argv).toBeUndefined()
   })
 
   it('drops every report after the release', () => {

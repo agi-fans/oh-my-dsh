@@ -25,7 +25,16 @@ const invocation = parseOmdshArgs(process.argv.slice(2), readVersion())
 if (invocation.model !== undefined) process.env.OMDSH_MODEL = invocation.model
 if (invocation.provider !== undefined) process.env.OMDSH_PROVIDER = invocation.provider
 
-if (invocation.completions !== undefined) {
+if (invocation.exec !== undefined) {
+  const { runExec } = await import('./exec.ts')
+  process.exitCode = await runExec(invocation, readVersion())
+} else if (invocation.doctor !== undefined) {
+  const { runDoctor, formatDoctorReport } = await import('./doctor.ts')
+  const { writeAll } = await import('./composition.ts')
+  const report = await runDoctor({ version: readVersion() })
+  await writeAll(process.stdout, invocation.doctor.json ? JSON.stringify(report) + '\n' : formatDoctorReport(report))
+  process.exitCode = report.checks.some(check => check.status === 'failed') ? 1 : 0
+} else if (invocation.completions !== undefined) {
   const { generateCompletions } = await import('./completions.ts')
   process.stdout.write(generateCompletions(invocation.completions))
 } else if (invocation.plugin) {

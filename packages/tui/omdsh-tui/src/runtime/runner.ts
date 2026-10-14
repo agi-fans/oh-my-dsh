@@ -17,6 +17,7 @@ import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
 import type {} from '../commands/loop.ts'
+import { composerShellCommand, runComposerShell } from './composer-shell.ts'
 
 export const name = 'omdsh-runner'
 export const inject = ['tui', 'omdshSession', 'omdshStartup', 'omdshLoop']
@@ -38,10 +39,15 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   if (cancelled.aborted) return
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
+  let shellActive = false
   // An unmount must also cancel an in-flight slash command, not just the read.
   const onCancelled = (): void => { operation?.abort(new Error('runner unloaded')) }
   cancelled.addEventListener('abort', onCancelled, { once: true })
   const offInterrupt = tui.onInterrupt(() => {
+    if (shellActive) {
+      operation?.abort(new Error('Shell interrupted by user'))
+      return
+    }
     if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
     loop?.pause(controller.agent)
@@ -91,7 +97,25 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       // Re-check after the read: an unmount may have aborted while it awaited.
       if (cancelled.aborted) break
       if (submission.text.trim() === '' && submission.images.length === 0 && !submission.files?.length) continue
-      if (!submission.literal && !submission.files?.length && looksLikeSlashCommand(submission.text, submission.images)) {
+      const shellCommand = composerShellCommand(submission)
+      if (shellCommand !== undefined) {
+        operation = new AbortController()
+        shellActive = true
+        try {
+          const agent = controller.agent
+          if (agent === undefined) throw new Error('Start a session before running a Shell command.')
+          await runComposerShell(ctx, agent, shellCommand, operation.signal)
+        } catch (error: unknown) {
+          if (!operation.signal.aborted) {
+            tui.restoreInput(submission)
+            tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+          }
+        } finally {
+          shellActive = false
+          operation = undefined
+          loop?.syncAgent(controller.agent)
+        }
+      } else if (!submission.literal && !submission.files?.length && looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
         try {
           const handled = await controller.execute(submission.text, operation.signal, submission.images)

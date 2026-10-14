@@ -6,6 +6,8 @@ import type { CommandDefinition, CommandInvocation, CommandResult } from '@deeps
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '../definition.ts'
 import { registerCommands } from './registration.ts'
+import type {} from '../runtime/approval-rules.ts'
+import { approvalActionDetail } from '../views/approval-rule.ts'
 
 export const name = 'omdsh-command-permission'
 export const inject = ['commands', 'permissionPresets', 'tui']
@@ -27,6 +29,7 @@ async function confirmFullAccess(ctx: Context, invocation: CommandInvocation): P
     ],
     initialValue: 'cancel',
     allowCustom: false,
+    notify: false,
     submitLabel: 'choose',
     signal: invocation.signal,
   })
@@ -52,13 +55,15 @@ async function selectAccess(
   const selected = await ctx.tui.prompt({
     title: 'Access',
     question: 'Choose how omdsh may access your workspace',
-    options,
+    options: [...options, ...(ctx.get('omdshApprovalRules') === undefined ? [] : [{ label: 'Approval rules', value: 'rules', description: 'Inspect and revoke remembered decisions' }])],
     initialValue: current,
     allowCustom: false,
+    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
   })
   if (selected === null || selected === current) return { kind: 'success' }
+  if (selected === 'rules') return manageRules(ctx, invocation)
   if (!ctx.permissionPresets.names.includes(selected)) {
     return { kind: 'error', text: `Unknown permission: ${selected}` }
   }
@@ -72,6 +77,28 @@ async function selectAccess(
   if (switched.kind === 'error') return switched
   const option = ctx.permissionPresets.optionOf(selected)
   return { kind: 'success', text: `Access: ${option.name}` }
+}
+
+async function manageRules(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const rules = ctx.get('omdshApprovalRules')!
+  for (;;) {
+    invocation.signal.throwIfAborted()
+    const entries = rules.list(invocation.agent)
+    if (entries.length === 0) return { kind: 'success', text: 'No approval rules for this session or workspace.' }
+    const id = await ctx.tui.prompt({ title: 'Approval rules', question: 'Choose a remembered decision', presentation: 'fullscreen-list',
+      filterable: true, allowCustom: false, notify: false, signal: invocation.signal,
+      options: entries.map(rule => ({ label: `${rule.decision === 'allow' ? 'Allow' : 'Reject'} · ${rule.tool}`,
+        value: rule.id, description: `${rule.scope} · ${rule.cwd} · ${rule.arguments}` })) })
+    if (id === null) return { kind: 'success' }
+    const rule = entries.find(entry => entry.id === id)
+    if (rule === undefined) continue
+    const selected = await ctx.tui.prompt({ title: 'Approval rule', question: `${rule.decision === 'allow' ? 'Allow' : 'Reject'} · ${rule.scope}`,
+      presentation: 'document', documentSource: { text: approvalActionDetail(rule), language: 'text' },
+      options: [{ label: 'Back', value: 'back' }, { label: 'Revoke rule', value: 'revoke', description: 'Future matching requests require a new decision.' }],
+      allowCustom: false, notify: false, signal: invocation.signal })
+    if (selected === 'revoke') { invocation.signal.throwIfAborted(); rules.revoke(invocation.agent, id); ctx.tui.notice('Approval rule revoked.') }
+    else if (selected === null) return { kind: 'success' }
+  }
 }
 
 /**

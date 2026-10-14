@@ -55,6 +55,24 @@ async function permissionHarness(answers: readonly string[]): Promise<Permission
 }
 
 describe('permission command', () => {
+  it('previews and revokes a rule through Access without registering another command', async () => {
+    const h = await permissionHarness(['rules', 'rule-1', 'revoke'])
+    const rule = { id: 'rule-1', tool: 'probe', arguments: '{"command":"echo hello"}', cwd: '/workspace', workspace: '/workspace',
+      sandbox: 'workspace-write', reason: 'Wider access', scope: 'session', decision: 'allow' }
+    let entries = [rule]
+    const revoke = vi.fn(() => { entries = [] }), notice = vi.fn()
+    h.ctx.provide('omdshApprovalRules', { list: () => entries, revoke } as never)
+    Object.assign(h.ctx.tui, { notice })
+    const result = await h.ctx.commands.execute(h.agent, '/permission', [], new AbortController().signal)
+    expect(result?.result).toEqual({ kind: 'success', text: 'No approval rules for this session or workspace.' })
+    expect(h.prompt.mock.calls[2]?.[0].documentSource.text).toContain('echo hello')
+    expect(h.prompt.mock.calls[2]?.[0].documentSource.text).toContain('Wider access')
+    expect(revoke).toHaveBeenCalledWith(h.agent, 'rule-1')
+    expect(notice).toHaveBeenCalledWith('Approval rule revoked.')
+    expect(h.switched).not.toHaveBeenCalled()
+    expect(h.ctx.commands.list(h.agent).map(command => command.name)).toEqual(['permission'])
+    await h.scope.dispose(); await h.ctx.fiber.dispose()
+  })
   it('shadows the raw command with a fixed-choice picker', async () => {
     const { ctx, scope, agent, prompt, switched } = await permissionHarness(['read-only'])
     const listed = ctx.commands.list(agent).find(command => command.name === 'permission')

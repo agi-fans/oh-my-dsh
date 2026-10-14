@@ -7,7 +7,7 @@
 
 import type { FiberState, Context } from '@deepseek-ai/cordis'
 import {
-  boot, createRuntimeResolution, installFailLoud, PluginPackages, type ProfileContext,
+  boot, composeEntries, createRuntimeResolution, installFailLoud, PluginPackages, type ProfileContext,
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
@@ -38,9 +38,29 @@ export async function runOmdsh(
   process.on('SIGTERM', () => { interrupt(0) })
   process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => { await app.current?.fiber.dispose() })
+  const ctx = await mountOmdsh({ args: resume === undefined ? prompt : ['--resume', resume], exit: code => { void shutdown.shutdown(code) },
+    onContext: hostCtx => { app.current = hostCtx } })
+  app.current = ctx
+  return { ctx, shutdown }
+}
+
+/** Mount the shared Profile for one frontend; callers own process lifetime. */
+export async function mountOmdsh(options: {
+  args: readonly string[]
+  exit(code: number): void
+  mode?: 'interactive' | 'exec'
+  onContext?(ctx: Context): void
+}): Promise<Context> {
   const environment = prepareLaunchEnvironment()
   const composed = composeLaunch()
   const home = omdshHome()
+  const frontendPatches = options.mode === 'exec' ? composeEntries([composed.patches]).filter(entry =>
+    entry.name === '@agi-fans/dsh-tui' || entry.name === '@agi-fans/dsh-tui/provider-local'
+    || entry.name === '@agi-fans/dsh-tui/runner' || entry.name === '@agi-fans/dsh-tui/session-runtime'
+    || entry.name === '@agi-fans/dsh-tui/human-interaction' || entry.name === '@agi-fans/dsh-tui/startup-notices'
+    || entry.name === '@agi-fans/dsh-tui/tool-presentation' || entry.name === '@agi-fans/dsh-tui/hook-settings'
+    || entry.name?.startsWith('@agi-fans/dsh-tui/command-'),
+  ).map(entry => ({ id: entry.id, disabled: true })) : []
   // The Profile facts every profile-scoped plugin reads: `dsh-settings` and
   // `config-editor` persist edits into `patchPath`, and the composition
   // preflight judges profile rows against the running DSH release. Overlays
@@ -54,7 +74,7 @@ export async function runOmdsh(
     startedBundles: composed.profile.layers.map(layer => layer.packageName),
     cwd: process.cwd(),
     home,
-    overlays: composed.overlays,
+    overlays: [...composed.overlays, ...frontendPatches],
     telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
   }
   // Initial package table: installation packages first
@@ -69,14 +89,14 @@ export async function runOmdsh(
   })
   let ready = false
   const readyListeners = new Set<() => void>()
-  const ctx = await boot(NAME, composed.rootConfig, structuredClone(composed.patches), async (hostCtx) => {
-    app.current = hostCtx
+  const ctx = await boot(NAME, composed.rootConfig, structuredClone([...composed.patches, ...frontendPatches]), async (hostCtx) => {
+    options.onContext?.(hostCtx)
     hostCtx.provide('profileContext', profileContext)
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
     await hostCtx.plugin(PluginPackages, { resolution })
     provideCmdline(hostCtx, {
-      args: resume === undefined ? prompt : ['--resume', resume],
-      exit: (code) => { void shutdown.shutdown(code) },
+      args: [...options.args],
+      exit: options.exit,
       ready: { onReady(listener) {
         if (ready) { listener(); return () => {} }
         readyListeners.add(listener)
@@ -84,12 +104,11 @@ export async function runOmdsh(
       } },
     })
   })
-  app.current = ctx
   // FiberState is a published const enum, absent from native ESM exports.
   if (ctx.fiber.state === (2 as FiberState.ACTIVE) && ctx.get('loader') !== undefined) {
     ready = true
     for (const listener of readyListeners) listener()
   }
   readyListeners.clear()
-  return { ctx, shutdown }
+  return ctx
 }
