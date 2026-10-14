@@ -9,7 +9,7 @@
 
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SubagentCatalogEntry, SubagentRunInfo, SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
-import type { TuiSubagentRoster } from '../definition.ts'
+import type { TuiSubagentActivity, TuiSubagentRoster } from '../definition.ts'
 import { SubagentRoster } from './subagent-roster.ts'
 
 export interface SubagentTrackerDeps {
@@ -33,6 +33,7 @@ export class SubagentTracker {
   #published: TuiSubagentRoster | undefined
   #epoch = 0
   readonly #externalRuns = new Map<string, SubagentRunInfo | SubagentRunEndInfo>()
+  readonly #externalActivities = new Map<string, TuiSubagentActivity[]>()
 
   constructor(deps: SubagentTrackerDeps) {
     this.#deps = deps
@@ -53,6 +54,7 @@ export class SubagentTracker {
     this.#epoch += 1
     this.#roster.reset()
     this.#externalRuns.clear()
+    this.#externalActivities.clear()
   }
 
   /** Remember a freshly created session when it descends from the root. */
@@ -79,7 +81,17 @@ export class SubagentTracker {
 
   /** Add the direct children a Session's durable catalog declares. */
   observeCatalog(session: Session, events: readonly SessionEvent[]): void {
-    if (this.#roster.observeCatalog(session.id, events)) this.#publish()
+    const added = this.#roster.observeCatalog(session.id, events)
+    for (const event of events) {
+      if (event.type !== 'subagent/catalog') continue
+      const external = this.#externalRuns.get(event.data.childId)
+      if (external !== undefined) this.noteExternalRun(external)
+      const activities = this.#externalActivities.get(event.data.childId)
+      if (activities !== undefined) {
+        for (const activity of activities) this.#roster.noteExternalActivity(event.data.childId, activity)
+      }
+    }
+    if (added) this.#publish()
   }
 
   /** Apply a live agent-status change, hydrating cold children on first sight. */
@@ -104,10 +116,22 @@ export class SubagentTracker {
 
   /** External executions have lifecycle edges, but no local Agent or transcript. */
   noteExternalRun(info: SubagentRunInfo | SubagentRunEndInfo): void {
-    if (info.local || !this.#roster.owns(info.id)) return
+    if (info.local) return
     this.#externalRuns.set(info.id, info)
+    if (!this.#roster.owns(info.id)) return
     this.#roster.setAgentStatus(info.id, 'stopReason' in info ? 'gone' : 'running',
       'stopReason' in info && info.stopReason !== 'completed' && info.stopReason !== 'aborted')
+    this.#publish()
+  }
+
+  /** Fold live external inspection activity into its roster row. */
+  noteExternalActivity(id: string, activity: TuiSubagentActivity): void {
+    const list = this.#externalActivities.get(id) ?? []
+    list.push(activity)
+    if (list.length > 8) list.shift()
+    this.#externalActivities.set(id, list)
+    if (!this.#roster.owns(id)) return
+    this.#roster.noteExternalActivity(id, activity)
     this.#publish()
   }
 
@@ -147,6 +171,10 @@ export class SubagentTracker {
         })
         const external = this.#externalRuns.get(entry.id)
         if (entry.mode === 'external' && external !== undefined) this.noteExternalRun(external)
+        const activities = this.#externalActivities.get(entry.id)
+        if (entry.mode === 'external' && activities !== undefined) {
+          for (const activity of activities) this.#roster.noteExternalActivity(entry.id, activity)
+        }
       }
       this.#publish()
     }, () => undefined)

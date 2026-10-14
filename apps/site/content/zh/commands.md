@@ -64,7 +64,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 `/btw` 使用当前模型与推理设置，在独立的持久会话中回答问题。第一问捕获调用时已提交的消息；主会话后续消息及尚未提交的流式文本不在快照中。追问保留最初快照，并包含该话题自己的问答。咨询不能调用工具，恢复后仍受此约束；它从 Read only Access 开始，并清除复制来的 Goal 和 Plan 执行状态，不改变父会话。回复的输出上限为 8,192 tokens。
 
-阅读页实时显示回答；Esc 或 Ctrl+C 只取消旁路咨询。父会话的审批优先。完成后可选择 Follow-up 追问、Topics 查看话题，或返回原会话。建议不会自动发送给主模型。模型请求及复制的输入上下文会单独产生费用；显示的用量只覆盖本次咨询的新请求尝试，不包含继承的历史。中断或失败的话题仍保留在历史中，并显示已保存的部分输出。话题与会话日志保存在 `OMDSH_HOME` 下。
+阅读页实时显示回答；Esc 或 Ctrl+C 只取消旁路咨询。父会话的审批优先。完成后可选择 **Follow-up** 追问、**Share to conversation**（将回答发送到主转录流并写入会话上下文）、**Quote to composer** 引用到输入框、**Topics** 查看话题，或返回原会话。未显式分享时，建议不会自动发送给主模型。模型请求及复制的输入上下文会单独产生费用；显示的用量只覆盖本次咨询的新请求尝试，不包含继承的历史。中断或失败的话题仍保留在历史中，并显示已保存的部分输出。话题与会话日志保存在 `OMDSH_HOME` 下。
 
 ## 可观测性
 
@@ -72,11 +72,11 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 |---|---|
 | `/context` | 在转录中打印基于 projection 的上下文用量分解，内容会保留在转录里。 |
 | `/trajectory` | 打开事件账本：Turn 与 Step 分组、实时跟随、搜索、折叠、耗时、Token 用量与工具载荷。需要交互式终端。 |
-| `/advisor [codex\|claude <question>]` | 向已安装的原生顾问请求独立意见。不带参数时可选择 provider、输入问题与可选文本上下文。见[子智能体与委派](subagents.md#独立咨询)。 |
+| `/advisor [codex\|claude] [question]` | 在主转录流中直接向已安装的原生顾问请求独立意见。支持 `/advisor codex\|claude <question>`、`/advisor <question>` 或不带参数选择 provider 与问题，当随附顾问插件未启用时提供一步式交互启用，自动附带只读工作区概览并将顾问意见写入当前会话上下文以便后续追问。见[子智能体与委派](subagents.md#独立咨询)。 |
 | `/diff [path\|turn [number]]` | 交互模式逐文件查看当前 Git 改动；`turn` 查看保留的回合快照，不带编号时取最近一次。非交互模式保留文字汇总；不会暂存或提交。 |
-| `/review` | 选择当前改动、本地基准分支或单个提交，确认后向当前 Agent 发起审查请求。要求输出带文件与行号的发现，不实施修复；沿用当前 Access 与 Plan 状态。 |
+| `/review [changes\|base <branch>\|commit <rev>\|<rev>]` | 支持直接带参数审查当前改动、本地基准分支或单个提交，或不带参数交互选择审查目标。要求输出带文件与行号的发现，不实施修复；沿用当前 Access 与 Plan 状态。 |
 | `/tools` | 列出 agent 可见的工具。 |
-| `/mcp` | 在可滚动阅读页中查看 MCP 插件注册与可用工具；不验证连接健康状态或认证。 |
+| `/mcp` | 在主转录流中按服务器分组显示 MCP 插件注册与可用工具表格；不验证连接健康状态或认证。 |
 | `/feedback <text>` | 记录一条关于当前会话的私密备注。它追加一条模型永远看不到的 log-only 事件——不离开本机——并确认会话与匿名用户 id。 |
 
 ## 文件与终端
@@ -89,7 +89,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/terminal [terminal-id]` | 打开本会话的持久终端控制台，或使用会话 sandbox 新建 shell。 |
 | `/worktree [return]` | 浏览并切换 Git worktree。在 `/plugins` 启用 Git Worktrees bundle 后可创建 checkout；`return` 回到会话的原始目录。 |
 
-在输入框中键入 `!command`，即可在持久 Shell 中执行一行命令，输出不会自动进入模型上下文；详见 [Composer Shell](keyboard.md#composer-shell)。
+在输入框中键入 `!command`，即可在持久 Shell 中执行一行命令且输出不会自动进入模型上下文；键入 `!!command` 则在返回时将输出分享到主对话流与会话上下文；详见 [Composer Shell](keyboard.md#composer-shell)。
 
 文件文档支持方向键、PgUp/PgDn 和 Home/End 滚动。`N`/`P` 切换文件，`V` 切换 diff/预览，`O` 打开原件，`E` 使用 Settings 中选定的编辑器，`Q` 将当前阅读位置的 `@path:line` 引用插入 composer。Esc 返回选择器。源码视图分别保留每个文件和 Diff 的阅读位置与搜索词，从编辑器返回后也会恢复。外部编辑器临时接管真实终端，返回后 omdsh 恢复 raw input。
 

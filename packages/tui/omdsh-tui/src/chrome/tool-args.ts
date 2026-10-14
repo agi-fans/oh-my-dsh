@@ -20,13 +20,14 @@ export const TOOL_ARG_FIELDS = [
   'query',
   'pattern',
   'description',
+  'question',
   'url',
   'file_path',
   'path',
 ] as const
 
 /** Keys that say what a call looked for, as opposed to where it looked. */
-export const TOOL_ARG_INTENT_FIELDS: readonly string[] = ['query', 'pattern', 'url', 'command', 'description']
+export const TOOL_ARG_INTENT_FIELDS: readonly string[] = ['query', 'pattern', 'url', 'command', 'description', 'question']
 
 /** Keys that say where a call looked. */
 export const TOOL_ARG_SCOPE_FIELDS: readonly string[] = ['file_path', 'path']
@@ -47,6 +48,7 @@ export const TOOL_PREVIEW_FIELDS: readonly string[] = [
   'pattern',
   'url',
   'description',
+  'question',
 ]
 
 /** Parse raw tool-call arguments into an object, or undefined when they are not one. */

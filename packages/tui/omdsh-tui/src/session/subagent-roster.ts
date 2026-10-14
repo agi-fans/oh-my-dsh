@@ -125,7 +125,9 @@ function pushActivity(
   if (last?.status === 'running' && next.status !== 'thinking' && last.text === next.text) {
     return [...activity.slice(0, -1), next]
   }
-  if (last?.status === 'thinking' && next.status === 'thinking') return activity
+  if (last?.status === 'thinking' && next.status === 'thinking') {
+    return last.text === next.text ? activity : [...activity.slice(0, -1), next]
+  }
   return [...activity, next].slice(-ACTIVITY_LIMIT)
 }
 
@@ -382,6 +384,25 @@ export class SubagentRoster {
       : existing.activity
     if (phase === existing.phase && settled === existing.activity) return existing
     const next = { ...existing, phase, activity: settled }
+    this.#snapshot = undefined
+    this.#agents.set(id, next)
+    return next
+  }
+
+  noteExternalActivity(id: string, item: TuiSubagentActivity): TuiSubagentView | undefined {
+    const existing = this.#agents.get(id)
+    if (existing === undefined) return undefined
+    const activity = pushActivity(existing.activity, item)
+    const phase: TuiSubagentPhase = existing.phase === 'starting' ? 'running' : existing.phase
+    if (activity === existing.activity && phase === existing.phase) return existing
+    const now = Date.now()
+    const next: TuiSubagentView = {
+      ...existing,
+      phase,
+      activity,
+      startedAt: existing.startedAt ?? now,
+      updatedAt: now,
+    }
     this.#snapshot = undefined
     this.#agents.set(id, next)
     return next

@@ -22,18 +22,12 @@ describe('/mcp', () => {
     try {
       const result = (await ctx.commands.execute({ id: session.id, session } as Agent, '/mcp', [], new AbortController().signal))?.result
       expect(result?.kind).toBe('success')
-      if (!interactive) {
-        expect(prompt).not.toHaveBeenCalled()
-        expect(result?.text).toContain('mcp-failed · failed')
-        return
-      }
-      const request = prompt.mock.calls[0]?.[0] as unknown as import('../definition.ts').TuiPrompt
-      expect(request).toMatchObject({ presentation: 'document', notify: false })
-      expect(request.documentSource?.text).toContain('mcp-failed · failed')
-      expect(request.documentSource?.text).toContain('mcp-disabled · disabled')
-      expect(request.documentSource?.text).not.toContain('bash')
-      expect(request.documentSource?.text).toContain('do not verify transport health or authentication')
-      expect(request.documentSource?.text).not.toContain('0 connected')
+      expect(prompt).not.toHaveBeenCalled()
+      expect(result?.text).toContain('`mcp-failed` · failed')
+      expect(result?.text).toContain('`mcp-disabled` · disabled')
+      expect(result?.text).not.toContain('bash')
+      expect(result?.text).toContain('do not verify transport health or authentication')
+      expect(result?.text).not.toContain('0 connected')
     } finally { await ctx.fiber.dispose() }
   })
 })

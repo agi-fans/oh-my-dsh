@@ -64,7 +64,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 `/btw` uses the current model and reasoning selection in a separate, durable session. The first question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. Follow-ups keep that original snapshot and the topic’s own questions and answers. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
 
-The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Parent approvals take priority. After completion, choose Follow-up or Topics, or return to the conversation. Advice is not automatically sent to the primary model. Model requests, including the copied input context, incur separate charges; displayed usage covers only this consultation’s latest request attempts, not inherited history. An interrupted or failed topic remains in history with any retained output. Topics and their session logs are stored under `OMDSH_HOME`.
+The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Parent approvals take priority. After completion, choose **Follow-up**, **Share to conversation** (posting the answer to the main transcript and session context), **Quote to composer**, **Topics**, or return to the conversation. Advice is not sent to the primary model unless shared. Model requests, including the copied input context, incur separate charges; displayed usage covers only this consultation’s latest request attempts, not inherited history. An interrupted or failed topic remains in history with any retained output. Topics and their session logs are stored under `OMDSH_HOME`.
 
 ## Observability
 
@@ -72,11 +72,11 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 |---|---|
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/trajectory` | Open the event ledger: Turn and Step grouping, live following, search, folding, timings, token usage, and tool payloads. Requires an interactive terminal. |
-| `/advisor [codex\|claude <question>]` | Request an independent opinion from an installed native advisor. With no arguments, choose a provider and enter a question and optional text context. See [Subagents and delegation](subagents.md#independent-advice). |
+| `/advisor [codex\|claude] [question]` | Request an independent opinion from an installed native advisor inline in the transcript. Accepts `/advisor codex\|claude <question>`, `/advisor <question>`, or no arguments to choose a provider and question, offering one-step enablement when a shipped provider is disabled, automatically supplying a read-only workspace snapshot, and recording the advice for follow-up turns. See [Subagents and delegation](subagents.md#independent-advice). |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
-| `/review` | Choose current changes, a local base branch or one commit, then confirm a review request to the current Agent. Requests findings with file and line references without applying fixes; current Access and Plan mode remain in effect. |
+| `/review [changes\|base <branch>\|commit <rev>\|<rev>]` | Review current changes, a local base branch or one commit directly with arguments, or choose interactively without arguments. Requests findings with file and line references without applying fixes; current Access and Plan mode remain in effect. |
 | `/tools` | List the tools visible to the agent. |
-| `/mcp` | Inspect MCP plugin registration and available tools in a scrollable reader; transport health and authentication are not verified. |
+| `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
 | `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
 
 ## Files and terminals
@@ -89,7 +89,7 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
 | `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
 
-Type `!command` in the composer to run a line in a persistent Shell without adding output to model context; see [Composer Shell](keyboard.md#composer-shell).
+Type `!command` in the composer to run a line in a persistent Shell without adding output to model context, or `!!command` to share the output to the conversation on return; see [Composer Shell](keyboard.md#composer-shell).
 
 File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, `E` uses the editor selected in Settings, and `Q` quotes `@path:line` into the composer. Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
 

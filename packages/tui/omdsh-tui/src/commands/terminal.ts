@@ -1,6 +1,8 @@
 /** Human console over the Harness owner-scoped terminal registry. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { TuiDocumentPosition } from '../definition.ts'
@@ -9,13 +11,34 @@ import { TerminalReader } from '../runtime/terminal-reader.ts'
 import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap { 'omdsh-terminal': { kind: 'omdsh-terminal' } & ContextFormed }
+}
+
 export const name = 'omdsh-command-terminal'
 export const inject = ['commands', 'terminals', 'tui']
 
-function formatTerminalQuote(text: string): string {
+export function formatTerminalQuote(text: string): string {
   const maxRun = Math.max(2, ...Array.from(text.matchAll(/`+/gu), match => match[0].length))
   const fence = '`'.repeat(maxRun + 1)
   return `${fence}text\n${text}\n${fence}`
+}
+
+export function shareTerminalOutputToConversation(ctx: Context, owner: Agent, title: string, rawText: string): boolean {
+  const loaded = rawText.replace(/\n$/u, '')
+  if (loaded.trim() === '') return false
+  const formatted = formatTerminalQuote(loaded)
+  ctx.tui.commandOutput?.('terminal', `## ${title}\n\n${formatted}`, { focus: true })
+  try {
+    owner.inject?.(createUserMessage({
+      source: { kind: 'omdsh-terminal', form: 'notice', summary: `Shared output from ${title}.` },
+      content: [{
+        type: 'text',
+        text: `The user shared terminal output from ${title}:\n\n${formatted}`,
+      }],
+    }))
+  } catch { /* ignore when session does not support injection */ }
+  return true
 }
 
 export async function terminalConsole(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'rawInput' | 'signal'>,
@@ -63,6 +86,7 @@ export async function terminalConsole(ctx: Context, invocation: Pick<CommandInvo
         options: [
           { label: 'Input', value: 'input' },
           { label: 'Interrupt', value: 'interrupt' },
+          { label: 'Share to conversation', value: 'share' },
           ...(ctx.tui.insertText === undefined ? [] : [{ label: 'Quote to composer', value: 'quote' }]),
           { label: 'Copy output', value: 'copy' },
           { label: 'Terminals', value: 'list' },
@@ -72,11 +96,21 @@ export async function terminalConsole(ctx: Context, invocation: Pick<CommandInvo
         actions: [
           { key: 'i', label: 'input', valuePrefix: 'input' },
           { key: 'c', label: 'interrupt', valuePrefix: 'interrupt' },
+          { key: 's', label: 'share', valuePrefix: 'share' },
           ...(ctx.tui.insertText === undefined ? [] : [{ key: 'q', label: 'quote', valuePrefix: 'quote' }]),
           { key: 'y', label: 'copy', valuePrefix: 'copy' },
           { key: 'l', label: 'earlier output', valuePrefix: 'earlier' },
         ] })
       if (action === null) break // Detach; the session continues to own the shell.
+      if (action === 'share') {
+        const loaded = reader.refresh(false).text
+        if (!shareTerminalOutputToConversation(ctx, owner, `Terminal · ${snapshot.name ?? selected}`, loaded)) {
+          ctx.tui.notice('No terminal output to share.')
+          continue
+        }
+        ctx.tui.notice('Shared terminal output to conversation.')
+        break
+      }
       if (action === 'quote') {
         const loaded = reader.refresh(false).text.replace(/\n$/u, '')
         if (loaded.trim() === '') {

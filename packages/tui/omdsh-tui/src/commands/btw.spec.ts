@@ -60,4 +60,26 @@ describe('side-question reader', () => {
     expect(h.consult.mock.calls[0]![5]).toBe('saved-side')
     expect(h.ctx.omdshSession.assertActive).toHaveBeenCalledWith(h.parent)
   })
+  it('supports sharing the side answer to the main conversation or quoting it in the composer', async () => {
+    const shared = harness('Why did the build fail?')
+    const commandOutput = vi.fn(), notice = vi.fn(), inject = vi.fn(), insertText = vi.fn()
+    Object.assign(shared.ctx.tui, { commandOutput, notice, insertText })
+    Object.assign(shared.parent, { inject })
+    shared.prompt
+      .mockImplementationOnce(async request => new Promise(resolve => { request.signal!.addEventListener('abort', () => resolve(null), { once: true }) }))
+      .mockResolvedValueOnce('share')
+    expect(await sideQuestion(shared.ctx, shared.invocation)).toEqual({ kind: 'success' })
+    expect(commandOutput).toHaveBeenCalledWith('btw', expect.stringContaining('## Side question · Why did the build fail?'), { focus: true })
+    expect(inject).toHaveBeenCalledWith(expect.objectContaining({
+      source: expect.objectContaining({ kind: 'omdsh-btw', form: 'notice' }),
+    }))
+
+    const quoted = harness('Summarize the API')
+    Object.assign(quoted.ctx.tui, { insertText, notice })
+    quoted.prompt
+      .mockImplementationOnce(async request => new Promise(resolve => { request.signal!.addEventListener('abort', () => resolve(null), { once: true }) }))
+      .mockResolvedValueOnce('quote')
+    expect(await sideQuestion(quoted.ctx, quoted.invocation)).toEqual({ kind: 'success' })
+    expect(insertText).toHaveBeenCalledWith('Independent answer')
+  })
 })

@@ -70,7 +70,21 @@ describe('advisor consultations', () => {
     expect(() => advisor.advicePrompt('question', 'x'.repeat(48001))).toThrow('smaller excerpt')
   })
 
-  it('uses caller delivery, separate native permissions, the configured model, and a confined private directory', async () => {
+  it('automatically supplies a bounded workspace snapshot when explicit context is empty', async () => {
+    const h = await harness()
+    try {
+      await h.ctx.advisor.consult(h.agent, 'codex', '看看我们工程在项目结构上是否有值得优化的内容', '', new AbortController().signal)
+      const promptBlock = h.specs[0]!.request.prompt[0]!
+      expect(promptBlock.type).toBe('text')
+      if (promptBlock.type === 'text') {
+        expect(promptBlock.text).toContain('Context:\nWorkspace root:')
+        expect(promptBlock.text).toContain('### package.json')
+        expect(promptBlock.text).toContain('### Workspace packages')
+      }
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('uses caller delivery, workspace cwd, read-only native tools, and a confined private scratch directory', async () => {
     const h = await harness()
     try {
       expect(h.spawn).not.toHaveBeenCalled()
@@ -80,26 +94,53 @@ describe('advisor consultations', () => {
       expect(h.configs[0]).toMatchObject({ model: 'selected-model', permissionMode: 'never' })
       expect(h.entries[0]!.fiber.config.permissionMode).toBe('bypassPermissions')
       const spec = h.spawn.mock.calls[0]![0]
-      expect(spec.cwd).not.toBe(process.cwd())
-      expect(spec.argv).toContain('sandbox_mode="read-only"')
+      const scratchRoot = spec.env!.HOME!
+      expect(spec.cwd).toBe(process.cwd())
+      expect(scratchRoot).not.toBe(process.cwd())
+      expect(spec.argv).toContain('sandbox_mode="danger-full-access"')
       expect(spec.argv[0]).toBe('sandbox-runner')
-      expect(spec.env).toMatchObject({ CODEX_HOME: join(spec.cwd, '.codex'), HOME: spec.cwd })
-      expect(h.confine.mock.calls[0]![1]).toMatchObject({ mode: 'workspace-write', workspaceRoot: spec.cwd })
-      await expect(access(spec.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(spec.env).toMatchObject({ CODEX_HOME: join(scratchRoot, '.codex'), HOME: scratchRoot })
+      expect(h.confine.mock.calls[0]![1]).toMatchObject({ mode: 'workspace-write', workspaceRoot: scratchRoot })
+      await expect(access(scratchRoot)).rejects.toMatchObject({ code: 'ENOENT' })
       expect(h.release).toHaveBeenCalledTimes(1)
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it('isolates concurrent bindings and restricts Claude tools without disabling native OAuth', async () => {
+  it('isolates concurrent bindings and restricts Claude tools to read-only inspection without disabling native OAuth', async () => {
     const h = await harness()
     try {
       await Promise.all([h.consult(), h.consult('claude')])
-      expect(h.spawn.mock.calls[0]![0].cwd).not.toBe(h.spawn.mock.calls[1]![0].cwd)
+      expect(h.spawn.mock.calls[0]![0].env!.TMPDIR).not.toBe(h.spawn.mock.calls[1]![0].env!.TMPDIR)
       const claude = h.spawn.mock.calls.map(([spec]) => spec).find(spec => spec.argv.includes('--safe-mode'))!
-      expect(claude.argv).toEqual(expect.arrayContaining(['--tools', '', '--strict-mcp-config', '{"mcpServers":{}}', '--disable-slash-commands']))
+      expect(claude.argv).toEqual(expect.arrayContaining(['--tools', 'Read,Grep,Glob', '--strict-mcp-config', '{"mcpServers":{}}', '--disable-slash-commands']))
       expect(claude.argv).not.toContain('--bare')
       expect(h.configs.some(config => config.permissionMode === 'plan')).toBe(true)
     } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('parses live inspection activity from Codex and Claude JSON streams', () => {
+    expect(advisor.parseAdviceActivity('codex', JSON.stringify({
+      method: 'item/started',
+      params: { item: { type: 'commandExecution', command: '/bin/zsh -lc "rg --files apps packages"' } },
+    }))).toEqual({ text: '$ rg --files apps packages', status: 'running' })
+    expect(advisor.parseAdviceActivity('codex', JSON.stringify({
+      method: 'item/completed',
+      params: { item: { type: 'commandExecution', command: '/bin/zsh -lc "rg --files apps packages"', status: 'completed', exitCode: 0 } },
+    }))).toEqual({ text: '$ rg --files apps packages', status: 'ok' })
+    expect(advisor.parseAdviceActivity('codex', JSON.stringify({
+      method: 'item/completed',
+      params: { item: { type: 'agentMessage', phase: 'commentary', text: 'Inspecting workspace boundaries\nand scripts' } },
+    }))).toEqual({ text: 'Inspecting workspace boundaries', status: 'thinking' })
+
+    const claudeState: { lastTool?: string | undefined } = {}
+    expect(advisor.parseAdviceActivity('claude', JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'package.json' } }] },
+    }), claudeState)).toEqual({ text: 'Read package.json', status: 'running' })
+    expect(advisor.parseAdviceActivity('claude', JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', is_error: false }] },
+    }), claudeState)).toEqual({ text: 'Read package.json', status: 'ok' })
   })
 
   it('fails closed on missing native bundles and partial confinement, without spawning or falling back', async () => {
@@ -138,7 +179,7 @@ describe('advisor consultations', () => {
       await vi.waitFor(() => expect(h.spawn).toHaveBeenCalledTimes(1))
       cancellation.abort()
       await expect(result).rejects.toThrow()
-      const root = h.spawn.mock.calls[0]![0].cwd
+      const root = h.spawn.mock.calls[0]![0].env!.HOME!
       await expect(access(root)).rejects.toMatchObject({ code: 'ENOENT' })
       h.setOutcome(new Promise(resolve => { finish = resolve }))
       const pending = h.consult('claude')

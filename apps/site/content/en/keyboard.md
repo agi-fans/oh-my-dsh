@@ -160,9 +160,9 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 ## Composer Shell
 
-Type `!command` in the composer to run a line in this session’s persistent Shell. It opens the live terminal reader directly. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
+Type `!command` in the composer to run a line in this session’s persistent Shell, or `!!command` to run it and share the output to the conversation on return. Both open the live terminal reader directly. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
 
-Output stays outside model context and does not start a model Turn. `Esc` returns to chat while the Shell continues; `Ctrl+C` interrupts and returns. `I` sends more input and `C` signals the foreground command. Use `/terminal` to return to a detached Shell or close it. The reader yields to approvals, and the configured Access level remains in force.
+With `!command`, output stays outside model context and does not start a model Turn unless you press `S` (**Share to conversation**). `Esc` returns to chat while the Shell continues; `Ctrl+C` interrupts and returns. `I` sends more input, `C` signals the foreground command, `S` shares output to the conversation, `Q` quotes output into the composer, and `Y` copies output. Use `/terminal` to return to a detached Shell or close it. The reader yields to approvals, and the configured Access level remains in force.
 
 Shell history and environment last for this live Agent; resuming a saved session creates a new Shell. A marked paste beginning with `!` remains ordinary message text. Type the leading `!` deliberately to execute; an unmarked single-line paste cannot always be distinguished from typing. Attachments keep a submission in message mode. This shortcut requires an interactive terminal; terminal readiness is not reported as a command exit code.
 

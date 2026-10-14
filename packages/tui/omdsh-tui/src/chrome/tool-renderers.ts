@@ -287,6 +287,16 @@ function subagentFallback(name: string, raw: string, output: string): PartialToo
     }
   }
   if (name === 'list_agents') return { title: 'Agents' }
+  if (name === 'consult_advisor') {
+    const provider = stringField(args, 'provider')
+    const label = provider === 'claude' ? 'Claude Code' : provider === 'codex' ? 'Codex' : provider
+    const question = stringField(args, 'question')
+    return {
+      title: label === '' ? 'Advisor' : `Advisor · ${label}`,
+      ...(output === '' ? { summary: 'running' } : {}),
+      ...(question === '' ? {} : { lines: question.split('\n') }),
+    }
+  }
   return undefined
 }
 

@@ -34,13 +34,13 @@ Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记
 
 ## 独立咨询
 
-在 `/settings → Integrations` 启用随包安装的 Codex 或 Claude Code 集成，然后用 `/advisor` 选择顾问、输入问题，并按需粘贴选定代码、Diff 或分析。`/advisor codex <question>` 和 `/advisor claude <question>` 直接咨询，不附加其他上下文。交互模式会先确认；行输入命令本身就是显式请求。调用产生原生模型费用。按 Esc 或选择 Cancel 取消，取消会等待进程清理完成。
+在 `/settings → Integrations` 启用随包安装的 Codex 或 Claude Code 集成，然后用 `/advisor` 在主 TUI 转录流中直接发起独立咨询。`/advisor codex <question>` 和 `/advisor claude <question>` 直接在主对话流中运行而不再弹出确认或进度窗口，`/advisor <question>` 仅提示选择顾问并保留问题，不带参数的 `/advisor` 提示选择顾问与输入问题。运行期间，主转录流会渲染一张实时的 `Advisor · Codex` 或 `Advisor · Claude Code` 子代理卡片并流式展示其只读探查步骤，输入栏上方的子代理状态栏与 Agent Hub（`Alt+A`）也会同步跟踪运行状态与近期动作（按 `Ctrl+C` 可取消并等待进程清理）。完成后卡片收起为完成态，紧接着在下方渲染 Markdown 格式的顾问意见，并写入当前会话上下文以便后续追问。调用产生原生模型费用。
 
-当你要求外部第二意见时，主模型可以调用 `consult_advisor`，提供 `provider`（`codex` 或 `claude`）、`question` 和可选 `context`。`/settings → Integrations → Advisor model calls → Model consultations` 可关闭模型调用，同时保留 `/advisor`。Native 和 PTC 工具呈现共享同一结构化结果：来源、问题、意见及截断标记。主模型独立判断意见；手动命令的结果是面向你的文档，不会自动提交给主模型。
+当你要求外部第二意见时，主模型也可以调用 `consult_advisor`，提供 `provider`（`codex` 或 `claude`）、`question` 和可选 `context`。`/settings → Integrations → Advisor model calls → Model consultations` 可关闭模型调用，同时保留 `/advisor`。Native 和 PTC 工具呈现共享同一结构化结果：来源、问题、意见及截断标记。主模型会对照工作区证据独立评估顾问意见，再决定是否采纳。
 
-每次咨询使用新的私有工作目录，只收到明确提供的问题、上下文及原生 provider 配置的 model／environment，不自动复制对话历史或工作区文件。问题最多 8,000 字符，上下文最多 48,000 字符；超限输入会被拒绝。意见最多显示 48,000 字符，并明确标记截断。顾问作为外部孩子出现在 Agent Hub，共享 Harness activation 容量，不支持继续对话，也没有本地转录。
+每次咨询在当前工作区目录中启动，并使用独立的私有临时状态目录、明确提供的问题、上下文（未提供时自动附带受限工作区结构与清单快照）及原生 provider 配置的 model／environment，不自动复制对话历史。问题最多 8,000 字符，上下文最多 48,000 字符；超限输入会被拒绝。意见最多显示 48,000 字符，并明确标记截断。顾问作为外部孩子出现在 Agent Hub，共享 Harness activation 容量，不支持继续对话，也没有本地转录。
 
-顾问使用独立权限绑定。Codex 关闭 shell、web、hooks、apps 和原生委派，使用原生只读沙箱，并在临时私有 home 中仅放入原生 `auth.json` 的不解析副本。原生辅助工具可能仍然可见，但外层沙箱会拒绝工作区写入。请在原生 provider 的 profile 设置中配置模型或显式凭证；自定义原生配置和依赖 home 的 keychain 凭证不会导入私有 home。Claude 保留原生认证，使用 safe mode、关闭内置工具与 MCP、关闭 hooks，并采用 plan 权限。外层 Harness 沙箱只允许写入私有状态目录和平台临时目录，不受普通子代理权限设置影响。需要写入其他位置的认证刷新可能失败。Codex 的私有认证副本不会写回原文件。这是文件系统写入边界，不是网络或读取权限沙箱。
+顾问在外层操作系统文件系统沙箱内使用独立权限绑定。Codex 关闭 web 搜索、hooks、apps 和原生委派，在外层只读沙箱保护下允许免审批执行只读工作区探查命令，并在临时私有 home 中仅放入原生 `auth.json` 的不解析副本。请在原生 provider 的 profile 设置中配置模型或显式凭证；自定义原生配置和依赖 home 的 keychain 凭证不会导入私有 home。Claude 保留原生认证，使用 safe mode、开启只读探查工具（`Read`、`Grep`、`Glob`）、关闭 MCP 与 hooks，并采用 plan 权限。外层 Harness 沙箱只允许写入私有状态目录和平台临时目录，不受普通子代理权限设置影响。需要写入其他位置的认证刷新可能失败。Codex 的私有认证副本不会写回原文件。这是文件系统写入边界，不是网络或读取权限沙箱。
 
 无法完整隔离时（包括当前 Windows 后端仅提供部分隔离的情况），咨询会失败，不会降级成可写运行。位于平台临时目录中的工作区也会被拒绝，因为该策略允许写入这些目录。普通 `subagent_codex` 和 `subagent_claude_code` 保持现有原生权限与设置。
 

@@ -223,4 +223,14 @@ describe('/review target selection', () => {
       expect(h.steer).not.toHaveBeenCalled()
     } finally { await h.dispose() }
   })
+
+  it.each(['/review changes', '/review base HEAD~1', '/review commit HEAD~1', '/review HEAD~1'])('starts %s directly without modal prompts', async commandLine => {
+    const h = await reviewHarness([])
+    try {
+      const outcome = await h.ctx.commands.execute(h.agent, commandLine, [], new AbortController().signal)
+      expect(outcome?.result.kind).toBe('success')
+      expect(h.prompt).not.toHaveBeenCalled()
+      expect(h.steer).toHaveBeenCalledTimes(1)
+    } finally { await h.dispose() }
+  })
 })

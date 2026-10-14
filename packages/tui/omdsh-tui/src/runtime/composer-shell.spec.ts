@@ -3,7 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TerminalSendResult } from '@deepseek-ai/dsh-terminal'
 import { describe, expect, it, vi } from 'vitest'
 import type { TuiService, TuiSubmission } from '../definition.ts'
-import { composerShellCommand, runComposerShell } from './composer-shell.ts'
+import { composerShellCommand, composerShellShare, runComposerShell } from './composer-shell.ts'
 
 function submission(text: string, extra: Partial<TuiSubmission> = {}): TuiSubmission { return { text, images: [], ...extra } }
 
@@ -30,14 +30,18 @@ function harness() {
 }
 
 describe('Composer Shell input', () => {
-  it('recognizes only an explicit leading ! and retains the Shell command body', () => {
+  it('recognizes only an explicit leading ! or !! and retains the Shell command body', () => {
     expect(composerShellCommand(submission('!cd ../next && echo 中文 🐳'))).toBe('cd ../next && echo 中文 🐳')
+    expect(composerShellShare(submission('!cd ../next && echo 中文 🐳'))).toBe(false)
+    expect(composerShellCommand(submission('!!git status --short'))).toBe('git status --short')
+    expect(composerShellShare(submission('!!git status --short'))).toBe(true)
     expect(composerShellCommand(submission('!'))).toBe('')
     expect(composerShellCommand(submission('please explain !rm'))).toBeUndefined()
   })
 
   it('never executes a pasted leading ! or an attachment-bearing message', () => {
     expect(composerShellCommand(submission('!rm -rf target', { literal: true }))).toBeUndefined()
+    expect(composerShellShare(submission('!!rm -rf target', { literal: true }))).toBe(false)
     expect(composerShellCommand(submission('!echo image', { images: [{}] as never }))).toBeUndefined()
     expect(composerShellCommand(submission('!echo file', { files: [{}] as never }))).toBeUndefined()
   })
@@ -130,6 +134,19 @@ describe('Composer persistent Shell', () => {
       expect(h.notice.mock.calls.flat().join(' ')).not.toMatch(/success|finished|exit code/iu)
       expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('shares output to the main transcript and session context when invoked with share: true (!!command)', async () => {
+    const h = harness()
+    const inject = vi.fn()
+    Object.assign(h.owner, { inject })
+    try {
+      await runComposerShell(h.ctx, h.owner, 'git status', new AbortController().signal, { share: true })
+      expect(h.commandOutput).toHaveBeenCalledWith('terminal', expect.stringContaining('## Shell · `git status`'), { focus: true })
+      expect(inject).toHaveBeenCalledWith(expect.objectContaining({
+        source: expect.objectContaining({ kind: 'omdsh-terminal', form: 'notice' }),
+      }))
+    } finally { h.operation.cancel(); await h.ctx.fiber.dispose() }
   })
 
   it('keeps provider failures visible and never falls back to a local subprocess', async () => {

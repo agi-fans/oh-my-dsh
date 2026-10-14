@@ -17,7 +17,7 @@ import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
 import type {} from '../commands/loop.ts'
-import { composerShellCommand, runComposerShell } from './composer-shell.ts'
+import { composerShellCommand, composerShellShare, runComposerShell } from './composer-shell.ts'
 
 export const name = 'omdsh-runner'
 export const inject = ['tui', 'omdshSession', 'omdshStartup', 'omdshLoop']
@@ -104,7 +104,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         try {
           const agent = controller.agent
           if (agent === undefined) throw new Error('Start a session before running a Shell command.')
-          await runComposerShell(ctx, agent, shellCommand, operation.signal)
+          await runComposerShell(ctx, agent, shellCommand, operation.signal, { share: composerShellShare(submission) })
         } catch (error: unknown) {
           if (!operation.signal.aborted) {
             tui.restoreInput(submission)

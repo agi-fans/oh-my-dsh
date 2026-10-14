@@ -25,9 +25,21 @@ export type TuiAdvisor = 'codex' | 'claude'
 export interface TuiAdvice { provider: TuiAdvisor; question: string; opinion: string; truncated: boolean }
 export interface AdvisorService {
   /** A bounded, explicit consultation; cancellation waits for native process cleanup. */
-  consult(agent: Agent, provider: TuiAdvisor, question: string, context: string, signal: AbortSignal): Promise<TuiAdvice>
+  consult(
+    agent: Agent,
+    provider: TuiAdvisor,
+    question: string,
+    context: string,
+    signal: AbortSignal,
+    onProgress?: (activity: TuiSubagentActivity) => void,
+  ): Promise<TuiAdvice>
 }
-declare module '@deepseek-ai/cordis' { interface Context { advisor: AdvisorService } }
+declare module '@deepseek-ai/cordis' {
+  interface Context { advisor: AdvisorService }
+  interface Events {
+    'subagent/external-activity'(info: { id: string; activity: TuiSubagentActivity }): void
+  }
+}
 
 /** Whole-agent liveness, mirroring the SDK session.status vocabulary. */
 export type TuiStatus = 'idle' | 'running'

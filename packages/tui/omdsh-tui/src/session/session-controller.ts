@@ -554,6 +554,7 @@ export class SessionRuntime {
     }))
     this.#off.push(ctx.on('subagent/start', info => { this.#tracker.noteExternalRun(info) }))
     this.#off.push(ctx.on('subagent/end', info => { this.#tracker.noteExternalRun(info) }))
+    this.#off.push(ctx.on('subagent/external-activity', info => { this.#tracker.noteExternalActivity(info.id, info.activity) }))
     this.#off.push(ctx.on('session/disposed', (session) => {
       this.#tracker.noteGone(session)
     }))

@@ -94,10 +94,19 @@ describe('SubagentTracker.noteStatus/noteGone', () => {
 describe('SubagentTracker.observeCatalog/sync', () => {
   it('tracks external lifecycle edges without a local session and ignores unrelated runs', () => {
     const { tracker } = make()
-    tracker.observeCatalog(fakeSession('root'), [ev('subagent/catalog', { version: 2, childId: 'external', mode: 'external', label: 'Codex task' })])
     const info = { runId: 'run-1', id: SessionId('external'), provider: 'codex', local: false } as Parameters<SubagentTracker['noteExternalRun']>[0]
+    // External start and activity may arrive before the parent's subagent/catalog event is appended.
     tracker.noteExternalRun(info)
-    expect(tracker.snapshot()?.agents[0]).toMatchObject({ mode: 'external', phase: 'running' })
+    tracker.noteExternalActivity('external', { text: '$ rg --files', status: 'running' })
+    expect(tracker.snapshot()).toBeUndefined()
+    tracker.observeCatalog(fakeSession('root'), [ev('subagent/catalog', { version: 2, childId: 'external', mode: 'external', label: 'Codex task' })])
+    expect(tracker.snapshot()?.agents[0]).toMatchObject({
+      mode: 'external',
+      phase: 'running',
+      activity: [{ text: '$ rg --files', status: 'running' }],
+    })
+    tracker.noteExternalActivity('external', { text: '$ rg --files', status: 'ok' })
+    expect(tracker.snapshot()?.agents[0]?.activity).toEqual([{ text: '$ rg --files', status: 'ok' }])
     tracker.noteExternalRun({ ...info, stopReason: 'error' })
     expect(tracker.snapshot()?.agents[0]?.phase).toBe('error')
     tracker.noteExternalRun({ ...info, id: SessionId('unrelated') })

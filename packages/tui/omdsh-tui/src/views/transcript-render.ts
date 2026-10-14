@@ -916,8 +916,9 @@ const PROCESS_LABELS: readonly { match: RegExp; label: string }[] = [
   { match: /^(web_search)$/, label: 'Search web' },
   { match: /^(web_fetch)$/, label: 'Fetch page' },
   {
-    match: /^(subagent|subagent_fork|subagent_isolated|agent|ralph|workflow_run)$/, label: 'Run subagent',
+    match: /^(subagent|subagent_fork|subagent_isolated|subagent_codex|subagent_claude_code|agent|ralph|workflow_run)$/, label: 'Run subagent',
   },
+  { match: /^consult_advisor$/, label: 'Consult advisor' },
   {
     match: /^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/,
     label: 'Search sessions',

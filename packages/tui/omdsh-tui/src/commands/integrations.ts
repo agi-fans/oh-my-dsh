@@ -50,16 +50,15 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
   const entries = manager === undefined ? undefined : (await manager.listPlugins()).filter(entry => entry.moduleName === '@deepseek-ai/dsh-mcp-client')
   invocation.signal.throwIfAborted()
   const text = [
-    'MCP',
-    'Configure project servers in .dsh/mcp.json or home servers in ~/.dsh/mcp.json, then restart omdsh.',
-    '', 'Plugin registration',
-    ...(entries === undefined ? ['Registration status is unavailable in this host.'] : entries.length === 0 ? ['No MCP client entries are registered.'] : entries.map(entry => `${entry.entryId} · ${entry.enabled ? entry.fiberPhase ?? 'not mounted' : 'disabled'}`)),
+    '## MCP',
+    'Configure project servers in `.dsh/mcp.json` or home servers in `~/.dsh/mcp.json`, then restart omdsh.',
+    '', '### Plugin registration',
+    ...(entries === undefined ? ['Registration status is unavailable in this host.'] : entries.length === 0 ? ['No MCP client entries are registered.'] : entries.map(entry => `- \`${entry.entryId}\` · ${entry.enabled ? entry.fiberPhase ?? 'not mounted' : 'disabled'}`)),
+    '',
     'Plugin registration and tool availability do not verify transport health or authentication.',
     '', mcpCatalogText(tools),
   ].join('\n')
-  if (ctx.tui.interactive !== true) return { kind: 'success', text }
-  await ctx.tui.prompt({ title: 'MCP · Installation and tools', question: '', presentation: 'document', documentSource: { text, language: 'text' }, options: [{ label: 'Back', value: 'back' }], allowCustom: false, notify: false, signal: invocation.signal })
-  return { kind: 'success' }
+  return { kind: 'success', text }
 }
 
 export function apply(ctx: Context): void {

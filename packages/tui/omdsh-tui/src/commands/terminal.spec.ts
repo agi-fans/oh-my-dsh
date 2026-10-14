@@ -95,13 +95,24 @@ describe('persistent terminal console', () => {
     expect(h.terminals.startSend).not.toHaveBeenCalled()
   })
 
-  it('supports quoting output to composer and copying output to clipboard', async () => {
+  it('supports sharing output to conversation, quoting output to composer, and copying output to clipboard', async () => {
     const insertText = vi.fn()
     const copyText = vi.fn(async () => {})
+    const commandOutput = vi.fn()
+    const inject = vi.fn()
     const h = harness(['copy', 'quote'], 'owned')
     Object.assign(h.ctx.tui, { insertText, copyText })
     expect(await terminalConsole(h.ctx, h.invocation)).toEqual({ kind: 'success' })
     expect(copyText).toHaveBeenCalledWith('output', 'terminal output')
     expect(insertText).toHaveBeenCalledWith('```text\noutput\n```')
+
+    const shared = harness(['share'], 'owned')
+    Object.assign(shared.ctx.tui, { commandOutput })
+    Object.assign(shared.owner, { inject })
+    expect(await terminalConsole(shared.ctx, shared.invocation)).toEqual({ kind: 'success' })
+    expect(commandOutput).toHaveBeenCalledWith('terminal', expect.stringContaining('## Terminal · Shell'), { focus: true })
+    expect(inject).toHaveBeenCalledWith(expect.objectContaining({
+      source: expect.objectContaining({ kind: 'omdsh-terminal', form: 'notice' }),
+    }))
   })
 })
