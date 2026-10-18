@@ -136,6 +136,12 @@ describe('tuiSettingItems / applySettingValue', () => {
     }
   })
 
+  it('hides Advanced when no plugin exposes unclaimed fields', () => {
+    const state = createSettings(prefs, 'theme', agent, defaultFeatureStates(), [])
+    const rendered = renderSettings(state, createTheme(false, 'dark'), 100, 24)
+    expect(rendered.lines.join('\n')).not.toContain('● Advanced')
+  })
+
   it('exposes theme and color cycle rows', () => {
     const items = tuiSettingItems(prefs)
     expect(items.map((item) => item.id)).toEqual([

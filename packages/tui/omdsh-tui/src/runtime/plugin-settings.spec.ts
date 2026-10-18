@@ -66,7 +66,7 @@ describe('plugin configuration', () => {
       expect(entries.find(entry => entry.id === 'advanced:advisor')).toMatchObject({ section: 'advanced', fields: ['future'] })
       expect(entries.find(entry => entry.id === 'agent-loop')?.section).toBe('tools')
       expect(entries.find(entry => entry.id === 'bash')).toMatchObject({ section: 'tools', fields: ['timeoutMs'] })
-      expect(entries.find(entry => entry.id === 'advanced:bash')?.fields).toEqual(['cwd'])
+      expect(entries.some(entry => entry.id === 'advanced:bash')).toBe(false)
       expect(entries.find(entry => entry.id === 'advanced:third-party')?.section).toBe('advanced')
     } finally { await h.ctx.fiber.dispose() }
   })
@@ -224,8 +224,10 @@ describe('plugin configuration', () => {
 
   it('keeps stable namespaces behind readable labels and displays schema help', async () => {
     const h = await harness([null])
-    expect(config.pluginSettingsEntries(h.ctx)[0]).toMatchObject({ id: 'advanced:web-search-deepseek', section: 'advanced' })
-    await config.editPluginSettings(h.ctx, 'web-search-deepseek', new AbortController().signal)
+    h.section.ns = 'third-party'
+    h.describe.mockReturnValue([h.section])
+    expect(config.pluginSettingsEntries(h.ctx)[0]).toMatchObject({ id: 'advanced:third-party', section: 'advanced' })
+    await config.editPluginSettings(h.ctx, 'third-party', new AbortController().signal)
     expect(h.prompt.mock.calls[0]![0].options![0]!.description).toContain('Maximum wait in seconds')
     await h.ctx.fiber.dispose()
   })
@@ -245,16 +247,30 @@ describe('plugin configuration', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it('keeps Web search limits in the product form and credentials and connection fields in Advanced', async () => {
+  it('keeps Web search limits and provider credentials in one product form', async () => {
     const h = await harness([])
     h.section.schema = z.object({ maxUses: z.number(), maxTokens: z.number(), apiKey: z.string().role('secret'), apiKeyEnv: z.string(), baseURL: z.string(), model: z.string(), apiVersion: z.string() }).toJSON()
     try {
       expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([
-        { id: 'web-search-deepseek', label: 'Web search', fields: ['maxUses', 'maxTokens'] },
-        { id: 'advanced:web-search-deepseek', fields: ['apiKey', 'apiKeyEnv', 'baseURL', 'model', 'apiVersion'] },
+        { id: 'web-search-deepseek', label: 'Web search', section: 'integrations',
+          fields: ['maxUses', 'maxTokens', 'apiKey', 'apiKeyEnv', 'baseURL', 'model', 'apiVersion'] },
       ])
+      expect(config.pluginSettingsEntries(h.ctx).some(entry => entry.section === 'advanced')).toBe(false)
       expect(h.mutate).not.toHaveBeenCalled()
       expect(h.set).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('moves Web provider selection into Integrations', async () => {
+    const h = await harness([])
+    h.section.ns = 'web'
+    h.section.schema = z.object({ searchProvider: z.string(), fetchProvider: z.string() }).toJSON()
+    h.describe.mockReturnValue([h.section])
+    try {
+      expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([
+        { id: 'web', label: 'Web providers', section: 'integrations', fields: ['searchProvider', 'fetchProvider'] },
+      ])
+      expect(config.pluginSettingsEntries(h.ctx).some(entry => entry.section === 'advanced')).toBe(false)
     } finally { await h.ctx.fiber.dispose() }
   })
 

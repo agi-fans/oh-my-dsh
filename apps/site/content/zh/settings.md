@@ -4,7 +4,7 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 
 # 设置
 
-`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 Interface、Agent、Tools、Status line、Integrations 和 Advanced 之间切换；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
+`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 Interface、Agent、Tools、Status line 和 Integrations 之间切换；仅当 Profile 中存在未收编的插件字段时才显示 Advanced；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
 ## 产品配置
 
@@ -14,14 +14,14 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 |---|---|
 | Interface | 外观、输入、通知与启动偏好。 |
 | Agent | Model and reasoning、Access、Agent preset、Language、Subagents 与 Subagent models。 |
-| Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。 |
+| Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。shell executor 的宿主级 `cwd` 有意不提供：每个会话都在当前工作目录中运行。 |
 | Status line | 状态栏布局、可见性、上下文样式与颜色。 |
-| Integrations | Advisor model calls、Command hooks、Web search、Codex 与 Claude Code。 |
-| Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件。 |
+| Integrations | Web providers、Web search、Advisor model calls、Command hooks、Codex 与 Claude Code。 |
+| Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件；为空时隐藏。 |
 
 Integrations 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
 
-Web search 在 Integrations 中提供 **Search limit** 与 **Token limit**。凭据引用、API 密钥、端点、模型和 API 版本留在 **Advanced → Web search**。修改继续沿用搜索 Provider 自己的凭据配置；`/login` 登录不会配置 Web search。
+Web search 在 **Integrations → Web search** 中提供 **Search limit**、**Token limit**、可选的 provider id，以及搜索自己的 API 密钥、凭据引用、端点、模型和 API 版本。**Web providers** 在安装多个 Provider 时指定 search/fetch 使用哪一个；留空则自动选择唯一可用的 Provider。修改继续沿用搜索 Provider 自己的凭据配置；`/login` 登录不会配置 Web search。
 
 Advanced 遵守插件的自动表单策略，不重复展示已有产品控件覆盖的字段，包括 TUI 外观、语言与结构化状态栏编辑器。隐藏、禁用和弃用字段不显示；上游新增但尚未收编的字段仍可访问，不重复整个所属表单。
 

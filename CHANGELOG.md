@@ -51,6 +51,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Upgrade the published DeepSeek Harness packages to `0.2.1-alpha.2` and adapt delegation to runtime-managed activations. External executions show lifecycle state and deliver results to the parent without a local transcript. Pipe-mode exit waits for progressing children; session teardown drains descendants first.
 - The default dark and light palettes now follow the DeepSeek brand blue and cyan from the public site instead of the inherited amber theme, and the welcome logo uses the same brand ramp.
+- Settings → Advanced is empty in a default profile and stays hidden until a plugin exposes unclaimed fields: the shell executor's `cwd` is no longer offered, and Web provider selection plus Web search credentials moved into Integrations → Web search.
 - Upgrade the published DeepSeek Harness packages to `0.2.1-rc.2` with the matching stable Cordis cohort. Plugin compatibility follows a declared `engines.dsh` range before DSH peers, `/plugins` reports why a change needs a restart, and the JSONL persistence backend mounts as a plugin; stored sessions keep the v4 format.
 - Session Library browsing shows migration-required logs without opening or upgrading them. Interactive resume asks before migration; explicit line-input and CLI resume remain supported. Startup no longer migrates the entire stored corpus.
 

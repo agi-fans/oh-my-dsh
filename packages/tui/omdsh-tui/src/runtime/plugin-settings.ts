@@ -34,13 +34,21 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
   advisor: { label: 'Advisor model calls', section: 'integrations', fields: { allowModelConsultations: 'Model consultations' }, inline: 'allowModelConsultations', effect: 'Controls consult_advisor; manual /advisor remains available.' },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
-  'web-search-deepseek': { label: 'Web search', section: 'integrations', fields: { maxTokens: 'Token limit', maxUses: 'Search limit' } },
+  web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
+    effect: 'Leave a provider empty to auto-select the only usable one; set an id when more than one is installed.' },
+  'web-search-deepseek': { label: 'Web search', section: 'integrations',
+    fields: { maxTokens: 'Token limit', maxUses: 'Search limit', apiKey: 'API key', apiKeyEnv: 'API key reference', baseURL: 'Endpoint', model: 'Model', apiVersion: 'API version' },
+    effect: 'Search uses its own auxiliary request and credential; /login does not configure it.' },
 }
 
 // Already represented by dedicated controls, or accepted solely for migration.
 const DEDICATED_FIELDS: Record<string, readonly string[]> = {
   tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
   'agent-behavior': ['language'],
+  // A deployment without the working-directory service may still set these in
+  // its profile; normal sessions always run in the Session's current directory.
+  bash: ['cwd'],
+  pwsh: ['cwd'],
   'subagent-codex': ['model', 'permissionMode', 'env'],
   'subagent-claude-code': ['model', 'permissionMode', 'env'],
 }
@@ -156,6 +164,7 @@ function choiceLabel(value: unknown): string {
 
 /** Human units are presentation only; owner schemas still validate the stored numbers. */
 export function fieldDisplay(field: ConfigField, value: unknown): string {
+  if (value === undefined || value === null) return '—'
   if (typeof value === 'boolean') return choiceLabel(value)
   if (typeof value !== 'number') return display(value)
   const name = field.path.at(-1) ?? ''
@@ -187,7 +196,8 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     const owned = paths.filter(path => Object.hasOwn(form?.fields ?? {}, path))
     const advanced = section.autoGenerate === false ? [] : paths.filter(path => !claimed.includes(path))
     const writable = ctx.settings.writable ? 'Edits apply live to this profile.' : 'This profile is read-only.'
-    const summary = fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected).slice(0, 2)
+    const summary = fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
+      && configValue(section.value, field.path) !== undefined).slice(0, 2)
       .map(field => `${form?.fields[field.path.join('.')]}: ${Array.isArray(configValue(section.value, field.path)) ? `${(configValue(section.value, field.path) as unknown[]).length} selected` : fieldDisplay(field, configValue(section.value, field.path))}`).join(' · ')
     const field = fields.find(field => field.path.join('.') === form?.inline)
     const values = field === undefined || field.secret || field.protected ? undefined : constantValues(field)

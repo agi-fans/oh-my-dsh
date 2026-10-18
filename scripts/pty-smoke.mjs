@@ -287,32 +287,35 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Interface')
   term.kill()
   process.exit(1)
 }
+// Advanced is empty in the shipped profile: Web search now carries its own
+// provider credentials inside the Integrations section.
 mark = out.length
-term.write('\x1b[Z')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Advanced'), 'Advanced settings section', deadline))) {
+term.write('Web search')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web search'), 'web search settings result', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('text filter'), 'plugin field form', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Token limit') && cleanOutput(out.slice(mark)).includes('API key reference'), 'web search provider form', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Advanced'), 'return to Advanced after configuration fields', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web search'), 'return to web search result', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
-term.write('\x1b[Z')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Integrations') && cleanOutput(out.slice(mark)).includes('Advisor'), 'built-in integration settings', deadline))) {
+term.write('\x15')
+term.write('Claude Code')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Claude Code'), 'native integration search result', deadline))) {
   term.kill()
   process.exit(1)
 }
 mark = out.length
-term.write('\x1b[F\r')
+term.write('\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integration') && cleanOutput(out.slice(mark)).includes('Claude Code'), 'native integration controls without a model request', deadline))) {
   term.kill()
   process.exit(1)
@@ -329,14 +332,18 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integrat
   term.kill()
   process.exit(1)
 }
-mark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Integrations'), 'return from native integration controls', deadline))) {
+let settingsClosed = false
+for (let attempt = 0; attempt < 5 && !settingsClosed; attempt += 1) {
+  mark = out.length
+  term.write('\x1b[27u')
+  await sleep(350)
+  settingsClosed = cleanOutput(out.slice(mark)).includes('Ask anything')
+}
+if (!settingsClosed) {
+  console.error(cleanOutput(out).slice(-2500))
   term.kill()
   process.exit(1)
 }
-term.write('\x1b[27u')
-await sleep(100)
 mark = out.length
 term.write('/agent\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Agent selector', deadline))) {
@@ -346,6 +353,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agen
 term.write('\x1b[B')
 term.write('\r')
 if (!(await waitFor(() => cleanOutput(out).includes('Agent: PTC'), 'PTC preset', deadline))) {
+  console.error(cleanOutput(out).slice(-2500))
   term.kill()
   process.exit(1)
 }

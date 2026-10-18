@@ -4,7 +4,7 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 
 # Settings
 
-`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between Interface, Agent, Tools, Status line, Integrations, and Advanced; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between Interface, Agent, Tools, Status line, and Integrations; Advanced appears only when the profile has unclaimed plugin fields; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
 
 ## Product configuration
 
@@ -14,14 +14,14 @@ Built-in capabilities appear in the product category that owns the task. Advisor
 |---|---|
 | Interface | Appearance, input, notifications and startup preferences. |
 | Agent | Model and reasoning, Access, Agent preset, Language, Subagents and Subagent models. |
-| Tools | Tool parallelism, Shell timeout/output limits and optional feature toggles. |
+| Tools | Tool parallelism, Shell timeout/output limits and optional feature toggles. The shell executor's host-level `cwd` is intentionally not offered: every session runs in its current working directory. |
 | Status line | Footer layout, visibility, context style and colors. |
-| Integrations | Advisor model calls, Command hooks, Web search, Codex, and Claude Code. |
-| Advanced | Unclaimed live fields and installed plugins without a product form. |
+| Integrations | Web providers, Web search, Advisor model calls, Command hooks, Codex, and Claude Code. |
+| Advanced | Unclaimed live fields and installed plugins without a product form. It is hidden when empty. |
 
 In Integrations, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
 
-Web search exposes **Search limit** and **Token limit** in Integrations. Its credential reference, secret API key, endpoint, model, and API version remain under **Advanced → Web search**. These edits retain the search provider’s own credential configuration; `/login` login does not configure Web search.
+Web search exposes **Search limit**, **Token limit**, the optional provider id, and the search provider’s own secret API key, credential reference, endpoint, model, and API version in **Integrations → Web search**. **Web providers** selects an explicit search or fetch provider when more than one is installed; leaving it empty auto-selects the only usable one. These edits retain the search provider’s own credential configuration; `/login` does not configure Web search.
 
 Advanced honors each plugin's automatic-form policy and omits fields already represented in product controls, including TUI appearance, language, and the structured status-line editor. Hidden, disabled and deprecated fields are omitted. New unclaimed fields remain available without duplicating their owner's product form.
 
