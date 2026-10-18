@@ -116,7 +116,7 @@ The `/terminal` console uses the same search and matching-line keys. `L` loads e
 | Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Alt+L` labels a node, `Alt+U` clears its label, `Alt+B` toggles marked nodes, `Alt+R` reviews Turn file recovery, `Esc` clears search then closes, `Ctrl+C` cancels. |
 | Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `Alt+Left` return to the previous question in multi-question prompts, `Ctrl+X` edit Plan Review feedback in the external editor, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
 
-Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/sessions <query>` retain their own search rules.
+Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/resume <query>` retain their own search rules.
 
 ## Custom keybindings
 

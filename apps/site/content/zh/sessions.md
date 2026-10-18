@@ -9,7 +9,7 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 每个会话都是一份持久 JSONL 日志，存放在 `$OMDSH_HOME/sessions`，回退到 `$DSH_HOME`，再到 `~/.dsh`。日志是回放、projection 与搜索的事实来源。
 
 - `omdsh --resume <session-id>` 可以从 shell 重新打开会话；第二次按 `Ctrl+C` 时，如果会话可恢复，omdsh 会打印带 id 的这条命令。
-- `/sessions` 打开会话库，显示消息预览、时间、事件数与完成状态；无参数的 `/resume` 兼容打开同一会话库，`/resume <session-id>` 直接跳过选择器。`Alt+S` 搜索持久消息正文，搜索结果也支持重命名、标记与归档；`Alt+L` 返回全部会话。
+- `/resume` 打开会话库，显示消息预览、时间、事件数与完成状态；`/resume <session-id>` 直接跳过选择器，`/resume <查询>` 搜索持久消息正文并恢复选中的结果。在会话库内按 `Alt+S` 搜索，搜索结果支持重命名、标记与归档，`Alt+L` 返回全部会话。
 - `/new` 新建干净会话，而不是从当前会话分叉。
 - `/retry` 把最近一条人类提示作为新回合再次提交。
 - 连按两次 `Esc` 或运行 `/tree` 打开 Session Tree，浏览当前对话的回合与分支。选中节点只预览内容；在 Turn 上按 Enter 会从该消息之前创建分支并恢复提示，在分支节点上按 Enter 或使用 `Alt+Enter` 则从该分支的最新状态继续。
@@ -40,11 +40,11 @@ Git 捕获覆盖当前目录的已跟踪和未被忽略的未跟踪文件；原�
 
 ## Session Library
 
-`/sessions` 打开 Session Library：`p` 置顶或取消置顶，`r` 编辑会话标题，`Alt+A` 归档选中会话。`Alt+V` 切换到归档列表，在那里按 `Alt+A` 恢复选中会话。列表为空或正在搜索时也能切换视图；单字母操作需要先清空搜索。归档会话从默认列表和最近会话快捷入口中隐藏，日志与附件仍然保留。你仍可以按 ID 直接恢复，或用 `/sessions <query>` 搜索；继续归档会话不会自动将它移回默认列表。
+`/resume` 打开 Session Library：`p` 置顶或取消置顶，`r` 编辑会话标题，`Alt+A` 归档选中会话。`Alt+V` 切换到归档列表，在那里按 `Alt+A` 恢复选中会话。列表为空或正在搜索时也能切换视图；单字母操作需要先清空搜索。归档会话从默认列表和最近会话快捷入口中隐藏，日志与附件仍然保留。你仍可以按 ID 直接恢复，或用 `/resume <查询>` 搜索；继续归档会话不会自动将它移回默认列表。
 
 置顶、归档状态与树节点标记保存在 `$OMDSH_HOME/omdsh/session-library.json`；会话标题仍写入 Harness 会话日志。这些路径依次回退到 `$DSH_HOME` 和 `~/.dsh`。
 
-`/sessions <查询>` 则改为搜索持久会话内容，通过 session-query 索引——SQLite FTS5，在每次运行首次搜索时于内存中构建——并恢复选中的结果。搜索覆盖完整会话日志，因此被压缩或折叠历史中的匹配同样会被计入。
+`/resume <查询>` 则改为搜索持久会话内容，通过 session-query 索引——SQLite FTS5，在每次运行首次搜索时于内存中构建——并恢复选中的结果。搜索覆盖完整会话日志，因此被压缩或折叠历史中的匹配同样会被计入。
 
 ## 未发送草稿
 
@@ -85,7 +85,7 @@ Git 捕获覆盖当前目录的已跟踪和未被忽略的未跟踪文件；原�
 
 ## 相关
 
-- [命令](commands.md) —— `/sessions`、`/resume`、`/retry`、`/new` 与 `/export`
+- [命令](commands.md) —— `/resume`、`/retry`、`/new` 与 `/export`
 - [恢复并管理长会话](tutorials/long-session.md) —— 恢复、回退、压缩与导出
 - [用户插件](plugins.md) —— Profile 目录与 `omdsh plugin`
 

@@ -32,7 +32,7 @@ export interface FeatureToggle {
  * Features this build can enable or disable.
  *
  * Rows that make the agent non-functional (`tool-fs`, `tool-bash`, `todo`), rows
- * that back a command (`session-query` backs `/sessions`, `workspace` backs
+ * that back a command (`session-query` backs `/resume`, `workspace` backs
  * `@` mentions), and rows that are already conditional at no cost
  * (`mcp-resources` appears only with a connected MCP server) are deliberately
  * absent. `tool-web` is absent for a different reason: `web_search` and

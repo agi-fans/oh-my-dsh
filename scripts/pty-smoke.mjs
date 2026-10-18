@@ -524,7 +524,7 @@ const libraryMetadata = () => {
   catch { return {} }
 }
 mark = out.length
-term.write('\x15/sessions\r')
+term.write('\x15/resume\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library'), 'session library', deadline))) {
   term.kill()
   process.exit(1)

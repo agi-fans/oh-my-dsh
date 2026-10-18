@@ -1,7 +1,7 @@
 /**
- * `/sessions <query>` cross-session search contract: the query path must reach
- * the session-query service, map hits into one keyboard-selectable prompt, and
- * leave the bare `/sessions` library path untouched.
+ * `/resume` owns both session paths: a bare call opens the Session Library, a
+ * content query searches every durable session, and an explicit id resumes it.
+ * The retired `/sessions` entry point must not reappear.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -60,7 +60,14 @@ async function harness(options: HarnessOptions = {}) {
   if (options.omitQueryService !== true) {
     ctx.provide('sessionQuery', { searchSessions, readTitleSnapshots } as never)
   }
-  if (options.libraryRows !== undefined || options.hits !== undefined || options.migration) ctx.provide('sessionPersistence', { stat: async () => ({ formatStatus: options.migration ? 'migration-required' : 'current' }) } as never)
+  if (options.libraryRows !== undefined || options.hits !== undefined || options.migration) {
+    const known = new Set([...(options.libraryRows ?? []).map(row => row.id), ...(options.migration ? ['old'] : [])])
+    ctx.provide('sessionPersistence', {
+      stat: async (id: unknown) => known.has(String(id))
+        ? { formatStatus: options.migration && String(id) === 'old' ? 'migration-required' : 'current' }
+        : undefined,
+    } as never)
+  }
   await ctx.plugin(commandSession)
   const session = ctx.sessions.create(SessionId('session-search-test'))
   const agent = {
@@ -88,7 +95,7 @@ describe('/tree', () => {
   })
 })
 
-describe('/sessions search', () => {
+describe('/resume library and search', () => {
   it('searches session content and resumes the chosen hit', async () => {
     const titles = new Map([['session-a', 'Fix the parser'], ['session-b', 'Add export flag']])
     const { execute, prompt, resumeSession, searchSessions } = await harness({
@@ -97,7 +104,7 @@ describe('/sessions search', () => {
       promptAnswer: 'session-b',
     })
 
-    const execution = await execute('/sessions needle')
+    const execution = await execute('/resume needle')
     expect(searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.objectContaining({ signal: expect.anything() }))
     expect(prompt).toHaveBeenCalledTimes(1)
     const request = prompt.mock.calls[0]?.[0] as { title: string; options: readonly { label: string; value: string; preview: string }[] }
@@ -116,7 +123,7 @@ describe('/sessions search', () => {
       promptAnswer: null,
     })
 
-    await execute('/sessions needle')
+    await execute('/resume needle')
     const request = prompt.mock.calls[0]?.[0] as { options: readonly { label: string }[] }
     expect(request.options[0]?.label).toBe('…only a snippet…')
   })
@@ -124,7 +131,7 @@ describe('/sessions search', () => {
   it('reports a query with no matches without opening a picker', async () => {
     const { execute, prompt, searchSessions } = await harness({ hits: [] })
 
-    const execution = await execute('/sessions nothing-here')
+    const execution = await execute('/resume nothing-here')
     expect(searchSessions).toHaveBeenCalledTimes(1)
     expect(prompt).not.toHaveBeenCalled()
     expect(execution?.result).toMatchObject({ kind: 'success' })
@@ -132,9 +139,9 @@ describe('/sessions search', () => {
   })
 
   it('surfaces a search backend failure instead of falling back to substring filtering', async () => {
-    const { execute, prompt } = await harness({ failSearch: new Error('SESSION_QUERY_SEARCH_DISABLED') })
+    const { execute, prompt } = await harness({ failSearch: new Error('SESSION_QUERY_SEARCH_DISABLED'), libraryRows: [] })
 
-    const execution = await execute('/sessions needle')
+    const execution = await execute('/resume needle')
     expect(prompt).not.toHaveBeenCalled()
     expect(execution?.result).toMatchObject({
       kind: 'error',
@@ -143,16 +150,16 @@ describe('/sessions search', () => {
   })
 
   it('reports missing search configuration as an error', async () => {
-    const { execute } = await harness({ omitQueryService: true })
+    const { execute } = await harness({ omitQueryService: true, libraryRows: [] })
 
-    const execution = await execute('/sessions needle')
+    const execution = await execute('/resume needle')
     expect(execution?.result).toMatchObject({ kind: 'error', text: 'Session search is not configured.' })
   })
 
-  it('keeps the bare library path when no query is given', async () => {
+  it('keeps the bare library path when no argument is given', async () => {
     const { execute, searchSessions } = await harness({})
 
-    const execution = await execute('/sessions')
+    const execution = await execute('/resume')
     expect(searchSessions).not.toHaveBeenCalled()
     expect(execution?.result).toMatchObject({ kind: 'error', text: 'Session persistence is not configured.' })
   })
@@ -182,7 +189,7 @@ describe('Session Library archive actions', () => {
       .mockResolvedValueOnce('pin:session-a').mockResolvedValueOnce('rename:session-a')
       .mockResolvedValueOnce('Renamed A').mockResolvedValueOnce('archive:session-a')
       .mockResolvedValueOnce('view:').mockResolvedValueOnce('session-a')
-    expect((await f.execute('/sessions'))?.result.kind).toBe('success')
+    expect((await f.execute('/resume'))?.result.kind).toBe('success')
     expect(f.prompt.mock.calls[0]![0].options?.map(row => row.value)).toEqual(['session-b', 'session-a'])
     expect(f.prompt.mock.calls[1]![0].options?.map(row => row.value)).toEqual(['session-b'])
     expect(f.prompt.mock.calls[2]![0]).toMatchObject({ title: 'Session Library · Archived', options: [{ value: 'session-a' }] })
@@ -202,7 +209,7 @@ describe('Session Library archive actions', () => {
     updateSessionLibrary(path, current => ({ ...current, archived: rows.map(row => row.id) }))
     const f = await harness({ libraryRows: rows })
     f.prompt.mockResolvedValueOnce('view:').mockResolvedValueOnce(null)
-    await f.execute('/sessions')
+    await f.execute('/resume')
     expect(f.prompt.mock.calls[0]![0]).toMatchObject({ options: [], emptyText: expect.stringContaining('Alt+V') })
     expect(f.prompt.mock.calls[0]![0].actions).toContainEqual(expect.objectContaining({ key: 'Alt+V', scope: 'list' }))
     expect(f.prompt.mock.calls[1]![0].options).toHaveLength(2)
@@ -215,7 +222,7 @@ describe('Session Library archive actions', () => {
     updateSessionLibrary(path, current => ({ ...current, archived: ['session-a'] }))
     const f = await harness({ libraryRows: rows })
     f.prompt.mockResolvedValueOnce('archive:session-a').mockResolvedValueOnce('pin:missing').mockResolvedValueOnce(null)
-    await f.execute('/sessions')
+    await f.execute('/resume')
     expect(readSessionLibrary(path)).toEqual({ pinned: [], archived: ['session-a'], labels: {} })
   })
 })
@@ -231,15 +238,15 @@ describe('stored session migration', () => {
     isolatedLibrary()
     const h = await harness({ migration: true, libraryRows: [{ id: 'old', title: 'Old session', createdAt: 1, formatStatus: 'migration-required' }] })
     h.prompt.mockResolvedValueOnce('old').mockResolvedValueOnce(null)
-    await h.execute('/sessions')
+    await h.execute('/resume')
     expect(h.prompt.mock.calls[0]![0].options![0]!.description).toContain('migration required')
     expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Migrate session', options: [{ value: 'resume' }] })
     expect(h.resumeSession).not.toHaveBeenCalled()
   })
 
-  it.each(['/resume old', '/sessions needle'])('confirms migration before %s', async line => {
+  it.each(['/resume old', '/resume needle'])('confirms migration before %s', async line => {
     const h = await harness({ migration: true, hits: [hit('old', 'needle')], libraryRows: [] })
-    if (line.startsWith('/sessions')) h.prompt.mockResolvedValueOnce('old')
+    if (line.endsWith('needle')) h.prompt.mockResolvedValueOnce('old')
     h.prompt.mockResolvedValueOnce('resume')
     expect((await h.execute(line))?.result.kind).toBe('success')
     expect(h.resumeSession).toHaveBeenCalledWith(h.agent, 'old', expect.any(AbortSignal))
@@ -252,7 +259,7 @@ describe('Session Library content search', () => {
     isolatedLibrary()
     const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
     h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('pin:session-a').mockResolvedValueOnce('library:').mockResolvedValueOnce(null)
-    await h.execute('/sessions')
+    await h.execute('/resume')
     expect(h.searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.anything())
     expect(h.prompt.mock.calls[2]![0]).toMatchObject({ title: 'Session Library · Search', actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'archive:' }), expect.objectContaining({ valuePrefix: 'library:' })]) })
     expect(h.prompt.mock.calls[4]![0].title).toBe('Session Library')
@@ -266,7 +273,7 @@ it('returns immediately after resuming a hit selected from library search', asyn
   isolatedLibrary()
   const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
   h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('session-a')
-  expect((await h.execute('/sessions'))?.result).toMatchObject({ kind: 'success', text: 'Resumed session-a.' })
+  expect((await h.execute('/resume'))?.result).toMatchObject({ kind: 'success', text: 'Resumed session-a.' })
   expect(h.prompt).toHaveBeenCalledTimes(3)
   expect(h.resumeSession).toHaveBeenCalledTimes(1)
 })
@@ -275,7 +282,7 @@ it('keeps an empty-search notice visible until acknowledged and returns to the l
   isolatedLibrary()
   const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [] })
   h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('back').mockResolvedValueOnce(null)
-  await h.execute('/sessions')
+  await h.execute('/resume')
   expect(h.prompt.mock.calls[2]![0]).toMatchObject({ presentation: 'document', documentSource: { text: expect.stringContaining('No sessions match') } })
   expect(h.prompt.mock.calls[3]![0].title).toBe('Session Library')
   expect(h.resumeSession).not.toHaveBeenCalled()
@@ -288,6 +295,6 @@ it('refreshes renamed search hits from the session inventory without losing the 
   const h = await harness({ libraryRows: rows, hits: [hit('session-a', 'needle')] })
   h.renameSession.mockImplementation(async () => { rows[0]!.title = 'After' })
   h.prompt.mockResolvedValueOnce('rename:session-a').mockResolvedValueOnce('After').mockResolvedValueOnce(null)
-  await h.execute('/sessions needle')
+  await h.execute('/resume needle')
   expect(h.prompt.mock.calls[2]![0].options).toContainEqual(expect.objectContaining({ label: 'After', preview: 'needle' }))
 })

@@ -43,7 +43,7 @@ omdsh uses `timed` questions with a default 120-second wait. Editing an answer o
 
 The model can request `timeout: -1` when it must wait indefinitely, and a Profile can still select `legacy` mode. PTC has a separate execution budget: its default is 180 seconds, so Take time does not keep a `run_code` program alive indefinitely. If a PTC program ends before its question result is recorded, that question cannot be restored for a late answer.
 
-Five read-only tools let the agent reach work it did in an earlier session: `session_search` and `session_event_search` find it, `session_trace` and `session_event_trace` follow lineage and relationships, and `session_event_read` returns exact event data. Without them a model that already solved something can only be told again, because `/sessions` and `/resume` are yours to reach and not the agent's.
+Five read-only tools let the agent reach work it did in an earlier session: `session_search` and `session_event_search` find it, `session_trace` and `session_event_trace` follow lineage and relationships, and `session_event_read` returns exact event data. Without them a model that already solved something can only be told again, because `/resume` is yours to reach and not the agent's.
 
 They are workspace-scoped: cross-session reads are authorized only when the target session's working directory exactly matches the caller's, and a session with no working directory can inspect only itself. Turning the row off in a home overlay with `disabled: true` removes all five tools and their guidance.
 

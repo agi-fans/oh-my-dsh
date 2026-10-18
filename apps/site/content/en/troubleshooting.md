@@ -10,7 +10,7 @@ The first `Ctrl+C` interrupts the active turn, or clears the composer when the s
 
 ## Find a session id again
 
-`/session` reports the active session's details, and `/resume` opens the searchable selector. `/sessions <query>` searches durable session content when you only remember what was discussed. See [Sessions and history](sessions.md).
+`/session` reports the active session's details, and `/resume` opens the searchable selector. `/resume <query>` searches durable session content when you only remember what was discussed. See [Sessions and history](sessions.md).
 
 Sessions first created with v0.5.0 through v0.11.0 may contain a private event that an unmodified DSH persistence reader refuses; omdsh still opens them. Do not hand-edit session files, which may be compressed and carry integrity checks.
 

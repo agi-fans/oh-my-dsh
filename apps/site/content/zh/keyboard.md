@@ -116,7 +116,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Alt+L` 添加标记，`Alt+U` 清除标记，`Alt+B` 切换已标记节点，`Alt+R` 检查 Turn 文件恢复，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
 | 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，多题提问中按 `Alt+Left` 返回上一题，Plan Review 中按 `Ctrl+X` 用外部编辑器编写修改意见，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
 
-可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/sessions <query>` 保留各自的搜索规则。
+可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/resume <query>` 保留各自的搜索规则。
 
 ## 自定义键位
 

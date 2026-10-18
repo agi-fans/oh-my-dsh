@@ -105,7 +105,7 @@ Shell offers the active platform’s timeout and output limits: Bash on POSIX an
 
 The running profile watches this patch and applies changes after the write settles; a host with HMR disabled applies them on the next launch. `disabled` is a Loader option rather than plugin configuration, so the settings service cannot express it; these rows are written into a managed block in `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` instead, which is the surface the Harness reads while composing the tree. The block is delimited by comments and everything you wrote by hand around it is left alone.
 
-Rows that back a command (`session-query` backs `/sessions`, `workspace` backs `@` mentions) and rows that make the agent unusable (`tool-fs`, `tool-bash`, `todo`) are deliberately not listed. `web_search` is also absent: it shares its row with `web_fetch`, so no row-level switch can express "search off, fetch on".
+Rows that back a command (`session-query` backs `/resume`, `workspace` backs `@` mentions) and rows that make the agent unusable (`tool-fs`, `tool-bash`, `todo`) are deliberately not listed. `web_search` is also absent: it shares its row with `web_fetch`, so no row-level switch can express "search off, fetch on".
 
 ## Status line
 

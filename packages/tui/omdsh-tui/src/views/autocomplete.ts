@@ -57,15 +57,15 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
 
 // Task groups affect discovery only; command registration stays in Harness.
 export const COMMAND_GROUPS: readonly { label: string; names: readonly string[] }[] = [
-  { label: 'Session', names: ['new', 'sessions', 'resume', 'tree', 'rename', 'fork', 'retry', 'clear'] },
+  { label: 'Session', names: ['new', 'resume', 'tree', 'rename', 'fork', 'retry', 'clear'] },
   { label: 'Model and access', names: ['model', 'plan', 'permission', 'agent', 'login', 'logout'] },
   { label: 'Files and output', names: ['files', 'diff', 'review', 'attach', 'attachments', 'terminal', 'copy', 'export', 'import', 'worktree'] },
   { label: 'Tasks', names: ['queue', 'steer', 'btw', 'questions', 'todo', 'jobs', 'goal', 'loop', 'compact', 'schedule'] },
   { label: 'Settings and integrations', names: ['settings', 'advisor', 'plugins', 'mcp', 'feature', 'third-party'] },
-  { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'feedback', 'changelog', 'rate'] },
+  { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'changelog', 'rate'] },
   { label: 'Application', names: ['help', 'quit', 'demo'] },
 ]
-const COMMON_COMMANDS = ['model', 'plan', 'permission', 'sessions', 'files', 'diff', 'tree', 'settings', 'new', 'help']
+const COMMON_COMMANDS = ['model', 'plan', 'permission', 'resume', 'files', 'diff', 'tree', 'settings', 'new', 'help']
 
 /** Visible popup rows (OMP editor default). */
 export const AUTOCOMPLETE_MAX_VISIBLE = 5

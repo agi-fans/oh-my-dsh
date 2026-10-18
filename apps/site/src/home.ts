@@ -10,7 +10,7 @@ export const homeCopy = {
     featuresHeading: 'What a turn looks like',
     features: [
       {
-        handle: '/sessions',
+        handle: '/resume',
         title: 'Durable conversations',
         details: 'Search, pin, rename, and resume sessions; rewind turns, retry, compact context, and export complete transcripts as Markdown or standalone HTML.',
         href: '/docs/tutorials/long-session',
@@ -89,7 +89,7 @@ export const homeCopy = {
     featuresHeading: '一个回合里有什么',
     features: [
       {
-        handle: '/sessions',
+        handle: '/resume',
         title: '持久化对话',
         details: '搜索、置顶、重命名和恢复会话；回退回合、重试、压缩上下文，并把完整转录导出为 Markdown 或独立 HTML。',
         href: '/docs/tutorials/long-session',

@@ -87,7 +87,7 @@
 
   # Model-facing session history: five read-only tools that let the agent find
   # work it did in an earlier session. Without them a model that solved
-  # something three sessions ago can only be told again, because `/sessions`
+  # something three sessions ago can only be told again, because `/resume`
   # and `/resume` are human affordances it cannot reach. Cross-session reads
   # are authorized only when the target session's cwd exactly matches the
   # caller's, so the model cannot read another workspace's history.
@@ -218,12 +218,6 @@
 
   - id: commands
     name: '@deepseek-ai/dsh-commands'
-
-  # `/feedback <text>` records one log-only `feedback/record` event: immediate,
-  # model-invisible, and no report leaves the machine. The Web feedback dialog
-  # behind the same service stays a host-plane surface omdsh does not mount.
-  - id: command-feedback
-    name: '@deepseek-ai/dsh-command-feedback'
 
   # `/rate` stores one judgment per finalized assistant reply. The service owns
   # the canonical Session events and compare-and-set versions; the TUI only

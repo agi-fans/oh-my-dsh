@@ -15,8 +15,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session. |
-| `/sessions [query]` | Without an argument, open the Session Library; with a query, search durable session content through the full-text index and resume the chosen hit. In the library, `p` pins a session and `r` renames it. |
-| `/resume [session-id]` | Resume a durable session. Without an id, choose from the recent-session list. |
+| `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `p` pins a session and `r` renames it. |
 | `/tree` | Browse turns and forks, edit from a historical message, continue a branch, or restore selected Turn files with `Alt+R` when snapshots exist. |
 | `/session` | Show the current session's details. |
 | `/retry` | Run the most recent human prompt again. |
@@ -77,7 +76,6 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/review [changes\|base <branch>\|commit <rev>\|<rev>]` | Review current changes, a local base branch or one commit directly with arguments, or choose interactively without arguments. Requests findings with file and line references without applying fixes; current Access and Plan mode remain in effect. |
 | `/tools` | List the tools visible to the agent. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
-| `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
 | `/rate` | Rate a finalized assistant reply as positive or negative, optionally file a category and note, or clear an existing rating. Feedback is stored in the local Session log and never enters model context. |
 | `/schedule` | List this session's durable reminders, edit a name or instruction, open retained delivery records, or delete one. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
 

@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- `/resume` now opens the Session Library, searches durable session content with a query, or resumes an id directly; the duplicate `/sessions` entry point is removed.
+
 - Multi-question prompts support `Alt+Left` to step back to the previous question and rescue any unsent custom answer draft into the composer if cancelled or timed out. Approval prompts guard against accidental confirmation for 500ms after opening and add **Reject with note** to deny an action and steer the next model step in one flow.
 - Per-turn `Changed files` summaries are persisted as ignorable session records so resumed sessions retain changed-file cards, file previews and `/diff turn` navigation; terminal transcripts also emit `OSC 133;A` semantic prompt markers on user turns.
 - Command discovery prioritizes common tasks, searches description keywords and groups help by task. Session Library content search retains pin, rename and archive actions.
@@ -56,6 +58,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Session Library browsing shows migration-required logs without opening or upgrading them. Interactive resume asks before migration; explicit line-input and CLI resume remain supported. Startup no longer migrates the entire stored corpus.
 
 ### Removed
+
+- `/feedback`; session-level notes were write-only in the TUI, with no list, export, or delivery path. Reply feedback remains under `/rate`.
 
 - `/workflow`; use `/plan` to enter planning and `/plan off` to leave.
 - `/reasoning` and experimental reasoning translation; reasoning remains available in Turn history.

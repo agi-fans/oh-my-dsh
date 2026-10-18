@@ -116,8 +116,7 @@ describe('omdsh smoke', () => {
     rmSync(omdshHome, { recursive: true, force: true })
     const out = (result.stdout ?? '') + (result.stderr ?? '')
     expect(result.status, out).toBe(0)
-    expect(out).toContain('Resume failed:')
-    expect(out).toContain(missing)
+    expect(out).toContain(`Session ${missing} was not found.`)
     expect(out).not.toContain('Unsupported platform')
   }, 200_000)
 

@@ -9,7 +9,7 @@ description: "Where omdsh stores durable sessions and local data, how the Sessio
 Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back to `$DSH_HOME` and then `~/.dsh`. The logs are the source of truth for replay, projections, and search.
 
 - `omdsh --resume <session-id>` reopens a session from the shell; the second `Ctrl+C` prints that command with the id when the session can be resumed.
-- `/sessions` opens the Session Library with message previews, age, event counts and completion state; bare `/resume` opens the same library for compatibility. `/resume <session-id>` skips the selector. `Alt+S` searches durable message content, and search results keep rename, pin and archive actions; `Alt+L` returns to all sessions.
+- `/resume` opens the Session Library with message previews, age, event counts and completion state; `/resume <session-id>` skips the selector, and `/resume <query>` searches durable message content and resumes the chosen hit. `Alt+S` searches from inside the library, search results keep rename, pin and archive actions, and `Alt+L` returns to all sessions.
 - `/new` starts a clean session rather than branching the current one.
 - `/retry` submits the latest human prompt again as a new turn.
 - `Esc` twice or `/tree` opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
@@ -40,11 +40,11 @@ Git capture covers tracked and nonignored untracked files in the active director
 
 ## Session Library
 
-`/sessions` opens the Session Library: `p` pins or unpins a session, `r` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search; letter actions require an empty search. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/sessions <query>`; resuming does not automatically restore it to the default list.
+`/resume` opens the Session Library: `p` pins or unpins a session, `r` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search; letter actions require an empty search. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/resume <query>`; resuming does not automatically restore it to the default list.
 
 Pins, archive state, and tree labels are stored in `$OMDSH_HOME/omdsh/session-library.json`. Session titles remain in the Harness session logs. These paths fall back to `$DSH_HOME` and then `~/.dsh`.
 
-`/sessions <query>` searches durable session content instead, through the session-query index — SQLite FTS5, built in memory on the first search of a run — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
+`/resume <query>` searches durable session content instead, through the session-query index — SQLite FTS5, built in memory on the first search of a run — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
 
 ## Unsent drafts
 
@@ -85,7 +85,7 @@ The archive has a 64 MiB uncompressed limit, refuses an existing destination and
 
 ## Related
 
-- [Commands](commands.md) — `/sessions`, `/resume`, `/retry`, `/new`, and `/export`
+- [Commands](commands.md) — `/resume`, `/retry`, `/new`, and `/export`
 - [Recover and manage a long session](tutorials/long-session.md) — resume, rewind, compact, and export
 - [User plugins](plugins.md) — the Profile directory and `omdsh plugin`
 

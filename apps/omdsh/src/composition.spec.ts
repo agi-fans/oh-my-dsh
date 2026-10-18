@@ -606,11 +606,10 @@ describe('upstream capability adaptation rows', () => {
     expect(index('tool-web')).toBeLessThan(index('mcp-resources'))
   })
 
-  it('mounts /feedback beside the command runtime', () => {
+  it('keeps the write-only /feedback command out of the shipped profile', () => {
     const rows = productRows()
-    const index = (id: string) => rows.findIndex(entry => entry.id === id)
-    expect(rows[index('command-feedback')]?.name).toBe('@deepseek-ai/dsh-command-feedback')
-    expect(index('commands')).toBeLessThan(index('command-feedback'))
+    expect(rows.some(entry => entry.id === 'command-feedback')).toBe(false)
+    expect(rows.find(entry => entry.id === 'message-feedback')?.name).toBe('@deepseek-ai/dsh-message-feedback')
   })
 
   it('declares PTC presentation in the code preset and keeps the native default', () => {

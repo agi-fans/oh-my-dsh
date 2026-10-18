@@ -45,6 +45,16 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
   }
   await ctx.omdshSession.refreshRecent()
   let id = search === undefined ? invocation.rawInput.trim() : ''
+  if (id !== '' && search === undefined) {
+    const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
+    if (stored === undefined) {
+      // A non-session argument is a content query; the merged command opens
+      // the same searchable library instead of failing an ID lookup.
+      if (/^session-[0-9a-z-]+$/u.test(id)) return { kind: 'error', text: `Session ${id} was not found.` }
+      const result = await findSessions(ctx, invocation)
+      return result.kind === 'rows' ? resumeSession(ctx, invocation, result) : result
+    }
+  }
   if (id === '') {
     const libraryPath = ctx.omdshSession.sessionLibraryPath
     let archivedView = false
@@ -200,19 +210,6 @@ async function findSessions(ctx: Context, invocation: CommandInvocation): Promis
   })) }
 }
 
-/** Search every durable session, retaining the library's management actions. */
-async function searchSessions(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const result = await findSessions(ctx, invocation)
-  return result.kind === 'rows' ? resumeSession(ctx, invocation, result) : result
-}
-
-/** `/sessions` opens the library bare, or searches session content when given a query. */
-function sessionsCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  return invocation.rawInput.trim() === ''
-    ? resumeSession(ctx, invocation)
-    : searchSessions(ctx, invocation)
-}
-
 function showSession(ctx: Context, invocation: CommandInvocation): CommandResult {
   const stats = ctx.omdshSession.stats(invocation.agent)
   const selection = ctx.omdshSession.selection(invocation.agent)
@@ -291,15 +288,9 @@ export function apply(ctx: Context): void {
     { name: 'new', description: 'Start a new session', handler: invocation => newSession(ctx, invocation) },
     {
       name: 'resume',
-      description: 'Resume a session by ID, or open the Session Library',
-      input: { hint: '[session-id]' },
+      description: 'Open the Session Library, search session content, or resume by ID',
+      input: { hint: '[session-id|query]' },
       handler: invocation => resumeSession(ctx, invocation),
-    },
-    {
-      name: 'sessions',
-      description: 'Open the Session Library, or search session content with a query',
-      input: { hint: '[query]' },
-      handler: invocation => sessionsCommand(ctx, invocation),
     },
     { name: 'tree', description: 'Browse conversation turns and branches', handler: async invocation => {
       if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /tree' }

@@ -43,7 +43,7 @@ omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T`
 
 模型可在必须一直等待时设置 `timeout: -1`，Profile 也仍可选择 `legacy` 模式。PTC 有独立的执行预算，默认 180 秒；Take time 不会让 `run_code` 程序无限存活。若 PTC 程序在记录问答结果前结束，该问题就无法恢复用于补答。
 
-五个只读工具让 agent 能取到它自己早先会话里做过的工作：`session_search` 与 `session_event_search` 负责查找，`session_trace` 与 `session_event_trace` 追溯谱系与关联，`session_event_read` 返回精确的事件数据。没有它们，一个曾经解决过某问题的模型只能被重新告知一遍，因为 `/sessions` 与 `/resume` 是你才能触及的能力，而不是 agent 的。
+五个只读工具让 agent 能取到它自己早先会话里做过的工作：`session_search` 与 `session_event_search` 负责查找，`session_trace` 与 `session_event_trace` 追溯谱系与关联，`session_event_read` 返回精确的事件数据。没有它们，一个曾经解决过某问题的模型只能被重新告知一遍，因为 `/resume` 是你才能触及的能力，而不是 agent 的。
 
 它们按工作区授权：跨会话读取只在目标会话的工作目录与调用方完全一致时才被授权，而没有工作目录的会话只能检查自己。在 home overlay 里写 `disabled: true` 关掉这一行，即可移除全部五个工具及其引导语。
 

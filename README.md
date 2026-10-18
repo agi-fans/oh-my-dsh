@@ -27,7 +27,7 @@ Run `/login` once inside omdsh to validate and save your DeepSeek API key, then 
 
 ## Highlights
 
-- **Durable conversations:** search, pin, rename, and resume sessions in `/sessions`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
+- **Durable conversations:** search, pin, rename, and resume sessions in `/resume`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
 - **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
 - **Rich terminal input:** mention project files and other sessions with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
 - **Readable turns:** follow thinking, replies, and tool previews while the agent works. Completed work folds to a duration summary and the full final answer; `Ctrl+O` restores the process view. Scroll through either view, keep the current prompt pinned, and jump back to the latest message with `End`.

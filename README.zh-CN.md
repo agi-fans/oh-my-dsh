@@ -27,7 +27,7 @@ omdsh
 
 ## 功能亮点
 
-- **持久化对话：** 在 `/sessions` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
+- **持久化对话：** 在 `/resume` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
 - **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。
 - **丰富的终端输入：** 使用 `@` 提及项目文件和其他会话，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
 - **清晰的回合展示：** 运行时跟随思考、回复和工具预览，完成后将过程折叠为耗时摘要，保留完整的最终答复；`Ctrl+O` 恢复过程视图。两种视图均可滚动，当前请求固定在顶部，按 `End` 即可回到最新消息。

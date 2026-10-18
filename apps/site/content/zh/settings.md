@@ -105,7 +105,7 @@ Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows �
 
 运行中的 Profile 会监视该补丁，在写入稳定后应用修改；关闭 HMR 的宿主在下次启动生效。`disabled` 是 Loader 选项而非插件配置，settings 服务无法表达它；因此这些行改为写入 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 里一个由注释界定的托管块，那正是 Harness 组装组合树时读取的入口。该块之外你手写的内容不会被改动。
 
-支撑某个命令的行（`session-query` 支撑 `/sessions`，`workspace` 支撑 `@` 提及）以及会让 agent 不可用的行（`tool-fs`、`tool-bash`、`todo`）刻意不列出。`web_search` 同样缺席：它与 `web_fetch` 共用一行，行级开关表达不了"关搜索、留抓取"。
+支撑某个命令的行（`session-query` 支撑 `/resume`，`workspace` 支撑 `@` 提及）以及会让 agent 不可用的行（`tool-fs`、`tool-bash`、`todo`）刻意不列出。`web_search` 同样缺席：它与 `web_fetch` 共用一行，行级开关表达不了"关搜索、留抓取"。
 
 ## Status line
 
