@@ -21,13 +21,13 @@
 - 新增 `conversation.input.model.label`、用户消息、文本/图片展示、新会话页和模型选择器扩展位，属于 Web 客户端 slot；omdsh 自绘终端 Chrome，不消费这些 slot。
 - 新增实验性 Session 状态记录接口与插件市场 bundle。前者可供 E11/E16 一类未来插件使用，后者是 Web 插件页能力；均未改变现有 TUI 能力口径。
 - `dsh-session-persistence-jsonl` 改为 Cordis 插件；产品组合、会话格式（v4）和恢复路径不变，只有直接挂载该包的测试改为命名空间插件。
-- 子代理请求移除 `toolFilter`/`persona`、新增 `agentPreset`；omdsh 的 ACP 组合本来就不设置前两者，C05 之外的核心口径不变。
+- 子代理请求移除 `toolFilter`/`persona`、新增 `agentPreset`；omdsh 的 ACP 组合本来就不设置前两者。rc.2 迁移后 C05 已补上，核心口径不变。
 
 ## 统计结论
 
 | 范围 | 数量 | 口径 |
 | --- | --- | --- |
-| 核心交互与运行时 | 11 项跟踪，1 项未接入、1 项部分支持 | C01–C04、C07–C11 已实现对应产品入口；C06 提供行输入控制台，原始 PTY 附着未实现；Windows 仍待实机验收 |
+| 核心交互与运行时 | 11 项跟踪，10 项已实现、1 项部分支持 | C01–C05、C07–C11 已实现对应产品入口；C06 提供行输入控制台，原始 PTY 附着未实现；Windows 仍待实机验收 |
 | 可选或实验扩展 | 20 组 | 部分已有通用 MCP、Skill 或 provider seam，但缺少对应官方能力的配置、交互与真实环境验证 |
 | 独立宿主模式 | 4 组 | SDK、ACP server、Web/Desktop 与浏览器 Worker，需要独立入口和生命周期 |
 | 同能力替代 provider | 1 组 | Search、Storage、Title 已有实现，不计为整项缺失 |
@@ -44,7 +44,7 @@
 | C02 | 运行中的插件管理与 HMR | 已实现 | /plugins 提供运行态条目、bundle 启停与安装/移除，显示阶段、取消及完整诊断路径；已挂 published plugin-manager/HMR。 | CLI 与运行态安装共用 Profile 写锁；待执行脚本显式授权，失败/取消由上游事务恢复文件。已安装代码替换仍要求重启，源码监视需显式指定目录。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/boot/plugin-manager/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/plugins.ts)；[真实入口测试](../../apps/omdsh/src/plugin-management.spec.ts) |
 | C03 | 官方插件配置面板 | 已实现常用配置表单 | /settings 按 Interface、Agent、Tools、Status line、Integrations 收编自带能力，Advanced 保留未收编 live 字段与后装插件；子代理模型白名单默认关闭，并在新会话取样。 | 按路径编辑并校验、显示继承/覆盖、重置、拒绝旧 revision；API-key/ref 配对走 credentials。插件名称使用易读标签，字段显示 schema 帮助；Subagent 允许模型使用可搜索多选目录，其余结构化字段使用 JSON；包含密钥的复合字段保留给 /login 或所属配置入口，普通非 live 选项仍用 Profile。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/settings/settings/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts) |
 | C04 | Creator/Cordis 创作与 preset 诊断 | 已实现 | Cordis 加载已发布组合/插件开发 Skills、只读 API 查询与权限门控 plugin_manager；/agent 展示 broken preset，/agent inspect 显示声明、激活/隔离失败及当前会话保留的实际模块。 | 安装复用 C02；已有 Agent 保留原 revision。公开 API 不提供可展示的 revision 编号，因此展示其真实保留组成，不发明编号。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/bundle/web-app/presets/cordis.patch.yml)；[omdsh](../../apps/omdsh/config/presets/cordis.patch.yml)；[诊断](../../packages/tui/omdsh-tui/src/commands/session-configuration.ts) |
-| C05 | 逐条 Assistant 消息反馈 | 未接入 | /feedback 是 session 级文字反馈；没有 message-feedback 的评分、分类、编辑、撤回和版本冲突呈现。 | 挂载 message-feedback，选择正式 Assistant 消息后提交反馈；使用公开 log-backed API，不能将反馈写入模型消息。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/feedback/message-feedback/README.md)；[omdsh](../../apps/omdsh/config/cordis.yml) |
+| C05 | 逐条 Assistant 消息反馈 | 已实现 | `/rate` 列出 append-origin 的正式 Assistant 消息，记录正面/负面评价、固定分类与可选备注，并可清除已有评价；版本冲突自动重取一次，服务失败、空备注与超长备注分别呈现。/feedback 仍是 session 级文字备注。 | 未接入 Web 反馈对话框与多选分类视图；真实模型下的评价与恢复路径按终端交互验收。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/feedback/message-feedback/README.md)；[实现](../../packages/tui/omdsh-tui/src/commands/rate.ts)；[组合](../../apps/omdsh/config/cordis.yml) |
 | C06 | 用户可操作的持久终端 | 已实现行输入控制台，部分支持 | `/terminal [id]` 使用会话所有权校验，提供新建/重连、最新 300 行实时输出、输入、中断及确认关闭；Esc 只离开视图。 | 使用会话 sandbox；输入与 Agent 工具共用独占 send。原始 PTY 附着、任意全屏程序及 resize 转发未实现，Windows 尚需实机验收。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/terminal/terminal/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/terminal.ts) |
 | C07 | 通用文件附件与历史附件查看 | 已实现 | `/attach` 流式保存、可取消并返回字节回执；composer 暂存引用，支持文件单独提交、排队编辑和回退。`/attachments` 校验并预览或打开历史原件。 | 路径选择为 TUI 文本输入；外部打开需要 provider 提供本地路径。图片沿用终端能力降级。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/client/file-upload/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/files.ts) |
 | C08 | 文件浏览、预览与交付物打开 | 已实现 TUI 入口 | `/files` 提供逐级目录浏览、文本/Markdown/代码预览和交付物选择；`/diff` 逐文件审查当前 Git 状态或保留的 Turn 快照，Alt+V 进入当前回合审查。 | 文本预览最多 128 KiB，目录最多 500 项；图片/PDF/Office 通过外部应用打开，Editor 临时交接真实 TTY。不提供 GUI 像素预览。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/client/ui-deliverables/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/file-review.ts) |
@@ -108,7 +108,7 @@
 ## 建议补齐顺序
 
 1. C01–C04 与 C11 已完成当前批次实现。插件/设置/preset 基础提供后续扩展共用的安装、启停、诊断与配置路径；保留表中列出的平台及编辑边界。
-2. C07–C10 已提供附件、文件预览、Workflow 状态及完整 ZIP 归档；C06 已提供行输入控制台。后续评估 C05 的消息反馈与原始 PTY 附着，按真实终端需求补齐，不移植 Web 组件。
+2. C05–C10 已提供逐条消息反馈、附件、文件预览、Workflow 状态及完整 ZIP 归档；C06 已提供行输入控制台。后续按真实终端需求评估原始 PTY 附着，不移植 Web 组件。
 3. 按可选组合补 E01–E20。E01 已提供默认关闭的 command hooks；后续优先持久 schedule、时间上下文、Office 与账户路由；浏览器、桌面、SSH、原生子 Agent 和语音需配套真实环境。Agent Teams、Auto review、Mods、Python PTC 等维持实验标识和平台限制。
 4. H01–H04 独立规划为宿主入口。SDK/ACP 不与 TUI 争用 stdio；Web/Desktop/Worker 不混入现有终端 composition。
 

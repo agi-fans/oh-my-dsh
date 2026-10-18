@@ -379,6 +379,13 @@ describe('dsh spine expansion', () => {
     for (const row of expanded) expect(row.name, `row ${row.id}`).toBeTruthy()
   })
 
+  it('mounts message feedback with a note budget', () => {
+    const row = productRows().find(entry => entry.id === 'message-feedback')
+    expect(row?.name).toBe('@deepseek-ai/dsh-message-feedback')
+    expect(row?.config).toEqual({ maxNoteBytes: 8192 })
+    expect(productRows().some(entry => entry.id === 'session-persistence')).toBe(true)
+  })
+
   it('mounts the per-turn changed-file summarizer next to the workspace row', () => {
     const row = productRows().find(entry => entry.id === 'workspace-changes')
     expect(row?.name).toBe('@deepseek-ai/dsh-workspace-changes')

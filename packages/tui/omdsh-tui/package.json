@@ -98,6 +98,10 @@
       "types": "./lib/commands/jobs.d.ts",
       "default": "./lib/commands/jobs.js"
     },
+    "./command-rate": {
+      "types": "./lib/commands/rate.d.ts",
+      "default": "./lib/commands/rate.js"
+    },
     "./command-auth": {
       "types": "./lib/commands/auth.d.ts",
       "default": "./lib/commands/auth.js"
@@ -195,6 +199,7 @@
     "@deepseek-ai/dsh-jobs": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm-retry": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-message-feedback": "0.2.1-rc.2",
     "@deepseek-ai/dsh-permission-presets": "0.2.1-rc.2",
     "@deepseek-ai/dsh-plan-mode": "0.2.1-rc.2",
     "@deepseek-ai/dsh-plugin-manager": "0.2.1-rc.2",

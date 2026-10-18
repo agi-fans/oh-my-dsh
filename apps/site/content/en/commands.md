@@ -78,6 +78,7 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/tools` | List the tools visible to the agent. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
 | `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
+| `/rate` | Rate a finalized assistant reply as positive or negative, optionally file a category and note, or clear an existing rating. Feedback is stored in the local Session log and never enters model context. |
 
 ## Files and terminals
 

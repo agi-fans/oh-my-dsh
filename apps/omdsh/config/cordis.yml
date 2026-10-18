@@ -211,6 +211,14 @@
   - id: command-feedback
     name: '@deepseek-ai/dsh-command-feedback'
 
+  # `/rate` stores one judgment per finalized assistant reply. The service owns
+  # the canonical Session events and compare-and-set versions; the TUI only
+  # renders the picker and never puts feedback into model context.
+  - id: message-feedback
+    name: '@deepseek-ai/dsh-message-feedback'
+    config:
+      maxNoteBytes: 8192
+
   - id: user-questions
     name: '@deepseek-ai/dsh-user-questions'
 
@@ -719,6 +727,9 @@
 
   - id: tui-command-jobs
     name: '@agi-fans/dsh-tui/command-jobs'
+
+  - id: tui-command-rate
+    name: '@agi-fans/dsh-tui/command-rate'
 
   - id: tui-startup-notices
     name: '@agi-fans/dsh-tui/startup-notices'
