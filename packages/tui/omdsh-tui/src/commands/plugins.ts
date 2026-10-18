@@ -28,10 +28,12 @@ export function pluginReadOnly(row: PluginInfo): string | undefined {
 export function changeText(result: ChangeResult): string {
   const selection = result.application === 'cancelled' || result.application === 'failed' || result.enabled === undefined
     ? '' : result.enabled ? ' · enabled' : ' · disabled'
+  const restart = result.application === 'restart-required' && result.restartReason !== undefined
+    ? ` · restart required (${result.restartReason})` : ''
   return [
-    `${result.target}: ${result.application}${selection}`,
+    `${result.target}: ${result.application}${selection}${restart}`,
     ...(result.error === undefined ? [] : [result.error.diagnostic ?? result.error.code]),
-    ...(result.error?.incompatible ?? []).map(item => `${item.name}@${item.version}: DSH ${item.runtimeVersion} rejects ${JSON.stringify(item.peers)}`),
+    ...(result.error?.incompatible ?? []).map(item => `${item.name}@${item.version}: DSH ${item.runtimeVersion} rejects ${JSON.stringify(item.requirements)}`),
     ...(result.warnings ?? []),
     ...(result.packageResult === undefined ? [] : [result.packageResult.output, `Full installation log: ${result.packageResult.logPath}`]),
   ].filter(Boolean).join('\n')

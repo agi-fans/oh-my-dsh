@@ -1,6 +1,6 @@
 # DeepSeek Harness 功能支持盘点
 
-状态：原始能力分组于 2026-10-04 按 DSH `dsh-v0.2.1-alpha.1` 核对；2026-10-09 补充 `0.2.1-alpha.2` 适配状态，2026-10-13 更新翻译和独立思考阅读的产品取舍。此文件记录功能覆盖与接入条件，已实现项单独标记，不替代真实平台与环境验收。当前依赖基线见 [DeepSeek Harness 集成与兼容](deepseek-harness.md)。
+状态：原始能力分组于 2026-10-04 按 DSH `dsh-v0.2.1-alpha.1` 核对；2026-10-09 补充 `0.2.1-alpha.2` 适配状态，2026-10-13 更新翻译和独立思考阅读的产品取舍，2026-10-18 补充 `0.2.1-rc.2` 迁移结果。此文件记录功能覆盖与接入条件，已实现项单独标记，不替代真实平台与环境验收。当前依赖基线见 [DeepSeek Harness 集成与兼容](deepseek-harness.md)。
 
 统计单位是用户能力而不是 npm 包数。一个能力可能由 service、provider、tool 和 UI 多个包组成；已经有一个可用 provider 时，不因没有安装所有替代 provider 而记为整项缺失。产品支持自定义 Profile 与插件组合，因此“未产品化”表示缺少随产品交付、配置、展示和验证的完整路径，不表示底层完全无法挂载。
 
@@ -12,6 +12,16 @@
 - Git worktree 已提供 `/worktree` 创建、切换已有 checkout 和返回原目录的入口；创建 bundle 随产品安装，默认关闭，启用后使用公开 service/tool 和原 Access，不自动删除产物。
 - 实验翻译和独立思考阅读未保留为产品能力，思考沿用 Turn 展示与过程展开。Worktree 不包含在下方历史 35 组口径中。
 - Session Library 使用 `formatStatus` 标记历史日志，仅列出 header 与已有标签提示；启动不再批量迁移。列表、搜索结果和 `/resume` 的恢复入口确认后才激活迁移，CLI `--resume` 保留明确恢复语义。
+
+## 0.2.1-rc.2 补充
+
+- 插件兼容性按 `engines.dsh` 优先判定，未声明时才看 DSH peer；`omdsh plugin` 的预检已改用 app-boot 的公开评估函数，`/plugins` 展示 `requirements` 和 `restart-required` 的具体原因。C02 因此不再需要自行推导 peer 规则。
+- 可替换插件在启用热重载时更新即生效，不能热重载时返回 `restartReason`；CLI 安装后仍需重启。C02 的入口与文案已对齐，真实替换仍按平台和运行模式验收。
+- 上游新增官方 DeepSeek Search/Fetch API，入口在 Web Search 设置；TUI 当前仍挂 `dsh-web-search-deepseek` 与 `dsh-web-fetch-http`，未改用官方 API，也没有真实 provider 验收，不计入已支持。
+- 新增 `conversation.input.model.label`、用户消息、文本/图片展示、新会话页和模型选择器扩展位，属于 Web 客户端 slot；omdsh 自绘终端 Chrome，不消费这些 slot。
+- 新增实验性 Session 状态记录接口与插件市场 bundle。前者可供 E11/E16 一类未来插件使用，后者是 Web 插件页能力；均未改变现有 TUI 能力口径。
+- `dsh-session-persistence-jsonl` 改为 Cordis 插件；产品组合、会话格式（v4）和恢复路径不变，只有直接挂载该包的测试改为命名空间插件。
+- 子代理请求移除 `toolFilter`/`persona`、新增 `agentPreset`；omdsh 的 ACP 组合本来就不设置前两者，C05 之外的核心口径不变。
 
 ## 统计结论
 

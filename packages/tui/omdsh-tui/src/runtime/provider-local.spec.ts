@@ -2952,7 +2952,7 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', color)
     const ctx = new Context()
     const bundle = id === 'codex' ? '@deepseek-ai/dsh-subagent-codex' : '@deepseek-ai/dsh-subagent-claude-code'
-    const row = { name: bundle, availability: 'installation', version: '0.2.1-alpha.2', enabled: false, rows: [] }
+    const row = { name: bundle, availability: 'installation', version: '0.2.1-rc.2', enabled: false, rows: [] }
     const listBundles = vi.fn(async () => [row])
     const listPlugins = vi.fn(async () => [])
     ctx.provide('settings', { describe: () => [] } as never)

@@ -14,7 +14,7 @@ describe('native external Agent guidance', () => {
     expect(externalAgentGuide('@deepseek-ai/dsh-subagent-acp')).toBeUndefined()
   })
   it('reports actual disabled, failed and absent rows without claiming payload or authentication readiness', () => {
-    const bundle = { name: '@deepseek-ai/dsh-subagent-codex', availability: 'profile', enabled: true, version: '0.2.1-alpha.2',
+    const bundle = { name: '@deepseek-ai/dsh-subagent-codex', availability: 'profile', enabled: true, version: '0.2.1-rc.2',
       rows: [{ rowId: 'provider', entryId: 'p' }, { rowId: 'tool', entryId: 't' }, { rowId: 'missing' }] } as BundleInfo
     const plugins = [{ entryId: 'p', enabled: true, fiberPhase: 'failed' }, { entryId: 't', enabled: false, fiberPhase: 'pending' }] as PluginInfo[]
     expect(externalAgentDiagnostic(bundle, plugins)).toContain('provider: enabled · failed')

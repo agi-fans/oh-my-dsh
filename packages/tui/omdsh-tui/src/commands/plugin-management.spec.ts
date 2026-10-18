@@ -22,7 +22,7 @@ async function harness(answers: readonly (string | null)[]) {
   const installBundle = vi.fn(async (_spec: string, _options: { requestId: PluginInstallRequestId }) => changed)
   const cancelInstall = vi.fn(async (_requestId: PluginInstallRequestId) => ({ status: 'cancelled' }))
   const listBundles = vi.fn(async () => [{ name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'missing', enabled: false, installed: false,
-    optional: false, removable: false, rows: [], overrides: [], installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@0.2.1-alpha.2', version: '0.2.1-alpha.2' } }])
+    optional: false, removable: false, rows: [], overrides: [], installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', version: '0.2.1-rc.2' } }])
   const setBundleEnabled = vi.fn(async () => changed)
   const removeBundle = vi.fn(async () => ({ ...changed, stage: 'remove' as const }))
   const manager = { listPlugins, setPluginEnabled, listBundles, setBundleEnabled, removeBundle, inspect: vi.fn(async () => ({ status: 'accepted', kind: 'registry', name: 'demo', bundle: true, registry: null })), installBundle, cancelInstall }
@@ -44,8 +44,8 @@ describe('native plugin management', () => {
     expect(h.prompt.mock.calls[1]![0].options?.[0]?.description).toContain('Not installed')
     expect(h.prompt.mock.calls[2]![0].options?.map(option => option.value)).toEqual(['check', 'install'])
     expect(h.manager.setBundleEnabled).not.toHaveBeenCalled()
-    expect(h.manager.inspect).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-alpha.2', undefined, expect.any(AbortSignal))
-    expect(h.manager.installBundle).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-alpha.2', expect.objectContaining({ saveExact: true }))
+    expect(h.manager.inspect).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', undefined, expect.any(AbortSignal))
+    expect(h.manager.installBundle).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', expect.objectContaining({ saveExact: true }))
     expect(h.prompt.mock.calls[4]![0]).toMatchObject({ presentation: 'progress', notify: false })
     await h.ctx.fiber.dispose()
   })
@@ -75,7 +75,7 @@ describe('native plugin management', () => {
   it('routes bundled native runtimes to the shared Integration settings without installing a redundant profile copy', async () => {
     const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'settings', 'toggle', null, null])
     h.manager.listBundles.mockResolvedValue([{ name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'installation', installed: false,
-      enabled: false, optional: false, removable: false, rows: [], overrides: [], installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@0.2.1-alpha.2', version: '0.2.1-alpha.2' } }] as never)
+      enabled: false, optional: false, removable: false, rows: [], overrides: [], installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', version: '0.2.1-rc.2' } }] as never)
     try {
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
       expect(h.prompt.mock.calls[1]![0].options![0]!.description).toContain('Installed · Disabled')

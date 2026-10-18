@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { dirname, join, resolve } from 'node:path'
 import {
+  evaluatePluginCompatibility,
   readProfileManifest,
   resolveBundleDir,
   resolveProfileDir,
@@ -228,8 +229,8 @@ function resolveInstalledDir(packageName: string, profileDir: string): string | 
 }
 
 /**
- * Reject a Profile dependency whose core peers miss the shipped release, or
- * that nests a second copy of those packages.
+ * Reject a Profile dependency whose DSH requirements miss the shipped release,
+ * whose product peer misses it, or that nests a second copy of those packages.
  */
 export function incompatiblePeerMessage(profileDir: string, installAnchor: string = INSTALL_ANCHOR): string | undefined {
   const shipped = shippedVersions(installAnchor)
@@ -238,13 +239,25 @@ export function incompatiblePeerMessage(profileDir: string, installAnchor: strin
     const dir = resolveInstalledDir(packageName, profileDir)
     if (dir === undefined) continue
     const installed = readJsonObject(join(dir, 'package.json'))
-    const peers = stringRecord(installed.peerDependencies)
+    // app-boot decides DSH compatibility from `engines.dsh` when declared and
+    // from the DSH peer ranges otherwise; reuse that rule instead of deriving
+    // a second one from peers alone.
+    let issue
+    try {
+      issue = evaluatePluginCompatibility(installed)
+    } catch (error) {
+      return `${NAME}: ${packageName} has an unreadable DSH requirement (${error instanceof Error ? error.message : String(error)})`
+    }
+    if (issue !== undefined && !issue.exempted) {
+      const [requirement, range] = Object.entries(issue.requirements)[0] ?? []
+      return `${NAME}: ${packageName} requires ${requirement ?? 'DSH'}@${range ?? '?'}, but the shipped runtime is ${issue.runtimeVersion}`
+    }
     const optional = optionalPeerNames(installed.peerDependenciesMeta)
-    for (const [peer, range] of Object.entries(peers)) {
-      if (!isCorePackage(peer)) continue
+    for (const [peer, range] of Object.entries(stringRecord(installed.peerDependencies))) {
+      if (peer !== '@agi-fans/dsh-tui' || optional.has(peer)) continue
       const version = shipped.get(peer)
       if (version === undefined) continue
-      if (!rangeAccepts(range, version) && !optional.has(peer)) {
+      if (!rangeAccepts(range, version)) {
         return `${NAME}: ${packageName} peer ${peer}@${range} is incompatible with shipped ${version}`
       }
     }

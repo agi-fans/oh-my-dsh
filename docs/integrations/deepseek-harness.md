@@ -1,14 +1,14 @@
 # DeepSeek Harness 集成与兼容
 
-状态：按 omdsh `0.20.0` 的 Unreleased 工作区、DSH `0.2.1-alpha.2` 核对，日期为 2026-10-13。这是当前兼容决策，不是 npm 最新版本查询。升级操作由 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)维护，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
+状态：按 omdsh `0.20.0` 的 Unreleased 工作区、DSH `0.2.1-rc.2` 核对，日期为 2026-10-18。这是当前兼容决策，不是 npm 最新版本查询。升级操作由 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)维护，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
 
 ## 依赖基线
 
 | 层 | 当前版本与来源 |
 | --- | --- |
 | omdsh 根、CLI、TUI | `0.20.0`，保持同步；本次适配尚未发布 |
-| 直接 DSH 运行时依赖 | npm `0.2.1-alpha.2`，精确 pin；lockfile 保持单一 DSH cohort |
-| Cordis / Loader / Timer / Schemastery | `4.0.5-alpha.1` / `1.0.6-alpha.1` / `1.1.7-alpha.1` / `3.18.5-alpha.1` |
+| 直接 DSH 运行时依赖 | npm `0.2.1-rc.2`，精确 pin；lockfile 保持单一 DSH cohort |
+| Cordis / Loader / Timer / Schemastery | `4.0.5` / `1.0.6` / `1.1.7` / `3.18.5`；Cosmokit 由同一 release-age 白名单放行 `1.8.6` |
 | pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.1.0` |
 
 事实来源是[CLI manifest](../../apps/omdsh/package.json)、[TUI manifest](../../packages/tui/omdsh-tui/package.json)、[lockfile](../../pnpm-lock.yaml)和[产品组合](../../apps/omdsh/config/cordis.yml)。`refs/` 仅用于研究，不参与解析、编译、测试或运行；`examples/hello` 是独立插件示例，不是 workspace 成员。
@@ -18,6 +18,8 @@
 2026-10-04 迁移至 [DSH `0.2.1-alpha.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-alpha.1)，同步升级 Cordis 配套包。上游移除了 `dsh-invariants` 和五个 `/invariant` 插件导出，产品组合随之移除这六行；不保留旧包兜底。插件的 Cordis peer 使用 `~4.0.5-alpha.1`，因为旧的稳定版区间不接受预发布版本。目标循环取消时会撤回仍在 inbox 中的自动消息，避免后续用户输入被阻塞。会话事件、工具参数、preset 注册和 legacy 问答的产品消费接口保持兼容；默认 preset、Ralph 开关与 TUI 折叠行为不变。
 
 2026-10-09 迁移至 [DSH `0.2.1-alpha.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-alpha.2)。删除已合并的 `dsh-subagent-in-process-driver` 依赖，挂载 `dsh-working-directory` 和 `dsh-tool-working-directory`。三个 preset 不再引用已移除的 `{{cwd}}` 变量，当前目录由上游模型上下文贡献提供。子代理工具移除 `backgroundMode` 配置，执行与结果回传由 runtime-managed activation 拥有。Session 格式仍为 v4；旧日志、历史 one-shot 子转录和 fork 种子保留原有恢复路径。
+
+2026-10-18 迁移至 [DSH `0.2.1-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.2)，同步 Cordis 稳定线（`4.0.5` / `1.0.6` / `1.1.7` / `3.18.5`），并把 `node-addon-require-builtin` 提到 `^0.1.9`，满足 loader `1.0.6` 的新 peer。插件兼容判断改用 app-boot 导出的 `evaluatePluginCompatibility`：声明 `engines.dsh` 时只按该区间判定，否则才看 DSH peer；`/plugins` 相应展示 `requirements` 与 `restartReason`，不再自行推导 peer 规则。`dsh-session-persistence-jsonl` 不再默认导出持久化类，改为 Cordis 插件；YAML 组合不变，直接挂载它的测试改用命名空间。子代理能力声明移除 `toolFilter`/`persona`、新增 `agentPreset`，产品本来就不传这两个字段。headless 凭据优先级变化只发生在上游 `headless` profile 的组合里，`omdsh exec` 使用自己的 profile，仍读取已保存凭据。Session 格式仍为 v4，token 投影的公开形状未变。完整证据见[升级记录](../history/dsh-0.2.1-rc.2-upgrade.md)。
 
 ## 工作目录
 

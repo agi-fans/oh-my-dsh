@@ -8,8 +8,29 @@ import * as commandSteer from './steer.ts'
 import * as commandLoop from './loop.ts'
 import * as commandExport from './export.ts'
 import * as commandTrajectory from './trajectory.ts'
+import type { ChangeResult } from '@deepseek-ai/dsh-plugin-manager'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
+import { changeText } from './plugins.ts'
+
+describe('plugin change text', () => {
+  it('reports why a change waits for a restart', () => {
+    expect(changeText({
+      changed: true, application: 'restart-required', restartReason: 'host-module',
+      stage: 'enable', target: '@scope/plugin', enabled: true,
+    } satisfies ChangeResult)).toBe('@scope/plugin: restart-required · enabled · restart required (host-module)')
+  })
+
+  it('names the unmet requirement of a rejected package', () => {
+    expect(changeText({
+      changed: false, application: 'failed', stage: 'install', target: '@scope/plugin',
+      error: {
+        code: 'incompatible-version',
+        incompatible: [{ name: '@scope/plugin', version: '1.0.0', runtimeVersion: '0.2.1-rc.2', requirements: { 'engines.dsh': '>=9' } }],
+      },
+    } satisfies ChangeResult)).toContain('DSH 0.2.1-rc.2 rejects {"engines.dsh":">=9"}')
+  })
+})
 
 describe('omdsh command plugins', () => {
   it('registers transcript export and archive import without a search command', async () => {

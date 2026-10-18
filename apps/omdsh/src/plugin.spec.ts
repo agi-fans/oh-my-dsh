@@ -253,6 +253,7 @@ describe('omdsh plugin', () => {
           })
           installFake(cwd, '@scope/old-bundle', {
             name: '@scope/old-bundle',
+            version: '1.0.0',
             peerDependencies: { '@deepseek-ai/dsh-agent': '^0.0.1' },
             dsh: { bundle: { patch: './cordis.patch.yml' } },
           })
@@ -263,7 +264,7 @@ describe('omdsh plugin', () => {
         return { status: 0 }
       },
     })).toBe(1)
-    expect(lines.join('')).toMatch(/peer @deepseek-ai\/dsh-agent/u)
+    expect(lines.join('')).toMatch(/requires @deepseek-ai\/dsh-agent@\^0\.0\.1/u)
     expect(verbs).toEqual([['add', '@scope/old-bundle'], ['remove', '@scope/old-bundle']])
     expect(profileManifest(dir).dependencies ?? {}).toEqual({})
     expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
@@ -335,5 +336,43 @@ describe('omdsh plugin', () => {
       dependencies: { '@deepseek-ai/dsh-agent': '0.0.1' },
     })
     expect(incompatiblePeerMessage(dir, anchor)).toMatch(/would nest a copy/u)
+  })
+
+  it('lets a declared engines.dsh range decide over DSH peers', () => {
+    const home = temp('omdsh-plugin-engines-ok-')
+    const dir = resolveProfileDir(PROFILE_NAME, home)
+    const anchor = join(temp('omdsh-plugin-anchor-'), 'package.json')
+    writePackage(join(anchor, '..'), { name: '@agi-fans/oh-my-dsh', dependencies: {} })
+    writePackage(dir, {
+      name: 'dsh-profile-omdsh',
+      dependencies: { '@scope/engines': '1.0.0' },
+      dsh: { profile: { bundles: [PRODUCT_BUNDLE] } },
+    })
+    installFake(dir, '@scope/engines', {
+      name: '@scope/engines',
+      version: '1.0.0',
+      engines: { dsh: '^0.2.0' },
+      peerDependencies: { '@deepseek-ai/dsh-agent': '^0.0.1' },
+    })
+    expect(incompatiblePeerMessage(dir, anchor)).toBeUndefined()
+  })
+
+  it('reports an unsatisfied engines.dsh range instead of its peers', () => {
+    const home = temp('omdsh-plugin-engines-miss-')
+    const dir = resolveProfileDir(PROFILE_NAME, home)
+    const anchor = join(temp('omdsh-plugin-anchor-'), 'package.json')
+    writePackage(join(anchor, '..'), { name: '@agi-fans/oh-my-dsh', dependencies: {} })
+    writePackage(dir, {
+      name: 'dsh-profile-omdsh',
+      dependencies: { '@scope/engines': '1.0.0' },
+      dsh: { profile: { bundles: [PRODUCT_BUNDLE] } },
+    })
+    installFake(dir, '@scope/engines', {
+      name: '@scope/engines',
+      version: '1.0.0',
+      engines: { dsh: '>=9' },
+      peerDependencies: { '@deepseek-ai/dsh-agent': '^0.2.0' },
+    })
+    expect(incompatiblePeerMessage(dir, anchor)).toMatch(/requires engines\.dsh@>=9/u)
   })
 })
