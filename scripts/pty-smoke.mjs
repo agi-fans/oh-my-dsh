@@ -213,7 +213,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('session 
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
 featureMark = out.length
-term.write('\t\t\t\r')
+term.write('\t\t\t\t\t\t\r')
 if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Terminate this shell'), 'terminal close confirmation', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
