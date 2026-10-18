@@ -17,7 +17,7 @@
 
 - 插件兼容性按 `engines.dsh` 优先判定，未声明时才看 DSH peer；`omdsh plugin` 的预检已改用 app-boot 的公开评估函数，`/plugins` 展示 `requirements` 和 `restart-required` 的具体原因。C02 因此不再需要自行推导 peer 规则。
 - 可替换插件在启用热重载时更新即生效，不能热重载时返回 `restartReason`；CLI 安装后仍需重启。C02 的入口与文案已对齐，真实替换仍按平台和运行模式验收。
-- 上游新增官方 DeepSeek Search/Fetch API，入口在 Web Search 设置；TUI 当前仍挂 `dsh-web-search-deepseek` 与 `dsh-web-fetch-http`，未改用官方 API，也没有真实 provider 验收，不计入已支持。
+- 上游新增官方 DeepSeek Search/Fetch API；TUI 已默认挂载并选择 `deepseek-search-api`/`deepseek-fetch-api`，与 `/login` 共享 `OMDSH_DEEPSEEK_API_KEY`，并完成真实 key 的搜索与 news.qq.com 抓取验收。`dsh-web-search-deepseek` 与 `dsh-web-fetch-http` 仍挂载为可切换的 fallback。
 - 新增 `conversation.input.model.label`、用户消息、文本/图片展示、新会话页和模型选择器扩展位，属于 Web 客户端 slot；omdsh 自绘终端 Chrome，不消费这些 slot。
 - 新增实验性 Session 状态记录接口与插件市场 bundle。前者可供 E11/E16 一类未来插件使用，后者是 Web 插件页能力；均未改变现有 TUI 能力口径。
 - `dsh-session-persistence-jsonl` 改为 Cordis 插件；产品组合、会话格式（v4）和恢复路径不变，只有直接挂载该包的测试改为命名空间插件。

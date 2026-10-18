@@ -606,6 +606,20 @@ describe('upstream capability adaptation rows', () => {
     expect(index('tool-web')).toBeLessThan(index('mcp-resources'))
   })
 
+  it('mounts the DeepSeek Search and Fetch API providers and selects them', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows.find(entry => entry.id === 'web-deepseek-api')?.name).toBe('@deepseek-ai/dsh-web-deepseek-api')
+    expect(rows.find(entry => entry.id === 'web')?.config).toMatchObject({
+      searchProvider: 'deepseek-search-api',
+      fetchProvider: 'deepseek-fetch-api',
+    })
+    expect(index('web')).toBeLessThan(index('web-deepseek-api'))
+    expect(index('web-deepseek-api')).toBeLessThan(index('tool-web'))
+    expect(rows.find(entry => entry.id === 'web-search-deepseek')?.name).toBe('@deepseek-ai/dsh-web-search-deepseek')
+    expect(rows.find(entry => entry.id === 'web-fetch-http')?.name).toBe('@deepseek-ai/dsh-web-fetch-http')
+  })
+
   it('keeps the write-only /feedback command out of the shipped profile', () => {
     const rows = productRows()
     expect(rows.some(entry => entry.id === 'command-feedback')).toBe(false)

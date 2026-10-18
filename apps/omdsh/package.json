@@ -198,6 +198,7 @@
     "@deepseek-ai/dsh-user-approval": "0.2.1-rc.2",
     "@deepseek-ai/dsh-user-questions": "0.2.1-rc.2",
     "@deepseek-ai/dsh-web": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-web-deepseek-api": "0.2.1-rc.2",
     "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.2",
     "@deepseek-ai/dsh-web-search-deepseek": "0.2.1-rc.2",
     "@deepseek-ai/dsh-workflow": "0.2.1-rc.2",

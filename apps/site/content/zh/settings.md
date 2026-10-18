@@ -16,12 +16,12 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Agent | Model and reasoning、Access、Agent preset、Language、Subagents 与 Subagent models。 |
 | Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。shell executor 的宿主级 `cwd` 有意不提供：每个会话都在当前工作目录中运行。 |
 | Status line | 状态栏布局、可见性、上下文样式与颜色。 |
-| Integrations | Web providers、Web search、Advisor model calls、Command hooks、Codex 与 Claude Code。 |
+| Integrations | Web providers、Web search · API、Web search · Messages、Advisor model calls、Command hooks、Codex 与 Claude Code。 |
 | Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件；为空时隐藏。 |
 
 Integrations 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
 
-Web search 在 **Integrations → Web search** 中提供 **Search limit**、**Token limit**、可选的 provider id，以及搜索自己的 API 密钥、凭据引用、端点、模型和 API 版本。**Web providers** 在安装多个 Provider 时指定 search/fetch 使用哪一个；留空则自动选择唯一可用的 Provider。修改继续沿用搜索 Provider 自己的凭据配置；`/login` 登录不会配置 Web search。
+**Web providers** 选择 search 与 fetch 后端；默认是 `deepseek-search-api`/`deepseek-fetch-api`，每次操作只发一次直连 DeepSeek API 请求，不消耗辅助模型回合。**Web search · API** 配置它的 API 密钥引用、端点、结果数与是否发送触发问题；`/login` 会把官方密钥存到默认的 `OMDSH_DEEPSEEK_API_KEY` 引用，因此官方 API 登录后即可搜索。**Web search · Messages** 保留备用 Messages Provider 的限额、密钥引用、端点、模型和 API 版本；要使用它，在 Web providers 中选择 `deepseek-official`，本地抓取兜底则选择 `http`。
 
 Advanced 遵守插件的自动表单策略，不重复展示已有产品控件覆盖的字段，包括 TUI 外观、语言与结构化状态栏编辑器。隐藏、禁用和弃用字段不显示；上游新增但尚未收编的字段仍可访问，不重复整个所属表单。
 

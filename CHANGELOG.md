@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Web search and page fetch use DeepSeek's Search and Fetch APIs by default and share the `OMDSH_DEEPSEEK_API_KEY` reference stored by `/login`; the Messages search and local HTTP fetch providers remain selectable fallbacks. This removes the separate search key requirement and the fake-IP DNS rejection in page fetch.
+
 - `/resume` now opens the Session Library, searches durable session content with a query, or resumes an id directly; the duplicate `/sessions` entry point is removed.
 
 - Multi-question prompts support `Alt+Left` to step back to the previous question and rescue any unsent custom answer draft into the composer if cancelled or timed out. Approval prompts guard against accidental confirmation for 500ms after opening and add **Reject with note** to deny an action and steer the next model step in one flow.

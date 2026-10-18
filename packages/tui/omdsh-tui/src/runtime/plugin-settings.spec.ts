@@ -247,17 +247,31 @@ describe('plugin configuration', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it('keeps Web search limits and provider credentials in one product form', async () => {
+  it('keeps Messages search limits and credentials in one fallback form', async () => {
     const h = await harness([])
     h.section.schema = z.object({ maxUses: z.number(), maxTokens: z.number(), apiKey: z.string().role('secret'), apiKeyEnv: z.string(), baseURL: z.string(), model: z.string(), apiVersion: z.string() }).toJSON()
     try {
       expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([
-        { id: 'web-search-deepseek', label: 'Web search', section: 'integrations',
+        { id: 'web-search-deepseek', label: 'Web search · Messages', section: 'integrations',
           fields: ['maxUses', 'maxTokens', 'apiKey', 'apiKeyEnv', 'baseURL', 'model', 'apiVersion'] },
       ])
       expect(config.pluginSettingsEntries(h.ctx).some(entry => entry.section === 'advanced')).toBe(false)
       expect(h.mutate).not.toHaveBeenCalled()
       expect(h.set).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps DeepSeek Search API settings in one primary form', async () => {
+    const h = await harness([])
+    h.section.ns = 'web-deepseek-api'
+    h.section.schema = z.object({ apiKey: z.string().role('secret'), apiKeyEnv: z.string(), baseURL: z.string(), count: z.number(), sendOriginalQuestion: z.boolean() }).toJSON()
+    h.describe.mockReturnValue([h.section])
+    try {
+      expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([
+        { id: 'web-deepseek-api', label: 'Web search · API', section: 'integrations',
+          fields: ['apiKey', 'apiKeyEnv', 'baseURL', 'count', 'sendOriginalQuestion'] },
+      ])
+      expect(config.pluginSettingsEntries(h.ctx).some(entry => entry.section === 'advanced')).toBe(false)
     } finally { await h.ctx.fiber.dispose() }
   })
 

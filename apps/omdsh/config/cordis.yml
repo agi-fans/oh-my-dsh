@@ -475,11 +475,22 @@
   # overlay.
   - id: web
     name: '@deepseek-ai/dsh-web'
+    config:
+      # The DeepSeek API providers retrieve directly, so a local fake-IP resolver
+      # or an auxiliary Messages turn cannot block search and fetch. The older
+      # Messages search and local HTTP fetch stay mounted as selectable fallbacks.
+      searchProvider: deepseek-search-api
+      fetchProvider: deepseek-fetch-api
+
+  - id: web-deepseek-api
+    name: '@deepseek-ai/dsh-web-deepseek-api'
+    config:
+      apiKeyEnv: OMDSH_DEEPSEEK_API_KEY
 
   - id: web-search-deepseek
     name: '@deepseek-ai/dsh-web-search-deepseek'
     config:
-      apiKeyEnv: DEEPSEEK_API_KEY
+      apiKeyEnv: OMDSH_DEEPSEEK_API_KEY
       maxUses: 5
 
   - id: web-fetch-http

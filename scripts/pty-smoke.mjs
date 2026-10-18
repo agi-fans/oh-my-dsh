@@ -297,7 +297,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web sea
 }
 mark = out.length
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Token limit') && cleanOutput(out.slice(mark)).includes('API key reference'), 'web search provider form', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Results per search') && cleanOutput(out.slice(mark)).includes('API key reference'), 'web search provider form', deadline))) {
   term.kill()
   process.exit(1)
 }

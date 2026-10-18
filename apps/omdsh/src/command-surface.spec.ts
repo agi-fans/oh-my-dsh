@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL('../../..', import.meta.url))
 describe('retired command surface', () => {
   it('rejects /feedback and /sessions at the real entry', () => {
     const home = mkdtempSync(join(tmpdir(), 'omdsh-command-surface-'))
-    const result = spawnPnpm(['omdsh'], {
+    const result = spawnPnpm(['--dir', 'apps/omdsh', 'omdsh'], {
       cwd: root,
       input: '/feedback probe\n/sessions\n',
       encoding: 'utf8',

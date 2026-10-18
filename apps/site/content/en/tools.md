@@ -29,7 +29,7 @@ Creation requires Git 2.45 or newer and Node in the same execution environment. 
 
 ## Web
 
-`web_fetch` retrieves public pages. `web_search` answers through DeepSeek's hosted search with the same credential as the conversation route; a search is a complete auxiliary model request, bounded to five server-tool uses per request by default, and the provider's endpoint, model, and token cap are tunable in its `web-search-deepseek` settings section. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
+`web_fetch` retrieves public pages. `web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and the credential reference stored by `/login`. Page fetch therefore does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local HTTP fetch providers remain mounted; **Settings → Integrations → Web providers** switches between them. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
 
 ## Code intelligence
 

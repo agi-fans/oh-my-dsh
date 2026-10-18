@@ -29,7 +29,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Web
 
-`web_fetch` 抓取公开网页。`web_search` 通过与对话路由相同的凭据走 DeepSeek 托管搜索；一次搜索是一次完整的辅助模型请求，默认每次请求最多使用 5 次服务端工具调用，provider 的 endpoint、model 与 token 上限可在 `web-search-deepseek` 设置段中调整。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
+`web_fetch` 抓取公开网页。`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并使用 `/login` 保存的凭据引用。因此抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本地 HTTP 抓取仍保留在组合中，可在 **设置 → Integrations → Web providers** 切换。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
 
 ## 代码智能
 

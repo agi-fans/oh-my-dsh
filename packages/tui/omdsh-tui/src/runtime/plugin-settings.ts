@@ -35,10 +35,13 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   advisor: { label: 'Advisor model calls', section: 'integrations', fields: { allowModelConsultations: 'Model consultations' }, inline: 'allowModelConsultations', effect: 'Controls consult_advisor; manual /advisor remains available.' },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
-    effect: 'Leave a provider empty to auto-select the only usable one; set an id when more than one is installed.' },
-  'web-search-deepseek': { label: 'Web search', section: 'integrations',
+    effect: 'Default: deepseek-search-api and deepseek-fetch-api. Fallbacks: deepseek-official (Messages) and http (local). With more than one provider installed, an empty value is ambiguous.' },
+  'web-deepseek-api': { label: 'Web search · API', section: 'integrations',
+    fields: { apiKey: 'API key', apiKeyEnv: 'API key reference', baseURL: 'Endpoint', count: 'Results per search', sendOriginalQuestion: 'Send original question' },
+    effect: 'Default search and fetch provider: one direct DeepSeek API request without an auxiliary model turn. /login stores the official key under this reference.' },
+  'web-search-deepseek': { label: 'Web search · Messages', section: 'integrations',
     fields: { maxTokens: 'Token limit', maxUses: 'Search limit', apiKey: 'API key', apiKeyEnv: 'API key reference', baseURL: 'Endpoint', model: 'Model', apiVersion: 'API version' },
-    effect: 'Search uses its own auxiliary request and credential; /login does not configure it.' },
+    effect: 'Fallback search provider: one auxiliary Messages turn. Select it under Web providers.' },
 }
 
 // Already represented by dedicated controls, or accepted solely for migration.
