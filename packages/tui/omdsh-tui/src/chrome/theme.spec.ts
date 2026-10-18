@@ -48,8 +48,8 @@ describe('createTheme', () => {
 
   it('emits 24-bit SGR for hex colors', () => {
     const theme = createTheme(true, true)
-    expect(theme.getFgAnsi('accent')).toBe('\x1b[38;2;254;188;56m')
-    expect(theme.getFgAnsi('mdLink')).toBe('\x1b[38;2;0;136;250m')
+    expect(theme.getFgAnsi('accent')).toBe('\x1b[38;2;124;147;255m')
+    expect(theme.getFgAnsi('mdLink')).toBe('\x1b[38;2;124;147;255m')
     expect(theme.underline('x')).toBe('\x1b[4mx\x1b[24m')
     expect(theme.strikethrough('x')).toBe('\x1b[9mx\x1b[29m')
     expect(theme.inverse('x')).toBe('\x1b[7mx\x1b[27m')
@@ -113,7 +113,7 @@ describe('createTheme', () => {
     const light = createTheme(true, true, 'light')
     expect(dark.name).toBe('dark')
     expect(light.name).toBe('light')
-    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;76;108;108m')
+    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;59;87;224m')
     expect(light.getFgAnsi('accent')).not.toBe(dark.getFgAnsi('accent'))
   })
 

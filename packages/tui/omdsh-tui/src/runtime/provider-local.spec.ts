@@ -3463,12 +3463,12 @@ describe('LocalTui (tty)', () => {
       void tui.readline()
       press(term, '/settings\r')
       press(term, '\x1b[B')
-      // Dark accent is #febc38; a colorless session emits no SGR at all.
-      expect(term.captured).not.toContain('\x1b[38;2;254;188;56m')
+      // Dark accent is brand blue #7c93ff; a colorless session emits no SGR at all.
+      expect(term.captured).not.toContain('\x1b[38;2;124;147;255m')
 
       // Row 1 is `Colors`; toggling it applies immediately, without a restart.
       press(term, '\r')
-      expect(term.captured).toContain('\x1b[38;2;254;188;56m')
+      expect(term.captured).toContain('\x1b[38;2;124;147;255m')
       expect(term.captured).not.toContain('\x1b[33m')
       tui.dispose()
     } finally {

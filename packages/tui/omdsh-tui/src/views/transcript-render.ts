@@ -140,6 +140,8 @@ export interface ViewOptions {
   recentSessions?: readonly TuiRecentSession[]
   /** Startup-stable sample of hints shown in the welcome card. */
   welcomeTips?: readonly WelcomeTip[]
+  /** False when no model route is visibly configured; the composer then points at /login. */
+  modelReady?: boolean
   /** Whole-session figures rendered in the footer's telemetry row. */
   sessionStats?: TuiSessionStats
   /** Harness-owned collaboration and permission state. Permission paints on the composer cap. */
@@ -2015,6 +2017,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     appName,
     ...(options.recentSessions === undefined ? {} : { recentSessions: options.recentSessions }),
     ...(options.welcomeTips === undefined ? {} : { tips: options.welcomeTips }),
+    ...(options.modelReady === undefined ? {} : { modelReady: options.modelReady }),
   }, theme)
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)
@@ -2032,6 +2035,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? renderWorking(theme, Math.max(0, spinnerFrame), 'Compacting', width, motion)
       : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
+  const placeholder = options.inspected === undefined && state.status === 'idle'
+    && options.input === '' && (options.inputImages ?? 0) === 0
+    ? options.modelReady === false
+      ? 'Run /login to connect a model'
+      : 'Ask anything · / commands · @ files'
+    : null
   const inlineHint = options.transcriptSearch !== undefined
     ? transcriptSearchHint({
       query: options.transcriptSearch.query,
@@ -2040,6 +2049,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     }, options.transcriptSearch.matches.length)
     : options.inspected === undefined
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
+        ?? placeholder
         ?? (state.status === 'running' && options.steerKey !== undefined
           ? `Enter: next turn · ${options.steerKey}: next step` : null)
       : options.inspected.writable

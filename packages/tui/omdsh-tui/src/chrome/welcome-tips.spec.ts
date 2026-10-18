@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickWelcomeTips, WELCOME_TIPS } from './welcome-tips.ts'
+import { ensureLoginTip, LOGIN_TIP, pickWelcomeTips, WELCOME_TIPS } from './welcome-tips.ts'
 
 describe('pickWelcomeTips', () => {
   it('uses portable textual key names in the welcome catalog', () => {
@@ -24,5 +24,18 @@ describe('pickWelcomeTips', () => {
   it('clamps the requested count to the catalog', () => {
     expect(pickWelcomeTips(() => 0, -1)).toEqual([])
     expect(pickWelcomeTips(() => 0, WELCOME_TIPS.length + 10)).toHaveLength(WELCOME_TIPS.length)
+  })
+})
+
+describe('ensureLoginTip', () => {
+  it('prepends the login hint when sampling missed it', () => {
+    const tips = pickWelcomeTips(() => 0, 4).filter(tip => tip.key !== '/login')
+    expect(ensureLoginTip(tips).some(tip => tip.key === '/login')).toBe(true)
+    expect(ensureLoginTip(tips)[0]).toBe(LOGIN_TIP)
+  })
+
+  it('keeps an existing login hint without duplicating it', () => {
+    const tips = [LOGIN_TIP, ...pickWelcomeTips(() => 0.4, 3)]
+    expect(ensureLoginTip(tips).filter(tip => tip.key === '/login')).toHaveLength(1)
   })
 })

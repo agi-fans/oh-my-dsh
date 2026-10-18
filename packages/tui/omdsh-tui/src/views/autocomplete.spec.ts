@@ -1,6 +1,10 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   applySlashCompletion,
+  COMMAND_GROUPS,
   buildSlashArgumentCompletions,
   buildSlashCommandCompletions,
   BUILTIN_SLASH_COMMANDS,
@@ -271,4 +275,14 @@ it('finds commands by their descriptions without duplicating aliases or hiding e
   expect(buildSlashCommandCompletions(commands, 'deployment')).toEqual([expect.objectContaining({ value: 'plugin-demo', label: 'plugin-demo' })])
   expect(formatHelpText(commands)).toContain('**Extensions · 1**')
   expect(buildSlashCommandCompletions(commands, 'set').filter(item => item.value === 'settings')).toHaveLength(1)
+})
+
+it('assigns every shipped TUI command to a task group', () => {
+  const dir = fileURLToPath(new URL('../commands', import.meta.url))
+  const names = readdirSync(dir)
+    .filter(file => file.endsWith('.ts') && !file.endsWith('.spec.ts'))
+    .flatMap(file => [...readFileSync(join(dir, file), 'utf8').matchAll(/name: '([a-z][a-z0-9-]*)'/gu)]
+      .map(match => match[1]!))
+  const assigned = new Set(COMMAND_GROUPS.flatMap(group => group.names))
+  expect([...new Set(names)].filter(name => !assigned.has(name)).sort()).toEqual([])
 })

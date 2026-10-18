@@ -24,7 +24,7 @@ describe('renderInline', () => {
     const painted = renderInline('[docs](https://example.com)', color)
     expect(painted).toContain('\x1b]8;;https://example.com\x07')
     expect(painted).toContain('\x1b[4m')
-    expect(painted).toContain('\x1b[38;2;0;136;250m')
+    expect(painted).toContain('\x1b[38;2;124;147;255m')
   })
 })
 

@@ -34,6 +34,8 @@ import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-authorization'
+import type {} from '@deepseek-ai/dsh-credentials'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -199,7 +201,8 @@ import {
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
 import { refreshProjectContext, resolveGitStatusFiles, resolveProjectContext } from '../session/project-context.ts'
-import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
+import { ensureLoginTip, pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
+import { modelRouteReady } from '../session/model-readiness.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
   imagePathCandidates,
@@ -381,6 +384,8 @@ export class LocalTui implements TuiService {
   #streamRenderTimer: ReturnType<typeof setTimeout> | null = null
   readonly #term: TerminalLike
   #model: string
+  /** Optimistic until the credential seams answer; false points at /login. */
+  #modelReady = true
   #reasoningEffort: string | undefined
   #colors: boolean
   #themeName: ThemeName
@@ -854,6 +859,13 @@ export class LocalTui implements TuiService {
     if (this.#state.status === 'compacting') return
     this.#state = { ...this.#state, status }
     this.#syncTick()
+    if (this.#tty) this.#render()
+  }
+
+  /** Update first-run model readiness without touching the model label. */
+  setModelReady(ready: boolean): void {
+    if (this.#modelReady === ready) return
+    this.#modelReady = ready
     if (this.#tty) this.#render()
   }
 
@@ -1765,7 +1777,8 @@ export class LocalTui implements TuiService {
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
-        welcomeTips: this.#welcomeTips,
+        welcomeTips: this.#modelReady ? this.#welcomeTips : ensureLoginTip(this.#welcomeTips),
+        modelReady: this.#modelReady,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
         ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
@@ -4259,6 +4272,22 @@ export function apply(ctx: Context, config: Config): void {
   )
   ctx.provide(TUI_SERVICE, tui)
   ctx.effect(() => () => tui.dispose())
+  // A missing route must be visible without turning the welcome card into a
+  // credential check: the seams answer optimistically when they cannot tell.
+  ctx.inject(['settings', 'credentials'], readyCtx => {
+    const refreshModelReady = (): void => {
+      void modelRouteReady(readyCtx).then(ready => tui.setModelReady(ready)).catch(() => {})
+    }
+    refreshModelReady()
+    readyCtx.effect(() => {
+      const disposers = [
+        readyCtx.on('credentials/reference-updated', refreshModelReady),
+        readyCtx.on('credentials/record-updated', refreshModelReady),
+        readyCtx.on('authorization/settled', refreshModelReady),
+      ]
+      return () => { for (const dispose of disposers) dispose() }
+    }, 'omdsh model readiness')
+  })
   // Preferences are this entry's own volatile config: the initial read applies
   // them without persisting, a committed form edit dispatches a volatile update
   // to this fiber only, and an in-app `/settings` change writes back through the

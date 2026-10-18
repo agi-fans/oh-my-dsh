@@ -106,6 +106,10 @@
       "types": "./lib/commands/schedule.d.ts",
       "default": "./lib/commands/schedule.js"
     },
+    "./model-readiness": {
+      "types": "./lib/session/model-readiness.d.ts",
+      "default": "./lib/session/model-readiness.js"
+    },
     "./command-auth": {
       "types": "./lib/commands/auth.d.ts",
       "default": "./lib/commands/auth.js"

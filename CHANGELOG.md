@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `@` autocomplete offers `@diff`, `@staged` and `@git` workspace context shortcuts to insert all modified or staged Git file mentions at once, `/copy` supports live type-to-filter search and `/copy output` (`out`) for tool outputs, and `/files` supports workspace-wide fuzzy search via `Shift+F` or `/files <query>`.
 - `/rate` records per-reply feedback for a finalized Assistant message: positive or negative, a fixed category and an optional note, or clears an existing rating. Ratings are versioned log-only Session records that never enter model context; version conflicts retry once against the current value.
 - `/schedule` lists this session's durable reminders, opens retained delivery records, renames or re-instructs one, and deletes it after confirmation; creating and retiming reminders stays with the model's `schedule_*` tools. Due reminders deliver as follow-up messages after restart, resuming a cold session in the background without switching the visible one.
+- The composer shows an empty-state hint (`Ask anything · / commands · @ files`), while an unconnected session points at `/login` in both the composer and the welcome card instead of leaving only a cursor.
 
 ### Changed
 
@@ -49,6 +50,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Codex and Claude Code bundles ship with omdsh, disabled until enabled in Integration settings; package availability and profile enablement are shown separately.
 
 - Upgrade the published DeepSeek Harness packages to `0.2.1-alpha.2` and adapt delegation to runtime-managed activations. External executions show lifecycle state and deliver results to the parent without a local transcript. Pipe-mode exit waits for progressing children; session teardown drains descendants first.
+- The default dark and light palettes now follow the DeepSeek brand blue and cyan from the public site instead of the inherited amber theme, and the welcome logo uses the same brand ramp.
 - Upgrade the published DeepSeek Harness packages to `0.2.1-rc.2` with the matching stable Cordis cohort. Plugin compatibility follows a declared `engines.dsh` range before DSH peers, `/plugins` reports why a change needs a restart, and the JSONL persistence backend mounts as a plugin; stored sessions keep the v4 format.
 - Session Library browsing shows migration-required logs without opening or upgrading them. Interactive resume asks before migration; explicit line-input and CLI resume remain supported. Startup no longer migrates the entire stored corpus.
 
