@@ -102,6 +102,10 @@
       "types": "./lib/commands/rate.d.ts",
       "default": "./lib/commands/rate.js"
     },
+    "./command-schedule": {
+      "types": "./lib/commands/schedule.d.ts",
+      "default": "./lib/commands/schedule.js"
+    },
     "./command-auth": {
       "types": "./lib/commands/auth.d.ts",
       "default": "./lib/commands/auth.js"
@@ -205,6 +209,7 @@
     "@deepseek-ai/dsh-plugin-manager": "0.2.1-rc.2",
     "@deepseek-ai/dsh-sandbox": "0.2.1-rc.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-schedule": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session-projection": "0.2.1-rc.2",

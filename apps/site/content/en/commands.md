@@ -79,6 +79,7 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
 | `/feedback <text>` | Record a private note about the current session. It appends a log-only event the model never sees — nothing leaves the machine — and confirms the session and anonymous user id. |
 | `/rate` | Rate a finalized assistant reply as positive or negative, optionally file a category and note, or clear an existing rating. Feedback is stored in the local Session log and never enters model context. |
+| `/schedule` | List this session's durable reminders, edit a name or instruction, open retained delivery records, or delete one. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
 
 ## Files and terminals
 

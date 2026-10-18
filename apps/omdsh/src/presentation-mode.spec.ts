@@ -47,6 +47,16 @@ describe('preset tool presentation on the wire', () => {
     expect(lastRequest).toContain('The working directory changed')
   }, 180_000)
 
+  it('offers reminder tools to standard and hides them from minimal', async () => {
+    const standard = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-schedule-standard-') })
+    expect(standard.status, standard.output.slice(-2000)).toBe(0)
+    expect(requestToolNames(standard.bodies[0])).toContain('schedule_create')
+    expect(requestToolNames(standard.bodies[0])).toContain('schedule_list')
+    const minimal = await bootTuiTurn({ preset: 'minimal', home: temp('omdsh-schedule-minimal-') })
+    expect(minimal.status, minimal.output.slice(-2000)).toBe(0)
+    expect(requestToolNames(minimal.bodies[0])).not.toContain('schedule_create')
+  }, 240_000)
+
   it('samples child model selection into new-session tools while fork keeps its parent route', async () => {
     const turn = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-subagent-routes-'), toolCall: { name: 'list_subagent_models', arguments: '{}' }, patch: [
       '- id: subagent-model-selection-settings', '  config:', '    enabled: true', '    allowedModels:',

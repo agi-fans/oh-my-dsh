@@ -28,6 +28,10 @@
 
 回归要求包括：后台 120 个不改变可见状态的 chunk 不发布 roster 或 transcript 更新；打开 inspector 后前缀完整；活动更新不绘制主列表；Starting → Running → Waiting 可以合并显示；持久工具事件、失败状态、恢复和键盘选择仍正确。这些是工作量与行为断言，不是远程模型延迟承诺。
 
+## 后台交付会话
+
+计划提醒由 `dsh-schedule` 在到期时调用 `sessionController.resolveAgent` 交付，不是用户打开会话才触发。[session-controller](../../apps/omdsh/src/session-controller.ts) 对活会话直接返回 Agent；对冷会话按日志记录的 preset 和当前默认模型恢复，并保持常驻，交付只追加 `followup` 并等待 Session flush。恢复不经过 TUI 的激活路径，因此不会替换当前转录、不会改变 active 状态，也不会把后台流式增量转发给主界面；`session/event` 仍按现有规则只把当前可见或 inspector 会话的事件送入视图。后台 Agent 由该服务的 effect 在应用退出时统一释放。
+
 ## 性能证据与限制
 
 2026-09-10 在 omdsh `0.15.0` 上的[调查](https://github.com/agi-fans/oh-my-dsh/blob/7c6dae0/docs/subagent-responsiveness-analysis.md)观察到同步渲染放大：第一轮 CPU profile 约 97% 样本在 TUI 渲染链路，第二轮仍有该热点但约 31% idle。证据支持间歇性主线程饥饿，不支持永久死锁或内存泄漏结论。

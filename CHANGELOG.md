@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Interactive Keybindings in `/settings` (**Interface → Input → Keybindings**) remaps or unbinds shortcuts and reloads `keybindings.json` without restarting.
 - `@` autocomplete offers `@diff`, `@staged` and `@git` workspace context shortcuts to insert all modified or staged Git file mentions at once, `/copy` supports live type-to-filter search and `/copy output` (`out`) for tool outputs, and `/files` supports workspace-wide fuzzy search via `Shift+F` or `/files <query>`.
 - `/rate` records per-reply feedback for a finalized Assistant message: positive or negative, a fixed category and an optional note, or clears an existing rating. Ratings are versioned log-only Session records that never enter model context; version conflicts retry once against the current value.
+- `/schedule` lists this session's durable reminders, opens retained delivery records, renames or re-instructs one, and deletes it after confirmation; creating and retiming reminders stays with the model's `schedule_*` tools. Due reminders deliver as follow-up messages after restart, resuming a cold session in the background without switching the visible one.
 
 ### Changed
 

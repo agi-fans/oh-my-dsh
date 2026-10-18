@@ -28,7 +28,7 @@
 | 范围 | 数量 | 口径 |
 | --- | --- | --- |
 | 核心交互与运行时 | 11 项跟踪，10 项已实现、1 项部分支持 | C01–C05、C07–C11 已实现对应产品入口；C06 提供行输入控制台，原始 PTY 附着未实现；Windows 仍待实机验收 |
-| 可选或实验扩展 | 20 组 | 部分已有通用 MCP、Skill 或 provider seam，但缺少对应官方能力的配置、交互与真实环境验证 |
+| 可选或实验扩展 | 20 组 | E01、E02 已实现；其余部分已有通用 MCP、Skill 或 provider seam，但缺少对应官方能力的配置、交互与真实环境验证 |
 | 独立宿主模式 | 4 组 | SDK、ACP server、Web/Desktop 与浏览器 Worker，需要独立入口和生命周期 |
 | 同能力替代 provider | 1 组 | Search、Storage、Title 已有实现，不计为整项缺失 |
 
@@ -59,7 +59,7 @@
 | ID | 能力 | 当前支持 | 补齐的实际工作 | 上游限制与来源 |
 | --- | --- | --- | --- | --- |
 | E01 | Claude Code / Codex command hooks 兼容 | 已实现按需启用：Settings → Integrations 的 Command hooks 选择 off/codex/claude-code 和配置路径，默认关闭 | 已挂发布 bridge；切换前等待旧拦截链卸载，显示 hook/result 失败及阻断。真实 CLI 覆盖两种 bridge 首轮调用；bridge 切换和卸载有生命周期回归；长时间 hook 命令取消仍需对应脚本验收 | 只兼容文档列出的同步 command hooks，不能承诺两种产品的全部 hook 语义；Claude 的部分事件、改写参数和远程子 Agent 注入缺失，Codex 只映射五个事件。[Claude bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-claude-code/README.md)、[Codex bridge](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/hooks/hooks-codex/README.md) |
-| E02 | 持久提醒与定时任务 | 未产品化；现有 `/loop` 是进程内重复提示，不等同持久 schedule | 挂载 `dsh-schedule` 与 `dsh-tool-schedule`，提供其需要的 `sessionController` 生命周期适配、任务列表/编辑/删除/记录 UI，确保冷会话恢复不会抢占当前 TUI | 支持一次、固定间隔、daily、weekly、五字段 cron；宿主必须运行，非恰好一次、没有自动失败重试定时器；任务只投递原会话，不支持子 Agent 创建。[Schedule](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/schedule/README.md)、[工具](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/tool-schedule/README.md)、[所需服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/schedule/src/index.ts)、[现有 loop](../../packages/tui/omdsh-tui/src/commands/loop.ts) |
+| E02 | 持久提醒与定时任务 | 已实现 | `dsh-schedule` 挂在 storage-domain 之后，`dsh-tool-schedule` 作为全局工具行（minimal 的 allow 列表自然隐藏，子代理由工具自身拒绝）。TUI 提供 `sessionController.resolveAgent` 后台适配：活会话直接返回，冷会话按记录 preset 与当前默认模型恢复并常驻，只 `followup` + flush，不切换当前界面。`/schedule` 列出、查看交付记录、改名称/指令与删除；定时修改由模型工具完成。`/loop` 仍是进程内重复提示。 | 已用真实入口验证服务启动、空列表与 standard/minimal 工具可见性；真实定时器测试覆盖活会话投递，以及重启后冷会话恢复投递（`after_seconds` 到期）。Windows 实机仍待验收。 | 支持一次、固定间隔、daily、weekly、五字段 cron；宿主必须运行，非恰好一次、没有自动失败重试定时器；任务只投递原会话，不支持子 Agent 创建。[Schedule](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/schedule/README.md)、[工具](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/schedule/tool-schedule/README.md)、[适配器](../../apps/omdsh/src/session-controller.ts)、[命令](../../packages/tui/omdsh-tui/src/commands/schedule.ts) |
 | E03 | 模型时间与时区上下文 | 未产品化：当前没有 `dsh-time-context` | 挂载公开插件，明确终端宿主时区来源，测试新消息/恢复/压缩和多个时区；必要时在 TUI 展示注入来源 | 默认至少间隔十分钟注入；没有唯一用户时区时指导模型澄清，fallback 时区不代表用户授权，也不替定时工具补时区。[Time context](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/context/time-context/README.md) |
 | E04 | tmux 所在窗格上下文 | 未产品化；上游也是显式 opt-in | 挂载 `dsh-tmux-context`，以真实控制终端验证，不把继承环境变量误判为 tmux 内运行 | 每个 Turn 首步检查自己的位置，只提供 pane/window/layout，不读取相邻窗格正文；POSIX 检测不可用时不注入。[tmux context](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/context/tmux-context/README.md) |
 | E05 | 官方 Office 工作流与结构校验 | 已有通用 Skill 加载，但未提供官方 `office-docx/pptx/xlsx` 的完整环境 | 选配 `dsh-skill-office`，提供 Python 与 authoring libraries、独立 Node/LibreOffice Kit 路径、文件交付和需要时的图片预览；可使用宿主现有环境，也可单独交付受支持的 runtime payload | Skill 包不安装 Python/authoring libraries；结构检查不能证明分页、字体或公式重算。`load_workspace_dependencies` 必须有真实 payload，不应为包齐全而虚构路径。[Office](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/skill/skill-office/README.md)、[运行时查询](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/skill/tool-workspace-dependencies/README.md) |
@@ -109,7 +109,7 @@
 
 1. C01–C04 与 C11 已完成当前批次实现。插件/设置/preset 基础提供后续扩展共用的安装、启停、诊断与配置路径；保留表中列出的平台及编辑边界。
 2. C05–C10 已提供逐条消息反馈、附件、文件预览、Workflow 状态及完整 ZIP 归档；C06 已提供行输入控制台。后续按真实终端需求评估原始 PTY 附着，不移植 Web 组件。
-3. 按可选组合补 E01–E20。E01 已提供默认关闭的 command hooks；后续优先持久 schedule、时间上下文、Office 与账户路由；浏览器、桌面、SSH、原生子 Agent 和语音需配套真实环境。Agent Teams、Auto review、Mods、Python PTC 等维持实验标识和平台限制。
+3. 按可选组合补 E01–E20。E01 已提供默认关闭的 command hooks，E02 已提供持久提醒；后续优先时间上下文、Office 与账户路由；浏览器、桌面、SSH、原生子 Agent 和语音需配套真实环境。Agent Teams、Auto review、Mods、Python PTC 等维持实验标识和平台限制。
 4. H01–H04 独立规划为宿主入口。SDK/ACP 不与 TUI 争用 stdio；Web/Desktop/Worker 不混入现有终端 composition。
 
 每个能力的完成标准是发布产物可用、配置入口可发现、失败/取消可呈现、恢复与清理符合自身契约，并通过相应平台和环境的验证。E18/E19 的外发数据路径单独提供明确启用与关闭方式，不将本地支持等同远端已经收到数据。实施进度以核心表状态为准；其余扩展与宿主未因升级依赖而自动获得完整支持。

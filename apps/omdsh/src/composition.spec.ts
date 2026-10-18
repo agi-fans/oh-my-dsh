@@ -386,6 +386,14 @@ describe('dsh spine expansion', () => {
     expect(productRows().some(entry => entry.id === 'session-persistence')).toBe(true)
   })
 
+  it('mounts durable reminders with a background session controller', () => {
+    const rows = productRows()
+    expect(rows.find(entry => entry.id === 'schedule')?.name).toBe('@deepseek-ai/dsh-schedule')
+    expect(rows.find(entry => entry.id === 'tool-schedule')?.name).toBe('@deepseek-ai/dsh-tool-schedule')
+    expect(rows.find(entry => entry.id === 'session-controller')?.name).toBe('@agi-fans/oh-my-dsh/session-controller')
+    expect(rows.some(entry => entry.id === 'storage-domain')).toBe(true)
+  })
+
   it('mounts the per-turn changed-file summarizer next to the workspace row', () => {
     const row = productRows().find(entry => entry.id === 'workspace-changes')
     expect(row?.name).toBe('@deepseek-ai/dsh-workspace-changes')

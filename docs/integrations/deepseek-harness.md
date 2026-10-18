@@ -52,6 +52,7 @@ Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理
 - **Web Search 与反馈**：均已提供，实际开关及配置见[工具](../../apps/site/content/zh/tools.md)和[设置](../../apps/site/content/zh/settings.md)，不再重复维护为待挂载计划。Session 级备注走上游 `/feedback`；逐条 Assistant 回复的评分、分类、备注与清除走 `dsh-message-feedback` 与 TUI `/rate`，两者都只写本地日志，`/rate` 按消息版本做 compare-and-set。
 - **Spill 与压缩**：单次工具 spill 会改变写入日志的结果，当前显式 `maxInlineTokens: 50000`；压缩前 pruner 则只裁剪模型上下文，完整结果仍在日志。组合顺序固定为 token meter → tool-result pruner → compaction，不能混淆两者对工具展开的影响。
 - **Workflow**：仅挂 `dsh-workflow-ptc` provider，`dsh-workflow` 保留为依赖；同时挂两个 seam provider 会重复注册 `workflowEngine`。工具保持 `workflow_run` 命名，以兼容已有会话与工具策略；Plan 状态通过上游 `/plan` 命令管理。
+- **提醒**：`dsh-schedule` 挂在 storage-domain 之后，`dsh-tool-schedule` 作为全局工具行，minimal 的 allow 列表自然隐藏，子代理由工具自身拒绝。TUI 提供 `sessionController.resolveAgent`：活会话直接返回，冷会话按记录的 preset 与当前默认模型恢复并常驻，交付只追加 `followup` 并 flush，不激活或替换当前界面。`/schedule` 负责列表、交付记录、改名/改指令与删除，定时修改仍由模型工具完成。真实定时器回归覆盖活会话投递与重启后的冷会话恢复投递。
 - **Ralph**：工具行保留但默认禁用，用户显式启用才进入自动循环；不能因升级上游默认组合而自动打开。
 
 ## 隔离子任务

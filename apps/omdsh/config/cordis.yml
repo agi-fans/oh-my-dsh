@@ -119,6 +119,14 @@
     config:
       backend: json
 
+  # Durable reminders. Delivery resolves its Session through the background
+  # controller below; a cold Session is resumed without touching the TUI.
+  - id: schedule
+    name: '@deepseek-ai/dsh-schedule'
+    config:
+      deliveryHistoryDays: 30
+      deliveryHistoryRecords: 200
+
   # Durable projection checkpoints — the piece that lets a cold session
   # answer its title without reading its log. Without it the `@` session
   # menu and the recent-session list can only label cold sessions by id.
@@ -201,6 +209,12 @@
     name: '@deepseek-ai/dsh-agent-preset-registry'
     config:
       default: standard
+
+  # Background Session resolution for plugins that deliver without a client,
+  # currently Schedule. It exposes only `resolveAgent`; the visible Session is
+  # never activated or replaced.
+  - id: session-controller
+    name: '@agi-fans/oh-my-dsh/session-controller'
 
   - id: commands
     name: '@deepseek-ai/dsh-commands'
@@ -367,6 +381,11 @@
 
   - id: tool-jobs
     name: '@deepseek-ai/dsh-tool-jobs'
+
+  # Reminder management tools bind to the calling Session and disappear in
+  # minimal through its allow list; delegated children are refused by the tool.
+  - id: tool-schedule
+    name: '@deepseek-ai/dsh-tool-schedule'
 
   # Persistent, owner-scoped terminal sessions for interactive stdin and
   # cross-call state (REPLs, debuggers, a shell to return to). The one-shot
@@ -730,6 +749,9 @@
 
   - id: tui-command-rate
     name: '@agi-fans/dsh-tui/command-rate'
+
+  - id: tui-command-schedule
+    name: '@agi-fans/dsh-tui/command-schedule'
 
   - id: tui-startup-notices
     name: '@agi-fans/dsh-tui/startup-notices'
