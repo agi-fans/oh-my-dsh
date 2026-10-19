@@ -240,7 +240,7 @@ interface FlowRecordLogout {
   writable: boolean
 }
 
-type LogoutChoice = LlmConfigurableProvider | FlowRecordLogout
+type LogoutChoice = LlmConfigurableProvider | FlowRecordLogout | typeof DEEPSEEK_ACCOUNT_CHOICE
 
 function loginChoiceValues(
   entries: readonly LlmConfigurableProvider[],
@@ -300,7 +300,7 @@ function catalogForRecord(ctx: Context, key: CredentialKey): LlmConfigurableProv
 }
 
 function isFlowRecordLogout(choice: LogoutChoice): choice is FlowRecordLogout {
-  return 'key' in choice && 'writable' in choice && !('provider' in choice)
+  return typeof choice !== 'string' && 'key' in choice && 'writable' in choice && !('provider' in choice)
 }
 
 async function configuredFlowRecords(ctx: Context): Promise<FlowRecordLogout[]> {
@@ -332,6 +332,9 @@ async function configuredFlowRecords(ctx: Context): Promise<FlowRecordLogout[]> 
 async function logoutableChoices(ctx: Context): Promise<LogoutChoice[]> {
   const providers = logoutableProviders(ctx)
   const records = await configuredFlowRecords(ctx)
+  const account = accountClient(ctx)
+  const accountState = account === undefined ? undefined : await account.getState().catch(() => undefined)
+  const accountChoice: LogoutChoice[] = accountState?.status === 'credential-stored' ? [DEEPSEEK_ACCOUNT_CHOICE] : []
   const actionable: LlmConfigurableProvider[] = []
   let inactiveDeepSeek: LlmConfigurableProvider | undefined
 
@@ -347,10 +350,11 @@ async function logoutableChoices(ctx: Context): Promise<LogoutChoice[]> {
     else inactiveDeepSeek = entry
   }
 
-  const choices: LogoutChoice[] = [...actionable, ...records]
+  const choices: LogoutChoice[] = [...accountChoice, ...actionable, ...records]
   // Preserve the direct explanatory response when the environment-owned or
   // already-logged-out official route is the only thing the command can see.
-  return choices.length === 0 && inactiveDeepSeek !== undefined ? [inactiveDeepSeek] : choices
+  if (choices.length === 0 && inactiveDeepSeek !== undefined) return [inactiveDeepSeek]
+  return choices
 }
 
 function selected(raw: string, values: readonly string[]): string | undefined {
@@ -888,6 +892,40 @@ async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Prom
   return { kind: 'success', text: 'Logged out from DeepSeek. The next model request falls back to the environment when available.' }
 }
 
+async function logoutDeepSeekAccount(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const account = accountClient(ctx)
+  if (account === undefined) return { kind: 'error', text: 'DeepSeek account integration is not mounted in this build.' }
+  let state: AccountStateLike
+  try {
+    state = await account.getState()
+  } catch {
+    return { kind: 'error', text: 'Could not read the shared DeepSeek account state.' }
+  }
+  if (state.status !== 'credential-stored') {
+    return { kind: 'success', text: 'No DeepSeek account grant is stored.' }
+  }
+  const answer = await ctx.tui.prompt({
+    title: 'Logout from DeepSeek account',
+    question: 'Sign out of the shared DeepSeek account?',
+    detail: 'Removes the local grant and revokes it in the background. The browser session is not signed out.',
+    options: [
+      { label: 'Cancel', value: 'cancel', description: 'Keep the account grant.' },
+      { label: 'Sign out', value: 'logout', description: 'Remove the local grant and revoke it in the background.' },
+    ],
+    initialValue: 'cancel',
+    allowCustom: false,
+    notify: false,
+    signal: invocation.signal,
+  })
+  if (answer !== 'logout') return { kind: 'success' }
+  try {
+    await account.signOut(accountClientMetadata())
+  } catch {
+    return { kind: 'error', text: 'Could not sign out of the DeepSeek account. Try again from DSH Web/Desktop.' }
+  }
+  return { kind: 'success', text: 'Signed out of the DeepSeek account. The local grant was removed; remote revocation continues in the background.' }
+}
+
 async function pickLogoutChoice(
   ctx: Context,
   invocation: CommandInvocation,
@@ -895,7 +933,9 @@ async function pickLogoutChoice(
   const choices = await logoutableChoices(ctx)
   if (choices.length === 0) return undefined
   if (choices.length === 1) return choices[0]
-  const values = choices.map(choice => isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
+  const values = choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
+    ? DEEPSEEK_ACCOUNT_CHOICE
+    : isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
   const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
@@ -903,17 +943,23 @@ async function pickLogoutChoice(
     filterable: fullscreen,
     title: 'Provider',
     question: 'Choose a provider to log out from',
-    options: choices.map(choice => isFlowRecordLogout(choice)
+    options: choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
       ? {
-        label: choice.label,
-        value: flowChoiceValue(choice.key),
-        description: choice.writable ? 'signed in' : 'not removable here',
+        label: 'DeepSeek account',
+        value: DEEPSEEK_ACCOUNT_CHOICE,
+        description: 'shared with DSH · signed in',
       }
-            : {
-              label: providerListId(choice),
-              value: choice.provider,
-              description: 'signed in',
-            }),
+      : isFlowRecordLogout(choice)
+        ? {
+          label: choice.label,
+          value: flowChoiceValue(choice.key),
+          description: choice.writable ? 'signed in' : 'not removable here',
+        }
+        : {
+          label: providerListId(choice),
+          value: choice.provider,
+          description: 'signed in',
+        }),
     allowCustom: false,
     notify: false,
     signal: invocation.signal,
@@ -921,9 +967,10 @@ async function pickLogoutChoice(
   if (raw === null) return undefined
   const chosen = selected(raw, values)
   if (chosen === undefined) return undefined
+  if (chosen === DEEPSEEK_ACCOUNT_CHOICE) return DEEPSEEK_ACCOUNT_CHOICE
   const flowKey = parseFlowChoice(chosen)
   if (flowKey !== undefined) return choices.find(choice => isFlowRecordLogout(choice) && choice.key === flowKey)
-  return choices.find(choice => !isFlowRecordLogout(choice) && choice.provider === chosen)
+  return choices.find(choice => typeof choice !== 'string' && !isFlowRecordLogout(choice) && choice.provider === chosen)
 }
 
 async function logoutRecord(
@@ -1203,6 +1250,7 @@ async function logout(ctx: Context, invocation: CommandInvocation): Promise<Comm
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /logout' }
   const choice = await pickLogoutChoice(ctx, invocation)
   if (choice === undefined) return { kind: 'success' }
+  if (choice === DEEPSEEK_ACCOUNT_CHOICE) return logoutDeepSeekAccount(ctx, invocation)
   if (isFlowRecordLogout(choice)) return logoutRecord(ctx, invocation, choice)
   return isDeepSeek(choice)
     ? logoutDeepSeek(ctx, invocation)
@@ -1212,6 +1260,6 @@ async function logout(ctx: Context, invocation: CommandInvocation): Promise<Comm
 export function apply(ctx: Context, config: Config = {}): void {
   registerCommands(ctx, [
     { name: 'login', description: 'Sign in to a provider', handler: invocation => login(ctx, invocation, config) },
-    { name: 'logout', description: 'Sign out of a stored provider', handler: invocation => logout(ctx, invocation) },
+    { name: 'logout', description: 'Sign out of a stored provider or account', handler: invocation => logout(ctx, invocation) },
   ], 'omdsh authentication commands')
 }

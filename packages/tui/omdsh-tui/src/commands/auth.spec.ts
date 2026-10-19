@@ -197,7 +197,7 @@ describe('DeepSeek auth commands', () => {
     const harness = await authHarness()
     expect(harness.ctx.commands.list(harness.agent)).toEqual(expect.arrayContaining([
       { name: 'login', description: 'Sign in to a provider' },
-      { name: 'logout', description: 'Sign out of a stored provider' },
+      { name: 'logout', description: 'Sign out of a stored provider or account' },
     ]))
     await harness.ctx.fiber.dispose()
   })
@@ -883,6 +883,24 @@ describe('DeepSeek account reuse', () => {
     await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     const options = harness.prompt.mock.calls[0]?.[0].options ?? []
     expect(options.some(option => String(option.value).startsWith(commandAuth.FLOW_VALUE_PREFIX + 'deepseek-account-platform/'))).toBe(false)
+    await harness.ctx.fiber.dispose()
+  })
+})
+
+describe('DeepSeek account logout', () => {
+  it('lists and signs out the shared account from /logout', async () => {
+    const harness = await authHarness({
+      accountStatus: 'credential-stored',
+      fallback: { configured: true, source: 'file', writable: true },
+      answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'logout'],
+    })
+    const execution = await harness.ctx.commands.execute(harness.agent, '/logout', [], new AbortController().signal)
+    expect(harness.prompt.mock.calls[0]?.[0].options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'DeepSeek account', value: commandAuth.DEEPSEEK_ACCOUNT_CHOICE }),
+    ]))
+    expect(harness.prompt.mock.calls[1]?.[0]).toMatchObject({ title: 'Logout from DeepSeek account' })
+    expect(harness.account.signOut).toHaveBeenCalled()
+    expect(execution?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('Signed out of the DeepSeek account') })
     await harness.ctx.fiber.dispose()
   })
 })
