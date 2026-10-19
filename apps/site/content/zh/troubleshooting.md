@@ -20,6 +20,10 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 
 由于标签页是从终端打开而不是由 `window.open` 打开，浏览器可能不会自动关闭它；看到完成提示后手动关闭，并在 TUI 中按回车。远程主机需要把 TUI 显示的 loopback 端口通过 SSH 转发到本机，回调才能到达 TUI。登录后共享账户会同时出现在 `/login` 与 `/logout`；登出会删除本地 grant，并在后台尝试撤销。
 
+## 日志
+
+交互式 TUI 会把插件的 `console` 输出重定向到 `$OMDSH_HOME/omdsh/logs/omdsh.log`，而不是 stdout，诊断文本不会写进 composer 或破坏画面。文件只保留在本机，可能包含运行细节；`omdsh exec` 仍使用自己的 stdout/stderr 协议。删除该文件即可重置日志。
+
 ## 颜色
 
 在未设置显式颜色偏好时，`NO_COLOR` 与 `FORCE_COLOR=0` 会关闭彩色输出。显式选择——插件配置或在 `/settings` 中选择的值——仍然优先于环境变量；在 `/settings` 中开启颜色会立即生效，无需重启。

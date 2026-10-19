@@ -91,7 +91,9 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   assert.ok(watched, 'profile patch watcher applies a hand edit')
-  console.log('RUNTIME_MANAGEMENT_OK')
+  // The interactive host redirects console output into its log; emit the probe
+  // marker on stdout so this launcher-level assertion still observes completion.
+  process.stdout.write('RUNTIME_MANAGEMENT_OK\\n')
 } finally { await shutdown.shutdown(0) }
 `)
     try {

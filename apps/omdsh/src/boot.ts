@@ -14,6 +14,7 @@ import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { NAME, prepareLaunchEnvironment } from './composition.ts'
 import { composeLaunch, INSTALL_ANCHOR, PROFILE_NAME } from './profile.ts'
 import { omdshHome } from './config-paths.ts'
+import { installConsoleLogSink } from './console-log.ts'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 export { NAME } from './composition.ts'
@@ -28,6 +29,9 @@ export async function runOmdsh(
   prompt: readonly string[],
   resume?: string,
 ): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
+  // The interactive provider owns stdout; plugin console output must not write
+  // into the composer. Exec keeps its own stdout/stderr routing.
+  installConsoleLogSink(omdshHome())
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const interrupt = (code: number): void => {

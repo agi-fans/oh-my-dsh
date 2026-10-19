@@ -20,6 +20,10 @@ Sessions first created with v0.5.0 through v0.11.0 may contain a private event t
 
 The browser may keep the tab open because it was opened from the terminal rather than by `window.open`; close it after the completion message and press Enter in the TUI. On a remote host, forward the displayed loopback port over SSH so the callback can reach the TUI. Once signed in, the shared account appears in both `/login` and `/logout`; signing out removes the local grant and revokes it in the background.
 
+## Logs
+
+The interactive TUI redirects plugin `console` output to `$OMDSH_HOME/omdsh/logs/omdsh.log` instead of stdout, so a diagnostic cannot write into the composer or corrupt the frame. The file is local and may contain operational details; `omdsh exec` keeps its own stdout/stderr protocol. Remove the file to reset the log.
+
 ## Color
 
 `NO_COLOR` and `FORCE_COLOR=0` stop color output when no explicit preference is set. An explicit choice — plugin configuration or a value chosen in `/settings` — still wins over the environment, and turning color on in `/settings` takes effect immediately without a restart.

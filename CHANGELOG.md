@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Plugin console diagnostics no longer write into the TUI composer; the interactive terminal routes them to `$OMDSH_HOME/omdsh/logs/omdsh.log`.
+
 - The startup welcome card no longer keeps a stale "Not connected · /login" line after signing in; first-run readiness now lives only in the live composer placeholder, which is re-read after startup and updates on credential and account changes.
 
 - The shared DeepSeek account now appears in `/logout` and can be signed out there, instead of only from the `/login` account prompt.

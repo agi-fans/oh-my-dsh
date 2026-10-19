@@ -52,6 +52,8 @@ Approval rules are an independent service over the published tool pipeline and a
 
 The default terminal palette is derived from the public site tokens in `apps/site/src/styles/tokens.css`: DeepSeek blue `#4d6bfe` with the cyan gradient partner `#35c8de`, not the inherited amber/cyan scheme. `accent`, `border`, `borderAccent`, headings, links, list bullets, and the logo gradient follow that ramp; success, warning, error, code syntax, and card surfaces keep their semantic palettes. The light palette uses the site's light brand (`#3b57e0`). Contrast is enforced by `theme-contrast.spec.ts`, including fixed card backgrounds and representative host backgrounds.
 
+The interactive host owns stdout and redirects plugin `console` calls to `$OMDSH_HOME/omdsh/logs/omdsh.log`; a plugin diagnostic must never write a raw line into the composer or corrupt the rendered frame. `omdsh exec` keeps its separate stdout/stderr protocol.
+
 First-run readiness is optimistic and non-blocking. `modelRouteReady()` treats the upstream `DEEPSEEK_API_KEY`, a stored DeepSeek account grant, a configured `llm-pi-ai` provider profile, or a custom `apiKeyEnv` as connected; when both the settings and credentials seams are unavailable it also reports connected rather than guessing. Only a definite "no signal" answer changes the live composer placeholder to point at `/login`. The welcome card is startup-stable and deliberately carries no transient readiness line, because rows that enter native scrollback must not be rewritten; tips are not mutated after boot. Credential and authorization changes recompute the placeholder, so a completed `/login` clears the hint without a restart.
 
 ## File recovery design constraints
