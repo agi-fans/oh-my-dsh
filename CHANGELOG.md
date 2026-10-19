@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-19
+
 ### Added
 
 - Standard, PTC, and Cordis presets mount the upstream `dsh-time-context` clock (Minimal does not), so date-sensitive requests no longer depend on the model guessing the current time; transcript exports skip clock and plugin snapshots.
@@ -627,7 +629,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.17.0...v0.18.0
