@@ -67,7 +67,7 @@ ACP 工具必须使用 `maxDepth: provider-managed`，不设置 `agentOptions`�
 
 完整覆盖清单见[上游功能支持盘点](upstream-feature-support.md)，区分核心交互与平台缺口、可选扩展、替代 Provider 和独立宿主；按用户能力统计，不按缺少的包数统计。
 
-Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；schedule、time/tmux context、skill-badge 当前未由产品默认挂载。它们不是依赖版本遗漏：接入前需有明确用户场景，核对已发布 API、权限与生命周期，再决定产品默认值和最小交互面；上游 base 挂载不等于 omdsh 必须挂载。
+Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；time-context 已在 Standard/PTC/Cordis 默认挂载、Minimal 不挂，tmux context 与 skill-badge 当前未由产品默认挂载。它们不是依赖版本遗漏：接入前需有明确用户场景，核对已发布 API、权限与生命周期，再决定产品默认值和最小交互面；上游 base 挂载不等于 omdsh 必须挂载。
 
 `/plugins` 查看实际激活状态与安装事务；`omdsh --dump-config` 查看组合声明，两者不互相替代。冷会话投影缓存或 turn 大纲也应由实际加载瓶颈触发，先确认产品消费路径能使用该缓存，不能为了包名齐全而挂载。
 

@@ -25,11 +25,12 @@ npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-Run `/login` once inside omdsh to validate and save your DeepSeek API key, then start a conversation. To try it without a global installation, run `npx @agi-fans/oh-my-dsh`.
+Run `/login` once inside omdsh to sign in with a DeepSeek account or save an API key, then start a conversation. To try it without a global installation, run `npx @agi-fans/oh-my-dsh`.
 
 ## Highlights
 
 - **Durable conversations:** search, pin, rename, and resume sessions in `/resume`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
+- **DeepSeek-native auth:** sign in from `/login` through the browser or store a key; a DeepSeek account grant shared with DSH is reused, `/logout` signs it out, and web search/fetch use the same credential.
 - **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
 - **Rich terminal input:** mention project files and other sessions with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
 - **Readable turns:** follow thinking, replies, and tool previews while the agent works. Completed work folds to a duration summary and the full final answer; `Ctrl+O` restores the process view. Scroll through either view, keep the current prompt pinned, and jump back to the latest message with `End`.

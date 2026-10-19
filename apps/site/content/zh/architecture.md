@@ -57,10 +57,11 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 是 `@agi-fans/oh-my-dsh` 产品 bundle，叠在空的 `$OMDSH_HOME/profiles/omdsh` 根上，其中组合了：
 
 - Cordis Loader 与 Timer 基础设施；
-- 官方 DeepSeek LLM Adapter、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
+- 官方 DeepSeek API-key 与账户两条 LLM 路由、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
+- DeepSeek 账户 grant 及其仅 loopback 的 OAuth 回调宿主，以及官方 DeepSeek Search/Fetch API Provider 与 Messages/本地 HTTP fallback；
 - 持久化 JSONL 会话、Checkpoint、查询、文件引用与跨会话引用、标题、统计与 Token Projection；
 - 本地附件、文件系统、子进程、Sandbox 和权限 Provider，以及每台主机唯一的一套 Shell 栈（POSIX 上是 `bash`，Windows 上是 `pwsh`）及其对应的模型工具；
-- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合，以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
+- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合（Standard、PTC、Cordis 含上游时钟上下文），以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
 - 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；
 - 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
 

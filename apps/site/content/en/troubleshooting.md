@@ -1,5 +1,5 @@
 ---
-description: "Fix common omdsh issues: interrupt and exit behavior, resuming, color environments, multiplexer scrollback, legacy sessions, and plugin boot failures."
+description: "Fix common omdsh issues: interrupt and exit behavior, resuming, DeepSeek account sign-in, color environments, multiplexer scrollback, legacy sessions, and plugin boot failures."
 ---
 
 # Troubleshooting
@@ -13,6 +13,12 @@ The first `Ctrl+C` interrupts the active turn, or clears the composer when the s
 `/session` reports the active session's details, and `/resume` opens the searchable selector. `/resume <query>` searches durable session content when you only remember what was discussed. See [Sessions and history](sessions.md).
 
 Sessions first created with v0.5.0 through v0.11.0 may contain a private event that an unmodified DSH persistence reader refuses; omdsh still opens them. Do not hand-edit session files, which may be compressed and carry integrity checks.
+
+## DeepSeek account sign-in
+
+`/login` → **DeepSeek account** opens the platform authorization page with a loopback callback such as `http://127.0.0.1:<port>/oauth/callback`. After approval, the page should end at `.../dsh/authorized?login_source=web` and show “Authorization complete”. A page that opens DeepSeek Harness Desktop ends with `login_source=desktop` (or no `login_source`); it belongs to a Desktop-initiated attempt, not the TUI. Close that tab and start a fresh `/login` instead of reusing it.
+
+The browser may keep the tab open because it was opened from the terminal rather than by `window.open`; close it after the completion message and press Enter in the TUI. On a remote host, forward the displayed loopback port over SSH so the callback can reach the TUI. Once signed in, the shared account appears in both `/login` and `/logout`; signing out removes the local grant and revokes it in the background.
 
 ## Color
 

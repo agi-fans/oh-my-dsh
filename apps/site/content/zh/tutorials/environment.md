@@ -17,6 +17,8 @@ description: 切换 omdsh 模型与推理强度，添加额外提供方，并设
 
 ### 登录额外提供方
 
+DeepSeek 本身是第一项：`/login` 可以启动 DeepSeek 账户的浏览器登录（通过 loopback 回调），也可以保存 API Key。账户路由会出现在 `/model`；`/logout` 可以登出账户 grant 或删除文件中的 Key。
+
 若要添加另一家 catalog 提供方，运行 `/login` 并从列表中选择。已注册授权流程的提供方会给出该流程的方法，而不是通用的 API Key 提问；否则粘贴其 API Key。该路由会在下一次模型请求时生效。
 
 选择 `custom` 可以添加 catalog 里没有的网关或本地服务：填写永久 id、Base URL、API 协议、可选 Key，以及一个或多个模型 id。`/logout` 可以停用这条路由，而不会改动环境变量中的凭据。

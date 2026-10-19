@@ -25,13 +25,13 @@ The startup directory becomes the session workspace. If it sits inside a Git rep
 
 ### Sign in securely
 
-Run `/login`. For DeepSeek, omdsh opens the API Key page, asks for the key in a masked prompt, validates it, and saves it to the credential store.
+Run `/login`. For DeepSeek, choose **DeepSeek account** to continue in your browser: omdsh listens on a loopback callback for the authorization, stores the shared account grant, and adds the `deepseek-account` route to `/model`. Choose the DeepSeek API-key entry to paste a key instead; it is validated and stored under `DEEPSEEK_API_KEY`.
 
-A mounted provider that registered an authorization flow — for example a browser sign-in — appears in the `/login` list with that flow's methods, and omdsh renders only the notices and prompts the flow asks for.
+Other mounted providers that registered an authorization flow — for example a browser sign-in — appear in the `/login` list with that flow's methods, and omdsh renders only the notices and prompts the flow asks for.
 
 Never append a key to the command: `/login <key>` is deliberately rejected so the secret does not enter command history or the transcript.
 
-An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key saved through `/login` is stored under the same `DEEPSEEK_API_KEY` reference and persists across restarts; an environment-owned value cannot be overwritten from `/login`. `/logout` removes only the file-stored key and falls back to the environment when available. A DeepSeek account grant established by DSH Web/Desktop is reused as the `deepseek-account` route.
+An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key saved through `/login` is stored under the same `DEEPSEEK_API_KEY` reference and persists across restarts; an environment-owned value cannot be overwritten from `/login`. `/logout` removes the file-stored key or the shared DeepSeek account grant and falls back to the environment when available. An account grant already established by DSH Web/Desktop is reused without a new browser sign-in. On a remote host, forward the loopback port shown by `/login` so the browser callback can reach the TUI.
 
 ### Configure the session before the first prompt
 

@@ -25,13 +25,13 @@ omdsh
 
 ### 安全登录
 
-运行 `/login`。对于 DeepSeek，omdsh 会打开 API Key 页面，通过遮罩输入框接收 Key，验证后将其保存到凭据存储中。
+运行 `/login`。对于 DeepSeek，选择 **DeepSeek account** 会打开浏览器继续授权：omdsh 通过 loopback 回调接收结果、保存共享账户 grant，并把 `deepseek-account` 路由加入 `/model`。也可以选择 DeepSeek 的 API Key 条目，粘贴并在遮罩输入框中提交 Key；校验后会存到 `DEEPSEEK_API_KEY`。
 
-如果某个已挂载的提供方注册了自己的授权流程（例如浏览器登录），它会带着该流程的方法出现在 `/login` 列表中，omdsh 只渲染流程要求的通知和提问。
+其他已挂载的提供方如果注册了自己的授权流程（例如浏览器登录），会带着该流程的方法出现在 `/login` 列表中，omdsh 只渲染流程要求的通知和提问。
 
 不要把 Key 追加到命令后：程序会主动拒绝 `/login <key>`，避免密钥进入命令历史或 Transcript。
 
-外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 保存的 Key 会写入同一个 `DEEPSEEK_API_KEY` 引用，并在重启后保留；由环境变量提供、不可覆盖的值无法通过 `/login` 改写。`/logout` 只删除文件中的 Key，环境变量可用时回退到环境变量。DSH Web/Desktop 已建立的 DeepSeek 账户授权会作为 `deepseek-account` 路由复用。
+外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 保存的 Key 会写入同一个 `DEEPSEEK_API_KEY` 引用，并在重启后保留；由环境变量提供、不可覆盖的值无法通过 `/login` 改写。`/logout` 会删除文件中的 Key，或登出共享的 DeepSeek 账户 grant，并在环境变量可用时回退。DSH Web/Desktop 已建立的账户授权无需重新走浏览器即可复用。在远程主机上，需要把 `/login` 显示的 loopback 端口转发到本机，浏览器回调才能到达 TUI。
 
 ### 在第一条 Prompt 前配置会话
 

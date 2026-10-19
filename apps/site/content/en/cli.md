@@ -33,11 +33,13 @@ A positional prompt boots omdsh and submits the joined words as the first messag
 
 Command-line flags outrank every layered environment source.
 
+`exec` and the TUI share the credential store and the DeepSeek account grant, but only the interactive TUI mounts the loopback account sign-in host. Complete a browser sign-in with `/login` in the TUI before using account models from `exec`.
+
 ## Environment
 
 | Variable | Effect |
 |---|---|
-| `DEEPSEEK_API_KEY` | DeepSeek API key for live turns; `/login` stores a validated key instead. |
+| `DEEPSEEK_API_KEY` | DeepSeek API key for live turns. `/login` validates and stores a key under this same reference; an environment-owned value is not overwritten. A `deepseek-account` session uses the shared account grant instead. |
 | `OMDSH_MODEL`, `OMDSH_PROVIDER` | Default route overrides; `--model` and `--provider` win over them. |
 | `OMDSH_HOME` | Home for sessions, settings, credentials, MCP and LSP configuration, plugins, and skills; falls back to `DSH_HOME`, then `~/.dsh`. |
 | `OMDSH_PERMISSION_MODE` | Initial Access preset: `read-only`, `workspace-write` (default), or `danger-full-access`. `/permission` changes it per session afterwards. |

@@ -12,7 +12,7 @@
 | 已有 durable `tool/call`，没有 durable result | 保留调用记录，结束 running 状态并标记错误；明确执行结果未知，不能声称工具未执行 |
 | 已有 durable result | 使用真实结果，不受预览清理影响 |
 
-[event-views](../../packages/tui/omdsh-tui/src/views/event-views.ts)在 `turn/end` 统一执行清理，而不是只在 terminal controller 中藏卡片。live、replay、resume 和 export 因此采用同一投影。`max-tokens`、`blocked`、`interrupted` 等原因有可读提示；`error` 保留失败摘要，abort 保留已交付的中断前缀。不能让 idle Agent 留下一张永久 running 的工具卡。
+[event-views](../../packages/tui/omdsh-tui/src/views/event-views.ts)在 `turn/end` 统一执行清理，而不是只在 terminal controller 中藏卡片。live、replay、resume 和 export 因此采用同一投影。Markdown/HTML 导出只序列化人类消息（`user`/`user-question-reply`）、assistant 与工具事件；`time-context` 与插件 runtime/skill snapshot 属于模型输入，不进入导出。`max-tokens`、`blocked`、`interrupted` 等原因有可读提示；`error` 保留失败摘要，abort 保留已交付的中断前缀。不能让 idle Agent 留下一张永久 running 的工具卡。
 
 `max-tokens` 是截断原因，不等同于凭据或 Provider 故障。提高模型上限不能代替正确收尾；有效上限仍受精确模型、用户配置和服务端限制影响。TUI 不执行截断参数，也不自动无限发送“继续”，以免引入重复副作用和额外费用。
 

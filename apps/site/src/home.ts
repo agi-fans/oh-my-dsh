@@ -6,7 +6,7 @@ export const homeCopy = {
     actionPrimary: 'Get Started',
     actionAlt: 'View on GitHub',
     installHeading: 'Install',
-    installNote: 'Requires Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek API key. Run /login once inside omdsh, then start a conversation.',
+    installNote: 'Requires Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek account or API key. Run /login once inside omdsh, then start a conversation.',
     featuresHeading: 'What a turn looks like',
     features: [
       {
@@ -85,7 +85,7 @@ export const homeCopy = {
     actionPrimary: '快速上手',
     actionAlt: 'GitHub 仓库',
     installHeading: '安装',
-    installNote: '需要 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本，以及一个 DeepSeek API Key。在 omdsh 中运行一次 /login，即可开始对话。',
+    installNote: '需要 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本，以及一个 DeepSeek 账户或 API Key。在 omdsh 中运行一次 /login，即可开始对话。',
     featuresHeading: '一个回合里有什么',
     features: [
       {

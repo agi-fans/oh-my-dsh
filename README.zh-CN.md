@@ -23,11 +23,12 @@ npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-进入 omdsh 后运行一次 `/login`，验证并保存 DeepSeek API Key，即可开始对话。如果不想全局安装，可以运行 `npx @agi-fans/oh-my-dsh` 临时体验。
+进入 omdsh 后运行一次 `/login`，用 DeepSeek 账户登录或保存 API Key，即可开始对话。如果不想全局安装，可以运行 `npx @agi-fans/oh-my-dsh` 临时体验。
 
 ## 功能亮点
 
 - **持久化对话：** 在 `/resume` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
+- **DeepSeek 原生鉴权：** 在 `/login` 中通过浏览器登录或保存 API Key；与 DSH 共享的 DeepSeek 账户 grant 会被复用，`/logout` 可以登出，网页搜索/抓取使用同一份凭据。
 - **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。
 - **丰富的终端输入：** 使用 `@` 提及项目文件和其他会话，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
 - **清晰的回合展示：** 运行时跟随思考、回复和工具预览，完成后将过程折叠为耗时摘要，保留完整的最终答复；`Ctrl+O` 恢复过程视图。两种视图均可滚动，当前请求固定在顶部，按 `End` 即可回到最新消息。

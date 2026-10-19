@@ -1,5 +1,5 @@
 ---
-description: "排查常见 omdsh 问题：中断与退出行为、恢复会话、颜色环境变量、复用器滚动回看、旧会话以及插件启动失败。"
+description: "排查常见 omdsh 问题：中断与退出行为、恢复会话、DeepSeek 账户登录、颜色环境变量、复用器滚动回看、旧会话以及插件启动失败。"
 ---
 
 # 故障排查
@@ -13,6 +13,12 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 `/session` 报告活动会话的详细信息，`/resume` 打开可搜索的选择器。只记得聊过什么时，用 `/resume <查询>` 搜索持久会话内容。见[会话与历史](sessions.md)。
 
 最初使用 v0.5.0 至 v0.11.0 创建的会话可能包含一个未经扩展的 DSH 持久化读取器会拒绝的私有事件；omdsh 仍能打开它们。不要手工修改会话文件——它们可能被压缩并带有完整性校验。
+
+## DeepSeek 账户登录
+
+`/login` → **DeepSeek account** 会用 loopback 回调地址（例如 `http://127.0.0.1:<port>/oauth/callback`）打开平台授权页。授权完成后，页面应结束在 `.../dsh/authorized?login_source=web` 并显示“授权已完成”。如果页面拉起 DeepSeek Harness Desktop，它的地址会带 `login_source=desktop`（或没有 `login_source`），属于 Desktop 发起的授权，不是 TUI；关闭那个标签页，重新从 `/login` 获取新地址，不要复用旧标签页。
+
+由于标签页是从终端打开而不是由 `window.open` 打开，浏览器可能不会自动关闭它；看到完成提示后手动关闭，并在 TUI 中按回车。远程主机需要把 TUI 显示的 loopback 端口通过 SSH 转发到本机，回调才能到达 TUI。登录后共享账户会同时出现在 `/login` 与 `/logout`；登出会删除本地 grant，并在后台尝试撤销。
 
 ## 颜色
 

@@ -33,11 +33,13 @@ omdsh exec --json [--resume <id>] [prompt...]
 
 命令行 flag 优先于所有分层环境来源。
 
+`exec` 与 TUI 共享凭据库和 DeepSeek 账户 grant，但只有交互式 TUI 会挂载 loopback 账户登录宿主。要在 `exec` 中使用账户模型，请先在 TUI 里通过 `/login` 完成一次浏览器登录。
+
 ## 环境变量
 
 | 变量 | 作用 |
 |---|---|
-| `DEEPSEEK_API_KEY` | 用于实时回合的 DeepSeek API Key；也可以改用 `/login` 保存一个校验过的 key。 |
+| `DEEPSEEK_API_KEY` | 用于实时回合的 DeepSeek API Key。`/login` 会把校验后的 Key 存到同一个引用；由环境变量提供的值不会被覆盖。`deepseek-account` 会话改用共享账户 grant。 |
 | `OMDSH_MODEL`、`OMDSH_PROVIDER` | 默认路由覆盖；`--model` 与 `--provider` 的优先级更高。 |
 | `OMDSH_HOME` | 会话、设置、凭据、MCP 与 LSP 配置、插件和 Skills 的 home；回退到 `DSH_HOME`，再到 `~/.dsh`。 |
 | `OMDSH_PERMISSION_MODE` | 初始 Access preset：`read-only`、`workspace-write`（默认）或 `danger-full-access`；之后可按会话用 `/permission` 修改。 |

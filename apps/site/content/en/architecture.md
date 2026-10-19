@@ -57,10 +57,11 @@ Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markd
 [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) is the `@agi-fans/oh-my-dsh` product bundle, inserted over an empty `$OMDSH_HOME/profiles/omdsh` root. It composes:
 
 - Cordis loader and timer infrastructure;
-- the official DeepSeek LLM adapter, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
+- the official DeepSeek API-key and account LLM routes, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
+- the DeepSeek account grant with its loopback-only OAuth callback host, and the official DeepSeek Search/Fetch API providers with Messages/local HTTP fallbacks;
 - durable JSONL sessions, checkpointing, query, file and session references, title, statistics, and token projections;
 - local attachment, filesystem, subprocess, sandbox, and permission providers, plus exactly one shell stack per host (`bash` on POSIX, `pwsh` on Windows) with its matching model-facing tool;
-- the Standard, PTC, Minimal, and Cordis Agent-plane compositions, plus Harness commands, compaction, todo, goal, plan, approval, questions, and subagents;
+- the Standard, PTC, Minimal, and Cordis Agent-plane compositions (Standard, PTC, and Cordis include the upstream clock context), plus Harness commands, compaction, todo, goal, plan, approval, questions, and subagents;
 - filesystem skill discovery and project/user MCP server adapters;
 - the local TUI provider, tool-presentation bridge, session runtime, human-interaction adapter, command contributions, startup notices, and runner.
 
