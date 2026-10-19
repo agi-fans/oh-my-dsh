@@ -4,7 +4,7 @@
 
 **探索未至之境**
 
-omdsh 是一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
+omdsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的终端客户端：一个专注、键盘优先的 DeepSeek 编程智能体，构建于其插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -16,7 +16,7 @@ omdsh 是一个专注、键盘优先的 DeepSeek Coding Agent，构建于 [DeepS
 
 ## 快速开始
 
-运行环境需要 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本；进行真实模型对话时还需要 DeepSeek API Key。
+运行环境需要 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本；进行真实模型对话时还需要 DeepSeek 账户或 API Key。
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
@@ -27,6 +27,7 @@ omdsh
 
 ## 功能亮点
 
+- **DeepSeek Harness 的终端客户端：** 原生滚动回看、固定 composer、按显示单元格排版的 TUI，每个流程都有键盘路径；构建于已发布插件运行时之上，而不是分叉。
 - **持久化对话：** 在 `/resume` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
 - **DeepSeek 原生鉴权：** 在 `/login` 中通过浏览器登录或保存 API Key；与 DSH 共享的 DeepSeek 账户 grant 会被复用，`/logout` 可以登出，网页搜索/抓取使用同一份凭据。
 - **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。

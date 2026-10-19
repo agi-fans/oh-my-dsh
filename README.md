@@ -4,7 +4,7 @@
 
 **Into the Unknown**
 
-omdsh is a focused, keyboard-first DeepSeek coding agent built on the plugin architecture of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and inspired by the interaction quality of [oh-my-pi](https://github.com/can1357/oh-my-pi) and the original [Pi](https://github.com/earendil-works/pi) agent harness.
+omdsh is the terminal client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a focused, keyboard-first DeepSeek coding agent built on its plugin architecture, with interaction quality inspired by [oh-my-pi](https://github.com/can1357/oh-my-pi) and the original [Pi](https://github.com/earendil-works/pi) agent harness.
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -16,7 +16,7 @@ omdsh is a focused, keyboard-first DeepSeek coding agent built on the plugin arc
 
 ## Quick start
 
-Requirements: Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek API key for live model turns.
+Requirements: Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, plus a DeepSeek account or API key for live model turns.
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
@@ -27,6 +27,7 @@ Run `/login` once inside omdsh to sign in with a DeepSeek account or save an API
 
 ## Highlights
 
+- **The terminal client for DeepSeek Harness:** a native-scrollback TUI with a docked composer, display-cell layout, and a keyboard path through every flow — built on the published plugin runtime, not a fork.
 - **Durable conversations:** search, pin, rename, and resume sessions in `/resume`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
 - **DeepSeek-native auth:** sign in from `/login` through the browser or store a key; a DeepSeek account grant shared with DSH is reused, `/logout` signs it out, and web search/fetch use the same credential.
 - **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
