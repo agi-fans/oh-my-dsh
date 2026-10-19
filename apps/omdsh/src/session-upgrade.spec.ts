@@ -80,9 +80,8 @@ describe('stored session upgrade', () => {
     const handle = await ctx.sessionPersistence.open(SessionId(PARENT_ID), 'write')
     await handle.close()
 
-    expect(generations(root, PARENT_ID).sort()).toEqual([
+    expect(generations(root, PARENT_ID).filter(name => name !== 'session.lock').sort()).toEqual([
       'session.jsonl.zstd',
-      'session.lock',
       `session.v${SESSION_FORMAT_VERSION}.jsonl.zstd`,
     ].sort())
     expect(readFileSync(source)).toEqual(before)

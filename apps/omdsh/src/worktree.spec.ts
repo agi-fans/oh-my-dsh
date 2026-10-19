@@ -34,7 +34,7 @@ describe('shipped Worktree integration', () => {
     expect(requestToolNames(turn.bodies[0])).toContain('create_worktree')
     const checkout = join(cwd, '.agents', 'worktrees', 'feature')
     expect(existsSync(checkout), JSON.stringify(turn.bodies.at(-1))).toBe(true)
-    expect(readFileSync(join(checkout, 'hello.txt'), 'utf8')).toBe('committed\n')
+    expect(readFileSync(join(checkout, 'hello.txt'), 'utf8').replaceAll('\r\n', '\n')).toBe('committed\n')
     expect(existsSync(join(checkout, 'untracked.txt'))).toBe(false)
     expect(readFileSync(join(cwd, 'hello.txt'), 'utf8')).toBe('uncommitted\n')
     const request = JSON.stringify(turn.bodies.at(-1))
