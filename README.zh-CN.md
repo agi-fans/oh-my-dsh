@@ -12,7 +12,9 @@ omdsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) �
 
 </div>
 
-[![Hello Oh My DSH — v0.19.0 终端录屏](apps/site/public/screenshot.webp)](apps/site/public/hello-oh-my-dsh.mp4)
+[![omdsh 终端演示 — 150×39 下的一轮真实 DeepSeek 账户回合](apps/site/public/omdsh-demo-poster.png)](apps/site/public/omdsh-demo.mp4)
+
+真实的 Kaku 150×39 录屏：一轮 DeepSeek 账户回合读取文件、修正、运行并报告验证结果。
 
 ## 快速开始
 

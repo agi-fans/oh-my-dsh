@@ -6,6 +6,12 @@ description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflo
 
 读完本教程，你将完成 omdsh 的安装和登录，并跑完第一个 Agent 任务。
 
+### 先看一轮完整回合
+
+[![omdsh 终端演示：一轮 DeepSeek 账户回合](/omdsh-demo-poster.png)](/omdsh-demo.mp4)
+
+真实的 Kaku 150×39 录屏：一轮 DeepSeek 账户回合读取文件、修正、运行并报告验证结果。
+
 ### 安装并启动
 
 全局安装命令；如果只想临时体验当前版本而不进行全局安装，可以使用 `npx @agi-fans/oh-my-dsh`：

@@ -6,6 +6,12 @@ description: Install @agi-fans/oh-my-dsh, run /login, set Agent, Workflow, and A
 
 By the end of this walkthrough you will have omdsh installed, signed in, and one finished agent task.
 
+### See the loop
+
+[![omdsh terminal demo: one DeepSeek account turn](/omdsh-demo-poster.png)](/omdsh-demo.mp4)
+
+A real 150×39 Kaku recording: one DeepSeek account turn reads a file, fixes it, runs it, and reports the verified result.
+
 ### Install and launch
 
 Install the command globally, or use `npx @agi-fans/oh-my-dsh` to try the current package without a global installation:

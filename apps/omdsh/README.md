@@ -14,7 +14,9 @@ omdsh is the terminal client for [DeepSeek Harness](https://github.com/deepseek-
 
 </div>
 
-[![Hello Oh My DSH — v0.19.0 terminal recording](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/screenshot.webp)](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/public/hello-oh-my-dsh.mp4)
+[![omdsh terminal demo — one real DeepSeek account turn at 150×39](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/omdsh-demo-poster.png)](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/public/omdsh-demo.mp4)
+
+A real Kaku recording at 150×39: one DeepSeek account turn reads a file, fixes it, runs it, and reports the verified result.
 
 ## Quick start
 
