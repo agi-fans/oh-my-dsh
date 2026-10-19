@@ -117,8 +117,6 @@ export interface WelcomeOptions {
   recentSessions?: readonly { id: string; title: string; createdAt: number; updatedAt?: number }[]
   /** Per-process hint sample; defaults to a deterministic catalog prefix for pure callers. */
   tips?: readonly WelcomeTip[]
-  /** False when no model route is visibly configured; the card then points at /login. */
-  modelReady?: boolean
 }
 
 /**
@@ -145,7 +143,6 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
     '',
     centerText(theme.fg('muted', options.model), leftCol),
     ...(effort === '' ? [] : [centerText(theme.fg('dim', effort), leftCol)]),
-    ...(options.modelReady === false ? ['', centerText(theme.fg('warning', 'Not connected · /login'), leftCol)] : []),
   ]
 
   const tips = options.tips ?? WELCOME_TIPS.slice(0, 4)

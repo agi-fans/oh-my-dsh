@@ -2017,7 +2017,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     appName,
     ...(options.recentSessions === undefined ? {} : { recentSessions: options.recentSessions }),
     ...(options.welcomeTips === undefined ? {} : { tips: options.welcomeTips }),
-    ...(options.modelReady === undefined ? {} : { modelReady: options.modelReady }),
   }, theme)
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)

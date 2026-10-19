@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- The startup welcome card no longer keeps a stale "Not connected · /login" line after signing in; first-run readiness now lives only in the live composer placeholder, which is re-read after startup and updates on credential and account changes.
+
 - The shared DeepSeek account now appears in `/logout` and can be signed out there, instead of only from the `/login` account prompt.
 
 - Herdr agent state reporting ignores user-initiated UI pickers, settings forms, file/diff/terminal readers and idle session rehydrations so opening or closing dialogs no longer triggers false `blocked` or `done` notifications, and advertises `resume_argv` (`omdsh --resume <id>`) for session recovery.

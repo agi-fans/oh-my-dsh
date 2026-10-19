@@ -201,7 +201,7 @@ import {
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
 import { refreshProjectContext, resolveGitStatusFiles, resolveProjectContext } from '../session/project-context.ts'
-import { ensureLoginTip, pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
+import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
 import { modelRouteReady } from '../session/model-readiness.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
@@ -1777,7 +1777,7 @@ export class LocalTui implements TuiService {
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
-        welcomeTips: this.#modelReady ? this.#welcomeTips : ensureLoginTip(this.#welcomeTips),
+        welcomeTips: this.#welcomeTips,
         modelReady: this.#modelReady,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
@@ -4285,7 +4285,14 @@ export function apply(ctx: Context, config: Config): void {
         readyCtx.on('credentials/record-updated', refreshModelReady),
         readyCtx.on('authorization/settled', refreshModelReady),
       ]
-      return () => { for (const dispose of disposers) dispose() }
+      // The account service and the credential backend may activate just after
+      // this injection; re-read once the composition has settled so an existing
+      // grant is reflected in the live placeholder without a credential event.
+      const timers = [setTimeout(refreshModelReady, 250), setTimeout(refreshModelReady, 1_500)]
+      return () => {
+        for (const dispose of disposers) dispose()
+        for (const timer of timers) clearTimeout(timer)
+      }
     }, 'omdsh model readiness')
   })
   // Preferences are this entry's own volatile config: the initial read applies

@@ -35,13 +35,6 @@ export const WELCOME_TIPS: readonly WelcomeTip[] = [
 ]
 
 /** The one hint that must survive sampling while no model route is configured. */
-export const LOGIN_TIP: WelcomeTip = { key: '/login', text: 'Connect a provider or update its key' }
-
-/** Force the login hint into a sampled list without duplicating it. */
-export function ensureLoginTip(tips: readonly WelcomeTip[], count: number = 4): readonly WelcomeTip[] {
-  if (tips.some(tip => tip.key === '/login')) return tips
-  return [LOGIN_TIP, ...tips].slice(0, count)
-}
 
 /** Pick distinct hints without mutating the shared catalog. */
 export function pickWelcomeTips(
