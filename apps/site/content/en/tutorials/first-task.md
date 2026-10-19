@@ -31,7 +31,7 @@ A mounted provider that registered an authorization flow — for example a brows
 
 Never append a key to the command: `/login <key>` is deliberately rejected so the secret does not enter command history or the transcript.
 
-An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key saved through `/login` takes priority on later requests and across restarts; `/logout` removes only the omdsh-managed choice and falls back to the environment when available.
+An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key saved through `/login` is stored under the same `DEEPSEEK_API_KEY` reference and persists across restarts; an environment-owned value cannot be overwritten from `/login`. `/logout` removes only the file-stored key and falls back to the environment when available. A DeepSeek account grant established by DSH Web/Desktop is reused as the `deepseek-account` route.
 
 ### Configure the session before the first prompt
 

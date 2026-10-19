@@ -44,7 +44,6 @@ async function readiness(withKey: boolean): Promise<string> {
     NODE_PATH: fileURLToPath(new URL('../../../node_modules/.pnpm/node_modules', import.meta.url)),
   }
   delete env.DEEPSEEK_API_KEY
-  delete env.OMDSH_DEEPSEEK_API_KEY
   if (withKey) env.DEEPSEEK_API_KEY = 'sk-first-run'
   const child = spawn(process.execPath, ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href, script], {
     cwd: workspace,

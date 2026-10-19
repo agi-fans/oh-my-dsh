@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Standard, PTC, and Cordis presets mount the upstream `dsh-time-context` clock (Minimal does not), so date-sensitive requests no longer depend on the model guessing the current time; transcript exports skip clock and plugin snapshots.
+- The DeepSeek account route (`deepseek-account`) is mounted beside the API-key route and reuses a DeepSeek account grant established by DSH Web/Desktop. `/login` reports the shared account state and `/model` lists the account route.
+
 - Optional File recovery snapshots in Settings → Tools retain durable Turn file contents. Session Tree’s Alt+R selects and previews files, confirms confined restoration, preserves later edits, and reports partial results and backups without rewinding messages or the Git index.
 
 - Approval prompts can remember an exact invocation decision for a session or workspace; `/permission` previews and revokes rules while Harness retains approval audit, cancellation and independent protections.
@@ -38,7 +41,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
-- Web search and page fetch use DeepSeek's Search and Fetch APIs by default and share the `OMDSH_DEEPSEEK_API_KEY` reference stored by `/login`; the Messages search and local HTTP fetch providers remain selectable fallbacks. This removes the separate search key requirement and the fake-IP DNS rejection in page fetch.
+- `/login` now stores a DeepSeek API key under the upstream `DEEPSEEK_API_KEY` reference instead of `OMDSH_DEEPSEEK_API_KEY`; an existing product-era key is migrated once, and an environment-owned reference is never overwritten. Web search and fetch share the same reference and prefer the account token on a `deepseek-account` session.
+
+- Web search and page fetch use DeepSeek's Search and Fetch APIs by default and share the upstream `DEEPSEEK_API_KEY` reference, or the account token on a `deepseek-account` session; the Messages search and local HTTP fetch providers remain selectable fallbacks. This removes the separate search key requirement and the fake-IP DNS rejection in page fetch.
 
 - `/resume` now opens the Session Library, searches durable session content with a query, or resumes an id directly; the duplicate `/sessions` entry point is removed.
 

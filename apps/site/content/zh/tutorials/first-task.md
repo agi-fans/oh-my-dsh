@@ -31,7 +31,7 @@ omdsh
 
 不要把 Key 追加到命令后：程序会主动拒绝 `/login <key>`，避免密钥进入命令历史或 Transcript。
 
-外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 保存的 Key 会在后续请求及重启后保持更高优先级；`/logout` 只会删除由 omdsh 管理的选择，并在环境变量可用时回退到环境变量。
+外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 保存的 Key 会写入同一个 `DEEPSEEK_API_KEY` 引用，并在重启后保留；由环境变量提供、不可覆盖的值无法通过 `/login` 改写。`/logout` 只删除文件中的 Key，环境变量可用时回退到环境变量。DSH Web/Desktop 已建立的 DeepSeek 账户授权会作为 `deepseek-account` 路由复用。
 
 ### 在第一条 Prompt 前配置会话
 

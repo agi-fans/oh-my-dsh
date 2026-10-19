@@ -28,8 +28,8 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
 | `/permission` | Choose the session Access level, or inspect and revoke remembered approval rules. |
-| `/login` | Sign in to a provider: a catalog entry, an API key, or a custom provider with its own id, base URL, protocol, and model ids. |
-| `/logout` | Remove an omdsh-managed provider choice. |
+| `/login` | Sign in to a provider: a catalog entry, an API key, the shared DeepSeek account grant, or a custom provider with its own id, base URL, protocol, and model ids. |
+| `/logout` | Remove a file-stored provider credential; environment-owned values are left untouched. |
 | `/settings` | Open Interface, Agent, Tools, Status line, Integrations and Advanced settings. Alias: `/set`. |
 | `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them. Installation can be cancelled before application. |
 

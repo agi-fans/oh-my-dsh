@@ -41,3 +41,8 @@
             name: '@deepseek-ai/dsh-agent-tool-presentation'
             config:
               mode: ptc
+
+          # Upstream Standard/Cordis/PTC presets carry a clock reading at least
+          # every ten minutes; the TUI process zone is the fallback display zone.
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'

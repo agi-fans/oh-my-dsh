@@ -32,6 +32,10 @@
       "types": "./lib/advisor.d.ts",
       "default": "./lib/advisor.js"
     },
+    "./credential-migration": {
+      "types": "./lib/credential-migration.d.ts",
+      "default": "./lib/credential-migration.js"
+    },
     "./agent-behavior": {
       "types": "./lib/agent-behavior.d.ts",
       "default": "./lib/agent-behavior.js"
@@ -98,7 +102,9 @@
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "0.2.1-rc.2",
     "@deepseek-ai/dsh-config-editor": "0.2.1-rc.2",
     "@deepseek-ai/dsh-cordis-host-runner": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
     "@deepseek-ai/dsh-credentials-local": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-deepseek-account-platform": "0.2.1-rc.2",
     "@deepseek-ai/dsh-experimental-tool-worktree": "0.2.1-rc.2",
     "@deepseek-ai/dsh-file-reference": "0.2.1-rc.2",
     "@deepseek-ai/dsh-file-reference-local": "0.2.1-rc.2",
@@ -113,6 +119,7 @@
     "@deepseek-ai/dsh-jobs-local": "0.2.1-rc.2",
     "@deepseek-ai/dsh-launch-environment": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm-deepseek-account": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm-deepseek-api-key": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.1-rc.2",
     "@deepseek-ai/dsh-llm-retry": "0.2.1-rc.2",
@@ -167,6 +174,7 @@
     "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.2",
     "@deepseek-ai/dsh-terminal": "0.2.1-rc.2",
     "@deepseek-ai/dsh-terminal-bash": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-time-context": "0.2.1-rc.2",
     "@deepseek-ai/dsh-timeout": "0.2.1-rc.2",
     "@deepseek-ai/dsh-token-meter": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-ask-user": "0.2.1-rc.2",

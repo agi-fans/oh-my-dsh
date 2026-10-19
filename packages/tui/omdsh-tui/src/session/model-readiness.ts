@@ -13,8 +13,8 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
 
-/** DeepSeek routes store their key under one of these references. */
-const DEEPSEEK_REFS = ['OMDSH_DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY'] as const
+/** The upstream DeepSeek API-key route stores its key under this reference. */
+const DEEPSEEK_REF = credentialRef('DEEPSEEK_API_KEY')
 
 /**
  * Whether any configured model route is visible to the TUI.
@@ -23,10 +23,12 @@ const DEEPSEEK_REFS = ['OMDSH_DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY'] as const
  */
 export async function modelRouteReady(ctx: Context): Promise<boolean> {
   const credentials = ctx.get('credentials')
-  if (credentials !== undefined) {
-    for (const name of DEEPSEEK_REFS) {
-      if ((await credentials.describe(credentialRef(name))).configured) return true
-    }
+  if (credentials !== undefined && (await credentials.describe(DEEPSEEK_REF)).configured) return true
+  const account = ctx.get('deepseekAccount') as { getState?: () => Promise<{ status?: string }> } | undefined
+  if (account?.getState !== undefined) {
+    try {
+      if ((await account.getState()).status === 'credential-stored') return true
+    } catch { /* an unavailable account service is not evidence of missing credentials */ }
   }
   const settings = ctx.get('settings')
   const rows = settings?.describe() ?? []

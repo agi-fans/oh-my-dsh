@@ -50,11 +50,19 @@ export function formatTranscriptMarkdown(
 ): string {
   const sections: string[] = [`# ${title}`, '', `Session: \`${sessionId}\``, '']
   for (const event of events) {
+    if (!isHumanMessage(event)) continue
     const body = eventMarkdown(event).trim()
     if (body === '') continue
     sections.push(`## ${heading(event)}`, '', body, '')
   }
   return sections.join('\n')
+}
+
+/** Plugin snapshots and the time-context clock are model input, not transcript turns. */
+function isHumanMessage(event: SessionEvent): boolean {
+  if (event.type !== 'user/message') return true
+  const kind = event.data.source.kind
+  return kind === 'user' || kind === 'user-question-reply'
 }
 
 function escapeHtml(value: string): string {

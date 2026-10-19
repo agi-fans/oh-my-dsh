@@ -21,6 +21,18 @@ describe('formatTranscriptMarkdown', () => {
     expect(text).not.toContain('turn/start')
   })
 
+  it('keeps time-context and plugin snapshots out of the exported transcript', () => {
+    const events = [
+      { type: 'user/message', data: { source: { kind: 'time-context' }, content: [{ type: 'text', text: '2026-10-19T02:14:00+08:00 Asia/Shanghai' }] } },
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'what happened today?' }] } },
+      { type: 'user/message', data: { source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' }, content: [{ type: 'text', text: 'Current runtime context' }] } },
+    ] as unknown as SessionEvent[]
+    const text = formatTranscriptMarkdown('session-1', 'News', events)
+    expect(text).toContain('what happened today?')
+    expect(text).not.toContain('2026-10-19T02:14:00')
+    expect(text).not.toContain('Current runtime context')
+  })
+
   it('exports a standalone CSP-locked HTML document without activating transcript HTML', () => {
     const events = [{
       type: 'user/message',

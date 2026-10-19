@@ -171,7 +171,7 @@ describe('process-isolated subagent transport', () => {
     // The child is a separate runtime with its own credential store, so the
     // parent must forward one. The subprocess seam scrubs ambient
     // credential-shaped variables before these are layered on.
-    const resolved = evalExpr(env.DEEPSEEK_API_KEY, { OMDSH_DEEPSEEK_API_KEY: 'sk-test' })
+    const resolved = evalExpr(env.DEEPSEEK_API_KEY, { DEEPSEEK_API_KEY: 'sk-test' })
     expect(resolved).toBe('sk-test')
   })
 })

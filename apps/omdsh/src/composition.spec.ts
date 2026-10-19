@@ -620,6 +620,16 @@ describe('upstream capability adaptation rows', () => {
     expect(rows.find(entry => entry.id === 'web-fetch-http')?.name).toBe('@deepseek-ai/dsh-web-fetch-http')
   })
 
+  it('mounts the DeepSeek account route beside the API-key route', () => {
+    const rows = productRows()
+    const index = (id: string) => rows.findIndex(entry => entry.id === id)
+    expect(rows.find(entry => entry.id === 'deepseek-account')?.name).toBe('@deepseek-ai/dsh-deepseek-account-platform')
+    expect(rows.find(entry => entry.id === 'llm-deepseek-account')?.name).toBe('@deepseek-ai/dsh-llm-deepseek-account')
+    expect(index('authorization')).toBeLessThan(index('deepseek-account'))
+    expect(index('llm-deepseek')).toBeLessThan(index('llm-deepseek-account'))
+    expect(rows.some(entry => entry.id === 'credential-migration')).toBe(true)
+  })
+
   it('keeps the write-only /feedback command out of the shipped profile', () => {
     const rows = productRows()
     expect(rows.some(entry => entry.id === 'command-feedback')).toBe(false)
@@ -643,5 +653,14 @@ describe('upstream capability adaptation rows', () => {
       const names = pluginTree(presetPlugins(preset)).map(entry => entry.name)
       expect(names, preset).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
     }
+  })
+
+  it('mounts the upstream clock in Standard, PTC, and Cordis but not Minimal', () => {
+    for (const preset of ['standard', 'code', 'cordis']) {
+      const names = pluginTree(presetPlugins(preset)).map(entry => entry.name)
+      expect(names, preset).toContain('@deepseek-ai/dsh-time-context')
+    }
+    const minimal = pluginTree(presetPlugins('minimal')).map(entry => entry.name)
+    expect(minimal).not.toContain('@deepseek-ai/dsh-time-context')
   })
 })

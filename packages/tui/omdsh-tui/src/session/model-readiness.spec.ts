@@ -19,9 +19,14 @@ function context(options: {
 }
 
 describe('first-run model readiness', () => {
-  it('treats either DeepSeek credential reference as connected', async () => {
+  it('treats the upstream DeepSeek credential as connected', async () => {
     expect(await modelRouteReady(context({ configured: ref => ref === 'DEEPSEEK_API_KEY', settings: [] }))).toBe(true)
-    expect(await modelRouteReady(context({ configured: ref => ref === 'OMDSH_DEEPSEEK_API_KEY', settings: [] }))).toBe(true)
+  })
+
+  it('treats a stored DeepSeek account grant as connected', async () => {
+    const ctx = context({ configured: () => false, settings: [] })
+    ctx.provide('deepseekAccount', { getState: async () => ({ status: 'credential-stored' }) } as never)
+    expect(await modelRouteReady(ctx)).toBe(true)
   })
 
   it('counts a configured pi-ai provider profile', async () => {

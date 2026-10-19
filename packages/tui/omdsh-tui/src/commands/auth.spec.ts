@@ -28,7 +28,6 @@ interface AuthHarness {
 interface AuthHarnessOptions {
   answers?: readonly (string | null)[]
   fallback?: CredentialInfo
-  override?: CredentialInfo
   activeCredentialRef?: string
   configurable?: readonly LlmConfigurableProvider[]
   liveProviders?: readonly string[]
@@ -36,6 +35,7 @@ interface AuthHarnessOptions {
   authorizationFlows?: readonly AuthorizationEntry[]
   beginAuthorization?: ReturnType<typeof vi.fn>
   records?: ReadonlyMap<CredentialKey, { kind: 'grant' | 'api-key'; writable?: boolean }>
+  accountStatus?: 'signed-out' | 'credential-stored'
 }
 
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
@@ -94,7 +94,6 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   for (const answer of options.answers ?? []) prompt.mockResolvedValueOnce(answer)
   const credentials = new Map<string, CredentialInfo>([
     [String(commandAuth.DEEPSEEK_API_KEY), options.fallback ?? UNCONFIGURED],
-    [String(commandAuth.OMDSH_DEEPSEEK_API_KEY), options.override ?? UNCONFIGURED],
   ])
   const describe = vi.fn(async (ref: typeof commandAuth.DEEPSEEK_API_KEY) => credentials.get(String(ref)) ?? UNCONFIGURED)
   const set = vi.fn(async (ref: typeof commandAuth.DEEPSEEK_API_KEY) => {
@@ -152,6 +151,9 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     } as never)
   }
   ctx.provide('credentials', { describe, set, unset, describeRecord, listRecords, deleteRecord } as never)
+  if (options.accountStatus !== undefined) {
+    ctx.provide('deepseekAccount', { getState: async () => ({ status: options.accountStatus }) } as never)
+  }
   ctx.provide('settings', {
     // The command reads provider sections through the forms projection.
     describe: () => [...sections.entries()].map(([ns, value]) => ({ ns, value })),
@@ -213,13 +215,11 @@ describe('DeepSeek auth commands', () => {
       commandAuth.DEEPSEEK_MODELS_URL,
       expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer sk-live' }) }),
     )
-    expect(harness.set).toHaveBeenCalledWith(commandAuth.OMDSH_DEEPSEEK_API_KEY, 'sk-live')
-    expect(harness.settingsUpdate).toHaveBeenCalledWith(commandAuth.DEEPSEEK_SETTINGS, {
-      apiKeyEnv: String(commandAuth.OMDSH_DEEPSEEK_API_KEY),
-    })
+    expect(harness.set).toHaveBeenCalledWith(commandAuth.DEEPSEEK_API_KEY, 'sk-live')
+    expect(harness.settingsUpdate).not.toHaveBeenCalled()
     expect(execution?.result).toEqual({
       kind: 'success',
-      text: 'Logged in to DeepSeek. Your omdsh credential takes priority on the next model request.',
+      text: 'Logged in to DeepSeek. The stored key is used by the deepseek-official route on the next model request.',
     })
     await harness.ctx.fiber.dispose()
   })
@@ -245,8 +245,7 @@ describe('DeepSeek auth commands', () => {
 
   it('confirms and removes a credential owned by the Harness store', async () => {
     const harness = await authHarness({
-      activeCredentialRef: String(commandAuth.OMDSH_DEEPSEEK_API_KEY),
-      override: { configured: true, source: 'file', writable: true },
+      fallback: { configured: true, source: 'file', writable: true },
       answers: ['logout'],
     })
 
@@ -262,19 +261,18 @@ describe('DeepSeek auth commands', () => {
       initialValue: 'cancel',
       allowCustom: false,
     }))
-    expect(harness.settingsMutate).toHaveBeenCalledWith(commandAuth.DEEPSEEK_SETTINGS, [
-      { op: 'unset', path: ['apiKeyEnv'] },
-    ])
-    expect(harness.unset).toHaveBeenCalledWith(commandAuth.OMDSH_DEEPSEEK_API_KEY)
-    expect(execution?.result).toEqual({ kind: 'success', text: 'Logged out from DeepSeek.' })
+    expect(harness.settingsMutate).not.toHaveBeenCalled()
+    expect(harness.unset).toHaveBeenCalledWith(commandAuth.DEEPSEEK_API_KEY)
+    expect(execution?.result).toEqual({
+      kind: 'success',
+      text: 'Logged out from DeepSeek. The next model request falls back to the environment when available.',
+    })
     await harness.ctx.fiber.dispose()
   })
 
   it('falls back to an inherited environment credential after logging out', async () => {
     const harness = await authHarness({
-      activeCredentialRef: String(commandAuth.OMDSH_DEEPSEEK_API_KEY),
-      override: { configured: true, source: 'file', writable: true },
-      fallback: { configured: true, source: 'env', writable: false },
+      fallback: { configured: true, source: 'file', writable: true },
       answers: ['logout'],
     })
 
@@ -287,16 +285,15 @@ describe('DeepSeek auth commands', () => {
 
     expect(execution?.result).toEqual({
       kind: 'success',
-      text: 'Logged out from the omdsh-managed DeepSeek credential. Falling back to DEEPSEEK_API_KEY from the current process environment.',
+      text: 'Logged out from DeepSeek. The next model request falls back to the environment when available.',
     })
     await harness.ctx.fiber.dispose()
   })
 
-  it('lets an interactive login override an inherited environment credential', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
+  it('does not overwrite an environment-owned DeepSeek key', async () => {
     const loginHarness = await authHarness({
       fallback: { configured: true, source: 'env', writable: false },
-      answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-user-choice'],
+      answers: [commandAuth.DEEPSEEK_PROVIDER],
     })
     const login = await loginHarness.ctx.commands.execute(
       loginHarness.agent,
@@ -304,12 +301,10 @@ describe('DeepSeek auth commands', () => {
       [],
       new AbortController().signal,
     )
-    expect(login?.result).toEqual(expect.objectContaining({ kind: 'success' }))
-    expect(loginHarness.prompt).toHaveBeenCalledWith(expect.objectContaining({ secret: true }))
-    expect(loginHarness.set).toHaveBeenCalledWith(commandAuth.OMDSH_DEEPSEEK_API_KEY, 'sk-user-choice')
-    expect(loginHarness.settingsUpdate).toHaveBeenCalledWith(commandAuth.DEEPSEEK_SETTINGS, {
-      apiKeyEnv: String(commandAuth.OMDSH_DEEPSEEK_API_KEY),
-    })
+    expect(login?.result).toEqual(expect.objectContaining({ kind: 'error' }))
+    expect(loginHarness.prompt).toHaveBeenCalledTimes(1)
+    expect(loginHarness.prompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'Provider' }))
+    expect(loginHarness.set).not.toHaveBeenCalled()
     await loginHarness.ctx.fiber.dispose()
   })
 
@@ -664,7 +659,7 @@ describe('authorization service login', () => {
       new AbortController().signal,
     )
     expect(harness.beginAuthorization).not.toHaveBeenCalled()
-    expect(harness.set).toHaveBeenCalledWith(commandAuth.OMDSH_DEEPSEEK_API_KEY, 'sk-fallback')
+    expect(harness.set).toHaveBeenCalledWith(commandAuth.DEEPSEEK_API_KEY, 'sk-fallback')
     expect(execution?.result.kind).toBe('success')
     await harness.ctx.fiber.dispose()
   })
@@ -827,6 +822,39 @@ describe('provider picker labeling', () => {
         }),
       ]),
     }))
+    await harness.ctx.fiber.dispose()
+  })
+})
+
+describe('DeepSeek account reuse', () => {
+  it('reports the shared account grant without starting a browser flow', async () => {
+    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE] })
+    const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+    expect(execution?.result).toMatchObject({ kind: 'success' })
+    expect((execution?.result.text ?? '')).toContain('shared DSH credential store')
+    expect(harness.beginAuthorization).not.toHaveBeenCalled()
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('explains how to establish the account grant when it is missing', async () => {
+    const harness = await authHarness({ accountStatus: 'signed-out', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE] })
+    const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+    expect(execution?.result).toMatchObject({ kind: 'success' })
+    expect((execution?.result.text ?? '')).toContain('DSH Web/Desktop')
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('does not expose the account browser flow as a generic login method', async () => {
+    const accountFlow = {
+      key: 'deepseek-account-platform/default' as never,
+      label: 'DeepSeek',
+      methods: [{ id: 'browser', label: 'DeepSeek' }],
+      inFlight: false,
+    }
+    const harness = await authHarness({ authorizationFlows: [accountFlow], answers: [null] })
+    await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+    const options = harness.prompt.mock.calls[0]?.[0].options ?? []
+    expect(options.some(option => String(option.value).startsWith(commandAuth.FLOW_VALUE_PREFIX + 'deepseek-account-platform/'))).toBe(false)
     await harness.ctx.fiber.dispose()
   })
 })

@@ -36,12 +36,12 @@ export interface Config {
 
 export const DEEPSEEK_PROVIDER = 'deepseek-official'
 export const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
-export const OMDSH_DEEPSEEK_API_KEY = credentialRef('OMDSH_DEEPSEEK_API_KEY')
 export const DEEPSEEK_SETTINGS = 'llm-deepseek'
 export const PI_AI_SETTINGS = 'llm-pi-ai'
 export const DEEPSEEK_API_KEYS_URL = 'https://platform.deepseek.com/api_keys'
 export const DEEPSEEK_MODELS_URL = 'https://api.deepseek.com/v1/models'
 export const CUSTOM_PROVIDER_VALUE = '__omdsh_custom__'
+export const DEEPSEEK_ACCOUNT_CHOICE = '__omdsh_deepseek_account__'
 export const FLOW_VALUE_PREFIX = '__omdsh_flow__:'
 const PI_AI_RECORD_SCOPE = 'llm-pi-ai'
 
@@ -187,8 +187,13 @@ function isPiAiDeepSeekFlow(flow: AuthorizationEntry): boolean {
   return credentialKeyScope(flow.key) === PI_AI_RECORD_SCOPE && credentialKeyId(flow.key) === 'deepseek'
 }
 
+function isAccountFlow(flow: AuthorizationEntry): boolean {
+  return credentialKeyScope(flow.key) === 'deepseek-account-platform'
+}
+
 function loginAuthorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
   return authorizationFlows(ctx).flatMap(flow => {
+    if (isAccountFlow(flow)) return []
     if (!isPiAiDeepSeekFlow(flow)) return [flow]
 
     const profile = walkPath(sectionValue(ctx, PI_AI_SETTINGS), ['providers', 'deepseek'])
@@ -223,6 +228,7 @@ function parseFlowChoice(raw: string): CredentialKey | undefined {
 type LoginChoice =
   | LlmConfigurableProvider
   | typeof CUSTOM_PROVIDER_VALUE
+  | typeof DEEPSEEK_ACCOUNT_CHOICE
   | AuthorizationEntry
 
 interface FlowRecordLogout {
@@ -237,8 +243,10 @@ function loginChoiceValues(
   entries: readonly LlmConfigurableProvider[],
   flows: readonly AuthorizationEntry[],
   includeCustom: boolean,
+  includeAccount = false,
 ): string[] {
   return [
+    ...(includeAccount ? [DEEPSEEK_ACCOUNT_CHOICE] : []),
     ...entries.map(entry => entry.provider),
     ...flows.map(flow => flowChoiceValue(flow.key)),
     ...(includeCustom ? [CUSTOM_PROVIDER_VALUE] : []),
@@ -297,6 +305,7 @@ async function configuredFlowRecords(ctx: Context): Promise<FlowRecordLogout[]> 
   const rows: FlowRecordLogout[] = []
   const claimed = new Set<CredentialKey>()
   for (const flow of authorizationFlows(ctx)) {
+    if (isAccountFlow(flow)) continue
     const info = await credentials.describeRecord(flow.key)
     if (!info.configured) continue
     claimed.add(flow.key)
@@ -330,13 +339,9 @@ async function logoutableChoices(ctx: Context): Promise<LogoutChoice[]> {
     }
 
     const activeRef = profileApiKeyEnv(ctx, entry) ?? String(DEEPSEEK_API_KEY)
-    const managed = activeRef === String(OMDSH_DEEPSEEK_API_KEY)
-    const current = await ctx.credentials.describe(managed ? OMDSH_DEEPSEEK_API_KEY : DEEPSEEK_API_KEY)
-    if (managed || (activeRef === String(DEEPSEEK_API_KEY) && current.source === 'file')) {
-      actionable.push(entry)
-    } else {
-      inactiveDeepSeek = entry
-    }
+    const current = await ctx.credentials.describe(credentialRef(activeRef))
+    if (current.configured && current.source === 'file') actionable.push(entry)
+    else inactiveDeepSeek = entry
   }
 
   const choices: LogoutChoice[] = [...actionable, ...records]
@@ -382,7 +387,10 @@ async function pickLoginChoice(
     return configured !== 0 ? configured : left.flow.label.localeCompare(right.flow.label)
   })
   const orderedFlows = flowRows.map(row => row.flow)
-  const values = loginChoiceValues(entries, orderedFlows, true)
+  const account = ctx.get('deepseekAccount') as { getState?: () => Promise<{ status?: string }> } | undefined
+  const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
+  const includeAccount = account?.getState !== undefined
+  const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
   const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
@@ -391,6 +399,16 @@ async function pickLoginChoice(
     title: 'Provider',
     question: 'Choose a provider to sign in or update',
     options: [
+      ...(includeAccount ? [{
+        label: 'DeepSeek account',
+        value: DEEPSEEK_ACCOUNT_CHOICE,
+        description: accountState?.status === 'credential-stored'
+          ? 'signed in · shared with DSH; choose deepseek-account in /model'
+          : 'shared with DSH · sign in once in DSH Web/Desktop, then rerun /login',
+        ...(accountState?.status === 'credential-stored'
+          ? { badge: { label: 'signed in', tone: 'success' as const } }
+          : {}),
+      }] : []),
       ...entryRows.map(({ entry, badge }) => ({
         label: providerListId(entry),
         value: entry.provider,
@@ -425,6 +443,7 @@ async function pickLoginChoice(
   }
   const chosen = selected(raw, values)
   if (chosen === undefined) return undefined
+  if (chosen === DEEPSEEK_ACCOUNT_CHOICE) return DEEPSEEK_ACCOUNT_CHOICE
   const flowKey = parseFlowChoice(chosen)
   if (flowKey !== undefined) return orderedFlows.find(flow => flow.key === flowKey)
   return entries.find(entry => entry.provider === chosen)
@@ -498,17 +517,6 @@ async function resetDeepSeekCredentialRoute(ctx: Context): Promise<void> {
   await ctx.settings.mutate(DEEPSEEK_SETTINGS, [{ op: 'unset', path: ['apiKeyEnv'] }])
 }
 
-async function logoutSuccess(ctx: Context, managed: boolean): Promise<CommandResult> {
-  const fallback = await ctx.credentials.describe(DEEPSEEK_API_KEY)
-  if (fallback.configured) {
-    return {
-      kind: 'success',
-      text: `${managed ? 'Logged out from the omdsh-managed DeepSeek credential.' : 'Logged out from DeepSeek.'} Falling back to DEEPSEEK_API_KEY from ${credentialSource(fallback)}.`,
-    }
-  }
-  return { kind: 'success', text: 'Logged out from DeepSeek.' }
-}
-
 /** Best-effort browser launch; the prompt always retains the full URL as a fallback. */
 export function openDeepSeekDashboard(): void {
   const command = process.platform === 'darwin'
@@ -526,15 +534,15 @@ export function openDeepSeekDashboard(): void {
 }
 
 async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
-  const current = await ctx.credentials.describe(OMDSH_DEEPSEEK_API_KEY)
+  const current = await ctx.credentials.describe(DEEPSEEK_API_KEY)
   if (current.configured && !current.writable) {
-    return { kind: 'error', text: unmanagedCredentialMessage(OMDSH_DEEPSEEK_API_KEY, current, 'replace') }
+    return { kind: 'error', text: unmanagedCredentialMessage(DEEPSEEK_API_KEY, current, 'replace') }
   }
   if (config.openDashboard !== false) openDeepSeekDashboard()
   const raw = await ctx.tui.prompt({
     title: 'Login to DeepSeek',
     question: current.configured ? 'Paste a new DeepSeek API key' : 'Paste your DeepSeek API key',
-    detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated, stored locally, and preferred over DEEPSEEK_API_KEY.`,
+    detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated and stored locally as ${DEEPSEEK_API_KEY}.`,
     allowCustom: true,
     secret: true,
     notify: false,
@@ -552,21 +560,25 @@ async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config
     return { kind: 'error', text: error instanceof Error ? error.message : 'DeepSeek login failed.' }
   }
   try {
-    await ctx.credentials.set(OMDSH_DEEPSEEK_API_KEY, apiKey)
+    await ctx.credentials.set(DEEPSEEK_API_KEY, apiKey)
   } catch {
     return { kind: 'error', text: 'The API key is valid, but it could not be saved to the Harness credential store.' }
   }
-  try {
-    await ctx.settings.update(DEEPSEEK_SETTINGS, { apiKeyEnv: String(OMDSH_DEEPSEEK_API_KEY) })
-  } catch {
-    return {
-      kind: 'error',
-      text: 'The API key is valid and saved, but omdsh could not activate it for the DeepSeek provider. Run /login again after checking your settings file.',
+  // A profile may still pin the old product-owned reference. Reset it so the
+  // upstream default resolves the key that was just stored.
+  if (profileApiKeyEnv(ctx, fallbackDeepSeekEntry()) !== String(DEEPSEEK_API_KEY)) {
+    try {
+      await resetDeepSeekCredentialRoute(ctx)
+    } catch {
+      return {
+        kind: 'error',
+        text: 'The API key is valid and saved, but the DeepSeek credential reference could not be reset. Run /login again after checking your settings file.',
+      }
     }
   }
   return {
     kind: 'success',
-    text: 'Logged in to DeepSeek. Your omdsh credential takes priority on the next model request.',
+    text: 'Logged in to DeepSeek. The stored key is used by the deepseek-official route on the next model request.',
   }
 }
 
@@ -826,41 +838,29 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
 
 async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const activeRef = profileApiKeyEnv(ctx, fallbackDeepSeekEntry()) ?? String(DEEPSEEK_API_KEY)
-  const usesOmdshCredential = activeRef === String(OMDSH_DEEPSEEK_API_KEY)
-  const activeCredential = usesOmdshCredential ? OMDSH_DEEPSEEK_API_KEY : DEEPSEEK_API_KEY
-  const current = await ctx.credentials.describe(activeCredential)
-
-  const legacyManagedDefault = activeRef === String(DEEPSEEK_API_KEY) && current.source === 'file'
-  if (!usesOmdshCredential && !legacyManagedDefault) {
-    if (!current.configured) return { kind: 'success', text: 'DeepSeek is already logged out.' }
-    return {
-      kind: 'success',
-      text: `No omdsh-managed DeepSeek login is active. DeepSeek is configured by ${credentialSource(current)}.`,
+  const current = await ctx.credentials.describe(credentialRef(activeRef))
+  if (!current.configured) {
+    if (activeRef !== String(DEEPSEEK_API_KEY)) {
+      try { await resetDeepSeekCredentialRoute(ctx) } catch {
+        return { kind: 'error', text: 'Could not reset the DeepSeek credential setting.' }
+      }
     }
+    return { kind: 'success', text: 'DeepSeek is already logged out.' }
+  }
+  if (current.source !== 'file') {
+    return { kind: 'success', text: `DeepSeek is configured by ${credentialSource(current)}; the credential store cannot remove it.` }
   }
 
-  if (usesOmdshCredential && !current.configured) {
-    try {
-      await resetDeepSeekCredentialRoute(ctx)
-    } catch {
-      return { kind: 'error', text: 'Could not reset the DeepSeek credential setting.' }
-    }
-    return logoutSuccess(ctx, true)
-  }
-
-  const removesStoredKey = current.source === 'file'
   const answer = await ctx.tui.prompt({
     title: 'Logout from DeepSeek',
-    question: removesStoredKey ? 'Remove the stored DeepSeek API key?' : 'Stop using the omdsh DeepSeek credential?',
-    detail: 'The next model request will fall back to DEEPSEEK_API_KEY when one is available.',
+    question: 'Remove the stored DeepSeek API key?',
+    detail: 'The next model request will use DEEPSEEK_API_KEY from the launch environment when one is available.',
     options: [
       { label: 'Cancel', value: 'cancel', description: 'Keep the current credential.' },
       {
         label: 'Log out',
         value: 'logout',
-        description: removesStoredKey
-          ? 'Remove the key from the local Harness credential store.'
-          : 'Return the provider to its default credential source.',
+        description: 'Remove the key from the local Harness credential store.',
         badge: { label: 'removes credential', tone: 'warning' },
       },
     ],
@@ -872,12 +872,12 @@ async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Prom
   })
   if (answer !== 'logout') return { kind: 'success' }
   try {
-    if (usesOmdshCredential) await resetDeepSeekCredentialRoute(ctx)
-    if (removesStoredKey) await ctx.credentials.unset(activeCredential)
+    await ctx.credentials.unset(credentialRef(activeRef))
+    if (activeRef !== String(DEEPSEEK_API_KEY)) await resetDeepSeekCredentialRoute(ctx)
   } catch {
     return { kind: 'error', text: 'Could not remove the DeepSeek API key from the Harness credential store.' }
   }
-  return logoutSuccess(ctx, usesOmdshCredential)
+  return { kind: 'success', text: 'Logged out from DeepSeek. The next model request falls back to the environment when available.' }
 }
 
 async function pickLogoutChoice(
@@ -1004,12 +1004,34 @@ async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry:
   return { kind: 'success', text: `Logged out from ${label}.` }
 }
 
+async function describeDeepSeekAccount(ctx: Context): Promise<CommandResult> {
+  const account = ctx.get('deepseekAccount') as { getState?: () => Promise<{ status?: string }> } | undefined
+  if (account?.getState === undefined) {
+    return { kind: 'error', text: 'DeepSeek account integration is not mounted in this build.' }
+  }
+  let status: string | undefined
+  try { status = (await account.getState()).status } catch {
+    return { kind: 'error', text: 'Could not read the shared DeepSeek account state.' }
+  }
+  if (status === 'credential-stored') {
+    return {
+      kind: 'success',
+      text: 'DeepSeek account is signed in through the shared DSH credential store. Use /model to select deepseek-account; web search and fetch use the account token on that route.',
+    }
+  }
+  return {
+    kind: 'success',
+    text: 'No DeepSeek account grant is stored. Sign in once through DSH Web/Desktop, then rerun /login; this TUI reuses that grant. You can also paste a DeepSeek API key.',
+  }
+}
+
 async function login(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') {
     return { kind: 'error', text: 'Usage: /login (paste the key only into the protected prompt)' }
   }
   const choice = await pickLoginChoice(ctx, invocation)
   if (choice === undefined) return { kind: 'success' }
+  if (choice === DEEPSEEK_ACCOUNT_CHOICE) return describeDeepSeekAccount(ctx)
   if (choice === CUSTOM_PROVIDER_VALUE) return loginCustom(ctx, invocation)
   if (isAuthorizationFlow(choice)) return loginAuthorization(ctx, invocation, choice)
   return isDeepSeek(choice)

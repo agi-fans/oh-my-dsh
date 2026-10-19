@@ -18,3 +18,8 @@
             config:
               prefix: >-
                 You are a coding agent powered by the {{model}} model.
+
+          # Upstream Standard/Cordis/PTC presets carry a clock reading at least
+          # every ten minutes; the TUI process zone is the fallback display zone.
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
