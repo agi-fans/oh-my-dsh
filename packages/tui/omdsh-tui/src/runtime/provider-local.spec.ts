@@ -9,7 +9,7 @@ import * as editorDiscovery from '../input/editor-discovery.ts'
 import * as externalEditor from '../input/external-editor.ts'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
@@ -174,15 +174,6 @@ function emulatedScreenRows(output: string): string[] {
     column += token.length
   }
   return Array.from(rows, value => value ?? '')
-}
-
-/** Status-line workspace label: home-relative git root, matching LocalTui. */
-function shortenedWorkspaceRoot(): string {
-  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
-  const home = homedir()
-  if (root === home) return '~'
-  if (root.startsWith(`${home}/`)) return `~${root.slice(home.length)}`
-  return root
 }
 
 /**
@@ -1960,9 +1951,9 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
 
     const rows = emulatedScreenRows(term.captured)
-    const statusRow = rows.findIndex(line => line.includes(shortenedWorkspaceRoot()))
+    const statusRow = rows.findIndex(line => line.includes('deepseek-v4-flash'))
     const resumeRow = rows.findIndex(line => line.includes('Resume this session with omdsh --resume'))
-    expect(statusRow).toBeGreaterThanOrEqual(0)
+    expect(statusRow, rows.join('\n')).toBeGreaterThanOrEqual(0)
     expect(resumeRow).toBeGreaterThan(statusRow)
   })
 

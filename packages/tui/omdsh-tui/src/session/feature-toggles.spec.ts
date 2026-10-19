@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   FEATURE_BLOCK_BEGIN,
@@ -39,7 +40,7 @@ describe('feature registry', () => {
   })
 
   it('derives the patch path from the profile home', () => {
-    expect(featurePatchPath('/tmp/home')).toBe('/tmp/home/profiles/omdsh/cordis.patch.yml')
+    expect(featurePatchPath('/tmp/home')).toBe(join('/tmp/home', 'profiles', 'omdsh', 'cordis.patch.yml'))
   })
 })
 

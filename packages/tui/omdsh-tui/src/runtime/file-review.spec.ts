@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import { ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TuiService } from '../definition.ts'
 import { changedPaths, codeDocument, fileDocument, filePreview, formatQuoteReference, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
@@ -106,8 +106,11 @@ describe('file inspection', () => {
     await writeFile(join(root, 'changed 中文.txt'), 'after')
     await writeFile(join(root, 'staged.txt'), 'after')
     git('add', 'staged.txt')
-    await writeFile(join(root, 'new\nname.txt'), 'new')
-    expect(await changedPaths(root, signal())).toEqual(['changed 中文.txt', 'new\nname.txt', 'staged.txt'])
+    // Windows disallows control characters in filenames; keep the whitespace
+    // case portable while retaining the literal-newline case on POSIX.
+    const newName = process.platform === 'win32' ? 'new name.txt' : 'new\nname.txt'
+    await writeFile(join(root, newName), 'new')
+    expect(await changedPaths(root, signal())).toEqual(['changed 中文.txt', newName, 'staged.txt'])
     expect(git('diff', '--cached', '--name-only').toString()).toContain('staged.txt')
   })
 
@@ -133,7 +136,7 @@ describe('file inspection', () => {
     await reviewFiles({ prompt, notice, openFileInEditor: editor } as unknown as TuiService, 'Review', '/workspace',
       [{ path: 'a.txt', label: 'a' }, { path: 'b.txt', label: 'b' }], async index => `Patch ${index}`, signal())
     expect(prompt.mock.calls[2]![0].question).toBe('b')
-    expect(editor).toHaveBeenCalledWith('/workspace/b.txt')
+    expect(editor).toHaveBeenCalledWith(resolve('/workspace', 'b.txt'))
     expect(notice).toHaveBeenCalledWith('Editor unavailable', { level: 'error' })
     expect(prompt.mock.calls[3]![0].detail).toContain('Editor unavailable')
     expect(prompt.mock.calls.at(-1)![0].initialValue).toBe('1')
@@ -158,7 +161,7 @@ describe('file inspection', () => {
     await reviewFiles({ prompt, notice: vi.fn() } as unknown as TuiService, 'File', '/workspace',
       [{ path: 'a.txt', label: 'a' }], async () => 'Content', signal(), 0, false)
     expect(spawn).toHaveBeenLastCalledWith(process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open',
-      [join('/workspace', 'a.txt')], { stdio: 'ignore' })
+      [resolve('/workspace', 'a.txt')], { stdio: 'ignore' })
     expect(prompt.mock.calls[1]![0].detail).toContain(failure ? 'Default app unavailable' : 'Opened in the default application.')
   })
 
