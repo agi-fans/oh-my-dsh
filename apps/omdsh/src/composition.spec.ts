@@ -628,6 +628,7 @@ describe('upstream capability adaptation rows', () => {
     expect(index('authorization')).toBeLessThan(index('deepseek-account'))
     expect(index('llm-deepseek')).toBeLessThan(index('llm-deepseek-account'))
     expect(rows.some(entry => entry.id === 'credential-migration')).toBe(true)
+    expect(rows.find(entry => entry.id === 'web-server')?.config).toMatchObject({ host: '127.0.0.1', port: 0 })
   })
 
   it('keeps the write-only /feedback command out of the shipped profile', () => {

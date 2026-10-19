@@ -122,7 +122,8 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     }
     sections.set(String(namespace), current)
   })
-  ctx.provide('tui', { prompt, notice } as unknown as TuiService)
+  ctx.provide('tui', { prompt, notice, interactive: true } as unknown as TuiService)
+  ctx.provide('webServer', { protocol: 'http:', host: '127.0.0.1', port: 43210 } as never)
   const records = new Map<string, { kind: 'grant' | 'api-key'; writable: boolean }>(
     [...(options.records ?? [])].map(([key, record]) => [key, { kind: record.kind, writable: record.writable !== false }]),
   )
@@ -151,9 +152,17 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     } as never)
   }
   ctx.provide('credentials', { describe, set, unset, describeRecord, listRecords, deleteRecord } as never)
-  if (options.accountStatus !== undefined) {
-    ctx.provide('deepseekAccount', { getState: async () => ({ status: options.accountStatus }) } as never)
+  const accountState: { status?: string, attempt?: Record<string, unknown> | null } = { status: options.accountStatus, attempt: null }
+  const account = {
+    getState: vi.fn(async () => accountState),
+    startSignIn: vi.fn(async () => {
+      accountState.attempt = { id: 'attempt-1', phase: 'waiting-browser', authorizeUrl: 'https://platform.test/authorize' }
+      return accountState
+    }),
+    cancelSignIn: vi.fn(async () => accountState),
+    signOut: vi.fn(async () => { accountState.status = 'signed-out'; accountState.attempt = null; return accountState }),
   }
+  if (options.accountStatus !== undefined) ctx.provide('deepseekAccount', account as never)
   ctx.provide('settings', {
     // The command reads provider sections through the forms projection.
     describe: () => [...sections.entries()].map(([ns, value]) => ({ ns, value })),
@@ -165,7 +174,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     listProviders: () => (options.liveProviders ?? [commandAuth.DEEPSEEK_PROVIDER])
       .map(id => ({ id, name: id })),
   } as never)
-  await ctx.plugin(commandAuth, { openDashboard: false })
+  await ctx.plugin(commandAuth, { openDashboard: false, openBrowser: false })
   const session = ctx.sessions.create(SessionId('auth-command-test'))
   const agent = {
     id: session.id,
@@ -175,7 +184,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   } as unknown as Agent
   return {
     ctx, agent, prompt, notice, describe, set, unset, settingsUpdate, settingsMutate,
-    beginAuthorization, describeRecord, listRecords, deleteRecord,
+    beginAuthorization, describeRecord, listRecords, deleteRecord, account,
   }
 }
 
@@ -827,20 +836,39 @@ describe('provider picker labeling', () => {
 })
 
 describe('DeepSeek account reuse', () => {
-  it('reports the shared account grant without starting a browser flow', async () => {
-    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE] })
+  it('reports the signed-in account grant without starting a browser flow', async () => {
+    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'use'] })
     const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
-    expect((execution?.result.text ?? '')).toContain('shared DSH credential store')
+    expect((execution?.result.text ?? '')).toContain('/model')
+    expect(harness.account.startSignIn).not.toHaveBeenCalled()
     expect(harness.beginAuthorization).not.toHaveBeenCalled()
     await harness.ctx.fiber.dispose()
   })
 
-  it('explains how to establish the account grant when it is missing', async () => {
-    const harness = await authHarness({ accountStatus: 'signed-out', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE] })
+  it('starts the loopback account sign-in and waits for the browser', async () => {
+    const harness = await authHarness({ accountStatus: 'signed-out', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'done'] })
+    harness.account.getState.mockImplementation(async () => harness.account.startSignIn.mock.calls.length === 0
+      ? { status: 'signed-out', attempt: null }
+      : { status: 'credential-stored', attempt: { id: 'attempt-1', phase: 'succeeded' } })
     const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
-    expect((execution?.result.text ?? '')).toContain('DSH Web/Desktop')
+    expect((execution?.result.text ?? '')).toContain('deepseek-account')
+    expect(harness.account.startSignIn).toHaveBeenCalledWith(
+      expect.objectContaining({ version: expect.any(String), timezoneOffsetSeconds: expect.any(Number) }),
+      'http://127.0.0.1:43210',
+      'web',
+    )
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({ detail: expect.stringContaining('https://platform.test/authorize') }))
+    await harness.ctx.fiber.dispose()
+  })
+
+  it('signs out the shared account grant', async () => {
+    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'out'] })
+    const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
+    expect(execution?.result).toMatchObject({ kind: 'success' })
+    expect((execution?.result.text ?? '')).toContain('Signed out')
+    expect(harness.account.signOut).toHaveBeenCalled()
     await harness.ctx.fiber.dispose()
   })
 

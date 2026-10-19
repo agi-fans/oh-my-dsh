@@ -24,6 +24,7 @@ import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
+import { APP_VERSION } from '../session/package-metadata.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-auth'
@@ -32,6 +33,8 @@ export const inject = ['commands', 'credentials', 'settings', 'tui', 'llm']
 export interface Config {
   /** Open the DeepSeek API-key dashboard when `/login` starts for DeepSeek. */
   openDashboard?: boolean
+  /** Open the browser for a DeepSeek account sign-in. Defaults to true. */
+  openBrowser?: boolean
 }
 
 export const DEEPSEEK_PROVIDER = 'deepseek-official'
@@ -404,7 +407,7 @@ async function pickLoginChoice(
         value: DEEPSEEK_ACCOUNT_CHOICE,
         description: accountState?.status === 'credential-stored'
           ? 'signed in · shared with DSH; choose deepseek-account in /model'
-          : 'shared with DSH · sign in once in DSH Web/Desktop, then rerun /login',
+          : 'signed out · opens the DeepSeek browser sign-in',
         ...(accountState?.status === 'credential-stored'
           ? { badge: { label: 'signed in', tone: 'success' as const } }
           : {}),
@@ -517,20 +520,25 @@ async function resetDeepSeekCredentialRoute(ctx: Context): Promise<void> {
   await ctx.settings.mutate(DEEPSEEK_SETTINGS, [{ op: 'unset', path: ['apiKeyEnv'] }])
 }
 
-/** Best-effort browser launch; the prompt always retains the full URL as a fallback. */
-export function openDeepSeekDashboard(): void {
+/** Best-effort browser launch; callers always retain the full URL as a fallback. */
+function openExternal(url: string): void {
   const command = process.platform === 'darwin'
-    ? { file: 'open', args: [DEEPSEEK_API_KEYS_URL] }
+    ? { file: 'open', args: [url] }
     : process.platform === 'win32'
-      ? { file: 'cmd.exe', args: ['/d', '/s', '/c', 'start', '', DEEPSEEK_API_KEYS_URL] }
-      : { file: 'xdg-open', args: [DEEPSEEK_API_KEYS_URL] }
+      ? { file: 'cmd.exe', args: ['/d', '/s', '/c', 'start', '', url] }
+      : { file: 'xdg-open', args: [url] }
   try {
     const child = spawn(command.file, command.args, { detached: true, stdio: 'ignore' })
     child.once('error', () => undefined)
     child.unref()
   } catch {
-    // Headless and remote terminals still receive the visible dashboard URL.
+    // Headless and remote terminals still receive the visible URL.
   }
+}
+
+/** Best-effort browser launch for the DeepSeek key dashboard. */
+export function openDeepSeekDashboard(): void {
+  openExternal(DEEPSEEK_API_KEYS_URL)
 }
 
 async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
@@ -1004,25 +1012,177 @@ async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry:
   return { kind: 'success', text: `Logged out from ${label}.` }
 }
 
-async function describeDeepSeekAccount(ctx: Context): Promise<CommandResult> {
-  const account = ctx.get('deepseekAccount') as { getState?: () => Promise<{ status?: string }> } | undefined
-  if (account?.getState === undefined) {
-    return { kind: 'error', text: 'DeepSeek account integration is not mounted in this build.' }
+interface AccountAttemptLike {
+  id?: unknown
+  phase?: string
+  authorizeUrl?: string
+  errorCode?: string
+}
+
+interface AccountStateLike {
+  status?: string
+  attempt?: AccountAttemptLike | null
+}
+
+interface AccountLike {
+  getState(): Promise<AccountStateLike>
+  startSignIn(client: AccountClientMetadata, callbackOrigin: string, source: 'web' | 'desktop'): Promise<AccountStateLike>
+  cancelSignIn(id: unknown): Promise<AccountStateLike>
+  signOut(client: AccountClientMetadata): Promise<AccountStateLike>
+}
+
+interface AccountClientMetadata {
+  version: string
+  locale: string
+  timezoneOffsetSeconds: number
+}
+
+interface WebServerLike {
+  protocol: 'http:' | 'https:'
+  host: string
+  port: number
+}
+
+function accountClient(ctx: Context): AccountLike | undefined {
+  return ctx.get('deepseekAccount') as AccountLike | undefined
+}
+
+function accountClientMetadata(): AccountClientMetadata {
+  return {
+    version: APP_VERSION,
+    locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
   }
-  let status: string | undefined
-  try { status = (await account.getState()).status } catch {
+}
+
+function accountCallbackOrigin(ctx: Context): string | undefined {
+  const server = ctx.get('webServer') as WebServerLike | undefined
+  if (server === undefined || typeof server.port !== 'number' || server.port === 0) return undefined
+  return `${server.protocol}//${server.host}:${server.port}`
+}
+
+function accountFailure(attempt: AccountAttemptLike | null | undefined): string | undefined {
+  if (attempt?.phase === 'expired') return 'The DeepSeek sign-in expired. Run /login to try again.'
+  if (attempt?.phase === 'failed') return `DeepSeek sign-in failed${attempt.errorCode === undefined ? '' : ` (${attempt.errorCode})`}. Run /login to try again.`
+  if (attempt?.phase === 'cancelled') return 'DeepSeek sign-in was cancelled.'
+  return undefined
+}
+
+async function waitForAccount(invocation: CommandInvocation, account: AccountLike, timeoutMs: number): Promise<CommandResult> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (invocation.signal.aborted) {
+      const state = await account.getState().catch(() => undefined)
+      const id = state?.attempt?.id
+      if (id !== undefined) await account.cancelSignIn(id).catch(() => undefined)
+      return { kind: 'success' }
+    }
+    const state = await account.getState().catch(() => undefined)
+    if (state?.status === 'credential-stored' && state.attempt?.phase === 'succeeded') {
+      return { kind: 'success', text: 'Signed in to the DeepSeek account. Use /model to select the deepseek-account route; web search and fetch use the account token there.' }
+    }
+    const failure = accountFailure(state?.attempt)
+    if (failure !== undefined) return { kind: 'error', text: failure }
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  const state = await account.getState().catch(() => undefined)
+  const id = state?.attempt?.id
+  if (id !== undefined) await account.cancelSignIn(id).catch(() => undefined)
+  return { kind: 'error', text: 'DeepSeek sign-in timed out before the browser completed. Run /login to try again.' }
+}
+
+async function loginDeepSeekAccount(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
+  const account = accountClient(ctx)
+  if (account === undefined) return { kind: 'error', text: 'DeepSeek account integration is not mounted in this build.' }
+  let state: AccountStateLike
+  try {
+    state = await account.getState()
+  } catch {
     return { kind: 'error', text: 'Could not read the shared DeepSeek account state.' }
   }
-  if (status === 'credential-stored') {
+
+  if (state.status === 'credential-stored') {
+    const choice = await ctx.tui.prompt({
+      title: 'DeepSeek account',
+      question: 'The account is signed in and shared with DSH.',
+      detail: 'Use /model to select the deepseek-account route. Signing out removes the local grant; the DSH browser session is revoked in the background.',
+      options: [
+        { label: 'Use account route', value: 'use', description: 'Close this prompt; select the route in /model.' },
+        { label: 'Sign out', value: 'out', description: 'Remove the local grant and revoke it in the background.' },
+        { label: 'Cancel', value: 'cancel' },
+      ],
+      initialValue: 'use',
+      allowCustom: false,
+      notify: false,
+      signal: invocation.signal,
+    })
+    if (choice === null || choice === 'cancel' || choice === 'use') {
+      return { kind: 'success', text: 'Use /model to select the deepseek-account route.' }
+    }
+    try {
+      await account.signOut(accountClientMetadata())
+    } catch {
+      return { kind: 'error', text: 'Could not sign out of the DeepSeek account. Try again from DSH Web/Desktop.' }
+    }
+    return { kind: 'success', text: 'Signed out of the DeepSeek account. The next account request requires sign-in again.' }
+  }
+
+  const server = ctx.get('webServer') as WebServerLike | undefined
+  if (server === undefined || ctx.tui.interactive === false) {
     return {
-      kind: 'success',
-      text: 'DeepSeek account is signed in through the shared DSH credential store. Use /model to select deepseek-account; web search and fetch use the account token on that route.',
+      kind: 'error',
+      text: 'The loopback sign-in host is unavailable. Start omdsh with its normal terminal host, or sign in through DSH Web/Desktop and rerun /login.',
     }
   }
-  return {
-    kind: 'success',
-    text: 'No DeepSeek account grant is stored. Sign in once through DSH Web/Desktop, then rerun /login; this TUI reuses that grant. You can also paste a DeepSeek API key.',
+  const origin = accountCallbackOrigin(ctx)
+  if (origin === undefined) return { kind: 'error', text: 'The loopback sign-in host did not expose a port.' }
+
+  let initial: AccountStateLike
+  try {
+    initial = await account.startSignIn(accountClientMetadata(), origin, 'web')
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : 'Could not start DeepSeek sign-in.' }
   }
+  const attempt = initial.attempt
+  const failure = accountFailure(attempt)
+  if (failure !== undefined) return { kind: 'error', text: failure }
+  let url = attempt?.authorizeUrl
+  for (let i = 0; i < 40 && url === undefined; i += 1) {
+    if (invocation.signal.aborted) break
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const next = await account.getState().catch(() => undefined)
+    const nextFailure = accountFailure(next?.attempt)
+    if (nextFailure !== undefined) return { kind: 'error', text: nextFailure }
+    url = next?.attempt?.authorizeUrl
+  }
+  if (url === undefined) {
+    const id = attempt?.id ?? (await account.getState().catch(() => undefined))?.attempt?.id
+    if (id !== undefined) await account.cancelSignIn(id).catch(() => undefined)
+    return { kind: 'error', text: 'DeepSeek did not return a browser URL for this sign-in attempt.' }
+  }
+
+  if (config.openBrowser !== false) openExternal(url)
+  const answer = await ctx.tui.prompt({
+    title: 'DeepSeek account',
+    question: 'Complete sign-in in your browser, then return here.',
+    detail: `${url}
+
+This terminal is listening on ${origin}/oauth/callback until the attempt ends.`,
+    options: [
+      { label: 'I completed sign-in', value: 'done' },
+      { label: 'Cancel', value: 'cancel', description: 'Withdraw this sign-in attempt.' },
+    ],
+    initialValue: 'done',
+    allowCustom: false,
+    notify: false,
+    signal: invocation.signal,
+  })
+  if (answer !== 'done') {
+    const id = attempt?.id ?? (await account.getState().catch(() => undefined))?.attempt?.id
+    if (id !== undefined) await account.cancelSignIn(id).catch(() => undefined)
+    return { kind: 'success', text: 'DeepSeek sign-in cancelled.' }
+  }
+  return waitForAccount(invocation, account, 120_000)
 }
 
 async function login(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
@@ -1031,7 +1191,7 @@ async function login(ctx: Context, invocation: CommandInvocation, config: Config
   }
   const choice = await pickLoginChoice(ctx, invocation)
   if (choice === undefined) return { kind: 'success' }
-  if (choice === DEEPSEEK_ACCOUNT_CHOICE) return describeDeepSeekAccount(ctx)
+  if (choice === DEEPSEEK_ACCOUNT_CHOICE) return loginDeepSeekAccount(ctx, invocation, config)
   if (choice === CUSTOM_PROVIDER_VALUE) return loginCustom(ctx, invocation)
   if (isAuthorizationFlow(choice)) return loginAuthorization(ctx, invocation, choice)
   return isDeepSeek(choice)

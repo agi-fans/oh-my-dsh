@@ -1,7 +1,8 @@
 # omdsh product bundle — one insert over an empty Profile root.
-# TUI coding agent over the DeepSeek Harness core runtime. No Host, no HTTP, no
-# browser layer: local executors, the executor-less agent spine, the DeepSeek
-# adapter, and the omdsh TUI seam (provider + interactive runner).
+# TUI coding agent over the DeepSeek Harness core runtime. No public Host or
+# browser layer: one loopback HTTP listener exists only to receive the DeepSeek
+# account OAuth callback. Local executors, the executor-less agent spine, the
+# DeepSeek adapter, and the omdsh TUI seam (provider + interactive runner).
 #
 # Model/provider rows read the CLI/environment overrides through the
 # harness's sanctioned dynamic-config mechanism (!!js under plugin config).
@@ -197,6 +198,15 @@
   # any model or web request reads it. Idempotent; no network.
   - id: credential-migration
     name: '@agi-fans/oh-my-dsh/credential-migration'
+
+  # Loopback-only callback host for the DeepSeek account browser sign-in. It
+  # binds 127.0.0.1 on an OS-assigned port and serves only the exact
+  # /oauth/callback route registered while an attempt is running.
+  - id: web-server
+    name: '@deepseek-ai/dsh-host-webserver'
+    config:
+      host: 127.0.0.1
+      port: 0
 
   # DeepSeek account grant over the shared credential store. The browser
   # callback needs a loopback webServer; this TUI host does not mount one yet,

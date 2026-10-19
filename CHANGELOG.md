@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Added
 
 - Standard, PTC, and Cordis presets mount the upstream `dsh-time-context` clock (Minimal does not), so date-sensitive requests no longer depend on the model guessing the current time; transcript exports skip clock and plugin snapshots.
-- The DeepSeek account route (`deepseek-account`) is mounted beside the API-key route and reuses a DeepSeek account grant established by DSH Web/Desktop. `/login` reports the shared account state and `/model` lists the account route.
+- The DeepSeek account route (`deepseek-account`) is mounted beside the API-key route. `/login` can start the DeepSeek browser sign-in through a loopback-only callback host, reuse a grant established by DSH Web/Desktop, report account state, and sign out; `/model` lists the account route.
 
 - Optional File recovery snapshots in Settings → Tools retain durable Turn file contents. Session Tree’s Alt+R selects and previews files, confirms confined restoration, preserves later edits, and reports partial results and backups without rewinding messages or the Git index.
 

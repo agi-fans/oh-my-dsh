@@ -54,11 +54,14 @@ export async function mountOmdsh(options: {
   const environment = prepareLaunchEnvironment()
   const composed = composeLaunch()
   const home = omdshHome()
+  // Headless exec keeps the host runtime but disables TUI commands and the
+  // loopback OAuth callback host they own.
   const frontendPatches = options.mode === 'exec' ? composeEntries([composed.patches]).filter(entry =>
     entry.name === '@agi-fans/dsh-tui' || entry.name === '@agi-fans/dsh-tui/provider-local'
     || entry.name === '@agi-fans/dsh-tui/runner' || entry.name === '@agi-fans/dsh-tui/session-runtime'
     || entry.name === '@agi-fans/dsh-tui/human-interaction' || entry.name === '@agi-fans/dsh-tui/startup-notices'
     || entry.name === '@agi-fans/dsh-tui/tool-presentation' || entry.name === '@agi-fans/dsh-tui/hook-settings'
+    || entry.name === '@deepseek-ai/dsh-host-webserver'
     || entry.name?.startsWith('@agi-fans/dsh-tui/command-'),
   ).map(entry => ({ id: entry.id, disabled: true })) : []
   // The Profile facts every profile-scoped plugin reads: `dsh-settings` and

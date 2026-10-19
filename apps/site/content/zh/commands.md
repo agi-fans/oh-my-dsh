@@ -28,8 +28,8 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 |---|---|
 | `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；不可用的 preset 会显示失败原因。`/agent inspect [preset-id]` 查看声明及当前会话保留的 composition。`code`（PTC）preset 把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
 | `/permission` | 选择会话 Access 级别，或查看、撤销记住的审批规则。 |
-| `/login` | 登录 provider：目录条目、API key、共享的 DeepSeek 账户授权，或自定义 provider（自带 id、base URL、协议与模型 id）。 |
-| `/logout` | 删除存储在文件中的提供方凭据；环境变量提供的值保持不变。 |
+| `/login` | 登录 provider：目录条目、API key、DeepSeek 账户浏览器登录（或已共享的授权），或自定义 provider（自带 id、base URL、协议与模型 id）。 |
+| `/logout` | 删除存储在文件中的提供方凭据；环境变量提供的值保持不变。DeepSeek 账户授权在 `/login` 的账户入口中登出。 |
 | `/settings` | 打开 Interface、Agent、Tools、Integrations、Status line 与 Advanced 设置。别名：`/set`。 |
 | `/plugins` | 查看 Profile 插件和 bundle，启用、停用、安装或移除。安装可在应用前取消。 |
 
