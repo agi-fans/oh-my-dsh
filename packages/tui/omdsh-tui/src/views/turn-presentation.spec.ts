@@ -79,6 +79,22 @@ describe('live content followed by a completed turn summary', () => {
     expect(rows.join('\n')).toContain('THINKING_END')
   })
 
+  it('alternates adjacent live tool card surfaces', () => {
+    let state = result(call(start(), 'c1', 'bash', { command: 'pwd' }), 'c1', 'first')
+    state = result(call(state, 'c2', 'bash', { command: 'ls' }), 'c2', 'second')
+    const theme = createTheme(true, true)
+    const rows = renderView(state, {
+      width: 100, height: 160, colors: true, trueColor: true, themeName: 'dark',
+      model: 'm', input: '', inputCursor: 0,
+    }).lines
+    const first = rows.findIndex(row => stripAnsi(row).includes('$ pwd'))
+    const second = rows.findIndex(row => stripAnsi(row).includes('$ ls'))
+    expect(first).toBeGreaterThan(0)
+    expect(second).toBeGreaterThan(first)
+    expect(rows[first]).toContain(theme.getBgAnsi('toolSuccessBg'))
+    expect(rows[second]).toContain(theme.getBgAnsi('toolAltBg'))
+  })
+
   it('does not fold an earlier part of the same live turn around an ordinary notice', () => {
     let state = result(call(start(), 'c', 'read', { path: 'README.md' }), 'c', 'first tool content')
     state = { ...state, blocks: [...state.blocks, { kind: 'notice', text: 'Session notice', level: 'info' }] }

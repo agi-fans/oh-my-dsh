@@ -450,6 +450,7 @@ function toolBlockLines(
   width: number,
   mode: 'preview' | 'full' | 'details' = 'preview',
   detailsKey = 'Alt+O',
+  surface: 'toolSuccessBg' | 'toolAltBg' = 'toolSuccessBg',
 ): string[] {
   const full = mode !== 'preview'
   const presentation = renderTool({
@@ -535,7 +536,7 @@ function toolBlockLines(
     block.status === 'error' ? 'error' : 'muted',
     `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
   ), room))
-  const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
+  const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : surface
   return ['', ...rows, ''].map(row => paintSurface(theme, bg, 'toolOutput', padToWidth(' '.repeat(padding + nest) + row, width)))
 }
 
@@ -581,17 +582,19 @@ function groupMemberLines(
   index: number,
   context: GroupRenderContext,
   thoughtOnly = false,
+  toolOrdinal = 0,
 ): string[] {
   const { blocks, options, theme, width } = context
   const block = blocks[index]!
   // Search must reveal a match even when it falls outside a tool's normal preview.
   const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
-  const signature = [width, options.colors, context.trueColor, context.themeName, options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey].join('\0')
+  const surface = toolOrdinal % 2 === 0 ? 'toolSuccessBg' : 'toolAltBg'
+  const signature = [width, options.colors, context.trueColor, context.themeName, options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
   else {
-    lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey)
+    lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey, surface)
       : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width, options.mathMode)
         : blockLines(block, theme, width, { mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto' })
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
@@ -623,8 +626,10 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
   const lines: string[] = []
   const offsets = new Map<number, number>()
   const spans: { index: number; start: number; end: number }[] = []
+  let toolOrdinal = 0
   for (const index of groupMembers(group)) {
-    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought)
+    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, toolOrdinal)
+    if (context.blocks[index]?.kind === 'tool') toolOrdinal += 1
     if (rows.length > 0 && lines.length > 0) lines.push('')
     offsets.set(index, lines.length)
     if (context.blocks[index]?.kind === 'tool') spans.push({ index, start: lines.length, end: lines.length + rows.length })

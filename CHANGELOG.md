@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Adjacent successful tool cards alternate two subtle card surfaces, so a long run reads as distinct calls instead of one continuous panel.
+
 ## [0.21.0] - 2026-10-19
 
 ### Added

@@ -22,7 +22,7 @@ function contrast(fg: string, bg: string): number {
 }
 
 // Fixed surfaces must stay readable independently of the host's default ink.
-const CARD_BACKGROUNDS: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolErrorBg']
+const CARD_BACKGROUNDS: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg']
 const CARD_INK: readonly ThemeColor[] = ['toolTitle', 'toolOutput', 'toolDiffContext', 'toolDiffAdded', 'toolDiffRemoved', 'error', 'muted']
 const CODE_INK: readonly ThemeColor[] = ['mdCode', 'mdCodeBlock', 'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType', 'mdLink']
 

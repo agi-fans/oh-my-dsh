@@ -69,6 +69,7 @@ export type ThemeColor =
   | 'userMessageBg'
   | 'toolPendingBg'
   | 'toolSuccessBg'
+  | 'toolAltBg'
   | 'toolErrorBg'
   | 'toolTitle'
   | 'toolOutput'
@@ -110,6 +111,7 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#141b30',
   toolPendingBg: '#171e2e',
   toolSuccessBg: '#141b26',
+  toolAltBg: '#101722',
   toolErrorBg: '#291d1d',
   toolTitle: '#e0e0e0',
   toolOutput: '#858a94',
@@ -149,6 +151,7 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#e7ecf9',
   toolPendingBg: '#eef1fa',
   toolSuccessBg: '#e8f0e8',
+  toolAltBg: '#e1ebe3',
   toolErrorBg: '#f0e8e8',
   toolTitle: '#242424',
   toolOutput: '#666666',
@@ -187,6 +190,7 @@ const MIDNIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#1a1b26',
   toolPendingBg: '#16161e',
   toolSuccessBg: '#1b2430',
+  toolAltBg: '#161c27',
   toolErrorBg: '#2a1b26',
   toolOutput: '#878d96',
   toolDiffAdded: '#9ece6a',
@@ -226,6 +230,7 @@ const SOLARIZED_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#073642',
   toolPendingBg: '#002b36',
   toolSuccessBg: '#073642',
+  toolAltBg: '#05303b',
   toolErrorBg: '#3b2020',
   toolOutput: '#8e9e9f',
   toolDiffAdded: '#8fa500',
@@ -265,6 +270,7 @@ const CATPPUCCIN_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#181825',
   toolPendingBg: '#313244',
   toolSuccessBg: '#181825',
+  toolAltBg: '#14141f',
   toolErrorBg: '#11111b',
   toolTitle: '#b4befe',
   toolOutput: '#989db0',
@@ -304,6 +310,7 @@ const DRACULA_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#1f2029',
   toolPendingBg: '#21222c',
   toolSuccessBg: '#1a1f1e',
+  toolAltBg: '#161a19',
   toolErrorBg: '#2a2028',
   toolTitle: '#8be9fd',
   toolOutput: '#8693b9',
@@ -343,6 +350,7 @@ const NORD_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#3b4252',
   toolPendingBg: '#3b4252',
   toolSuccessBg: '#2e3440',
+  toolAltBg: '#29303b',
   toolErrorBg: '#3b2f31',
   toolTitle: '#88c0d0',
   toolOutput: '#a8b1c1',
@@ -382,6 +390,7 @@ const GRUVBOX_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#1d2021',
   toolPendingBg: '#32302f',
   toolSuccessBg: '#1d2021',
+  toolAltBg: '#181b1c',
   toolErrorBg: '#3c2021',
   toolTitle: '#ebdbb2',
   toolOutput: '#a4988b',
@@ -421,6 +430,7 @@ const ROSE_PINE_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#21202e',
   toolPendingBg: '#1f1d2e',
   toolSuccessBg: '#21202e',
+  toolAltBg: '#1b1a27',
   toolErrorBg: '#2d1f26',
   toolTitle: '#9ccfd8',
   toolOutput: '#8c89a2',
@@ -460,6 +470,7 @@ const MONO_PALETTE: Record<ThemeColor, Swatch> = {
   userMessageBg: '#202020',
   toolPendingBg: '#242424',
   toolSuccessBg: '#1c1c1c',
+  toolAltBg: '#171717',
   toolErrorBg: '#2a2a2a',
   toolTitle: '#e8e8e8',
   toolOutput: '#939393',
@@ -521,6 +532,7 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   // Neutral fills avoid same-index collisions with error and diff ink.
   toolPendingBg: '30',
   toolSuccessBg: '30',
+  toolAltBg: '30',
   toolErrorBg: '30',
   toolTitle: '37',
   toolOutput: '37',
@@ -559,6 +571,7 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   userMessageBg: '37',
   toolPendingBg: '37',
   toolSuccessBg: '37',
+  toolAltBg: '37',
   toolErrorBg: '37',
   toolTitle: '30',
   toolOutput: '30',
