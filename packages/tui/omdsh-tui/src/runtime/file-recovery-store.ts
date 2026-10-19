@@ -56,7 +56,10 @@ const stateContent = (state: RecoveryState): string => state.kind === 'file' ? `
   : state.kind === 'link' ? `link:${state.target}` : 'missing'
 export const sameRecoveryContent = (left: RecoveryState, right: RecoveryState): boolean => stateContent(left) === stateContent(right)
 export const sameRecoveryVersion = (left: RecoveryState, right: RecoveryState): boolean => sameRecoveryContent(left, right)
-  && (left.kind === 'missing' || right.kind === 'missing' || left.revision === right.revision)
+  // Windows reports creation time in `ctime`, and antivirus/indexing can touch
+  // timestamps between capture and restore. Byte content and mode remain the
+  // safe identity there; elsewhere the revision catches same-content replacement.
+  && (process.platform === 'win32' || left.kind === 'missing' || right.kind === 'missing' || left.revision === right.revision)
 
 export function recoveryRelativePath(path: string): string {
   if (path === '' || isAbsolute(path) || path.includes('\0') || path.includes('\uFFFD')
