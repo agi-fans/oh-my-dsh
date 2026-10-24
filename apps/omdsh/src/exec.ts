@@ -45,13 +45,15 @@ export async function runExec(invocation: Pick<OmdshInvocation, 'prompt' | 'resu
     signalExit = code
     stopped.abort(new Error(code === 130 ? 'SIGINT' : 'SIGTERM'))
   }
-  const sigint = (): void => { interrupt(130) }, sigterm = (): void => { interrupt(143) }
+  const sigint = (): void => { interrupt(130) }, sigterm = (): void => { interrupt(143) }, sighup = (): void => { interrupt(129) }
   const onFatal = (error: unknown): void => {
     fatal = error instanceof Error ? error : new Error(String(error))
     stopped.abort(fatal)
   }
   process.on('SIGINT', sigint)
   process.on('SIGTERM', sigterm)
+  // Closing the terminal window delivers SIGHUP; shut down cleanly like SIGTERM.
+  if (process.platform !== 'win32') process.on('SIGHUP', sighup)
   process.on('uncaughtException', onFatal)
   process.on('unhandledRejection', onFatal)
   process.stdout.on('error', onFatal)
@@ -94,6 +96,7 @@ export async function runExec(invocation: Pick<OmdshInvocation, 'prompt' | 'resu
     finally { clearTimeout(cleanupTimer) }
     process.off('SIGINT', sigint)
     process.off('SIGTERM', sigterm)
+    if (process.platform !== 'win32') process.off('SIGHUP', sighup)
     process.off('uncaughtException', onFatal)
     process.off('unhandledRejection', onFatal)
   }

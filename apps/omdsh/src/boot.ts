@@ -41,6 +41,8 @@ export async function runOmdsh(
   // keypress the tui provider handles); SIGTERM is the supervisor's stop.
   process.on('SIGTERM', () => { interrupt(0) })
   process.on('SIGINT', () => { interrupt(130) })
+  // Closing the terminal window delivers SIGHUP; shut down cleanly like SIGTERM.
+  if (process.platform !== 'win32') process.on('SIGHUP', () => { interrupt(129) })
   installFailLoud(NAME, process, async () => { await app.current?.fiber.dispose() })
   const ctx = await mountOmdsh({ args: resume === undefined ? prompt : ['--resume', resume], exit: code => { void shutdown.shutdown(code) },
     onContext: hostCtx => { app.current = hostCtx } })
