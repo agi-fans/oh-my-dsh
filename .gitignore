@@ -10,3 +10,6 @@ coverage/
 # apps/site generated content and build output
 apps/site/dist/
 apps/site/.astro/
+
+# pnpm content-addressable store when store-dir points inside the checkout
+.pnpm-store/
