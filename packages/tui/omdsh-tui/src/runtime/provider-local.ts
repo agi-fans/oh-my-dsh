@@ -19,12 +19,12 @@ import {
   terminalProgressSequence,
 } from './terminal-notifications.ts'
 import { PROGRAM_STATUS_QUERY, programStatusSequence, terminalTitle, type TerminalTitleMode, type TerminalStateMode } from './terminal-state.ts'
-import { KEYBOARD_PROTOCOL_QUERY, negotiateKeyboard, type KeyboardProtocol } from './terminal-probe.ts'
+import { TerminalSession } from './terminal-session.ts'
 import {
-  BRACKETED_PASTE, FOCUS_REPORTING, KITTY_KEYBOARD, MOUSE_TRACKING, TerminalModes,
+  BRACKETED_PASTE, FOCUS_REPORTING, MOUSE_TRACKING,
 } from './terminal-modes.ts'
-import { COLOR_QUERY, COLOR_SCHEME_QUERY, mergeColorReply, type TerminalColors } from '../chrome/terminal-colors.ts'
-import { IDLE_WHEEL, wheelStep, type WheelGesture } from '../input/wheel-scroll.ts'
+import type { TerminalColors } from '../chrome/terminal-colors.ts'
+import { IDLE_WHEEL, terminalAcceleratesWheel, wheelStep, type WheelGesture } from '../input/wheel-scroll.ts'
 import { HerdrAgentReporter } from './herdr-agent.ts'
 import { imageProtocol, type ImageProtocol } from '../chrome/terminal-images.ts'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -365,17 +365,9 @@ export class LocalTui implements TuiService {
   openFileInEditor(path: string): void {
     if (!this.#tty) throw new Error('Opening an editor requires an interactive terminal.')
     try {
-      this.#setMouseTracking(false)
-      this.#modes.handOff()
-      this.#term.input.setRawMode?.(false)
-      editFileExternally(path, this.#externalEditor)
+      this.#handTerminal(() => { editFileExternally(path, this.#externalEditor) })
     } finally {
-      if (!this.#disposed) {
-        this.#term.input.setRawMode?.(true)
-        this.#modes.takeBack()
-        this.#renderer.reset()
-        this.#render()
-      }
+      if (!this.#disposed) this.#render()
     }
   }
   #deferInitialRender = false
@@ -516,23 +508,28 @@ export class LocalTui implements TuiService {
   #programSupported = false
   #programQuerySent = false
   /** What the terminal reported about its own colors; empty until (and unless) it answers. */
-  #terminalColors: TerminalColors = {}
-  /** Keyboard protocol this session settled on; negotiation runs once. */
-  #keyboardProtocol: KeyboardProtocol | undefined
-  /** Every terminal mode this session turned on, given back on hand-off, exit and crash. */
-  readonly #modes = new TerminalModes(bytes => { this.#term.output.write(bytes) })
+  get #terminalColors(): TerminalColors { return this.#session.colors }
+  /** Capability probe, reported colors, keyboard protocol, and every terminal mode this session turned on. */
+  readonly #session = new TerminalSession({
+    write: bytes => { this.#term.output.write(bytes) },
+    alternateActive: () => this.#renderer?.alternateActive ?? false,
+    setAlternateScreenModes: modes => { this.#renderer?.setAlternateScreenModes(modes) },
+    deferUntilMainScreen: bytes => { this.#renderer?.deferUntilMainScreen(bytes) },
+    colorsChanged: () => { this.#render() },
+    probeSettled: () => {
+      this.#probeGate = false
+      if (!this.#disposed && !this.#deferInitialRender) this.#render()
+    },
+  })
   #offExit: (() => void) | undefined
   /** Accumulated wheel gesture, so fast spins move further than one notch. */
   #wheelGesture: WheelGesture = IDLE_WHEEL
+  readonly #wheelAccelerates: boolean
   /** When the pending provider retry fires, so the working row can count down. */
   #retryDeadline: number | undefined
   /** When the running compaction started. */
   #compactionStartedAt: number | undefined
   readonly #readImageInput: ((ref: ImageAttachmentRef, signal: AbortSignal) => Promise<TuiInputImage | undefined>) | undefined
-  /** The capability queries are written once per session. */
-  #capabilityQuerySent = false
-  /** Coalesces the burst of color replies into one repaint. */
-  #colorTimer: ReturnType<typeof setTimeout> | null = null
   #writtenProgramState: string | undefined
   #terminalProgress = false
   #terminalProgressActive = false
@@ -609,8 +606,9 @@ export class LocalTui implements TuiService {
    * preference changes so a session that starts colorless can still enable
    * hexadecimal palettes without a restart.
    */
-  #trueColor = false
   #colorDepth: ColorDepth = 'ansi16'
+  /** Hold the first frame until the capability probe settles; scrollback rows are immutable, so the first real paint must use the reported colors. */
+  #probeGate = false
   readonly #copy: ClipboardWriter
   #copyTask: Promise<unknown> = Promise.resolve()
   readonly #readClipboard: ClipboardReader
@@ -682,6 +680,8 @@ export class LocalTui implements TuiService {
       alternateScreenOverlays?: boolean
       resizeDebounceMs?: number
       streamRenderMs?: number
+      /** True accelerates wheel input; defaults to false on local macOS terminals, which the OS already accelerates. */
+      wheelAcceleration?: boolean
       /** Herdr lifecycle reporter; production injects an environment-aware one. */
       herdrReporter?: HerdrAgentReporter
     } = {},
@@ -726,8 +726,9 @@ export class LocalTui implements TuiService {
     this.#readImageInput = paths.readImageInput
     this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
+    this.#wheelAccelerates = paths.wheelAcceleration ?? !terminalAcceleratesWheel()
     this.#herdr = paths.herdrReporter ?? new HerdrAgentReporter({ env: {} })
-    this.#syncTrueColor()
+    this.#syncColorDepth()
     this.#tty = term.input.isTTY === true && term.output.isTTY === true
     this.#draftStore = this.#tty && paths.draftsPath !== undefined ? new ComposerDraftStore(paths.draftsPath) : undefined
     this.#plain = new PlainTui({
@@ -781,27 +782,22 @@ export class LocalTui implements TuiService {
           this.#programQuerySent = false
           this.#programSupported = false
           this.#syncWindowTitle()
-          this.#modes.takeBack()
+          this.#session.takeBack()
           this.#renderer.reset()
           this.#render()
         }
         process.on('SIGCONT', resume)
         this.#offResume = () => { process.off('SIGCONT', resume) }
       }
-      this.#modes.enable('paste', BRACKETED_PASTE)
-      this.#modes.enable('focus', FOCUS_REPORTING)
+      this.#session.setMode('paste', BRACKETED_PASTE, true)
+      this.#session.setMode('focus', FOCUS_REPORTING, true)
+      this.#probeGate = this.#deferInitialRender
       // A crash or `process.exit` skips dispose; the shell must still get its
       // terminal back rather than a stuck alternate screen or key encoding.
       const onExit = (): void => { this.#restoreTerminalOnExit() }
       process.once('exit', onExit)
       this.#offExit = () => { process.off('exit', onExit) }
-      if (!this.#capabilityQuerySent) {
-        // One round trip asks for the keyboard protocol, the terminal's own
-        // colors, and whether it describes itself as dark or light. A terminal
-        // that answers none of them keeps today's behaviour.
-        this.#capabilityQuerySent = true
-        term.output.write(KEYBOARD_PROTOCOL_QUERY + COLOR_QUERY + COLOR_SCHEME_QUERY)
-      }
+      this.#session.start()
     }
     this.#render()
     this.#herdr.start()
@@ -1254,12 +1250,11 @@ export class LocalTui implements TuiService {
   }
 
   /**
-   * Re-derive the 24-bit switch from the active color preference. Every path
+   * Re-derive the color depth from the active color preference. Every path
    * that changes `#colors` calls this so `/settings` takes effect immediately.
    */
-  #syncTrueColor(): void {
+  #syncColorDepth(): void {
     this.#colorDepth = this.#colors ? detectColorDepth() : 'ansi16'
-    this.#trueColor = this.#colorDepth === 'truecolor'
   }
 
   /** Apply prefs loaded from this entry's config (does not persist). */
@@ -1495,23 +1490,6 @@ export class LocalTui implements TuiService {
   }
 
   /**
-   * Adopt newly reported terminal colors. A `system` theme and 16-color
-   * quantization both follow them, so the next frame is rebuilt; the burst of
-   * palette replies is coalesced into one repaint.
-   */
-  #adoptTerminalColors(next: TerminalColors): void {
-    const key = (colors: TerminalColors): string =>
-      JSON.stringify([colors.foreground, colors.background, colors.scheme, colors.palette])
-    if (key(next) === key(this.#terminalColors)) return
-    this.#terminalColors = next
-    if (this.#colorTimer !== null) return
-    this.#colorTimer = setTimeout(() => {
-      this.#colorTimer = null
-      if (!this.#disposed && this.#tty) this.#render()
-    }, 30)
-  }
-
-  /**
    * Last-resort restore for a process that exits without disposing: leave the
    * alternate screen, give every mode back and show the cursor. Writes to a TTY
    * are synchronous, so this completes before the process ends.
@@ -1519,7 +1497,7 @@ export class LocalTui implements TuiService {
   #restoreTerminalOnExit(): void {
     if (this.#disposed || !this.#tty) return
     try { this.#renderer.finish() } catch { /* best effort while exiting */ }
-    this.#modes.release()
+    this.#session.release()
     this.#term.output.write('\x1b[?25h')
   }
 
@@ -1540,10 +1518,6 @@ export class LocalTui implements TuiService {
     if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
     this.#pasteBurst.clear()
     this.#pluginSettingsAbort?.abort()
-    if (this.#colorTimer !== null) {
-      clearTimeout(this.#colorTimer)
-      this.#colorTimer = null
-    }
     if (this.#resizeTimer !== null) {
       clearTimeout(this.#resizeTimer)
       this.#resizeTimer = null
@@ -1581,8 +1555,7 @@ export class LocalTui implements TuiService {
       this.#writtenProgramState = undefined
       this.#offExit?.()
       this.#offExit = undefined
-      this.#modes.release()
-      this.#keyboardProtocol = undefined
+      this.#session.dispose()
       this.#term.output.write('\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
@@ -1836,6 +1809,8 @@ export class LocalTui implements TuiService {
       this.#streamRenderTimer = null
     }
     if (this.#deferInitialRender) return
+    // Rows committed to scrollback are immutable; the first real paint waits for the probe so it already uses the reported colors.
+    if (this.#probeGate) return
     const width = this.#term.width()
     const renderState = this.#reveal === undefined
       ? this.#state
@@ -1865,7 +1840,6 @@ export class LocalTui implements TuiService {
         appName: APP_NAME,
         spinnerFrame: this.#spinner,
         motion: this.#motion,
-        trueColor: this.#trueColor,
         colorDepth: this.#colorDepth,
         themeName: this.#themeName,
         terminal: this.#terminalColors,
@@ -2007,8 +1981,28 @@ export class LocalTui implements TuiService {
     if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
-    if (enabled) this.#modes.enable('mouse', MOUSE_TRACKING)
-    else this.#modes.disable('mouse')
+    this.#session.setMode('mouse', MOUSE_TRACKING, enabled)
+  }
+
+  /** Give every terminal mode back before the terminal is lent out (Ctrl+Z, external editor). */
+  #handOffTerminal(): void {
+    this.#setMouseTracking(false)
+    this.#session.handOff()
+  }
+
+  /** Run `run` with the terminal handed off; take it back and repaint afterwards. */
+  #handTerminal<T>(run: () => T): T {
+    this.#handOffTerminal()
+    this.#term.input.setRawMode?.(false)
+    try {
+      return run()
+    } finally {
+      if (!this.#disposed) {
+        this.#term.input.setRawMode?.(true)
+        this.#session.takeBack()
+        this.#renderer.reset()
+      }
+    }
   }
 
   /**
@@ -2315,19 +2309,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'program-status-support') { this.#programSupported = true; this.#syncWindowTitle(); return }
-    if (event.type === 'color-reply') { this.#adoptTerminalColors(mergeColorReply(this.#terminalColors, event.reply)); return }
-    if (event.type === 'color-scheme') { this.#adoptTerminalColors({ ...this.#terminalColors, scheme: event.scheme }); return }
-    if (event.type === 'kitty-flags' || event.type === 'device-attributes') {
-      const step = negotiateKeyboard(this.#keyboardProtocol, event)
-      // Only the step that settles a new protocol enables it, so the session
-      // pushes one entry per screen and the mode registry pops it again.
-      if (step.output !== undefined && step.protocol === 'kitty') {
-        this.#modes.enable('keyboard', KITTY_KEYBOARD)
-        this.#renderer.setAlternateScreenModes({ enter: KITTY_KEYBOARD.enable, exit: KITTY_KEYBOARD.disable })
-      }
-      this.#keyboardProtocol = step.protocol ?? this.#keyboardProtocol
-      return
-    }
+    if (this.#session.handle(event)) return
     if (event.type === 'focus') {
       this.#terminalFocused = event.focused
       if (event.focused && this.#notificationFocus === 'unfocused') this.#notificationQueue.clear()
@@ -2353,7 +2335,7 @@ export class LocalTui implements TuiService {
     if (event.type === 'wheel') {
       this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
-        const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1)
+        const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1, !this.#wheelAccelerates)
         this.#wheelGesture = step.gesture
         if (step.lines !== 0) this.#scrollBy(step.lines)
       }
@@ -2936,7 +2918,7 @@ export class LocalTui implements TuiService {
     const previousMotion = this.#motion
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
-    this.#syncTrueColor()
+    this.#syncColorDepth()
     this.#motion = prefs.motion ?? 'full'
     this.#flushPasteBurst(true)
     this.#pasteProtection = prefs.pasteProtection !== false
@@ -3362,9 +3344,8 @@ export class LocalTui implements TuiService {
           this.#followTail()
           this.#render()
         }
-        this.#setMouseTracking(false)
         // The shell that takes over gets every mode back; SIGCONT takes them again.
-        this.#modes.handOff()
+        this.#handOffTerminal()
         try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
       }
       return
@@ -4072,20 +4053,16 @@ export class LocalTui implements TuiService {
       return true
     }
     try {
-      this.#setMouseTracking(false)
-      this.#modes.handOff()
-      this.#term.input.setRawMode?.(false)
-      this.#literalInput ||= this.#editor.startsWithPaste
-      const text = editExternally(this.#editor.expandedText, this.#externalEditor)
-      this.#editor.setText(text)
-      this.#images.reconcile()
+      this.#handTerminal(() => {
+        this.#literalInput ||= this.#editor.startsWithPaste
+        const text = editExternally(this.#editor.expandedText, this.#externalEditor)
+        this.#editor.setText(text)
+        this.#images.reconcile()
+      })
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {
       if (!this.#disposed) {
-        this.#term.input.setRawMode?.(true)
-        this.#modes.takeBack()
-        this.#renderer.reset()
         this.#refreshAutocomplete()
         this.#render()
       }
@@ -4095,22 +4072,16 @@ export class LocalTui implements TuiService {
 
   #openPlanFeedbackEditor(prompt: PendingPrompt): void {
     try {
-      this.#setMouseTracking(false)
-      this.#modes.handOff()
-      this.#term.input.setRawMode?.(false)
-      const initial = prompt.feedback === true ? this.#editor.expandedText : ''
-      const text = editExternally(initial, this.#externalEditor)
-      this.#editor.setText(text)
-      this.#prompt = { ...prompt, feedback: true }
+      this.#handTerminal(() => {
+        const initial = prompt.feedback === true ? this.#editor.expandedText : ''
+        const text = editExternally(initial, this.#externalEditor)
+        this.#editor.setText(text)
+        this.#prompt = { ...prompt, feedback: true }
+      })
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {
-      if (!this.#disposed) {
-        this.#term.input.setRawMode?.(true)
-        this.#modes.takeBack()
-        this.#renderer.reset()
-        this.#render()
-      }
+      if (!this.#disposed) this.#render()
     }
   }
 

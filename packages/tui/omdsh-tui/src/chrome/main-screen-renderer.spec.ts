@@ -6024,3 +6024,32 @@ describe('viewport prompt labels', () => {
     expect(emu.normalScreen()[0]).toBe('document-22')
   })
 })
+
+describe('deferUntilMainScreen', () => {
+  it('writes immediately while the alternate buffer is inactive', () => {
+    let captured = ''
+    const renderer = new MainScreenRenderer({ write: chunk => { captured += chunk } }, { width: 20, height: 6, alternateScreenOverlays: true })
+    renderer.deferUntilMainScreen('\x1b[>1u')
+    expect(captured).toContain('\x1b[>1u')
+    expect(renderer.alternateActive).toBe(false)
+  })
+
+  it('emits queued bytes right after EXIT_ALT_SCREEN when the overlay closes and on finish', () => {
+    let captured = ''
+    const renderer = new MainScreenRenderer({ write: chunk => { captured += chunk } }, { width: 20, height: 6, alternateScreenOverlays: true })
+    renderer.render({ lines: ['overlay'], liveStart: 0, transientSurface: 'overlay' })
+    expect(renderer.alternateActive).toBe(true)
+    renderer.deferUntilMainScreen('\x1b[>1u')
+    expect(captured).not.toContain('\x1b[>1u')
+    captured = ''
+    renderer.render({ lines: ['main'], liveStart: 0, transientSurface: 'scroll' })
+    expect(captured).toContain('\x1b[?1049l\x1b[>1u')
+    expect(renderer.alternateActive).toBe(false)
+
+    renderer.render({ lines: ['overlay'], liveStart: 0, transientSurface: 'overlay' })
+    renderer.deferUntilMainScreen('\x1b[>1u')
+    captured = ''
+    renderer.finish()
+    expect(captured).toContain('\x1b[?1049l\x1b[>1u')
+  })
+})

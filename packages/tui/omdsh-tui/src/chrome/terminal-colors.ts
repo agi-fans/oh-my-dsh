@@ -112,6 +112,25 @@ export function mergeColorReply(colors: TerminalColors, reply: OscColorReply): T
     : { ...colors, entries }
 }
 
+/**
+ * Stable key for everything reported colors can change; two reports with the
+ * same colors produce the same key, so caches never stale-hit across a
+ * light/dark switch.
+ */
+export function terminalColorsKey(colors: TerminalColors | undefined): string {
+  if (colors === undefined) return ''
+  // Every frame asks once per cached block; a new report is a new object.
+  const known = terminalColorsKeys.get(colors)
+  if (known !== undefined) return known
+  const rgb = (color: Rgb | undefined): string =>
+    color === undefined ? '' : `${color.r},${color.g},${color.b}`
+  const key = [rgb(colors.foreground), rgb(colors.background), colors.scheme ?? '', (colors.palette ?? []).map(rgb).join(';')].join('|')
+  terminalColorsKeys.set(colors, key)
+  return key
+}
+
+const terminalColorsKeys = new WeakMap<TerminalColors, string>()
+
 /** Convert one 8-bit sRGB color to Oklab (Björn Ottosson's transform). */
 export function toOklab(color: Rgb): [number, number, number] {
   const linear = (value: number): number => {

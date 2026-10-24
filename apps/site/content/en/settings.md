@@ -47,7 +47,7 @@ Rows are grouped under Appearance, Input, Notifications and Startup. Notificatio
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
-| Theme | dark, light, midnight, solarized, catppuccin, dracula, nord, gruvbox, rose-pine, mono, system | dark | Color palette. `system` derives surfaces and text color from the colors the terminal reports and follows a light terminal. |
+| Theme | dark, light, midnight, solarized, catppuccin, dracula, nord, gruvbox, rose-pine, mono, system | dark | Color palette. `system` derives surfaces and text color from the colors the terminal reports and follows a light terminal, including a light/dark switch mid-session on terminals that report it. |
 | Color | on / off | on | SGR styling. |
 | Motion | full / reduced / off | full | `full` adds smooth streaming and a working shimmer, `reduced` keeps smooth streaming without the shimmer, and `off` follows provider chunks with static activity marks. |
 | Math in replies | auto / source | auto | Format supported formulas as terminal text, or retain LaTeX delimiters and commands. |

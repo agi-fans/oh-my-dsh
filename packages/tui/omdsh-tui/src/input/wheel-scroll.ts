@@ -8,6 +8,10 @@
  * longer triples its distance while a batched spin still travels; and a fast
  * spin earns up to twice the distance per notch. Fractions carry into the next
  * event so the acceleration stays smooth.
+ *
+ * Local macOS terminals are the exception: the OS already accelerates wheel
+ * and trackpad deltas and reports one event per line, so the TUI keeps a flat
+ * three lines per event there instead of accelerating twice.
  * @module @agi-fans/dsh-tui/wheel-scroll
  */
 
@@ -40,13 +44,28 @@ export interface WheelGesture {
 export const IDLE_WHEEL: WheelGesture = { countedAt: 0, direction: 0, carry: 0 }
 
 /**
+ * Whether the terminal already accelerates wheel input. Local macOS terminals
+ * receive deltas the OS accelerated and emit one event per line; other
+ * platforms, and SSH sessions where the client platform is unknown, usually
+ * send one event per wheel notch.
+ */
+export function terminalAcceleratesWheel(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'darwin'
+    && env.SSH_CONNECTION === undefined
+    && env.SSH_CLIENT === undefined
+    && env.SSH_TTY === undefined
+}
+
+/**
  * How far one wheel event should scroll.
  * @param gesture - state returned by the previous call.
  * @param now - this event's timestamp in milliseconds.
  * @param direction - `-1` for up, `1` for down.
+ * @param terminalAccelerates - the terminal already accelerates deltas, so every event moves a flat {@link BASE_LINES}.
  * @returns the signed line count to move and the state to carry into the next event.
  */
-export function wheelStep(gesture: WheelGesture, now: number, direction: -1 | 1): { lines: number; gesture: WheelGesture } {
+export function wheelStep(gesture: WheelGesture, now: number, direction: -1 | 1, terminalAccelerates = false): { lines: number; gesture: WheelGesture } {
+  if (terminalAccelerates) return { lines: direction * BASE_LINES, gesture: IDLE_WHEEL }
   const gap = now - gesture.countedAt
   const fresh = gesture.direction !== direction || gap > GESTURE_GAP_MS
   // A follow-up report: part of a split notch, or one of several batched

@@ -219,3 +219,14 @@ describe('highlight cache', () => {
     expect(recent[0]).toContain(keyword + 'const')
   })
 })
+
+describe('terminal-color fingerprints', () => {
+  it('does not reuse a cached highlight across a dark/light terminal switch', () => {
+    const source = ['const value = f(x)']
+    const dark = createTheme(true, 'truecolor', 'system', { background: { r: 10, g: 10, b: 10 }, scheme: 'dark' })
+    const light = createTheme(true, 'truecolor', 'system', { background: { r: 245, g: 245, b: 245 }, scheme: 'light' })
+    const darkOut = highlightCodeLines(source, 'ts', dark)
+    const lightOut = highlightCodeLines(source, 'ts', light)
+    expect(lightOut).not.toEqual(darkOut)
+  })
+})

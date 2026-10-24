@@ -85,7 +85,7 @@ describe('live content followed by a completed turn summary', () => {
     state = result(call(state, 'c2', 'bash', { command: 'ls' }), 'c2', 'second')
     const theme = createTheme(true, true)
     const rows = renderView(state, {
-      width: 100, height: 160, colors: true, trueColor: true, themeName: 'dark',
+      width: 100, height: 160, colors: true, colorDepth: 'truecolor', themeName: 'dark',
       model: 'm', input: '', inputCursor: 0,
     }).lines
     const first = rows.findIndex(row => stripAnsi(row).includes('$ pwd'))
@@ -107,7 +107,7 @@ describe('live content followed by a completed turn summary', () => {
     expect(groups.length).toBeGreaterThan(1)
     const theme = createTheme(true, true)
     const rows = renderView(state, {
-      width: 100, height: 160, colors: true, trueColor: true, themeName: 'dark',
+      width: 100, height: 160, colors: true, colorDepth: 'truecolor', themeName: 'dark',
       model: 'm', input: '', inputCursor: 0,
       openedGroups: new Set([groups[0]!.key]),
     }).lines
@@ -170,7 +170,7 @@ describe('live content followed by a completed turn summary', () => {
     // The reference is for reopening the picture (Alt+M); the transcript keeps
     // its text and never places a bitmap into rows that become scrollback.
     const frame = renderView(state, {
-      width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0,
+      width: 80, height: 40, colors: true, colorDepth: 'truecolor', themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0,
       imageProtocol: 'kitty' as const,
     })
     expect(frame.image).toBeUndefined()
@@ -185,7 +185,7 @@ describe('live content followed by a completed turn summary', () => {
     }, 1200))
     const block = state.blocks.find(entry => entry.kind === 'user')
     expect(block?.kind === 'user' ? block.image?.attachmentId : undefined).toBe('abcdefghijkl')
-    const base = { width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
+    const base = { width: 80, height: 40, colors: true, colorDepth: 'truecolor', themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
     expect(renderView(state, base).lines).toEqual(renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines)
     expect(renderView(state, { ...base, imageProtocol: 'kitty' as const }).image).toBeUndefined()
   })
@@ -196,7 +196,7 @@ describe('live content followed by a completed turn summary', () => {
       source: { kind: 'user' },
       content: [{ type: 'text', text: '看这个' }, { type: 'image', attachment }, { type: 'text', text: '怎么样' }],
     }, 1200))
-    const base = { width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
+    const base = { width: 80, height: 40, colors: true, colorDepth: 'truecolor', themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
     const screen = renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines.map(stripAnsi).join('\n')
     expect(screen).toContain('看这个 [Image: image/jpeg]怎么样')
   })
@@ -225,7 +225,7 @@ describe('opened turns use the live presentation', () => {
     for (const themeName of THEME_NAMES) {
       const theme = createTheme(true, true, themeName)
       const frame = renderView(state, {
-        width: 80, height: 100, colors: true, trueColor: true, themeName,
+        width: 80, height: 100, colors: true, colorDepth: 'truecolor', themeName,
         model: 'm', input: '', inputCursor: 0,
         ...(opened ? { openedGroups: new Set(turnGroups(state).map(group => group.key)) } : {}),
       })
@@ -308,7 +308,7 @@ describe('full tool details', () => {
       kind: 'tool', callId: 'edit', name: 'edit', args: '{}', status: 'ok', output: 'Changed one file',
       presentation: { call: { card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }] } },
     }] }
-    const frame = renderView(state, { width: 80, height: 60, colors: true, trueColor: false, input: '', inputCursor: 0, model: 'm', expandedTools: new Set(['edit']) })
+    const frame = renderView(state, { width: 80, height: 60, colors: true, colorDepth: 'ansi16', input: '', inputCursor: 0, model: 'm', expandedTools: new Set(['edit']) })
     const text = frame.lines.map(stripAnsi).join('\n')
     expect(text).toContain('- old')
     expect(text).toContain('+ new')

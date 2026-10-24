@@ -17,6 +17,7 @@ export type KeyEvent =
   | { type: 'color-scheme'; scheme: 'dark' | 'light' }
   | { type: 'kitty-flags'; flags: number }
   | { type: 'device-attributes' }
+  | { type: 'mode-report'; mode: number; state: number }
   | { type: 'cell-size'; width: number; height: number }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
@@ -154,6 +155,9 @@ function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 
   // CSI ? ... c is the primary device-attributes reply, our negotiation sentinel.
   const attributes = /^\?[\d;]*c/u.exec(body)
   if (attributes !== null) return { event: { type: 'device-attributes' }, used: 1 + attributes[0].length }
+  // DECRPM: CSI ? mode ; state $ y reports a private mode's support.
+  const decrpm = /^\?(\d+);(\d+)\$y/u.exec(body)
+  if (decrpm !== null) return { event: { type: 'mode-report', mode: Number(decrpm[1]), state: Number(decrpm[2]) }, used: 1 + decrpm[0].length }
   if (body[0] === '<') {
     const parsed = parseSgr(body)
     if (parsed === 'partial') return 'partial'
@@ -164,7 +168,7 @@ function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 
   // key code and the modifier; the first value of each field is what we decode.
   const match = /^(?:(\d+)?(?::\d*)*(?:;(\d+)?(?::\d*)*)?(?:;(\d+))?)?([A-Za-z~u])/.exec(body)
   if (match === null) {
-    if ((/^[\d;:]*$/.test(body) || /^[>?][\d;]*$/.test(body)) && body.length < 32) return 'partial'
+    if ((/^[\d;:]*$/.test(body) || /^[>?][\d;]*\$?$/u.test(body)) && body.length < 32) return 'partial'
     return null
   }
   const used = 1 + match[0].length
@@ -229,7 +233,7 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
         if (parsed === null) {
           // A complete CSI we do not decode is still control data. Dropping only
           // the ESC would type its parameters into the composer.
-          const complete = /^\x1b\[[\d;:?<=>]*[\x40-\x7e]/u.exec(tail)
+          const complete = /^\x1b\[[\d;:?<=>]*[\x20-\x2f]*[\x40-\x7e]/u.exec(tail)
           i += complete === null ? 1 : complete[0].length
           continue
         }

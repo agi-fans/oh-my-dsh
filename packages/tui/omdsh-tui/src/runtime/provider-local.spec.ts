@@ -80,6 +80,7 @@ it('renders a partial TUI configuration without an initial model label', async (
   const config = Config({ terminalTitle: 'workspace', terminalState: 'on' })
   const term = new FakeTerminal()
   const tui = new LocalTui(term, config.model, false, 'dark', copyToClipboard, { deferInitialRender: true })
+  press(term, '\x1b[?62;22c')
   try {
     tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: config.terminalTitle.get(), terminalState: config.terminalState.get() })
     expect(() => tui.replaceSession([])).not.toThrow()
@@ -1153,6 +1154,7 @@ describe('LocalTui (tty)', () => {
     })
 
     expect(term.captured).not.toContain('Into the Unknown')
+    press(term, '\x1b[?62;22c')
     expect(term.captured).not.toContain('\x1b[3J')
     tui.setStatus('running')
     expect(term.captured).not.toContain('Into the Unknown')
@@ -1171,6 +1173,7 @@ describe('LocalTui (tty)', () => {
     const term = new ScrollingTerminal(80, 20)
     term.history.push('shell output before omdsh')
     const tui = new LocalTui(term, 'm', color, 'dark', copyToClipboard, { deferInitialRender: true })
+    press(term, '\x1b[?62;22c')
     const events = [ev('user/message', {
       source: { kind: 'user' }, content: [{ type: 'text', text: Array.from({ length: 40 }, (_, i) => `old prompt ${i}`).join('\n') }],
     }, 1)]
@@ -1189,6 +1192,7 @@ describe('LocalTui (tty)', () => {
   it('refreshes different projections without replaying or retaining a stale row index', () => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    press(term, '\x1b[?62;22c')
     const events = [ev('user/message', { source: { kind: 'user' }, content: [{
       type: 'text', text: Array.from({ length: 40 }, (_, index) => `parent prompt ${index}`).join('\n'),
     }] }, 1)]
@@ -1208,6 +1212,7 @@ describe('LocalTui (tty)', () => {
     const term = new ScrollingTerminal(80, 20)
     term.history.push('shell output before omdsh')
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    press(term, '\x1b[?62;22c')
     tui.replaceSession([ev('user/message', {
       source: { kind: 'user' }, content: [{ type: 'text', text: Array.from({ length: 40 }, (_, i) => `earlier prompt ${i}`).join('\n') }],
     }, 1)], undefined, 'idle', 'initial')
@@ -5142,7 +5147,8 @@ describe('keyboard protocol ownership', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     // The query only asks; nothing is pushed before the terminal answers.
-    expect(term.captured).toContain('\x1b[?u\x1b[c')
+    expect(term.captured).toContain('\x1b[?u')
+    expect(term.captured).toContain('\x1b[?2031$p\x1b[c')
     expect(term.captured).not.toMatch(/\x1b\[>\d*u/u)
     press(term, '\x1b[?0u\x1b[?62;22c')
     // A late or repeated report never pushes a second entry.
@@ -5158,5 +5164,54 @@ describe('keyboard protocol ownership', () => {
     press(term, '\x1b[?62;22c')
     await tui.dispose()
     expect(term.captured).not.toMatch(/\x1b\[>\d*u|\x1b\[<u|\x1b\[>4;\dm/u)
+  })
+})
+
+describe('startup probe gating', () => {
+  it('holds the first frame until the probe answers, then paints', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    try {
+      tui.replaceSession([ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'initial session' }] }, 1)], undefined, 'idle', 'initial')
+      expect(term.captured).not.toContain('initial session')
+      press(term, '\x1b[?62;22c')
+      expect(term.captured).toContain('initial session')
+    } finally { await tui.dispose() }
+  })
+
+  it('paints after the probe timeout when the terminal never answers', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { deferInitialRender: true })
+    try {
+      tui.replaceSession([ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'initial session' }] }, 1)], undefined, 'idle', 'initial')
+      expect(term.captured).not.toContain('initial session')
+      await vi.waitFor(() => { expect(term.captured).toContain('initial session') }, { timeout: 2_000 })
+    } finally { await tui.dispose() }
+  })
+})
+
+describe('wheel acceleration option', () => {
+  const wheelUp = '\x1b[<64;10;5M'
+  const firstLineRow = (rows: readonly string[]): { at: number; label: string } | undefined => {
+    for (const [index, row] of rows.entries()) {
+      const match = /answer 1 line \d+/.exec(row)
+      if (match !== null) return { at: index, label: match[0] }
+    }
+    return undefined
+  }
+
+  it.each([false, true] as const)('moves a flat three lines per event when acceleration is off (wheelAcceleration=%s)', accel => {
+    const term = new ScrollingTerminal(80, 20)
+    const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { wheelAcceleration: accel })
+    try {
+      longTurn(tui, 1, 60)
+      press(term as never, wheelUp)
+      const before = firstLineRow(term.visible())
+      expect(before).not.toBeUndefined()
+      // A back-to-back report is a burst follow-up only when acceleration is on.
+      press(term as never, wheelUp)
+      const after = term.visible().findIndex(row => row.includes(before!.label))
+      expect(after - before!.at).toBe(accel ? 1 : 3)
+    } finally { tui.dispose() }
   })
 })

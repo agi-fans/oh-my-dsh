@@ -172,7 +172,7 @@ export function highlightCacheTotalChars(): number {
 }
 
 function themeFingerprint(theme: Theme): string {
-  return `${theme.name}|${theme.colors ? 1 : 0}|${theme.trueColor ? 1 : 0}`
+  return theme.key
 }
 
 function styleKey(style: MarkdownStyle | undefined): string {

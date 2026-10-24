@@ -58,7 +58,7 @@ import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
 import type { WelcomeTip } from '../chrome/welcome-tips.ts'
-import type { TerminalColors } from '../chrome/terminal-colors.ts'
+import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
@@ -115,9 +115,7 @@ export interface ViewOptions {
   motion?: MotionMode
   mathMode?: import('../chrome/math.ts').MathMode
   mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
-  /** 24-bit color; defaults to off so tests stay deterministic. */
-  trueColor?: boolean
-  /** Color depth; when absent, {@link ViewOptions.trueColor} chooses 24-bit or 16 colors. */
+  /** Color depth; defaults to 16 colors so tests stay deterministic. */
   colorDepth?: ColorDepth
   /** Shipped palette; defaults to dark. */
   themeName?: ThemeName
@@ -198,27 +196,14 @@ export interface ViewOptions {
   terminal?: TerminalColors
 }
 
-/** Cache keys per reported-colors object; a new report is a new object. */
-const terminalKeys = new WeakMap<TerminalColors, string>()
-
 /** The depth a frame encodes with. */
 function colorDepthOf(options: ViewOptions): ColorDepth {
-  return options.colorDepth ?? (options.trueColor === true ? 'truecolor' : 'ansi16')
+  return options.colorDepth ?? 'ansi16'
 }
 
 /** Cache key for everything the color depth and the reported terminal colors can change. */
 function terminalKey(options: ViewOptions): string {
-  const depth = colorDepthOf(options)
-  const terminal = options.terminal
-  if (terminal === undefined) return depth
-  let known = terminalKeys.get(terminal)
-  if (known === undefined) {
-    const rgb = (color: { r: number; g: number; b: number } | undefined): string =>
-      color === undefined ? '' : `${color.r},${color.g},${color.b}`
-    known = [rgb(terminal.foreground), rgb(terminal.background), terminal.scheme ?? '', (terminal.palette ?? []).map(rgb).join(';')].join('|')
-    terminalKeys.set(terminal, known)
-  }
-  return `${depth}|${known}`
+  return `${colorDepthOf(options)}|${terminalColorsKey(options.terminal)}`
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -597,7 +582,7 @@ interface GroupRenderContext {
   options: ViewOptions
   theme: Theme
   themeName: ThemeName
-  trueColor: boolean
+  depth: ColorDepth
   width: number
   matches: ReadonlySet<number>
   /**
@@ -634,7 +619,7 @@ function groupMemberLines(
   // Search must reveal a match even when it falls outside a tool's normal preview.
   const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
   const surface = toolOrdinal % 2 === 0 ? 'toolSuccessBg' : 'toolAltBg'
-  const signature = [width, options.colors, context.trueColor, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
+  const signature = [width, options.colors, context.depth, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
@@ -846,7 +831,7 @@ interface TranscriptBodyCache {
   turnDetailsKey: string | undefined
   width: number
   colors: boolean
-  trueColor: boolean
+  depth: ColorDepth
   themeName: ThemeName
   terminalKey: string
   spinnerFrame: number
@@ -896,7 +881,7 @@ interface BlockLinesCache {
   toolDetails: boolean
   width: number
   colors: boolean
-  trueColor: boolean
+  depth: ColorDepth
   themeName: ThemeName
   terminalKey: string
   expanded: boolean
@@ -913,7 +898,7 @@ function cachedBlockLines(
   options: ViewOptions,
   theme: Theme,
   themeName: ThemeName,
-  trueColor: boolean,
+  depth: ColorDepth,
   expanded: boolean,
   omitReasoning = false,
 ): readonly string[] {
@@ -921,7 +906,7 @@ function cachedBlockLines(
   if (cached !== undefined
     && cached.width === options.width
     && cached.colors === options.colors
-    && cached.trueColor === trueColor
+    && cached.depth === depth
     && cached.themeName === themeName
     && cached.terminalKey === terminalKey(options)
     && cached.expanded === expanded
@@ -943,7 +928,7 @@ function cachedBlockLines(
     toolDetails,
     width: options.width,
     colors: options.colors,
-    trueColor,
+    depth,
     themeName,
     terminalKey: terminalKey(options),
     expanded,
@@ -1241,7 +1226,7 @@ function renderTranscriptBody(
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
-  const trueColor = options.trueColor === true
+  const depth = colorDepthOf(options)
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
     ? spinnerFrame
     : -1
@@ -1253,7 +1238,7 @@ function renderTranscriptBody(
   if (cached !== undefined
     && cached.width === options.width
     && cached.colors === options.colors
-    && cached.trueColor === trueColor
+    && cached.depth === depth
     && cached.themeName === themeName
     && cached.terminalKey === terminalKey(options)
     && cached.spinnerFrame === animatedSpinnerFrame
@@ -1347,7 +1332,7 @@ function renderTranscriptBody(
   if (toolsExpanded) foldMarks.push({ key: 'all', row: 0 })
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
-    blocks: state.blocks, theme, themeName, trueColor, width: options.width,
+    blocks: state.blocks, theme, themeName, depth, width: options.width,
     matches, options: { ...options, expandedReasoning: openedThoughts },
     toolCards: { count: 0 },
   }
@@ -1427,7 +1412,7 @@ function renderTranscriptBody(
         offsets.set(group.answer, lines.length - bodyRow)
         const answer = state.blocks[group.answer]!
         const rendered = cachedBlockLines(
-          answer, options, theme, themeName, trueColor, toolsExpanded,
+          answer, options, theme, themeName, depth, toolsExpanded,
           absorbed.has(group.answer),
         )
         for (const line of (search !== undefined && matches.has(group.answer)
@@ -1514,7 +1499,7 @@ function renderTranscriptBody(
     const expanded = (block.kind === 'workspace' && groups.some((group, at) => group.turn === block.turn && openGroups.has(at))) || matches.has(index) || toolsExpanded
       || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     const rendered = cachedBlockLines(
-      block, options, theme, themeName, trueColor, expanded,
+      block, options, theme, themeName, depth, expanded,
       absorbed.has(index),
     )
     filesAt(index, lines.length, rendered.length, expanded)
@@ -1536,7 +1521,7 @@ function renderTranscriptBody(
     blockDrawStarts,
     width: options.width,
     colors: options.colors,
-    trueColor,
+    depth,
     themeName,
     terminalKey: terminalKey(options),
     spinnerFrame: animatedSpinnerFrame,

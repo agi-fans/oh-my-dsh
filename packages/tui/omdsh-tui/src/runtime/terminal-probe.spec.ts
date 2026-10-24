@@ -12,7 +12,7 @@ const step = (protocol: KeyboardProtocol | undefined, event: Parameters<typeof n
 
 describe('keyboard protocol negotiation', () => {
   it('only asks: the query pushes nothing onto the Kitty stack', () => {
-    expect(KEYBOARD_PROTOCOL_QUERY).toBe('\x1b[?u\x1b[c')
+    expect(KEYBOARD_PROTOCOL_QUERY).toBe('\x1b[?u')
     expect(KEYBOARD_PROTOCOL_QUERY).not.toMatch(/\x1b\[>\d*u/u)
   })
 

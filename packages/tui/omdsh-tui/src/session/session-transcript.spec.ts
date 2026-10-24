@@ -109,6 +109,9 @@ async function fixture(tty = false, durableRoot?: string) {
     output: { isTTY: tty, write: (chunk: string) => { output += chunk; terminal?.output.write(chunk) } },
     width: () => 80, height: () => 20,
   }, 'm', false, 'dark', async () => {}, { deferInitialRender: tty })
+  // The production gate holds the first frame until the probe's DA1 sentinel;
+  // these fixtures run as the interactive TTY, so answer it.
+  if (tty) input.write('\x1b[?62;22c')
   const runtime = new SessionRuntime(ctx, tui, durableRoot === undefined ? {} : { stateDir: join(durableRoot, 'omdsh') })
   return {
     ctx, runtime, tui, input, terminal,

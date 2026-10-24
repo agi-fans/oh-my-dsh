@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectColorDepth, detectTrueColor, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES, type ThemeColor } from './theme.ts'
+import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectColorDepth, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES, type ThemeColor } from './theme.ts'
 
 /** Every semantic color a view can address; mirrors the `ThemeColor` union. */
 const THEME_COLORS: readonly ThemeColor[] = [
@@ -166,7 +166,7 @@ describe('createTheme', () => {
     expect(detectColorDepth({ TERM: 'linux' })).toBe('ansi16')
     expect(detectColorDepth({ NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe('ansi16')
     expect(detectColorDepth({ TERM: 'xterm-256color' })).toBe('truecolor')
-    expect(detectTrueColor({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal' })).toBe(false)
+    expect(detectColorDepth({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal' })).toBe('ansi256')
   })
 
   it('documents the shared 16-color dark tool-card background', () => {
@@ -303,38 +303,38 @@ describe('parseThemeName', () => {
   })
 })
 
-describe('detectTrueColor', () => {
+describe('detectColorDepth disabling hints', () => {
   it('lets NO_COLOR and FORCE_COLOR=0 outrank every capability hint', () => {
-    expect(detectTrueColor({ NO_COLOR: '1' })).toBe(false)
-    expect(detectTrueColor({ NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe(false)
-    expect(detectTrueColor({ NO_COLOR: '0', COLORTERM: 'truecolor' })).toBe(false)
-    expect(detectTrueColor({ NO_COLOR: '1', WT_SESSION: '{guid}' })).toBe(false)
-    expect(detectTrueColor({ FORCE_COLOR: '0' })).toBe(false)
-    expect(detectTrueColor({ FORCE_COLOR: '0', COLORTERM: 'truecolor' })).toBe(false)
+    expect(detectColorDepth({ NO_COLOR: '1' })).toBe('ansi16')
+    expect(detectColorDepth({ NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe('ansi16')
+    expect(detectColorDepth({ NO_COLOR: '0', COLORTERM: 'truecolor' })).toBe('ansi16')
+    expect(detectColorDepth({ NO_COLOR: '1', WT_SESSION: '{guid}' })).toBe('ansi16')
+    expect(detectColorDepth({ FORCE_COLOR: '0' })).toBe('ansi16')
+    expect(detectColorDepth({ FORCE_COLOR: '0', COLORTERM: 'truecolor' })).toBe('ansi16')
   })
 
   it('treats an empty NO_COLOR as unset', () => {
     // https://no-color.org only disables color for a non-empty value.
-    expect(detectTrueColor({ NO_COLOR: '', TERM: 'xterm-256color' })).toBe(true)
-    expect(detectTrueColor({ NO_COLOR: '', COLORTERM: 'truecolor' })).toBe(true)
-    expect(detectTrueColor({ NO_COLOR: '', TERM: 'dumb' })).toBe(false)
+    expect(detectColorDepth({ NO_COLOR: '', TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectColorDepth({ NO_COLOR: '', COLORTERM: 'truecolor' })).toBe('truecolor')
+    expect(detectColorDepth({ NO_COLOR: '', TERM: 'dumb' })).toBe('ansi16')
   })
 
   it('separates an unset FORCE_COLOR from FORCE_COLOR=0', () => {
-    expect(detectTrueColor({ FORCE_COLOR: undefined, TERM: 'xterm-256color' })).toBe(true)
-    expect(detectTrueColor({ FORCE_COLOR: '1', TERM: 'xterm-256color' })).toBe(true)
-    expect(detectTrueColor({ FORCE_COLOR: '0', TERM: 'xterm-256color' })).toBe(false)
+    expect(detectColorDepth({ FORCE_COLOR: undefined, TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectColorDepth({ FORCE_COLOR: '1', TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectColorDepth({ FORCE_COLOR: '0', TERM: 'xterm-256color' })).toBe('ansi16')
   })
 
   it('honors COLORTERM, Windows Terminal, and known 16-color TERMs', () => {
-    expect(detectTrueColor({ COLORTERM: 'truecolor' })).toBe(true)
-    expect(detectTrueColor({ COLORTERM: '24bit' })).toBe(true)
-    expect(detectTrueColor({ WT_SESSION: '{guid}' })).toBe(true)
+    expect(detectColorDepth({ COLORTERM: 'truecolor' })).toBe('truecolor')
+    expect(detectColorDepth({ COLORTERM: '24bit' })).toBe('truecolor')
+    expect(detectColorDepth({ WT_SESSION: '{guid}' })).toBe('truecolor')
     // No 256-color tier yet, so *-256color stays on the 24-bit path.
-    expect(detectTrueColor({ TERM: 'xterm-256color' })).toBe(true)
-    expect(detectTrueColor({ TERM: 'linux' })).toBe(false)
-    expect(detectTrueColor({ TERM: 'dumb' })).toBe(false)
-    expect(detectTrueColor({ TERM: '' })).toBe(false)
+    expect(detectColorDepth({ TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectColorDepth({ TERM: 'linux' })).toBe('ansi16')
+    expect(detectColorDepth({ TERM: 'dumb' })).toBe('ansi16')
+    expect(detectColorDepth({ TERM: '' })).toBe('ansi16')
   })
 })
 
@@ -364,5 +364,27 @@ describe('chrome', () => {
     expect(lines.every((line) => line.length === 20)).toBe(true)
     expect(lines[1]).toContain('⣿')
     expect(lines[0]).not.toContain('\x1b[')
+  })
+})
+
+describe('theme.key', () => {
+  it('changes with the color depth and the reported terminal colors', () => {
+    expect(createTheme(true, 'ansi16').key).not.toBe(createTheme(true, 'ansi256').key)
+    const dark = createTheme(true, 'truecolor', 'system', { background: { r: 10, g: 10, b: 10 }, scheme: 'dark' })
+    const light = createTheme(true, 'truecolor', 'system', { background: { r: 245, g: 245, b: 245 }, scheme: 'light' })
+    expect(dark.key).not.toBe(light.key)
+  })
+})
+
+describe('Apple Terminal depth', () => {
+  const apple = (version?: string) => ({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal', ...(version === undefined ? {} : { TERM_PROGRAM_VERSION: version }) })
+  it('keeps the 256-color palette before Terminal 2.15 (build 464)', () => {
+    expect(detectColorDepth(apple('455.1'))).toBe('ansi256')
+    expect(detectColorDepth(apple())).toBe('ansi256')
+  })
+  it('enables 24-bit color on Terminal 2.15 and later', () => {
+    expect(detectColorDepth(apple('464'))).toBe('truecolor')
+    expect(detectColorDepth(apple('465.2'))).toBe('truecolor')
+    expect(detectColorDepth({ ...apple('455.1'), COLORTERM: 'truecolor' })).toBe('truecolor')
   })
 })

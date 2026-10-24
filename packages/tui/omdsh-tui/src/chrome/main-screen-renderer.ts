@@ -429,6 +429,8 @@ export class MainScreenRenderer {
   #decoratedRows: readonly string[] | undefined
   #transient = false
   #altActive = false
+  /** Bytes owed to the main screen, emitted the moment the alternate buffer closes. */
+  #deferredMainScreen: string[] = []
 
   #altScreen: string[]
   #cursorRow = 0
@@ -647,6 +649,27 @@ export class MainScreenRenderer {
 
   #exitAltScreen(): string { return this.#altModes.exit + EXIT_ALT_SCREEN }
 
+  /** Whether the alternate buffer currently owns the screen. */
+  get alternateActive(): boolean { return this.#altActive }
+
+  /**
+   * Write bytes that belong on the main screen. While an alternate overlay is
+   * open they queue instead of interleaving with overlay output and are emitted
+   * right after EXIT_ALT_SCREEN; the queue is cleared once emitted.
+   */
+  deferUntilMainScreen(bytes: string): void {
+    if (!this.#altActive) { this.#sink.write(bytes); return }
+    this.#deferredMainScreen.push(bytes)
+  }
+
+  /** Queued main-screen bytes, drained in order once. */
+  #drainMainScreenDeferred(): string {
+    if (this.#deferredMainScreen.length === 0) return ''
+    const out = this.#deferredMainScreen.join('')
+    this.#deferredMainScreen = []
+    return out
+  }
+
   /** Put the cursor below the UI before terminal ownership is released. */
   finish(): void {
     const targetRow = Math.max(0, this.#height - 1)
@@ -655,7 +678,7 @@ export class MainScreenRenderer {
     out += this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
     this.#decoratedRows = undefined
     if (this.#altActive) {
-      out += this.#exitAltScreen()
+      out += this.#exitAltScreen() + this.#drainMainScreenDeferred()
       this.#altActive = false
       this.#altScreen = this.#blankScreen()
     }
@@ -973,7 +996,9 @@ export class MainScreenRenderer {
       return body
     }
     const leavingAlt = this.#altActive
-    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? this.#exitAltScreen() : ''
+    const exitAlt = leavingAlt
+      ? (this.#exitOwnedByCaller ? '' : this.#exitAltScreen()) + this.#drainMainScreenDeferred()
+      : ''
 
     const resized = this.#takeResizeBaseline(transitionForAlt)
     // Leaving the alternate buffer restores whatever the main screen held before
@@ -1034,7 +1059,9 @@ export class MainScreenRenderer {
 
     const transcript = frame.transcript
     const leavingAlt = this.#altActive
-    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? this.#exitAltScreen() : ''
+    const exitAlt = leavingAlt
+      ? (this.#exitOwnedByCaller ? '' : this.#exitAltScreen()) + this.#drainMainScreenDeferred()
+      : ''
     if (leavingAlt) {
       this.#altActive = false
       this.#altScreen = this.#blankScreen()

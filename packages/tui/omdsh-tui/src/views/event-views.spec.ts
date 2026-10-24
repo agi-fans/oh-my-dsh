@@ -1931,7 +1931,7 @@ describe('renderView', () => {
       input: '/copy text',
       inputCursor: 10,
       colors: true,
-      trueColor: true,
+      colorDepth: 'truecolor',
     })
     const editorStart = composerStart(frame.lines)
     const body = frame.lines[editorStart + 1] ?? ''
@@ -1948,7 +1948,7 @@ describe('renderView', () => {
       input: '/tmp/foo',
       inputCursor: 8,
       colors: true,
-      trueColor: true,
+      colorDepth: 'truecolor',
     })
     const editorStart = composerStart(frame.lines)
     const body = frame.lines[editorStart + 1] ?? ''

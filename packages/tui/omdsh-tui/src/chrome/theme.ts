@@ -5,7 +5,7 @@
  */
 
 import {
-  contrastRatio, nearestPaletteIndex, nearestXterm256, type Rgb, type TerminalColors,
+  contrastRatio, nearestPaletteIndex, nearestXterm256, type Rgb, type TerminalColors, terminalColorsKey,
 } from './terminal-colors.ts'
 
 /** Rounded-box drawing characters (OMP unicode preset). */
@@ -788,6 +788,8 @@ export interface Theme {
   readonly trueColor: boolean
   /** How swatches are encoded; meaningful only when {@link Theme.colors} is true. */
   readonly depth: ColorDepth
+  /** Cache fingerprint covering the palette, SGR flag, depth, and reported terminal colors. */
+  readonly key: string
   fg(color: ThemeColor, text: string): string
   bg(color: ThemeColor, text: string): string
   getFgAnsi(color: ThemeColor): string
@@ -947,14 +949,15 @@ export function detectColorDepth(env: NodeJS.ProcessEnv = process.env): ColorDep
   if (env.WT_SESSION) return 'truecolor'
   const term = env.TERM ?? ''
   if (term === 'dumb' || term === '' || term === 'linux') return 'ansi16'
-  if (env.TERM_PROGRAM === 'Apple_Terminal') return 'ansi256'
+  if (env.TERM_PROGRAM === 'Apple_Terminal') {
+    const build = Number.parseInt((env.TERM_PROGRAM_VERSION ?? '').split('.')[0] ?? '', 10)
+    return Number.isInteger(build) && build >= FIRST_TRUECOLOR_APPLE_TERMINAL_BUILD ? 'truecolor' : 'ansi256'
+  }
   return 'truecolor'
 }
 
-/** Whether 24-bit color is available; see {@link detectColorDepth}. */
-export function detectTrueColor(env: NodeJS.ProcessEnv = process.env): boolean {
-  return detectColorDepth(env) === 'truecolor'
-}
+/** Terminal 2.15, macOS 26 Tahoe, is the first Apple Terminal with real 24-bit color. */
+const FIRST_TRUECOLOR_APPLE_TERMINAL_BUILD = 464
 
 /**
  * Build a theme.
@@ -1012,6 +1015,7 @@ export function createTheme(
     colors,
     trueColor: tc,
     depth: resolvedDepth,
+    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal)].join('|'),
     getFgAnsi,
     getBgAnsi,
     fg: (color, text) => paint(getFgAnsi(color), text, FG_RESET),

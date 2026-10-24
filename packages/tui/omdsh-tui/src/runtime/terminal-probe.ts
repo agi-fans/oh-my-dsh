@@ -13,8 +13,8 @@
 
 import type { KeyEvent } from '../input/keys.ts'
 
-/** Ask for the current Kitty flags, then the device attributes as a sentinel. Changes nothing. */
-export const KEYBOARD_PROTOCOL_QUERY = '\x1b[?u\x1b[c'
+/** Ask for the current Kitty flags. Changes nothing; the session's own sentinel follows it. */
+export const KEYBOARD_PROTOCOL_QUERY = '\x1b[?u'
 /** Push Kitty flag 1 (disambiguate escape codes) for this session. */
 export const KITTY_PROTOCOL_ON = '\x1b[>1u'
 /** Pop the one Kitty entry this session pushed. */

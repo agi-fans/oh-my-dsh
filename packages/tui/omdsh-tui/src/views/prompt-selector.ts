@@ -121,7 +121,7 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
   if (option === undefined) return ['No matching conversation turns.']
   let cache = previewCache.get(option)
   if (cache === undefined) { cache = new Map(); previewCache.set(option, cache) }
-  const key = `${width}:${theme.name}:${theme.colors}:${theme.trueColor}`
+  const key = `${width}:${theme.key}`
   const cached = cache.get(key)
   if (cached !== undefined) return cached
   const lines = renderMarkdown(option.preview ?? option.label, theme, width)

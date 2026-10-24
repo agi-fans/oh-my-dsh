@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
-- A `system` theme derives its surfaces and text color from the colors the terminal reports about itself, so the TUI sits on the terminal's own background and follows a light terminal. It is selectable in Settings; `dark` stays the default.
+- A `system` theme derives its surfaces and text color from the colors the terminal reports about itself, so the TUI sits on the terminal's own background and follows a light terminal. It is selectable in Settings; `dark` stays the default. On terminals that support color-scheme notifications, `system` also follows a light/dark switch mid-session.
 - On terminals that support the Kitty keyboard protocol, omdsh enables unambiguous key reporting so `Alt` and `Ctrl` shortcuts are recognized reliably, including inside full-screen overlays.
 - The working row counts down a pending provider retry (`Retrying in 4s`) and shows how long a compaction has been running.
 - `Alt+M` opens the newest image in the conversation — a pasted attachment or a `read_image` result — in the full-screen preview when the composer has no draft image.
@@ -17,9 +17,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Adjacent successful tool cards alternate two subtle card surfaces, so a long run reads as distinct calls instead of one continuous panel. The alternation continues across run boundaries.
-- Wheel scrolling accelerates during a fast spin, up to twice the usual distance per notch. A notch still moves three lines, and the near-simultaneous follow-up reports of a high-resolution wheel move one line each instead of three.
+- Wheel scrolling accelerates during a fast spin, up to twice the usual distance per notch. A notch still moves three lines, and the near-simultaneous follow-up reports of a high-resolution wheel move one line each instead of three. Local macOS terminals keep a flat three lines per event because the OS already accelerates wheel deltas.
 - On a 16-color terminal, theme colors are matched perceptually against the palette the terminal reports instead of a fixed mapping; true-color terminals keep exact colors.
-- Apple Terminal uses the 256-color palette instead of 24-bit color sequences it does not draw reliably; `COLORTERM=truecolor` restores 24-bit color.
+- Apple Terminal before macOS 26 uses the 256-color palette instead of 24-bit color sequences it does not draw reliably; `COLORTERM=truecolor` restores 24-bit color.
 - A message names its attachments as `[Image: image/png]` and `[File: notes.md]` instead of listing dimensions and byte counts.
 - A submitted message keeps text and pictures in the order they were written in the composer, and the `[Image #1, …]` draft marker is no longer sent as message text.
 - The Harness cohort moves to the published `0.2.1-rc.3` release. On the API-key route, `/model` follows the official `/models` listing when the endpoint is the official API and the catalog was not customized.
@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Terminal replies that arrive together no longer leak fragments such as `[?62;22c` into the composer, and an unrecognized control sequence is discarded whole.
 - A background job's settlement line is separated from the command output by a blank row.
 - Every terminal mode omdsh enables — bracketed paste, focus and mouse reporting, and the keyboard protocol — is given back while `Ctrl+Z` or an external editor owns the terminal, and when the process exits without shutting down cleanly, so the shell and the editor receive their usual input.
+- Closing the terminal window shuts omdsh down cleanly — the session is saved and terminal handlers run — instead of the process being killed by SIGHUP.
 
 ## [0.21.0] - 2026-10-19
 

@@ -155,3 +155,29 @@ it('consumes capability replies that arrive back to back', () => {
   expect(partial.rest).toBe('\x1b[?6')
   expect(parseKeys(partial.rest + '2;22c').events).toEqual([{ type: 'device-attributes' }])
 })
+
+describe('DECRPM mode reports', () => {
+  it('decodes a private-mode report', () => {
+    expect(parseKeys('\x1b[?2031;2$y').events).toEqual([{ type: 'mode-report', mode: 2031, state: 2 }])
+  })
+
+  it('consumes back-to-back probe replies without emitting text', () => {
+    const { events } = parseKeys('\x1b[?0u\x1b[?2031;0$y\x1b[?62;22c')
+    expect(events).toEqual([
+      { type: 'kitty-flags', flags: 0 },
+      { type: 'mode-report', mode: 2031, state: 0 },
+      { type: 'device-attributes' },
+    ])
+  })
+
+  it('discards a complete unknown CSI with intermediate bytes, typing nothing', () => {
+    expect(parseKeys('\x1b[?9999;1$y').events).toEqual([{ type: 'mode-report', mode: 9999, state: 1 }])
+    expect(parseKeys('\x1b[1$q').events).toEqual([])
+  })
+
+  it('keeps a report split before its final byte for the next read', () => {
+    const first = parseKeys('\x1b[?2031;2$')
+    expect(first).toEqual({ events: [], rest: '\x1b[?2031;2$' })
+    expect(parseKeys(first.rest + 'y').events).toEqual([{ type: 'mode-report', mode: 2031, state: 2 }])
+  })
+})

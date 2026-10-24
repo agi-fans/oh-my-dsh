@@ -55,6 +55,11 @@ export class TerminalModes {
     if (!this.#handedOff) this.#write(mode.enable)
   }
 
+  /** Record a mode as on without writing, for a push deferred to another screen. */
+  adopt(name: string, mode: TerminalMode): void {
+    if (!this.#active.has(name)) this.#active.set(name, mode)
+  }
+
   /** Turn one mode off; a mode that is not on is left alone. */
   disable(name: string): void {
     const mode = this.#active.get(name)

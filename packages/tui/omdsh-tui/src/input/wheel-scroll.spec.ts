@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { IDLE_WHEEL, wheelStep, type WheelGesture } from './wheel-scroll.ts'
+import { IDLE_WHEEL, terminalAcceleratesWheel, wheelStep, type WheelGesture } from './wheel-scroll.ts'
 
 /** Feed a sequence of timestamps in one direction and sum the scrolled lines. */
 function spin(times: readonly number[], direction: -1 | 1 = 1, start: WheelGesture = IDLE_WHEEL): { lines: number; gesture: WheelGesture } {
@@ -45,5 +45,24 @@ describe('wheel scrolling', () => {
     const first = spin([1_000, 1_030])
     expect(wheelStep(first.gesture, 1_500, 1).lines).toBe(3)
     expect(wheelStep(first.gesture, 1_040, -1).lines).toBe(-3)
+  })
+})
+
+describe('terminal-accelerated wheels', () => {
+  it('keeps a flat three lines per event at any gap', () => {
+    for (const gap of [0, 16, 300]) {
+      const gesture: WheelGesture = { countedAt: 1_000 - gap, direction: 1, carry: 0.5 }
+      const step = wheelStep(gesture, 1_000, 1, true)
+      expect(step.lines).toBe(3)
+      expect(step.gesture).toEqual(IDLE_WHEEL)
+    }
+  })
+
+  it('detects local macOS terminals as already accelerated', () => {
+    expect(terminalAcceleratesWheel({}, 'darwin')).toBe(true)
+    expect(terminalAcceleratesWheel({ SSH_TTY: '/dev/ttys1' }, 'darwin')).toBe(false)
+    expect(terminalAcceleratesWheel({ SSH_CONNECTION: 'x' }, 'darwin')).toBe(false)
+    expect(terminalAcceleratesWheel({ SSH_CLIENT: 'x' }, 'darwin')).toBe(false)
+    expect(terminalAcceleratesWheel({}, 'linux')).toBe(false)
   })
 })

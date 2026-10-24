@@ -78,7 +78,7 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   let cache = layouts.get(source)
   if (cache === undefined) { cache = new Map(); layouts.set(source, cache) }
   const wordWrap = options.wordWrap !== false
-  const themeKey = `${theme.name}:${theme.colors}:${theme.trueColor}`
+  const themeKey = theme.key
   const key = `${width}:${themeKey}:${wordWrap}:${options.column ?? 0}`
   const cached = cache.get(key)
   if (cached !== undefined) return cached

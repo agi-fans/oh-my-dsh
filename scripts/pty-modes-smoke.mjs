@@ -42,12 +42,13 @@ const count = (text, sequence) => text.split(sequence).length - 1
 const PUSH = '\x1b[>1u'
 const POP = '\x1b[<u'
 
-if (!(await waitFor(() => out.includes('\x1b[?u\x1b[c'), 'keyboard capability query', deadline))) fail('no capability query')
+if (!(await waitFor(() => out.includes('\x1b[?u'), 'keyboard capability query', deadline))) fail('no capability query')
+if (!(await waitFor(() => out.includes('\x1b[c'), 'device-attributes sentinel', deadline))) fail('no DA sentinel at the end of the query')
 if (/\x1b\[>\d*u/u.test(out)) fail('the query pushed a Kitty entry before the terminal answered')
 if (!(await waitFor(() => cleanOutput(out).includes('Into the Unknown'), 'welcome card', deadline))) fail('no welcome card')
 
-// Answer as a Kitty-protocol terminal: flags report, then the DA sentinel.
-term.write('\x1b[?0u\x1b[?62;22c')
+// Answer as a Kitty-protocol terminal: flags report, DECRQM 2031 support, then the DA sentinel.
+term.write('\x1b[?0u\x1b[?2031;2$y\x1b[?62;22c')
 if (!(await waitFor(() => count(out, PUSH) === 1, 'one Kitty push', deadline))) fail('the Kitty protocol was not enabled once')
 await sleep(300)
 if (count(out, PUSH) !== 1) fail('a repeated report pushed a second Kitty entry')
@@ -78,6 +79,7 @@ const pairs = [
   ['focus reporting', '\x1b[?1004h', '\x1b[?1004l'],
   ['mouse tracking', '\x1b[?1000h', '\x1b[?1000l'],
   ['alternate screen', '\x1b[?1049h', '\x1b[?1049l'],
+  ['color-scheme notify', '\x1b[?2031h', '\x1b[?2031l'],
 ]
 for (const [label, on, off] of pairs) {
   if (count(out, on) !== count(out, off)) fail(`${label} is unbalanced: ${count(out, on)} on, ${count(out, off)} off`)
