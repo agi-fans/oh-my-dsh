@@ -1272,6 +1272,32 @@ describe('MainScreenRenderer', () => {
     expect(overlayWrites).not.toContain('\x1b[3J')
   })
 
+  it('re-applies per-screen modes inside the alternate buffer and gives them back before leaving', () => {
+    const writes: string[] = []
+    const renderer = new MainScreenRenderer(
+      { write: chunk => { writes.push(chunk) } },
+      { width: 80, height: 5, synchronized: false, alternateScreenOverlays: true },
+    )
+    renderer.setAlternateScreenModes({ enter: '\x1b[>1u', exit: '\x1b[<u' })
+    renderer.render(frame(['history', 'composer'], 2))
+    const before = writes.length
+    renderer.render(frame(['settings']))
+    renderer.render(frame(['history', 'composer'], 2))
+    const overlay = writes.slice(before).join('')
+    // The Kitty stack is per buffer: push after entering, pop before leaving.
+    expect(overlay).toContain('\x1b[?1049h\x1b[>1u')
+    expect(overlay).toContain('\x1b[<u\x1b[?1049l')
+    expect(overlay.split('\x1b[>1u').length).toBe(overlay.split('\x1b[<u').length)
+
+    // Finishing while an overlay is open also pops before leaving.
+    writes.length = 0
+    renderer.render(frame(['settings']))
+    renderer.finish()
+    const finished = writes.join('')
+    expect(finished.split('\x1b[>1u').length - 1).toBe(1)
+    expect(finished.split('\x1b[<u').length - 1).toBe(1)
+  })
+
   it('replays a large resumed transcript without truncating its middle', () => {
     const writes: string[] = []
     const renderer = new MainScreenRenderer(

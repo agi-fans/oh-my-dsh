@@ -5,12 +5,18 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { parseOscColorReply, type OscColorReply } from '../chrome/terminal-colors.ts'
+
 /** One decoded input event. */
 export type KeyEvent =
   | { type: 'key'; id: string }
   | { type: 'text'; value: string }
   | { type: 'focus'; focused: boolean }
   | { type: 'program-status-support' }
+  | { type: 'color-reply'; reply: OscColorReply }
+  | { type: 'color-scheme'; scheme: 'dark' | 'light' }
+  | { type: 'kitty-flags'; flags: number }
+  | { type: 'device-attributes' }
   | { type: 'cell-size'; width: number; height: number }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
@@ -132,15 +138,33 @@ function parseCsi(seq: string): { event: KeyEvent | undefined; used: number } | 
   // seq starts after ESC; first char is '['
   const body = seq.slice(1)
   if (body === '') return 'partial'
+  // Replies to our capability queries can arrive back to back in one read, so
+  // every one of these matches a PREFIX: anchoring on the end of the buffer
+  // would fail as soon as the terminal answered two queries at once, and the
+  // reply would be echoed into the composer as text.
+  // CSI ?997;N n reports whether the terminal describes itself as dark or light.
+  const scheme = /^\?997;([12])n/u.exec(body)
+  if (scheme !== null) return { event: { type: 'color-scheme', scheme: scheme[1] === '2' ? 'light' : 'dark' }, used: 1 + scheme[0].length }
+  // `CSI ? u` with no flags answers "supported, none enabled"; treat it as zero
+  // rather than letting the bytes fall through as text.
+  if (body.startsWith('?u') || body.startsWith('>u')) return { event: { type: 'kitty-flags', flags: 0 }, used: 1 + 2 }
+  // CSI >|? flags u is the Kitty keyboard protocol's answer to our query.
+  const kittyFlags = /^[>?](\d+)u/u.exec(body)
+  if (kittyFlags !== null) return { event: { type: 'kitty-flags', flags: Number(kittyFlags[1]) }, used: 1 + kittyFlags[0].length }
+  // CSI ? ... c is the primary device-attributes reply, our negotiation sentinel.
+  const attributes = /^\?[\d;]*c/u.exec(body)
+  if (attributes !== null) return { event: { type: 'device-attributes' }, used: 1 + attributes[0].length }
   if (body[0] === '<') {
     const parsed = parseSgr(body)
     if (parsed === 'partial') return 'partial'
     if (parsed === null) return null
     return { event: parsed.event, used: parsed.used }
   }
-  const match = /^(?:(\d+)?(?:;(\d+))?(?:;(\d+))?)?([A-Za-z~u])/.exec(body)
+  // Kitty may attach colon sub-parameters (shifted/base key, event type) to the
+  // key code and the modifier; the first value of each field is what we decode.
+  const match = /^(?:(\d+)?(?::\d*)*(?:;(\d+)?(?::\d*)*)?(?:;(\d+))?)?([A-Za-z~u])/.exec(body)
   if (match === null) {
-    if (/^[\d;]*$/.test(body) && body.length < 32) return 'partial'
+    if ((/^[\d;:]*$/.test(body) || /^[>?][\d;]*$/.test(body)) && body.length < 32) return 'partial'
     return null
   }
   const used = 1 + match[0].length
@@ -192,6 +216,10 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
         if (end === null) return tail.length < 4096 ? { events, rest: tail } : { events, rest: '' }
         const body = tail.slice(2, 2 + end.index)
         if (/^7501;\?(?:[:;].*)?$/u.test(body)) events.push({ type: 'program-status-support' })
+        else {
+          const reply = parseOscColorReply(body)
+          if (reply !== undefined) events.push({ type: 'color-reply', reply })
+        }
         i += 2 + end.index + end[0].length
         continue
       }
@@ -199,7 +227,10 @@ export function parseKeys(input: string): { events: KeyEvent[]; rest: string } {
         const parsed = parseCsi(tail.slice(1))
         if (parsed === 'partial') return { events, rest: tail }
         if (parsed === null) {
-          i += 1
+          // A complete CSI we do not decode is still control data. Dropping only
+          // the ESC would type its parameters into the composer.
+          const complete = /^\x1b\[[\d;:?<=>]*[\x40-\x7e]/u.exec(tail)
+          i += complete === null ? 1 : complete[0].length
           continue
         }
         if (parsed.event !== undefined) events.push(parsed.event)

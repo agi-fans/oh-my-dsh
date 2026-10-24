@@ -19,8 +19,15 @@ import {
   terminalProgressSequence,
 } from './terminal-notifications.ts'
 import { PROGRAM_STATUS_QUERY, programStatusSequence, terminalTitle, type TerminalTitleMode, type TerminalStateMode } from './terminal-state.ts'
+import { KEYBOARD_PROTOCOL_QUERY, negotiateKeyboard, type KeyboardProtocol } from './terminal-probe.ts'
+import {
+  BRACKETED_PASTE, FOCUS_REPORTING, KITTY_KEYBOARD, MOUSE_TRACKING, TerminalModes,
+} from './terminal-modes.ts'
+import { COLOR_QUERY, COLOR_SCHEME_QUERY, mergeColorReply, type TerminalColors } from '../chrome/terminal-colors.ts'
+import { IDLE_WHEEL, wheelStep, type WheelGesture } from '../input/wheel-scroll.ts'
 import { HerdrAgentReporter } from './herdr-agent.ts'
 import { imageProtocol, type ImageProtocol } from '../chrome/terminal-images.ts'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { previewImages } from './image-preview.ts'
 import { rmSync } from 'node:fs'
 import { ComposerImages } from './composer-images.ts'
@@ -176,7 +183,7 @@ import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
-import { colorDisabledByEnv, createTheme, detectTrueColor, type ThemeName } from '../chrome/theme.ts'
+import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSettings } from '../session/tui-settings.ts'
@@ -206,6 +213,7 @@ import { modelRouteReady } from '../session/model-readiness.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
   imagePathCandidates,
+  splitComposerImageMarkers,
   stripComposerImageMarkers,
   readImageFile,
   readImageFromClipboard,
@@ -358,13 +366,13 @@ export class LocalTui implements TuiService {
     if (!this.#tty) throw new Error('Opening an editor requires an interactive terminal.')
     try {
       this.#setMouseTracking(false)
-      this.#term.output.write('\x1b[?1004l')
+      this.#modes.handOff()
       this.#term.input.setRawMode?.(false)
       editFileExternally(path, this.#externalEditor)
     } finally {
       if (!this.#disposed) {
         this.#term.input.setRawMode?.(true)
-        this.#term.output.write('\x1b[?1004h')
+        this.#modes.takeBack()
         this.#renderer.reset()
         this.#render()
       }
@@ -507,6 +515,24 @@ export class LocalTui implements TuiService {
   #terminalState: TerminalStateMode = 'auto'
   #programSupported = false
   #programQuerySent = false
+  /** What the terminal reported about its own colors; empty until (and unless) it answers. */
+  #terminalColors: TerminalColors = {}
+  /** Keyboard protocol this session settled on; negotiation runs once. */
+  #keyboardProtocol: KeyboardProtocol | undefined
+  /** Every terminal mode this session turned on, given back on hand-off, exit and crash. */
+  readonly #modes = new TerminalModes(bytes => { this.#term.output.write(bytes) })
+  #offExit: (() => void) | undefined
+  /** Accumulated wheel gesture, so fast spins move further than one notch. */
+  #wheelGesture: WheelGesture = IDLE_WHEEL
+  /** When the pending provider retry fires, so the working row can count down. */
+  #retryDeadline: number | undefined
+  /** When the running compaction started. */
+  #compactionStartedAt: number | undefined
+  readonly #readImageInput: ((ref: ImageAttachmentRef, signal: AbortSignal) => Promise<TuiInputImage | undefined>) | undefined
+  /** The capability queries are written once per session. */
+  #capabilityQuerySent = false
+  /** Coalesces the burst of color replies into one repaint. */
+  #colorTimer: ReturnType<typeof setTimeout> | null = null
   #writtenProgramState: string | undefined
   #terminalProgress = false
   #terminalProgressActive = false
@@ -584,6 +610,7 @@ export class LocalTui implements TuiService {
    * hexadecimal palettes without a restart.
    */
   #trueColor = false
+  #colorDepth: ColorDepth = 'ansi16'
   readonly #copy: ClipboardWriter
   #copyTask: Promise<unknown> = Promise.resolve()
   readonly #readClipboard: ClipboardReader
@@ -649,6 +676,8 @@ export class LocalTui implements TuiService {
       readImagePath?: ImagePathReader
       deferInitialRender?: boolean
       imageProtocol?: ImageProtocol | 'none'
+  /** Read one stored image back as the composer's own image input. */
+  readImageInput?: (ref: ImageAttachmentRef, signal: AbortSignal) => Promise<TuiInputImage | undefined>
       terminalProfile?: 'direct' | 'multiplexer' | 'conpty'
       alternateScreenOverlays?: boolean
       resizeDebounceMs?: number
@@ -694,6 +723,7 @@ export class LocalTui implements TuiService {
     this.#deferInitialRender = paths.deferInitialRender === true
     this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
     this.#imageProtocol = this.#terminalProfile !== 'direct' || paths.imageProtocol === 'none' ? undefined : paths.imageProtocol ?? imageProtocol(process.env)
+    this.#readImageInput = paths.readImageInput
     this.#resizeDebounceMs = Math.max(0, paths.resizeDebounceMs ?? 120)
     this.#streamRenderMs = Math.max(0, paths.streamRenderMs ?? 8)
     this.#herdr = paths.herdrReporter ?? new HerdrAgentReporter({ env: {} })
@@ -751,14 +781,27 @@ export class LocalTui implements TuiService {
           this.#programQuerySent = false
           this.#programSupported = false
           this.#syncWindowTitle()
-          this.#term.output.write('\x1b[?1004h')
+          this.#modes.takeBack()
           this.#renderer.reset()
           this.#render()
         }
         process.on('SIGCONT', resume)
         this.#offResume = () => { process.off('SIGCONT', resume) }
       }
-      term.output.write('\x1b[?2004h\x1b[?1004h')
+      this.#modes.enable('paste', BRACKETED_PASTE)
+      this.#modes.enable('focus', FOCUS_REPORTING)
+      // A crash or `process.exit` skips dispose; the shell must still get its
+      // terminal back rather than a stuck alternate screen or key encoding.
+      const onExit = (): void => { this.#restoreTerminalOnExit() }
+      process.once('exit', onExit)
+      this.#offExit = () => { process.off('exit', onExit) }
+      if (!this.#capabilityQuerySent) {
+        // One round trip asks for the keyboard protocol, the terminal's own
+        // colors, and whether it describes itself as dark or light. A terminal
+        // that answers none of them keeps today's behaviour.
+        this.#capabilityQuerySent = true
+        term.output.write(KEYBOARD_PROTOCOL_QUERY + COLOR_QUERY + COLOR_SCHEME_QUERY)
+      }
     }
     this.#render()
     this.#herdr.start()
@@ -795,7 +838,12 @@ export class LocalTui implements TuiService {
       this.#syncStreamingReveal(undefined)
       this.#render()
     }
+    if (event.type === 'llm/retry') this.#retryDeadline = Date.now() + event.data.delayMs
+    if (event.type === 'llm/retry-started' || event.type === 'turn/end') this.#retryDeadline = undefined
     this.#state = applyEvent(this.#state, event, presentation, workspace)
+    const compacting = this.#state.status === 'compacting'
+    if (compacting && this.#compactionStartedAt === undefined) this.#compactionStartedAt = Date.now()
+    else if (!compacting) this.#compactionStartedAt = undefined
     if (event.type === 'turn/end' && this.#inspected === undefined) { this.#herdr.settled(event.data.reason.kind); this.#syncWindowTitle() }
     this.#emitNotification(this.#notifications.event({
       type: event.type,
@@ -1210,7 +1258,8 @@ export class LocalTui implements TuiService {
    * that changes `#colors` calls this so `/settings` takes effect immediately.
    */
   #syncTrueColor(): void {
-    this.#trueColor = this.#colors && detectTrueColor()
+    this.#colorDepth = this.#colors ? detectColorDepth() : 'ansi16'
+    this.#trueColor = this.#colorDepth === 'truecolor'
   }
 
   /** Apply prefs loaded from this entry's config (does not persist). */
@@ -1445,6 +1494,35 @@ export class LocalTui implements TuiService {
     return () => { if (this.#steerHandler === handler) this.#steerHandler = undefined }
   }
 
+  /**
+   * Adopt newly reported terminal colors. A `system` theme and 16-color
+   * quantization both follow them, so the next frame is rebuilt; the burst of
+   * palette replies is coalesced into one repaint.
+   */
+  #adoptTerminalColors(next: TerminalColors): void {
+    const key = (colors: TerminalColors): string =>
+      JSON.stringify([colors.foreground, colors.background, colors.scheme, colors.palette])
+    if (key(next) === key(this.#terminalColors)) return
+    this.#terminalColors = next
+    if (this.#colorTimer !== null) return
+    this.#colorTimer = setTimeout(() => {
+      this.#colorTimer = null
+      if (!this.#disposed && this.#tty) this.#render()
+    }, 30)
+  }
+
+  /**
+   * Last-resort restore for a process that exits without disposing: leave the
+   * alternate screen, give every mode back and show the cursor. Writes to a TTY
+   * are synchronous, so this completes before the process ends.
+   */
+  #restoreTerminalOnExit(): void {
+    if (this.#disposed || !this.#tty) return
+    try { this.#renderer.finish() } catch { /* best effort while exiting */ }
+    this.#modes.release()
+    this.#term.output.write('\x1b[?25h')
+  }
+
   dispose(): Promise<void> {
     if (this.#disposed) return this.#disposeTask ?? this.#herdr.release()
     this.#flushPasteBurst(true)
@@ -1462,6 +1540,10 @@ export class LocalTui implements TuiService {
     if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
     this.#pasteBurst.clear()
     this.#pluginSettingsAbort?.abort()
+    if (this.#colorTimer !== null) {
+      clearTimeout(this.#colorTimer)
+      this.#colorTimer = null
+    }
     if (this.#resizeTimer !== null) {
       clearTimeout(this.#resizeTimer)
       this.#resizeTimer = null
@@ -1497,7 +1579,11 @@ export class LocalTui implements TuiService {
       }
       if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
       this.#writtenProgramState = undefined
-      this.#term.output.write('\x1b[?2004l\x1b[?1004l\x1b[?25h\r\n')
+      this.#offExit?.()
+      this.#offExit = undefined
+      this.#modes.release()
+      this.#keyboardProtocol = undefined
+      this.#term.output.write('\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
         this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
       }
@@ -1537,6 +1623,27 @@ export class LocalTui implements TuiService {
     if (this.#state.status !== 'idle') return true
     if (this.#state.blocks.some((block) => block.kind === 'tool' && block.status === 'running')) return true
     return this.#subagents?.agents.some(agent => agent.phase === 'running' || agent.phase === 'starting') === true
+  }
+
+  /** Countdown shown on the working row while a retry or a compaction is pending. */
+  #workingLabel(): string | undefined {
+    if (this.#retryDeadline !== undefined) {
+      return `Retrying in ${Math.max(0, Math.ceil((this.#retryDeadline - Date.now()) / 1000))}s`
+    }
+    if (this.#state.status === 'compacting' && this.#compactionStartedAt !== undefined) {
+      return `Compacting ${Math.max(0, Math.floor((Date.now() - this.#compactionStartedAt) / 1000))}s`
+    }
+    return undefined
+  }
+
+  /** The newest image the transcript carries, whichever side produced it. */
+  #latestImageRef(): ImageAttachmentRef | undefined {
+    for (let index = this.#state.blocks.length - 1; index >= 0; index -= 1) {
+      const block = this.#state.blocks[index]!
+      const image = block.kind === 'tool' || block.kind === 'user' ? block.image : undefined
+      if (image !== undefined) return image
+    }
+    return undefined
   }
 
   #syncTick(): void {
@@ -1733,6 +1840,7 @@ export class LocalTui implements TuiService {
     const renderState = this.#reveal === undefined
       ? this.#state
       : revealStreamingAssistant(this.#state, this.#reveal.revealed)
+    const workingLabel = this.#workingLabel()
     const frame = this.#tty
       ? renderView(renderState, {
         width,
@@ -1758,7 +1866,10 @@ export class LocalTui implements TuiService {
         spinnerFrame: this.#spinner,
         motion: this.#motion,
         trueColor: this.#trueColor,
+        colorDepth: this.#colorDepth,
         themeName: this.#themeName,
+        terminal: this.#terminalColors,
+        ...(workingLabel === undefined ? {} : { workingLabel }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -1896,7 +2007,8 @@ export class LocalTui implements TuiService {
     if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
-    this.#term.output.write(enabled ? '\x1b[?1000h\x1b[?1002h\x1b[?1006h' : '\x1b[?1006l\x1b[?1002l\x1b[?1000l')
+    if (enabled) this.#modes.enable('mouse', MOUSE_TRACKING)
+    else this.#modes.disable('mouse')
   }
 
   /**
@@ -2203,6 +2315,19 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'program-status-support') { this.#programSupported = true; this.#syncWindowTitle(); return }
+    if (event.type === 'color-reply') { this.#adoptTerminalColors(mergeColorReply(this.#terminalColors, event.reply)); return }
+    if (event.type === 'color-scheme') { this.#adoptTerminalColors({ ...this.#terminalColors, scheme: event.scheme }); return }
+    if (event.type === 'kitty-flags' || event.type === 'device-attributes') {
+      const step = negotiateKeyboard(this.#keyboardProtocol, event)
+      // Only the step that settles a new protocol enables it, so the session
+      // pushes one entry per screen and the mode registry pops it again.
+      if (step.output !== undefined && step.protocol === 'kitty') {
+        this.#modes.enable('keyboard', KITTY_KEYBOARD)
+        this.#renderer.setAlternateScreenModes({ enter: KITTY_KEYBOARD.enable, exit: KITTY_KEYBOARD.disable })
+      }
+      this.#keyboardProtocol = step.protocol ?? this.#keyboardProtocol
+      return
+    }
     if (event.type === 'focus') {
       this.#terminalFocused = event.focused
       if (event.focused && this.#notificationFocus === 'unfocused') this.#notificationQueue.clear()
@@ -2228,7 +2353,9 @@ export class LocalTui implements TuiService {
     if (event.type === 'wheel') {
       this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
-        this.#scrollBy(event.direction === 'up' ? -3 : 3)
+        const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1)
+        this.#wheelGesture = step.gesture
+        if (step.lines !== 0) this.#scrollBy(step.lines)
       }
       return
     }
@@ -2674,7 +2801,7 @@ export class LocalTui implements TuiService {
 
   #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
     const source = prompt.request.documentSource!
-    const layout = documentLayout(source, createTheme(this.#colors, this.#trueColor, this.#themeName), Math.max(1, this.#term.width() - 6), {
+    const layout = documentLayout(source, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors), Math.max(1, this.#term.width() - 6), {
       wordWrap: prompt.documentWordWrap ?? true, column: prompt.documentColumn ?? 0,
     })
     const start = this.#promptDocument?.start ?? 0
@@ -3236,7 +3363,8 @@ export class LocalTui implements TuiService {
           this.#render()
         }
         this.#setMouseTracking(false)
-        this.#term.output.write('\x1b[?1004l')
+        // The shell that takes over gets every mode back; SIGCONT takes them again.
+        this.#modes.handOff()
         try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
       }
       return
@@ -3316,6 +3444,35 @@ export class LocalTui implements TuiService {
     }
   }
 
+  /**
+   * Turn composer text into a submission, shared by the main and inspected
+   * composers.
+   *
+   * The composer marker is a draft affordance, not something the reader said,
+   * so it leaves the text; it still records where the picture sat, so the
+   * segments keep that order.
+   */
+  #buildSubmission(text: string): { submission: TuiSubmission; historyText: string } {
+    const images = this.#images.copies()
+    const files = this.#files.copies()
+    const typedText = this.#files.text(images.length > 0 ? text.trim() : text)
+    const segments = images.length === 0 ? [] : splitComposerImageMarkers(typedText, images)
+    // Stripping a marker that sat on its own line leaves that line break behind.
+    const submittedText = images.length > 0 ? stripComposerImageMarkers(typedText, images).trim() : typedText
+    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
+    const historyText = submittedText.replace(/[ \t]{2,}/gu, ' ').trim()
+    return {
+      submission: {
+        text: submittedText,
+        images,
+        ...(segments.length === 0 ? {} : { segments }),
+        ...(files.length === 0 ? {} : { files }),
+        ...(literal ? { literal: true } : {}),
+      },
+      historyText,
+    }
+  }
+
   #submit(text: string): void {
     if (this.#prompt !== null) {
       if (this.#prompt.request.presentation === 'progress') return
@@ -3325,15 +3482,9 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    const images = this.#images.copies()
-    const files = this.#files.copies()
-    const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
-    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
-    const submission = { text: submittedText, images, ...(files.length === 0 ? {} : { files }), ...(literal ? { literal: true } : {}) }
+    const { submission, historyText } = this.#buildSubmission(text)
+    const { images, files = [], literal = false, text: submittedText } = submission
     const queueEditNewer = this.#queueEditNewer
-    const historyText = stripComposerImageMarkers(submittedText, images)
-      .replace(/[ \t]{2,}/gu, ' ')
-      .trim()
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
       this.#history.push(historyText)
       this.#historyStore?.add(historyText)
@@ -3382,13 +3533,8 @@ export class LocalTui implements TuiService {
   }
 
   #submitInspect(text: string): void {
-    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
-    const images = this.#images.copies()
-    const files = this.#files.copies()
-    const submittedText = this.#files.text(images.length > 0 ? text.trim() : text)
-    const historyText = stripComposerImageMarkers(submittedText, images)
-      .replace(/[ \t]{2,}/gu, ' ')
-      .trim()
+    const { submission, historyText } = this.#buildSubmission(text)
+    const { images, files = [], literal = false, text: submittedText } = submission
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
       this.#history.push(historyText)
       this.#historyStore?.add(historyText)
@@ -3412,7 +3558,8 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    for (const listener of this.#inspectSubmits) listener({ text: submittedText, images, ...(files.length === 0 ? {} : { files }) })
+    const { literal: _literal, ...inspectSubmission } = submission
+    for (const listener of this.#inspectSubmits) listener(inspectSubmission)
     this.#popStashedDraft()
     this.#render()
   }
@@ -3743,7 +3890,24 @@ export class LocalTui implements TuiService {
     }
     if (action === 'preview-images') {
       if (this.#search !== null || this.#inspected !== undefined) return false
-      if (this.#images.count === 0) this.notice('Paste an image before opening its preview.')
+      if (this.#images.count === 0) {
+        // No draft image: preview the newest image the conversation carries,
+        // which is the only way a settled card can still show its picture.
+        const ref = this.#latestImageRef()
+        if (ref === undefined) this.notice('Paste an image before opening its preview.')
+        else if (this.#readImageInput === undefined) this.notice('This deployment cannot reopen that image.')
+        else if (this.#imagePreviewAbort === undefined) {
+          const abort = new AbortController()
+          this.#imagePreviewAbort = abort
+          void this.#readImageInput(ref, abort.signal)
+            .then(image => image === undefined
+              ? this.notice('That image could not be read back for a preview.', { level: 'error' })
+              : previewImages(this, [image], abort.signal))
+            .catch((error: unknown) => { if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) })
+            .finally(() => { if (this.#imagePreviewAbort === abort) this.#imagePreviewAbort = undefined })
+        }
+        return true
+      }
       else if (this.#imagePreviewAbort === undefined) {
         const abort = new AbortController()
         const revision = this.#images.revision
@@ -3909,7 +4073,7 @@ export class LocalTui implements TuiService {
     }
     try {
       this.#setMouseTracking(false)
-      this.#term.output.write('\x1b[?1004l')
+      this.#modes.handOff()
       this.#term.input.setRawMode?.(false)
       this.#literalInput ||= this.#editor.startsWithPaste
       const text = editExternally(this.#editor.expandedText, this.#externalEditor)
@@ -3920,7 +4084,7 @@ export class LocalTui implements TuiService {
     } finally {
       if (!this.#disposed) {
         this.#term.input.setRawMode?.(true)
-        this.#term.output.write('\x1b[?1004h')
+        this.#modes.takeBack()
         this.#renderer.reset()
         this.#refreshAutocomplete()
         this.#render()
@@ -3932,7 +4096,7 @@ export class LocalTui implements TuiService {
   #openPlanFeedbackEditor(prompt: PendingPrompt): void {
     try {
       this.#setMouseTracking(false)
-      this.#term.output.write('\x1b[?1004l')
+      this.#modes.handOff()
       this.#term.input.setRawMode?.(false)
       const initial = prompt.feedback === true ? this.#editor.expandedText : ''
       const text = editExternally(initial, this.#externalEditor)
@@ -3943,7 +4107,7 @@ export class LocalTui implements TuiService {
     } finally {
       if (!this.#disposed) {
         this.#term.input.setRawMode?.(true)
-        this.#term.output.write('\x1b[?1004h')
+        this.#modes.takeBack()
         this.#renderer.reset()
         this.#render()
       }
@@ -4258,6 +4422,19 @@ export function apply(ctx: Context, config: Config): void {
     copyToClipboard,
     {
       deferInitialRender: true,
+      readImageInput: async (ref, signal) => {
+        const attachments = ctx.get('attachments')
+        if (attachments === undefined) return undefined
+        const stored = await attachments.readImage(ref, signal)
+        if (stored === undefined) return undefined
+        return {
+          data: stored.data,
+          mediaType: stored.ref.mediaType,
+          ...(stored.ref.name === undefined ? {} : { name: stored.ref.name }),
+          width: stored.ref.width,
+          height: stored.ref.height,
+        }
+      },
       terminalProfile,
       alternateScreenOverlays: terminalProfile === 'direct',
       herdrReporter: new HerdrAgentReporter({ interactive: term.input.isTTY === true && term.output.isTTY === true }),

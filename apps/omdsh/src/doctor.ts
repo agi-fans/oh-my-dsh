@@ -10,6 +10,7 @@ import {
   type Profile, type ProfileLayer,
 } from '@deepseek-ai/dsh-app-boot'
 import { CREDENTIALS_FILENAME, parseCredentialsDocument } from '@deepseek-ai/dsh-credentials-local'
+import { imageProtocol } from '@agi-fans/dsh-tui'
 import { omdshHome } from './config-paths.ts'
 import { INSTALL_ANCHOR, NAME, PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
 import { loadLspPatches } from './lsp-config.ts'
@@ -245,6 +246,12 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   add('terminal', (options.tty ?? (process.stdin.isTTY === true && process.stdout.isTTY === true)) ? 'ok' : 'not-checked',
     (options.tty ?? (process.stdin.isTTY === true && process.stdout.isTTY === true)) ? 'Interactive stdin and stdout are attached.' : 'No interactive terminal attached.')
   add('terminal-capabilities', 'not-checked', 'Program status, images and clipboard require interactive terminal checks. No terminal probes were sent.')
+  const images = imageProtocol(process.env)
+  add('terminal-images', images === undefined ? 'not-configured' : 'ok',
+    images === undefined
+      ? 'No inline image protocol was detected for this terminal.'
+      : `Inline images use the ${images} protocol.`,
+    images === undefined ? 'Set OMDSH_IMAGE_PROTOCOL=kitty (or iterm2) when the terminal supports inline images.' : undefined)
   return { schemaVersion: 1, version: options.version, checks }
 }
 

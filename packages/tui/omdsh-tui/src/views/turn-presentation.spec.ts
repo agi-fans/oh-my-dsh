@@ -5,6 +5,7 @@ import { turnGroups } from './transcript-render.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import { createTheme, paintSurface, THEME_NAMES } from '../chrome/theme.ts'
 import type { TranscriptState } from './transcript-types.ts'
+import { mergeJobSettlement } from '../session/job-notice.ts'
 
 const event = (type: string, data: unknown, time: number): SessionEvent => ({ type, data, time, seq: time }) as SessionEvent
 const start = () => applyEvent(initialTranscript(), event('turn/start', { turn: 1 }, 1000))
@@ -95,6 +96,110 @@ describe('live content followed by a completed turn summary', () => {
     expect(rows[second]).toContain(theme.getBgAnsi('toolAltBg'))
   })
 
+  it('alternates tool card surfaces across a run boundary', () => {
+    let state = result(call(start(), 'c1', 'bash', { command: 'pwd' }), 'c1', 'first run')
+    state = finish(state)
+    state = applyEvent(state, event('turn/start', { turn: 2 }, 20000))
+    state = result(applyEvent(state, event('tool/call', {
+      turn: 2, step: 1, callId: 'c2', name: 'bash', arguments: JSON.stringify({ command: 'ls' }),
+    }, 21000)), 'c2', 'second run')
+    const groups = turnGroups(state)
+    expect(groups.length).toBeGreaterThan(1)
+    const theme = createTheme(true, true)
+    const rows = renderView(state, {
+      width: 100, height: 160, colors: true, trueColor: true, themeName: 'dark',
+      model: 'm', input: '', inputCursor: 0,
+      openedGroups: new Set([groups[0]!.key]),
+    }).lines
+    const first = rows.findIndex(row => stripAnsi(row).includes('$ pwd'))
+    const second = rows.findIndex(row => stripAnsi(row).includes('$ ls'))
+    expect(first).toBeGreaterThan(0)
+    expect(second).toBeGreaterThan(first)
+    // Both runs paint cards, so the boundary must not restart the alternation.
+    expect(rows[first]).toContain(theme.getBgAnsi('toolSuccessBg'))
+    expect(rows[second]).toContain(theme.getBgAnsi('toolAltBg'))
+  })
+
+  it('separates a job settlement line from the command output', () => {
+    let state = result(call(start(), 'c1', 'bash', { command: 'sleep 1' }), 'c1', 'started background job bash-1')
+    state = mergeJobSettlement(state, {
+      id: 'bash-1', label: 'sleep 1', status: 'completed', startedAt: 2500, detail: 'exit code: 0',
+    })!
+    const rows = view(state).lines.map(stripAnsi)
+    const jobRow = rows.findIndex(row => row.includes('Job bash-1'))
+    expect(jobRow).toBeGreaterThan(0)
+    expect(rows[jobRow - 1]!.trim()).toBe('')
+  })
+
+  it('renders a read_image result card from the tool facts', () => {
+    let state = call(start(), 'c1', 'read_image', { file_path: 'shot.png' })
+    state = applyEvent(state, event('tool/result', { message: {
+      role: 'tool',
+      toolCallId: 'c1',
+      content: [
+        { type: 'text', text: 'Read image shot.png (800×600, image/png, 4096 bytes)' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'abcdefghijkl', mediaType: 'image/png', bytes: 4096, width: 800, height: 600, name: 'shot.png',
+          },
+        },
+      ],
+    } }, 3000))
+    // `read_image` defines no `presentResult`, so the card falls back to the raw
+    // result text; the image bytes stay model-facing and are not drawn here.
+    const screen = view(state).lines.map(stripAnsi).join('\n')
+    expect(screen).toContain('shot.png')
+    expect(screen).toContain('800×600')
+  })
+
+  it('keeps a tool-result image reference on the block', () => {
+    let state = call(start(), 'c1', 'read_image', { file_path: 'shot.png' })
+    state = applyEvent(state, event('tool/result', { message: {
+      role: 'tool',
+      toolCallId: 'c1',
+      content: [
+        { type: 'text', text: 'Read image shot.png (800×600, image/png, 4096 bytes)' },
+        { type: 'image', attachment: {
+          attachmentId: 'abcdefghijkl', mediaType: 'image/png', bytes: 4096, width: 800, height: 600, name: 'shot.png',
+        } },
+      ],
+    } }, 3000))
+    const block = state.blocks.find(entry => entry.kind === 'tool')
+    expect(block?.kind === 'tool' ? block.image?.attachmentId : undefined).toBe('abcdefghijkl')
+    // The reference is for reopening the picture (Alt+M); the transcript keeps
+    // its text and never places a bitmap into rows that become scrollback.
+    const frame = renderView(state, {
+      width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0,
+      imageProtocol: 'kitty' as const,
+    })
+    expect(frame.image).toBeUndefined()
+    expect(text(state)).toContain('shot.png')
+  })
+
+  it('keeps a pasted image reference on the user block without changing the layout', () => {
+    const attachment = { attachmentId: 'abcdefghijkl', mediaType: 'image/webp', bytes: 4096, width: 1046, height: 296, name: 'clipboard.png' }
+    const state = applyEvent(start(), event('user/message', {
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: '这个图片说了什么' }, { type: 'image', attachment }],
+    }, 1200))
+    const block = state.blocks.find(entry => entry.kind === 'user')
+    expect(block?.kind === 'user' ? block.image?.attachmentId : undefined).toBe('abcdefghijkl')
+    const base = { width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
+    expect(renderView(state, base).lines).toEqual(renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines)
+    expect(renderView(state, { ...base, imageProtocol: 'kitty' as const }).image).toBeUndefined()
+  })
+
+  it('names an attached picture where it sat among the words', () => {
+    const attachment = { attachmentId: 'abcdefghijkl', mediaType: 'image/jpeg', bytes: 4096, width: 800, height: 600, name: 'shot.jpg' }
+    const state = applyEvent(start(), event('user/message', {
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: '看这个' }, { type: 'image', attachment }, { type: 'text', text: '怎么样' }],
+    }, 1200))
+    const base = { width: 80, height: 40, colors: true, trueColor: true, themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
+    const screen = renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines.map(stripAnsi).join('\n')
+    expect(screen).toContain('看这个 [Image: image/jpeg]怎么样')
+  })
   it('does not fold an earlier part of the same live turn around an ordinary notice', () => {
     let state = result(call(start(), 'c', 'read', { path: 'README.md' }), 'c', 'first tool content')
     state = { ...state, blocks: [...state.blocks, { kind: 'notice', text: 'Session notice', level: 'info' }] }

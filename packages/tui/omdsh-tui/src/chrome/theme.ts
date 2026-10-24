@@ -4,6 +4,10 @@
  * @module @agi-fans/dsh-tui
  */
 
+import {
+  contrastRatio, nearestPaletteIndex, nearestXterm256, type Rgb, type TerminalColors,
+} from './terminal-colors.ts'
+
 /** Rounded-box drawing characters (OMP unicode preset). */
 export const BOX = {
   topLeft: '╭',
@@ -505,6 +509,9 @@ const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
   gruvbox: GRUVBOX_PALETTE,
   'rose-pine': ROSE_PINE_PALETTE,
   mono: MONO_PALETTE,
+  // `system` starts from the neutral palette and is rebuilt from the reported
+  // terminal colors when a launch can probe them.
+  system: DARK_PALETTE,
 }
 
 /**
@@ -708,6 +715,7 @@ const ANSI16: Record<ThemeName, Record<ThemeColor, string>> = {
   gruvbox: GRUVBOX_ANSI16,
   'rose-pine': ROSE_PINE_ANSI16,
   mono: MONO_ANSI16,
+  system: DARK_ANSI16,
 }
 
 /** Distance from a foreground SGR code to its background twin: 31 → 41, 39 → 49. */
@@ -739,6 +747,7 @@ const ANSI16_BG: Record<ThemeName, Record<ThemeColor, string>> = {
   gruvbox: toBackgrounds(GRUVBOX_ANSI16),
   'rose-pine': toBackgrounds(ROSE_PINE_ANSI16),
   mono: toBackgrounds(MONO_ANSI16),
+  system: toBackgrounds(DARK_ANSI16),
 }
 
 const FG_RESET = '\x1b[39m'
@@ -753,7 +762,7 @@ const INVERSE_RESET = '\x1b[27m'
 export const THEME_NAMES = [
   'dark', 'light', 'midnight', 'solarized',
   'catppuccin', 'dracula', 'nord', 'gruvbox', 'rose-pine',
-  'mono',
+  'mono', 'system',
 ] as const
 
 /** One shipped palette name. */
@@ -775,8 +784,10 @@ export interface Theme {
   readonly name: ThemeName
   /** Whether SGR is emitted. */
   readonly colors: boolean
-  /** Whether hex colors become 24-bit SGR (else 16-color). */
+  /** Whether hex colors become 24-bit SGR. */
   readonly trueColor: boolean
+  /** How swatches are encoded; meaningful only when {@link Theme.colors} is true. */
+  readonly depth: ColorDepth
   fg(color: ThemeColor, text: string): string
   bg(color: ThemeColor, text: string): string
   getFgAnsi(color: ThemeColor): string
@@ -827,22 +838,89 @@ function hexToRgb(hex: string): [number, number, number] {
   ]
 }
 
-/** Foreground SGR for one swatch; `fallback` is a code from {@link ANSI16}. */
-function fgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
-  if (swatch === '') return '\x1b[39m'
-  if (typeof swatch === 'number') return `\x1b[38;5;${swatch}m`
-  if (!trueColor) return `\x1b[${fallback}m`
+/**
+ * How many colors the terminal can show, which decides how a swatch is
+ * encoded. It is independent of what the terminal reports about its palette:
+ * a report changes the target values, never the encoding.
+ */
+export type ColorDepth = 'ansi16' | 'ansi256' | 'truecolor'
+
+/**
+ * SGR for one swatch at a color depth; `fallback` is a code from
+ * {@link ANSI16} or {@link ANSI16_BG}. `layer` is 38 for ink and 48 for fill.
+ */
+function swatchCode(swatch: Swatch, depth: ColorDepth, fallback: string, layer: 38 | 48): string {
+  if (swatch === '') return layer === 38 ? '\x1b[39m' : '\x1b[49m'
+  if (typeof swatch === 'number') return `\x1b[${layer};5;${swatch}m`
+  if (depth === 'ansi16') return `\x1b[${fallback}m`
   const [r, g, b] = hexToRgb(swatch)
-  return `\x1b[38;2;${r};${g};${b}m`
+  if (depth === 'ansi256') return `\x1b[${layer};5;${nearestXterm256({ r, g, b })}m`
+  return `\x1b[${layer};2;${r};${g};${b}m`
 }
 
-/** Background SGR for one swatch; `fallback` is a code from {@link ANSI16_BG}. */
-function bgCode(swatch: Swatch, trueColor: boolean, fallback: string): string {
-  if (swatch === '') return '\x1b[49m'
-  if (typeof swatch === 'number') return `\x1b[48;5;${swatch}m`
-  if (!trueColor) return `\x1b[${fallback}m`
-  const [r, g, b] = hexToRgb(swatch)
-  return `\x1b[48;2;${r};${g};${b}m`
+/** Mix two colors in linear light; `weight` is the share of `to`. */
+function mixRgb(from: Rgb, to: Rgb, weight: number): Rgb {
+  const linear = (value: number): number => {
+    const channelValue = value / 255
+    return channelValue <= 0.04045 ? channelValue / 12.92 : ((channelValue + 0.055) / 1.055) ** 2.4
+  }
+  const encode = (value: number): number => {
+    const clamped = Math.max(0, Math.min(1, value))
+    return Math.round(255 * (clamped <= 0.003_130_8 ? clamped * 12.92 : 1.055 * clamped ** (1 / 2.4) - 0.055))
+  }
+  const mix = (left: number, right: number): number => linear(left) * (1 - weight) + linear(right) * weight
+  return { r: encode(mix(from.r, to.r)), g: encode(mix(from.g, to.g)), b: encode(mix(from.b, to.b)) }
+}
+
+function toHex(color: Rgb): string {
+  const part = (value: number): string => Math.round(value).toString(16).padStart(2, '0')
+  return `#${part(color.r)}${part(color.g)}${part(color.b)}`
+}
+
+/** The fixed red a `system` error surface mixes toward when the palette has none. */
+const SYSTEM_ERROR_RED: Rgb = { r: 0xff, g: 0x5f, b: 0x5f }
+/** The fixed blue a `system` notice surface mixes toward when the palette has none. */
+const SYSTEM_NOTICE_BLUE: Rgb = { r: 0x6f, g: 0xa8, b: 0xff }
+
+/**
+ * Rebuild the surface and ink swatches from what the terminal reported, so the
+ * cards sit on the user's own background instead of a guessed one. The two
+ * successful-call surfaces are separated by design: alternation only reads if
+ * the pair is perceptibly different.
+ */
+function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor, Swatch> {
+  const background = terminal?.background
+  const light = terminal?.scheme === 'light'
+  const base = light ? LIGHT_PALETTE : DARK_PALETTE
+  if (background === undefined) return base
+  const foreground = terminal?.foreground ?? (light ? { r: 0x24, g: 0x24, b: 0x24 } : { r: 0xe0, g: 0xe0, b: 0xe0 })
+  const accent = terminal?.palette?.[4] ?? SYSTEM_NOTICE_BLUE
+  const error = terminal?.palette?.[1] ?? SYSTEM_ERROR_RED
+  const card = (weight: number): string => toHex(mixRgb(background, foreground, weight))
+  // The alternating pair keeps a fixed gap; widening `alt` only when a harsh
+  // background would otherwise swallow it.
+  const success = card(0.05)
+  const alt = contrastRatio(mixRgb(background, foreground, 0.05), mixRgb(background, foreground, 0.12)) < 1.06
+    ? card(0.16) : card(0.12)
+  return {
+    ...base,
+    text: toHex(foreground),
+    muted: toHex(mixRgb(foreground, background, 0.28)),
+    dim: toHex(mixRgb(foreground, background, 0.45)),
+    userMessageBg: toHex(mixRgb(background, accent, 0.14)),
+    toolPendingBg: card(0.03),
+    toolSuccessBg: success,
+    toolAltBg: alt,
+    toolErrorBg: toHex(mixRgb(background, error, 0.20)),
+  }
+}
+
+/** 16-color SGR for one ANSI palette index, as ink or as a fill. */
+function ansiIndexSgr(index: number, asBackground: boolean): string {
+  const base = asBackground ? 4 : 3
+  if (index < 8) return `\x1b[${base}${index}m`
+  const bright = asBackground ? 10 : 9
+  return `\x1b[${bright}${index - 8}m`
 }
 
 /**
@@ -855,45 +933,85 @@ export function colorDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 /**
- * Detect 24-bit color. `NO_COLOR` (any non-empty value) and `FORCE_COLOR=0`
- * suppress 24-bit color and outrank every capability hint; `COLORTERM` and
- * Windows Terminal enable it, and only known 16-color hosts disqualify it.
+ * Detect the color depth. `NO_COLOR` (any non-empty value) and `FORCE_COLOR=0`
+ * outrank every capability hint and leave 16 colors; `COLORTERM` and Windows
+ * Terminal prove 24-bit color. Apple Terminal advertises `xterm-256color` but
+ * misdraws 24-bit sequences on the releases still in use, so it gets the
+ * 256-color cube. Known 16-color hosts stay at 16, and every other terminal is
+ * assumed to be a modern 24-bit one.
  */
-export function detectTrueColor(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (colorDisabledByEnv(env)) return false
-  const colorterm = env.COLORTERM ?? ''
-  if (colorterm === 'truecolor' || colorterm === '24bit') return true
-  if (env.WT_SESSION) return true
+export function detectColorDepth(env: NodeJS.ProcessEnv = process.env): ColorDepth {
+  if (colorDisabledByEnv(env)) return 'ansi16'
+  const colorterm = (env.COLORTERM ?? '').toLowerCase()
+  if (colorterm === 'truecolor' || colorterm === '24bit') return 'truecolor'
+  if (env.WT_SESSION) return 'truecolor'
   const term = env.TERM ?? ''
-  if (term === 'dumb' || term === '' || term === 'linux') return false
-  return true
+  if (term === 'dumb' || term === '' || term === 'linux') return 'ansi16'
+  if (env.TERM_PROGRAM === 'Apple_Terminal') return 'ansi256'
+  return 'truecolor'
+}
+
+/** Whether 24-bit color is available; see {@link detectColorDepth}. */
+export function detectTrueColor(env: NodeJS.ProcessEnv = process.env): boolean {
+  return detectColorDepth(env) === 'truecolor'
 }
 
 /**
  * Build a theme.
  * @param colors - emit SGR when true.
- * @param trueColor - 24-bit hex; ignored when colors is false.
+ * @param depth - color depth, or a boolean for 24-bit versus 16 colors; ignored when colors is false.
  * @param name - shipped palette (`dark` default).
+ * @param terminal - what the terminal reported about itself, when a probe answered.
  */
 export function createTheme(
   colors: boolean,
-  trueColor = detectTrueColor(),
+  depth: ColorDepth | boolean = detectColorDepth(),
   name: ThemeName = 'dark',
+  terminal?: TerminalColors,
 ): Theme {
-  const tc = colors && trueColor
-  const palette = PALETTES[name]
+  const resolvedDepth: ColorDepth = depth === true ? 'truecolor' : depth === false ? 'ansi16' : depth
+  const tc = colors && resolvedDepth === 'truecolor'
+  const palette = name === 'system' ? systemPalette(terminal) : PALETTES[name]
   const ansi = ANSI16[name]
   const ansiBg = ANSI16_BG[name]
-  const getFgAnsi = (color: ThemeColor): string =>
-    colors ? fgCode(palette[color], tc, ansi[color]) : ''
+  // The reported sixteen colors decide the encoding only on a 16-color
+  // terminal; 256- and 24-bit terminals encode the exact swatch themselves.
+  const reported = resolvedDepth === 'ansi16' && terminal?.palette !== undefined && terminal.palette.length === 16 ? terminal.palette : undefined
+  /**
+   * Without 24-bit color a hex swatch is quantized to the entry the terminal
+   * actually has, which is perceptual nearest rather than a fixed code shift.
+   */
+  const quantized = (swatch: Swatch, asBackground: boolean): string | undefined => {
+    if (reported === undefined || typeof swatch !== 'string' || swatch === '') return undefined
+    const [r, g, b] = hexToRgb(swatch)
+    const index = nearestPaletteIndex({ r, g, b }, reported)
+    return index === undefined ? undefined : ansiIndexSgr(index, asBackground)
+  }
+  const getFgAnsi = (color: ThemeColor): string => {
+    if (!colors) return ''
+    return quantized(palette[color], false) ?? swatchCode(palette[color], resolvedDepth, ansi[color], 38)
+  }
+  const rawBgAnsi = (color: ThemeColor): string => {
+    if (!colors) return ''
+    return quantized(palette[color], true) ?? swatchCode(palette[color], resolvedDepth, ansiBg[color], 48)
+  }
+  /**
+   * A 16- or 256-color terminal can collapse two near-black surfaces onto one entry.
+   * The alternating card then gives up its fill instead of pretending to have
+   * a second one, which keeps consecutive calls distinguishable.
+   */
+  const altBg = colors && !tc && rawBgAnsi('toolSuccessBg') === rawBgAnsi('toolAltBg')
+    ? BG_RESET
+    : undefined
   const getBgAnsi = (color: ThemeColor): string =>
-    colors ? bgCode(palette[color], tc, ansiBg[color]) : ''
+    color === 'toolAltBg' && altBg !== undefined ? altBg : rawBgAnsi(color)
   const paint = (open: string, text: string, close: string): string =>
     colors && open !== '' ? open + text + close : text
   return {
     name,
     colors,
     trueColor: tc,
+    depth: resolvedDepth,
     getFgAnsi,
     getBgAnsi,
     fg: (color, text) => paint(getFgAnsi(color), text, FG_RESET),

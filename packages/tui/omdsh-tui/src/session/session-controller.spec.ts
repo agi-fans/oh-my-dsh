@@ -185,6 +185,37 @@ describe('createSubmissionMessage', () => {
     ])
   })
 
+  it('keeps a picture where the reader inserted it', async () => {
+    const attachments = { saveImages: vi.fn(async () => [pngRef]) }
+    const message = await createSubmissionMessage({
+      text: '看这个 怎么样',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+      segments: [
+        { kind: 'text', text: '看这个' },
+        { kind: 'image', index: 0 },
+        { kind: 'text', text: '怎么样' },
+      ],
+    }, attachments)
+    expect(message.content).toEqual([
+      { type: 'text', text: '看这个' },
+      { type: 'image', attachment: pngRef },
+      { type: 'text', text: '怎么样' },
+    ])
+  })
+
+  it('keeps an unmarked attachment instead of dropping it', async () => {
+    const attachments = { saveImages: vi.fn(async () => [pngRef]) }
+    const message = await createSubmissionMessage({
+      text: 'no marker here',
+      images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+      segments: [{ kind: 'text', text: 'no marker here' }],
+    }, attachments)
+    expect(message.content).toEqual([
+      { type: 'text', text: 'no marker here' },
+      { type: 'image', attachment: pngRef },
+    ])
+  })
+
   it('commits no user event when batch admission fails', async () => {
     await expect(createSubmissionMessage({
       text: 'keep this draft',

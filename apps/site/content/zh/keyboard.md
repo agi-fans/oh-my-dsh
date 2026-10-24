@@ -33,7 +33,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+-` | 撤销上一次编辑，或恢复刚清空的草稿。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
-| `Alt+M` | 预览 composer 图片，不发送消息。 |
+| `Alt+M` | 预览 composer 图片，不发送消息；没有草稿图片时，打开会话中最新的一张图片。 |
 | `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
 | `Alt+Up` | composer 为空时，将最近一条排队消息取回 composer。 |
 | `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
@@ -134,7 +134,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 
 | Action id | 默认键 | 作用 |
 |---|---|---|
-| `preview-images` | `Alt+M` | 预览草稿图片。 |
+| `preview-images` | `Alt+M` | 预览草稿图片，或会话中最新的图片。 |
 | `expand-paste` | `Alt+I` | 展开粘贴块进行编辑。 |
 | `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
 | `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |

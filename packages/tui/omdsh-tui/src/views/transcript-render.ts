@@ -58,6 +58,8 @@ import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
 import type { WelcomeTip } from '../chrome/welcome-tips.ts'
+import type { TerminalColors } from '../chrome/terminal-colors.ts'
+import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
@@ -115,6 +117,8 @@ export interface ViewOptions {
   mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
   /** 24-bit color; defaults to off so tests stay deterministic. */
   trueColor?: boolean
+  /** Color depth; when absent, {@link ViewOptions.trueColor} chooses 24-bit or 16 colors. */
+  colorDepth?: ColorDepth
   /** Shipped palette; defaults to dark. */
   themeName?: ThemeName
   /** Slash-command popup sitting under the editor. */
@@ -185,6 +189,36 @@ export interface ViewOptions {
   expandedReasoning?: ReadonlySet<string>
   /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
   openedGroups?: ReadonlySet<string>
+  /** Transient activity label that replaces the default working text. */
+  workingLabel?: string
+  /**
+   * What the terminal reported about itself. A `system` theme and 16-color
+   * quantization both read it, so it also keys every formatted-row cache.
+   */
+  terminal?: TerminalColors
+}
+
+/** Cache keys per reported-colors object; a new report is a new object. */
+const terminalKeys = new WeakMap<TerminalColors, string>()
+
+/** The depth a frame encodes with. */
+function colorDepthOf(options: ViewOptions): ColorDepth {
+  return options.colorDepth ?? (options.trueColor === true ? 'truecolor' : 'ansi16')
+}
+
+/** Cache key for everything the color depth and the reported terminal colors can change. */
+function terminalKey(options: ViewOptions): string {
+  const depth = colorDepthOf(options)
+  const terminal = options.terminal
+  if (terminal === undefined) return depth
+  let known = terminalKeys.get(terminal)
+  if (known === undefined) {
+    const rgb = (color: { r: number; g: number; b: number } | undefined): string =>
+      color === undefined ? '' : `${color.r},${color.g},${color.b}`
+    known = [rgb(terminal.foreground), rgb(terminal.background), terminal.scheme ?? '', (terminal.palette ?? []).map(rgb).join(';')].join('|')
+    terminalKeys.set(terminal, known)
+  }
+  return `${depth}|${known}`
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -532,10 +566,15 @@ function toolBlockLines(
     for (const row of body) rows.push(row)
   }
   if (block.status === 'error') rows.push(...wrapText(theme.fg('error', 'Tool failed'), room))
-  if (block.job !== undefined) rows.push(...wrapText(theme.fg(
-    block.status === 'error' ? 'error' : 'muted',
-    `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
-  ), room))
+  if (block.job !== undefined) {
+    // The settlement line belongs to the call, not to its output: without a gap
+    // it reads as one more line of whatever the command printed.
+    if (rows.length > 0) rows.push('')
+    rows.push(...wrapText(theme.fg(
+      block.status === 'error' ? 'error' : 'muted',
+      `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
+    ), room))
+  }
   const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : surface
   return ['', ...rows, ''].map(row => paintSurface(theme, bg, 'toolOutput', padToWidth(' '.repeat(padding + nest) + row, width)))
 }
@@ -561,6 +600,12 @@ interface GroupRenderContext {
   trueColor: boolean
   width: number
   matches: ReadonlySet<number>
+  /**
+   * Tool cards painted so far in this transcript pass. Alternation follows the
+   * cards actually drawn, so neither a run boundary nor a block that paints
+   * nothing can hand two consecutive cards the same surface.
+   */
+  toolCards: { count: number }
 }
 
 /** The block indexes a run shows as rows, in order: its members, then the thought it took from its answer. */
@@ -589,7 +634,7 @@ function groupMemberLines(
   // Search must reveal a match even when it falls outside a tool's normal preview.
   const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
   const surface = toolOrdinal % 2 === 0 ? 'toolSuccessBg' : 'toolAltBg'
-  const signature = [width, options.colors, context.trueColor, context.themeName, options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
+  const signature = [width, options.colors, context.trueColor, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
@@ -626,10 +671,10 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
   const lines: string[] = []
   const offsets = new Map<number, number>()
   const spans: { index: number; start: number; end: number }[] = []
-  let toolOrdinal = 0
   for (const index of groupMembers(group)) {
-    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, toolOrdinal)
-    if (context.blocks[index]?.kind === 'tool') toolOrdinal += 1
+    const isTool = context.blocks[index]?.kind === 'tool'
+    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, context.toolCards.count)
+    if (isTool && rows.length > 0) context.toolCards.count += 1
     if (rows.length > 0 && lines.length > 0) lines.push('')
     offsets.set(index, lines.length)
     if (context.blocks[index]?.kind === 'tool') spans.push({ index, start: lines.length, end: lines.length + rows.length })
@@ -803,6 +848,7 @@ interface TranscriptBodyCache {
   colors: boolean
   trueColor: boolean
   themeName: ThemeName
+  terminalKey: string
   spinnerFrame: number
   toolsExpanded: boolean
   expandedTools: string
@@ -852,6 +898,7 @@ interface BlockLinesCache {
   colors: boolean
   trueColor: boolean
   themeName: ThemeName
+  terminalKey: string
   expanded: boolean
   /** The block's thought is painted by the run above it. */
   omitReasoning: boolean
@@ -876,6 +923,7 @@ function cachedBlockLines(
     && cached.colors === options.colors
     && cached.trueColor === trueColor
     && cached.themeName === themeName
+    && cached.terminalKey === terminalKey(options)
     && cached.expanded === expanded
     && cached.omitReasoning === omitReasoning
     && cached.mathMode === options.mathMode
@@ -897,6 +945,7 @@ function cachedBlockLines(
     colors: options.colors,
     trueColor,
     themeName,
+    terminalKey: terminalKey(options),
     expanded,
     omitReasoning,
     lines,
@@ -1206,6 +1255,7 @@ function renderTranscriptBody(
     && cached.colors === options.colors
     && cached.trueColor === trueColor
     && cached.themeName === themeName
+    && cached.terminalKey === terminalKey(options)
     && cached.spinnerFrame === animatedSpinnerFrame
     && cached.mathMode === options.mathMode
     && cached.mermaidMode === options.mermaidMode
@@ -1299,6 +1349,7 @@ function renderTranscriptBody(
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, trueColor, width: options.width,
     matches, options: { ...options, expandedReasoning: openedThoughts },
+    toolCards: { count: 0 },
   }
   const compactProcessRow = (block: Block | undefined): boolean => {
     if (block?.kind === 'notice') return block.process !== undefined && block.framed !== true
@@ -1487,6 +1538,7 @@ function renderTranscriptBody(
     colors: options.colors,
     trueColor,
     themeName,
+    terminalKey: terminalKey(options),
     spinnerFrame: animatedSpinnerFrame,
     toolsExpanded,
     expandedTools,
@@ -1937,7 +1989,7 @@ export function renderQueuedSubmissions(
  * @returns the frame to hand to a renderer.
  */
 export function renderView(state: TranscriptState, options: ViewOptions): Frame {
-  const theme = createTheme(options.colors, options.trueColor === true, options.themeName ?? 'dark')
+  const theme = createTheme(options.colors, colorDepthOf(options), options.themeName ?? 'dark', options.terminal)
   const width = options.width
   const height = options.height
   const appName = options.appName ?? 'omdsh'
@@ -2034,9 +2086,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
 
   const working = state.status === 'running'
-    ? renderWorking(theme, Math.max(0, spinnerFrame), undefined, width, motion)
+    ? renderWorking(theme, Math.max(0, spinnerFrame), options.workingLabel, width, motion)
     : state.status === 'compacting'
-      ? renderWorking(theme, Math.max(0, spinnerFrame), 'Compacting', width, motion)
+      ? renderWorking(theme, Math.max(0, spinnerFrame), options.workingLabel ?? 'Compacting', width, motion)
       : []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const placeholder = options.inspected === undefined && state.status === 'idle'

@@ -5,7 +5,9 @@ import {
   imagePathCandidates,
   looksLikeSlashCommand,
   probeImageDimensions,
+  splitComposerImageMarkers,
   stripComposerImageMarkers,
+  submissionDraftText,
 } from './image-paste.ts'
 
 const PNG_1X1 = new Uint8Array(Buffer.from(
@@ -64,5 +66,58 @@ describe('image paste', () => {
     expect(looksLikeSlashCommand('/goal [Image #1, 1x1] implement auth', images)).toBe(true)
     expect(looksLikeSlashCommand('[Image #1, 1x1] describe this', images)).toBe(false)
     expect(looksLikeSlashCommand('[Image #1] /goal literal', images)).toBe(false)
+  })
+})
+
+describe('splitComposerImageMarkers', () => {
+  const image = { data: new Uint8Array([1]), mediaType: 'image/png' as const, width: 40, height: 20 }
+
+  it('keeps the words on either side of the insertion point', () => {
+    expect(splitComposerImageMarkers('看这个 [Image #1, 40x20] 怎么样', [image])).toEqual([
+      { kind: 'text', text: '看这个' },
+      { kind: 'image', index: 0 },
+      { kind: 'text', text: '怎么样' },
+    ])
+  })
+
+  it('handles a marker at either edge', () => {
+    expect(splitComposerImageMarkers('[Image #1, 40x20] 开头', [image])).toEqual([
+      { kind: 'image', index: 0 },
+      { kind: 'text', text: '开头' },
+    ])
+    expect(splitComposerImageMarkers('结尾 [Image #1, 40x20]', [image])).toEqual([
+      { kind: 'text', text: '结尾' },
+      { kind: 'image', index: 0 },
+    ])
+  })
+
+  it('falls back to the whole text when no marker is present', () => {
+    expect(splitComposerImageMarkers('没有标记', [image])).toEqual([{ kind: 'text', text: '没有标记' }])
+    expect(splitComposerImageMarkers('', [])).toEqual([])
+  })
+})
+
+describe('submissionDraftText', () => {
+  const image = { data: new Uint8Array([1]), mediaType: 'image/png' as const, width: 40, height: 20 }
+  const marker = imageMarker(0, image)
+
+  it('puts each marker back where the segments recorded it', () => {
+    const text = `看这个 ${marker} 怎么样`
+    const segments = splitComposerImageMarkers(text, [image])
+    const draft = submissionDraftText({ text: stripComposerImageMarkers(text, [image]), images: [image], segments })
+    expect(draft).toBe(text)
+    // The round trip is stable: splitting the restored draft gives the same order.
+    expect(splitComposerImageMarkers(draft, [image])).toEqual(segments)
+  })
+
+  it('restores a marker for an image the text does not mention', () => {
+    // Without a marker the composer would prune the draft on the next edit.
+    expect(submissionDraftText({ text: 'describe', images: [image] })).toBe(`${marker} describe`)
+    expect(submissionDraftText({ text: '', images: [image] })).toBe(marker)
+  })
+
+  it('never writes a second copy of a marker the text already carries', () => {
+    expect(submissionDraftText({ text: `${marker} describe`, images: [image] })).toBe(`${marker} describe`)
+    expect(submissionDraftText({ text: 'plain', images: [] })).toBe('plain')
   })
 })

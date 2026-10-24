@@ -9,3 +9,4 @@
 
 export * from './definition.ts'
 export { apply, Config, name } from './runtime/provider-local.ts'
+export { imageProtocol } from './chrome/terminal-images.ts'

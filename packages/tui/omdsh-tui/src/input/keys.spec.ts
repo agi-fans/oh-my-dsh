@@ -89,6 +89,16 @@ describe('withMods', () => {
     expect(withMods('left', 5)).toBe('ctrl+left')
     expect(withMods('enter', 2)).toBe('shift+enter')
   })
+
+  it('decodes Kitty keys that carry colon sub-parameters instead of dropping them', () => {
+    // Alternate-key and event-type reports attach `:`-separated values; the
+    // first value of each field is the key and the modifier we bind.
+    expect(parseKeys('\x1b[97:65;6u').events).toEqual(parseKeys('\x1b[97;6u').events)
+    expect(parseKeys('\x1b[99;5:1u').events).toEqual(parseKeys('\x1b[99;5u').events)
+    expect(parseKeys('\x1b[97:65;6u').events).not.toEqual([])
+    // A fragment that is still arriving is held, not typed.
+    expect(parseKeys('\x1b[97:65').rest).toBe('\x1b[97:65')
+  })
 })
 
 describe('terminal focus reports', () => {
@@ -117,6 +127,31 @@ it('consumes fragmented program-status responses, unknown OSCs and trailing keys
   expect(partial.events).toEqual([])
   expect(parseKeys(partial.rest + '\x1b\\hi').events).toEqual([{ type: 'program-status-support' }, { type: 'text', value: 'hi' }])
   expect(parseKeys('\x1b]7501;?;v=0.4\x07').events).toEqual([{ type: 'program-status-support' }])
-  expect(parseKeys('\x1b]11;rgb:0000/0000/0000\x07').events).toEqual([])
+  expect(parseKeys('\x1b]11;rgb:0000/0000/0000\x07').events).toEqual([
+    { type: 'color-reply', reply: { target: 'background', color: { r: 0, g: 0, b: 0 } } },
+  ])
+  expect(parseKeys('\x1b]9;4;3\x07').events).toEqual([])
   expect(parseKeys('\x1b]' + 'x'.repeat(5000))).toEqual({ events: [], rest: '' })
+})
+
+it('consumes capability replies that arrive back to back', () => {
+  // The failure that put "[?5u[?62;22c" in the composer: each reply was matched
+  // against the whole buffer, so a concatenated reply fell through as text.
+  expect(parseKeys('\x1b[?5u\x1b[?62;22c').events).toEqual([
+    { type: 'kitty-flags', flags: 5 },
+    { type: 'device-attributes' },
+  ])
+  expect(parseKeys('\x1b[?997;2n\x1b[?1u\x1b[?65;4c').events).toEqual([
+    { type: 'color-scheme', scheme: 'light' },
+    { type: 'kitty-flags', flags: 1 },
+    { type: 'device-attributes' },
+  ])
+  expect(parseKeys('\x1b[?u').events).toEqual([{ type: 'kitty-flags', flags: 0 }])
+  // An unknown complete CSI is control data, not typed text.
+  expect(parseKeys('\x1b[?1234zhello').events).toEqual([{ type: 'text', value: 'hello' }])
+  // A reply split across reads stays buffered instead of leaking.
+  const partial = parseKeys('\x1b[?6')
+  expect(partial.events).toEqual([])
+  expect(partial.rest).toBe('\x1b[?6')
+  expect(parseKeys(partial.rest + '2;22c').events).toEqual([{ type: 'device-attributes' }])
 })

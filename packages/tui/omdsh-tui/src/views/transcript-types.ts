@@ -7,6 +7,7 @@
 
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { ContentBlock, StreamChunk, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
@@ -35,7 +36,12 @@ export interface WorkspaceBlock {
 
 /** One rendered block of the transcript. */
 export type Block =
-  | { kind: 'user'; text: string }
+  | {
+    kind: 'user'
+    text: string
+    /** The first image the reader attached, kept so it can be previewed inline. */
+    image?: ImageAttachmentRef
+  }
   | {
     kind: 'assistant'
     turn: number
@@ -56,6 +62,11 @@ export type Block =
     output: string
     /** Settlement of the background job started by this call. */
     job?: { id: string; status: 'completed' | 'failed' | 'killed'; detail?: string }
+    /**
+     * The first image this call returned, kept so the live view can preview it
+     * and the reader can still open it after the rows fall into history.
+     */
+    image?: ImageAttachmentRef
     partial?: boolean
     presentation?: TuiToolPresentation
     /**
@@ -158,22 +169,29 @@ export function initialTranscript(): TranscriptState {
   }
 }
 
-/** Extract plain text from text blocks, ignoring other block kinds. */
+/**
+ * Extract plain text from text blocks, naming other block kinds.
+ *
+ * The name is deliberately bare, the way Pi and oh-my-pi name one: the picture
+ * itself is the content, so the text only says what kind of thing sits at this
+ * point. Dimensions, byte counts and the full MIME string belong in the tool
+ * that produced the file, not in every message that carries it.
+ */
 export function contentToText(content: readonly ContentBlock[]): string {
-  return content
-    .flatMap((block) => {
-      if (block.type === 'text') return [block.text]
-      if (block.type === 'image') {
-        const ref = block.attachment
-        return [`[image ${ref.width}×${ref.height} · ${ref.mediaType}]`]
-      }
-      if (block.type === 'file') {
-        const ref = block.attachment
-        return [`[file ${ref.name} · ${ref.bytes} bytes]`]
-      }
-      return []
-    })
-    .join('')
+  let text = ''
+  for (const block of content) {
+    if (block.type === 'text') { text += block.text; continue }
+    if (block.type !== 'image' && block.type !== 'file') continue
+    if (text !== '' && !/\s$/u.test(text)) text += ' '
+    if (block.type === 'image') {
+      const ref = block.attachment
+      text += `[Image: ${ref.mediaType}]`
+    } else {
+      const ref = block.attachment
+      text += `[File: ${ref.name}]`
+    }
+  }
+  return text
 }
 
 /** Extract reasoning text from reasoning blocks. */

@@ -116,7 +116,12 @@ describe('local composer recovery', () => {
     const next = f.open('a')
     const pending = next.tui.readInput()
     next.term.press('\r')
-    expect(await pending).toEqual({ text: '[Image #1]   describe', images: [image], files: [file] })
+    expect(await pending).toEqual({
+      text: 'describe',
+      images: [image],
+      files: [file],
+      segments: [{ kind: 'image', index: 0 }, { kind: 'text', text: 'describe' }],
+    })
   })
 
   it('keeps prompt answers and secrets out of the composer recovery file', async () => {

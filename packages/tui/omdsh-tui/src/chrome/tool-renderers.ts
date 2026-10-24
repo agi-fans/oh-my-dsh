@@ -305,8 +305,8 @@ function contentLines(content: readonly ContentBlock[] | undefined): string[] {
   const lines: string[] = []
   for (const block of content) {
     if (block.type === 'text' || block.type === 'reasoning') lines.push(...block.text.split('\n'))
-    else if (block.type === 'image') lines.push(`[image ${block.attachment.width}×${block.attachment.height}]`)
-    else if (block.type === 'file') lines.push(`[file ${block.attachment.name} · ${block.attachment.bytes} bytes]`)
+    else if (block.type === 'image') lines.push(`[Image: ${block.attachment.mediaType}]`)
+    else if (block.type === 'file') lines.push(`[File: ${block.attachment.name}]`)
     else if (block.type === 'tool-call') lines.push(`${block.name} ${block.arguments}`)
   }
   return lines

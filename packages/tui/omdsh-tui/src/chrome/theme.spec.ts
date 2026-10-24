@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectTrueColor, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES, type ThemeColor } from './theme.ts'
+import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectColorDepth, detectTrueColor, gradientLogo, parseThemeName, SYMBOL, THEME_NAMES, type ThemeColor } from './theme.ts'
 
 /** Every semantic color a view can address; mirrors the `ThemeColor` union. */
 const THEME_COLORS: readonly ThemeColor[] = [
@@ -92,12 +92,95 @@ describe('createTheme', () => {
     expect(light.getBgAnsi('accent')).toBe('\x1b[44m')
   })
 
+  it('builds the system palette from what the terminal reported', () => {
+    const background = { r: 0x10, g: 0x12, b: 0x18 }
+    const foreground = { r: 0xe6, g: 0xe6, b: 0xe6 }
+    const terminal = { background, foreground, scheme: 'dark' as const }
+    const theme = createTheme(true, true, 'system', terminal)
+    // Ink follows the reported foreground instead of the shipped palette.
+    expect(theme.getFgAnsi('text')).toBe('\x1b[38;2;230;230;230m')
+    // The two call surfaces stay apart, which is what makes alternation readable.
+    expect(theme.getBgAnsi('toolSuccessBg')).not.toBe(theme.getBgAnsi('toolAltBg'))
+    expect(theme.getBgAnsi('toolAltBg')).not.toBe('\x1b[48;2;16;18;24m')
+  })
+
+  it('follows the reported color scheme for the system palette', () => {
+    const light = createTheme(true, true, 'system', { scheme: 'light' })
+    const dark = createTheme(true, true, 'system', { scheme: 'dark' })
+    expect(light.getFgAnsi('userMessageText')).not.toBe(dark.getFgAnsi('userMessageText'))
+    // Without a probe the system palette is the neutral one.
+    expect(createTheme(true, true, 'system').getFgAnsi('text')).toBe(createTheme(true, true, 'dark').getFgAnsi('text'))
+  })
+
+  it('does not crash when a terminal reports an incomplete palette', () => {
+    // The reported regression: a sparse palette reached the nearest-color scan
+    // and threw while the TUI was starting.
+    const sparse = Array.from({ length: 16 }, () => undefined) as unknown as { r: number; g: number; b: number }[]
+    sparse[2] = { r: 0, g: 128, b: 0 }
+    const terminal = { background: { r: 0, g: 0, b: 0 }, foreground: { r: 255, g: 255, b: 255 }, palette: sparse }
+    expect(() => createTheme(true, false, 'system', terminal)).not.toThrow()
+    expect(() => createTheme(true, false, 'system', terminal).getFgAnsi('text')).not.toThrow()
+  })
+
+  it('quantizes to the reported 16-color palette instead of a fixed shift', () => {
+    const palette = Array.from({ length: 16 }, (_, index) => ({ r: index * 16, g: 0, b: 0 }))
+    const terminal = { background: { r: 0, g: 0, b: 0 }, foreground: { r: 240, g: 240, b: 240 }, palette }
+    const theme = createTheme(true, false, 'system', terminal)
+    // Scheme/inventory is taken from the terminal, so ink is a plain ANSI code.
+    expect(theme.getFgAnsi('text')).toMatch(/^\x1b\[(3[0-7]|9[0-7])m$/u)
+    expect(theme.getBgAnsi('toolSuccessBg')).toMatch(/^\x1b\[(4[0-7]|10[0-7]|49)m$/u)
+  })
+
+  it('keeps exact 24-bit swatches on a true-color terminal that reports its palette', () => {
+    // Every modern terminal answers OSC 4; that report must not downgrade a
+    // true-color theme to the sixteen entries it lists.
+    const palette = Array.from({ length: 16 }, (_, index) => ({ r: index * 16, g: index * 16, b: index * 16 }))
+    for (const name of THEME_NAMES) {
+      const plain = createTheme(true, true, name)
+      const reported = createTheme(true, true, name, { palette })
+      expect(reported.getBgAnsi('toolSuccessBg')).toBe(plain.getBgAnsi('toolSuccessBg'))
+      expect(reported.getBgAnsi('toolAltBg')).toBe(plain.getBgAnsi('toolAltBg'))
+      expect(reported.getFgAnsi('accent')).toBe(plain.getFgAnsi('accent'))
+    }
+    expect(createTheme(true, true, 'dark', { palette }).getBgAnsi('toolSuccessBg')).toMatch(/^\x1b\[48;2;/u)
+  })
+
+  it('encodes hex swatches on the 256-color cube at 256-color depth', () => {
+    const theme = createTheme(true, 'ansi256', 'dark')
+    expect(theme.trueColor).toBe(false)
+    expect(theme.depth).toBe('ansi256')
+    const fill = theme.getBgAnsi('toolSuccessBg')
+    expect(fill).toMatch(/^\x1b\[48;5;(\d+)m$/u)
+    // The user-configurable first sixteen entries are never chosen.
+    expect(Number(/48;5;(\d+)m/u.exec(fill)![1])).toBeGreaterThanOrEqual(16)
+    expect(theme.getFgAnsi('accent')).toMatch(/^\x1b\[38;5;\d+m$/u)
+    // A reported palette does not change a 256-color encoding.
+    const palette = Array.from({ length: 16 }, (_, index) => ({ r: index * 16, g: 0, b: 0 }))
+    expect(createTheme(true, 'ansi256', 'dark', { palette }).getBgAnsi('toolSuccessBg')).toBe(fill)
+  })
+
+  it('detects the color depth from the environment', () => {
+    expect(detectColorDepth({ COLORTERM: 'truecolor', TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectColorDepth({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal' })).toBe('ansi256')
+    expect(detectColorDepth({ COLORTERM: 'truecolor', TERM_PROGRAM: 'Apple_Terminal' })).toBe('truecolor')
+    expect(detectColorDepth({ TERM: 'linux' })).toBe('ansi16')
+    expect(detectColorDepth({ NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe('ansi16')
+    expect(detectColorDepth({ TERM: 'xterm-256color' })).toBe('truecolor')
+    expect(detectTrueColor({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal' })).toBe(false)
+  })
+
   it('documents the shared 16-color dark tool-card background', () => {
     // SGR 40 is the only dark background both states can use without a
     // 256-color tier; a fabricated difference would misreport tool state.
+    // Alternation stays a truecolor affordance for the same reason: the only
+    // remaining subtle 16-color code belongs to `dim` ink, so a card painted
+    // with it would erase its own hints.
     const dark = createTheme(true, false, 'dark')
     expect(dark.getBgAnsi('toolPendingBg')).toBe('\x1b[40m')
     expect(dark.getBgAnsi('toolSuccessBg')).toBe('\x1b[40m')
+    // Both card surfaces land on SGR 40, so the alternating card drops its fill
+    // instead of pretending to have a second one.
+    expect(dark.getBgAnsi('toolAltBg')).toBe('\x1b[49m')
   })
 
   it('preserves body and metadata hierarchy in every 16-color fallback', () => {
@@ -121,7 +204,7 @@ describe('createTheme', () => {
     expect(THEME_NAMES).toEqual([
       'dark', 'light', 'midnight', 'solarized',
       'catppuccin', 'dracula', 'nord', 'gruvbox', 'rose-pine',
-      'mono',
+      'mono', 'system',
     ])
     expect(createTheme(true, true, 'catppuccin').name).toBe('catppuccin')
     expect(createTheme(true, true, 'rose-pine').getFgAnsi('thinkingText')).not.toBe(

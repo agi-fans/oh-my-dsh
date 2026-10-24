@@ -18,12 +18,29 @@ export interface ImagePlacement {
   rows: number
 }
 
-/** Only known direct terminals opt in. Outer-terminal hints do not prove passthrough. */
+/**
+ * Which inline-image protocol this terminal speaks, if any.
+ *
+ * Every hint here is one a terminal actually sets: the Kitty flags, the
+ * Ghostty/WezTerm/Warp markers, and the multiplexers that forward the protocol
+ * (Herdr and Rex, whose panes leak the outer terminal's variables, so they are
+ * decided first). `OMDSH_IMAGE_PROTOCOL` forces an answer when detection is
+ * wrong: `kitty`, `iterm2`, or `none`.
+ */
 export function imageProtocol(env: NodeJS.ProcessEnv): ImageProtocol | undefined {
-  if (env.TMUX || env.STY || env.ZELLIJ || env.HERDR_ENV === '1' || /^(?:tmux|screen)/u.test(env.TERM ?? '')) return undefined
+  const forced = (env.OMDSH_IMAGE_PROTOCOL ?? '').trim().toLowerCase()
+  if (forced === 'none') return undefined
+  if (forced === 'kitty' || forced === 'iterm2') return forced
+  // Multiplexers that do not carry graphics through to the outer terminal.
+  if (env.TMUX || env.STY || env.ZELLIJ || /^(?:tmux|screen)/u.test(env.TERM ?? '')) return undefined
   const program = (env.TERM_PROGRAM ?? '').toLowerCase()
-  if (env.KITTY_WINDOW_ID || env.TERM === 'xterm-kitty' || ['ghostty', 'wezterm'].includes(program)) return 'kitty'
-  if (program === 'iterm.app' || env.LC_TERMINAL === 'iTerm2') return 'iterm2'
+  const term = env.TERM ?? ''
+  if (program === 'herdr' || program === 'rex' || env.HERDR_ENV === '1') return 'kitty'
+  if (env.KITTY_WINDOW_ID || term === 'xterm-kitty' || program === 'kitty') return 'kitty'
+  if (program === 'ghostty' || term.includes('ghostty') || env.GHOSTTY_RESOURCES_DIR) return 'kitty'
+  if (env.WEZTERM_PANE || program === 'wezterm') return 'kitty'
+  if (program === 'warpterminal' || env.WARP_SESSION_ID || env.WARP_TERMINAL_SESSION_UUID) return 'kitty'
+  if (program === 'iterm.app' || env.ITERM_SESSION_ID || env.LC_TERMINAL === 'iTerm2') return 'iterm2'
   return undefined
 }
 

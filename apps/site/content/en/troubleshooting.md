@@ -28,6 +28,12 @@ The interactive TUI redirects plugin `console` output to `$OMDSH_HOME/omdsh/logs
 
 `NO_COLOR` and `FORCE_COLOR=0` stop color output when no explicit preference is set. An explicit choice — plugin configuration or a value chosen in `/settings` — still wins over the environment, and turning color on in `/settings` takes effect immediately without a restart.
 
+omdsh uses 24-bit color when `COLORTERM` reports it or the terminal is not a known 16-color host. Apple Terminal receives the 256-color palette instead, because its 24-bit support is unreliable; set `COLORTERM=truecolor` to override. On a 16-color terminal, theme colors are matched against the palette the terminal reports.
+
+## Keyboard protocol
+
+On terminals that implement the Kitty keyboard protocol, omdsh asks for unambiguous key reporting so `Alt` and `Ctrl` shortcuts are recognized reliably. It gives the terminal its own key encoding back on exit, while suspended with `Ctrl+Z`, while an external editor runs, and if the process exits unexpectedly. If `Esc` or `Ctrl+C` misbehave in your shell after a crash, `printf '\033[<u'` restores the previous encoding.
+
 ## Scrollback and multiplexers
 
 omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. It also keeps it when the transcript is replaced: `/clear`, a session switch, and `--resume` all append the new document below a labelled seam instead of erasing what is above, because that history holds the output your shell printed before omdsh started. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` resets the terminal display.

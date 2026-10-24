@@ -336,11 +336,26 @@ export interface TuiInputImage {
   height?: number
 }
 
+/**
+ * One ordered piece of a submission. `image` indexes into the submission's
+ * images, so the composer's insertion point survives into the message content
+ * instead of collapsing to "text, then attachments".
+ */
+export type SubmissionSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; index: number }
+
 /** Atomic composer submission: visible text plus its client-owned image drafts. */
 export interface TuiSubmission {
+  /** What the reader wrote, without the composer's image markers. */
   text: string
   images: readonly TuiInputImage[]
   files?: readonly FileAttachmentRef[]
+  /**
+   * Where each image sat among the words; absent means text then attachments.
+   * When present it is the ordered form of `text` plus `images`.
+   */
+  segments?: readonly SubmissionSegment[]
   /** Send pasted source as message text even when its first character is a slash. */
   literal?: boolean
 }

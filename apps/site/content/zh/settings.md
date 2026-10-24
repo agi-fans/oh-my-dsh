@@ -47,7 +47,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
-| Theme | dark、light、midnight、solarized、catppuccin、dracula、nord、gruvbox、rose-pine、mono | dark | 配色方案。 |
+| Theme | dark、light、midnight、solarized、catppuccin、dracula、nord、gruvbox、rose-pine、mono、system | dark | 配色方案。`system` 根据终端报告的颜色生成卡片底色与文字颜色，并跟随浅色终端。 |
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |

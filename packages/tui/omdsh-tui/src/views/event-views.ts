@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-hook-protocol'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '@deepseek-ai/dsh-workspace-changes'
 import type {} from '../runtime/approval-rules.ts'
@@ -461,7 +462,8 @@ function foldEvent(
       const text = source === 'user-question-reply' ? questionReplyText(content) : content
       if (text === '') return state
       const blocks = editableBlocks(state, mutable)
-      blocks.push({ kind: 'user', text })
+      const image = firstImage(event.data.content)
+      blocks.push({ kind: 'user', text, ...(image === undefined ? {} : { image }) })
       // A new submission is the acknowledgement that clears the fixed failure row.
       return { ...state, blocks, turnError: undefined }
     }
@@ -715,6 +717,12 @@ function applyToolResult(
   return applyToolResult(created, callId, content, isError, error, presentation, mutable, indexes)
 }
 
+/** The first image among a result's content blocks, if the call returned one. */
+function firstImage(content: readonly ContentBlock[]): ImageAttachmentRef | undefined {
+  for (const block of content) if (block.type === 'image') return block.attachment
+  return undefined
+}
+
 function settleTool(
   block: Extract<Block, { kind: 'tool' }>,
   content: readonly ContentBlock[],
@@ -722,8 +730,10 @@ function settleTool(
   error: { name: string; code: string } | undefined,
   presentation: TuiToolPresentation | undefined,
 ): Extract<Block, { kind: 'tool' }> {
+  const image = firstImage(content)
   return {
     ...block,
+    ...(image === undefined ? {} : { image }),
     // A result can report failure on the message alone, with no structured
     // error beside it, so both signals have to be honoured.
     status: isError || error !== undefined || (block.job !== undefined && block.job.status !== 'completed') ? 'error' : 'ok',

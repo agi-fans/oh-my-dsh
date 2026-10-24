@@ -22,6 +22,7 @@ import {
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import {
   createUserMessage,
+  type ContentBlock,
   type LlmResolvedModelInfo,
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -400,11 +401,30 @@ export async function createSubmissionMessage(
   const refs: ImageAttachmentRef[] = inputs.length === 0 || attachments === undefined
     ? []
     : [...await attachments.saveImages(inputs)]
-  const content = [
-    ...(submission.text === '' ? [] : [{ type: 'text' as const, text: submission.text }]),
-    ...refs.map(attachment => ({ type: 'image' as const, attachment })),
-    ...(submission.files ?? []).map(attachment => ({ type: 'file' as const, attachment })),
-  ]
+  // A recorded order keeps the picture where the reader put it; without one the
+  // message falls back to text followed by its attachments.
+  const content: ContentBlock[] = []
+  if (submission.segments === undefined || submission.segments.length === 0) {
+    if (submission.text !== '') content.push({ type: 'text', text: submission.text })
+    for (const attachment of refs) content.push({ type: 'image', attachment })
+    for (const attachment of submission.files ?? []) content.push({ type: 'file', attachment })
+  } else {
+    for (const segment of submission.segments) {
+      if (segment.kind === 'text') {
+        if (segment.text !== '') content.push({ type: 'text', text: segment.text })
+        continue
+      }
+      const attachment = refs[segment.index]
+      if (attachment !== undefined) content.push({ type: 'image', attachment })
+    }
+    // An attachment the composer did not mark in the text still belongs to the
+    // message: keep it rather than dropping it with the marker.
+    const placedImages = new Set(submission.segments.flatMap(segment => segment.kind === 'image' ? [segment.index] : []))
+    for (const [index, attachment] of refs.entries()) {
+      if (!placedImages.has(index)) content.push({ type: 'image', attachment })
+    }
+    for (const attachment of submission.files ?? []) content.push({ type: 'file', attachment })
+  }
   if (content.length === 0) throw new Error('Cannot submit an empty message.')
   return createUserMessage({ content, source: { kind: 'user' } })
 }

@@ -539,6 +539,13 @@ export class MainScreenRenderer {
    * the paint functions must not emit a second one. The exit belongs to exactly one level.
    */
   #exitOwnedByCaller = false
+  /**
+   * Per-screen modes the alternate buffer needs of its own. The Kitty keyboard
+   * stack is kept separately for each buffer, so a mode pushed on the main
+   * screen is pushed again after entering the alternate one and popped before
+   * leaving it.
+   */
+  #altModes: { enter: string; exit: string } = { enter: '', exit: '' }
 
   /**
    * Whether a move may have brought rows onto the screen that this account never painted,
@@ -624,6 +631,22 @@ export class MainScreenRenderer {
     this.#adoptPhysicalAfterTransient = false
   }
 
+  /**
+   * Set the modes the alternate buffer re-applies on entry and gives back on
+   * exit. When the buffer is already open the change takes effect at once.
+   */
+  setAlternateScreenModes(modes: { enter: string; exit: string }): void {
+    const previous = this.#altModes
+    this.#altModes = { ...modes }
+    if (this.#altActive && (previous.exit !== modes.exit || previous.enter !== modes.enter)) {
+      this.#sink.write(previous.exit + modes.enter)
+    }
+  }
+
+  #enterAltScreen(): string { return ENTER_ALT_SCREEN + this.#altModes.enter }
+
+  #exitAltScreen(): string { return this.#altModes.exit + EXIT_ALT_SCREEN }
+
   /** Put the cursor below the UI before terminal ownership is released. */
   finish(): void {
     const targetRow = Math.max(0, this.#height - 1)
@@ -632,7 +655,7 @@ export class MainScreenRenderer {
     out += this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
     this.#decoratedRows = undefined
     if (this.#altActive) {
-      out += EXIT_ALT_SCREEN
+      out += this.#exitAltScreen()
       this.#altActive = false
       this.#altScreen = this.#blankScreen()
     }
@@ -808,7 +831,7 @@ export class MainScreenRenderer {
     // itself — in its own position, before the scroll — and the paint is told not to emit that
     // exit again. The buffer state is read here, before any paint has had the chance to change it.
     if (restore !== undefined && !drawsAlternate && this.#altActive) {
-      restoreBytes = EXIT_ALT_SCREEN
+      restoreBytes = this.#exitAltScreen()
         + csi(this.#height - 1, 0)
         + '\n'.repeat(restore.count)
       // Only the ownership flag is set here. Clearing `#altActive` here would make the paint's own
@@ -870,7 +893,7 @@ export class MainScreenRenderer {
       // A transition present here is the overlay's own: the main screen's is parked
       // on `#mainResizeRecord`, so a restore never re-arms this clear.
       const clear = !this.#altActive || transitionForAlt !== undefined || this.#imageChanged
-      let body = this.#altActive ? '' : ENTER_ALT_SCREEN
+      let body = this.#altActive ? '' : this.#enterAltScreen()
       body += this.#paintScreen(target.rows, clear ? this.#blankScreen() : this.#altScreen, clear)
       const targetRow = this.#screenRow(cursor.row, target, next.length)
       body += csi(targetRow, cursor.column)
@@ -950,7 +973,7 @@ export class MainScreenRenderer {
       return body
     }
     const leavingAlt = this.#altActive
-    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? EXIT_ALT_SCREEN : ''
+    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? this.#exitAltScreen() : ''
 
     const resized = this.#takeResizeBaseline(transitionForAlt)
     // Leaving the alternate buffer restores whatever the main screen held before
@@ -1011,7 +1034,7 @@ export class MainScreenRenderer {
 
     const transcript = frame.transcript
     const leavingAlt = this.#altActive
-    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? EXIT_ALT_SCREEN : ''
+    const exitAlt = leavingAlt && !this.#exitOwnedByCaller ? this.#exitAltScreen() : ''
     if (leavingAlt) {
       this.#altActive = false
       this.#altScreen = this.#blankScreen()

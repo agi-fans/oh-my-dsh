@@ -111,16 +111,24 @@ describe('ComposerImages.restore/replace/clear', () => {
     const queued = image('queued.png')
     images.restore({ text: 'earlier', images: [queued] })
     expect(images.count).toBe(2)
-    // The queued image travels in the submission, not the text: the draft
-    // marker is rebased to index 1 so it keeps pointing at its own entry.
-    expect(editor.text).toBe(`earlier\n${imageMarker(1, image('draft.png'))} `)
+    // A submission's text carries no markers, so restoring it writes one back
+    // for its image; the draft marker is rebased to index 1 so it keeps
+    // pointing at its own entry.
+    expect(editor.text).toBe(`${imageMarker(0, queued)} earlier\n${imageMarker(1, image('draft.png'))} `)
   })
 
   it('replace swaps text and drafts wholesale; clear empties both', () => {
     const { editor, images } = make()
     images.insert(image('a.png'))
     images.replace({ text: 'fresh', images: [image('b.png')] })
-    expect(editor.text).toBe('fresh')
+    expect(editor.text).toBe(`${imageMarker(0, image('b.png'))} fresh`)
+    // Recorded segments put the marker back where the picture sat.
+    images.replace({
+      text: 'look at this',
+      images: [image('c.png')],
+      segments: [{ kind: 'text', text: 'look at' }, { kind: 'image', index: 0 }, { kind: 'text', text: 'this' }],
+    })
+    expect(editor.text).toBe(`look at ${imageMarker(0, image('c.png'))} this`)
     expect(images.count).toBe(1)
     images.clear()
     expect(images.count).toBe(0)

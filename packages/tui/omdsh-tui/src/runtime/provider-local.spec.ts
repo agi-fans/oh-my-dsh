@@ -2289,8 +2289,10 @@ describe('LocalTui (tty)', () => {
 
     press(term, 'describe this\r')
     await expect(pending).resolves.toEqual({
-      text: '[Image #1, 1x1] describe this',
+      text: 'describe this',
       images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'clipboard.png', width: 1, height: 1 }],
+      // The marker sat before the words, so the picture keeps that position.
+      segments: [{ kind: 'image', index: 0 }, { kind: 'text', text: 'describe this' }],
     })
     tui.dispose()
   })
@@ -2307,7 +2309,7 @@ describe('LocalTui (tty)', () => {
 
     press(term, '\x16\r')
     await expect(pending).resolves.toMatchObject({
-      text: '[Image #1, 1x1]',
+      text: '',
       images: [{ mediaType: 'image/png', name: 'Screenshot 2026-08-15.png' }],
     })
     tui.dispose()
@@ -2327,7 +2329,7 @@ describe('LocalTui (tty)', () => {
     expect(stripAnsi(term.captured)).toContain('[Image #1, 1x1]')
     press(term, '\r')
     await expect(pending).resolves.toMatchObject({
-      text: '[Image #1, 1x1]',
+      text: '',
       images: [{ mediaType: 'image/png', name: 'screenshot.png', width: 1, height: 1 }],
     })
     tui.dispose()
@@ -2365,7 +2367,7 @@ describe('LocalTui (tty)', () => {
     await flushAsyncPaste()
     expect(stripAnsi(term.captured)).toContain('[Image #1, 1x1]')
     press(term, '\r')
-    await expect(pending).resolves.toMatchObject({ text: '[Image #1, 1x1]' })
+    await expect(pending).resolves.toMatchObject({ text: '' })
     tui.dispose()
   })
 
@@ -2383,7 +2385,7 @@ describe('LocalTui (tty)', () => {
     await Promise.resolve()
     expect(settled).toBe(false)
     resolveImage?.({ data: PNG_1X1, mediaType: 'image/png' })
-    await expect(pending).resolves.toMatchObject({ text: '[Image #1, 1x1]' })
+    await expect(pending).resolves.toMatchObject({ text: '' })
     tui.dispose()
   })
 
@@ -2404,7 +2406,7 @@ describe('LocalTui (tty)', () => {
     press(term, '\r')
 
     await expect(restored).resolves.toMatchObject({
-      text: '[Image #1, 1x1]\n[Image #2, 1x1]',
+      text: '',
       images: [{ mediaType: 'image/png' }, { mediaType: 'image/png' }],
     })
     tui.dispose()
@@ -2421,14 +2423,14 @@ describe('LocalTui (tty)', () => {
     press(term, '/goal implement auth\r')
     const submitted = await pending
     expect(submitted).toMatchObject({
-      text: '[Image #1, 1x1] /goal implement auth',
+      text: '/goal implement auth',
       images: [{ mediaType: 'image/png' }],
     })
     tui.restoreInput(submitted as NonNullable<typeof submitted>)
     const restored = tui.readInput()
     press(term, '\r')
     await expect(restored).resolves.toMatchObject({
-      text: '[Image #1, 1x1] /goal implement auth',
+      text: '/goal implement auth',
       images: [{ mediaType: 'image/png' }],
     })
     tui.dispose()
@@ -2445,7 +2447,7 @@ describe('LocalTui (tty)', () => {
     await flushAsyncPaste()
     press(term, '\r')
     await expect(pending).resolves.toMatchObject({
-      text: '/plan the migration [Image #1, 1x1]',
+      text: '/plan the migration',
       images: [{ mediaType: 'image/png' }],
     })
     tui.dispose()
@@ -2462,7 +2464,7 @@ describe('LocalTui (tty)', () => {
     await flushAsyncPaste()
     press(term, 'implement auth\r')
     await expect(pending).resolves.toMatchObject({
-      text: '/goal [Image #1, 1x1] implement auth',
+      text: '/goal implement auth',
       images: [{ mediaType: 'image/png' }],
     })
     tui.dispose()
@@ -4829,7 +4831,7 @@ it.each(['kitty', 'none'] as const)('previews a draft then restores text, image 
     if (protocol === 'kitty') expect(term.captured).toContain('a=d,d=I')
     expect(term.raw).toBe(true)
     press(term, '\r')
-    expect(await pending).toMatchObject({ text: 'draft [Image #1, 40x20]', images: [{ data, mediaType: 'image/png' }] })
+    expect(await pending).toMatchObject({ text: 'draft', images: [{ data, mediaType: 'image/png' }] })
   } finally { tui.dispose() }
   expect(term.raw).toBe(false)
   expect(term.captured).not.toContain('\x1b[3J')
@@ -5131,4 +5133,30 @@ it('returns to /settings with refreshed action values after opening a sub-comman
   } finally {
     await tui.dispose()
   }
+})
+
+describe('keyboard protocol ownership', () => {
+  const count = (text: string, sequence: string): number => text.split(sequence).length - 1
+
+  it('pushes the Kitty protocol once after a flags report and pops it once on exit', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    // The query only asks; nothing is pushed before the terminal answers.
+    expect(term.captured).toContain('\x1b[?u\x1b[c')
+    expect(term.captured).not.toMatch(/\x1b\[>\d*u/u)
+    press(term, '\x1b[?0u\x1b[?62;22c')
+    // A late or repeated report never pushes a second entry.
+    press(term, '\x1b[?1u')
+    expect(count(term.captured, '\x1b[>1u')).toBe(1)
+    await tui.dispose()
+    expect(count(term.captured, '\x1b[<u')).toBe(1)
+  })
+
+  it('leaves a terminal without the protocol on its legacy encoding', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '\x1b[?62;22c')
+    await tui.dispose()
+    expect(term.captured).not.toMatch(/\x1b\[>\d*u|\x1b\[<u|\x1b\[>4;\dm/u)
+  })
 })

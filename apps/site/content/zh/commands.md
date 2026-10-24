@@ -97,7 +97,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 在源码视图按 `/` 或 `Ctrl+F`，对已加载文本进行不区分大小写的字面搜索；Enter 保留搜索词，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，Esc 取消本次编辑而不关闭阅读器。`G` 或 `Ctrl+G` 跳到文件行号。Diff 显示修改前后的两列行号，跳转使用新文件一侧的行号，`[`／`]` 切换变更块；无法跳到已显示变更块之外的行。文本初次加载 128 KiB，按 `L` 或 **Load more** 将已加载前缀翻倍，最多 4 MiB。超过上限可用 Open 阅读原件；其他二进制格式交给对应应用。
 
-PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attachments` 收录用户消息和工具／模型明确输出中存储的图片，并可预览其字节，无需 provider 提供本地路径；`Alt+M` 预览 composer 图片。已识别的直连 Kitty、Ghostty、WezTerm 和 iTerm2 终端在页面内显示图片；tmux、screen、Zellij、Herdr 和未识别的终端显示图片信息，原图可用时提供 Open 操作。Esc 返回原视图并保留草稿。预览保留宽高比并适配可用单元格，动画图片显示第一帧；解码限制为 32 MiB 和 4000 万像素，预览 PNG 每边最多 2048 px。这些限制不改变原始附件或模型的图片准入规则。
+PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attachments` 收录用户消息和工具／模型明确输出中存储的图片，并可预览其字节，无需 provider 提供本地路径；`Alt+M` 预览 composer 图片；composer 中没有图片时，打开会话中最新的一张。已识别的直连 Kitty、Ghostty、WezTerm、Warp、Herdr、Rex 和 iTerm2 终端在页面内显示图片；检测有误时可设置 `OMDSH_IMAGE_PROTOCOL=kitty`、`iterm2` 或 `none`，`omdsh doctor` 会报告检测到的协议。tmux、screen、Zellij 和未识别的终端显示图片信息，原图可用时提供 Open 操作。Esc 返回原视图并保留草稿。预览保留宽高比并适配可用单元格，动画图片显示第一帧；解码限制为 32 MiB 和 4000 万像素，预览 PNG 每边最多 2048 px。这些限制不改变原始附件或模型的图片准入规则。
 
 代码预览使用 Prism 语法高亮，颜色跟随所选终端主题。语言根据文件名识别，包括 `Dockerfile` 和 `Makefile`。Markdown 文件默认显示带行号的源码，按 `M` 切换源码与渲染视图；搜索和行号跳转在源码视图中使用。高亮预算内的跨行注释和字符串保留各自的语法颜色，大型预览回退为普通文本。未知语言保持普通文本，关闭颜色后保留源码内容。
 

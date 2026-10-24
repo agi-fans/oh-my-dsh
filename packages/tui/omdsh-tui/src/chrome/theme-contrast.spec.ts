@@ -74,7 +74,7 @@ describe('theme contrast contracts', () => {
 
   it.each(THEME_NAMES)('%s keeps code and reading hints visible on representative terminal backgrounds', name => {
     const theme = createTheme(true, true, name)
-    for (const bg of new Set([HOST_BACKGROUNDS[name], name === 'light' ? '#ffffff' : '#15141a'])) {
+    for (const bg of new Set([HOST_BACKGROUNDS[name] ?? '#15141a', name === 'light' ? '#ffffff' : '#15141a'])) {
       for (const fg of CODE_INK) {
         expect(contrast(theme.getFgAnsi(fg), bg), `${name} ${fg}/${bg}`).toBeGreaterThanOrEqual(4.5)
       }

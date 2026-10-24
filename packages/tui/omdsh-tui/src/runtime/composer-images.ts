@@ -10,7 +10,7 @@
 
 import type { TuiInputImage, TuiSubmission } from '../definition.ts'
 import type { InputEditor } from '../input/editor.ts'
-import { imageMarker, probeImageDimensions } from '../input/image-paste.ts'
+import { imageMarker, probeImageDimensions, submissionDraftText } from '../input/image-paste.ts'
 
 export interface ComposerImagesDeps {
   readonly editor: InputEditor
@@ -152,16 +152,17 @@ export class ComposerImages {
         imageMarker(index + submission.images.length, image),
       )
     }
-    const separator = submission.text !== '' && rebasedCurrent !== '' ? '\n' : ''
+    const restored = submissionDraftText(submission)
+    const separator = restored !== '' && rebasedCurrent !== '' ? '\n' : ''
     this.#images = [...submission.images.map(image => ({ ...image })), ...currentImages]
-    editor.replaceText(submission.text + separator + rebasedCurrent)
+    editor.replaceText(restored + separator + rebasedCurrent)
   }
 
   /** Replace drafts and text with a queued/edited submission. */
   replace(submission: TuiSubmission): void {
     this.#revision++
     this.#images = submission.images.map(image => ({ ...image }))
-    this.#deps.editor.setText(submission.text)
+    this.#deps.editor.setText(submissionDraftText(submission))
   }
 
   clear(): void {

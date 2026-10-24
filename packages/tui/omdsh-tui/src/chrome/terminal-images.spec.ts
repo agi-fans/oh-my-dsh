@@ -12,9 +12,23 @@ describe('terminal images', () => {
     expect(imageProtocol({ TERM_PROGRAM: 'WezTerm' })).toBe('kitty')
     expect(imageProtocol({ TERM_PROGRAM: 'iTerm.app' })).toBe('iterm2')
     expect(imageProtocol({ TERM_PROGRAM: 'Apple_Terminal' })).toBeUndefined()
-    for (const env of [{ TMUX: 'x' }, { STY: 'x' }, { ZELLIJ: '1' }, { HERDR_ENV: '1' }, { TERM: 'screen-256color' }]) {
+    // Herdr and Rex forward the protocol, and their panes leak the outer hints.
+    expect(imageProtocol({ TERM_PROGRAM: 'herdr' })).toBe('kitty')
+    expect(imageProtocol({ TERM_PROGRAM: 'herdr', KITTY_WINDOW_ID: '3' })).toBe('kitty')
+    expect(imageProtocol({ HERDR_ENV: '1' })).toBe('kitty')
+    expect(imageProtocol({ TERM_PROGRAM: 'rex' })).toBe('kitty')
+    expect(imageProtocol({ WARP_SESSION_ID: 'x' })).toBe('kitty')
+    expect(imageProtocol({ GHOSTTY_RESOURCES_DIR: '/opt/ghostty' })).toBe('kitty')
+    expect(imageProtocol({ ITERM_SESSION_ID: 'w0t0p0' })).toBe('iterm2')
+    // An explicit answer wins over detection.
+    expect(imageProtocol({ OMDSH_IMAGE_PROTOCOL: 'kitty', TERM_PROGRAM: 'Apple_Terminal' })).toBe('kitty')
+    expect(imageProtocol({ OMDSH_IMAGE_PROTOCOL: 'none', TERM: 'xterm-kitty' })).toBeUndefined()
+    // A multiplexer that drops graphics still wins over the outer terminal, and
+    // over Herdr's own hint.
+    for (const env of [{ TMUX: 'x' }, { STY: 'x' }, { ZELLIJ: '1' }, { TERM: 'screen-256color' }]) {
       expect(imageProtocol({ TERM_PROGRAM: 'ghostty', ...env })).toBeUndefined()
     }
+    expect(imageProtocol({ TERM_PROGRAM: 'herdr', TMUX: 'x' })).toBeUndefined()
   })
 
   it('fits landscape and portrait images using actual cell geometry', () => {

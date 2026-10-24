@@ -6,7 +6,7 @@ import { homedir, platform, tmpdir } from 'node:os'
 import { basename, extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { TuiInputImage } from '../definition.ts'
+import type { SubmissionSegment, TuiInputImage, TuiSubmission } from '../definition.ts'
 
 const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
   '.png': 'image/png',
@@ -137,7 +137,12 @@ function removeComposerImageMarker(text: string, marker: string): string {
   let to = start + marker.length
   if (text[to] === ' ') to += 1
   else if (from > 0 && text[from - 1] === ' ') from -= 1
-  return text.slice(0, from) + text.slice(to)
+  const result = text.slice(0, from) + text.slice(to)
+  // A marker that led or trailed the draft leaves its own space behind: drop it
+  // so the text the reader actually wrote survives without a stray indent.
+  if (start === 0) return result.replace(/^[ \t]+/u, '')
+  if (start + marker.length === text.length) return result.replace(/[ \t]+$/u, '')
+  return result
 }
 
 /**
@@ -158,6 +163,71 @@ export function stripComposerImageMarkers(text: string, images: readonly TuiInpu
     result = removeComposerImageMarker(result, imageMarker(index, image))
   }
   return result
+}
+
+/**
+ * Where each image sat in the composer, in text order.
+ *
+ * The marker is the only record of the insertion point: dropping it collapses
+ * "看这个 [Image #1] 怎么样" into text-then-image, which is not what the reader
+ * wrote. Each marker becomes an image segment, and the text around it stays in
+ * place.
+ */
+export function splitComposerImageMarkers(text: string, images: readonly TuiInputImage[]): SubmissionSegment[] {
+  const markers = images.map((image, index) => imageMarker(index, image))
+  const found: { at: number; index: number; length: number }[] = []
+  for (const [index, marker] of markers.entries()) {
+    const at = text.indexOf(marker)
+    if (at >= 0) found.push({ at, index, length: marker.length })
+  }
+  if (found.length === 0) return text === '' ? [] : [{ kind: 'text', text }]
+  found.sort((left, right) => left.at - right.at)
+  const segments: SubmissionSegment[] = []
+  let cursor = 0
+  for (const marker of found) {
+    const before = text.slice(cursor, marker.at).replace(/[ \t]+$/u, '')
+    if (before !== '') segments.push({ kind: 'text', text: before })
+    segments.push({ kind: 'image', index: marker.index })
+    cursor = marker.at + marker.length
+    while (text[cursor] === ' ' || text[cursor] === '\t') cursor += 1
+  }
+  const after = text.slice(cursor)
+  if (after !== '') segments.push({ kind: 'text', text: after })
+  return segments
+}
+
+/**
+ * The composer text that brings a submission back as a draft.
+ *
+ * A submission carries what the reader wrote without the composer's markers;
+ * putting it back in the composer has to restore a marker for every image, at
+ * the position the segments recorded, so a recalled or restored draft still
+ * shows its pictures and sends them in the same place.
+ */
+export function submissionDraftText(submission: Pick<TuiSubmission, 'text' | 'images' | 'segments'>): string {
+  const { images, segments } = submission
+  if (images.length === 0) return submission.text
+  const parts: string[] = []
+  const placed = new Set<number>()
+  if (segments !== undefined && segments.length > 0) {
+    for (const segment of segments) {
+      if (segment.kind === 'text') { parts.push(segment.text); continue }
+      const image = images[segment.index]
+      if (image === undefined || placed.has(segment.index)) continue
+      placed.add(segment.index)
+      parts.push(imageMarker(segment.index, image))
+    }
+  } else if (submission.text !== '') {
+    parts.push(submission.text)
+  }
+  // Older submissions (and ones built outside the composer) may still carry
+  // their markers in the text; never add a second copy of one.
+  const written = parts.join(' ')
+  const missing = images.flatMap((image, index) => {
+    const marker = imageMarker(index, image)
+    return placed.has(index) || written.includes(marker) ? [] : [marker]
+  })
+  return [...missing, ...parts].filter(part => part !== '').join(' ')
 }
 
 /** True when composer text is a slash command after dropping attached image markers. */

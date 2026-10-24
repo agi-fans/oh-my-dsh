@@ -33,7 +33,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+-` | Undo the last edit or restore a cleared draft. |
 | `Ctrl+D` | Delete forward, or quit when the composer is empty. |
 | `Ctrl+V` | Paste clipboard text or an image. |
-| `Alt+M` | Preview composer images without sending them. |
+| `Alt+M` | Preview composer images without sending them; with no draft image, open the newest image in the conversation. |
 | `Alt+I` | Expand a folded pasted block for editing. |
 | `Alt+Up` | Recall the latest queued message into the composer when the composer is empty. |
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
@@ -134,7 +134,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 | Action id | Default key | Effect |
 |---|---|---|
-| `preview-images` | `Alt+M` | Preview draft images. |
+| `preview-images` | `Alt+M` | Preview draft images, or the newest conversation image. |
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
 | `steer-turn` | `Alt+S` | Send text guidance to the active Turn’s next model step. |
