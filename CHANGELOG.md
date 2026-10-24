@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Adjacent successful tool cards alternate two subtle card surfaces, so a long run reads as distinct calls instead of one continuous panel.
+- The Harness cohort moves to the published `0.2.1-rc.3` release. On the API-key route, `/model` follows the official `/models` listing when the endpoint is the official API and the catalog was not customized.
+
+### Fixed
+
+- Image preview and the Harness attachment store load the same `sharp`, so a duplicate libvips warning no longer appears in the middle of the screen.
 
 ## [0.21.0] - 2026-10-19
 
