@@ -95,6 +95,9 @@ function cloneSubmission(submission: TuiSubmission): TuiSubmission {
   return {
     text: submission.text,
     images: submission.images.map(image => ({ ...image, data: image.data.slice() })),
+    ...(submission.segments === undefined ? {} : { segments: [...submission.segments] }),
+    ...(submission.files === undefined ? {} : { files: [...submission.files] }),
+    ...(submission.literal === undefined ? {} : { literal: submission.literal }),
   }
 }
 

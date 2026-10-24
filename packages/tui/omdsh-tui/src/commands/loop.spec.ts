@@ -131,3 +131,27 @@ describe('LoopRuntime', () => {
     runtime.dispose()
   })
 })
+
+describe('submission cloning', () => {
+  it('keeps segments, files and literal on a repeat dispatch', async () => {
+    const agent = fakeAgent()
+    const { runtime, send } = harness(agent)
+    await runtime.enable(agent, parseLoopRequest('check'))
+    const submission: TuiSubmission = {
+      text: 'check',
+      images: [],
+      literal: true,
+      segments: [{ kind: 'text', text: 'check' }],
+      files: [{ attachmentId: 'att-1', name: 'notes.md', bytes: 3 } as TuiSubmission['files'] extends readonly (infer F)[] | undefined ? F : never],
+    }
+    await runtime.submit(submission, agent)
+    await vi.waitFor(() => { expect(send.mock.calls.length).toBeGreaterThanOrEqual(3) })
+    const repeat = send.mock.calls[2]![0] as TuiSubmission
+    expect(repeat.segments).toEqual(submission.segments)
+    expect(repeat.files).toEqual(submission.files)
+    expect(repeat.literal).toBe(true)
+    expect(repeat.files).not.toBe(submission.files)
+    expect(repeat.segments).not.toBe(submission.segments)
+    runtime.disable(agent)
+  })
+})
