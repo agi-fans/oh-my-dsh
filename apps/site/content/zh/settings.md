@@ -47,7 +47,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
-| Theme | dark、light、midnight、solarized、catppuccin、dracula、nord、gruvbox、rose-pine、mono、system | dark | 配色方案。`system` 根据终端报告的颜色生成卡片底色与文字颜色，并跟随浅色终端；支持配色通知的终端还会在会话中跟随明暗切换。 |
+| Theme | dark、light、system | dark | 配色方案。omdsh 提供一套深色、一套浅色，以及 `system`；后者根据终端报告的颜色生成卡片底色与文字颜色，并跟随浅色终端，支持配色通知的终端还会在会话中跟随明暗切换。工具卡片用底色表明状态：进行中为中性灰，成功为绿色，失败为红色。 |
 | Color | on / off | on | SGR 着色。 |
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
@@ -70,7 +70,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 Terminal title 和 Program status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Program status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。Terminal activity 仍是单独启用的 OSC 9 进度提示。
 
-工具预览使用当前主题的背景色，四周保留内边距。用户消息和工具卡片的背景有配套文字色，普通回复正文继续使用终端默认前景色。浅色终端应选择 `light`，深色终端选择其他主题。16 色模式下，卡片使用中性背景，保留状态说明和符号。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
+工具预览使用当前主题的背景色，四周保留内边距。用户消息和工具卡片的背景有配套文字色，普通回复正文继续使用终端默认前景色。浅色终端应选择 `light`，深色终端选择 `dark` 或 `system`。卡片底色本身就表明状态——进行中为中性色、成功为绿色、失败为红色——这一区分在 16 色终端上依然成立，只有进行中与成功这一对在该模式下会共用同一底色。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 
 Editor 列出已安装的 VS Code、Cursor、VSCodium、Neovim、Vim、Nano 和 Vi。Auto 兼容已有的 `$VISUAL` 或 `$EDITOR` 配置，否则优先使用探测到的图形代码编辑器，再选择终端编辑器。即使命令不在 PATH 中，也会检查 macOS 应用包和 Windows 的标准安装位置。手动选择立即生效，并在下次启动时保留；保存并关闭打开的文件即可返回。已保存但不再可用的编辑器会标为 unavailable，方便重新选择；若未发现编辑器，安装后重新打开 Settings 即可。
 

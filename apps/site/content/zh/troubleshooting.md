@@ -6,7 +6,7 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 
 ## 中断与退出
 
-第一次 `Ctrl+C` 中断活动回合；会话空闲时则清空 composer。第二次 `Ctrl+C` 退出，`Ctrl+D` 直接退出。持久会话退出时会打印 `omdsh --resume <session-id>`，方便在新终端里重新打开这段对话。
+第一次 `Ctrl+C` 清空 composer；composer 为空时改为中断活动回合，`Esc` 始终都能中断。第二次 `Ctrl+C` 退出，`Ctrl+D` 直接退出。持久会话退出时会打印 `omdsh --resume <session-id>`，方便在新终端里重新打开这段对话。
 
 ## 找回会话 id
 

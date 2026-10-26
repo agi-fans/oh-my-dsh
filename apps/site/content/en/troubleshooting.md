@@ -6,7 +6,7 @@ description: "Fix common omdsh issues: interrupt and exit behavior, resuming, De
 
 ## Interrupt and exit
 
-The first `Ctrl+C` interrupts the active turn, or clears the composer when the session is idle. A second `Ctrl+C` exits, and `Ctrl+D` exits directly. A durable session prints `omdsh --resume <session-id>` on exit so the conversation can be reopened in a new terminal.
+The first `Ctrl+C` clears the composer; while the composer is empty it interrupts the active turn instead, and the same is always available as `Esc`. A second `Ctrl+C` exits, and `Ctrl+D` exits directly. A durable session prints `omdsh --resume <session-id>` on exit so the conversation can be reopened in a new terminal.
 
 ## Find a session id again
 

@@ -8,14 +8,28 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- `Alt+Enter` queues the composer draft behind the running turn, and `Alt+Up` recalls the latest queued message for editing. `Enter` keeps meaning "next turn".
+- `Ctrl+L` opens model and reasoning selection, `Shift+Tab` cycles the reasoning effort, and `Ctrl+T` shows or hides thinking across the transcript. Thinking is visible by default and collapses to a one-line `Thinking: …` summary that keeps its first line.
+- `Ctrl+Shift+F` searches the current transcript. `Ctrl+F` still does when the composer is empty and keeps moving the caret when it is not.
+- `Ctrl+G` edits the prompt in the configured editor, alongside the existing `Ctrl+X`.
 - A `system` theme derives its surfaces and text color from the colors the terminal reports about itself, so the TUI sits on the terminal's own background and follows a light terminal. It is selectable in Settings; `dark` stays the default. On terminals that support color-scheme notifications, `system` also follows a light/dark switch mid-session.
 - On terminals that support the Kitty keyboard protocol, omdsh enables unambiguous key reporting so `Alt` and `Ctrl` shortcuts are recognized reliably, including inside full-screen overlays.
-- The working row counts down a pending provider retry (`Retrying in 4s`) and shows how long a compaction has been running.
+- The composer's activity reports a pending provider retry (`Retrying in 4s`) and how long a compaction has been running.
 - `Alt+M` opens the newest image in the conversation — a pasted attachment or a `read_image` result — in the full-screen preview when the composer has no draft image.
 - Inline image detection recognizes Herdr, Rex, Ghostty, WezTerm, Warp and iTerm2, `OMDSH_IMAGE_PROTOCOL=kitty|iterm2|none` overrides detection, and `omdsh doctor` reports the detected protocol.
 
 ### Changed
 
+- The theme list is now `dark`, `light`, and `system` only. Eight extra palettes were removed: each one was a second set of surfaces, inks, and syntax colours to hold to the same legibility standard, and none of them met it.
+- A tool card states its state by fill. Pending cards are a neutral grey, successful cards are green, and failed cards are red — the same lightness in all three, distinguished by hue, so the fill alone says what happened.
+- Content inks sit at a lightness that stays readable on all three card fills, so `error`, the diff colours, and dimmed hints no longer fall below 4.5:1 on the lighter cards.
+- Every application key now belongs to one named action in a single catalog, so `keybindings.json` overrides, `/help`, the overlay hints and the actual dispatch cannot disagree. Hints show the shipped chord and your own overrides, never a migration alias.
+- The composer's top border carries the activity — a spinner with `Deep Driving`, a retry countdown, or compaction time. Waiting no longer costs a transcript row, and the right corner belongs to the access level rather than to a reminder that `Esc` cancels.
+- Confirmation of the last action, such as a copy result or a thinking toggle, is printed on the composer's bottom border and cleared by the next keystroke instead of being appended to the transcript.
+- Interactive lists share one row shape: a one-cell cursor, a primary column aligned to one width, a description column, a right-aligned value, and a `(n/total)` counter when windowed.
+- `Esc` becomes the one key that cancels or leaves whatever has the screen, including a prompt, overlay, search, or subagent inspection, and the second press opens the session tree. During a turn it hands queued follow-ups back to the composer before interrupting.
+- `Ctrl+C` clears the composer rather than interrupting; it still interrupts while the composer is empty, and a double press exits.
+- `Ctrl+Shift+P` cycles to the previous favorite model as the primary chord; `Alt+P` keeps working.
 - Adjacent successful tool cards alternate two subtle card surfaces, so a long run reads as distinct calls instead of one continuous panel. The alternation continues across run boundaries.
 - Wheel scrolling accelerates during a fast spin, up to twice the usual distance per notch. A notch still moves three lines, and the near-simultaneous follow-up reports of a high-resolution wheel move one line each instead of three. Local macOS terminals keep a flat three lines per event because the OS already accelerates wheel deltas.
 - On a 16-color terminal, theme colors are matched perceptually against the palette the terminal reports instead of a fixed mapping; true-color terminals keep exact colors.
@@ -26,6 +40,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- A wrapped line keeps its style on every row. `wrapText` attached escape sequences to the following glyph but never reopened them after a line break, so a long bold command showed its ink on the first row and plain text on the rest. Every painted wrap now uses the restabilizing variant, which tracks the active foreground, weight, slant, underline, inverse, and hyperlink across the break.
+- A tool card now shows its state on every terminal, not only on a truecolor one. Pending, successful, and failed cards had three near-black fills that 256-color and 16-color terminals quantized onto the same entry, so a failed call looked exactly like a successful one. The three fills are resolved as a group now, and the failing card keeps a fill of its own.
+- A tool card's output is syntax highlighted, and its command line is not. The command stays one bold ink so the reader recognizes their own intent at a glance; the colour belongs to the output they actually have to read. Output used to be coloured one line at a time, so a multi-line payload kept only its first row highlighted, and tokens the highlighter had no colour for fell back to the terminal's default ink, which made a highlighted block read as mostly plain text. Both are fixed: the payload is highlighted as one block, and every token is painted.
+- A Markdown heading's level is visible again: `#` and `##` carry weight and an underline, deeper levels keep their marker. Block quotes and horizontal rules use their own `mdQuoteBorder` and `mdHr` inks instead of borrowing the component border colour, and quoted prose is set in italic.
 - Image preview and the Harness attachment store load the same `sharp`, so a duplicate libvips warning no longer appears in the middle of the screen.
 - Terminal replies that arrive together no longer leak fragments such as `[?62;22c` into the composer, and an unrecognized control sequence is discarded whole.
 - A background job's settlement line is separated from the command output by a blank row.
