@@ -4,7 +4,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 
 ## Product Direction
 
-- [`docs/design/philosophy.md`](docs/design/philosophy.md) states what omdsh owns, what it refuses to own, and how to decide where a change belongs. Read it before adding a capability or a surface; the rules below are its consequences, and it wins when the two disagree.
+- [`docs/design/philosophy.md`](docs/design/philosophy.md) states what omdsh owns, what it refuses to own, and how to decide where a change belongs. Read it before adding a capability or a surface. It is the reasoning these rules encode: when the two disagree, this file governs and the document is corrected.
 - `omdsh` is a TUI coding agent built on the published DeepSeek Harness packages and inspired by the interaction quality of oh-my-pi.
 - Preserve the DeepSeek Harness “everything is a plugin” architecture. New capabilities should be Cordis plugins, services, providers, consumers, or app composition whenever that model fits.
 - Keep product-owned implementation inside `apps/`, `packages/`, and `scripts/`. Do not place omdsh implementation in a reference project.
