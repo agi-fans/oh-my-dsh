@@ -4187,25 +4187,27 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'review-changes') {
-      let anchor = this.#viewportBlock() ?? this.#state.blocks.length - 1
+      // The keyboard twin of right-clicking a tool's path: open the files the
+      // tool under the viewport declared. It shares the mouse path's region
+      // lookup, so the two can never disagree about which call is under the
+      // reader's eye.
+      //
+      // This used to also derive the turn under the viewport and forward
+      // `/diff turn N` when no tool was there — twenty lines of anchor
+      // backtracking to reach what `/diff` already asks for on its own. A
+      // reader who wants this turn's changes types `/diff`.
       const rows = this.#renderer.viewport().map((_, row) => this.#renderer.documentRowAt(row)).filter((row): row is number => row !== undefined)
       const top = this.#follow ? undefined : rows[0]
       const regions = this.#fileActionFrame?.transcript?.fileRegions ?? []
       const region = (top === undefined ? undefined : regions.find(region => top >= region.start && top < region.end))
         ?? (this.#inspecting ? regions.find(region => this.#state.blocks[region.block]?.kind === 'tool' && rows.some(row => row >= region.start && row < region.end)) : undefined)
-      const block = this.#state.blocks[region?.block ?? anchor]
+      const block = this.#state.blocks[region?.block ?? (this.#viewportBlock() ?? this.#state.blocks.length - 1)]
       const files = block?.kind === 'tool' ? blockFileAction(block) : undefined
-      if (files !== undefined) { this.#openFileAction(files); return true }
-      // A short inspection cannot scroll its first call above the welcome card
-      // or startup notices. Those rows address the first human turn, not an
-      // empty slice before it.
-      if (!this.#state.blocks.slice(0, anchor + 1).some(block => block.kind === 'user')) {
-        const firstUser = this.#state.blocks.findIndex(block => block.kind === 'user')
-        if (firstUser >= 0) anchor = firstUser
+      if (files === undefined) {
+        this.#showTransientStatus('No tool files here · use /diff', 4_000)
+        return true
       }
-      const nextUser = this.#state.blocks.findIndex((block, index) => index > anchor && block.kind === 'user')
-      const workspace = this.#state.blocks.slice(0, nextUser < 0 ? undefined : nextUser).findLast(block => block.kind === 'workspace')
-      this.#runSlash('diff', workspace?.kind === 'workspace' ? `turn ${workspace.turn}` : '')
+      this.#openFileAction(files)
       return true
     }
     if (action === 'scroll-page-up') {

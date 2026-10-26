@@ -68,14 +68,14 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
 | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
-| `Alt+V` | Preview the tool’s declared files when a tool is under the reading position; otherwise review the Turn’s changed files or current workspace. |
+| `Alt+V` | Preview the files the tool under the reading position declared. With no tool there it says so and points at `/diff`, which reviews this turn’s changes. |
 | `Ctrl+Shift+F` | Search the current transcript; `n`/`N` step across matches. `Ctrl+F` does the same when the composer is empty, and moves the caret otherwise. |
 | `Ctrl+T` | Show or hide thinking across the transcript. |
 | `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
 When the transcript can scroll or contains actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
 
-Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` still opens retained Turn comparisons outside a tool, and a completed Turn summary does not make hidden tool cards clickable. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
+Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` opens the same files for the tool under the reading position, and a completed Turn summary does not make hidden tool cards clickable. Reviewing a turn’s changes is `/diff`. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
 
 **Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
 
@@ -153,7 +153,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `toggle-thinking` | `Ctrl+T` | Show or hide thinking across the transcript. |
 | `toggle-tools` | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
 | `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
-| `review-changes` | `Alt+V` | Preview tool files or review the current Turn’s changes. |
+| `review-changes` | `Alt+V` | Preview the files the tool under the viewport declared. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |

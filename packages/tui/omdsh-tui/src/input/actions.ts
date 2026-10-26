@@ -85,7 +85,7 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
 
   { id: 'toggle-tools', primary: ['ctrl+o'], label: 'Toggle completed turn details', scope: 'transcript' },
   { id: 'toggle-tool-details', primary: ['alt+o'], label: 'Toggle full tool inputs and results', scope: 'transcript' },
-  { id: 'review-changes', primary: ['alt+v'], label: 'Preview the visible tool’s files, or review turn changes', scope: 'transcript' },
+  { id: 'review-changes', primary: ['alt+v'], label: 'Preview the files the tool under the viewport declared', scope: 'transcript' },
   { id: 'search-history', primary: ['ctrl+r'], label: 'Search prompt history', scope: 'composer' },
   {
     id: 'search-transcript',

@@ -5282,3 +5282,22 @@ describe('completionDescribes', () => {
     expect(completionDescribes(undefined, 's')).toBe(false)
   })
 })
+
+describe('review-changes (Alt+V)', () => {
+  it('reports when no tool files sit under the viewport instead of forwarding /diff', () => {
+    // It used to derive the turn under the viewport and run `/diff turn N`
+    // itself. `/diff` asks for that on its own, so the key now does exactly one
+    // thing — open the files the tool under the reader's eye declared — and says
+    // so when there are none.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      press(term, '\x1bv')
+      const painted = stripAnsi(term.captured)
+      expect(painted).toContain('No tool files here')
+      expect(painted).toContain('/diff')
+      // The old behaviour called the command; this one must not.
+      expect(painted).not.toContain('Current workspace changes')
+    } finally { tui.dispose() }
+  })
+})
