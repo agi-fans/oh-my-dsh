@@ -8,6 +8,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [设计哲学](design/philosophy.md) | omdsh 该做什么、不该做什么，以及判断问题归属的依据；其它设计文档是它在一个具体领域的展开 |
 | [TUI 渲染与浏览](design/tui-rendering.md) | 回合折叠、工具详情、滚动控件、原生历史、resize 与渲染边界 |
 | [会话收尾与子 Agent](design/session-lifecycle.md) | 截断工具预览、未知执行结果、后台流式更新与性能调查边界 |
 | [Agent 行为设置](design/agent-behavior.md) | Language 的 Profile 配置、turn 快照与 complete persona 兼容 |
