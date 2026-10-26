@@ -3,7 +3,8 @@
  * @module @agi-fans/dsh-tui
  */
 
-import { DEFAULT_KEYBINDINGS, type TuiAction } from '../input/keybindings-config.ts'
+import { DEFAULT_DISPLAY_BINDINGS, primaryKeysOf } from '../input/actions.ts'
+import { displayBindings as onlyShippedPrimary, type TuiAction } from '../input/keybindings-config.ts'
 import type { HotkeyRow, OverlayCatalog } from './hotkey-format.ts'
 
 export type { HotkeyRow }
@@ -52,11 +53,31 @@ export function displayKey(key: string): string {
   }).join('+')
 }
 
-/** Human-readable effective keys, or `Disabled` when no binding names the action. */
+/**
+ * Human-readable effective keys, or `Disabled` when no binding names the action.
+ *
+ * A migration alias still resolves, but a hint that printed it would teach a
+ * chord the interface no longer wants used, so only shipped primaries and the
+ * user's own chords are shown.
+ */
 export function keysForAction(bindings: HotkeyBindings, action: TuiAction): string {
-  const keys = Object.entries(bindings)
+  const shipped = primaryKeysOf(action)
+  const keys = Object.entries(onlyShippedPrimary(bindings))
     .filter(([, value]) => value === action)
-    .map(([key]) => displayKey(key))
+    .map(([key]) => key)
+    // A shipped chord keeps the catalog's order — the order a person should try
+    // them in — and a user's own chord follows, so a hint does not reshuffle
+    // when a key moves between the two groups. Without this the printed order
+    // followed the JSON document's key order, which is incidental.
+    .sort((a, b) => {
+      const left = shipped.indexOf(a)
+      const right = shipped.indexOf(b)
+      if (left < 0 && right < 0) return a.localeCompare(b)
+      if (left < 0) return 1
+      if (right < 0) return -1
+      return left - right
+    })
+    .map(displayKey)
   return keys.length > 0 ? keys.join(' / ') : 'Disabled'
 }
 
@@ -82,7 +103,8 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
       title: 'Editing',
       rows: [
         { keys: 'Enter', action: 'Send the message' },
-        { keys: 'Shift+Enter / Alt+Enter / Ctrl+J', action: 'Insert a new line' },
+        { keys: 'Shift+Enter / Ctrl+J', action: 'Insert a new line' },
+        { keys: keysForAction(bindings, 'follow-up'), action: 'Queue the draft for after the active turn' },
         { keys: 'Ctrl+W / Alt+Backspace', action: 'Delete the previous word' },
         { keys: 'Alt+D', action: 'Delete the next word' },
         { keys: 'Ctrl+U', action: 'Delete to the start of the line' },
@@ -90,8 +112,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'Ctrl+Y', action: 'Yank deleted text' },
         { keys: 'Alt+Y', action: 'Cycle the yank ring' },
         { keys: 'Ctrl+-', action: 'Undo the last edit or restore a cleared draft' },
-        { keys: 'Ctrl+D', action: 'Delete forward / quit when the editor is empty' },
-        { keys: 'Alt+Up', action: 'Recall the latest queued message into the composer' },
+        { keys: keysForAction(bindings, 'dequeue'), action: 'Recall the latest queued message into the composer' },
         { keys: keysForAction(bindings, 'stash-draft'), action: 'Stash or restore the current composer draft' },
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
         { keys: keysForAction(bindings, 'expand-paste'), action: 'Expand a pasted block for editing' },
@@ -119,15 +140,18 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
     {
       title: 'Session',
       rows: [
-        { keys: 'Esc twice', action: 'Browse conversation turns and branches' },
-        { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
-        { keys: 'Ctrl+Z', action: 'Suspend to the background' },
-        { keys: 'Alt+L', action: 'Reset the terminal display' },
+        { keys: `${keysForAction(bindings, 'interrupt')} twice`, action: 'Browse conversation turns and branches' },
+        { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Clear the composer, then exit' },
+        { keys: keysForAction(bindings, 'quit'), action: 'Exit when the composer is empty' },
+        { keys: keysForAction(bindings, 'suspend'), action: 'Suspend to the background' },
+        { keys: keysForAction(bindings, 'reset-display'), action: 'Repaint the terminal display' },
         { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
         { keys: keysForAction(bindings, 'retry'), action: 'Retry the latest human prompt' },
+        { keys: keysForAction(bindings, 'select-model'), action: 'Choose model and reasoning effort' },
         { keys: keysForAction(bindings, 'cycle-model-forward'), action: 'Cycle to the next favorite model' },
         { keys: keysForAction(bindings, 'cycle-model-backward'), action: 'Cycle to the previous favorite model' },
-        { keys: keysForAction(bindings, 'cycle-reasoning'), action: 'Cycle the current model reasoning effort' },
+        { keys: keysForAction(bindings, 'cycle-thinking'), action: 'Cycle the current model reasoning effort' },
+        { keys: keysForAction(bindings, 'toggle-thinking'), action: 'Show or hide thinking in the transcript' },
         { keys: '/', action: 'Open slash-command completion' },
         { keys: '!command', action: 'Run a persistent Shell line; output stays outside model context' },
         { keys: '@ / ./ / ~/', action: 'Complete file paths' },
@@ -151,17 +175,19 @@ function tableCell(value: string): string {
 }
 
 /** Number of shortcut rows in the catalog. */
-export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): number {
+export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): number {
   return sections(bindings).reduce((total, section) => total + section.rows.length, 0)
 }
 
 /** Short, high-frequency subset shown by the default `/help` view. */
-export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): string {
+export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): string {
   const rows: readonly HotkeyRow[] = [
     { keys: 'Enter', action: 'Send the message' },
-    { keys: 'Shift+Enter / Alt+Enter / Ctrl+J', action: 'Insert a new line' },
-    { keys: 'Ctrl+C twice', action: 'Interrupt or clear, then exit' },
-    { keys: 'Esc twice', action: 'Browse conversation turns and branches' },
+    { keys: 'Shift+Enter / Ctrl+J', action: 'Insert a new line' },
+    { keys: keysForAction(bindings, 'follow-up'), action: 'Queue the draft for after the active turn' },
+    { keys: `${keysForAction(bindings, 'interrupt')} twice`, action: 'Browse conversation turns and branches' },
+    { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Clear the composer, then exit' },
+    { keys: keysForAction(bindings, 'toggle-thinking'), action: 'Show or hide thinking in the transcript' },
     { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
     { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript' },
     { keys: keysForActions(bindings, 'scroll-page-up', 'scroll-page-down'), action: 'Scroll the transcript' },
@@ -176,7 +202,7 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_KE
 }
 
 /** Markdown tables embedded in the `/help` transcript panel. */
-export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_KEYBINDINGS): string {
+export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): string {
   return sections(bindings).flatMap((section, index) => [
     ...(index === 0 ? [] : ['']),
     `**${section.title}**`,

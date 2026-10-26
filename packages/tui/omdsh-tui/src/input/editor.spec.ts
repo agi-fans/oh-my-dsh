@@ -112,9 +112,11 @@ describe('InputEditor', () => {
     expect(editor.handle(key('down'))).toEqual({ kind: 'historyNext' })
   })
 
-  it('treats empty ctrl+d as quit and non-empty as delete-forward', () => {
+  it('deletes forward on ctrl+d and leaves an empty buffer to the exit action', () => {
     const editor = new InputEditor()
-    expect(editor.handle(key('ctrl+d'))).toEqual({ kind: 'quit' })
+    // An empty buffer has nothing to delete, so the application decides what the
+    // key means there; the editor only reports that it did nothing.
+    expect(editor.handle(key('ctrl+d'))).toEqual({ kind: 'ignored' })
     editor.handle(text('ab'))
     editor.handle(key('ctrl+a'))
     editor.handle(key('ctrl+d'))
@@ -129,11 +131,14 @@ describe('InputEditor', () => {
     expect(editor.text).toBe('hello')
   })
 
-  it('emits app-level commands for escape, ctrl+z, and alt+l', () => {
+  it('leaves every application-level key to the action catalog', () => {
     const editor = new InputEditor()
-    expect(editor.handle(key('escape'))).toEqual({ kind: 'interrupt' })
-    expect(editor.handle(key('ctrl+z'))).toEqual({ kind: 'suspend' })
-    expect(editor.handle(key('alt+l'))).toEqual({ kind: 'resetDisplay' })
+    // Escape, Ctrl+C, Ctrl+Z and Alt+L end or rescue something larger than one
+    // buffer, so the editor must not claim them: the provider resolves them
+    // through the user's own bindings.
+    for (const id of ['escape', 'ctrl+c', 'ctrl+z', 'alt+l']) {
+      expect(editor.handle(key(id))).toEqual({ kind: 'ignored' })
+    }
   })
 })
 

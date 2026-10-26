@@ -1,72 +1,30 @@
-/** User-overridable application keybindings loaded from one JSON document. */
-
+/**
+ * User-overridable application keybindings loaded from one JSON document.
+ *
+ * The catalog in `./actions.ts` is the single source of truth: it supplies the
+ * shipped chords, the accepted aliases, and the wording every surface prints.
+ * This module only layers a user's `{ "key-id": "action" }` document on top and
+ * reports the chords that document makes ambiguous.
+ * @module @agi-fans/dsh-tui
+ */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import {
+  DEFAULT_KEYBINDINGS,
+  isPrimaryKey,
+  TUI_ACTIONS,
+  type TuiAction,
+} from './actions.ts'
 
-export type TuiAction = 'external-editor' | 'retry' | 'paste-clipboard' | 'copy-prompt' | 'copy-line' | 'inspect-subagent'
-  | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-reasoning'
-  | 'toggle-tools' | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down' | 'search-history'
-  | 'search-transcript' | 'toggle-tool-details' | 'review-changes' | 'expand-paste' | 'steer-turn' | 'manage-queue' | 'preview-images'
-  | 'stash-draft'
-
-export const DEFAULT_KEYBINDINGS: Readonly<Record<string, TuiAction>> = Object.freeze({
-  'ctrl+x': 'external-editor',
-  'ctrl+s': 'stash-draft',
-  'alt+m': 'preview-images',
-  'alt+i': 'expand-paste',
-  'alt+s': 'steer-turn',
-  'alt+q': 'manage-queue',
-  'alt+v': 'review-changes',
-  'alt+r': 'retry',
-  'ctrl+v': 'paste-clipboard',
-  'alt+c': 'copy-prompt',
-  'ctrl+alt+c': 'copy-line',
-  'alt+a': 'inspect-subagent',
-  'ctrl+p': 'cycle-model-forward',
-  'alt+p': 'cycle-model-backward',
-  'ctrl+t': 'cycle-reasoning',
-  'ctrl+o': 'toggle-tools',
-  'alt+o': 'toggle-tool-details',
-  'pageup': 'scroll-page-up',
-  'pagedown': 'scroll-page-down',
-  'shift+up': 'scroll-fast-up',
-  'shift+down': 'scroll-fast-down',
-  'ctrl+r': 'search-history',
-  'ctrl+f': 'search-transcript',
-})
-
-export const TUI_ACTIONS: readonly TuiAction[] = [
-  'external-editor', 'stash-draft', 'retry', 'paste-clipboard', 'copy-prompt', 'copy-line', 'inspect-subagent',
-  'cycle-model-forward', 'cycle-model-backward', 'cycle-reasoning',
-  'toggle-tools', 'scroll-page-up', 'scroll-page-down', 'scroll-fast-up', 'scroll-fast-down', 'search-history',
-  'search-transcript', 'toggle-tool-details', 'review-changes', 'expand-paste', 'steer-turn', 'manage-queue', 'preview-images',
-]
-
-export const TUI_ACTION_LABELS: Readonly<Record<TuiAction, string>> = Object.freeze({
-  'external-editor': 'Edit prompt in external editor',
-  'stash-draft': 'Stash or restore composer draft',
-  'retry': 'Retry latest human prompt',
-  'paste-clipboard': 'Paste clipboard text or image',
-  'copy-prompt': 'Copy selection or current prompt',
-  'copy-line': 'Copy current line',
-  'inspect-subagent': 'Open subagent transcript',
-  'cycle-model-forward': 'Cycle to next favorite model',
-  'cycle-model-backward': 'Cycle to previous favorite model',
-  'cycle-reasoning': 'Cycle model reasoning effort',
-  'toggle-tools': 'Toggle completed turn details',
-  'toggle-tool-details': 'Toggle full tool inputs and results',
-  'scroll-page-up': 'Scroll transcript up one page',
-  'scroll-page-down': 'Scroll transcript down one page',
-  'scroll-fast-up': 'Scroll transcript up quickly',
-  'scroll-fast-down': 'Scroll transcript down quickly',
-  'search-history': 'Search prompt history',
-  'search-transcript': 'Search current transcript',
-  'review-changes': 'Preview tool files or review turn changes',
-  'expand-paste': 'Expand pasted block for editing',
-  'steer-turn': 'Steer active turn',
-  'manage-queue': 'Manage queued messages',
-  'preview-images': 'Preview draft images',
-})
+export {
+  DEFAULT_KEYBINDINGS,
+  TUI_ACTIONS,
+  TUI_ACTION_CATALOG,
+  TUI_ACTION_LABELS,
+  type TuiAction,
+  type TuiActionDefinition,
+  type TuiActionScope,
+} from './actions.ts'
 
 /** Load `{ "key-id": "action" }`; invalid rows are ignored independently, and `null` unbinds a default key. */
 export function loadKeybindings(path: string | undefined): Record<string, TuiAction> {
@@ -100,4 +58,23 @@ export function saveKeybindings(path: string, bindings: Readonly<Record<string, 
   }
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(overrides, null, 2) + '\n', 'utf8')
+}
+
+/**
+ * The bindings a hint is allowed to print.
+ *
+ * A resolved table also names the aliases a migration kept working, and a hint
+ * that printed `Ctrl+F / Ctrl+Shift+F` for one action would be telling the user
+ * about a chord the interface does not want them to learn. Only chords that are
+ * a shipped primary for their action survive, so an override that deliberately
+ * moves an action is still printed and a straggler alias is not.
+ */
+export function displayBindings(bindings: Readonly<Record<string, TuiAction>>): Record<string, TuiAction> {
+  const shown: Record<string, TuiAction> = {}
+  for (const [key, action] of Object.entries(bindings)) {
+    // Shipped primary: always shown. Shipped alias for this same action: hidden.
+    // Any key the catalog does not give this action — a user override — is theirs to see.
+    if (isPrimaryKey(action, key) || DEFAULT_KEYBINDINGS[key] !== action) shown[key] = action
+  }
+  return shown
 }

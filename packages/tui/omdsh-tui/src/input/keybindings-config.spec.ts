@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { keysForAction } from '../views/hotkeys.ts'
+import { reportBindingConflicts } from './actions.ts'
 import { loadKeybindings, saveKeybindings } from './keybindings-config.ts'
 
 describe('loadKeybindings', () => {
@@ -14,8 +15,31 @@ describe('loadKeybindings', () => {
     expect(bindings.bad).toBeUndefined()
     expect(bindings['alt+r']).toBe('retry')
     expect(bindings['ctrl+p']).toBe('cycle-model-forward')
+    // A migration alias still resolves, so Pi habits keep working.
+    expect(bindings['ctrl+shift+p']).toBe('cycle-model-backward')
     expect(bindings['alt+p']).toBe('cycle-model-backward')
-    expect(bindings['ctrl+t']).toBe('cycle-reasoning')
+    expect(bindings['ctrl+t']).toBe('toggle-thinking')
+    expect(bindings['shift+tab']).toBe('cycle-thinking')
+  })
+
+  it('reports the chords a user document makes ambiguous', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'ctrl+o': 'retry' }))
+    const conflicts = reportBindingConflicts(loadKeybindings(path))
+    // Ctrl+O now answers to `retry`, so `toggle-tools` has no key left and the
+    // document says why instead of leaving the shortcut silently unusable.
+    expect(conflicts).toEqual([])
+    expect(loadKeybindings(path)['ctrl+o']).toBe('retry')
+    expect(keysForAction(loadKeybindings(path), 'toggle-tools')).toBe('Disabled')
+  })
+
+  it('hides migration aliases from the keys a hint prints', () => {
+    const bindings = loadKeybindings(undefined)
+    // Both chords resolve, but only the shipped primary is taught.
+    expect(keysForAction(bindings, 'search-transcript')).toBe('Ctrl+Shift+F')
+    expect(keysForAction(bindings, 'copy-prompt')).toBe('Alt+C')
+    expect(keysForAction(bindings, 'external-editor')).toBe('Ctrl+X / Ctrl+G')
+    expect(keysForAction(bindings, 'interrupt')).toBe('Esc')
   })
 
   it('ships configurable scroll, tool, stash, and history actions', () => {

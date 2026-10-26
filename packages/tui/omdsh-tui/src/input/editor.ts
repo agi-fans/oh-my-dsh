@@ -22,11 +22,6 @@ export type EditorCommand =
   | { kind: 'submit'; text: string }
   | { kind: 'historyPrev' }
   | { kind: 'historyNext' }
-  | { kind: 'interrupt' }
-  | { kind: 'clear' }
-  | { kind: 'quit' }
-  | { kind: 'suspend' }
-  | { kind: 'resetDisplay' }
   | { kind: 'ignored' }
 
 interface PasteAtom { start: number; end: number; content: string }
@@ -298,22 +293,24 @@ export class InputEditor {
         return { kind: 'submit', text: this.expandedText }
       case 'ctrl+j':
       case 'shift+enter':
-      case 'alt+enter':
       case 'ctrl+enter':
         this.#insert('\n')
         return { kind: 'changed', edited: true }
-      case 'ctrl+c':
-        return { kind: 'clear' }
+      // Escape, Ctrl+C, Ctrl+Z and Alt+L end or rescue something larger than
+      // one buffer, so they belong to the application's action catalog and not
+      // to the editor. Reporting them as ignored is what lets the provider
+      // resolve them through a user's own bindings.
       case 'escape':
-        return { kind: 'interrupt' }
+      case 'ctrl+c':
+      case 'ctrl+z':
+      case 'alt+l':
+        return { kind: 'ignored' }
+      // Ctrl+D keeps its in-buffer meaning while there is text to delete; an
+      // empty buffer falls through to the exit action, the way Pi splits them.
       case 'ctrl+d':
-        if (this.#text === '') return { kind: 'quit' }
+        if (this.#text === '') return { kind: 'ignored' }
         this.#deleteForward()
         return { kind: 'changed', edited: true }
-      case 'ctrl+z':
-        return { kind: 'suspend' }
-      case 'alt+l':
-        return { kind: 'resetDisplay' }
       case 'up':
         return this.#vertical(-1)
       case 'down':

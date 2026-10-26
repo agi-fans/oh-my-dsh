@@ -93,6 +93,8 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Send the message')
     expect(text).toContain('Ctrl+R')
     expect(text).toContain('Esc twice')
+    expect(text).toContain('Show or hide thinking')
+    expect(text).toContain('Queue the draft for after the active turn')
     expect(text).toContain('Browse conversation turns and branches')
     expect(text).toContain('@ / ./ / ~/')
     expect(text).toContain('/copy')
@@ -105,22 +107,25 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Ctrl+P')
     expect(text).toContain('favorite model')
     expect(text).toContain('reasoning effort')
-    expect(text).not.toContain('thinking')
+    // Thinking is now a first-class control, so the catalog names it.
+    expect(text).toContain('Show or hide thinking')
     expect(text).not.toContain('Speech-to-text')
   })
 
   it('uses effective configurable bindings', () => {
     const text = formatHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'retry' })
+    // The shipped chord keeps its catalog position and the user's chord follows.
     expect(text).toContain('Alt+R / Ctrl+G')
   })
 
   it('keeps the default help subset compact and honors the paste binding', () => {
     const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
-    expect(text.split('\n')).toHaveLength(13)
+    expect(text.split('\n')).toHaveLength(15)
     expect(text).toContain('Alt+M')
     expect(text).toContain('Alt+O')
     expect(text).toContain('Ctrl+V / Ctrl+G')
     expect(text).toContain('Esc twice')
+    expect(text).toContain('Show or hide thinking')
     expect(text).not.toContain('Ctrl+A')
   })
 
@@ -142,9 +147,12 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Search the current transcript')
   })
 
-  it('lists the transcript search, which had no entry in either help list', () => {
-    expect(formatHotkeysText()).toContain('Ctrl+F')
-    expect(formatEssentialHotkeysText()).toContain('Ctrl+F')
+  it('lists the transcript search under the chord it now teaches', () => {
+    // Ctrl+F is a migration alias; the catalog teaches Ctrl+Shift+F so the
+    // composer keeps its own forward-character binding.
+    expect(formatHotkeysText()).toContain('Ctrl+Shift+F')
+    expect(formatEssentialHotkeysText()).toContain('Ctrl+Shift+F')
+    expect(formatEssentialHotkeysText()).not.toContain('Ctrl+F ')
   })
 
   it('counts catalog rows after configurable bindings are merged by action', () => {
