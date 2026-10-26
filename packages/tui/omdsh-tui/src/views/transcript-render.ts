@@ -58,7 +58,6 @@ import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/
 import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
-import type { WelcomeTip } from '../chrome/welcome-tips.ts'
 import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
@@ -142,7 +141,6 @@ export interface ViewOptions {
   /** Durable rows shown in the welcome card. */
   recentSessions?: readonly TuiRecentSession[]
   /** Startup-stable sample of hints shown in the welcome card. */
-  welcomeTips?: readonly WelcomeTip[]
   /** False when no model route is visibly configured; the composer then points at /login. */
   modelReady?: boolean
   /** Whole-session figures rendered in the footer's telemetry row. */
@@ -2168,12 +2166,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
   const welcome = renderWelcome({
     width,
-    model: options.model,
-    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     version,
     appName,
-    ...(options.recentSessions === undefined ? {} : { recentSessions: options.recentSessions }),
-    ...(options.welcomeTips === undefined ? {} : { tips: options.welcomeTips }),
   }, theme)
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)

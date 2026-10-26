@@ -6,8 +6,7 @@
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
 import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped } from './width.ts'
-import { formatRelativeAge } from './relative-time.ts'
-import { WELCOME_TIPS, type WelcomeTip } from './welcome-tips.ts'
+import { WELCOME_HINTS, type WelcomeHint } from './welcome-tips.ts'
 
 /** Visual state that drives border + fill color. */
 export type BoxState = 'idle' | 'info' | 'running' | 'ok' | 'error' | 'warning'
@@ -25,19 +24,6 @@ function bgColorFor(state: BoxState | undefined): ThemeColor | undefined {
   if (state === 'running') return 'toolPendingBg'
   if (state === 'ok') return 'toolSuccessBg'
   return undefined
-}
-
-function centerText(text: string, width: number): string {
-  const vis = visibleWidth(text)
-  if (vis >= width) return truncateToWidth(text, width)
-  const left = Math.floor((width - vis) / 2)
-  return padding(left) + text + padding(width - vis - left)
-}
-
-function fitToWidth(text: string, width: number): string {
-  const vis = visibleWidth(text)
-  if (vis > width) return truncateToWidth(text, width)
-  return text + padding(width - vis)
 }
 
 /** Options for a rounded output block (tool / notice). */
@@ -105,111 +91,103 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
   return [paint(top), ...body.map(paint), paint(bottom)]
 }
 
-/** Welcome card inputs. */
+/** Header inputs. */
 export interface WelcomeOptions {
   width: number
-  model: string
-  /** Effective reasoning effort for the selected model, painted under the model name. */
+  /** Kept for callers that already resolve it; the compact header does not print it. */
+  model?: string
+  /** Kept for callers that already resolve it; the compact header does not print it. */
   reasoningEffort?: string
   version: string
   appName: string
+  /** Kept for callers that already resolve it; the compact header has no session list. */
   recentSessions?: readonly { id: string; title: string; createdAt: number; updatedAt?: number }[]
-  /** Per-process hint sample; defaults to a deterministic catalog prefix for pure callers. */
-  tips?: readonly WelcomeTip[]
+  /** Startup hints; defaults to every entry in the shipped catalog. */
+  hints?: readonly WelcomeHint[]
 }
 
+/** Gap between the mark and the wordmark beside it. */
+const LOCKUP_GAP = 3
+
 /**
- * Two-column welcome card: gradient DeepSeek logo + tips, titled `app vversion`.
+ * Startup header: the DeepSeek mark beside the name, its version, and the
+ * slogan, then one sampled hint.
+ *
+ * It is a lockup rather than a card. The previous header was a thirteen-row
+ * bordered panel with a tips table, a recent-session list, and a second copy of
+ * the model and effort the status footer already shows — most of a screen spent
+ * before the reader has typed anything, and its rows were committed to native
+ * scrollback where they stay. Nothing here repeats what the composer and footer
+ * already say.
+ *
+ * The mark is the brand, so it stays at its source aspect ratio; below the width
+ * that holds the lockup, the wordmark folds underneath rather than the mark
+ * shrinking or the slogan being dropped.
  */
 export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
-  const boxWidth = Math.max(0, options.width)
-  if (boxWidth < 8) return []
-  const dualContentWidth = boxWidth - 3
-  const minLeft = visibleWidth(DEEPSEEK_LOGO[0]) + 2
-  const minRight = 20
-  const baselineLeft = Math.min(26, Math.max(minLeft, Math.floor(dualContentWidth * 0.35)))
-  const desiredLeft = Math.max(baselineLeft, visibleWidth(options.model) + 2)
-  const showRight = dualContentWidth >= minRight + minLeft
-  const leftCol = showRight ? Math.min(desiredLeft, dualContentWidth - minRight) : boxWidth - 2
-  const rightCol = showRight ? Math.max(1, dualContentWidth - leftCol) : 0
-
+  const width = Math.max(0, options.width)
+  if (width < 8) return []
+  // One cell of breathing room: the mark's second row starts at column zero, so
+  // without it the logo is welded to the terminal edge while every other surface
+  // — the transcript, the composer, the footer — is inset or spaced.
+  const margin = width > 24 ? 1 : 0
+  const room = width - margin
   const logo = gradientLogo(theme, DEEPSEEK_LOGO)
-  const effort = options.reasoningEffort ?? ''
-  const leftLines = [
-    centerText(theme.bold('Into the Unknown'), leftCol),
-    '',
-    ...logo.map((line) => centerText(line, leftCol)),
-    '',
-    centerText(theme.fg('muted', options.model), leftCol),
-    ...(effort === '' ? [] : [centerText(theme.fg('dim', effort), leftCol)]),
-  ]
+  const logoWidth = Math.max(0, ...DEEPSEEK_LOGO.map((line) => visibleWidth(line)))
+  const name = theme.bold(theme.fg('text', options.appName))
+  const version = theme.fg('dim', `v${options.version}`)
+  // Name and slogan as one bloc. The version rides with the name rather than on
+  // its own row, so the bloc is two rows and centres cleanly against the mark.
+  const wordmark = [`${name} ${version}`, theme.fg('muted', 'Into the Unknown')]
+  const markWidth = Math.max(0, ...wordmark.map((line) => visibleWidth(line)))
+  const lockupWidth = logoWidth + LOCKUP_GAP + markWidth
+  const left = ' '.repeat(margin)
 
-  const tips = options.tips ?? WELCOME_TIPS.slice(0, 4)
-  const tipKeyWidth = tips.reduce((width, tip) => Math.max(width, visibleWidth(tip.key)), 0)
-  const tipLines = tips.map((tip) => {
-    const key = fitToWidth(tip.key, tipKeyWidth)
-    return ` ${theme.fg('dim', key)}${theme.fg('muted', '  ' + tip.text)}`
-  })
-  const rightLines = showRight
-    ? [
-      ` ${theme.bold(theme.fg('accent', 'Tips'))}`,
-      ...tipLines,
+  const hints = hintLine(options.hints ?? WELCOME_HINTS, theme)
+  if (lockupWidth <= room) {
+    // The wordmark sits on the mark's vertical centre. Centring by height is what
+    // makes the two read as one lockup; aligning their first rows left the name
+    // riding high above the mark's visual mass.
+    const offset = Math.max(0, Math.round((logo.length - wordmark.length) / 2))
+    const lockup = logo.map((logoRow, row) => {
+      const text = wordmark[row - offset]
+      return (left + (text === undefined ? logoRow : logoRow + ' '.repeat(LOCKUP_GAP) + text)).replace(/\s+$/u, '')
+    })
+    // One blank row, then the hint. It costs a single row and replaces a whole
+    // tips table, so the header still ends well inside a screen.
+    if (hints !== '') lockup.push('', ...wrapTextStable(left + hints, width).map((line) => line.replace(/\s+$/u, '')))
+    return lockup
+  }
+
+  const hintRows = hints === ''
+    ? []
+    : ['', ...wrapTextStable(left + hints, width).map((line) => line.replace(/\s+$/u, ''))]
+  if (logoWidth <= room) {
+    // Too narrow for both: the wordmark goes under the mark, still centred, and
+    // the mark keeps its proportions.
+    return [
+      ...logo.map((line) => (left + line).replace(/\s+$/u, '')),
       '',
-      ` ${theme.bold(theme.fg('accent', 'Recent sessions'))}`,
-      ...(options.recentSessions === undefined || options.recentSessions.length === 0
-        ? [` ${theme.fg('dim', 'No recent sessions')}`]
-        : options.recentSessions.slice(0, 3).map((session) => {
-          const age = ` (${formatRelativeAge(session.updatedAt ?? session.createdAt)})`
-          const labelWidth = Math.max(1, rightCol - 2 - visibleWidth(age))
-          const label = truncateToWidth(session.title || session.id, labelWidth)
-          return ` ${theme.fg('muted', label)}${theme.fg('dim', age)}`
-        })),
+      ...wordmark.flatMap((line) => wrapTextStable(line, room))
+        .map((line) => (left + line).replace(/\s+$/u, '')),
+      ...hintRows,
     ]
-    : []
-
-  const chrome = (text: string): string => theme.fg('dim', text)
-  const h = chrome(BOX.horizontal)
-  const v = chrome(BOX.vertical)
-  const tl = chrome(BOX.topLeft)
-  const tr = chrome(BOX.topRight)
-  const bl = chrome(BOX.bottomLeft)
-  const br = chrome(BOX.bottomRight)
-  const teeUp = chrome(BOX.teeUp)
-  const teeDown = chrome(BOX.teeDown)
-  const teeLeft = chrome(BOX.teeLeft)
-  const teeRight = chrome(BOX.teeRight)
-
-  const title = ` ${options.appName} v${options.version} `
-  const titlePrefix = BOX.horizontal.repeat(3)
-  const titleStyled = chrome(titlePrefix) + theme.fg('muted', title)
-  const titleWidth = showRight ? leftCol : boxWidth - 2
-  const afterTitle = Math.max(0, titleWidth - visibleWidth(titlePrefix) - visibleWidth(title))
-  const titleSegment = visibleWidth(titleStyled) >= titleWidth
-    ? truncateToWidth(titleStyled, titleWidth)
-    : titleStyled + chrome(BOX.horizontal.repeat(afterTitle))
-  const lines: string[] = [showRight
-    ? tl + titleSegment + teeDown + h.repeat(rightCol) + tr
-    : tl + titleSegment + tr]
-
-  const rows = showRight ? Math.max(leftLines.length, rightLines.length) : leftLines.length
-  const separatorRow = 1 + tipLines.length
-  for (let i = 0; i < rows; i += 1) {
-    const left = fitToWidth(leftLines[i] ?? '', leftCol)
-    if (showRight) {
-      lines.push(i === separatorRow
-        ? v + left + teeRight + h.repeat(rightCol) + teeLeft
-        : v + left + v + fitToWidth(rightLines[i] ?? '', rightCol) + v)
-    } else {
-      lines.push(v + left + v)
-    }
-  }
-  if (showRight) {
-    lines.push(bl + h.repeat(leftCol) + teeUp + h.repeat(rightCol) + br)
-  } else {
-    lines.push(bl + h.repeat(leftCol) + br)
   }
 
-  return lines
+  // Narrower than the mark itself. A cropped logo is not the logo, so the header
+  // falls back to the wordmark alone — the hint still survives, because it is the
+  // only thing here that teaches a reader where to start.
+  return [
+    ...wordmark.flatMap((line) => wrapTextStable(line, room)).map((line) => line.replace(/\s+$/u, '')),
+    ...hintRows,
+  ]
+}
+
+/** The hint line: each key in the dim ink with its words beside it, `·` between. */
+function hintLine(hints: readonly WelcomeHint[], theme: Theme): string {
+  return hints
+    .map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + hint.text))
+    .join(theme.fg('borderMuted', ' · '))
 }
 
 /** Editor chrome inputs. */

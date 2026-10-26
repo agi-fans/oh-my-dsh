@@ -1,56 +1,24 @@
-/** Small, truthful startup hints sampled once for each TUI process. */
+/** The fixed startup hint line that sits under the header. */
 
-/** One compact key/action pair rendered in the welcome card. */
-export interface WelcomeTip {
+/** One key/action pair: the key, then what it opens. */
+export interface WelcomeHint {
   key: string
   text: string
 }
 
-/** Capabilities worth surfacing without turning the welcome card into a manual. */
-export const WELCOME_TIPS: readonly WelcomeTip[] = [
-  { key: '/', text: 'Browse available commands' },
-  { key: 'Tab', text: 'Complete commands and paths' },
-  { key: 'Ctrl+R', text: 'Search and reuse prompt history' },
-  { key: 'Ctrl+Shift+F', text: 'Search the current transcript' },
-  { key: 'Ctrl+T', text: 'Show or hide thinking' },
-  { key: 'Ctrl+O', text: 'Inspect a completed turn' },
-  { key: 'Shift+Tab', text: 'Cycle the reasoning effort' },
-  { key: '↓ / Alt+A', text: 'Open the keyboard-driven Agent Hub' },
-  { key: 'PgUp/PgDn', text: 'Scroll through the transcript' },
-  { key: 'Shift+Enter/Ctrl+J', text: 'Insert a newline in the composer' },
-  { key: 'Ctrl+C ×2', text: 'Exit with a resumable session hint' },
-  { key: '/resume', text: 'Continue a durable session' },
-  { key: '/model', text: 'Switch model and reasoning effort' },
-  { key: '/login', text: 'Configure a provider API key' },
-  { key: '/agent', text: 'Choose Standard, PTC, Minimal, or Cordis' },
-  { key: '/plan', text: 'Enter planning; /plan off leaves' },
-  { key: '/loop', text: 'Repeat a prompt after each completed turn' },
-  { key: '/permission', text: 'Choose the session access level' },
-  { key: '/trajectory', text: 'Inspect the session event trajectory' },
-  { key: '/settings', text: 'Customize appearance and status' },
-  { key: '/copy code', text: 'Copy the latest code block' },
-  { key: 'Esc Esc', text: 'Browse conversation turns and branches' },
-  { key: 'Ctrl+V', text: 'Paste an image or clipboard text' },
-  { key: '/tools', text: 'Inspect tools available to the agent' },
-  { key: '/mcp', text: 'Inspect MCP registration and tools' },
-  { key: '/changelog', text: 'Read recent release notes' },
+/**
+ * What the header teaches, in the order a new reader needs it.
+ *
+ * This is a fixed line rather than a sampled rotation: a hint that changes every
+ * launch cannot be learned, and the four entries that matter — how to find
+ * commands, files, history, and a finished turn — are the same four every time.
+ * It deliberately carries no universal key. `Esc` cancels, `Enter` sends, and a
+ * reminder of either would be a permanent line about something the reader learns
+ * once; discovery affordances are what a header is for.
+ */
+export const WELCOME_HINTS: readonly WelcomeHint[] = [
+  { key: '/', text: 'commands' },
+  { key: '@', text: 'files' },
+  { key: 'Ctrl+R', text: 'history' },
+  { key: 'Ctrl+O', text: 'details' },
 ]
-
-/** The one hint that must survive sampling while no model route is configured. */
-
-/** Pick distinct hints without mutating the shared catalog. */
-export function pickWelcomeTips(
-  random: () => number = Math.random,
-  count: number = 4,
-): readonly WelcomeTip[] {
-  const pool = [...WELCOME_TIPS]
-  const picked: WelcomeTip[] = []
-  const limit = Math.max(0, Math.min(Math.floor(count), pool.length))
-  while (picked.length < limit) {
-    const sample = Math.max(0, Math.min(0.9999999999999999, random()))
-    const index = Math.floor(sample * pool.length)
-    const [tip] = pool.splice(index, 1)
-    if (tip !== undefined) picked.push(tip)
-  }
-  return picked
-}

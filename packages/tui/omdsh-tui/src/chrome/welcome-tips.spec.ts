@@ -1,28 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { pickWelcomeTips, WELCOME_TIPS } from './welcome-tips.ts'
+import { WELCOME_HINTS } from './welcome-tips.ts'
 
-describe('pickWelcomeTips', () => {
-  it('uses portable textual key names in the welcome catalog', () => {
-    const keys = WELCOME_TIPS.map(tip => tip.key)
-
-    expect(keys).toContain('Shift+Enter/Ctrl+J')
-    expect(keys).toContain('PgUp/PgDn')
-    expect(keys.join(' ')).not.toMatch(/[⌥⌘↵]/u)
+describe('WELCOME_HINTS', () => {
+  it('teaches discovery, not the keys a reader learns once', () => {
+    const keys = WELCOME_HINTS.map(hint => hint.key)
+    expect(keys).toContain('/')
+    expect(keys).toContain('@')
+    // Cancel, submit, and exit are learned on the first minute of use; a header
+    // that keeps repeating them spends its only line on nothing new.
+    expect(keys).not.toContain('Esc')
+    expect(keys).not.toContain('Enter')
+    expect(keys).not.toContain('Ctrl+C')
   })
 
-  it('samples distinct tips in deterministic random order', () => {
-    const samples = [0.999, 0, 0.5]
-    let index = 0
-    const tips = pickWelcomeTips(() => samples[index++] ?? 0, 3)
-
-    expect(tips).toHaveLength(3)
-    expect(new Set(tips.map(tip => tip.key)).size).toBe(3)
-    expect(tips[0]).toBe(WELCOME_TIPS.at(-1))
-    expect(tips[1]).toBe(WELCOME_TIPS[0])
+  it('stays short enough to read at a glance', () => {
+    // The whole line has to fit beside the lockup it sits under; four entries is
+    // what a header can carry without becoming a manual.
+    expect(WELCOME_HINTS.length).toBeLessThanOrEqual(4)
+    for (const hint of WELCOME_HINTS) {
+      expect(hint.key.length).toBeGreaterThan(0)
+      expect(hint.text.split(/\s+/u).length).toBeLessThanOrEqual(2)
+    }
   })
 
-  it('clamps the requested count to the catalog', () => {
-    expect(pickWelcomeTips(() => 0, -1)).toEqual([])
-    expect(pickWelcomeTips(() => 0, WELCOME_TIPS.length + 10)).toHaveLength(WELCOME_TIPS.length)
+  it('uses portable textual key names', () => {
+    const keys = WELCOME_HINTS.map(hint => hint.key).join(' ')
+    expect(keys).not.toMatch(/[⌥⌘↵]/u)
   })
 })

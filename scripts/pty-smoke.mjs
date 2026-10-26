@@ -603,8 +603,13 @@ const ok = exitCode === 0
   && out.includes('\x1b[?1004h')
   && out.includes('\x1b[?1004l')
   && out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
-  && clean.includes('Recent sessions')
-  && clean.includes('Recent header seed')
+  // The header is a lockup now: the mark, its name and version, the slogan, and
+  // one discovery hint. The recent-session list it used to carry is what `/resume`
+  // covers instead, so this asserts the shipped shape rather than a list.
+  && clean.includes('Into the Unknown')
+  && clean.includes('omdsh v')
+  && clean.includes(' commands · ')
+  && !clean.includes('Recent sessions')
   && clean.includes('hi')
   && clean.includes('error:')
   && clean.includes('deepseek-flash')

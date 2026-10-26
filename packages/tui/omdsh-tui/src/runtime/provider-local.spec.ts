@@ -1314,7 +1314,11 @@ describe('LocalTui (tty)', () => {
   it.each(['close', 'tail', 'clear', 'dispose'])('keeps mouse ownership correct when leaving inspection via %s', (exit) => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    longTurn(tui, 30, 1)
+    // Long enough that the transcript still scrolls once it folds: the fold
+    // collapses the whole run to one row, so a turn sized against the old
+    // thirteen-row header now fits the viewport and mouse tracking is released
+    // for the right reason rather than the one under test.
+    longTurn(tui, 30, 1, false)
     expect(term.captured).toContain('\x1b[?1000h')
     press(term, '\x0f')
     expect(term.captured).toContain('\x1b[?1000h\x1b[?1002h\x1b[?1006h')

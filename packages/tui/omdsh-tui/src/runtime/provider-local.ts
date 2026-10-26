@@ -208,7 +208,7 @@ import {
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
 import { refreshProjectContext, resolveGitStatusFiles, resolveProjectContext } from '../session/project-context.ts'
-import { pickWelcomeTips, type WelcomeTip } from '../chrome/welcome-tips.ts'
+
 import { modelRouteReady } from '../session/model-readiness.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
@@ -606,7 +606,6 @@ export class LocalTui implements TuiService {
    */
   #promptDisplaced: DisplacedSurface | null = null
   #recentSessions: TuiRecentSession[] = []
-  readonly #welcomeTips: readonly WelcomeTip[]
   #sessionId: string | undefined
   #sessionTitle: string | undefined
   #writtenWindowTitle: string | undefined
@@ -735,7 +734,6 @@ export class LocalTui implements TuiService {
     this.#searchFileMentions = paths.searchFileMentions
     this.#searchSessions = paths.searchSessions
     this.#autocompleteDebounceMs = Math.max(0, paths.autocompleteDebounceMs ?? 100)
-    this.#welcomeTips = pickWelcomeTips()
     this.#deferInitialRender = paths.deferInitialRender === true
     this.#terminalProfile = paths.terminalProfile ?? detectTerminalProfile()
     this.#imageProtocol = this.#terminalProfile !== 'direct' || paths.imageProtocol === 'none' ? undefined : paths.imageProtocol ?? imageProtocol(process.env)
@@ -1883,7 +1881,6 @@ export class LocalTui implements TuiService {
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         recentSessions: this.#recentSessions,
-        welcomeTips: this.#welcomeTips,
         modelReady: this.#modelReady,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),

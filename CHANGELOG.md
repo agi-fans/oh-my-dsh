@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- The startup header is a six-row lockup — the DeepSeek mark beside the name, its version, and the slogan — with one discovery hint under it, instead of a thirteen-row bordered panel. The tips table, the recent-session list, and the second copy of model and effort are gone; the status footer already shows the last two. The hint line names `/` commands, `@` files, `Ctrl+R` history, and `Ctrl+O` details rather than sampling a random tip, and it never repeats `Esc`, `Enter`, or `Ctrl+C`, which are learned once.
 - The theme list is now `dark`, `light`, and `system` only. Eight extra palettes were removed: each one was a second set of surfaces, inks, and syntax colours to hold to the same legibility standard, and none of them met it.
 - A tool card states its state by fill. Pending cards are a neutral grey, successful cards are green, and failed cards are red — the same lightness in all three, distinguished by hue, so the fill alone says what happened.
 - Content inks sit at a lightness that stays readable on all three card fills, so `error`, the diff colours, and dimmed hints no longer fall below 4.5:1 on the lighter cards.

@@ -66,95 +66,91 @@ describe('renderFramedBlock', () => {
 })
 
 describe('renderWelcome', () => {
-  it('paints the two-column welcome card', () => {
-    const lines = renderWelcome({
-      width: 60, model: 'deepseek-v4-flash', reasoningEffort: 'high', version: '0.1.0', appName: 'omdsh',
-      recentSessions: [{ id: 'session-1', title: 'Fix renderer', createdAt: Date.now() - 120_000 }],
-      tips: [
-        { key: '/', text: 'Commands' },
-        { key: 'Ctrl+R', text: 'Search history' },
-        { key: 'Ctrl+O', text: 'Expand output' },
-      ],
-    }, theme)
+  const logoRow = '⢀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣧⣄⡀⢻⣿⣷⣶⣶⣶⡿'
+  /** The mark's widest row is twenty cells, so the wordmark starts four in. */
+  const WORDMARK_COLUMN = 1 + 20 + 3
+
+  it('draws the mark beside its name, version, and slogan', () => {
+    const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme)
     const text = lines.map(stripAnsi).join('\n')
     expect(text).toContain('omdsh v0.1.0')
     expect(text).toContain('Into the Unknown')
-    expect(text).toContain('⢀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣧⣄⡀⢻⣿⣷⣶⣶⣶⡿')
-    expect(text).toContain('Tips')
-    expect(text).toContain('/       Commands')
-    expect(text).toContain('Ctrl+R  Search history')
-    expect(text).toContain('Ctrl+O  Expand output')
-    expect(text).toContain('Fix renderer')
-    expect(text).toContain('2m ago')
-    expect(text).toContain('deepseek-v4-flash')
-    expect(lines[0]?.startsWith('╭')).toBe(true)
-    expect(stripAnsi(lines[0] ?? '')).toContain('┬')
-    expect(lines.map(stripAnsi).some(line => /^│.*├─+┤$/u.test(line))).toBe(true)
-    expect(stripAnsi(lines.at(-1) ?? '')).toContain('┴')
+    expect(text).toContain(logoRow)
+    // A lockup, not a card: no border, no tips table, no session list.
+    for (const line of lines) expect(stripAnsi(line)).not.toMatch(/[╭╮╰╯│├┤┬┴]/u)
+    expect(text).not.toContain('Recent sessions')
   })
 
-  it('fills a wide terminal and closes every border row', () => {
-    const width = 140
+  it('is inset from the terminal edge', () => {
+    // The mark's widest row starts at column zero, so without a margin the logo
+    // is welded to the edge while the transcript and composer below are not.
+    const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
+    const logo = lines.find(line => line.includes(logoRow)) ?? ''
+    expect(logo.startsWith(' ')).toBe(true)
+  })
+
+  it('centres the wordmark against the mark rather than aligning their tops', () => {
+    const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
+    const nameRow = lines.findIndex(line => line.includes('omdsh v0.1.0'))
+    const logoRows = lines.flatMap((line, at) => (line.includes('⣿') || line.includes('⠙') || line.includes('⠉') || line.includes(logoRow.slice(0, 6)) ? [at] : []))
+    // The two-row bloc sits inside the six-row mark, not on its first row.
+    expect(nameRow).toBeGreaterThan(0)
+    expect(nameRow).toBeLessThan(logoRows.at(-1) ?? 0)
+  })
+
+  it('puts the hint under the lockup, in one row that names its keys', () => {
+    const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
+    const hint = lines.find(line => line.includes('commands')) ?? ''
+    expect(hint).toContain('/')
+    expect(hint).toContain('files')
+    expect(hint).toContain('history')
+    // Separators and keys only — no prose label.
+    expect(hint).toContain(' · ')
+    expect(lines.at(-1)).toBe(hint)
+  })
+
+  it('teaches discovery keys, never the universal ones', () => {
+    // `Esc` and `Enter` are learned once; a header that repeats them is a
+    // permanent line about nothing the reader still needs.
+    const hint = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi).find(line => line.includes('commands')) ?? ''
+    expect(hint).not.toContain('Esc')
+    expect(hint).not.toContain('Enter')
+    expect(hint).not.toContain('Ctrl+C')
+  })
+
+  it('keeps the hint when the wordmark folds under the mark', () => {
+    const lines = renderWelcome({ width: 26, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
+    expect(lines.join('\n')).toContain('commands')
+  })
+
+  it('never emits a row wider than the terminal', () => {
+    for (const width of [140, 92, 60, 46, 40, 26, 18, 12, 8]) {
+      for (const line of renderWelcome({ width, version: '0.1.0', appName: 'omdsh' }, theme)) {
+        expect(oracleWidth(line), `width ${width}: ${line}`).toBeLessThanOrEqual(width)
+      }
+    }
+  })
+
+  it('drops the mark below its own width instead of cropping it', () => {
+    // A cropped logo is not the logo, so the header becomes the wordmark alone.
+    const lines = renderWelcome({ width: 16, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
+    expect(lines.join('\n')).not.toContain(logoRow)
+    expect(lines.join('\n')).toContain('omdsh v0.1.0')
+  })
+
+  it('does not repeat the model or its effort, which the footer already shows', () => {
     const lines = renderWelcome({
-      width,
-      model: 'deepseek-v4-flash',
-      version: '0.1.0',
-      appName: 'omdsh',
-      tips: [{ key: '/', text: 'Browse available commands' }],
-    }, theme)
-
-    expect(lines).not.toHaveLength(0)
-    for (const line of lines) expect(oracleWidth(line)).toBe(width)
-    expect(stripAnsi(lines[0] ?? '')).toMatch(/^╭.*╮$/u)
-    expect(stripAnsi(lines[0] ?? '')).toContain('┬')
-    expect(lines.map(stripAnsi).some(line => /^│.*├─+┤$/u.test(line))).toBe(true)
-    expect(stripAnsi(lines.at(-1) ?? '')).toMatch(/^╰.*╯$/u)
+      width: 92, model: 'deepseek-v4-pro', reasoningEffort: 'max', version: '0.1.0', appName: 'omdsh',
+    }, theme).map(stripAnsi)
+    expect(lines.join('\n')).not.toContain('deepseek-v4-pro')
   })
 
-  it('paints the reasoning effort under the model, not the app name', () => {
-    const lines = renderWelcome({
-      width: 60, model: 'deepseek-v4-pro', reasoningEffort: 'max', version: '0.1.0', appName: 'omdsh',
-    }, theme)
-    const plain = lines.map(stripAnsi)
-    const modelRow = plain.findIndex((line) => line.includes('deepseek-v4-pro'))
-    expect(modelRow).toBeGreaterThanOrEqual(0)
-    expect(plain[modelRow + 1]).toContain('max')
-    expect(plain[modelRow + 1]).not.toContain('omdsh')
-  })
-
-  it('omits the detail line when no reasoning effort is known', () => {
-    const lines = renderWelcome({
-      width: 60, model: 'deepseek-v4-flash', version: '0.1.0', appName: 'omdsh',
-    }, theme)
-    const plain = lines.map(stripAnsi)
-    const modelRow = plain.findIndex((line) => line.includes('deepseek-v4-flash'))
-    expect(modelRow).toBeGreaterThanOrEqual(0)
-    const next = plain[modelRow + 1] ?? ''
-    expect(next).not.toContain('omdsh')
-  })
-
-  it('keeps welcome titles, body copy, metadata, and chrome layered in every color palette', () => {
+  it('keeps the brand and the hint layered in every shipped theme', () => {
     for (const name of THEME_NAMES) {
-      const active = createTheme(true, true, name)
-      const lines = renderWelcome({
-        width: 80,
-        model: 'deepseek-v4-flash',
-        version: '0.1.0',
-        appName: 'omdsh',
-        recentSessions: [{ id: 'session-1', title: 'Fix renderer', createdAt: Date.now() - 120_000 }],
-        tips: [{ key: '/', text: 'Commands' }],
-      }, active)
-      const frame = lines[0] ?? ''
-      const tips = lines.find(line => stripAnsi(line).includes('Tips')) ?? ''
-      const tip = lines.find(line => stripAnsi(line).includes('Commands')) ?? ''
-      const session = lines.find(line => stripAnsi(line).includes('Fix renderer')) ?? ''
-      expect(frame, name).toContain(active.getFgAnsi('dim'))
-      expect(tips, name).toContain(active.getFgAnsi('accent'))
-      expect(tip, name).toContain(active.getFgAnsi('muted'))
-      expect(tip, name).toContain(active.getFgAnsi('dim'))
-      expect(session, name).toContain(active.getFgAnsi('muted'))
-      expect(session, name).toContain(active.getFgAnsi('dim'))
-      expect(session, name).not.toContain(active.getFgAnsi('accent'))
+      const painted = createTheme(true, true, name)
+      const text = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, painted).join('\n')
+      expect(text, name).toContain(painted.getFgAnsi('muted'))
+      expect(text, name).toContain(painted.getFgAnsi('dim'))
     }
   })
 })

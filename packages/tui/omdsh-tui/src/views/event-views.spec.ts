@@ -814,7 +814,9 @@ describe('applyEvent', () => {
     // exists", which it always did. The failure is what still marks.
     expect(frame.lines.some((line) => line.includes('✔'))).toBe(false)
     expect(frame.lines.some((line) => line.includes('✘'))).toBe(true)
-    expect(frame.lines.some((line) => line.includes('╭───'))).toBe(true)
+    // The header is a lockup now, so the only frame on screen is the composer.
+    expect(frame.lines.some((line) => line.includes('╭─'))).toBe(true)
+    expect(frame.lines.some((line) => line.includes('╭───'))).toBe(false)
   })
 
   it('folds a settled call to one row and restores its output on toolsExpanded', () => {
@@ -862,7 +864,10 @@ describe('applyEvent', () => {
       message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] },
     }, 2))
     const frame = view(state)
-    expect(frame.lines.join('\n')).not.toContain('Ctrl+O')
+    // The header teaches `Ctrl+O details`, so the claim is about the card: a
+    // settled call whose output already fits must not offer to expand.
+    const card = frame.lines.filter(line => line.includes('Run command') || line.includes('$'))
+    expect(card.join('\n')).not.toContain('Ctrl+O')
   })
 
   it('keeps terminal input above a labeled output section after settlement', () => {
@@ -1727,20 +1732,22 @@ describe('renderView', () => {
     expect(frame.lines[0]).not.toContain('earlier line')
   })
 
-  it('paints oh-my-pi chrome: welcome card, rounded editor, no readline prompt', () => {
+  it('paints the lockup header, the rounded editor, and no readline prompt', () => {
     const frame = view(initialTranscript())
     const text = frame.lines.join('\n')
     expect(text).toContain('Into the Unknown')
     expect(text).toContain('omdsh')
     expect(text).toContain('╭')
     expect(text).toContain('╰')
-    expect(text).toContain('Tips')
+    // The header is a lockup, not a bordered card, and carries one hint rather
+    // than a tips table and a session list.
+    expect(text).not.toContain('Tips')
+    expect(text).not.toContain('Recent sessions')
     expect(text).not.toMatch(/(^|\n)> /)
-    expect(frame.lines[0]).toMatch(/^╭/)
     const editorStart = composerStart(frame.lines)
     const editorRows = composerRows(frame.lines, editorStart)
     expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
-    expect(text).toContain('/  Browse available commands')
+    expect(text).toContain('/ commands')
   })
 
   it('keeps the whale composer minimal and renders a fixed two-line status footer', () => {
