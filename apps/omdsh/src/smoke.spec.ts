@@ -54,7 +54,8 @@ describe('omdsh smoke', () => {
   it('creates a session that stock DSH persistence can load', async () => {
     const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-resume-tools-'))
     const env = { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' }
-    const created = spawnPnpm(['omdsh'], {
+    // Same reasoning as the schedule spec: the shipped entry, not a rebuild.
+    const created = spawnPnpm(['--dir', 'apps/omdsh', 'omdsh'], {
       cwd: root,
       input: 'hi\n',
       encoding: 'utf8',

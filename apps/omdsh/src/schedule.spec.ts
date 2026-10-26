@@ -10,7 +10,12 @@ const root = fileURLToPath(new URL('../../..', import.meta.url))
 describe('/schedule command at the real entry', () => {
   it('boots the schedule service and reports an empty list', () => {
     const home = mkdtempSync(join(tmpdir(), 'omdsh-schedule-home-'))
-    const result = spawnPnpm(['omdsh'], {
+    // `--dir apps/omdsh omdsh` runs the shipped entry through `tsx` and does not
+    // rebuild the workspace. The root `omdsh` script starts with `pnpm -r build`,
+    // which takes the pnpm store lock — and a suite that is already running under
+    // `pnpm -r test` holds it, so the boot died on a lock conflict instead of
+    // testing the schedule command.
+    const result = spawnPnpm(['--dir', 'apps/omdsh', 'omdsh'], {
       cwd: root,
       input: '/schedule\n',
       encoding: 'utf8',
