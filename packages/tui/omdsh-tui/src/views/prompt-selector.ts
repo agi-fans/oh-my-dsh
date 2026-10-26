@@ -8,8 +8,9 @@ import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { padToWidth, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import { formatHotkeyKeys, formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { renderListRow, type ListRow } from './list-view.ts'
 
 /** Presentation state owned by the terminal while a human prompt is active. */
 export interface PromptSelectorState {
@@ -133,7 +134,7 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
 function treePageLayout(request: TuiPrompt, width: number, height: number) {
   const actions = (request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
   const hint = `↑↓ · ←→ fold${width >= 90 ? ' · type search' : ''}${actions === '' ? '' : ` · ${actions}`}${width >= 90 ? ' · Ctrl+↑↓ preview' : ''}`
-  const hints = wrapText(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
+  const hints = wrapTextStable(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
   const middle = height - 6 - hints.length
   const listHeight = width >= 90 ? middle : Math.max(1, Math.floor((middle - 1) / 2))
   const previewHeight = width >= 90 ? middle : middle - listHeight - 1
@@ -238,14 +239,16 @@ function optionRow(
   theme: Theme,
   width: number,
 ): string {
-  const active = index === state.selected
-  const cursor = active ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
+  // The multi-select marker is part of the label so the shared row keeps one
+  // cursor cell and one description gap for every prompt, checked or not.
   const marker = state.request.multiSelect === true
     ? theme.fg(state.checked.has(index) ? 'success' : 'dim', state.checked.has(index) ? '[x] ' : '[ ] ')
     : ''
-  const label = active ? theme.bold(theme.fg('accent', option.label)) : option.label
-  const description = option.description === undefined ? '' : theme.fg('dim', ' — ' + option.description)
-  return truncateToWidth(cursor + marker + label + description, Math.max(1, width))
+  const row: ListRow = {
+    label: marker + option.label,
+    ...(option.description === undefined ? {} : { description: option.description }),
+  }
+  return renderListRow(row, theme, Math.max(1, width), { selected: index === state.selected })
 }
 
 function fit(text: string, width: number): string {
@@ -311,7 +314,7 @@ export function renderPromptSelectorPage(
   const selected = Math.max(0, Math.min(state.selected, Math.max(0, options.length - 1)))
   const compact = state.request.optionLayout === 'compact'
   const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
-  const hints = wrapText(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, ...(state.request.multiSelect === true ? [HOTKEY_TOGGLE] : []), HOTKEY_SELECT, HOTKEY_CANCEL])
+  const hints = wrapTextStable(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, ...(state.request.multiSelect === true ? [HOTKEY_TOGGLE] : []), HOTKEY_SELECT, HOTKEY_CANCEL])
     + (actionHints === '' ? '' : ' · ' + actionHints), width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
   const fixedRows = (compact ? 9 : 11) + hints.length - 1
   const visibleCount = compact
@@ -355,10 +358,8 @@ export function renderPromptSelectorPage(
         continue
       }
       const active = index === selected
-      const marker = active ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
       const check = state.request.multiSelect === true ? visibleChecked.has(index) ? '[x] ' : '[ ] ' : ''
-      const label = active ? theme.bold(option.label) : option.label
-      lines.push(pageRow(theme, marker + check + label, width))
+      lines.push(pageRow(theme, renderListRow({ label: check + option.label }, theme, Math.max(1, width - 6), { selected: active }), width))
       lines.push(pageRow(theme, '  ' + theme.fg('dim', option.preview ?? ''), width))
       const badge = optionBadge(option, theme)
       const description = option.description === undefined ? '' : theme.fg('dim', option.description)
@@ -431,7 +432,7 @@ export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme,
     pageRow(theme, theme.fg('muted', image.description), width), pageDivider(theme, width)]
   const top = lines.length
   const canOpen = state.request.options?.some(option => option.value === 'open') === true
-  const fallback = protocol === undefined ? wrapText('Inline images are unavailable in this terminal. '
+  const fallback = protocol === undefined ? wrapTextStable('Inline images are unavailable in this terminal. '
     + (canOpen ? 'Use Open to view the original.' : 'This attachment has no local original to open.'), width - 8) : []
   for (let at = 0; at < bodyRows; at++) lines.push(pageRow(theme, '  ' + (fallback[at] ?? ''), width))
   lines.push(pageDivider(theme, width), pageRow(theme, theme.fg('muted', (state.request.detail ?? '').replace(/[\r\n]+/gu, ' ')), width),
@@ -460,7 +461,7 @@ export function renderPlanReviewPage(
   const actionRows = documentActionRows(state, theme, width, pageHeight)
   const readerInput = source !== undefined && state.documentInput !== undefined
   const customHints = (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`)
-  let readerHints = source === undefined ? [] : wrapText(readerInput ? 'Enter apply · Esc cancel'
+  let readerHints = source === undefined ? [] : wrapTextStable(readerInput ? 'Enter apply · Esc cancel'
     : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
       + ' · ' + ['Tab/←→ actions', 'Enter activate', ...customHints, 'Esc back'].join(' · '), width - 4)
   const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))

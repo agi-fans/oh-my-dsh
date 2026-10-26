@@ -11,6 +11,7 @@ import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { expandTabs, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { renderListRowWithValue } from './list-view.ts'
 
 /** Visible picker rows. */
 export const COPY_SELECTOR_MAX_VISIBLE = 8
@@ -178,11 +179,13 @@ export function renderCopySelector(
 }
 
 function renderCopyRow(item: CopyPick, selected: boolean, theme: Theme, width: number): string {
-  const cursor = selected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
-  const label = selected ? theme.bold(theme.fg('accent', item.label)) : item.label
-  const hint = item.hint === '' ? '' : theme.fg('dim', item.hint)
-  const fill = Math.max(1, width - visibleWidth(cursor) - visibleWidth(label) - visibleWidth(hint))
-  return truncateToWidth(cursor + label + ' '.repeat(fill) + hint, width)
+  return renderListRowWithValue(
+    { label: item.label, ...(item.hint === '' ? {} : { value: item.hint }) },
+    theme,
+    width,
+    visibleWidth(item.label),
+    { selected },
+  )
 }
 
 function renderCopyPreview(item: CopyPick | undefined, theme: Theme, width: number): string[] {

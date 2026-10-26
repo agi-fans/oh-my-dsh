@@ -4,9 +4,17 @@
  * @module @agi-fans/dsh-tui
  */
 
-import { SYMBOL, type Theme } from '../chrome/theme.ts'
+import type { Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
 import { subsequencePenalty } from '../input/fuzzy-search.ts'
+import {
+  listPrimaryColumnWidth,
+  listVisibleRange,
+  renderListCounter,
+  renderListRow,
+  renderListRowWithValue,
+  type ListRow,
+} from './list-view.ts'
 
 /** One argument token a slash command can complete. */
 export interface SlashArgument {
@@ -345,13 +353,15 @@ export function autocompleteVisibleRange(
   count: number,
   selected: number,
 ): { start: number; end: number } {
-  const max = AUTOCOMPLETE_MAX_VISIBLE
-  const index = Math.max(0, Math.min(selected, Math.max(0, count - 1)))
-  const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, count - max)))
-  return { start, end: Math.min(count, start + max) }
+  return listVisibleRange(count, selected, AUTOCOMPLETE_MAX_VISIBLE)
 }
 
-/** Popup rows: cursor + name + description, windowed around the selection. */
+/**
+ * Popup rows: cursor + name + description, windowed around the selection.
+ *
+ * Drawn through the shared list row so the cursor cell, the description gap and
+ * the `(n/total)` footnote are the same ones every other list in the TUI uses.
+ */
 export function renderAutocomplete(
   items: readonly AutocompleteItem[],
   selected: number,
@@ -359,29 +369,27 @@ export function renderAutocomplete(
   width: number,
 ): string[] {
   if (items.length === 0 || width <= 0) return []
-  const { start, end } = autocompleteVisibleRange(items.length, selected)
   const index = Math.max(0, Math.min(selected, items.length - 1))
+  const { start, end } = autocompleteVisibleRange(items.length, index)
   const lines: string[] = []
-  for (let i = start; i < end; i += 1) {
-    const item = items[i]
+  const primaryWidth = listPrimaryColumnWidth(
+    items.flatMap(item => item.kind === 'heading' ? [] : [{ label: autocompleteLabel(item) }]),
+    width,
+  )
+  for (let at = start; at < end; at += 1) {
+    const item = items[at]
     if (item === undefined) continue
-    const isSelected = i === index
     if (item.kind === 'heading') {
-      lines.push(truncateToWidth(theme.fg('dim', item.label), width))
+      lines.push(renderListRow({ label: item.label, heading: true }, theme, width, { selected: false }))
       continue
     }
-    const cursor = isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
     const bare = item.kind === 'argument' || item.kind === 'path' || item.kind === 'session'
-    const name = bare ? item.label : '/' + item.label
-    const painted = isSelected
-      ? theme.bold(theme.fg('accent', name))
-      : bare
-        ? name
-        : theme.fg('accent', name)
-    const desc = item.description !== undefined && item.description !== ''
-      ? theme.fg('muted', '  ' + item.description)
-      : ''
-    lines.push(truncateToWidth(cursor + painted + desc, width))
+    const row: ListRow = {
+      label: autocompleteLabel(item),
+      ...(bare ? {} : { tone: 'accent' as const }),
+      ...(item.description === undefined || item.description === '' ? {} : { description: item.description }),
+    }
+    lines.push(renderListRowWithValue(row, theme, width, primaryWidth, { selected: at === index }))
   }
   const pathMode = items.some(item => item.kind === 'path' || item.kind === 'session')
   if (pathMode) {
@@ -391,7 +399,12 @@ export function renderAutocomplete(
       width,
     )))
   } else if (items.length > AUTOCOMPLETE_MAX_VISIBLE) {
-    lines.push(theme.fg('dim', '  ' + String(index + 1) + '/' + String(items.length)))
+    lines.push(renderListCounter(theme, index, items.length, width))
   }
   return lines
+}
+
+/** A completion's primary column: paths and arguments keep their bare text. */
+function autocompleteLabel(item: AutocompleteItem): string {
+  return item.kind === 'argument' || item.kind === 'path' || item.kind === 'session' ? item.label : '/' + item.label
 }

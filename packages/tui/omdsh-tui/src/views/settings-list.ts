@@ -27,14 +27,15 @@ import {
   type StatusSide,
 } from '../chrome/status-config.ts'
 import { renderStatusFooter } from '../chrome/status-line.ts'
-import { BOX, SYMBOL, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, isThemeName } from '../chrome/theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { BOX, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, isThemeName } from '../chrome/theme.ts'
+import { padToWidth, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
 import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
 import { MATH_MODES, type MathMode } from '../chrome/math.ts'
 import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { LIST_CURSOR_CELLS, renderListRowWithValue, type ListRow } from './list-view.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { moveGraphemeLeft } from '../chrome/grapheme.ts'
@@ -83,6 +84,8 @@ export interface TuiPrefs {
   motion?: MotionMode
   mathMode?: MathMode
   mermaidMode?: MermaidMode
+  /** Transcript starts with thinking collapsed to one line. */
+  hideThinking?: boolean
   editor?: EditorId
   terminalProgress?: boolean
   terminalTitle?: TerminalTitleMode
@@ -222,6 +225,13 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       description: 'Auto draws complete diagrams that fit; Source shows Mermaid code. Unsupported or incomplete diagrams retain their source.',
       value: prefs.mermaidMode ?? 'auto',
       values: MERMAID_MODES,
+    },
+    {
+      id: 'hideThinking',
+      label: 'Thinking in turns',
+      description: 'Shown keeps reasoning visible while a turn runs; Hidden collapses it to one line. Ctrl+T flips this for the session.',
+      value: prefs.hideThinking === true ? 'hidden' : 'shown',
+      values: ['shown', 'hidden'],
     },
     {
       id: 'editor',
@@ -430,6 +440,7 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
   if (id === 'mathMode' && MATH_MODES.includes(value as MathMode)) return { ...prefs, mathMode: value as MathMode }
   if (id === 'mermaidMode' && MERMAID_MODES.includes(value as MermaidMode)) return { ...prefs, mermaidMode: value as MermaidMode }
+  if (id === 'hideThinking') return { ...prefs, hideThinking: value === 'hidden' }
   if (id === 'pasteProtection') return { ...prefs, pasteProtection: value === 'on' }
   if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
   if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {
@@ -589,7 +600,7 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
       values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
   return [
     { id: 'general' as const, label: 'Interface', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
-      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'terminalTitle', 'terminalState', 'terminalProgress'].includes(item.id) ? 'Appearance'
+      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState', 'terminalProgress'].includes(item.id) ? 'Appearance'
         : ['editor', 'mouseInteraction', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
           : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
       description: (item.id === 'notificationFocus' && (state.prefs.notifications ?? 'off') === 'off' ? 'Inactive while Notifications is off. '
@@ -1000,7 +1011,7 @@ export function renderSettings(
   }
   lines.push(divider(theme, width))
   const description = selected === undefined ? '' : selected.description
-  const descriptionLines = wrapText(description, Math.max(1, width - 8)).slice(0, descriptionRows)
+  const descriptionLines = wrapTextStable(description, Math.max(1, width - 8)).slice(0, descriptionRows)
   for (let row = 0; row < descriptionRows; row += 1) {
     const text = descriptionLines[row] ?? ''
     lines.push(framedRow(theme, text === '' ? '' : '  ' + theme.fg('muted', text), width))
@@ -1029,17 +1040,23 @@ function renderSettingRow(
   edge = '',
   moving = false,
 ): string {
-  const cursor = selected ? theme.fg('accent', (moving ? '↕' : SYMBOL.cursor) + ' ') : '  '
-  const label = selected
-    ? theme.bold(theme.fg('accent', item.label))
-    : item.hidden === true ? theme.fg('dim', item.label) : item.label
-  const sample = item.sample === undefined
-    ? ''
-    : '  ' + theme.fg(item.hidden === true ? 'dim' : 'muted', item.sample)
+  // A colour value keeps its swatch tone only when the row is not selected;
+  // selection has to win, or the reader cannot tell which row the cursor is on.
   const rawValue = moving ? 'moving' : item.value
-  const value = selected || item.swatch === undefined
-    ? theme.fg(selected ? 'accent' : 'muted', rawValue)
-    : theme.fg(item.swatch, rawValue)
-  const fill = Math.max(1, width - visibleWidth(cursor) - visibleWidth(label) - visibleWidth(sample) - visibleWidth(value) - visibleWidth(edge))
-  return truncateToWidth(cursor + label + sample + ' '.repeat(fill) + value + edge, width)
+  const value = selected || item.swatch === undefined ? rawValue : theme.fg(item.swatch, rawValue)
+  const row: ListRow = {
+    label: item.label,
+    ...(item.sample === undefined ? {} : { description: item.sample }),
+    secondary: item.hidden === true,
+    value,
+  }
+  const rendered = renderListRowWithValue(row, theme, width, visibleWidth(item.label), {
+    selected,
+    ...(moving ? { moving } : {}),
+  })
+  // An edge mark replaces the cursor cell, which the shared row already
+  // reserved, so the row cannot shift when the reader reaches either end.
+  if (edge === '') return rendered
+  const mark = theme.fg('dim', edge.trimStart() + ' ')
+  return truncateToWidth(mark + rendered.slice(LIST_CURSOR_CELLS), width)
 }

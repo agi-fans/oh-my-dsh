@@ -172,8 +172,12 @@ describe('full-screen selector density', () => {
     const rows = frame.lines.map(stripAnsi)
 
     expect(frame.lines).toHaveLength(24)
-    expect(rows.some(row => row.includes('deepseek-v4-flash — DeepSeek-V4-Flash'))).toBe(true)
-    expect(rows.some(row => row.includes('deepseek-v4-pro — DeepSeek-V4-Pro'))).toBe(true)
+    // One row per choice: the shared list row puts the description in its own
+    // column instead of trailing an em dash, so long labels line up with each
+    // other rather than pushing their descriptions to different columns.
+    expect(rows.some(row => /deepseek-v4-flash\s+DeepSeek-V4-Flash/u.test(row))).toBe(true)
+    expect(rows.some(row => /deepseek-v4-pro\s+DeepSeek-V4-Pro/u.test(row))).toBe(true)
+    expect(rows.every(row => !row.includes('—'))).toBe(true)
   })
 })
 

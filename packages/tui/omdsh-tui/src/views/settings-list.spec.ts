@@ -150,6 +150,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'motion',
       'mathMode',
       'mermaidMode',
+      'hideThinking',
       'terminalTitle',
       'terminalState',
       'terminalProgress',
@@ -276,7 +277,7 @@ describe('applySettingsEvent', () => {
       state: { selected: 0, prefs: { theme: 'light', colors: true } },
     })
     const again = applySettingsEvent(cycled.kind === 'apply' ? cycled.state : open, { type: 'text', value: ' ' })
-    expect(again.kind === 'apply' && again.state.prefs.theme).toBe('midnight')
+    expect(again.kind === 'apply' && again.state.prefs.theme).toBe('system')
   })
 
   it('moves between rows and closes on escape', () => {
