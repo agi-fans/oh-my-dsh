@@ -83,7 +83,6 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 
 | Command | What it does |
 |---|---|
-| `/files [path]` | Browse directories or preview a file. `Shift+P` in the directory picker opens this session’s deliverables. |
 | `/attach [path]` | Stream a file into durable storage and stage a reference in the composer. Without a path, ask for one. It does not submit a message. |
 | `/attachments` | Preview or externally open original file and image attachments from this session’s user messages. |
 | `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
@@ -100,7 +99,7 @@ PNG, JPEG, WebP and GIF files open in an image preview page. `/attachments` incl
 
 Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
-Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. `/files` previews include sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Interface → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
+Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Interface → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 
 `/attach` displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. A draft containing files treats slash-prefixed text as a model message rather than executing a command. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 

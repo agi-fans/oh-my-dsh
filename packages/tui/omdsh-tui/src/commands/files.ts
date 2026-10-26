@@ -1,16 +1,25 @@
-/** Workspace browsing, deliverables, and durable file attachments. */
+/**
+ * File attachments: a file added to the composer, and the session's own log of
+ * what has been attached.
+ *
+ * There used to be a `/files` browser as well — a full-screen directory walker
+ * with its own workspace search and a deliverables view. It was a file manager
+ * inside a chat, which is not what a chat needs: `@` already completes any path
+ * in the workspace, a tool card's paths already open a preview, and the Agent
+ * already reports the files it wrote. Nothing it offered was unreachable without
+ * it, and it cost the reader a mode to learn.
+ */
 
 import { createReadStream } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { stat } from 'node:fs/promises'
+import { basename, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { deliverableFiles, logAttachments } from '../views/session-files.ts'
+import { logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
 import { previewImages } from '../runtime/image-preview.ts'
 import { registerCommands } from './registration.ts'
-import { loadProjectPaths, rankProjectPaths } from '../session/project-file-search.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-files'
@@ -19,83 +28,6 @@ export const inject = ['commands', 'tui', 'attachments']
 export function userPath(input: string, cwd: string): string {
   const unquoted = input.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
   return resolve(cwd, unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
-}
-
-async function searchWorkspaceFile(ctx: Context, root: string, initialQuery: string, signal: AbortSignal): Promise<string | null> {
-  const entries = (await loadProjectPaths(root, signal)).filter(entry => !entry.directory)
-  const ranked = initialQuery.trim() === '' ? entries.slice(0, 1000) : rankProjectPaths(entries, initialQuery, 500)
-  if (ranked.length === 0) return null
-  if (ranked.length === 1 && initialQuery.trim() !== '') return resolve(root, ranked[0]!.path)
-  const answer = await ctx.tui.prompt({
-    title: `Workspace files · ${root}`,
-    question: initialQuery.trim() === '' ? 'Search workspace files' : `Matches for "${initialQuery.trim()}"`,
-    presentation: 'fullscreen-list',
-    optionLayout: 'compact',
-    allowCustom: false,
-    filterable: true,
-    signal,
-    notify: false,
-    options: ranked.map(entry => ({ label: entry.path, value: resolve(root, entry.path) })),
-  })
-  return answer
-}
-
-async function browse(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
-  const rawQuery = invocation.rawInput.trim()
-  let path = userPath(rawQuery, cwd)
-  while (!invocation.signal.aborted) {
-    let info
-    try {
-      info = await stat(path)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT' && rawQuery !== '' && ctx.tui.interactive === true) {
-        const matched = await searchWorkspaceFile(ctx, cwd, rawQuery, invocation.signal)
-        if (matched !== null) {
-          path = matched
-          info = await stat(path)
-        } else {
-          throw error
-        }
-      } else {
-        throw error
-      }
-    }
-    if (info.isFile()) {
-      if (ctx.tui.interactive !== true) return { kind: 'success', text: await filePreview(path, invocation.signal) }
-      const directory = dirname(path)
-      const files = (await readdir(directory, { withFileTypes: true })).filter(entry => entry.isFile())
-        .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 500)
-        .map(entry => ({ path: resolve(directory, entry.name), label: entry.name }))
-      if (!files.some(file => file.path === path)) files.push({ path, label: basename(path) })
-      await reviewFiles(ctx.tui, `Files · ${directory}`, directory, files, index => filePreview(files[index]!.path, invocation.signal),
-        invocation.signal, files.findIndex(file => file.path === path), false)
-      path = directory
-      continue
-    }
-    const entries = (await readdir(path, { withFileTypes: true })).filter(entry => entry.name !== '.git' && entry.name !== 'node_modules')
-      .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
-    const page = entries.slice(0, 500)
-    if (ctx.tui.interactive !== true) return { kind: 'success', text: page.map(entry => entry.name + (entry.isDirectory() ? '/' : '')).join('\n') }
-    const answer = await ctx.tui.prompt({ title: `Files · ${path}`, question: path, presentation: 'fullscreen-list', optionLayout: 'compact',
-      allowCustom: false, filterable: true, signal: invocation.signal, notify: false,
-      detail: entries.length > page.length ? `Showing ${page.length} of ${entries.length} entries; Shift+F searches all workspace files.` : 'Shift+F searches workspace files · Shift+P shows this session’s deliverables.',
-      options: [{ label: '../', value: dirname(path) }, ...page.map(entry => ({ label: entry.name + (entry.isDirectory() ? '/' : ''), value: resolve(path, entry.name) }))],
-      actions: [{ key: 'F', label: 'search workspace', valuePrefix: 'search:' }, { key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
-    if (answer === null) break
-    if (answer.startsWith('search:')) {
-      const picked = await searchWorkspaceFile(ctx, path, '', invocation.signal)
-      if (picked === null) continue
-      path = picked
-      continue
-    }
-    if (answer.startsWith('present:')) {
-      const files = deliverableFiles(invocation.agent.session.snapshotEvents()).map(path => ({ path, label: path }))
-      if (files.length === 0) { ctx.tui.notice('No deliverables in this session.'); continue }
-      await reviewFiles(ctx.tui, 'Deliverables', cwd, files, index => filePreview(resolve(cwd, files[index]?.path ?? ''), invocation.signal), invocation.signal, undefined, false)
-    } else path = answer
-  }
-  return { kind: 'success' }
 }
 
 export async function attachFile(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
@@ -151,7 +83,6 @@ export function apply(ctx: Context): void {
     try { return await handler(ctx, invocation) } catch (error) { return { kind: 'error', text: invocation.signal.aborted ? 'File operation cancelled.' : error instanceof Error ? error.message : String(error) } }
   }
   registerCommands(ctx, [
-    { name: 'files', description: 'Browse workspace files and session deliverables', input: { hint: '[path]' }, handler: safe(browse) },
     { name: 'attach', description: 'Add a file to the composer without sending it', input: { hint: '[path]' }, handler: safe(attachFile) },
     { name: 'attachments', description: 'View this session’s stored attachments', handler: safe(attachments) },
   ], 'omdsh file interaction')

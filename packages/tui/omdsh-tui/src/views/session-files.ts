@@ -1,17 +1,8 @@
-/** Durable file references shared by browsing and archive export. */
+/** Durable file references shared by attachment listing and archive export. */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-tool-present/types'
-
-export function deliverableFiles(events: readonly SessionEvent[]): string[] {
-  const paths: string[] = []
-  for (const event of events) {
-    if (event.type !== 'deliverables/presented') continue
-    for (const file of event.data.files) paths.push(file.path)
-  }
-  return [...new Set(paths)]
-}
 
 export function sessionAttachments(events: readonly SessionEvent[]): (FileAttachmentRef | ImageAttachmentRef)[] {
   const refs = new Map<string, FileAttachmentRef | ImageAttachmentRef>()

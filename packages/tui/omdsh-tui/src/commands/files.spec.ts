@@ -64,54 +64,6 @@ describe('file attachment admission', () => {
   })
 })
 
-describe('file browsing actions', () => {
-  it('reviews sibling files and returns to the directory instead of reopening a one-file list', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'omdsh-browse-')); roots.push(root)
-    await writeFile(join(root, 'a.txt'), 'File A')
-    await writeFile(join(root, 'b.txt'), 'File B')
-    const ctx = new Context()
-    const requests: TuiPrompt[] = []
-    const answers = ['next', 'previous', 'files', null, null]
-    try {
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(CommandRuntime)
-      ctx.provide('tui', { interactive: true, notice: () => {}, prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } } as never)
-      ctx.provide('attachments', {} as never)
-      await ctx.plugin(filesCommand)
-      const session = ctx.sessions.create(SessionId('file-browser'), { meta: { cwd: root } })
-      await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/files a.txt', [], new AbortController().signal)
-      expect(requests[0]?.documentSource?.text).toContain('File A')
-      expect(requests[1]?.documentSource?.text).toContain('File B')
-      expect(requests[2]?.documentSource?.text).toContain('File A')
-      expect(requests[3]?.options?.map(option => option.label)).toEqual(['a.txt', 'b.txt'])
-      expect(requests[4]?.title).toBe(`Files · ${root}`)
-    } finally { await ctx.fiber.dispose() }
-  })
-
-  it('falls back to workspace fuzzy search when /files query is not a verbatim path', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'omdsh-fuzzy-')); roots.push(root)
-    await writeFile(join(root, 'deep-module-a.ts'), 'export const a = 1\n')
-    await writeFile(join(root, 'deep-module-b.ts'), 'export const b = 2\n')
-    const ctx = new Context()
-    const requests: TuiPrompt[] = []
-    const answers = [join(root, 'deep-module-a.ts'), null, null]
-    try {
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(CommandRuntime)
-      ctx.provide('tui', { interactive: true, notice: () => {}, prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } } as never)
-      ctx.provide('attachments', {} as never)
-      await ctx.plugin(filesCommand)
-      const session = ctx.sessions.create(SessionId('file-fuzzy'), { meta: { cwd: root } })
-      await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/files dpm', [], new AbortController().signal)
-      expect(requests[0]?.title).toContain('Workspace files')
-      expect(requests[0]?.question).toBe('Matches for "dpm"')
-      expect(requests[0]?.options?.map(option => option.label)).toEqual(['deep-module-a.ts', 'deep-module-b.ts'])
-      expect(requests[1]?.documentSource?.text).toContain('export const a = 1')
-    } finally { await ctx.fiber.dispose() }
-  })
-})
-
-
 it('previews verified durable image bytes when the provider has no host path', async () => {
   const data = await sharp({ create: { width: 20, height: 10, channels: 3, background: '#1569a5' } }).png().toBuffer()
   const ref = { attachmentId: 'stored-image', name: '中文.png', bytes: data.length, mediaType: 'image/png' }

@@ -94,50 +94,21 @@ const attachmentPath = join(reviewDirectory, 'a.txt')
 writeFileSync(attachmentPath, 'Hello file preview\n' + Array.from({ length: 80 }, (_, at) => `source row ${at + 2}\n`).join(''))
 writeFileSync(join(reviewDirectory, 'b.txt'), 'Hello sibling preview\n')
 let featureMark = out.length
-term.write(`/files "${attachmentPath}"\r`)
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello file preview'), 'file document page', deadline))) {
+// The document reader's line jumps, search, and sibling navigation are covered
+// by views/document-reader.spec.ts. What this end-to-end run still has to prove
+// is that staging a file keeps the raw TTY owner intact.
+term.write(`/attach "${attachmentPath}"\r`)
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Attached a.txt'), 'file staged through the raw TTY', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
-featureMark = out.length
-term.write('G')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Line:'), 'file line entry', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('42\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Line 42/81'), 'source line jump', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('/')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Find:'), 'source search entry', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('source row 60\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('1/1 matching lines'), 'source content search', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\t\t\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Hello sibling preview'), 'Next file via Tab and Enter', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('P')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('source row 60'), 'Previous file restores source position', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('F')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('b.txt'), 'Files action', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('../'), 'directory after file review', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
+// Drop the staged draft so the session is still blank for the steps below; a
+// `[File:1]` marker only leaves the composer with the message it belongs to, so
+// this clears the buffer instead of sending it.
+await sleep(150)
+term.write('\x1b')
+await sleep(100)
+term.write('\x15')
+await sleep(200)
 term.write('\x1b[27u')
 await sleep(100)
 // A `!` line runs into a transcript card that settles in place: no picker, no
