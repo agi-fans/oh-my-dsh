@@ -20,12 +20,34 @@ function harness() {
    */
   pending.resolve({ viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false })
   const operation = { done: pending.promise, readOutput: vi.fn(), cancel: vi.fn(() => { pending.resolve({ viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false }); return true }) }
+  // The shell answers a line by writing it back plus its output, which is what
+  // makes a baseline worth taking at all.
+  let sent = false
   const terminals = {
     spawn: vi.fn(async (agent: Agent = owner) => { published.set(agent, 'running'); lastOwner = agent; return { sessionId: 'composer' } }),
     list: vi.fn((agent: Agent) => { const status = published.get(agent); return status === undefined ? [] : [{ sessionId: 'composer', name: 'Composer shell', type: 'shell', status: status === 'running' ? { kind: status } : { kind: status, exitCode: 0, signal: null } }] }),
     kill: vi.fn(async (agent: Agent) => { published.delete(agent); return true }),
-    startSend: vi.fn(() => operation), signal: vi.fn(),
-    read: vi.fn(() => ({ text: 'hello\ndsh> ', truncated: false, lineBegin: 0, lineEnd: 2, totalLines: 2 })),
+    startSend: vi.fn(() => { sent = true; return operation }), signal: vi.fn(),
+    // A persistent shell's scrollback: the prompt from a previous line first,
+    // then whatever this line writes. `count` is honoured so a caller can ask
+    // for only the lines past its own baseline.
+    read: vi.fn((_agent: unknown, _id: unknown, request?: { offset?: number; count?: number }) => {
+      const lines = sent
+        ? ['dsh> old output', 'dsh>', 'dsh> git status', 'M a.ts', 'dsh>']
+        : ['dsh> old output', 'dsh>']
+      // `offset` counts back from the newest retained line, so a page is the
+      // lines ending at `totalLines - offset` — not the first N of the buffer.
+      const total = lines.length
+      const end = total - (request?.offset ?? 0)
+      const start = Math.max(0, end - (request?.count ?? total))
+      return {
+        text: lines.slice(start, end).join('\n'),
+        truncated: false,
+        lineBegin: end - start,
+        lineEnd: end,
+        totalLines: lines.length,
+      }
+    }),
   }
   const prompt = vi.fn<TuiService['prompt']>().mockResolvedValue(null)
   const notice = vi.fn(), commandOutput = vi.fn()
@@ -34,11 +56,14 @@ function harness() {
    * hand back its result. The provider's own rendering is covered by the
    * fake-TTY contract, not here.
    */
-  const shellCommand = vi.fn(async (request: { run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<unknown>; signal: AbortSignal }) => request.run(() => {}, request.signal))
+  /** Output the card was last handed, so a test can assert the projection. */
+  const cardOutput: { last: string } = { last: '' }
+  const shellCommand = vi.fn(async (request: { run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<unknown>; signal: AbortSignal }) =>
+    request.run(output => { cardOutput.last = output }, request.signal))
   ctx.provide('tui', { interactive: true, prompt, notice, commandOutput, shellCommand } as never)
   ctx.provide('terminals', terminals as never)
   ctx.provide('workingDirectory', { get: () => '/current' } as never)
-  return { ctx, owner, terminals, prompt, notice, commandOutput, shellCommand, operation, pending, setExited: () => { if (lastOwner !== undefined) published.set(lastOwner, 'exited') } }
+  return { ctx, owner, terminals, prompt, notice, commandOutput, shellCommand, cardOutput, operation, pending, setExited: () => { if (lastOwner !== undefined) published.set(lastOwner, 'exited') } }
 }
 
 describe('Composer Shell input', () => {
@@ -201,5 +226,23 @@ describe('Access changes and the composer Shell', () => {
       expect(await closeIdleComposerShell(h.ctx, h.owner)).toBe(false)
       expect(h.terminals.kill).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
+  })
+})
+
+describe('Shell card projection', () => {
+  it('shows only what this line produced, not the shell history above it', async () => {
+    // The shell is persistent and echoes the prompt, so the raw scrollback holds
+    // an earlier line's output and this line's own echo. A card that rendered the
+    // whole snapshot repeated the command under its `$ command` header and
+    // replayed history from before this line ran.
+    const h = harness()
+    try {
+      await runComposerShell(h.ctx, h.owner, 'git status', new AbortController().signal)
+      // The card is handed the delta: this line's echo, its output, the next
+      // prompt — never the earlier line's output above the baseline.
+      expect(h.cardOutput.last).toContain('git status')
+      expect(h.cardOutput.last).toContain('M a.ts')
+      expect(h.cardOutput.last).not.toContain('old output')
+    } finally { h.operation.cancel(); await h.ctx.fiber.dispose() }
   })
 })

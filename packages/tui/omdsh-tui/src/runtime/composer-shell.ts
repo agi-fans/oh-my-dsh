@@ -57,19 +57,30 @@ export async function runComposerShell(
   }
   signal.throwIfAborted()
   const sessionId = id
+  let produced = ''
   await ctx.tui.shellCommand({
     command,
     signal,
     abort: () => { interruption.abort(new Error('Shell interrupted by user')) },
     ...(options.share === true ? { share: true } : {}),
     run: async (onOutput, runSignal) => {
+      // The Shell is persistent, so its scrollback holds everything typed into it
+      // across earlier `!` lines — and the shell's own prompt echoes each line.
+      // Reading the whole snapshot into the card would repeat the command under
+      // our own `$ command` header and replay history from before this line ran.
+      // The line count is the boundary: everything above it belongs to an
+      // earlier line, everything below it is this command's output.
+      const baseline = terminals.read(owner, sessionId).totalLines
       const operation = terminals.startSend(owner, sessionId, { text: command, submit: true, signal: runSignal })
-      // Stream the retained output as the command writes, then settle on the
-      // final snapshot: the terminal registry is the source, not a delta log.
+      const since = (): string => {
+        const fresh = terminals.read(owner, sessionId).totalLines - baseline
+        if (fresh <= 0) return ''
+        return terminals.read(owner, sessionId, { offset: 0, count: fresh }).text
+      }
       let done = false
       const pump = (): void => {
         if (done) return
-        onOutput(terminals.read(owner, sessionId).text)
+        onOutput(since())
       }
       const tick = setInterval(pump, SHELL_STREAM_TICK_MS)
       tick.unref?.()
@@ -85,14 +96,21 @@ export async function runComposerShell(
         // A settled send means the line was delivered, not that the command
         // exited; the card reports the delivery rather than inventing an exit
         // code the Shell never gave us.
-        if (settled === 'done') return { output: terminals.read(owner, sessionId).text }
+        if (settled === 'done') {
+          // Publish the settled delta to the card as well: the tick that would
+          // have shown it may never fire, and the card must not stop on a frame
+          // older than the command.
+          produced = since()
+          if (produced !== '') onOutput(produced)
+          return { output: produced }
+        }
         // An interrupted line still needs the send cancelled and the shell
         // signalled, or the command keeps running in the background while the
         // card claims it stopped.
         if (!operation.cancel() && terminals.list(owner).some(item => item.sessionId === sessionId && item.status.kind === 'running')) {
           await terminals.signal(owner, sessionId, 'SIGINT')
         }
-        return { output: terminals.read(owner, sessionId).text, interrupted: true }
+        return { output: since(), interrupted: true }
       } finally {
         done = true
         clearInterval(tick)
@@ -100,8 +118,8 @@ export async function runComposerShell(
     },
   })
   if (options.share === true && !signal.aborted) {
-    const snapshot = terminals.read(owner, id)
-    shareTerminalOutputToConversation(owner, `Shell · \`${command}\``, snapshot.text)
+    // Share what this line produced, for the same reason the card shows that.
+    shareTerminalOutputToConversation(owner, `Shell · \`${command}\``, produced)
   }
 }
 

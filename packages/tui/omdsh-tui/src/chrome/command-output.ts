@@ -1,8 +1,8 @@
 /** Shared presentation for successful slash-command output. */
 
 import { renderMarkdown } from './markdown.ts'
-import { BOX, type Theme } from './theme.ts'
-import { truncateToWidth, visibleWidth, wrapText, wrapTextStable } from './width.ts'
+import { BOX, paintSurface, type Theme } from './theme.ts'
+import { padToWidth, truncateToWidth, visibleWidth, wrapText, wrapTextStable } from './width.ts'
 
 /** Render a command result without the generic notice frame. */
 export function renderCommandOutput(command: string, text: string, theme: Theme, width: number): string[] {
@@ -33,6 +33,23 @@ export function renderCommandSeparator(theme: Theme, width: number): string {
   return ' ' + theme.fg('border', BOX.horizontal.repeat(width - 2)) + ' '
 }
 
+/**
+ * Drop the prompt the shell paints after a command.
+ *
+ * A prompt line is the last line and looks like a bare `name>` / `name$`; a line
+ * that carries anything after the marker is output, not chrome, so it stays.
+ */
+function dropTrailingPrompt(lines: readonly string[]): string[] {
+  let end = lines.length
+  while (end > 0) {
+    const last = (lines[end - 1] ?? '').trimEnd()
+    if (last === '') { end -= 1; continue }
+    if (/^[\w.-]*[>$#%]\s*$/u.test(last)) { end -= 1; continue }
+    break
+  }
+  return lines.slice(0, end)
+}
+
 /** Rows of shell output a settled card keeps before it collapses to a hint. */
 const SHELL_PREVIEW_ROWS = 12
 
@@ -46,31 +63,40 @@ const SHELL_PREVIEW_ROWS = 12
  * the exit code, because that code is the reason the reader needs to look.
  */
 export function renderShell(block: { command: string; output: string; status: 'running' | 'ok' | 'error'; code?: number; shared?: boolean }, theme: Theme, width: number): string[] {
-  const prefix = width > 2 ? '  ' : ''
+  const inset = width > 4 ? 2 : 0
+  const room = Math.max(1, width - inset * 2)
   const rows = block.output.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replace(/\s+$/u, '')
-  const head = prefix + theme.bold(theme.fg(block.status === 'error' ? 'error' : 'toolTitle', `$ ${block.command}`))
-  const lines = [truncateToWidth(head, width)]
+  const heading = `$ ${block.command}`
+  // The command is the reader's own intent, so it is one ink and never syntax
+  // coloured — the same rule a tool card's command line follows. A Shell card
+  // carries a fill because it is a block of machine output, not prose: without
+  // one it reads as loose lines floating between messages.
+  const body: string[] = [theme.bold(theme.fg(block.status === 'error' ? 'error' : 'shellMode', truncateToWidth(heading, room)))]
   if (rows !== '') {
-    const body = rows.split('\n')
+    // A shell repaints its prompt after every line, so the raw output ends with
+    // one. The card already says which command ran — printing the shell's own
+    // prompt underneath adds a second, differently spelled copy of the same
+    // fact, and it is the shell's chrome rather than this command's output.
+    const lines = dropTrailingPrompt(rows.split('\n'))
     // A running command shows its newest rows, a settled one its first rows: mid-run
     // the reader is watching progress, afterwards they are reading from the start.
-    const omitted = Math.max(0, body.length - SHELL_PREVIEW_ROWS)
-    const visible = omitted === 0 ? body : block.status === 'running' ? body.slice(-SHELL_PREVIEW_ROWS) : body.slice(0, SHELL_PREVIEW_ROWS)
+    const omitted = Math.max(0, lines.length - SHELL_PREVIEW_ROWS)
+    const visible = omitted === 0 ? lines : block.status === 'running' ? lines.slice(-SHELL_PREVIEW_ROWS) : lines.slice(0, SHELL_PREVIEW_ROWS)
     const ink = block.status === 'error' ? 'error' : 'toolOutput'
-    lines.push('')
-    lines.push(...visible.flatMap(line => wrapTextStable(prefix + theme.fg(ink, line), width).map((row) => truncateToWidth(row, width))))
+    body.push('')
+    for (const line of visible) {
+      for (const row of wrapTextStable(theme.fg(ink, line), room)) body.push(truncateToWidth(row, room))
+    }
     if (omitted > 0) {
-      lines.push(truncateToWidth(
-        prefix + theme.fg('dim', `… ${omitted} ${block.status === 'running' ? 'earlier' : 'more'} ${omitted === 1 ? 'line' : 'lines'}`),
-        width,
-      ))
+      body.push(theme.fg('dim', `… ${omitted} ${block.status === 'running' ? 'earlier' : 'more'} ${omitted === 1 ? 'line' : 'lines'}`))
     }
   }
-  if (block.status === 'error' && block.code !== undefined) {
-    lines.push(truncateToWidth(prefix + theme.fg('error', `exit ${block.code}`), width))
-  }
-  if (block.shared === true) {
-    lines.push(truncateToWidth(prefix + theme.fg('dim', 'shared to conversation'), width))
-  }
-  return lines
+  if (block.status === 'error' && block.code !== undefined) body.push(theme.fg('error', `exit ${block.code}`))
+  if (block.shared === true) body.push(theme.fg('dim', 'shared to conversation'))
+  // The fill is the state: pending while it writes, success when it settles, and
+  // the failure surface when it exits non-zero — the same three surfaces a tool
+  // card uses, so a reader reads one vocabulary for both.
+  const fill = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
+  const pad = ' '.repeat(inset)
+  return body.map(line => paintSurface(theme, fill, 'toolOutput', padToWidth(pad + line, width)))
 }

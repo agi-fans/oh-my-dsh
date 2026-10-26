@@ -17,6 +17,7 @@ function terminal() {
 function registry(state: { text: string; running: boolean }) {
   const settled = Promise.withResolvers<void>()
   const operation = { done: settled.promise, cancel: vi.fn(() => { settled.reject(new Error('interrupted')); return true }) }
+  let sent = false
   return {
     state,
     operation,
@@ -24,8 +25,16 @@ function registry(state: { text: string; running: boolean }) {
     registry: {
       spawn: async () => ({ sessionId: 'shell' }),
       list: () => [{ sessionId: 'shell', name: 'Composer shell', type: 'shell', status: { kind: state.running ? 'running' : 'exited' } }],
-      startSend: vi.fn(() => operation),
-      read: () => ({ text: state.text, totalLines: state.text.split('\n').length, lineBegin: 0, lineEnd: 1, truncated: false }),
+      // A persistent shell starts with its prompt already on screen; the lines a
+      // command writes appear only after the send.
+      startSend: vi.fn(() => { sent = true; return operation }),
+      read: (_agent: unknown, _id: unknown, request?: { offset?: number; count?: number }) => {
+        const lines = sent ? ['dsh>', ...state.text.split('\n')] : ['dsh>']
+        const end = lines.length - (request?.offset ?? 0)
+        const start = Math.max(0, end - (request?.count ?? lines.length))
+        const page = lines.slice(start, end)
+        return { text: page.join('\n'), totalLines: lines.length, lineBegin: end - start, lineEnd: end, truncated: false }
+      },
     } as never,
   }
 }
