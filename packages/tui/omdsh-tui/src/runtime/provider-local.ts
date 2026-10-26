@@ -209,6 +209,7 @@ import {
   togglePromptSelection,
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
+import { edgeIndex, listNavigation, navigateIndex } from '../views/list-navigation.ts'
 import { refreshProjectContext, resolveGitStatusFiles, resolveProjectContext } from '../session/project-context.ts'
 
 import { modelRouteReady } from '../session/model-readiness.ts'
@@ -2806,17 +2807,22 @@ export class LocalTui implements TuiService {
       }
       return true
     }
-    let next: number | undefined
+    // Movement comes from the shared reading, so this selector cannot drift from
+    // the other lists about what `tab` or `pageUp` means. `enter` stays below
+    // because what it submits depends on the editor and on multi-select.
     const page = prompt.request.presentation === 'fullscreen-tree'
       ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height()) : 10
-    if (event.id === 'up' || event.id === 'shift+tab') next = prompt.selected - 1
-    else if (event.id === 'down' || event.id === 'tab') next = prompt.selected + 1
-    else if (event.id === 'pageUp') next = prompt.request.presentation === 'fullscreen-tree' ? Math.max(0, prompt.selected - page) : prompt.selected - page
-    else if (event.id === 'pageDown') next = prompt.request.presentation === 'fullscreen-tree' ? Math.min(count - 1, prompt.selected + page) : prompt.selected + page
-    else if (event.id === 'home') next = 0
-    else if (event.id === 'end') next = count - 1
-    if (next !== undefined) {
-      this.#prompt = movePromptSelection(prompt, next, count) as PendingPrompt
+    const navigation = listNavigation(event)
+    if (navigation.kind === 'move' || navigation.kind === 'page') {
+      // The tree clamps: its rows are a structure, and wrapping past the last
+      // branch lands the reader somewhere unrelated to the one they left.
+      const wrap = prompt.request.presentation !== 'fullscreen-tree'
+      this.#prompt = movePromptSelection(prompt, navigateIndex(navigation, prompt.selected, count, page, { wrap }), count) as PendingPrompt
+      this.#render()
+      return true
+    }
+    if (navigation.kind === 'edge') {
+      this.#prompt = movePromptSelection(prompt, edgeIndex(navigation, count), count) as PendingPrompt
       this.#render()
       return true
     }

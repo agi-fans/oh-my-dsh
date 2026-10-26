@@ -5,6 +5,7 @@ import type { Theme } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import type { TuiSubagentRoster, TuiSubagentView } from '../definition.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { listNavigation } from './list-navigation.ts'
 
 export interface AgentHubState {
   roster: TuiSubagentRoster
@@ -48,20 +49,25 @@ function move(state: AgentHubState, delta: number): AgentHubState {
 export function applyAgentHubEvent(state: AgentHubState, event: KeyEvent): AgentHubCommand {
   if (event.type === 'text' && event.value.toLowerCase() === 't') return { state: { ...state, tree: !state.tree } }
   if (event.type !== 'key') return { state }
-  if (event.id === 'escape' || event.id === 'ctrl+c') {
-    if (state.inspector) return { state: { ...state, inspector: false, detailScroll: 0 } }
-    return { close: true }
-  }
-  if (event.id === 'up') return { state: move(state, -1) }
-  if (event.id === 'down') return { state: move(state, 1) }
-  if (event.id === 'home') return { state: { ...state, selectedId: state.roster.agents[0]?.id ?? null, detailScroll: 0 } }
-  if (event.id === 'end') return { state: { ...state, selectedId: state.roster.agents.at(-1)?.id ?? null, detailScroll: 0 } }
-  if (event.id === 'pageUp') return { state: { ...state, detailScroll: Math.max(0, state.detailScroll - 10) } }
-  if (event.id === 'pageDown') return { state: { ...state, detailScroll: state.detailScroll + 10 } }
+  // Two keys mean something else here than in a plain list, and both are read
+  // first for that reason: `tab` shows or hides the inspector pane, and
+  // `pageUp`/`pageDown` scroll that pane rather than the roster.
   if (event.id === 'tab' || event.id === 'left' || event.id === 'right') {
     return { state: { ...state, inspector: !state.inspector, detailScroll: 0 } }
   }
-  if (event.id === 'enter') {
+  if (event.id === 'pageUp') return { state: { ...state, detailScroll: Math.max(0, state.detailScroll - 10) } }
+  if (event.id === 'pageDown') return { state: { ...state, detailScroll: state.detailScroll + 10 } }
+  const navigation = listNavigation(event)
+  if (navigation.kind === 'close') {
+    if (state.inspector) return { state: { ...state, inspector: false, detailScroll: 0 } }
+    return { close: true }
+  }
+  if (navigation.kind === 'move') return { state: move(state, navigation.delta) }
+  if (navigation.kind === 'edge') {
+    const agents = state.roster.agents
+    return { state: { ...state, selectedId: (navigation.edge === 'first' ? agents[0] : agents.at(-1))?.id ?? null, detailScroll: 0 } }
+  }
+  if (navigation.kind === 'confirm') {
     const agent = selectedAgent(state)
     if (agent?.mode === 'external') return { state: { ...state, inspector: true, detailScroll: 0 } }
     return agent === undefined ? { state } : { open: agent.id }

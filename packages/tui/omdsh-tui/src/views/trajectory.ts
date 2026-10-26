@@ -8,6 +8,7 @@ import { padToWidth, truncateToWidth, visibleWidth, wrapText } from '../chrome/w
 import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { firstVisibleStreamTime } from './stream-time.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { listNavigation } from './list-navigation.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
@@ -710,12 +711,20 @@ export function applyTrajectoryEvent(
     return { state }
   }
   if (event.type !== 'key') return { state }
-  if (event.id === 'escape' || event.id === 'ctrl+c') {
+  // This ledger keeps three keys that the shared reading would move through a
+  // list: `tab` switches the detail tab, `pageUp`/`pageDown` scroll an open
+  // detail pane, and `home`/`end` carry following state. They are read first, so
+  // the shared reading below only ever answers for the keys this surface really
+  // shares — up, down, and closing one layer.
+  if (event.id === 'tab' || event.id === 'right') return { state: moveTab(state, 1) }
+  if (event.id === 'shift+tab' || event.id === 'left') return { state: moveTab(state, -1) }
+  const navigation = listNavigation(event)
+  if (navigation.kind === 'close') {
+    // One layer per press: an open detail panel closes before the ledger does.
     if (state.details) return { state: { ...state, details: false, detailScroll: 0 } }
     return { close: true }
   }
-  if (event.id === 'up') return { state: move(state, -1) }
-  if (event.id === 'down') return { state: move(state, 1) }
+  if (navigation.kind === 'move') return { state: move(state, navigation.delta) }
   if (event.id === 'pageUp') {
     if (state.details) return { state: { ...state, detailScroll: Math.max(0, state.detailScroll - detailPageLines) } }
     if (pageSize === 0) return { state }
@@ -735,8 +744,6 @@ export function applyTrajectoryEvent(
     return { state: { ...state, selectedId: last?.id ?? null, following: true, followNotice: 0 } }
   }
   if (event.id === 'enter') return { state: { ...state, details: !state.details, detailScroll: 0 } }
-  if (event.id === 'tab' || event.id === 'right') return { state: moveTab(state, 1) }
-  if (event.id === 'shift+tab' || event.id === 'left') return { state: moveTab(state, -1) }
   return { state }
 }
 

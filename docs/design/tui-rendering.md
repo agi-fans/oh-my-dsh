@@ -27,7 +27,21 @@
 
 `keysForAction` 只打印 ship 主键和用户自己写的键，迁移别名永远不出现在提示里。用户文档把两个 action 绑到同一个键时，`reportBindingConflicts` 报告该键实际解析到的 action，而不是让其中一方静默失效。
 
-## 列表
+## 列表导航
+
+所有列表型界面的移动语义由 [list-navigation.ts](../../packages/tui/omdsh-tui/src/views/list-navigation.ts) 一处解释：`↑`/`shift+tab` 上移，`↓`/`tab` 下移，`Home`/`End` 到两端，`PgUp`/`PgDn` 翻页，`Enter` 确认，`Esc` 与 `Ctrl+C` 都是"关闭一层"。
+
+这条共享的是**解释**，不是行为。每个 surface 仍决定意图如何落地，并在需要别的含义时**先**处理该键：
+
+| surface | 覆盖 | 理由 |
+| --- | --- | --- |
+| Settings | `tab`/`shift+tab` 切区块；`home`/`end` 跳当前区块两端 | 行属于不同分类，跳到全表首尾没有意义 |
+| Trajectory | `tab`/`←→` 切详情页签；`PgUp`/`PgDn` 滚打开的详情；`home`/`end` 携带 following | 阅读事件账本与浏览扁平列表不是同一件事 |
+| Agent Hub | `tab`/`←→` 开关检视面板；`PgUp`/`PgDn` 滚该面板 | 同上：面板滚动优先于列表翻页 |
+| Prompt 选择器 | 树形视图的翻页用 clamp 而非 wrap | 树是结构，越过末枝会让读者落到无关位置 |
+| Transcript 搜索 | 只取关闭与匹配步进 | 它没有列表 |
+
+覆盖必须写在覆盖处并说明理由，不能只在实现里悄悄不同。
 
 交互式列表统一通过 [views/list-view.ts](../../packages/tui/omdsh-tui/src/views/list-view.ts) 渲染：固定两格的选中前缀（`❯`，边缘行显示 `↑`/`↓`）、对齐到同一列宽的主列、描述列、右对齐的数值或计数，以及 `(n/total)` 脚注。宽度按 display cell 相加并在末尾精确收口，绝不靠估算填空；描述列窄于 12 格时直接省略而不是截断成没有意义的片段。
 

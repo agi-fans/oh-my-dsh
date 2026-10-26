@@ -35,6 +35,7 @@ import { MATH_MODES, type MathMode } from '../chrome/math.ts'
 import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { listNavigation } from './list-navigation.ts'
 import { LIST_CURSOR_CELLS, renderListRowWithValue, type ListRow } from './list-view.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 import { rankSearchResults } from '../input/fuzzy-search.ts'
@@ -791,23 +792,24 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
       return cycleSelected(state)
     case 'left':
       return cycleSelected(state, -1)
-    case 'escape':
-    case 'ctrl+c':
-      return { kind: 'close' }
-    case 'up':
-      return { kind: 'update', state: moveSelected(state, state.selected - 1) }
-    case 'down':
-      return { kind: 'update', state: moveSelected(state, state.selected + 1) }
+    // This overlay keeps three keys that a plain list would spend on movement:
+    // `tab` switches section, and `home`/`end` jump to the edge of the current
+    // section rather than of the whole list, which is the only reading that makes
+    // sense when the rows above belong to another category.
     case 'tab':
       return { kind: 'update', state: moveSection(state, 1) }
     case 'shift+tab':
       return { kind: 'update', state: moveSection(state, -1) }
     case 'home':
-      return { kind: 'update', state: moveSelected(state, 0) }
+      return { kind: 'update', state: moveSelected(state, selectedSection(state).start) }
     case 'end':
       return { kind: 'update', state: moveSelected(state, selectedSection(state).end - 1) }
-    default:
+    default: {
+      const navigation = listNavigation(event)
+      if (navigation.kind === 'close') return { kind: 'close' }
+      if (navigation.kind === 'move') return { kind: 'update', state: moveSelected(state, state.selected + navigation.delta) }
       return { kind: 'ignore' }
+    }
   }
 }
 

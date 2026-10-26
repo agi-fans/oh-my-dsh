@@ -8,6 +8,7 @@
 import type { KeyEvent } from '../input/keys.ts'
 import { moveGraphemeLeft } from '../chrome/grapheme.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { listNavigation } from './list-navigation.ts'
 
 /** Transcript search state owned by the local terminal provider. */
 export interface TranscriptSearchState {
@@ -92,7 +93,10 @@ export function applyTranscriptSearchEvent(
   event: KeyEvent,
   texts: readonly string[],
 ): TranscriptSearchCommand {
-  if (event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) return { kind: 'close' }
+  // The shared reading supplies the closing keys and the "next/previous match"
+  // pair; this surface has no list, so it takes nothing else from it.
+  const navigation = listNavigation(event)
+  if (navigation.kind === 'close') return { kind: 'close' }
   const matches = searchBlockIndexes(texts, state.query)
   const step = (delta: number): TranscriptSearchCommand => {
     if (matches.length === 0) return { kind: 'update', state: { ...state, focus: -1 } }

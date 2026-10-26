@@ -11,6 +11,7 @@ import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { expandTabs, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { edgeIndex, listNavigation, navigateIndex } from './list-navigation.ts'
 import { renderListRowWithValue } from './list-view.ts'
 
 /** Visible picker rows. */
@@ -84,36 +85,29 @@ export function applyCopySelectorEvent(state: CopySelectorState, event: KeyEvent
     const query = event.id === 'ctrl+u' ? '' : state.search.slice(0, moveGraphemeLeft(state.search, state.search.length))
     return { kind: 'update', state: { ...state, search: query, selected: 0 } }
   }
-  switch (event.id) {
-    case 'enter': {
-      const item = filteredCopyItems(state)[state.selected]
-      return item === undefined ? { kind: 'ignore' } : { kind: 'pick', item }
+  // Every navigation key comes from the shared reading, so this picker cannot
+  // drift from the other lists about what `tab` or `pageUp` means.
+  const navigation = listNavigation(event)
+  const items = filteredCopyItems(state)
+  if (navigation.kind === 'close') {
+    // One layer per press: an active filter clears before the picker closes.
+    if (state.search !== undefined) {
+      const { search: _, ...rest } = state
+      return { kind: 'update', state: { ...rest, selected: 0 } }
     }
-    case 'escape':
-    case 'ctrl+c': {
-      if (state.search !== undefined) {
-        const { search: _, ...rest } = state
-        return { kind: 'update', state: { ...rest, selected: 0 } }
-      }
-      return { kind: 'close' }
-    }
-    case 'up':
-    case 'shift+tab':
-      return { kind: 'update', state: moveSelected(state, state.selected - 1) }
-    case 'down':
-    case 'tab':
-      return { kind: 'update', state: moveSelected(state, state.selected + 1) }
-    case 'pageUp':
-      return { kind: 'update', state: moveSelected(state, state.selected - COPY_SELECTOR_MAX_VISIBLE) }
-    case 'pageDown':
-      return { kind: 'update', state: moveSelected(state, state.selected + COPY_SELECTOR_MAX_VISIBLE) }
-    case 'home':
-      return { kind: 'update', state: moveSelected(state, 0) }
-    case 'end':
-      return { kind: 'update', state: moveSelected(state, Math.max(0, filteredCopyItems(state).length - 1)) }
-    default:
-      return { kind: 'ignore' }
+    return { kind: 'close' }
   }
+  if (navigation.kind === 'confirm') {
+    const item = items[state.selected]
+    return item === undefined ? { kind: 'ignore' } : { kind: 'pick', item }
+  }
+  if (navigation.kind === 'move' || navigation.kind === 'page') {
+    return { kind: 'update', state: moveSelected(state, navigateIndex(navigation, state.selected, items.length, COPY_SELECTOR_MAX_VISIBLE)) }
+  }
+  if (navigation.kind === 'edge') {
+    return { kind: 'update', state: moveSelected(state, edgeIndex(navigation, items.length)) }
+  }
+  return { kind: 'ignore' }
 }
 
 // Every key `applyCopySelectorEvent` accepts. Rows whose first word is the

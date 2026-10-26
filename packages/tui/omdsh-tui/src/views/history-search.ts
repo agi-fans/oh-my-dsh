@@ -9,6 +9,7 @@ import type { KeyEvent } from '../input/keys.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import { edgeIndex, listNavigation, navigateIndex } from './list-navigation.ts'
 
 /** Visible result rows (OMP history-search window). */
 export const HISTORY_SEARCH_MAX_VISIBLE = 10
@@ -133,28 +134,20 @@ export function applyHistorySearchEvent(
     return { kind: 'update', state: insertQuery(state, value, history) }
   }
   if (event.type !== 'key') return { kind: 'ignore' }
+  // Navigation is read once, in the same place every list reads it.
+  const navigation = listNavigation(event)
+  if (navigation.kind === 'close') return { kind: 'cancel' }
+  if (navigation.kind === 'confirm') {
+    const text = state.results[state.selected]
+    return text === undefined ? { kind: 'ignore' } : { kind: 'select', text }
+  }
+  if (navigation.kind === 'move' || navigation.kind === 'page') {
+    return { kind: 'update', state: moveSelected(state, navigateIndex(navigation, state.selected, state.results.length, HISTORY_SEARCH_MAX_VISIBLE)) }
+  }
+  if (navigation.kind === 'edge') {
+    return { kind: 'update', state: moveSelected(state, edgeIndex(navigation, state.results.length)) }
+  }
   switch (event.id) {
-    case 'enter': {
-      const text = state.results[state.selected]
-      return text === undefined ? { kind: 'ignore' } : { kind: 'select', text }
-    }
-    case 'escape':
-    case 'ctrl+c':
-      return { kind: 'cancel' }
-    case 'up':
-    case 'shift+tab':
-      return { kind: 'update', state: moveSelected(state, state.selected - 1) }
-    case 'down':
-    case 'tab':
-      return { kind: 'update', state: moveSelected(state, state.selected + 1) }
-    case 'pageUp':
-      return { kind: 'update', state: moveSelected(state, state.selected - HISTORY_SEARCH_MAX_VISIBLE) }
-    case 'pageDown':
-      return { kind: 'update', state: moveSelected(state, state.selected + HISTORY_SEARCH_MAX_VISIBLE) }
-    case 'home':
-      return { kind: 'update', state: moveSelected(state, 0) }
-    case 'end':
-      return { kind: 'update', state: moveSelected(state, state.results.length - 1) }
     case 'left':
     case 'ctrl+b':
       return { kind: 'update', state: moveQuery(state, state.cursor - 1) }
