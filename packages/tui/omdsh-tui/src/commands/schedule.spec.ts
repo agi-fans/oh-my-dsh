@@ -38,8 +38,12 @@ async function fixture(tasks: ScheduleRecord[], prompts: (string | null)[]) {
   await ctx.plugin(CommandRuntime)
   const prompt = vi.fn(async () => prompts.shift() ?? null)
   ctx.provide('tui', { prompt } as unknown as TuiService)
+  let currentSessionId: SessionId | undefined
   const schedule = {
     list: vi.fn(async () => tasks),
+    // The command reads the catalog: it is the only read that reports whether a
+    // reminder can still fire. The session is bound below, so this reads it late.
+    catalog: vi.fn(async () => tasks.map(task => ({ ...task, sessionId: currentSessionId, status: 'active' as const }))),
     history: vi.fn(async () => history()),
     update: vi.fn(async (request: { title?: string; prompt?: string }) => ({
       id: record.id,
@@ -51,6 +55,7 @@ async function fixture(tasks: ScheduleRecord[], prompts: (string | null)[]) {
   ctx.provide('schedule', schedule as never)
   await ctx.plugin(command)
   const session = ctx.sessions.create(SessionId(`schedule-${Math.random().toString(16).slice(2)}`))
+  currentSessionId = session.id
   const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
   return { ctx, agent, prompt, schedule }
 }
@@ -114,5 +119,25 @@ describe('/schedule command', () => {
     expect(command.scheduleRule(record)).toBe('once at 2099-01-01 01:00 UTC')
     expect(command.formatInstant('2099-01-01T01:00:00Z')).toBe('2099-01-01 01:00 UTC')
     expect(command.scheduleRule({ ...record, kind: 'every', everySeconds: 300 } as ScheduleRecord)).toBe('every 300s')
+  })
+})
+
+describe('reminder timing as a reader asks it', () => {
+  const record = { id: 'task-1', kind: 'every' as const, title: 'Check', prompt: 'Check', everySeconds: 3600, scheduledAt: '2026-10-27T13:00:00Z' }
+  const now = Date.parse('2026-10-27T12:48:00Z')
+
+  it('answers how soon, and still shows the instant to check against', () => {
+    // "next 2026-10-27 13:00 UTC" made the reader subtract; the surface knows.
+    expect(command.scheduleWhen(record, 'active', now)).toBe('next in 12m · 2026-10-27 13:00 UTC')
+  })
+
+  it('never describes a stopped reminder as pending', () => {
+    // A reminder that can no longer fire is not "next"; its instant is the last
+    // one it had.
+    expect(command.scheduleWhen(record, 'inactive', now)).toBe('ended · was 2026-10-27 13:00 UTC')
+  })
+
+  it('calls an overdue active reminder due rather than showing a negative wait', () => {
+    expect(command.scheduleWhen(record, 'active', Date.parse('2026-10-27T13:05:00Z'))).toBe('next due now · 2026-10-27 13:00 UTC')
   })
 })

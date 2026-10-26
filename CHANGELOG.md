@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- `/schedule` answers how soon a reminder fires — `next in 12m · 2026-10-27 13:00 UTC` — instead of leaving the reader to subtract. A reminder that can no longer fire reads `ended · was …` rather than `next`, because the list now reads the catalog, which is the only read that reports it.
 - Every overlay reads its navigation keys from one place, so `tab`, `PgUp` and `Home` cannot mean different things in adjacent screens. Each surface still decides what the intent does, and the four that deliberately differ — Settings, Trajectory, Agent Hub, and the tree-shaped prompt selector — handle their own key first and say why.
 - The advisor is one setting instead of two decisions. `Settings → Integrations → Advisor` chooses `off`, Codex, or Claude Code, and no advisor is configured by default — a consultation is a paid request to another vendor's model, so choosing one is the acknowledgement. The chosen model decides what `consult_advisor` reaches, so `/advisor <question>` asks only the question; naming a provider still overrides it for one request. With no advisor configured the tool is absent from the schema rather than present and always failing, and `/advisor` points at the setting.
 - An unconfigured advisor is no longer inherited from the retired `allowModelConsultations` flag. That flag granted a paid request, and re-granting it on upgrade would bill a reader who had forgotten; the switch has to be made deliberately once.

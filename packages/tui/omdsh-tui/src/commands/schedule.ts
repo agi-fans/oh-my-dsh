@@ -15,6 +15,7 @@ import type {
   ScheduleRecord,
   ScheduleUpdateResult,
 } from '@deepseek-ai/dsh-schedule'
+import { formatRelativeUntil } from '../chrome/relative-time.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-schedule'
@@ -24,6 +25,35 @@ export const inject = ['commands', 'schedule', 'tui']
 export function formatInstant(iso: string): string {
   const parsed = new Date(iso)
   return Number.isNaN(parsed.getTime()) ? iso : `${parsed.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
+
+/**
+ * The reminder alone, from a catalog entry that also carries its binding.
+ *
+ * `catalog()` widens a record with the owning session, its liveness, and the last
+ * delivery. Those describe the catalog's view, not the reminder, and passing them
+ * back as `expected` would make an optimistic update compare fields the record
+ * does not have.
+ */
+function recordOf(entry: ScheduleRecord & { sessionId?: unknown; status?: unknown; lastDelivery?: unknown }): ScheduleRecord {
+  const { sessionId: _session, status: _status, lastDelivery: _delivery, ...record } = entry
+  return record as ScheduleRecord
+}
+
+/**
+ * When a reminder fires, as a reader would ask it.
+ *
+ * `scheduledAt` is the committed next instant while the reminder is active and
+ * the final one after it stops, so an inactive reminder must not be described as
+ * pending. The absolute instant stays alongside the relative one: the relative
+ * reading answers "how soon", the absolute one is what a reader checks against
+ * their own clock or another zone.
+ */
+export function scheduleWhen(record: ScheduleRecord, status: 'active' | 'inactive', now = Date.now()): string {
+  const at = formatInstant(record.scheduledAt)
+  if (status === 'inactive') return `ended · was ${at}`
+  const parsed = Date.parse(record.scheduledAt)
+  return Number.isNaN(parsed) ? `next ${at}` : `next ${formatRelativeUntil(parsed, now)} · ${at}`
 }
 
 /** One-line rule summary; timing edits remain with `schedule_update`. */
@@ -102,12 +132,12 @@ async function edit(ctx: Context, invocation: CommandInvocation, record: Schedul
   }
 }
 
-async function manage(ctx: Context, invocation: CommandInvocation, record: ScheduleRecord): Promise<CommandResult> {
+async function manage(ctx: Context, invocation: CommandInvocation, record: ScheduleRecord, status: 'active' | 'inactive'): Promise<CommandResult> {
   for (;;) {
     invocation.signal.throwIfAborted()
     const action = await ctx.tui.prompt({
       title: `Scheduled · ${record.title}`,
-      question: `${scheduleRule(record)} · next ${formatInstant(record.scheduledAt)}`,
+      question: `${scheduleRule(record)} · ${scheduleWhen(record, status)}`,
       detail: record.prompt,
       options: [
         { label: 'View delivery history', value: 'history', description: 'Open the retained delivery records for this reminder.' },
@@ -155,7 +185,10 @@ async function manage(ctx: Context, invocation: CommandInvocation, record: Sched
 
 export async function scheduleCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /schedule' }
-  const tasks = await ctx.schedule.list({ sessionId: invocation.agent.session.id })
+  const sessionId = invocation.agent.session.id
+  // The catalog is the only read that reports whether a reminder can still fire;
+  // `list()` returns the records alone, so a stopped one would read as pending.
+  const tasks = (await ctx.schedule.catalog()).filter(entry => entry.sessionId === sessionId)
   if (tasks.length === 0) {
     return {
       kind: 'success',
@@ -170,17 +203,17 @@ export async function scheduleCommand(ctx: Context, invocation: CommandInvocatio
     allowCustom: false,
     notify: false,
     signal: invocation.signal,
-    options: tasks.map((record: ScheduleRecord) => ({
-      label: record.title,
-      value: String(record.id),
-      description: `${scheduleRule(record)} · next ${formatInstant(record.scheduledAt)}`,
+    options: tasks.map(entry => ({
+      label: entry.title,
+      value: String(entry.id),
+      description: `${scheduleRule(entry)} · ${scheduleWhen(entry, entry.status)}`,
     })),
   })
   invocation.signal.throwIfAborted()
   if (selected === null) return { kind: 'success' }
-  const record = tasks.find((task: ScheduleRecord) => String(task.id) === selected)
+  const record = tasks.find(entry => String(entry.id) === selected)
   if (record === undefined) return { kind: 'error', text: 'That reminder is no longer available.' }
-  return manage(ctx, invocation, record)
+  return manage(ctx, invocation, recordOf(record), record.status)
 }
 
 export function apply(ctx: Context): void {
