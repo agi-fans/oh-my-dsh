@@ -254,12 +254,12 @@ describe('renderMarkdown', () => {
   })
 
   it('keeps headings on mdHeading when the surrounding style is body text', () => {
-    const midnight = createTheme(true, true, 'midnight')
-    const painted = renderMarkdown('# Title\n\nbody', midnight, 40, { color: 'text' }).join('\n')
-    expect(painted).toContain(midnight.getFgAnsi('mdHeading'))
-    expect(painted).toContain(midnight.getFgAnsi('text'))
-    expect(painted.slice(0, painted.indexOf('Title'))).toContain(midnight.getFgAnsi('mdHeading'))
-    expect(painted.slice(painted.indexOf('body') - 20)).toContain(midnight.getFgAnsi('text'))
+    const light = createTheme(true, true, 'light')
+    const painted = renderMarkdown('# Title\n\nbody', light, 40, { color: 'text' }).join('\n')
+    expect(painted).toContain(light.getFgAnsi('mdHeading'))
+    expect(painted).toContain(light.getFgAnsi('text'))
+    expect(painted.slice(0, painted.indexOf('Title'))).toContain(light.getFgAnsi('mdHeading'))
+    expect(painted.slice(painted.indexOf('body') - 20)).toContain(light.getFgAnsi('text'))
   })
 
   it('keeps a surrounding thinking style after inline tokens', () => {

@@ -95,14 +95,36 @@ export function languageFromPath(path: string): LanguageId | undefined {
   return lang === undefined ? undefined : lang
 }
 
+/**
+ * Token type → theme ink.
+ *
+ * Every entry here is a token the reader should be able to recognise without
+ * reading it. Prism emits many more types than this (operators, punctuation,
+ * parameters, selectors, interpolation), and an unmapped one used to paint
+ * nothing at all — the terminal's default ink — which is why a highlighted
+ * block read as mostly plain text with a few coloured words. Anything unmapped
+ * now falls back to the code ink instead, so a block is always coloured as code
+ * and never as prose.
+ */
 const TOKEN_COLORS: Readonly<Record<string, ThemeColor>> = {
-  keyword: 'mdKeyword', boolean: 'mdKeyword', builtin: 'syntaxType', 'class-name': 'syntaxType',
-  comment: 'mdQuote', prolog: 'mdQuote', doctype: 'mdQuote',
+  keyword: 'mdKeyword', boolean: 'mdKeyword', builtin: 'syntaxType',
+  comment: 'mdQuote', prolog: 'mdQuote', doctype: 'mdQuote', cdata: 'mdQuote',
   string: 'syntaxString', char: 'syntaxString', regex: 'syntaxString', 'attr-value': 'syntaxString',
+  'template-string': 'syntaxString', 'triple-quoted-string': 'syntaxString',
+  interpolation: 'mdCode', 'interpolation-punctuation': 'mdQuote',
   number: 'syntaxNumber', function: 'syntaxFunction', 'function-variable': 'syntaxFunction',
   tag: 'mdKeyword', 'attr-name': 'syntaxType', property: 'mdCodeBlock', symbol: 'syntaxType',
+  // Structure the reader scans for: names being declared, and the operators and
+  // punctuation that shape the statement around them.
+  'class-name': 'syntaxType', 'literal-property': 'mdCodeBlock', parameter: 'toolOutput',
+  variable: 'toolOutput', constant: 'syntaxNumber', selector: 'syntaxType',
+  operator: 'mdQuote', punctuation: 'mdQuote',
+  namespace: 'syntaxType', 'builtin-string': 'syntaxString',
   deleted: 'toolDiffRemoved', inserted: 'toolDiffAdded', coord: 'mdLink', unchanged: 'toolDiffContext',
 }
+
+/** Ink for a token nothing above names: still code, never the terminal default. */
+const CODE_FALLBACK_INK: ThemeColor = 'mdCodeBlock'
 
 /** Split token leaves at line boundaries before painting, so SGR never bleeds between rows. */
 function tokenizeLines(lines: readonly string[], grammar: Prism.Grammar, theme: Theme, style?: MarkdownStyle): string[] {
@@ -120,7 +142,10 @@ function tokenizeLines(lines: readonly string[], grammar: Prism.Grammar, theme: 
     if (typeof value === 'string') { append(value, color); return }
     if (Array.isArray(value)) { for (const token of value) visit(token, color); return }
     const aliases = typeof value.alias === 'string' ? [value.alias] : value.alias ?? []
-    const tokenColor = TOKEN_COLORS[value.type] ?? aliases.map(alias => TOKEN_COLORS[alias]).find(color => color !== undefined) ?? color
+    const tokenColor = TOKEN_COLORS[value.type]
+      ?? aliases.map(alias => TOKEN_COLORS[alias]).find(color => color !== undefined)
+      ?? color
+      ?? CODE_FALLBACK_INK
     visit(value.content, tokenColor)
   }
   visit(Prism.tokenize(lines.join('\n'), grammar))
@@ -196,6 +221,37 @@ function evictToBudget(): void {
     }
   }
 }
+
+/**
+ * Highlight a tool payload as one block.
+ *
+ * The important word is *block*: painting each line on its own gives the
+ * tokenizer a fragment with no opening construct, so `ls -la`'s first line
+ * highlights and the next four do not. One pass over the whole payload keeps
+ * every row in the same grammatical state, which is what makes a multi-line
+ * command look highlighted at all.
+ *
+ * A payload that already contains its own escapes is returned untouched: a
+ * shell command that is itself ANSI-coloured must not be re-lexed.
+ */
+export function highlightToolText(text: string, language: string, theme: Theme): string[] {
+  if (text === '') return ['']
+  if (/\x1b\[/u.test(text)) return text.split('\n')
+  return highlightCodeLines(text.split('\n'), language, theme)
+}
+
+/** Languages a tool payload may be assumed to speak, from the tool or the subject file. */
+export function toolPayloadLanguage(toolName: string, subjectPath?: string): string | undefined {
+  if (subjectPath !== undefined && subjectPath !== '') {
+    const fromPath = languageFromPath(subjectPath)
+    if (fromPath !== undefined) return fromPath
+  }
+  if (COMMAND_TOOLS.has(toolName)) return 'bash'
+  return undefined
+}
+
+/** Tools whose payload is a shell command rather than prose. */
+const COMMAND_TOOLS: ReadonlySet<string> = new Set(['bash', 'shell', 'pwsh', 'exec', 'write_stdin'])
 
 /**
  * Paint every line of a code block. Unknown languages paint the whole run in the block

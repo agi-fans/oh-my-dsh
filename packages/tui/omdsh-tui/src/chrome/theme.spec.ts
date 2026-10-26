@@ -84,7 +84,9 @@ describe('createTheme', () => {
     expect(dark.getBgAnsi('error')).toBe('\x1b[41m')
     expect(dark.getFgAnsi('error')).toBe('\x1b[31m')
     expect(dark.getBgAnsi('userMessageBg')).toBe('\x1b[40m')
-    expect(dark.getBgAnsi('toolErrorBg')).toBe('\x1b[40m')
+    // The tool states no longer share a fill, so the error card is not the same
+    // code the plain card uses.
+    expect(dark.getBgAnsi('toolErrorBg')).not.toBe(dark.getBgAnsi('toolSuccessBg'))
     expect(dark.getBgAnsi('text')).toBe('\x1b[49m')
     const light = createTheme(true, false, 'light')
     expect(light.getBgAnsi('userMessageBg')).toBe('\x1b[47m')
@@ -169,17 +171,16 @@ describe('createTheme', () => {
     expect(detectColorDepth({ TERM: 'xterm-256color', TERM_PROGRAM: 'Apple_Terminal' })).toBe('ansi256')
   })
 
-  it('documents the shared 16-color dark tool-card background', () => {
-    // SGR 40 is the only dark background both states can use without a
-    // 256-color tier; a fabricated difference would misreport tool state.
-    // Alternation stays a truecolor affordance for the same reason: the only
-    // remaining subtle 16-color code belongs to `dim` ink, so a card painted
-    // with it would erase its own hints.
+  it('keeps the three tool states on three different 16-color backgrounds', () => {
+    // A tool card's state used to be invisible below truecolor: pending,
+    // success, and error all quantized onto SGR 40. The three fills are now
+    // resolved as a group, so at least the states a reader acts on differ.
     const dark = createTheme(true, false, 'dark')
-    expect(dark.getBgAnsi('toolPendingBg')).toBe('\x1b[40m')
-    expect(dark.getBgAnsi('toolSuccessBg')).toBe('\x1b[40m')
-    // Both card surfaces land on SGR 40, so the alternating card drops its fill
-    // instead of pretending to have a second one.
+    expect(dark.getBgAnsi('toolPendingBg')).not.toBe(dark.getBgAnsi('toolSuccessBg'))
+    expect(dark.getBgAnsi('toolErrorBg')).not.toBe(dark.getBgAnsi('toolSuccessBg'))
+    // Alternation stays a truecolor affordance: the 16-color tier has no spare
+    // subtle fill, so the alternating card drops its own instead of inventing
+    // one that would erase the hints drawn on it.
     expect(dark.getBgAnsi('toolAltBg')).toBe('\x1b[49m')
   })
 
@@ -200,30 +201,23 @@ describe('createTheme', () => {
     expect(light.getFgAnsi('accent')).not.toBe(dark.getFgAnsi('accent'))
   })
 
-  it('ships additional coding palettes', () => {
-    expect(THEME_NAMES).toEqual([
-      'dark', 'light', 'midnight', 'solarized',
-      'catppuccin', 'dracula', 'nord', 'gruvbox', 'rose-pine',
-      'mono', 'system',
-    ])
-    expect(createTheme(true, true, 'catppuccin').name).toBe('catppuccin')
-    expect(createTheme(true, true, 'rose-pine').getFgAnsi('thinkingText')).not.toBe(
-      createTheme(true, true, 'rose-pine').getFgAnsi('text'),
-    )
+  it('ships one dark, one light, and the theme that follows the terminal', () => {
+    // A theme is a legibility contract for every card, diff, and syntax token,
+    // and a palette that cannot meet it is worse than no palette at all.
+    expect(THEME_NAMES).toEqual(['dark', 'light', 'system'])
+    for (const name of THEME_NAMES) {
+      const theme = createTheme(true, true, name)
+      expect(theme.name).toBe(name)
+      expect(theme.getFgAnsi('thinkingText')).not.toBe(theme.getFgAnsi('text'))
+    }
   })
 
   it('keeps muted borders and fence keywords off the UI accent', () => {
-    const dark = createTheme(true, true, 'dark')
-    const midnight = createTheme(true, true, 'midnight')
-    const solarized = createTheme(true, true, 'solarized')
-    expect(dark.getFgAnsi('borderMuted')).toBe('\x1b[38;2;61;66;74m')
-    expect(dark.getFgAnsi('mdKeyword')).toBe('\x1b[38;2;86;156;214m')
-    expect(dark.getFgAnsi('mdKeyword')).not.toBe(dark.getFgAnsi('accent'))
-    expect(midnight.getFgAnsi('muted')).toBe('\x1b[38;2;135;141;150m')
-    expect(midnight.getFgAnsi('error')).toBe('\x1b[38;2;247;118;142m')
-    expect(midnight.getFgAnsi('borderMuted')).not.toBe(midnight.getFgAnsi('border'))
-    expect(solarized.getFgAnsi('mdKeyword')).toBe('\x1b[38;2;133;153;0m')
-    expect(solarized.getFgAnsi('customMessageLabel')).toBe('\x1b[38;2;108;113;196m')
+    for (const name of ['dark', 'light'] as const) {
+      const theme = createTheme(true, true, name)
+      expect(theme.getFgAnsi('mdKeyword'), name).not.toBe(theme.getFgAnsi('accent'))
+      expect(theme.getFgAnsi('borderMuted'), name).not.toBe(theme.getFgAnsi('border'))
+    }
   })
 
   it('keeps thinking text quieter than muted chrome', () => {
@@ -235,11 +229,12 @@ describe('createTheme', () => {
   })
 
   it('lets the terminal own body ink while keeping thinking explicitly muted', () => {
-    const midnight = createTheme(true, true, 'midnight')
-    expect(midnight.getFgAnsi('text')).toBe('\x1b[39m')
-    expect(midnight.getFgAnsi('thinkingText')).toBe('\x1b[38;2;106;115;148m')
-    expect(midnight.getFgAnsi('thinkingText')).not.toBe(midnight.getFgAnsi('text'))
-    expect(midnight.getFgAnsi('thinkingText')).not.toBe(midnight.getFgAnsi('dim'))
+    for (const name of THEME_NAMES) {
+      const theme = createTheme(true, true, name)
+      expect(theme.getFgAnsi('text'), name).toBe('\x1b[39m')
+      expect(theme.getFgAnsi('thinkingText'), name).not.toBe(theme.getFgAnsi('text'))
+      expect(theme.getFgAnsi('thinkingText'), name).not.toBe(theme.getFgAnsi('dim'))
+    }
   })
 
   it('uses the terminal foreground for body ink on every palette', () => {
@@ -282,11 +277,11 @@ describe('createTheme', () => {
   })
 
   it('keeps inline markdown code closer to muted text than to accent', () => {
-    const dark = createTheme(true, true, 'dark')
-    const midnight = createTheme(true, true, 'midnight')
-    expect(dark.getFgAnsi('mdCode')).toBe('\x1b[38;2;138;144;153m')
-    expect(midnight.getFgAnsi('mdCode')).toBe('\x1b[38;2;127;135;153m')
-    expect(midnight.getFgAnsi('mdCode')).not.toBe('\x1b[38;2;255;158;100m')
+    for (const name of ['dark', 'light'] as const) {
+      const theme = createTheme(true, true, name)
+      expect(theme.getFgAnsi('mdCode'), name).not.toBe(theme.getFgAnsi('accent'))
+      expect(theme.getFgAnsi('mdCode'), name).not.toBe(theme.getFgAnsi('text'))
+    }
     expect(createTheme(true, false).getFgAnsi('mdCode')).toBe('\x1b[90m')
   })
 })
@@ -295,9 +290,10 @@ describe('parseThemeName', () => {
   it('accepts shipped names and falls back to dark', () => {
     expect(parseThemeName('light')).toBe('light')
     expect(parseThemeName('dark')).toBe('dark')
-    expect(parseThemeName('midnight')).toBe('midnight')
-    expect(parseThemeName('catppuccin')).toBe('catppuccin')
-    expect(parseThemeName('rose-pine')).toBe('rose-pine')
+    expect(parseThemeName('system')).toBe('system')
+    // A palette this version no longer ships falls back rather than failing to
+    // start: the setting outlives the theme that once matched it.
+    expect(parseThemeName('catppuccin')).toBe('dark')
     expect(parseThemeName('nope')).toBe('dark')
     expect(parseThemeName(undefined)).toBe('dark')
   })

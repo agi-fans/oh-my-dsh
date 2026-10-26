@@ -151,7 +151,7 @@ export function toOklab(color: Rgb): [number, number, number] {
 }
 
 /** Squared Oklab distance; ordering is all that matters for nearest-color picks. */
-function labDistance(left: readonly [number, number, number], right: readonly [number, number, number]): number {
+export function labDistance(left: readonly [number, number, number], right: readonly [number, number, number]): number {
   const dl = left[0] - right[0]
   const da = left[1] - right[1]
   const db = left[2] - right[2]
@@ -218,6 +218,37 @@ const xterm256Cache = new Map<string, number>()
  * gray ramp only: indices 0-15 follow the user's palette and would make the
  * result depend on a terminal theme we cannot see.
  */
+/** First xterm-256 index of the 24-step neutral ramp. */
+const GREY_RAMP_START = 232
+
+/**
+ * Nearest xterm-256 entry, restricted to the 24-step neutral ramp.
+ *
+ * The ramp is `232..255`, and it exists because a *surface* swatch is usually a
+ * near-neutral. Left to the whole palette, three swatches that differ by a few
+ * units of warmth all land on one entry, which is why a pending, a successful,
+ * and a failed tool card used to share a single fill on a 256-color terminal.
+ * `hueSteps` keeps that from happening: see {@link surfaceXterm256}.
+ */
+export function nearestXterm256Grey(color: Rgb): number {
+  const key = `g:${color.r},${color.g},${color.b}`
+  const known = xterm256Cache.get(key)
+  if (known !== undefined) return known
+  const target = toOklab(color)
+  let best = GREY_RAMP_START
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const entry of XTERM_256) {
+    if (entry.index < GREY_RAMP_START) continue
+    const distance = labDistance(target, entry.lab)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = entry.index
+    }
+  }
+  xterm256Cache.set(key, best)
+  return best
+}
+
 export function nearestXterm256(color: Rgb): number {
   const key = `${color.r},${color.g},${color.b}`
   const known = xterm256Cache.get(key)

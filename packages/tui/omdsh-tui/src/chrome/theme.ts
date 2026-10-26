@@ -5,7 +5,8 @@
  */
 
 import {
-  contrastRatio, nearestPaletteIndex, nearestXterm256, type Rgb, type TerminalColors, terminalColorsKey,
+  contrastRatio, labDistance, nearestPaletteIndex, nearestXterm256, nearestXterm256Grey, relativeLuminance, toOklab,
+  type Rgb, type TerminalColors, terminalColorsKey,
 } from './terminal-colors.ts'
 
 /** Rounded-box drawing characters (OMP unicode preset). */
@@ -92,6 +93,8 @@ export type ThemeColor =
   | 'syntaxFunction'
   | 'syntaxType'
   | 'mdQuote'
+  | 'mdQuoteBorder'
+  | 'mdHr'
   | 'mdListBullet'
   | 'thinkingText'
   | 'customMessageLabel'
@@ -105,23 +108,30 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   border: '#3556b8',
   borderAccent: '#4d6bfe',
   borderMuted: '#3d424a',
+  // Every content colour sits near 67% lightness, which is what lets one ink
+  // stay readable across all three card fills. A 55% red reached 4.5:1 on a
+  // near-black card and only 3.4:1 once that card became a real grey.
   success: '#89d281',
-  error: '#fc4353',
+  error: '#ff8a8a',
   warning: '#e4c00f',
-  muted: '#858a94',
-  dim: '#666d7b',
+  muted: '#a3a8b2',
+  dim: '#858c99',
   text: '',
   userMessageText: '#e4e9f7',
   userMessageBg: '#141b30',
-  toolPendingBg: '#171e2e',
-  toolSuccessBg: '#141b26',
-  toolAltBg: '#101722',
-  toolErrorBg: '#291d1d',
+  // The three states differ by hue and saturation at one lightness, the way pi's
+  // do. Three near-black fills a few units apart could only ever read as "dark";
+  // at 24% lightness a neutral pending, a green success, and a red failure name
+  // themselves without any status glyph.
+  toolPendingBg: '#34383a',
+  toolSuccessBg: '#254131',
+  toolAltBg: '#2b2f31',
+  toolErrorBg: '#5b282a',
   toolTitle: '#e0e0e0',
-  toolOutput: '#858a94',
+  toolOutput: '#a3a8b2',
   toolDiffAdded: '#89d281',
-  toolDiffRemoved: '#fc4353',
-  toolDiffContext: '#838a98',
+  toolDiffRemoved: '#ff8a8a',
+  toolDiffContext: '#a8aeb8',
   mdHeading: '#7c93ff',
   mdLink: '#7c93ff',
   mdLinkUrl: '#7186bd',
@@ -134,6 +144,8 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   syntaxFunction: '#dcdcaa',
   syntaxType: '#4ec9b0',
   mdQuote: '#777d88',
+  mdQuoteBorder: '#3d424a',
+  mdHr: '#3d424a',
   mdListBullet: '#7c93ff',
   thinkingText: '#6b7280',
   customMessageLabel: '#b281d6',
@@ -146,21 +158,22 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   borderAccent: '#4d6bfe',
   borderMuted: '#b0b0b0',
   success: '#588458',
-  error: '#9f4f4f',
+  error: '#8f3a3a',
   warning: '#9a7326',
   muted: '#666666',
   dim: '#767676',
   text: '',
   userMessageText: '#1c2438',
   userMessageBg: '#e7ecf9',
-  toolPendingBg: '#eef1fa',
-  toolSuccessBg: '#e8f0e8',
-  toolAltBg: '#e1ebe3',
-  toolErrorBg: '#f0e8e8',
+  // The same three states on paper: one lightness, three hues.
+  toolPendingBg: '#e7e8ea',
+  toolSuccessBg: '#dee9e1',
+  toolAltBg: '#eff0f2',
+  toolErrorBg: '#eee2e1',
   toolTitle: '#242424',
   toolOutput: '#666666',
   toolDiffAdded: '#4a6f4a',
-  toolDiffRemoved: '#9f4f4f',
+  toolDiffRemoved: '#93403f',
   toolDiffContext: '#666666',
   mdHeading: '#3b57e0',
   mdLink: '#3b57e0',
@@ -174,341 +187,24 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   syntaxFunction: '#795e26',
   syntaxType: '#267e97',
   mdQuote: '#6c6c6c',
+  mdQuoteBorder: '#b8b8b8',
+  mdHr: '#b8b8b8',
   mdListBullet: '#3b57e0',
   thinkingText: '#6c6c6c',
   customMessageLabel: '#7e57c2',
 }
 
-const MIDNIGHT_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#7aa2f7',
-  border: '#3d59a1',
-  borderAccent: '#7dcfff',
-  borderMuted: '#3d424a',
-  success: '#9ece6a',
-  error: '#f7768e',
-  warning: '#e0af68',
-  muted: '#878d96',
-  dim: '#686f7e',
-  text: '',
-  userMessageBg: '#1a1b26',
-  toolPendingBg: '#16161e',
-  toolSuccessBg: '#1b2430',
-  toolAltBg: '#161c27',
-  toolErrorBg: '#2a1b26',
-  toolOutput: '#878d96',
-  toolDiffAdded: '#9ece6a',
-  toolDiffRemoved: '#f7768e',
-  toolDiffContext: '#858d9a',
-  mdHeading: '#bb9af7',
-  mdLink: '#7dcfff',
-  mdLinkUrl: '#626a77',
-  mdCode: '#7f8799',
-  mdCodeBlock: '#9aa5ce',
-  mdCodeBlockBorder: '#3d424a',
-  mdKeyword: '#bb9af7',
-  syntaxString: '#9ece6a',
-  syntaxNumber: '#ff9e64',
-  syntaxFunction: '#7aa2f7',
-  syntaxType: '#2ac3de',
-  mdQuote: '#777d88',
-  mdListBullet: '#7aa2f7',
-  thinkingText: '#6a7394',
-  customMessageLabel: '#bb9af7',
-  userMessageText: '#c0caf5',
-  toolTitle: '#c0caf5',
-}
 
-const SOLARIZED_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#c39400',
-  border: '#268bd2',
-  borderAccent: '#2aa198',
-  borderMuted: '#586e75',
-  success: '#859900',
-  error: '#e87b79',
-  warning: '#cb4b16',
-  muted: '#8e9e9f',
-  dim: '#668088',
-  text: '',
-  userMessageBg: '#073642',
-  toolPendingBg: '#002b36',
-  toolSuccessBg: '#073642',
-  toolAltBg: '#05303b',
-  toolErrorBg: '#3b2020',
-  toolOutput: '#8e9e9f',
-  toolDiffAdded: '#8fa500',
-  toolDiffRemoved: '#e87b79',
-  toolDiffContext: '#889fa6',
-  mdHeading: '#b58900',
-  mdLink: '#3496da',
-  mdLinkUrl: '#5e767d',
-  mdCode: '#93a1a1',
-  mdCodeBlock: '#2aa198',
-  mdCodeBlockBorder: '#073642',
-  mdKeyword: '#859900',
-  syntaxString: '#2aa198',
-  syntaxNumber: '#de66a0',
-  syntaxFunction: '#3496da',
-  syntaxType: '#b58900',
-  mdQuote: '#839496',
-  mdListBullet: '#b58900',
-  thinkingText: '#5e767d',
-  customMessageLabel: '#6c71c4',
-  userMessageText: '#93a1a1',
-  toolTitle: '#93a1a1',
-}
 
-const CATPPUCCIN_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#fab387',
-  border: '#89b4fa',
-  borderAccent: '#b4befe',
-  borderMuted: '#313244',
-  success: '#a6e3a1',
-  error: '#f38ba8',
-  warning: '#f9e2af',
-  muted: '#989db0',
-  dim: '#7a7d93',
-  text: '',
-  userMessageBg: '#181825',
-  toolPendingBg: '#313244',
-  toolSuccessBg: '#181825',
-  toolAltBg: '#14141f',
-  toolErrorBg: '#11111b',
-  toolTitle: '#b4befe',
-  toolOutput: '#989db0',
-  toolDiffAdded: '#a6e3a1',
-  toolDiffRemoved: '#f38ba8',
-  toolDiffContext: '#989db0',
-  mdHeading: '#fab387',
-  mdLink: '#89b4fa',
-  mdLinkUrl: '#6c7086',
-  mdCode: '#a6adc8',
-  mdCodeBlock: '#cdd6f4',
-  mdCodeBlockBorder: '#313244',
-  mdKeyword: '#cba6f7',
-  syntaxString: '#a6e3a1',
-  syntaxNumber: '#fab387',
-  syntaxFunction: '#89b4fa',
-  syntaxType: '#f9e2af',
-  mdQuote: '#7f849c',
-  mdListBullet: '#fab387',
-  thinkingText: '#6c7086',
-  customMessageLabel: '#cba6f7',
-  userMessageText: '#cdd6f4',
-}
 
-const DRACULA_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#bd93f9',
-  border: '#bd93f9',
-  borderAccent: '#ff79c6',
-  borderMuted: '#44475a',
-  success: '#50fa7b',
-  error: '#ff5a5a',
-  warning: '#f1fa8c',
-  muted: '#8693b9',
-  dim: '#6f7492',
-  text: '',
-  userMessageBg: '#1f2029',
-  toolPendingBg: '#21222c',
-  toolSuccessBg: '#1a1f1e',
-  toolAltBg: '#161a19',
-  toolErrorBg: '#2a2028',
-  toolTitle: '#8be9fd',
-  toolOutput: '#8693b9',
-  toolDiffAdded: '#50fa7b',
-  toolDiffRemoved: '#ff5a5a',
-  toolDiffContext: '#8693b9',
-  mdHeading: '#bd93f9',
-  mdLink: '#8be9fd',
-  mdLinkUrl: '#6474a5',
-  mdCode: '#9aa3c7',
-  mdCodeBlock: '#f8f8f2',
-  mdCodeBlockBorder: '#44475a',
-  mdKeyword: '#ff79c6',
-  syntaxString: '#f1fa8c',
-  syntaxNumber: '#bd93f9',
-  syntaxFunction: '#50fa7b',
-  syntaxType: '#8be9fd',
-  mdQuote: '#6474a5',
-  mdListBullet: '#ff79c6',
-  thinkingText: '#6474a5',
-  customMessageLabel: '#bd93f9',
-  userMessageText: '#f8f8f2',
-}
 
-const NORD_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#88c0d0',
-  border: '#5e81ac',
-  borderAccent: '#88c0d0',
-  borderMuted: '#434c5e',
-  success: '#a3be8c',
-  error: '#daa2a8',
-  warning: '#ebcb8b',
-  muted: '#a8b1c1',
-  dim: '#8490a7',
-  text: '',
-  userMessageBg: '#3b4252',
-  toolPendingBg: '#3b4252',
-  toolSuccessBg: '#2e3440',
-  toolAltBg: '#29303b',
-  toolErrorBg: '#3b2f31',
-  toolTitle: '#88c0d0',
-  toolOutput: '#a8b1c1',
-  toolDiffAdded: '#a3be8c',
-  toolDiffRemoved: '#daa2a8',
-  toolDiffContext: '#a8b1c1',
-  mdHeading: '#88c0d0',
-  mdLink: '#88c0d0',
-  mdLinkUrl: '#727f9a',
-  mdCode: '#82a2c1',
-  mdCodeBlock: '#d8dee9',
-  mdCodeBlockBorder: '#434c5e',
-  mdKeyword: '#82a2c1',
-  syntaxString: '#a3be8c',
-  syntaxNumber: '#b793b1',
-  syntaxFunction: '#88c0d0',
-  syntaxType: '#8fbcbb',
-  mdQuote: '#7b88a1',
-  mdListBullet: '#81a1c1',
-  thinkingText: '#747f95',
-  customMessageLabel: '#b48ead',
-  userMessageText: '#d8dee9',
-}
 
-const GRUVBOX_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#fe8019',
-  border: '#458588',
-  borderAccent: '#8ec07c',
-  borderMuted: '#504945',
-  success: '#b8bb26',
-  error: '#fc6c5c',
-  warning: '#fabd2f',
-  muted: '#a4988b',
-  dim: '#87796d',
-  text: '',
-  userMessageBg: '#1d2021',
-  toolPendingBg: '#32302f',
-  toolSuccessBg: '#1d2021',
-  toolAltBg: '#181b1c',
-  toolErrorBg: '#3c2021',
-  toolTitle: '#ebdbb2',
-  toolOutput: '#a4988b',
-  toolDiffAdded: '#b8bb26',
-  toolDiffRemoved: '#fc6c5c',
-  toolDiffContext: '#a4988b',
-  mdHeading: '#fabd2f',
-  mdLink: '#8ec07c',
-  mdLinkUrl: '#7e7165',
-  mdCode: '#bdae93',
-  mdCodeBlock: '#ebdbb2',
-  mdCodeBlockBorder: '#504945',
-  mdKeyword: '#d3869b',
-  syntaxString: '#b8bb26',
-  syntaxNumber: '#d3869b',
-  syntaxFunction: '#fabd2f',
-  syntaxType: '#8ec07c',
-  mdQuote: '#928374',
-  mdListBullet: '#fe8019',
-  thinkingText: '#7e7165',
-  customMessageLabel: '#d3869b',
-  userMessageText: '#ebdbb2',
-}
 
-const ROSE_PINE_PALETTE: Record<ThemeColor, Swatch> = {
-  ...DARK_PALETTE,
-  accent: '#c4a7e7',
-  border: '#31748f',
-  borderAccent: '#9ccfd8',
-  borderMuted: '#403d52',
-  success: '#9ccfd8',
-  error: '#eb6f92',
-  warning: '#f6c177',
-  muted: '#8c89a2',
-  dim: '#6f6b8b',
-  text: '',
-  userMessageBg: '#21202e',
-  toolPendingBg: '#1f1d2e',
-  toolSuccessBg: '#21202e',
-  toolAltBg: '#1b1a27',
-  toolErrorBg: '#2d1f26',
-  toolTitle: '#9ccfd8',
-  toolOutput: '#8c89a2',
-  toolDiffAdded: '#9ccfd8',
-  toolDiffRemoved: '#eb6f92',
-  toolDiffContext: '#8c89a2',
-  mdHeading: '#c4a7e7',
-  mdLink: '#9ccfd8',
-  mdLinkUrl: '#908caa',
-  mdCode: '#a8a4c4',
-  mdCodeBlock: '#e0def4',
-  mdCodeBlockBorder: '#403d52',
-  mdKeyword: '#3b8cac',
-  syntaxString: '#f6c177',
-  syntaxNumber: '#ebbcba',
-  syntaxFunction: '#9ccfd8',
-  syntaxType: '#c4a7e7',
-  mdQuote: '#6e6a86',
-  mdListBullet: '#c4a7e7',
-  thinkingText: '#6e6a86',
-  customMessageLabel: '#c4a7e7',
-  userMessageText: '#e0def4',
-}
 
-const MONO_PALETTE: Record<ThemeColor, Swatch> = {
-  accent: '#e8e8e8',
-  border: '#888888',
-  borderAccent: '#b8b8b8',
-  borderMuted: '#444444',
-  success: '#c0c0c0',
-  error: '#f0f0f0',
-  warning: '#a8a8a8',
-  muted: '#939393',
-  dim: '#757575',
-  text: '',
-  userMessageText: '#e8e8e8',
-  userMessageBg: '#202020',
-  toolPendingBg: '#242424',
-  toolSuccessBg: '#1c1c1c',
-  toolAltBg: '#171717',
-  toolErrorBg: '#2a2a2a',
-  toolTitle: '#e8e8e8',
-  toolOutput: '#939393',
-  toolDiffAdded: '#c0c0c0',
-  toolDiffRemoved: '#f0f0f0',
-  toolDiffContext: '#939393',
-  mdHeading: '#e8e8e8',
-  mdLink: '#b8b8b8',
-  mdLinkUrl: '#666666',
-  mdCode: '#a0a0a0',
-  mdCodeBlock: '#c0c0c0',
-  mdCodeBlockBorder: '#444444',
-  mdKeyword: '#b8b8b8',
-  syntaxString: '#c0c0c0',
-  syntaxNumber: '#a0a0a0',
-  syntaxFunction: '#e8e8e8',
-  syntaxType: '#b8b8b8',
-  mdQuote: '#888888',
-  mdListBullet: '#b8b8b8',
-  thinkingText: '#767676',
-  customMessageLabel: '#a8a8a8',
-}
 
 const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
   dark: DARK_PALETTE,
   light: LIGHT_PALETTE,
-  midnight: MIDNIGHT_PALETTE,
-  solarized: SOLARIZED_PALETTE,
-  catppuccin: CATPPUCCIN_PALETTE,
-  dracula: DRACULA_PALETTE,
-  nord: NORD_PALETTE,
-  gruvbox: GRUVBOX_PALETTE,
-  'rose-pine': ROSE_PINE_PALETTE,
-  mono: MONO_PALETTE,
   // `system` starts from the neutral palette and is rebuilt from the reported
   // terminal colors when a launch can probe them.
   system: DARK_PALETTE,
@@ -554,6 +250,8 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   mdCodeBlockBorder: '90',
   mdKeyword: '36',
   mdQuote: '37',
+  mdQuoteBorder: '90',
+  mdHr: '90',
   mdListBullet: '94',
   thinkingText: '90',
   customMessageLabel: '35',
@@ -576,6 +274,9 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   text: '39',
   userMessageText: '30',
   userMessageBg: '37',
+  // This table holds *foreground* codes; `toBackgrounds` adds the 10 that turns
+  // them into fills, so `37` here is the white `\x1b[47m` card a light terminal
+  // needs under its dark ink.
   toolPendingBg: '37',
   toolSuccessBg: '37',
   toolAltBg: '37',
@@ -593,128 +294,24 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   mdCodeBlockBorder: '90',
   mdKeyword: '34',
   mdQuote: '30',
+  mdQuoteBorder: '90',
+  mdHr: '90',
   mdListBullet: '34',
   thinkingText: '90',
   customMessageLabel: '35',
 }
 
-const MIDNIGHT_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '34',
-  border: '34',
-  borderAccent: '36',
-  mdHeading: '35',
-  mdLink: '36',
-  mdKeyword: '35',
-  mdListBullet: '34',
-  customMessageLabel: '35',
-}
 
-const SOLARIZED_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '33',
-  border: '34',
-  borderAccent: '36',
-  mdHeading: '33',
-  mdLink: '34',
-  mdKeyword: '32',
-  mdCodeBlock: '36',
-  mdListBullet: '33',
-  customMessageLabel: '35',
-}
 
-const CATPPUCCIN_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '33',
-  border: '34',
-  borderAccent: '35',
-  mdHeading: '33',
-  mdLink: '34',
-  mdKeyword: '35',
-  mdListBullet: '33',
-  customMessageLabel: '35',
-}
 
-const DRACULA_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '35',
-  border: '35',
-  borderAccent: '35',
-  mdHeading: '35',
-  mdLink: '36',
-  mdKeyword: '35',
-  mdListBullet: '35',
-  customMessageLabel: '35',
-}
 
-const NORD_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '36',
-  border: '34',
-  borderAccent: '36',
-  mdHeading: '36',
-  mdLink: '36',
-  mdKeyword: '34',
-  mdListBullet: '34',
-  customMessageLabel: '35',
-}
 
-const GRUVBOX_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '33',
-  border: '36',
-  borderAccent: '32',
-  mdHeading: '33',
-  mdLink: '32',
-  mdKeyword: '35',
-  mdListBullet: '33',
-  customMessageLabel: '35',
-}
 
-const ROSE_PINE_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  accent: '35',
-  border: '36',
-  borderAccent: '36',
-  mdHeading: '35',
-  mdLink: '36',
-  mdKeyword: '36',
-  mdListBullet: '35',
-  customMessageLabel: '35',
-}
 
-const MONO_ANSI16: Record<ThemeColor, string> = {
-  ...DARK_ANSI16,
-  syntaxString: '37',
-  syntaxNumber: '37',
-  syntaxFunction: '97',
-  syntaxType: '37',
-  accent: '97',
-  border: '37',
-  borderAccent: '97',
-  success: '37',
-  error: '97',
-  warning: '37',
-  muted: '37',
-  mdHeading: '97',
-  mdLink: '37',
-  mdCodeBlock: '37',
-  mdKeyword: '37',
-  mdListBullet: '37',
-  customMessageLabel: '37',
-}
 
 const ANSI16: Record<ThemeName, Record<ThemeColor, string>> = {
   dark: DARK_ANSI16,
   light: LIGHT_ANSI16,
-  midnight: MIDNIGHT_ANSI16,
-  solarized: SOLARIZED_ANSI16,
-  catppuccin: CATPPUCCIN_ANSI16,
-  dracula: DRACULA_ANSI16,
-  nord: NORD_ANSI16,
-  gruvbox: GRUVBOX_ANSI16,
-  'rose-pine': ROSE_PINE_ANSI16,
-  mono: MONO_ANSI16,
   system: DARK_ANSI16,
 }
 
@@ -735,18 +332,176 @@ function toBackgrounds(foreground: Record<ThemeColor, string>): Record<ThemeColo
   return result
 }
 
+/**
+ * Backgrounds for the three tool states, chosen so they stay distinct.
+ *
+ * This is the group form of the problem {@link nearestXterm256} solves for one
+ * colour: the states differ mostly in hue and only slightly in lightness, so
+ * quantising each swatch on its own collapses them. The assignment below picks a
+ * distinct entry per state and then orders the three by lightness, so pending,
+ * success, and error remain recognizable even on a terminal that offers only
+ * eight backgrounds.
+ *
+ * A 16-colour terminal simply has fewer backgrounds than the states that need
+ * one. Rather than paint three states the same black, the ones it cannot tint
+ * fall back to `toolSuccessBg` and the error state — the only one a reader must
+ * act on — is given the red it already has in `ansiBg` when the palette has a
+ * usable red background.
+ */
+function resolveToolFills(
+  name: ThemeName,
+  depth: ColorDepth,
+  terminal: TerminalColors | undefined,
+): Partial<Record<ThemeColor, string>> | undefined {
+  const palette = name === 'system' ? systemPalette(terminal) : PALETTES[name]
+  const reported = depth === 'ansi16' && terminal?.palette !== undefined && terminal.palette.length === 16
+    ? terminal.palette
+    : undefined
+  const states: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolErrorBg']
+  const swatches = states.map(state => {
+    const swatch = palette[state]
+    if (typeof swatch !== 'string' || swatch === '') return undefined
+    const [r, g, b] = hexToRgb(swatch)
+    return { r, g, b }
+  })
+  const filled = swatches.every((swatch): swatch is Rgb => swatch !== undefined)
+  if (!filled) return undefined
+
+  if (depth === 'ansi256') {
+    // The neutral ramp is where the three near-black surfaces actually live; the
+    // colour cube would round them all to the same corner.
+    const indices = swatches.map(swatch => nearestXterm256Grey(swatch))
+    return assignDistinct(states, indices, index => `\x1b[48;5;${index}m`)
+  }
+
+  if (reported !== undefined) {
+    // Sixteen colours are not enough for three surfaces, so each state claims a
+    // *different* entry from the ones its own hue actually reaches, rather than
+    // nudging a number that has no meaning in this palette.
+    return pickDistinctPaletteEntries(name, states, swatches, reported, index => ansiIndexSgr(index, true))
+  }
+  // The terminal never answered our colour query, so the standard xterm ANSI
+  // meanings are assumed: three different backgrounds that carry text. Guessing
+  // per swatch here is exactly what collapsed the three states into one. Red is
+  // deliberately not one of them — a red fill would share its palette slot with
+  // the red `error` and `toolDiffRemoved` ink drawn on top of it.
+  // A light card is white paper under dark ink, and the eight backgrounds an
+  // ANSI-16 terminal offers contain exactly one that carries it. Pending and
+  // success therefore share it, and the failing card — the state a reader has to
+  // act on — is the one that gets a fill of its own.
+  return name === 'light'
+    ? { toolPendingBg: '\x1b[47m', toolSuccessBg: '\x1b[47m', toolErrorBg: '\x1b[45m' }
+    : { toolPendingBg: '\x1b[44m', toolSuccessBg: '\x1b[40m', toolErrorBg: '\x1b[45m' }
+}
+
+/**
+ * Give each state the nearest palette entry no other state has taken.
+ *
+ * A 16-colour terminal cannot express a subtle tint, so the question stops being
+ * "which entry is nearest" and becomes "which entry can this state have". Each
+ * state is served in turn, by increasing distance, and only entries whose
+ * luminance is low enough to hold card text are considered — a bright palette
+ * entry would turn a tool card into a block of white.
+ */
+function pickDistinctPaletteEntries(
+  name: ThemeName,
+  states: readonly ThemeColor[],
+  swatches: readonly Rgb[],
+  palette: readonly Rgb[],
+  encode: (index: number) => string,
+): Partial<Record<ThemeColor, string>> | undefined {
+  // A palette slot already used as ink on a card is not available as a fill: a
+  // red background under red diff lines erases them. The check runs against the
+  // same fallback table the foreground codes come from, so the two can never
+  // disagree about which slot a colour occupies.
+  const takenByInk = new Set(CARD_INK_COLORS
+    .map(color => Number.parseInt(ANSI16[name][color], 10))
+    .filter(code => Number.isInteger(code) && code < 8))
+  const ceiling = SURFACE_MAX_LUMINANCE[name]
+  // A light card's ink is a black that owns slot 0, so its fills come from the
+  // bright end instead; the test is "far enough from the ink", not "dark".
+  const eligible = (entry: Rgb | undefined, index: number): boolean => entry !== undefined
+    && !takenByInk.has(index)
+    && (name === 'light' ? relativeLuminance(entry) >= ceiling : relativeLuminance(entry) < ceiling)
+  if (palette.filter(eligible).length < states.length) return undefined
+  const ranked = palette
+    .flatMap((entry, index) => entry === undefined ? [] : [{ index, entry: entry as Rgb }])
+    .filter(({ entry, index }) => eligible(entry, index))
+    .map(({ index, entry }) => ({ index, lab: toOklab(entry) }))
+  if (ranked.length < states.length) return undefined
+  const used = new Set<number>()
+  const result: Partial<Record<ThemeColor, string>> = {}
+  for (let at = 0; at < states.length; at += 1) {
+    const target = toOklab(swatches[at]!)
+    let best: { index: number; distance: number } | undefined
+    for (const candidate of ranked) {
+      if (used.has(candidate.index)) continue
+      const distance = labDistance(target, candidate.lab)
+      if (best === undefined || distance < best.distance) best = { index: candidate.index, distance }
+    }
+    if (best === undefined) return undefined
+    used.add(best.index)
+    result[states[at]!] = encode(best.index)
+  }
+  return result
+}
+
+/** Ink drawn on a tool card, by theme token and ANSI-16 fallback code. */
+const CARD_INK_COLORS: readonly ThemeColor[] = [
+  'toolTitle', 'toolOutput', 'toolDiffAdded', 'toolDiffRemoved', 'toolDiffContext',
+  'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType',
+  'mdCodeBlock', 'mdLink', 'mdHeading', 'mdQuote', 'dim', 'muted', 'accent',
+  'success', 'error', 'warning', 'thinkingText', 'mdListBullet', 'mdHr',
+  'mdQuoteBorder', 'mdCodeBlockBorder', 'mdCode', 'mdLinkUrl',
+]
+
+/**
+ * How light a card fill may be, per palette.
+ *
+ * The constraint is not "dark" — it is "far from the ink". A dark theme draws
+ * light text on a dark fill and a light theme draws dark text on a light fill, so
+ * each palette states its own ceiling instead of sharing a dark one that would
+ * make every card on a light terminal a black block.
+ */
+const SURFACE_MAX_LUMINANCE: Readonly<Record<ThemeName, number>> = {
+  dark: 0.5, system: 0.5,
+  // A light card's fill comes from the bright end; the ceiling is its floor.
+  light: 0.98,
+}
+
+/**
+ * Give every state its own encoding, nudging the ones that collided.
+ *
+ * `preferred` is the honest per-state choice; when two states land on it, the
+ * one further from the light end is pushed to a neighbouring entry. A terminal
+ * whose palette has no room left keeps the collision rather than inventing a
+ * colour it cannot draw, which is why this returns `undefined` in that case.
+ */
+function assignDistinct(
+  states: readonly ThemeColor[],
+  preferred: readonly number[],
+  encode: (index: number) => string,
+): Partial<Record<ThemeColor, string>> | undefined {
+  const used = new Set<number>()
+  const result: Partial<Record<ThemeColor, string>> = {}
+  for (let at = 0; at < states.length; at += 1) {
+    const state = states[at]!
+    let index = preferred[at] ?? 0
+    for (let step = 1; used.has(index) && step < 8; step += 1) {
+      // Alternate lighter and darker so a nudge stays close to the intent.
+      index = preferred[at]! + (step % 2 === 1 ? -step : step)
+    }
+    if (used.has(index)) return undefined
+    used.add(index)
+    result[state] = encode(index)
+  }
+  return result
+}
+
 /** 16-color background fallbacks when the terminal is not truecolor. */
 const ANSI16_BG: Record<ThemeName, Record<ThemeColor, string>> = {
   dark: toBackgrounds(DARK_ANSI16),
   light: toBackgrounds(LIGHT_ANSI16),
-  midnight: toBackgrounds(MIDNIGHT_ANSI16),
-  solarized: toBackgrounds(SOLARIZED_ANSI16),
-  catppuccin: toBackgrounds(CATPPUCCIN_ANSI16),
-  dracula: toBackgrounds(DRACULA_ANSI16),
-  nord: toBackgrounds(NORD_ANSI16),
-  gruvbox: toBackgrounds(GRUVBOX_ANSI16),
-  'rose-pine': toBackgrounds(ROSE_PINE_ANSI16),
-  mono: toBackgrounds(MONO_ANSI16),
   system: toBackgrounds(DARK_ANSI16),
 }
 
@@ -759,11 +514,15 @@ const STRIKE_RESET = '\x1b[29m'
 const INVERSE_RESET = '\x1b[27m'
 
 /** Built-in palettes, including a few well-known oh-my-pi coding themes. */
-export const THEME_NAMES = [
-  'dark', 'light', 'midnight', 'solarized',
-  'catppuccin', 'dracula', 'nord', 'gruvbox', 'rose-pine',
-  'mono', 'system',
-] as const
+/**
+ * Shipped palettes: one dark, one light, and the one that follows the terminal.
+ *
+ * A theme is a contract the whole TUI is read through — every card, diff, and
+ * syntax token has to stay legible on it — so the set stays small enough to hold
+ * to that standard. `system` is not a third design: it derives its surfaces from
+ * the colours the terminal reports and then follows the same rules.
+ */
+export const THEME_NAMES = ['dark', 'light', 'system'] as const
 
 /** One shipped palette name. */
 export type ThemeName = (typeof THEME_NAMES)[number]
@@ -881,6 +640,8 @@ function toHex(color: Rgb): string {
 
 /** The fixed red a `system` error surface mixes toward when the palette has none. */
 const SYSTEM_ERROR_RED: Rgb = { r: 0xff, g: 0x5f, b: 0x5f }
+/** The fixed green a `system` success surface mixes toward when the palette has none. */
+const SYSTEM_SUCCESS_GREEN: Rgb = { r: 0x4a, g: 0xc8, b: 0x7a }
 /** The fixed blue a `system` notice surface mixes toward when the palette has none. */
 const SYSTEM_NOTICE_BLUE: Rgb = { r: 0x6f, g: 0xa8, b: 0xff }
 
@@ -898,22 +659,34 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   const foreground = terminal?.foreground ?? (light ? { r: 0x24, g: 0x24, b: 0x24 } : { r: 0xe0, g: 0xe0, b: 0xe0 })
   const accent = terminal?.palette?.[4] ?? SYSTEM_NOTICE_BLUE
   const error = terminal?.palette?.[1] ?? SYSTEM_ERROR_RED
+  const successInk = terminal?.palette?.[2] ?? SYSTEM_SUCCESS_GREEN
   const card = (weight: number): string => toHex(mixRgb(background, foreground, weight))
-  // The alternating pair keeps a fixed gap; widening `alt` only when a harsh
-  // background would otherwise swallow it.
-  const success = card(0.05)
-  const alt = contrastRatio(mixRgb(background, foreground, 0.05), mixRgb(background, foreground, 0.12)) < 1.06
-    ? card(0.16) : card(0.12)
+  /**
+   * A state fill carries its own hue, the way the shipped palettes do.
+   *
+   * Mixing toward the terminal's *foreground* produced three greys: the states
+   * were separated only by lightness, which on a dark background is the one axis
+   * a reader cannot see. Mixing toward the state colour instead keeps the card on
+   * the user's own background and gives it the meaning at the same time.
+   */
+  const stateCard = (tint: Rgb, weight: number): string => toHex(mixRgb(background, tint, weight))
+  const pending = card(0.10)
+  const success = stateCard(successInk, light ? 0.16 : 0.20)
+  // The alternating pair is a plain lightness step: two successive successful
+  // cards must be told apart, not two different states.
+  const altCard = card(0.05)
+  const alt = contrastRatio(mixRgb(background, successInk, light ? 0.16 : 0.20), mixRgb(background, foreground, 0.05)) < 1.06
+    ? card(0.18) : altCard
   return {
     ...base,
     text: toHex(foreground),
     muted: toHex(mixRgb(foreground, background, 0.28)),
     dim: toHex(mixRgb(foreground, background, 0.45)),
     userMessageBg: toHex(mixRgb(background, accent, 0.14)),
-    toolPendingBg: card(0.03),
+    toolPendingBg: pending,
     toolSuccessBg: success,
     toolAltBg: alt,
-    toolErrorBg: toHex(mixRgb(background, error, 0.20)),
+    toolErrorBg: stateCard(error, light ? 0.14 : 0.22),
   }
 }
 
@@ -999,15 +772,29 @@ export function createTheme(
     return quantized(palette[color], true) ?? swatchCode(palette[color], resolvedDepth, ansiBg[color], 48)
   }
   /**
-   * A 16- or 256-color terminal can collapse two near-black surfaces onto one entry.
-   * The alternating card then gives up its fill instead of pretending to have
-   * a second one, which keeps consecutive calls distinguishable.
+   * A tool card must keep telling pending from done from failed on every
+   * terminal, so the three fills are resolved together rather than one at a
+   * time.
+   *
+   * A palette with only sixteen backgrounds, or a 256-color cube with six
+   * levels per channel, has no entries that differ by the handful of units the
+   * truecolor swatches do: nearest-neighbour quantisation sent pending,
+   * success, and error to one and the same black. Every icon that says which
+   * state a card is in was therefore invisible on any terminal that was not
+   * truecolor.
    */
-  const altBg = colors && !tc && rawBgAnsi('toolSuccessBg') === rawBgAnsi('toolAltBg')
-    ? BG_RESET
-    : undefined
+  const toolFills = colors && !tc ? resolveToolFills(name, resolvedDepth, terminal) : undefined
+  const fillsFor = (color: ThemeColor): string => toolFills !== undefined && Object.hasOwn(toolFills, color)
+    ? toolFills[color as keyof typeof toolFills]!
+    : rawBgAnsi(color)
+  /**
+   * A 16- or 256-color terminal can still collapse the two *alternating* card
+   * surfaces onto one entry. The alternating card then gives up its fill instead
+   * of pretending to have a second one, which keeps consecutive calls readable.
+   */
+  const altBg = colors && !tc && fillsFor('toolSuccessBg') === fillsFor('toolAltBg') ? BG_RESET : undefined
   const getBgAnsi = (color: ThemeColor): string =>
-    color === 'toolAltBg' && altBg !== undefined ? altBg : rawBgAnsi(color)
+    color === 'toolAltBg' && altBg !== undefined ? altBg : fillsFor(color)
   const paint = (open: string, text: string, close: string): string =>
     colors && open !== '' ? open + text + close : text
   return {

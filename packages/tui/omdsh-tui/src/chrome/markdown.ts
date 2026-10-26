@@ -544,8 +544,12 @@ function renderListItem(
 }
 
 function renderBlockquote(token: Tokens.Blockquote, theme: Theme, width: number, style?: MarkdownStyle, depth = 0): string[] {
-  const inner = renderTokens(token.tokens, theme, Math.max(1, width - 2), 0, style, depth)
-  return inner.map(line => theme.fg('borderMuted', '│ ') + line)
+  // Quoted prose is set apart by ink and slant as well as by its rail, so a
+  // long quotation reads as a different voice rather than as indented text.
+  const quote = style?.color === 'thinkingText' ? style : { ...style, italic: true }
+  const inner = renderTokens(token.tokens, theme, Math.max(1, width - 2), 0, quote, depth)
+  const railInk = ink(style, 'mdQuoteBorder')
+  return inner.map(line => theme.fg(railInk, '│ ') + (theme.colors ? theme.fg(ink(style, 'mdQuote'), line) : line))
 }
 
 function renderBlock(token: Token, theme: Theme, width: number, listLevel: number, style?: MarkdownStyle, depth = 0): string[] {
@@ -557,9 +561,22 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
     case 'space':
       return ['']
     case 'hr':
-      return [theme.fg('borderMuted', '─'.repeat(Math.max(1, width)))]
-    case 'heading':
-      return wrapStyled(theme.bold(theme.fg(style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading', renderInlineTokens(token.tokens, theme, style, depth + 1))), width)
+      // A rule is a break in the document, so it is drawn in the rule ink rather
+      // than the border ink used for component frames.
+      return [theme.fg('mdHr', '─'.repeat(Math.max(1, width)))]
+    case 'heading': {
+      // Levels have to look different or a document's outline disappears. H1
+      // and H2 carry their weight and an underline; the deeper levels are bold
+      // only, and keep their `###` markers so the level is still readable when
+      // the terminal cannot render underline.
+      const depthLevel = (token as Tokens.Heading).depth
+      const headingInk = style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading'
+      const body = renderInlineTokens(token.tokens, theme, style, depth + 1)
+      const painted = depthLevel <= 2
+        ? theme.fg(headingInk, theme.underline(theme.bold(body)))
+        : theme.bold(theme.fg(headingInk, '#'.repeat(Math.max(0, depthLevel)) + ' ' + body))
+      return wrapStyled(painted, width)
+    }
     case 'paragraph':
     case 'text':
       return flowLines(token, theme, width, style, depth + 1)

@@ -6,7 +6,9 @@ import {
   highlightCodeLines,
   isSupportedLanguage,
   languageFromPath,
+  highlightToolText,
   normalizeLanguage,
+  toolPayloadLanguage,
 } from './code-highlight.ts'
 import { createTheme, THEME_NAMES } from './theme.ts'
 import { stripAnsi } from './width.ts'
@@ -171,8 +173,8 @@ describe('highlight cache', () => {
     const src = ['const x = 1']
     highlightCodeLines(src, 'ts', color)
     expect(highlightCacheSize()).toBe(1)
-    const midnight = createTheme(true, true, 'midnight')
-    highlightCodeLines(src, 'ts', midnight)
+    // A different palette is a different cache key.
+    highlightCodeLines(src, 'ts', createTheme(true, true, 'light'))
     highlightCodeLines(src, 'ts', color, { color: 'toolDiffContext' })
     highlightCodeLines(src, 'js', color)
     highlightCodeLines(['const y = 2'], 'ts', color)
@@ -230,3 +232,46 @@ describe('terminal-color fingerprints', () => {
     expect(lightOut).not.toEqual(darkOut)
   })
 })
+
+describe('tool payload highlighting', () => {
+  const color = createTheme(true, true, 'dark', { trueColor: true } as never)
+
+  it('highlights every row of a multi-line command, not just the first', () => {
+    // The regression this covers: painting line by line handed the tokenizer a
+    // fragment with no opening construct, so only the first command row came
+    // back highlighted and the rest looked like plain text.
+    const rows = highlightToolText('git status --short\nls -la | head -2\necho done', 'bash', color)
+    expect(rows).toHaveLength(3)
+    const inks = rows.map(row => readonlyInks(row))
+    // Each row carries more than one ink, which is what "highlighted" means.
+    for (const row of inks) expect(row.length).toBeGreaterThan(1)
+    // And each row's inks are its own, not a leftover of the row above.
+    expect(inks[0]).not.toEqual(inks[1])
+  })
+
+  it('paints an unmapped token as code rather than leaving the default ink', () => {
+    const [row = ''] = highlightToolText('const total = items.length + 1', 'js', color)
+    // Identifiers and operators used to reach the terminal's default colour,
+    // which read as unhighlighted prose inside a highlighted block. Each run now
+    // opens an ink of its own, so no run is left to the default.
+    const runs = row.split(/(?=\x1b\[)/u).filter(run => stripAnsi(run).trim() !== '')
+    for (const run of runs) expect(run.startsWith('\x1b[')).toBe(true)
+    expect(readonlyInks(row).length).toBeGreaterThan(2)
+  })
+
+  it('leaves a payload that already carries escapes untouched', () => {
+    const painted = '\x1b[31mred\x1b[39m\nplain'
+    expect(highlightToolText(painted, 'bash', color)).toEqual(['\x1b[31mred\x1b[39m', 'plain'])
+  })
+
+  it('resolves a payload language from the tool or the subject file', () => {
+    expect(toolPayloadLanguage('bash')).toBe('bash')
+    expect(toolPayloadLanguage('write', 'src/a.ts')).toBe('ts')
+    expect(toolPayloadLanguage('read', 'notes.md')).toBeUndefined()
+  })
+})
+
+/** Distinct foreground inks present in a painted row. */
+function readonlyInks(row: string): string[] {
+  return [...new Set([...row.matchAll(/\x1b\[38;2;[0-9;]+m/gu)].map(match => match[0]))]
+}

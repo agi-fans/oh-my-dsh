@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTheme, paintSurface, THEME_NAMES, type ThemeColor } from './theme.ts'
+import { toOklab } from './terminal-colors.ts'
 
 const HOST_BACKGROUNDS = {
   dark: '#15141a', light: '#ffffff', midnight: '#1a1b26', solarized: '#002b36',
@@ -100,3 +101,61 @@ describe('theme contrast contracts', () => {
     expect(fgIndex(theme.getFgAnsi('userMessageText'))).not.toBe(fgIndex(theme.getBgAnsi('userMessageBg')) - 10)
   })
 })
+
+describe('tool state surfaces', () => {
+  /**
+   * The three states a reader acts on must never share a fill.
+   *
+   * This is the contract the old palette broke: below truecolor their swatches
+   * quantized onto one entry, so a failed card looked exactly like a successful
+   * one. A terminal that genuinely cannot host three fills is the only allowed
+   * exception, and it must be the light 16-colour case.
+   */
+  const STATES = ['toolPendingBg', 'toolSuccessBg', 'toolErrorBg'] as const
+
+  it.each(['truecolor', 'ansi256'] as const)('%s gives every theme three distinct tool fills', depth => {
+    for (const name of THEME_NAMES) {
+      const theme = createTheme(true, depth, name)
+      const fills = STATES.map(state => theme.getBgAnsi(state))
+      expect(new Set(fills).size, `${name} at ${depth}: ${fills.join(' ')}`).toBe(3)
+    }
+  })
+
+  it.each(['truecolor', 'ansi16'] as const)('%s keeps a failed card colder or warmer than a successful one', depth => {
+    // The state has to be legible as *different*, not merely as another code:
+    // the pending and error fills drift away from the neutral success fill.
+    for (const name of THEME_NAMES) {
+      const theme = createTheme(true, depth, name)
+      const success = labOf(theme.getBgAnsi('toolSuccessBg'))
+      for (const state of ['toolPendingBg', 'toolErrorBg'] as const) {
+        const other = labOf(theme.getBgAnsi(state))
+        if (other === undefined || success === undefined) continue
+        expect(distance(success, other), `${name} ${state}`).toBeGreaterThan(0.01)
+      }
+    }
+  })
+})
+
+/** OKLab of an SGR background code, for the two encodings these tests produce. */
+function labOf(code: string): [number, number, number] | undefined {
+  const truecolor = /48;2;(\d+);(\d+);(\d+)m/u.exec(code)
+  if (truecolor !== null) return toOklab({ r: Number(truecolor[1]), g: Number(truecolor[2]), b: Number(truecolor[3]) })
+  const indexed = /48;5;(\d+)m/u.exec(code)
+  if (indexed !== null) {
+    const index = Number(indexed[1])
+    const levels = [0, 95, 135, 175, 215, 255]
+    if (index >= 232) {
+      const value = 8 + (index - 232) * 10
+      return toOklab({ r: value, g: value, b: value })
+    }
+    if (index >= 16) {
+      const offset = index - 16
+      return toOklab({ r: levels[Math.floor(offset / 36)]!, g: levels[Math.floor(offset / 6) % 6]!, b: levels[offset % 6]! })
+    }
+  }
+  return undefined
+}
+
+function distance(left: readonly [number, number, number], right: readonly [number, number, number]): number {
+  return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2])
+}
