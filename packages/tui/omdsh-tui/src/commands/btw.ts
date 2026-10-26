@@ -77,8 +77,8 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
       if (action === 'share') {
         const body = (lastReplyText || detail).trim()
         if (body !== '') {
-          const heading = lastQuestion === '' ? '## Side question' : `## Side question · ${lastQuestion}`
-          ctx.tui.commandOutput?.('btw', `${heading}\n\n${body}`, { focus: true })
+          // Rendered from the injection below, so a resumed session still shows
+          // the note the model was told about.
           try {
             parent.inject?.(createUserMessage({
               source: { kind: 'omdsh-btw', form: 'notice', summary: 'Side question note.' },

@@ -17,11 +17,14 @@ export function formatTerminalQuote(text: string): string {
   return `${fence}text\n${text}\n${fence}`
 }
 
-export function shareTerminalOutputToConversation(ctx: Context, owner: Agent, title: string, rawText: string): boolean {
+export function shareTerminalOutputToConversation(owner: Agent, title: string, rawText: string): boolean {
   const loaded = rawText.replace(/\n$/u, '')
   if (loaded.trim() === '') return false
   const formatted = formatTerminalQuote(loaded)
-  ctx.tui.commandOutput?.('terminal', `## ${title}\n\n${formatted}`, { focus: true })
+  // The transcript row comes from this injection, not from a parallel local
+  // write: the model can refer to what was injected, so a row that only the
+  // live TUI knows about would vanish on resume and leave the model citing
+  // content the reader cannot see.
   try {
     owner.inject?.(createUserMessage({
       source: { kind: 'omdsh-terminal', form: 'notice', summary: `Shared output from ${title}.` },

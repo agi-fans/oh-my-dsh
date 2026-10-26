@@ -151,7 +151,8 @@ export async function requestAdvice(ctx: Context, invocation: CommandInvocation,
         },
       },
     } as unknown as SessionEvent)
-    ctx.tui.commandOutput('advisor', `## Independent advice · ${advice.provider}\n\n${advice.opinion}${advice.truncated ? '\n\n[Opinion truncated]' : ''}`, { focus: true })
+    // Rendered from the injection below; a local-only row would disappear on
+    // resume while the model kept referring to the advice.
     try {
       invocation.agent.inject?.(createUserMessage({
         source: { kind: 'omdsh-advisor', form: 'notice', summary: `Independent advice from ${advice.provider}.` },

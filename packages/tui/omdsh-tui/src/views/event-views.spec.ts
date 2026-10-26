@@ -2235,3 +2235,31 @@ describe('human guidance display', () => {
     }
   })
 })
+
+describe('notice-shaped plugin injections', () => {
+  it('renders a shared-output notice as a transcript row', () => {
+    // The model already knows what was injected, so a transcript that hides it
+    // diverges from the conversation: resuming would show an answer whose cause
+    // is missing. These injections carry `form: 'notice'` precisely so the
+    // surface can draw them.
+    const state = applyEvent(initialTranscript(), ev('user/message', {
+      source: { kind: 'omdsh-terminal', form: 'notice', summary: 'Shared output from Shell.' },
+      content: [{ type: 'text', text: 'The user shared terminal output from Shell · `ls`: a.txt' }],
+    }, 1))
+    const notice = state.blocks.find(block => block.kind === 'notice')
+    expect(notice).toMatchObject({ kind: 'notice', level: 'info' })
+    expect(notice?.kind === 'notice' ? notice.text : '').toContain('a.txt')
+    // It is not a human prompt: no user bubble is fabricated.
+    expect(state.blocks.some(block => block.kind === 'user')).toBe(false)
+  })
+
+  it('still hides unreviewed model-input injections', () => {
+    // Runtime context and skill catalogs reach the surface as user-role messages
+    // without the notice form; they are model input, not conversation.
+    const state = applyEvent(initialTranscript(), ev('user/message', {
+      source: { kind: 'omdsh-runtime-context' },
+      content: [{ type: 'text', text: 'workspace facts the model needs' }],
+    }, 1))
+    expect(state.blocks).toHaveLength(0)
+  })
+})

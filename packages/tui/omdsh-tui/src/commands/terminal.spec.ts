@@ -17,28 +17,25 @@ describe('terminal quoting', () => {
 })
 
 describe('sharing terminal output', () => {
-  const harness = (): { ctx: Context; owner: Agent; output: ReturnType<typeof vi.fn>; inject: ReturnType<typeof vi.fn> } => {
-    const output = vi.fn()
+  const harness = (): { owner: Agent; inject: ReturnType<typeof vi.fn> } => {
     const inject = vi.fn()
-    return {
-      ctx: { tui: { commandOutput: output } } as unknown as Context,
-      owner: { inject } as unknown as Agent,
-      output,
-      inject,
-    }
+    return { owner: { inject } as unknown as Agent, inject }
   }
 
-  it('posts the output and hands it to the conversation', () => {
-    const { ctx, owner, output, inject } = harness()
-    expect(shareTerminalOutputToConversation(ctx, owner, 'Shell · `ls`', 'a.txt\nb.txt\n')).toBe(true)
-    expect(output).toHaveBeenCalledWith('terminal', expect.stringContaining('a.txt'), { focus: true })
+  it('hands the output to the conversation as one injection', () => {
+    // The injection is the only record: the transcript renders it, so a resumed
+    // session still shows the output the model was given.
+    const { owner, inject } = harness()
+    expect(shareTerminalOutputToConversation(owner, 'Shell · `ls`', 'a.txt\nb.txt\n')).toBe(true)
     expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject.mock.calls[0]?.[0]).toMatchObject({
+      source: expect.objectContaining({ kind: 'omdsh-terminal', form: 'notice' }),
+    })
   })
 
   it('does nothing when there is no output to share', () => {
-    const { ctx, owner, output, inject } = harness()
-    expect(shareTerminalOutputToConversation(ctx, owner, 'Shell', '   \n')).toBe(false)
-    expect(output).not.toHaveBeenCalled()
+    const { owner, inject } = harness()
+    expect(shareTerminalOutputToConversation(owner, 'Shell', '   \n')).toBe(false)
     expect(inject).not.toHaveBeenCalled()
   })
 })

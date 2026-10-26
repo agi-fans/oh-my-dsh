@@ -456,10 +456,24 @@ function foldEvent(
       // Synthetic plugin injections (system-prompt runtime context, skill
       // catalog) reach the surface as user-role messages but are model input,
       // not what the human typed; only human prompts render as transcript.
-      const source = event.data.source.kind
-      if (source !== 'user' && source !== 'user-question-reply') return state
+      //
+      // An injection marked `form: 'notice'` is the exception, and it has to be:
+      // the model already knows the content, so a transcript that hides it
+      // diverges from what the model can refer to. Resuming such a session would
+      // show an answer whose cause is missing. Notices raised by a plugin —
+      // shared Shell output, a side question, an external advisor's opinion —
+      // therefore render as their own row rather than as a human prompt.
+      const source = event.data.source
+      if ('form' in source && source.form === 'notice') {
+        const notice = contentToText(event.data.content).trim()
+        if (notice === '') return state
+        const noticeBlocks = editableBlocks(state, mutable)
+        noticeBlocks.push({ kind: 'notice', level: 'info', text: notice })
+        return { ...state, blocks: noticeBlocks }
+      }
+      if (source.kind !== 'user' && source.kind !== 'user-question-reply') return state
       const content = contentToText(event.data.content)
-      const text = source === 'user-question-reply' ? questionReplyText(content) : content
+      const text = source.kind === 'user-question-reply' ? questionReplyText(content) : content
       if (text === '') return state
       const blocks = editableBlocks(state, mutable)
       const image = firstImage(event.data.content)

@@ -74,10 +74,12 @@ describe('/advisor', () => {
       expect(h.setStatus).toHaveBeenNthCalledWith(1, 'running')
       expect(h.setStatus).toHaveBeenNthCalledWith(2, 'idle', { outcome: 'completed' })
       expect(h.consult).toHaveBeenCalledWith(h.invocation.agent, 'claude', 'Review this code', '', expect.any(AbortSignal), expect.any(Function))
-      expect(h.commandOutput).toHaveBeenCalledWith('advisor', expect.stringContaining('Independent advice · claude'), { focus: true })
+      // The notice-shaped injection is what the transcript renders, so the
+      // advice survives a resume instead of living only in the live TUI.
       expect(h.inject).toHaveBeenCalledWith(expect.objectContaining({
         source: expect.objectContaining({ kind: 'omdsh-advisor', form: 'notice' }),
       }))
+      expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -95,7 +97,9 @@ describe('/advisor', () => {
         }),
       }))
       expect(h.consult).toHaveBeenCalledWith(h.invocation.agent, 'codex', '看看我们工程在项目结构上是否有值得优化的内容', '', expect.any(AbortSignal), expect.any(Function))
-      expect(h.commandOutput).toHaveBeenCalledWith('advisor', expect.stringContaining('Independent advice · codex'), { focus: true })
+      // The transcript renders the injection, so nothing is written locally.
+      expect(h.inject).toHaveBeenCalled()
+      expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -172,7 +176,8 @@ describe('/advisor', () => {
       expect(h.prompt).toHaveBeenCalledOnce()
       expect(setBundleEnabled).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex', true)
       expect(h.consult).toHaveBeenCalledTimes(2)
-      expect(h.commandOutput).toHaveBeenCalledWith('advisor', expect.stringContaining('Independent advice · codex'), { focus: true })
+      expect(h.inject).toHaveBeenCalled()
+      expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 })

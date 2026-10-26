@@ -69,10 +69,11 @@ describe('side-question reader', () => {
       .mockImplementationOnce(async request => new Promise(resolve => { request.signal!.addEventListener('abort', () => resolve(null), { once: true }) }))
       .mockResolvedValueOnce('share')
     expect(await sideQuestion(shared.ctx, shared.invocation)).toEqual({ kind: 'success' })
-    expect(commandOutput).toHaveBeenCalledWith('btw', expect.stringContaining('## Side question · Why did the build fail?'), { focus: true })
+    // Rendered from the injection, which is what survives a resume.
     expect(inject).toHaveBeenCalledWith(expect.objectContaining({
       source: expect.objectContaining({ kind: 'omdsh-btw', form: 'notice' }),
     }))
+    expect(commandOutput).not.toHaveBeenCalled()
 
     const quoted = harness('Summarize the API')
     Object.assign(quoted.ctx.tui, { insertText, notice })

@@ -146,10 +146,13 @@ describe('Composer persistent Shell', () => {
     Object.assign(h.owner, { inject })
     try {
       await runComposerShell(h.ctx, h.owner, 'git status', new AbortController().signal, { share: true })
-      expect(h.commandOutput).toHaveBeenCalledWith('terminal', expect.stringContaining('## Shell · `git status`'), { focus: true })
+      // The injection is the only record: the transcript renders it, so a
+      // resumed session still shows the output the model was given. A parallel
+      // local write would have vanished on resume.
       expect(inject).toHaveBeenCalledWith(expect.objectContaining({
         source: expect.objectContaining({ kind: 'omdsh-terminal', form: 'notice' }),
       }))
+      expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { h.operation.cancel(); await h.ctx.fiber.dispose() }
   })
 

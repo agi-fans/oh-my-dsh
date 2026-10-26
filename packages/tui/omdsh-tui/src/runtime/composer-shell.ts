@@ -101,7 +101,7 @@ export async function runComposerShell(
   })
   if (options.share === true && !signal.aborted) {
     const snapshot = terminals.read(owner, id)
-    shareTerminalOutputToConversation(ctx, owner, `Shell · \`${command}\``, snapshot.text)
+    shareTerminalOutputToConversation(owner, `Shell · \`${command}\``, snapshot.text)
   }
 }
 
