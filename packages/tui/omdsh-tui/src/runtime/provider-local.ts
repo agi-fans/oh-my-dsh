@@ -228,6 +228,20 @@ import { APP_NAME, APP_VERSION } from '../session/package-metadata.ts'
 import type { StartupChangelogMode } from '../session/release-notes.ts'
 
 const DOUBLE_CTRL_C_MS = 500
+/**
+ * Whether an open completion menu still speaks for the `@` token being typed.
+ *
+ * A `@` menu is built for a prefix, and the reader extends that prefix one
+ * keystroke at a time while the search for the new one is still running. The
+ * rows on screen describe a token this one extends, so they stay. Anything else
+ * — a new `@`, a different path, a token that was never recorded — describes
+ * nothing on screen and must not be reused.
+ */
+export function completionDescribes(described: string | undefined, current: string): boolean {
+  if (described === undefined) return false
+  return current.startsWith(described) || described.startsWith(current)
+}
+
 /** How long a confirmation stays on the composer's border before it fades. */
 const TRANSIENT_STATUS_MS = 3_000
 /** Shortest interval between repaints while a Shell command writes. */
@@ -436,7 +450,11 @@ export class LocalTui implements TuiService {
   #draftTimer: ReturnType<typeof setTimeout> | undefined
   readonly #unsavedDrafts = new Map<string, ComposerDraft>()
   #draftError = false
-  #ac: { items: AutocompleteItem[]; selected: number } | null = null
+  /**
+   * The open completion menu. `query` is the `@` prefix the rows were built for,
+   * so the next keystroke can tell "that token, extended" from "a different one".
+   */
+  #ac: { items: AutocompleteItem[]; selected: number; query?: string } | null = null
   #search: HistorySearchState | null = null
   #transcriptSearch: TranscriptSearchState | null = null
   #settings: SettingsState | null = null
@@ -3370,9 +3388,19 @@ export class LocalTui implements TuiService {
     const harnessAt = at !== undefined
       && (this.#searchFileMentions !== undefined || this.#searchSessions !== undefined)
     if (fuzzyAt || harnessAt || shortcutAt) {
+      // A `@` query is answered by a debounced search, so almost every keystroke
+      // lands before an answer exists. Clearing the menu here emptied the screen
+      // for the whole debounce-plus-search interval and refilled it afterwards —
+      // one flash per character, and the same again on every delete.
+      //
+      // The rows already on screen still describe the token this keystroke is
+      // extending, so they stay until a real result replaces them. A genuinely
+      // different token closes the menu, because those rows no longer apply.
       if ((harnessAt || shortcutAt) && !fuzzyAt) {
-        this.#setAutocomplete(pathSuggestions(this.#editor.text, this.#editor.cursor, pathOptions, commands))
-      } else {
+        const listing = pathSuggestions(this.#editor.text, this.#editor.cursor, pathOptions, commands)
+        if (listing !== null) this.#setAutocomplete(listing, atPrefix)
+        else if (!this.#acDescribes(atPrefix)) this.#ac = null
+      } else if (!this.#acDescribes(atPrefix)) {
         this.#ac = null
       }
       const text = this.#editor.text
@@ -3399,7 +3427,11 @@ export class LocalTui implements TuiService {
         void search.then((result) => {
           if (this.#disposed || controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
           this.#autocompleteAbort = null
-          this.#setAutocomplete(result)
+          // An empty answer for a `@` query means "nothing matched yet", not
+          // "close the menu": keeping the live list is what stops the flash when
+          // a prefix has no rows of its own.
+          if (result !== null) this.#setAutocomplete(result, atPrefix)
+          else if (!this.#acDescribes(atPrefix)) this.#setAutocomplete(null)
           this.#render()
         }).catch((error: unknown) => {
           if (controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
@@ -3414,7 +3446,17 @@ export class LocalTui implements TuiService {
     this.#setAutocomplete(result)
   }
 
-  #setAutocomplete(result: { items: AutocompleteItem[]; prefix: string } | null): void {
+  /**
+   * Whether the open menu still speaks for the `@` token being typed.
+   *
+   * A menu with no token recorded belongs to a slash or path completion and is
+   * never reused across an `@` keystroke.
+   */
+  #acDescribes(atPrefix: string): boolean {
+    return completionDescribes(this.#ac?.query, atPrefix)
+  }
+
+  #setAutocomplete(result: { items: AutocompleteItem[]; prefix: string } | null, query?: string): void {
     if (result === null) {
       this.#ac = null
       return
@@ -3425,7 +3467,7 @@ export class LocalTui implements TuiService {
       const idx = result.items.findIndex((item) => item.value === prev && item.kind !== 'heading')
       if (idx >= 0) selected = idx
     }
-    this.#ac = { items: result.items, selected }
+    this.#ac = { items: result.items, selected, ...(query === undefined ? {} : { query }) }
   }
 
   #moveAutocomplete(dir: -1 | 1): void {

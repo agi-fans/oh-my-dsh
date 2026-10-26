@@ -19,7 +19,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
-import { Config, LocalTui, type TerminalLike } from './provider-local.ts'
+import { completionDescribes, Config, LocalTui, type TerminalLike } from './provider-local.ts'
 import { editSettingsEntry, pluginSettingsEntries } from './plugin-settings.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
 import { initialTranscript, renderView } from '../views/event-views.ts'
@@ -5249,5 +5249,36 @@ describe('transcript thinking controls', () => {
     // The confirmation rides the composer border, never the transcript.
     expect(tui.prefs().hideThinking).toBe(true)
     tui.dispose()
+  })
+})
+
+describe('completionDescribes', () => {
+  // The `@` menu is rebuilt from a debounced search, so a keystroke almost never
+  // has an answer yet. Whether the rows already on screen may stand in for it is
+  // the whole of the flicker fix: before this predicate existed, every keystroke
+  // cleared the menu and it came back once the search returned.
+  it('keeps the rows for a token the reader is extending', () => {
+    expect(completionDescribes('', '')).toBe(true)
+    expect(completionDescribes('', 's')).toBe(true)
+    expect(completionDescribes('sr', 'src')).toBe(true)
+  })
+
+  it('keeps the rows for a token the reader is shortening', () => {
+    // Deleting flashes exactly like typing if the shorter prefix cannot reuse
+    // the longer prefix's rows.
+    expect(completionDescribes('src', 'sr')).toBe(true)
+    expect(completionDescribes('s', '')).toBe(true)
+  })
+
+  it('refuses rows that describe a different token', () => {
+    expect(completionDescribes('src', 'lib')).toBe(false)
+    expect(completionDescribes('a', 'b')).toBe(false)
+  })
+
+  it('refuses a menu that never recorded a token', () => {
+    // Slash-command and plain-path completions carry no `@` prefix, so their
+    // rows cannot stand in for an `@` token.
+    expect(completionDescribes(undefined, '')).toBe(false)
+    expect(completionDescribes(undefined, 's')).toBe(false)
   })
 })
