@@ -86,7 +86,6 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/files [path]` | 浏览目录或预览文件。在目录选择器按 `Shift+P` 查看本会话的交付物。 |
 | `/attach [path]` | 流式保存文件，并把引用暂存到 composer；不带路径时询问路径，不会直接发送消息。 |
 | `/attachments` | 预览或通过外部应用打开本会话用户消息中的原始文件和图片附件。 |
-| `/terminal [terminal-id]` | 打开本会话的持久终端控制台，或使用会话 sandbox 新建 shell。 |
 | `/worktree [return]` | 浏览并切换 Git worktree。在 `/plugins` 启用 Git Worktrees bundle 后可创建 checkout；`return` 回到会话的原始目录。 |
 
 在输入框中键入 `!command`，即可在持久 Shell 中执行一行命令且输出不会自动进入模型上下文；键入 `!!command` 则在返回时将输出分享到主对话流与会话上下文；详见 [Composer Shell](keyboard.md#composer-shell)。

@@ -81,6 +81,24 @@ export interface TuiNoticeOptions extends TuiOutputOptions {
   job?: { id: string; label: string; startedAt: number; status: 'completed' | 'failed' | 'killed'; detail?: string }
 }
 
+/** One Shell line the reader asked to run with a leading `!`. */
+export interface TuiShellRequest {
+  readonly command: string
+  /** Run through the session Shell so it shares that Shell's directory and environment. */
+  readonly run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<TuiShellResult>
+  readonly signal: AbortSignal
+  /** Interrupt the command: wired to the same key that stops a running turn. */
+  readonly abort: () => void
+  /** The reader asked for the output to enter the conversation. */
+  readonly share?: boolean
+}
+
+export interface TuiShellResult {
+  readonly output: string
+  readonly code?: number
+  readonly interrupted?: boolean
+}
+
 /** Source text inspected without Markdown interpreting its syntax. */
 export interface TuiDocumentSource {
   readonly text: string
@@ -445,6 +463,15 @@ export interface TuiService {
   notice(text: string, options?: TuiNoticeOptions): void
   /** Append command output; preserve the viewport unless focus is requested. */
   commandOutput(command: string, text: string, options?: TuiOutputOptions): void
+  /**
+   * Run one Shell line as a live transcript card.
+   *
+   * `onOutput` receives the accumulated output as the command writes it, so the
+   * card streams in place instead of waiting for an exit gesture; the promise
+   * settles with the exit code when the command finishes. The provider owns the
+   * block, so a caller never has to append rows itself.
+   */
+  shellCommand?(request: TuiShellRequest): Promise<TuiShellResult>
   /** Bind the product-owned Agent settings section; only one binding may be active. */
   bindAgentBehaviorSettings?(binding: TuiAgentBehaviorSettingsBinding): () => void
   /** Currently applied preferences, for sibling rows that must honor them. */

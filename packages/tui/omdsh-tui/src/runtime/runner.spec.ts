@@ -62,8 +62,11 @@ describe('runner Composer Shell dispatch', () => {
     const agent = { session: { header: { cwd: '/workspace' } }, whenIdle: async () => {} }
     const spawn = vi.fn(async () => ({ sessionId: 'owned' })), startSend = vi.fn(() => ({ done: Promise.resolve(), cancel: vi.fn() }))
     const off = () => () => {}
+    // The card surface a `!` line runs through; the runner only has to hand it
+    // the request, so the reduce form is enough here.
+    const shellCommand = vi.fn(async (request: { run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<unknown>; signal: AbortSignal }) => request.run(() => {}, request.signal))
     ctx.provide('tui', { interactive: true, readInput: async () => input.shift() ?? null, notice, restoreInput,
-      prompt, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
+      prompt, shellCommand, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
     ctx.provide('omdshSession', { start: async () => {}, agent, send, execute } as never)
     ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
     ctx.provide('omdshLoop', { disable: () => {}, syncAgent: () => {}, submit: async () => false } as never)
@@ -80,7 +83,9 @@ describe('runner Composer Shell dispatch', () => {
         expect(startSend).not.toHaveBeenCalled()
       } else {
         expect(send).not.toHaveBeenCalled()
-        expect(prompt).toHaveBeenCalledOnce()
+        // A `!` line now runs into a transcript card, so no reader prompt opens.
+        expect(prompt).not.toHaveBeenCalled()
+        expect(shellCommand).toHaveBeenCalledOnce()
         expect(startSend).toHaveBeenCalledWith(agent, 'owned', expect.objectContaining({ text: 'echo hello', submit: true }))
       }
     } finally { await ctx.fiber.dispose() }

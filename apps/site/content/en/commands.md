@@ -86,7 +86,6 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/files [path]` | Browse directories or preview a file. `Shift+P` in the directory picker opens this session’s deliverables. |
 | `/attach [path]` | Stream a file into durable storage and stage a reference in the composer. Without a path, ask for one. It does not submit a message. |
 | `/attachments` | Preview or externally open original file and image attachments from this session’s user messages. |
-| `/terminal [terminal-id]` | Open this session’s persistent terminal console, or create a shell using its sandbox. |
 | `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
 
 Type `!command` in the composer to run a line in a persistent Shell without adding output to model context, or `!!command` to share the output to the conversation on return; see [Composer Shell](keyboard.md#composer-shell).

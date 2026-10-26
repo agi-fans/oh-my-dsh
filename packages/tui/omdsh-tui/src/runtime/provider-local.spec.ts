@@ -19,7 +19,6 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import { copyToClipboard } from '../input/clipboard.ts'
-import { TerminalReader } from './terminal-reader.ts'
 import { Config, LocalTui, type TerminalLike } from './provider-local.ts'
 import { editSettingsEntry, pluginSettingsEntries } from './plugin-settings.ts'
 import { HerdrAgentReporter, type HerdrRequest } from './herdr-agent.ts'
@@ -4857,14 +4856,16 @@ describe('live source readers', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), abort = new AbortController()
     let lines = Array.from({ length: 100 }, (_, at) => `row ${at + 1}`)
-    const reader = new TerminalReader(({ offset = 0, count = 300 }) => {
-      const end = lines.length - offset, start = Math.max(0, end - count)
+    // The tail view a live reader shows: the newest rows, re-read on every tick.
+    const read = (): { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean } => {
+      const count = 300
+      const end = lines.length, start = Math.max(0, end - count)
       return { text: lines.slice(start, end).join('\n'), totalLines: lines.length, lineBegin: start, lineEnd: end, truncated: false }
-    })
-    const refresh = vi.fn((following: boolean) => reader.refresh(following))
+    }
+    const refresh = vi.fn((_following: boolean) => read())
     try {
       const answer = tui.prompt({ title: 'Terminal', question: 'Shell', presentation: 'document', notify: false,
-        documentSource: reader.refresh(true), refreshDocumentSource: refresh, documentTail: true, signal: abort.signal, options: [{ label: 'Close' }] })
+        documentSource: read(), refreshDocumentSource: refresh, documentTail: true, signal: abort.signal, options: [{ label: 'Close' }] })
       press(term, '\x1b[H')
       term.captured = ''
       lines = [...lines, 'LATEST AFTER PAUSE']

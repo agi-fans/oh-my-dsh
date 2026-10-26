@@ -12,10 +12,12 @@ describe('header density', () => {
     // message is a row the reader loses on every launch.
     for (const width of [140, 100, 80, 64]) {
       // Six rows of mark, a blank, and one hint row — the same at every width
-      // that holds the lockup.
+      // that holds the lockup and its hint on one line.
       const lines = renderWelcome({ width, version: '0.8.0', appName: 'omdsh' }, theme)
       expect(lines.length, `width ${width}`).toBe(8)
     }
+    // Narrower terminals wrap the hint onto a second row; still bounded.
+    expect(renderWelcome({ width: 52, version: '0.8.0', appName: 'omdsh' }, theme).length).toBe(9)
     // Below the lockup width the wordmark folds under the mark, which is taller
     // but still bounded.
     expect(renderWelcome({ width: 40, version: '0.8.0', appName: 'omdsh' }, theme).length).toBeLessThanOrEqual(12)

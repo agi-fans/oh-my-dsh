@@ -85,8 +85,6 @@ File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`
 
 Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. The terminal console uses the same reading keys.
 
-The `/terminal` console uses the same search and matching-line keys. `L` loads earlier retained output, scrolling or searching pauses following, and `End` returns to the latest output and resumes following. `I` sends a line; `C` interrupts the shell.
-
 ## Session
 
 | Shortcut | Action |
@@ -165,9 +163,9 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 
 ## Composer Shell
 
-Type `!command` in the composer to run a line in this session’s persistent Shell, or `!!command` to run it and share the output to the conversation on return. Both open the live terminal reader directly. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
+Type `!command` in the composer to run a line in this session’s persistent Shell, or `!!command` to run it and share the output to the conversation. The composer border turns green as soon as the draft starts with `!`, so the mode is visible before you commit to running anything. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
 
-With `!command`, output stays outside model context and does not start a model Turn unless you press `S` (**Share to conversation**). `Esc` returns to chat while the Shell continues; `Ctrl+C` interrupts and returns. `I` sends more input, `C` signals the foreground command, `S` shares output to the conversation, `Q` quotes output into the composer, and `Y` copies output. Use `/terminal` to return to a detached Shell or close it. The reader yields to approvals, and the configured Access level remains in force.
+The output streams into the transcript as a card under your command and settles in place when the command finishes — there is no reader to open or leave. `Ctrl+C` interrupts the running command. With `!command` the output stays outside model context; `!!command` shares it to the conversation when the command finishes. The configured Access level remains in force.
 
 Shell history and environment last for this live Agent; resuming a saved session creates a new Shell. A marked paste beginning with `!` remains ordinary message text. Type the leading `!` deliberately to execute; an unmarked single-line paste cannot always be distinguished from typing. Attachments keep a submission in message mode. This shortcut requires an interactive terminal; terminal readiness is not reported as a command exit code.
 

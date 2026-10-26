@@ -6,7 +6,7 @@
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
 import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped } from './width.ts'
-import { WELCOME_HINTS, type WelcomeHint } from './welcome-tips.ts'
+import { HINT_LABEL, WELCOME_HINTS, type WelcomeHint } from './welcome-tips.ts'
 
 /** Visual state that drives border + fill color. */
 export type BoxState = 'idle' | 'info' | 'running' | 'ok' | 'error' | 'warning'
@@ -183,11 +183,21 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   ]
 }
 
-/** The hint line: each key in the dim ink with its words beside it, `·` between. */
+/**
+ * The hint line: a labelled lead, then each key with its words, `·` between.
+ *
+ * The label earns its two words. Without it the line reads as another row of
+ * chrome — a few dim fragments under a logo — and a reader skips it. `Tips:`
+ * in the accent ink says "this is advice about what you can do", which is the
+ * only thing on the header that a reader has to decide to read.
+ */
 function hintLine(hints: readonly WelcomeHint[], theme: Theme): string {
-  return hints
-    .map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + hint.text))
-    .join(theme.fg('borderMuted', ' · '))
+  if (hints.length === 0) return ''
+  // One space after the label, then `key text` entries joined by a separator
+  // that carries its own spaces — so no entry opens with a second one.
+  const entries = hints.map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + hint.text))
+  return theme.bold(theme.fg('accent', HINT_LABEL))
+    + ' ' + entries.join(theme.fg('borderMuted', ' · '))
 }
 
 /** Editor chrome inputs. */

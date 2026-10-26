@@ -63,6 +63,8 @@ import {
   type TuiAgentBehaviorSettingsBinding,
   type TuiCommand,
   type TuiOutputOptions,
+  type TuiShellRequest,
+  type TuiShellResult,
   type TuiPrompt,
   type TuiNoticeOptions,
   type TuiRecentSession,
@@ -228,6 +230,8 @@ import type { StartupChangelogMode } from '../session/release-notes.ts'
 const DOUBLE_CTRL_C_MS = 500
 /** How long a confirmation stays on the composer's border before it fades. */
 const TRANSIENT_STATUS_MS = 3_000
+/** Shortest interval between repaints while a Shell command writes. */
+const SHELL_PAINT_INTERVAL_MS = 80
 const DOUBLE_ESCAPE_MS = 500
 const STREAMING_REVEAL_MS = 1000 / 30
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
@@ -590,6 +594,8 @@ export class LocalTui implements TuiService {
    */
   #transientStatus: string | undefined
   #transientTimer: ReturnType<typeof setTimeout> | null = null
+  /** Aborts the live Shell card, so Ctrl+C interrupts the command it belongs to. */
+  #shellAbort: (() => void) | undefined
   /** Turn scopes whose tools stay detailed as new calls arrive during inspection. */
   #detailedTurns = new Set<string>()
   #tools: ToolInfo[] = []
@@ -1087,6 +1093,80 @@ export class LocalTui implements TuiService {
     if (options.focus === true) this.#followTail()
     if (this.#tty) this.#render()
     else this.#plain.print()
+  }
+
+  /**
+   * Run a Shell line as a live card that streams in place.
+   *
+   * The card is appended before the command starts and updated as it writes, so
+   * the reader watches their own command rather than switching to another
+   * surface and coming back. It never waits for an exit gesture: when the
+   * command finishes the card is finished too, exactly like a tool call.
+   */
+  async shellCommand(request: TuiShellRequest): Promise<TuiShellResult> {
+    const block = { kind: 'shell' as const, command: request.command, output: '', status: 'running' as const }
+    this.#insertShellBlock(block)
+    // Ctrl+C belongs to the running command while its card is alive, the same
+    // way it belongs to an active turn. The caller decides what to do with the
+    // abort; the provider only routes the key.
+    this.#shellAbort = request.abort
+    let lastPaint = 0
+    let pending = ''
+    let pendingPaint: ReturnType<typeof setTimeout> | undefined
+    const cancelPending = (): void => { if (pendingPaint !== undefined) { clearTimeout(pendingPaint); pendingPaint = undefined } }
+    const paint = (): void => { if (this.#tty && !this.#disposed) this.#render() }
+    // Output can arrive faster than a frame is worth; coalescing keeps a chatty
+    // command from spending the whole turn in the renderer.
+    const append = (output: string): void => {
+      pending = output
+      const now = Date.now()
+      if (now - lastPaint < SHELL_PAINT_INTERVAL_MS) {
+        cancelPending()
+        pendingPaint = setTimeout(paint, SHELL_PAINT_INTERVAL_MS - (now - lastPaint))
+        return
+      }
+      lastPaint = now
+      this.#updateShellBlock(request.command, current => ({ ...current, output: pending }))
+      paint()
+    }
+    let result: TuiShellResult
+    try {
+      result = await request.run(append, request.signal)
+    } catch (error: unknown) {
+      this.#updateShellBlock(request.command, current => ({ ...current, status: 'error' }))
+      paint()
+      throw error
+    } finally {
+      cancelPending()
+      if (this.#shellAbort === request.abort) this.#shellAbort = undefined
+    }
+    const failed = result.interrupted === true || (result.code !== undefined && result.code !== 0)
+    this.#updateShellBlock(request.command, current => ({
+      ...current,
+      output: result.output === '' ? current.output : result.output,
+      status: failed ? 'error' : 'ok',
+      ...(result.code === undefined ? {} : { code: result.code }),
+      ...(request.share === true ? { shared: true } : {}),
+    }))
+    paint()
+    return result
+  }
+
+  /** Append a Shell card and follow it, so the reader sees it start. */
+  #insertShellBlock(block: Extract<Block, { kind: 'shell' }>): void {
+    this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
+    this.#followTail()
+    if (this.#tty) this.#render()
+    else this.#plain.print()
+  }
+
+  /** Replace the newest Shell card for `command`; a card is identified by its position. */
+  #updateShellBlock(command: string, update: (block: Extract<Block, { kind: 'shell' }>) => Extract<Block, { kind: 'shell' }>): void {
+    const at = this.#state.blocks.findLastIndex(block => block.kind === 'shell' && block.command === command)
+    if (at < 0) return
+    const next = this.#state.blocks.slice()
+    next[at] = update(next[at] as Extract<Block, { kind: 'shell' }>)
+    this.#state = { ...this.#state, blocks: next }
   }
 
   prompt(request: TuiPrompt): Promise<string | null> {
@@ -2555,6 +2635,12 @@ export class LocalTui implements TuiService {
    */
   #runClearComposer(): boolean {
     if (this.#prompt !== null) { this.#finishPrompt(null); this.#editor.setText(''); this.#render(); return true }
+    // A running Shell line owns Ctrl+C before the composer does: the reader is
+    // watching a command, and the key they press to stop it is the same one.
+    if (this.#shellAbort !== undefined && !this.#hasComposerContent()) {
+      this.#shellAbort()
+      return true
+    }
     if (this.#settings !== null) { this.#settings = null; this.#render(); return true }
     if (this.#copySelector !== null) { this.#copySelector = null; this.#render(); return true }
     if (this.#search !== null) { this.#search = null; this.#render(); return true }

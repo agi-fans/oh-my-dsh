@@ -101,10 +101,11 @@ describe('renderWelcome', () => {
   it('puts the hint under the lockup, in one row that names its keys', () => {
     const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
     const hint = lines.find(line => line.includes('commands')) ?? ''
+    expect(hint).toContain('Tips:')
     expect(hint).toContain('/')
     expect(hint).toContain('files')
-    expect(hint).toContain('history')
-    // Separators and keys only — no prose label.
+    expect(hint).toContain('shell')
+    expect(hint).toContain('/help')
     expect(hint).toContain(' · ')
     expect(lines.at(-1)).toBe(hint)
   })

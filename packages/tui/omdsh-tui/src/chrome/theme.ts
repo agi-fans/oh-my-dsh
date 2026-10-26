@@ -96,6 +96,7 @@ export type ThemeColor =
   | 'mdQuoteBorder'
   | 'mdHr'
   | 'mdListBullet'
+  | 'shellMode'
   | 'thinkingText'
   | 'customMessageLabel'
 
@@ -147,6 +148,9 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   mdQuoteBorder: '#3d424a',
   mdHr: '#3d424a',
   mdListBullet: '#7c93ff',
+  // The composer's border while a `!` line is being typed. Green because that
+  // is the one signal that says "this leaves the model and runs on your machine".
+  shellMode: '#89d281',
   thinkingText: '#6b7280',
   customMessageLabel: '#b281d6',
 }
@@ -190,6 +194,7 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   mdQuoteBorder: '#b8b8b8',
   mdHr: '#b8b8b8',
   mdListBullet: '#3b57e0',
+  shellMode: '#2f8f4e',
   thinkingText: '#6c6c6c',
   customMessageLabel: '#7e57c2',
 }
@@ -253,6 +258,7 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   mdQuoteBorder: '90',
   mdHr: '90',
   mdListBullet: '94',
+  shellMode: '92',
   thinkingText: '90',
   customMessageLabel: '35',
 }
@@ -297,6 +303,7 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   mdQuoteBorder: '90',
   mdHr: '90',
   mdListBullet: '34',
+  shellMode: '32',
   thinkingText: '90',
   customMessageLabel: '35',
 }

@@ -13,6 +13,12 @@ function harness() {
   const published = new Map<Agent, 'running' | 'exited'>()
   let lastOwner: Agent | undefined
   const pending = Promise.withResolvers<TerminalSendResult>()
+  /**
+   * A send that settles on delivery, which is what the card waits for. The card
+   * no longer holds the surface open until the command exits, so the send is not
+   * the test's to keep pending.
+   */
+  pending.resolve({ viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false })
   const operation = { done: pending.promise, readOutput: vi.fn(), cancel: vi.fn(() => { pending.resolve({ viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false }); return true }) }
   const terminals = {
     spawn: vi.fn(async (agent: Agent = owner) => { published.set(agent, 'running'); lastOwner = agent; return { sessionId: 'composer' } }),
@@ -23,10 +29,16 @@ function harness() {
   }
   const prompt = vi.fn<TuiService['prompt']>().mockResolvedValue(null)
   const notice = vi.fn(), commandOutput = vi.fn()
-  ctx.provide('tui', { interactive: true, prompt, notice, commandOutput } as never)
+  /**
+   * The card surface, reduced to what a caller observes: run the request and
+   * hand back its result. The provider's own rendering is covered by the
+   * fake-TTY contract, not here.
+   */
+  const shellCommand = vi.fn(async (request: { run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<unknown>; signal: AbortSignal }) => request.run(() => {}, request.signal))
+  ctx.provide('tui', { interactive: true, prompt, notice, commandOutput, shellCommand } as never)
   ctx.provide('terminals', terminals as never)
   ctx.provide('workingDirectory', { get: () => '/current' } as never)
-  return { ctx, owner, terminals, prompt, notice, commandOutput, operation, pending, setExited: () => { if (lastOwner !== undefined) published.set(lastOwner, 'exited') } }
+  return { ctx, owner, terminals, prompt, notice, commandOutput, shellCommand, operation, pending, setExited: () => { if (lastOwner !== undefined) published.set(lastOwner, 'exited') } }
 }
 
 describe('Composer Shell input', () => {
@@ -60,7 +72,8 @@ describe('Composer persistent Shell', () => {
       expect(h.terminals.kill).not.toHaveBeenCalled()
       expect(h.operation.cancel).not.toHaveBeenCalled()
       expect(h.commandOutput).not.toHaveBeenCalled()
-      expect(h.prompt.mock.calls[0]![0].detail).toContain('outside model context')
+      // The card is the surface; no reader prompt is opened at all.
+      expect(h.prompt).not.toHaveBeenCalled()
       // A second Agent must not inherit the first Agent's environment or cwd.
       await runComposerShell(h.ctx, { session: h.owner.session } as Agent, 'pwd', signal)
       expect(h.terminals.spawn).toHaveBeenCalledTimes(2)
@@ -90,15 +103,20 @@ describe('Composer persistent Shell', () => {
     } finally { first.operation.cancel(); replacement.operation.cancel(); await first.ctx.fiber.dispose(); await replacement.ctx.fiber.dispose() }
   })
 
-  it('Ctrl+C interrupts and drains the send without cancelling a model Turn', async () => {
+  it('interrupting the card cancels the send and signals the shell', async () => {
     const h = harness()
     try {
-      h.prompt.mockImplementationOnce(async request => { request.interrupt!(); return null })
+      // The card's abort is what Ctrl+C routes to while a command runs.
+      h.shellCommand.mockImplementationOnce(async (request: { run: (onOutput: (output: string) => void, signal: AbortSignal) => Promise<unknown>; signal: AbortSignal; abort: () => void }) => {
+        const running = request.run(() => {}, request.signal)
+        // Let the send start, then interrupt exactly as the key would.
+        await Promise.resolve()
+        request.abort()
+        return running
+      })
+      h.operation.cancel.mockReturnValueOnce(false)
       await runComposerShell(h.ctx, h.owner, 'sleep 100', new AbortController().signal)
-      expect(h.operation.cancel).toHaveBeenCalledOnce()
-      const request = h.terminals.startSend.mock.calls[0] as unknown as [unknown, unknown, { signal: AbortSignal }]
-      expect(request[2].signal.aborted).toBe(true)
-      expect(h.terminals.kill).not.toHaveBeenCalled()
+      expect(h.terminals.signal).toHaveBeenCalledWith(h.owner, 'composer', 'SIGINT')
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -106,30 +124,16 @@ describe('Composer persistent Shell', () => {
     const h = harness()
     const abort = new AbortController()
     try {
-      h.prompt.mockImplementationOnce(async request => new Promise(resolve => { request.signal!.addEventListener('abort', () => resolve(null), { once: true }) }))
-      const running = runComposerShell(h.ctx, h.owner, 'sleep 100', abort.signal)
-      await vi.waitFor(() => { expect(h.prompt).toHaveBeenCalledOnce() })
       abort.abort(new Error('runner unloaded'))
-      await running
-      expect(h.operation.cancel).toHaveBeenCalledOnce()
+      await expect(runComposerShell(h.ctx, h.owner, 'sleep 100', abort.signal)).rejects.toThrow('runner unloaded')
+      h.operation.cancel()
+      await h.ctx.fiber.dispose()
     } finally { h.operation.cancel(); await h.ctx.fiber.dispose() }
-  })
-
-  it('interrupts the foreground process even after the input wait has already settled', async () => {
-    const h = harness()
-    try {
-      h.pending.resolve({ viewport: 'partial', waitReason: 'timeout', sessionStatus: { kind: 'running' }, truncated: false })
-      h.operation.cancel.mockReturnValueOnce(false)
-      h.prompt.mockImplementationOnce(async request => { request.interrupt!(); return null })
-      await runComposerShell(h.ctx, h.owner, 'sleep 100', new AbortController().signal)
-      expect(h.terminals.signal).toHaveBeenCalledWith(h.owner, 'composer', 'SIGINT')
-    } finally { await h.ctx.fiber.dispose() }
   })
 
   it('provider readiness never becomes a fabricated command success or tool result', async () => {
     const h = harness()
     try {
-      h.pending.resolve({ viewport: 'partial', waitReason: 'inferred_idle', sessionStatus: { kind: 'running' }, truncated: false })
       await runComposerShell(h.ctx, h.owner, 'long command', new AbortController().signal)
       expect(h.notice.mock.calls.flat().join(' ')).not.toMatch(/success|finished|exit code/iu)
       expect(h.commandOutput).not.toHaveBeenCalled()
@@ -168,6 +172,31 @@ describe('Composer persistent Shell', () => {
       await expect(runComposerShell(h.ctx, h.owner, 'pwd', new AbortController().signal)).rejects.toThrow('interactive terminal')
       expect(h.terminals.spawn).not.toHaveBeenCalled()
       expect(h.terminals.startSend).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+})
+
+describe('Access changes and the composer Shell', () => {
+  it('closes the composer Shell so an Access switch is not blocked by it', async () => {
+    // A persistent terminal pins the session to the sandbox it was created in,
+    // and the Harness refuses to change sandbox mode while one is open. Without
+    // closing it, a reader who ran one `!` line could never change Access again
+    // — and there is no other surface left to close it from.
+    const h = harness()
+    try {
+      await runComposerShell(h.ctx, h.owner, 'pwd', new AbortController().signal)
+      const { closeIdleComposerShell } = await import('./composer-shell.ts')
+      expect(await closeIdleComposerShell(h.ctx, h.owner)).toBe(true)
+      expect(h.terminals.kill).toHaveBeenCalledWith(h.owner, 'composer', 'Composer shell closed for an Access change')
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('reports nothing to close when no composer Shell exists', async () => {
+    const h = harness()
+    try {
+      const { closeIdleComposerShell } = await import('./composer-shell.ts')
+      expect(await closeIdleComposerShell(h.ctx, h.owner)).toBe(false)
+      expect(h.terminals.kill).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 })

@@ -3,7 +3,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TuiSubmission } from '../definition.ts'
-import { shareTerminalOutputToConversation, terminalConsole } from '../commands/terminal.ts'
+import type {} from '@deepseek-ai/dsh-terminal'
+import { shareTerminalOutputToConversation } from '../commands/terminal.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 /** Only deliberate, attachment-free composer input may execute a Shell line. */
@@ -20,8 +21,12 @@ export function composerShellShare(submission: TuiSubmission): boolean {
 }
 
 /**
- * Send a line, then show its live terminal. Esc detaches without terminating it.
- * Ordinary `!` output remains outside the model context unless shared (`s` or `!!`).
+ * Run one Shell line in the session Shell, streaming its output to a live card.
+ *
+ * The card is the surface. There is no reader to enter and leave: the command
+ * streams into the transcript where the reader asked for it, and finishes when
+ * the command finishes. `!` keeps the output outside the model's context; `!!`
+ * shares it once the command settles.
  */
 export async function runComposerShell(
   ctx: Context,
@@ -30,10 +35,11 @@ export async function runComposerShell(
   upstream: AbortSignal,
   options: { share?: boolean } = {},
 ): Promise<void> {
-  if (!ctx.tui.interactive) throw new Error('Shell shortcuts require an interactive terminal. Use /terminal to inspect session terminals.')
+  if (ctx.tui.interactive !== true) throw new Error('Shell shortcuts require an interactive terminal.')
   if (command === '') throw new Error('Enter a command after ! to run it in the session Shell.')
   const terminals = ctx.get('terminals')
   if (terminals === undefined) throw new Error('The terminal provider is not enabled. Enable the terminal plugins to run Shell commands.')
+  if (ctx.tui.shellCommand === undefined) throw new Error('This deployment cannot run Shell lines from the composer.')
   const interruption = new AbortController()
   const signal = AbortSignal.any([upstream, interruption.signal])
   signal.throwIfAborted()
@@ -41,46 +47,86 @@ export async function runComposerShell(
   // identity. The registry already owns exact-Agent names and liveness.
   const previous = terminals.list(owner).find(item => item.name === 'Composer shell' && item.type === 'shell')
   let id = previous?.sessionId
-  if (id !== undefined) {
-    if (previous?.status.kind !== 'running') {
-      if (previous !== undefined) await terminals.kill(owner, id, 'Composer shell exited')
-      id = undefined
-    }
+  if (id !== undefined && previous?.status.kind !== 'running') {
+    await terminals.kill(owner, id, 'Composer shell exited')
+    id = undefined
   }
   if (id === undefined) {
     const session = await terminals.spawn(owner, { type: 'shell', name: 'Composer shell', cwd: currentWorkingDirectory(ctx, owner.session) }, signal)
     id = session.sessionId
   }
   signal.throwIfAborted()
-  const operation = terminals.startSend(owner, id, { text: command, submit: true, signal })
-  // Provider readiness is not a command exit code. Keep its live output in the
-  // terminal reader and never report a successful command merely on readiness.
-  const settled = operation.done.catch((error: unknown) => {
-    if (!signal.aborted) ctx.tui.notice(`Shell input failed: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
-  })
-  ctx.tui.notice(options.share
-    ? 'Shell output will be shared to the conversation when you return. Esc returns; the shell keeps running.'
-    : 'Shell output stays outside model context. Press s to share; Esc returns and keeps the shell running.')
-  try {
-    const result = await terminalConsole(ctx, { agent: owner, rawInput: String(id), signal }, {
-      interrupt: () => { interruption.abort(new Error('Shell interrupted by user')) },
-      detail: options.share
-        ? 'Output will be shared to the conversation on return. Esc returns; Ctrl+C interrupts the command.'
-        : 'Output stays outside model context. Press s to share; Esc returns; Ctrl+C interrupts the command.',
-    })
-    if (result.kind === 'error' && !signal.aborted) throw new Error(result.text ?? 'Could not open the Shell terminal.')
-    if (options.share && !signal.aborted) {
-      const snapshot = terminals.read(owner, id)
-      shareTerminalOutputToConversation(ctx, owner, `Shell · \`${command}\``, snapshot.text)
-    }
-  } finally {
-    // A runner interrupt/unmount waits for the provider to finish interrupting.
-    // Ordinary Esc detaches and leaves provider-owned work alive for /terminal.
-    if (signal.aborted) {
-      if (!operation.cancel() && terminals.list(owner).some(item => item.sessionId === id && item.status.kind === 'running')) {
-        await terminals.signal(owner, id, 'SIGINT')
+  const sessionId = id
+  await ctx.tui.shellCommand({
+    command,
+    signal,
+    abort: () => { interruption.abort(new Error('Shell interrupted by user')) },
+    ...(options.share === true ? { share: true } : {}),
+    run: async (onOutput, runSignal) => {
+      const operation = terminals.startSend(owner, sessionId, { text: command, submit: true, signal: runSignal })
+      // Stream the retained output as the command writes, then settle on the
+      // final snapshot: the terminal registry is the source, not a delta log.
+      let done = false
+      const pump = (): void => {
+        if (done) return
+        onOutput(terminals.read(owner, sessionId).text)
       }
-      await settled
-    }
+      const tick = setInterval(pump, SHELL_STREAM_TICK_MS)
+      tick.unref?.()
+      // Race the send against the abort. A provider is not obliged to settle
+      // `done` when a signal fires, and waiting on it would leave the card
+      // running after the reader already asked it to stop.
+      const aborted = new Promise<'aborted'>((resolve) => {
+        if (runSignal.aborted) resolve('aborted')
+        else runSignal.addEventListener('abort', () => { resolve('aborted') }, { once: true })
+      })
+      try {
+        const settled = await Promise.race([operation.done.then(() => 'done' as const).catch(() => 'failed' as const), aborted])
+        // A settled send means the line was delivered, not that the command
+        // exited; the card reports the delivery rather than inventing an exit
+        // code the Shell never gave us.
+        if (settled === 'done') return { output: terminals.read(owner, sessionId).text }
+        // An interrupted line still needs the send cancelled and the shell
+        // signalled, or the command keeps running in the background while the
+        // card claims it stopped.
+        if (!operation.cancel() && terminals.list(owner).some(item => item.sessionId === sessionId && item.status.kind === 'running')) {
+          await terminals.signal(owner, sessionId, 'SIGINT')
+        }
+        return { output: terminals.read(owner, sessionId).text, interrupted: true }
+      } finally {
+        done = true
+        clearInterval(tick)
+      }
+    },
+  })
+  if (options.share === true && !signal.aborted) {
+    const snapshot = terminals.read(owner, id)
+    shareTerminalOutputToConversation(ctx, owner, `Shell · \`${command}\``, snapshot.text)
   }
 }
+
+/**
+ * Close the composer Shell when it is not running anything.
+ *
+ * The Shell is reused across `!` lines so a directory change or an environment
+ * variable survives, which is the whole point of it. That reuse also pins the
+ * session to the Access level it was created in: the Harness refuses to change
+ * sandbox mode while a persistent terminal is open, and a reader driving `!`
+ * cards would otherwise be stuck on one level forever with no way out. A Shell
+ * with a command still running is left alone — closing it would kill work.
+ */
+export async function closeIdleComposerShell(ctx: Context, owner: Agent): Promise<boolean> {
+  const terminals = ctx.get('terminals')
+  if (terminals === undefined) return false
+  // A persistent shell reports `running` for as long as it is alive, whether or
+  // not a command is in it, so "idle" cannot be read from that status. The
+  // composer Shell is closed unconditionally: it exists only to serve the last
+  // `!` line, and the reader is asking to change Access rather than to keep a
+  // session pinned to the old one.
+  const shells = terminals.list(owner).filter(item => item.name === 'Composer shell' && item.type === 'shell')
+  for (const item of shells) await terminals.kill(owner, item.sessionId, 'Composer shell closed for an Access change')
+  return shells.length > 0
+}
+
+/** How often the live card re-reads the terminal while a command writes. */
+const SHELL_STREAM_TICK_MS = 120

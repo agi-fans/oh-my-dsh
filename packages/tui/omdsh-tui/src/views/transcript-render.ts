@@ -57,7 +57,7 @@ import type { TranscriptFileRegion } from '../chrome/renderer.ts'
 import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderToolsPanel } from '../chrome/tools-list.ts'
-import { renderCommandOutput, renderCommandSeparator } from '../chrome/command-output.ts'
+import { renderCommandOutput, renderCommandSeparator, renderShell } from '../chrome/command-output.ts'
 import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
@@ -820,6 +820,7 @@ export function blockLines(
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width)
+  if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]
   if (block.framed !== true) {
@@ -897,6 +898,7 @@ export function blockSearchText(block: Block): string {
     // host no longer holds contributes no path text.
     return block.summary?.files.map(file => file.display).join('\n') ?? `turn ${block.turn}`
   }
+  if (block.kind === 'shell') return `${block.command}\n${block.output}`
   return block.text
 }
 
@@ -2228,10 +2230,16 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     inputCursor: options.inputCursor,
     status: ' ' + theme.fg('accent', '🐳') + ' ',
     ...(permissionBadge === '' ? {} : { statusRight: ' ' + permissionBadge + ' ' }),
-    border: options.inspected !== undefined && options.inspected.writable !== true
-      || state.status === 'idle'
-      ? 'border'
-      : 'accent',
+    // A composer starting with `!` is not talking to the model, and the border
+    // says so the moment the character is typed — before the reader commits to
+    // running anything. Green is the one ink that means "this runs on your
+    // machine", which is also what a successful tool card uses.
+    border: options.input.trimStart().startsWith('!')
+      ? 'shellMode'
+      : options.inspected !== undefined && options.inspected.writable !== true
+        || state.status === 'idle'
+        ? 'border'
+        : 'accent',
     ...(theme.colors && (
       leadingSlashCommandNameRange(options.input) !== null
       || (options.inputImages !== undefined && options.inputImages !== 0)

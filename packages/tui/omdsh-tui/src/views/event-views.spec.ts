@@ -1739,9 +1739,9 @@ describe('renderView', () => {
     expect(text).toContain('omdsh')
     expect(text).toContain('╭')
     expect(text).toContain('╰')
-    // The header is a lockup, not a bordered card, and carries one hint rather
-    // than a tips table and a session list.
-    expect(text).not.toContain('Tips')
+    // The header is a lockup, not a bordered card: one labelled hint line
+    // rather than a tips table and a session list.
+    expect(text).toContain('Tips:')
     expect(text).not.toContain('Recent sessions')
     expect(text).not.toMatch(/(^|\n)> /)
     const editorStart = composerStart(frame.lines)

@@ -140,90 +140,26 @@ if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('../'), '
 }
 term.write('\x1b[27u')
 await sleep(100)
+// A `!` line runs into a transcript card that settles in place: no picker, no
+// reader, no exit gesture. The card streams the command's own output and keeps
+// the composer available afterwards.
 featureMark = out.length
-term.write('/terminal\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal picker', deadline))) {
+term.write('!echo OMDSH_SHELL_CARD\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_SHELL_CARD'), 'shell card output', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
-term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('session sandbox'), 'terminal document', deadline))) {
+if (!cleanOutput(out.slice(featureMark)).includes('$ echo OMDSH_SHELL_CARD')) {
+  console.error('shell card did not show its command line')
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
-term.write('i')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Send a line'), 'terminal input', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
+// The card settles on its own; the composer takes the next line immediately.
+await sleep(400)
 featureMark = out.length
-term.write('echo OMDSH_TERMINAL_READY\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_TERMINAL_READY'), 'terminal input output', deadline))) {
+term.write('!echo OMDSH_SECOND_LINE\r')
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_SECOND_LINE'), 'second shell card', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
-// Read a real long-running shell's history through the published terminal registry.
-await sleep(300)
-term.write('i')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Send a line'), 'long-output terminal input', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('node -e "for (let i=1;i<=650;i++) console.log(\'OMDSH_HISTORY_\'+i)"\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_HISTORY_650'), 'terminal newest output', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-await sleep(300)
-featureMark = out.length
-term.write('\x1b[H')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Paused'), 'terminal pause following', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-term.write('l')
-await sleep(200)
-term.write('l')
-await sleep(200)
-featureMark = out.length
-term.write('/\x1b[200~OMDSH_HISTORY_100\x1b[201~')
-await sleep(100)
-term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('1/1 matching lines'), 'terminal older-output search', deadline))) {
-  console.error(cleanOutput(out).slice(-2500)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\x1b[F')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Following'), 'terminal resume following', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-// Detach, then return to prove the registry still owns the shell.
-term.write('\x1b[27u')
-await sleep(100)
-featureMark = out.length
-term.write('/terminal\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('running'), 'persistent shell after detach', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-term.write('\x1b[27u')
-await sleep(100)
-// Close the fixture shell explicitly before testing Access changes.
-featureMark = out.length
-term.write('/terminal\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal picker before close', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('session sandbox'), 'terminal document before close', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\t\t\t\t\t\t\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Terminate this shell'), 'terminal close confirmation', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-featureMark = out.length
-term.write('\x1b[B\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('New shell'), 'terminal registry after close', deadline))) {
-  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
-}
-term.write('\x1b[27u')
-await sleep(100)
+await sleep(400)
 featureMark = out.length
 term.write(`/attach "${attachmentPath}"\r`)
 if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('Attached ' + basename(attachmentPath)), 'file attachment receipt', deadline))) {

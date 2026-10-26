@@ -6,6 +6,13 @@ describe('WELCOME_HINTS', () => {
     const keys = WELCOME_HINTS.map(hint => hint.key)
     expect(keys).toContain('/')
     expect(keys).toContain('@')
+    // `!` runs a Shell line outside the model's context: nobody guesses it.
+    expect(keys).toContain('!')
+    // `/help` is the exit hatch: the header does not have to list the catalog.
+    expect(keys).toContain('/help')
+    // History search is a shortcut a reader looks up once they have a history;
+    // it does not change what the first session can do.
+    expect(keys).not.toContain('Ctrl+R')
     // Cancel, submit, and exit are learned on the first minute of use; a header
     // that keeps repeating them spends its only line on nothing new.
     expect(keys).not.toContain('Esc')

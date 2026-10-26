@@ -10,7 +10,24 @@ function terminal() {
   let output = ''
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: vi.fn() })
   const term: TerminalLike = { input, output: { isTTY: true, write: chunk => { output += chunk } }, width: () => 90, height: () => 24, onResize: () => () => {} }
-  return { term, input, captured: () => output }
+  return { term, input, captured: () => stripAnsi(output) }
+}
+
+/** A registry whose one Composer shell answers `read` with whatever the test set. */
+function registry(state: { text: string; running: boolean }) {
+  const settled = Promise.withResolvers<void>()
+  const operation = { done: settled.promise, cancel: vi.fn(() => { settled.reject(new Error('interrupted')); return true }) }
+  return {
+    state,
+    operation,
+    settle: () => settled.resolve(),
+    registry: {
+      spawn: async () => ({ sessionId: 'shell' }),
+      list: () => [{ sessionId: 'shell', name: 'Composer shell', type: 'shell', status: { kind: state.running ? 'running' : 'exited' } }],
+      startSend: vi.fn(() => operation),
+      read: () => ({ text: state.text, totalLines: state.text.split('\n').length, lineBegin: 0, lineEnd: 1, truncated: false }),
+    } as never,
+  }
 }
 
 describe('Composer Shell fake-TTY contract', () => {
@@ -33,41 +50,59 @@ describe('Composer Shell fake-TTY contract', () => {
     } finally { await tui.dispose() }
   })
 
-  it.each([false, true])('streams in the existing reader and Esc restores the draft; Ctrl+C drains only the Shell (color=%s)', async color => {
+  it.each([false, true])('runs into a transcript card that settles in place (color=%s)', async color => {
     const h = terminal()
     const tui = new LocalTui(h.term, 'model', color, 'dark', async () => {})
     const ctx = new Context()
     const owner = { session: { header: { cwd: '/workspace' } } } as Agent
-    const cancelled = vi.fn(), settled = Promise.withResolvers<never>()
-    const operation = { done: settled.promise, cancel: vi.fn(() => { settled.reject(new Error('interrupted')); return true }) }
+    const { operation, registry: terminals, settle, state } = registry({ text: 'hello 中文 🐳', running: true })
     ctx.provide('tui', tui)
-    ctx.provide('terminals', {
-      spawn: async () => ({ sessionId: 'shell' }),
-      list: () => [{ sessionId: 'shell', name: 'Composer shell', type: 'shell', status: { kind: 'running' } }],
-      startSend: vi.fn(() => operation),
-      read: () => ({ text: 'hello 中文 🐳', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }),
-    } as never)
-    const off = tui.onInterrupt(cancelled)
+    ctx.provide('terminals', terminals)
     try {
       tui.restoreInput({ text: 'keep my draft', images: [] })
-      const reading = runComposerShell(ctx, owner, 'echo hello', new AbortController().signal)
-      await vi.waitFor(() => { expect(stripAnsi(h.captured())).toContain('hello 中文 🐳') })
-      h.input.write('\x1b')
-      await reading
+      const running = runComposerShell(ctx, owner, 'echo hello', new AbortController().signal)
+      // The card streams while the command runs, in the transcript — no reader
+      // to enter, so the composer draft survives untouched.
+      await vi.waitFor(() => { expect(h.captured()).toContain('hello 中文 🐳') })
+      expect(h.captured()).toContain('$ echo hello')
+      state.running = false
+      settle()
+      await running
       expect(operation.cancel).not.toHaveBeenCalled()
+      // And it settles in place rather than waiting for an exit gesture.
+      expect(h.captured()).toContain('$ echo hello')
       const restored = tui.readInput()
       h.input.write('\r')
       expect((await restored)?.text).toBe('keep my draft')
-      tui.restoreInput({ text: 'keep my draft', images: [] })
-      const interrupted = runComposerShell(ctx, owner, 'sleep 100', new AbortController().signal)
-      await vi.waitFor(() => { expect(stripAnsi(h.captured())).toContain('Ctrl+C interrupt') })
+    } finally { operation.cancel(); await tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it('Ctrl+C interrupts the Shell without cancelling a model Turn', async () => {
+    const h = terminal()
+    const tui = new LocalTui(h.term, 'model', false, 'dark', async () => {})
+    const ctx = new Context()
+    const owner = { session: { header: { cwd: '/workspace' } } } as Agent
+    const { operation, registry: terminals, settle } = registry({ text: 'still running', running: true })
+    ctx.provide('tui', tui)
+    ctx.provide('terminals', terminals)
+    const cancelled = vi.fn()
+    const off = tui.onInterrupt(cancelled)
+    try {
+      // An empty composer, which is the state a reader is in while watching a
+      // command run. With a draft present Ctrl+C clears the draft first — that
+      // ordering is what keeps a half-written message from being thrown away.
+      const running = runComposerShell(ctx, owner, 'sleep 100', new AbortController().signal)
+      await vi.waitFor(() => { expect(h.captured()).toContain('still running') })
       h.input.write('\x03')
-      await interrupted
+      await running
       expect(operation.cancel).toHaveBeenCalledOnce()
+      // The primary turn is not the Shell's to cancel.
       expect(cancelled).not.toHaveBeenCalled()
-      const afterInterrupt = tui.readInput()
-      h.input.write('\r')
-      expect((await afterInterrupt)?.text).toBe('keep my draft')
+      settle()
+      // The card is settled and the composer is still usable.
+      const next = tui.readInput()
+      h.input.write('after\r')
+      expect((await next)?.text).toBe('after')
     } finally { operation.cancel(); off(); await tui.dispose(); await ctx.fiber.dispose() }
   })
 })

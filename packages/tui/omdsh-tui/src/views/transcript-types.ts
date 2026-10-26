@@ -84,6 +84,24 @@ export type Block =
   }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string }
+  | {
+    /**
+     * A Shell line the reader ran themselves with a leading `!`.
+     *
+     * It is a transcript block rather than a full-screen reader because the
+     * output is the answer to a question the reader just asked: it belongs where
+     * the conversation is, streams as it arrives, and is finished when the
+     * command exits. Nothing here waits for an exit gesture.
+     */
+    kind: 'shell'
+    command: string
+    output: string
+    status: 'running' | 'ok' | 'error'
+    /** Exit code, once the command settled. */
+    code?: number
+    /** The reader asked for the output to enter the conversation. */
+    shared?: boolean
+  }
   | WorkspaceBlock
   | {
     kind: 'notice'
