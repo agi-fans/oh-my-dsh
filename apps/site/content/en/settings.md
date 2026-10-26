@@ -8,7 +8,7 @@ description: "Every omdsh setting: appearance, motion, notifications, Agent lang
 
 ## Product configuration
 
-Built-in capabilities appear in the product category that owns the task. Advisor model calls, Command hooks compatibility, and Subagent model selection show their current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
+Built-in capabilities appear in the product category that owns the task. Advisor, Command hooks compatibility, and Subagent model selection show their current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
 
 | Category | Configuration |
 |---|---|
@@ -16,7 +16,7 @@ Built-in capabilities appear in the product category that owns the task. Advisor
 | Agent | Model and reasoning, Access, Agent preset, Language, Subagents and Subagent models. |
 | Tools | Tool parallelism, Shell timeout/output limits and optional feature toggles. The shell executor's host-level `cwd` is intentionally not offered: every session runs in its current working directory. |
 | Status line | Footer layout, visibility, context style and colors. |
-| Integrations | Web providers, Web search · API, Web search · Messages, Advisor model calls, Command hooks, Codex, and Claude Code. |
+| Integrations | Web providers, Web search · API, Web search · Messages, Advisor, Command hooks, Codex, and Claude Code. |
 | Advanced | Unclaimed live fields and installed plugins without a product form. It is hidden when empty. |
 
 In Integrations, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
@@ -29,7 +29,7 @@ Each field shows its effective value and whether it is inherited or overridden i
 
 Secret inputs are masked and are never shown in notices. Setting an `apiKey` beside `apiKeyEnv` saves the key through Harness credentials and writes only its reference into the Profile. Resetting that key removes both Profile fields so inheritance applies again; it does not revoke an inherited credential or erase a key from the credential store. Credential-reference fields retain the Harness environment and credential-source inheritance.
 
-Settings are saved to the active Profile. Appearance applies immediately; Agent language applies from the next turn, child-model selection applies to new sessions. **Advisor model calls** controls `consult_advisor`; manual `/advisor` remains available. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
+Settings are saved to the active Profile. Appearance applies immediately; Agent language applies from the next turn, child-model selection applies to new sessions. **Advisor** is off until you choose Codex or Claude Code. The chosen model is what `consult_advisor` reaches and what `/advisor` uses by default; naming a provider on the command line overrides it for that request. A consultation is a paid request to another vendor's model, and no budget cap is applied — enabling it is the acknowledgement. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
 
 In **Agent → Subagent models → Allowed models**, search the model catalog, press `Space` to toggle models and `Enter` to save. Current routes are preselected; configured routes outside the catalog remain available. Choose at least one model before enabling model selection. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
 

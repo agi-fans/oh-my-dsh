@@ -40,11 +40,13 @@ try {
   assert.equal(forms.find(row => row.id === 'subagent').section, 'agent')
   assert.equal(forms.find(row => row.id === 'integration:codex').section, 'integrations')
   const advisor = ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'advisor')
-  await setSettingsEntry(ctx, forms.find(row => row.id === 'advisor'), 'false', new AbortController().signal)
-  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'Off')
+  // One field answers both questions: whether an advisor exists and which one.
+  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'off')
+  await setSettingsEntry(ctx, forms.find(row => row.id === 'advisor'), '"claude"', new AbortController().signal)
+  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'claude')
   const changedAdvisor = ctx.settings.describe().find(row => row.ns === advisor.ns)
-  assert.equal(changedAdvisor.value.allowModelConsultations, false)
-  await ctx.settings.mutate(advisor.ns, [{ op: 'unset', path: ['allowModelConsultations'] }], changedAdvisor.revision)
+  assert.equal(changedAdvisor.value.advisor, 'claude')
+  await ctx.settings.mutate(advisor.ns, [{ op: 'unset', path: ['advisor'] }], changedAdvisor.revision)
   const bundles = await manager.listBundles()
   assert.equal(bundles.find(row => row.name === '@agi-fans/oh-my-dsh').readOnlyReason, 'management-required')
   for (const name of ['@deepseek-ai/dsh-subagent-codex', '@deepseek-ai/dsh-subagent-claude-code']) {

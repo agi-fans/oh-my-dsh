@@ -39,25 +39,29 @@ export async function requestAdvice(ctx: Context, invocation: CommandInvocation,
   const raw = invocation.rawInput.trim()
   const directMatch = /^(codex|claude(?:-code)?)\s+([\s\S]+)$/iu.exec(raw)
   const providerOnlyMatch = /^(codex|claude(?:-code)?)$/iu.exec(raw)
+  // The configured advisor is the default, so the common case asks one question
+  // instead of two: a reader who already chose Claude in Settings is not asked
+  // to choose Claude again. Naming a provider on the line still overrides it —
+  // that is the reader typing a decision, not the agent making one.
+  const configured = ctx.advisor.mode()
   let provider: TuiAdvisor, question: string
   if (directMatch !== null) {
     provider = directMatch[1]!.toLowerCase().startsWith('claude') ? 'claude' : 'codex'
     question = directMatch[2]!.trim()
   } else {
-    if (ctx.tui.interactive !== true) return { kind: 'error', text: 'Usage: /advisor codex|claude <question>' }
+    if (ctx.tui.interactive !== true) return { kind: 'error', text: 'Usage: /advisor [codex|claude] <question>' }
     if (providerOnlyMatch !== null) {
       provider = providerOnlyMatch[1]!.toLowerCase().startsWith('claude') ? 'claude' : 'codex'
+    } else if (configured !== 'off') {
+      provider = configured
     } else {
-      const selected = await ctx.tui.prompt({
-        title: 'Advisor',
-        question: raw === '' ? 'Choose an independent advisor' : `Choose an advisor for: ${raw}`,
-        options: [{ label: 'Codex', value: 'codex' }, { label: 'Claude Code', value: 'claude' }],
-        allowCustom: false,
-        notify: false,
-        signal,
-      })
-      if (selected !== 'codex' && selected !== 'claude') return { kind: 'success' }
-      provider = selected
+      // Nothing is configured, and a consultation is a paid request to another
+      // vendor: asking here would make the first charge a surprise. Say where the
+      // switch is instead.
+      return {
+        kind: 'error',
+        text: 'No advisor is configured. Choose Codex or Claude Code in /settings → Integrations → Advisor, or pass one explicitly: /advisor codex <question>.',
+      }
     }
     if (raw !== '' && providerOnlyMatch === null) {
       question = raw

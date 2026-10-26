@@ -8,7 +8,7 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 
 ## 产品配置
 
-自带能力按用户任务归入产品设置。Advisor model calls、Command hooks 兼容模式和 Subagent models 模型选择直接显示当前值，可用 `←`/`→` 或 `Space` 修改。选中配置行后按 `Enter` 打开设置，`Esc` 返回原来的选中行；启用集成导致可用设置变化时，也保持原行。没有内容的分类不显示。
+自带能力按用户任务归入产品设置。Advisor、Command hooks 兼容模式和 Subagent models 模型选择直接显示当前值，可用 `←`/`→` 或 `Space` 修改。选中配置行后按 `Enter` 打开设置，`Esc` 返回原来的选中行；启用集成导致可用设置变化时，也保持原行。没有内容的分类不显示。
 
 | 分类 | 配置 |
 |---|---|
@@ -16,7 +16,7 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 | Agent | Model and reasoning、Access、Agent preset、Language、Subagents 与 Subagent models。 |
 | Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。shell executor 的宿主级 `cwd` 有意不提供：每个会话都在当前工作目录中运行。 |
 | Status line | 状态栏布局、可见性、上下文样式与颜色。 |
-| Integrations | Web providers、Web search · API、Web search · Messages、Advisor model calls、Command hooks、Codex 与 Claude Code。 |
+| Integrations | Web providers、Web search · API、Web search · Messages、Advisor、Command hooks、Codex 与 Claude Code。 |
 | Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件；为空时隐藏。 |
 
 Integrations 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
@@ -29,7 +29,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 密钥输入会被遮蔽，也不会出现在 notice 中。为带有 `apiKeyEnv` 的 `apiKey` 设置值时，密钥通过 Harness credentials 保存，Profile 只记录引用。重置该密钥会同时移除这两个 Profile 字段，恢复继承规则；不会撤销继承凭据或删除凭据库中的密钥。凭据引用字段继续遵循 Harness 的环境变量与凭据源继承规则。
 
-设置保存到当前 Profile。外观立即生效，Agent 语言从下一回合生效，子代理模型选择作用于新会话。**Advisor model calls** 控制 `consult_advisor`，手动 `/advisor` 仍可使用。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
+设置保存到当前 Profile。外观立即生效，Agent 语言从下一回合生效，子代理模型选择作用于新会话。**Advisor** 默认关闭，选择 Codex 或 Claude Code 后启用。所选模型就是 `consult_advisor` 访问的对象，也是 `/advisor` 的默认对象；在命令行显式指定 provider 只对该次请求生效。咨询是向另一家厂商模型发起的付费请求，不设额度上限——开启即视为已知情。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
 
 在 **Agent → Subagent models → Allowed models** 中搜索模型目录，用 `Space` 勾选、`Enter` 保存。当前路由会预选，不在目录里的已配置路由也会保留。启用模型选择前需至少选一个模型。新会话采样允许列表，`subagent` 只暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父路由。默认关闭。
 

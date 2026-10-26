@@ -22,8 +22,19 @@ import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 export const TUI_SERVICE = 'tui'
 
 export type TuiAdvisor = 'codex' | 'claude'
+/** Configured advisor, or `off` when consultations are disabled. */
+export type TuiAdvisorMode = TuiAdvisor | 'off'
 export interface TuiAdvice { provider: TuiAdvisor; question: string; opinion: string; truncated: boolean }
 export interface AdvisorService {
+  /**
+   * The configured advisor, or `off` when the reader has not chosen one.
+   *
+   * The owner of the setting is the plugin that performs the consultation, so
+   * this is the only place another surface can learn it without reading that
+   * plugin's configuration — which would be a second source of truth for the
+   * same value.
+   */
+  mode(): TuiAdvisorMode
   /** A bounded, explicit consultation; cancellation waits for native process cleanup. */
   consult(
     agent: Agent,

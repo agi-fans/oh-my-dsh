@@ -34,9 +34,9 @@ Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记
 
 ## 独立咨询
 
-在 `/settings → Integrations` 启用随包安装的 Codex 或 Claude Code 集成，然后用 `/advisor` 在主 TUI 转录流中直接发起独立咨询。`/advisor codex <question>` 和 `/advisor claude <question>` 直接在主对话流中运行而不再弹出确认或进度窗口，`/advisor <question>` 仅提示选择顾问并保留问题，不带参数的 `/advisor` 提示选择顾问与输入问题。运行期间，主转录流会渲染一张实时的 `Advisor · Codex` 或 `Advisor · Claude Code` 子代理卡片并流式展示其只读探查步骤，输入栏上方的子代理状态栏与 Agent Hub（`Alt+A`）也会同步跟踪运行状态与近期动作（按 `Ctrl+C` 可取消并等待进程清理）。完成后卡片收起为完成态，紧接着在下方渲染 Markdown 格式的顾问意见，并写入当前会话上下文以便后续追问。调用产生原生模型费用。
+在 `/settings → Integrations` 启用随包安装的 Codex 或 Claude Code 集成，再在 `/settings → Integrations → Advisor` 选定它。这一个选择同时回答两个问题——是否存在顾问、是哪一个——且默认没有配置，因此未配置时 `/advisor` 指向设置而不是向另一家厂商发起计费请求。选定后 `/advisor <question>` 只问问题；在命令行写出 `codex` 或 `claude` 会覆盖该次请求的配置。运行期间，主转录流会渲染一张实时的 `Advisor · Codex` 或 `Advisor · Claude Code` 子代理卡片并流式展示其只读探查步骤，输入栏上方的子代理状态栏与 Agent Hub（`Alt+A`）也会同步跟踪运行状态与近期动作（按 `Ctrl+C` 可取消并等待进程清理）。完成后卡片收起为完成态，紧接着在下方渲染 Markdown 格式的顾问意见，并写入当前会话上下文以便后续追问。调用产生原生模型费用。
 
-当你要求外部第二意见时，主模型也可以调用 `consult_advisor`，提供 `provider`（`codex` 或 `claude`）、`question` 和可选 `context`。`/settings → Integrations → Advisor model calls → Model consultations` 可关闭模型调用，同时保留 `/advisor`。Native 和 PTC 工具呈现共享同一结构化结果：来源、问题、意见及截断标记。主模型会对照工作区证据独立评估顾问意见，再决定是否采纳。
+配置了顾问后，主模型也可以调用 `consult_advisor`，提供 `question` 和可选 `context`，在难题上请求第二意见；配置的顾问决定访问哪个模型，因此 agent 不再另行选择。未配置时该工具根本不出现在 schema 中，而不是存在但总是失败。不设额度上限：开启顾问即视为已知情咨询会产生费用。Native 和 PTC 工具呈现共享同一结构化结果：来源、问题、意见及截断标记。主模型会对照工作区证据独立评估顾问意见，再决定是否采纳。
 
 每次咨询在当前工作区目录中启动，并使用独立的私有临时状态目录、明确提供的问题、上下文（未提供时自动附带受限工作区结构与清单快照）及原生 provider 配置的 model／environment，不自动复制对话历史。问题最多 8,000 字符，上下文最多 48,000 字符；超限输入会被拒绝。意见最多显示 48,000 字符，并明确标记截断。顾问作为外部孩子出现在 Agent Hub，共享 Harness activation 容量，不支持继续对话，也没有本地转录。
 

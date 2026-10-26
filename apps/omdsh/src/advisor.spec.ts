@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import * as advisor from './advisor.ts'
+import type { AdvisorMode } from './advisor.ts'
 import { bootTuiTurn } from './test-support/tui-boot.ts'
 import { requestToolNames } from './test-support/tui-boot.ts'
 
@@ -20,7 +21,7 @@ async function harness() {
   const ctx = new Context(), providers = new Map<string, SubagentProvider>()
   const specs: SubagentActivationSpec[] = [], nativeCalls: ResolvedSubagentStartRequest[] = []
   const configs: Record<string, unknown>[] = []
-  let outcome: Promise<SubagentResult> = Promise.resolve(completed), enabled = true, enforcement = 'full', cwd = process.cwd()
+  let outcome: Promise<SubagentResult> = Promise.resolve(completed), mode: AdvisorMode = 'codex', enforcement = 'full', cwd = process.cwd()
   const release = vi.fn(async () => {})
   const spawn = vi.fn((_spec: SubprocessSpawnSpec) => ({}))
   const native = { Config: z.object({ providerName: z.string(), model: z.string(), env: z.dict(z.string()), permissionMode: z.string(), disposeGraceMs: z.number().default(3000) }),
@@ -52,11 +53,11 @@ async function harness() {
   } as never)
   let tool: ToolDefinition | undefined
   ctx.provide('tools', { register: (value: ToolDefinition) => { tool = value; return () => { tool = undefined } } } as never)
-  const fiber = ctx.plugin({ ...advisor, Config: undefined }, { allowModelConsultations: { get: () => enabled } } as advisor.Config)
+  const fiber = ctx.plugin({ ...advisor, Config: undefined }, { advisor: { get: () => mode }, allowModelConsultations: { get: () => undefined } } as advisor.Config)
   await fiber.await()
   const agent = { session: { id: 'parent', header: { cwd: process.cwd() } } } as unknown as Agent
   return { ctx, fiber, agent, entries, providers, specs, configs, nativeCalls, spawn, confine, release,
-    setOutcome: (value: Promise<SubagentResult>) => { outcome = value }, setEnabled: (value: boolean) => { enabled = value }, setEnforcement: (value: string) => { enforcement = value }, setCwd: (value: string) => { cwd = value },
+    setOutcome: (value: Promise<SubagentResult>) => { outcome = value }, setMode: (value: AdvisorMode) => { mode = value }, setEnforcement: (value: string) => { enforcement = value }, setCwd: (value: string) => { cwd = value },
     consult: (provider: 'codex' | 'claude' = 'codex', signal = new AbortController().signal) => ctx.advisor.consult(agent, provider, 'Review cancellation', 'CODE', signal),
     tool: () => tool!,
   }
@@ -201,11 +202,14 @@ describe('advisor consultations', () => {
       h.setOutcome(Promise.resolve({ stopReason: 'completed', output: [] }))
       await expect(h.consult()).rejects.toThrow('no opinion')
       h.setOutcome(Promise.resolve(completed))
-      const value = await h.tool().execute({ provider: 'claude', question: 'Review', context: 'DATA' }, { agent: h.agent, signal: new AbortController().signal } as never)
-      expect(() => validateJsonSchemaValue(h.tool().output.schema, value)).not.toThrow()
-      expect(h.tool().output.render({}, value as never)).toEqual([{ type: 'text', text: expect.stringContaining('Independent advice · claude') }])
-      h.setEnabled(false)
-      await expect(h.tool().execute({ provider: 'codex', question: 'Review' }, { agent: h.agent, signal: new AbortController().signal } as never)).rejects.toThrow('consultations are off')
+      h.setMode('claude')
+      const value = await h.tool()!.execute({ question: 'Review', context: 'DATA' }, { agent: h.agent, signal: new AbortController().signal } as never)
+      expect(() => validateJsonSchemaValue(h.tool()!.output.schema, value)).not.toThrow()
+      expect(h.tool()!.output.render({}, value as never)).toEqual([{ type: 'text', text: expect.stringContaining('Independent advice · claude') }])
+      // Turning the advisor off removes the tool from the schema entirely.
+      h.setMode('off')
+      h.ctx.emit('loader/volatile-update', [['advisor']])
+      expect(h.tool()).toBeUndefined()
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -226,9 +230,11 @@ describe('advisor consultations', () => {
       const home = await mkdtemp(join(tmpdir(), 'omdsh-advisor-catalog-'))
       try {
         const toolCall = preset === 'standard'
-          ? { name: 'consult_advisor', arguments: JSON.stringify({ provider: 'codex', question: 'Review' }) }
+          ? { name: 'consult_advisor', arguments: JSON.stringify({ question: 'Review' }) }
           : undefined
-        const run = await bootTuiTurn({ home, preset, ...(toolCall === undefined ? {} : { toolCall }) })
+        // No advisor is configured by default, so this profile enables one the
+        // way a reader would: the tool is absent until then.
+        const run = await bootTuiTurn({ home, preset, patch: '- id: advisor\n  config:\n    advisor: codex\n', ...(toolCall === undefined ? {} : { toolCall }) })
         expect(run.status, run.output.slice(-3000)).toBe(0)
         expect(JSON.stringify(run.bodies[0])).not.toContain('consult_adviser')
         if (preset === 'standard') {

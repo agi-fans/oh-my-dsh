@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinition, CommandInvocation } from '@deepseek-ai/dsh-commands'
-import type { TuiPrompt, TuiSubagentActivity } from '../definition.ts'
+import type { TuiAdvisor, TuiPrompt, TuiSubagentActivity } from '../definition.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { apply, requestAdvice } from './advisor.ts'
 
@@ -21,9 +21,12 @@ function harness(answers: (string | null)[], interactive = true) {
     return { provider, question, opinion: 'Independent view', truncated: false }
   })
   ctx.provide('tui', { interactive, prompt, event, notice, setStatus, commandOutput } as never)
-  ctx.provide('advisor', { consult })
+  // A configured advisor, which is the state every consultation test runs in;
+  // the unconfigured path has its own test.
+  const mode = vi.fn<'off' | TuiAdvisor>(() => 'codex')
+  ctx.provide('advisor', { consult, mode })
   const invocation = { rawInput: '', agent: { status: 'idle', session: { id: 'parent' }, inject }, signal: new AbortController().signal } as unknown as CommandInvocation
-  return { ctx, prompt, event, notice, setStatus, commandOutput, inject, consult, invocation }
+  return { ctx, prompt, event, notice, setStatus, commandOutput, inject, consult, mode, invocation }
 }
 
 describe('/advisor', () => {
@@ -43,10 +46,13 @@ describe('/advisor', () => {
   })
 
   it('renders a live subagent card in the main TUI transcript, streams inspection steps, and injects the opinion into the session context', async () => {
-    const h = harness(['claude', 'Review this code'])
+    // The configured advisor answers the provider question, so only the question
+    // itself is asked. A reader who chose Claude is not asked to choose again.
+    const h = harness(['Review this code'])
+    h.mode.mockReturnValue('claude')
     try {
       expect(await requestAdvice(h.ctx, h.invocation)).toEqual({ kind: 'success' })
-      expect(h.prompt).toHaveBeenCalledTimes(2)
+      expect(h.prompt).toHaveBeenCalledTimes(1)
       expect(h.event).toHaveBeenCalledWith(expect.objectContaining({
         type: 'tool/call',
         data: expect.objectContaining({ name: 'consult_advisor', arguments: JSON.stringify({ provider: 'claude', question: 'Review this code' }) }),
@@ -104,11 +110,12 @@ describe('/advisor', () => {
   })
 
   it('accepts question-first and provider-only interactive invocations and requires explicit provider in non-interactive mode', async () => {
-    const questionFirst = harness(['codex'])
+    // Question-first: the configured advisor supplies the provider silently.
+    const questionFirst = harness([])
     try {
       questionFirst.invocation.rawInput = '看看我们工程在项目结构上是否有值得优化的内容'
       expect(await requestAdvice(questionFirst.ctx, questionFirst.invocation)).toEqual({ kind: 'success' })
-      expect(questionFirst.prompt).toHaveBeenCalledTimes(1)
+      expect(questionFirst.prompt).not.toHaveBeenCalled()
       expect(questionFirst.consult).toHaveBeenCalledWith(questionFirst.invocation.agent, 'codex', '看看我们工程在项目结构上是否有值得优化的内容', '', expect.any(AbortSignal), expect.any(Function))
     } finally { await questionFirst.ctx.fiber.dispose() }
 
@@ -123,7 +130,7 @@ describe('/advisor', () => {
     const nonInteractive = harness([], false)
     try {
       nonInteractive.invocation.rawInput = 'unknown question'
-      expect(await requestAdvice(nonInteractive.ctx, nonInteractive.invocation)).toEqual({ kind: 'error', text: 'Usage: /advisor codex|claude <question>' })
+      expect(await requestAdvice(nonInteractive.ctx, nonInteractive.invocation)).toEqual({ kind: 'error', text: 'Usage: /advisor [codex|claude] <question>' })
     } finally { await nonInteractive.ctx.fiber.dispose() }
 
     const h = harness([])
@@ -178,6 +185,33 @@ describe('/advisor', () => {
       expect(h.consult).toHaveBeenCalledTimes(2)
       expect(h.inject).toHaveBeenCalled()
       expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+})
+
+describe('/advisor without a configured advisor', () => {
+  it('points at the setting instead of charging another vendor', async () => {
+    // A consultation is a paid request to someone else's model. Asking here would
+    // make the first charge a surprise, so the unconfigured path explains where
+    // the switch is and consults nothing.
+    const h = harness([])
+    h.mode.mockReturnValue('off')
+    try {
+      const result = await requestAdvice(h.ctx, h.invocation)
+      expect(result).toMatchObject({ kind: 'error' })
+      expect(result.kind === 'error' ? result.text : '').toContain('/settings')
+      expect(h.consult).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('still honours an advisor named on the line', async () => {
+    // Typing the provider is a decision the reader made, not the agent's.
+    const h = harness([])
+    h.mode.mockReturnValue('off')
+    h.invocation.rawInput = 'claude Explain this stack trace'
+    try {
+      expect(await requestAdvice(h.ctx, h.invocation)).toEqual({ kind: 'success' })
+      expect(h.consult).toHaveBeenCalledWith(h.invocation.agent, 'claude', 'Explain this stack trace', '', expect.any(AbortSignal), expect.any(Function))
     } finally { await h.ctx.fiber.dispose() }
   })
 })

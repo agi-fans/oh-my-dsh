@@ -32,7 +32,13 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
   'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
-  advisor: { label: 'Advisor model calls', section: 'integrations', fields: { allowModelConsultations: 'Model consultations' }, inline: 'allowModelConsultations', effect: 'Controls consult_advisor; manual /advisor remains available.' },
+  advisor: {
+    label: 'Advisor',
+    section: 'integrations',
+    fields: { advisor: 'Advisor' },
+    inline: 'advisor',
+    effect: 'Off until you choose a model. A consultation is a paid request to another vendor; the chosen model decides which one the agent reaches, and /advisor uses the same choice.',
+  },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
     effect: 'Default: deepseek-search-api and deepseek-fetch-api. Fallbacks: deepseek-official (Messages) and http (local). With more than one provider installed, an empty value is ambiguous.' },
@@ -204,8 +210,13 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
       .map(field => `${form?.fields[field.path.join('.')]}: ${Array.isArray(configValue(section.value, field.path)) ? `${(configValue(section.value, field.path) as unknown[]).length} selected` : fieldDisplay(field, configValue(section.value, field.path))}`).join(' · ')
     const field = fields.find(field => field.path.join('.') === form?.inline)
     const values = field === undefined || field.secret || field.protected ? undefined : constantValues(field)
+    // A field with a schema default is already in effect, so the row shows that
+    // value rather than "not set": the reader's choice is what the schema says it
+    // is, and an unset override is not a third state.
+    const effective = field === undefined ? undefined
+      : configValue(section.value, field.path) ?? field.schema.meta.default
     const inline = field === undefined || values === undefined || values.length === 0 ? undefined : {
-      path: field.path, revision: section.revision, value: choiceLabel(configValue(section.value, field.path)),
+      path: field.path, revision: section.revision, value: choiceLabel(effective),
       choices: ctx.settings.writable ? values.map(value => ({ label: choiceLabel(value), value: JSON.stringify(value) })) : [],
     }
     return [

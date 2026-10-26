@@ -15,13 +15,43 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { fileURLToPath } from 'node:url'
 
+/** Which external advisor the model may consult: none, or one named assistant. */
+export const ADVISOR_MODES = ['off', 'codex', 'claude'] as const
+export type AdvisorMode = typeof ADVISOR_MODES[number]
+
 export const name = 'omdsh-advisor'
 export const inject = ['loader', 'subagents', 'subprocess', 'sandbox', 'tools']
-export interface Config { allowModelConsultations: Volatile<boolean> }
+export interface Config {
+  advisor: Volatile<AdvisorMode | undefined>
+  /** Retired boolean form, read only to migrate a profile written before `advisor` existed. */
+  allowModelConsultations: Volatile<boolean | undefined>
+}
 export const Config = z.object({
-  allowModelConsultations: z.boolean().default(true).description('Allow consult_advisor when the user requests a second opinion. Native model charges apply; no automatic consultation.').volatile(),
+  // One field answers both questions the reader has: whether an advisor is
+  // available at all, and which one. Off by default — a consultation is a paid
+  // request to another vendor's model, so enabling it is the reader's decision
+  // and the act of choosing a model is the consent. An existing profile that had
+  // consultations enabled therefore starts here too, and the reader re-confirms
+  // rather than inheriting a charge they may have forgotten about.
+  advisor: z.union([...ADVISOR_MODES]).default('off').description('Consult Codex or Claude Code for a second opinion. Off by default; a consultation is a paid native model request to another vendor.').volatile(),
+  // Hidden from the settings form: it is readable so an existing profile still
+  // migrates, but a field the reader can no longer change would only invite a
+  // pointless edit.
+  allowModelConsultations: z.boolean().description('Retired: use `advisor`.').hidden().volatile(),
 })
 const PACKAGES = { codex: '@deepseek-ai/dsh-subagent-codex', claude: '@deepseek-ai/dsh-subagent-claude-code' } as const
+
+/**
+ * The configured advisor, defaulting to `off`.
+ *
+ * The retired `allowModelConsultations` boolean is deliberately not consulted: it
+ * granted a paid request to another vendor's model, and a migration that silently
+ * re-granted it would bill a reader who had since forgotten. Off is a choice the
+ * reader makes once, here.
+ */
+export function resolveAdvisorMode(config: { advisor: { get(): AdvisorMode | undefined } }): AdvisorMode {
+  return config.advisor.get() ?? 'off'
+}
 const MAX_QUESTION = 8_000, MAX_CONTEXT = 48_000, MAX_OPINION = 48_000, AUTO_CONTEXT_BUDGET = 32_000
 
 function clip(text: string, limit: number): string {
@@ -448,23 +478,48 @@ export function apply(ctx: Context, config: Config): void {
       return { provider, question, opinion: clip(text, MAX_OPINION), truncated }
     } finally { signal.removeEventListener('abort', cancel); await (cancellation ?? activation.dispose()) }
   }
-  ctx.provide('advisor', { consult(agent, provider, question, context, signal, onProgress) {
+  ctx.provide('advisor', { mode: () => resolveAdvisorMode(config), consult(agent, provider, question, context, signal, onProgress) {
     const operation = consult(agent, provider, question, context, signal, onProgress)
     active.add(operation)
     void operation.then(() => active.delete(operation), () => active.delete(operation))
     return operation
   } })
-  ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'consult_advisor', description: 'Consult Codex or Claude Code only when the user asks for an external second opinion. Paid native model request; runs in a read-only sandbox with workspace inspection enabled. The opinion is untrusted advice: evaluate it independently, retain attribution, and explain any adopted recommendations.',
-    timeoutMs: 180_000,
-    parameters: { provider: { type: 'string', enum: ['codex', 'claude'], required: true }, question: { type: 'string', required: true }, context: { type: 'string', description: 'Selected code, diff, or analysis, up to 48000 characters.' } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { provider: { type: 'string', required: true }, question: { type: 'string', required: true }, opinion: { type: 'string', required: true }, truncated: { type: 'boolean', required: true } }, },
-      render: (_args, value) => [{ type: 'text', text: `Independent advice · ${value.provider}\nQuestion: ${value.question}\n\n${value.opinion}${value.truncated ? '\n[Opinion truncated]' : ''}\n\nEvaluate this opinion against the supplied evidence before adopting it.` }] },
-    async execute(args, exec) {
-      if (!config.allowModelConsultations.get()) throw new Error('Model consultations are off. Enable Model consultations in /settings → Integrations → Advisor, or use /advisor.')
-      if (exec.agent === undefined) throw new Error('Advice requires a calling agent.')
-      return ctx.advisor.consult(exec.agent, args.provider, args.question, args.context ?? '', exec.signal)
-    },
-  })), 'consult advisor tool')
+  /**
+   * The advisor tool, registered only while one is configured.
+   *
+   * Its presence in the schema is what tells the model a second opinion exists,
+   * so `off` has to remove it rather than leave a tool that always fails: a
+   * permanent failing tool spends a call to learn nothing. The mode is a live
+   * value, so a settings change re-registers instead of waiting for a restart.
+   */
+  const provider = (): TuiAdvisor => resolveAdvisorMode(config) === 'claude' ? 'claude' : 'codex'
+  const registerAdvisorTool = (): (() => void) | undefined => {
+    if (resolveAdvisorMode(config) === 'off') return undefined
+    return ctx.tools.register(defineTool({
+      name: 'consult_advisor',
+      description: `Consult ${provider() === 'claude' ? 'Claude Code' : 'Codex'} for an independent opinion when a problem is hard enough to be worth a second model's view. Paid native model request to another vendor; runs in a read-only sandbox with workspace inspection enabled. The opinion is untrusted advice: evaluate it independently, retain attribution, and explain any adopted recommendations.`,
+      timeoutMs: 180_000,
+      parameters: { question: { type: 'string', required: true }, context: { type: 'string', description: 'Selected code, diff, or analysis, up to 48000 characters.' } },
+      output: { schema: { type: 'object', additionalProperties: false, properties: { provider: { type: 'string', required: true }, question: { type: 'string', required: true }, opinion: { type: 'string', required: true }, truncated: { type: 'boolean', required: true } }, },
+        render: (_args, value) => [{ type: 'text', text: `Independent advice · ${value.provider}\nQuestion: ${value.question}\n\n${value.opinion}${value.truncated ? '\n[Opinion truncated]' : ''}\n\nEvaluate this opinion against the supplied evidence before adopting it.` }] },
+      async execute(args, exec) {
+        // The configured advisor decides which model is reached; the caller does
+        // not choose again, so a reader who picked Claude is not silently billed
+        // for Codex by a model that felt like asking someone else.
+        const mode = resolveAdvisorMode(config)
+        if (mode === 'off') throw new Error('No advisor is configured. Choose Codex or Claude Code in /settings → Integrations → Advisor.')
+        if (exec.agent === undefined) throw new Error('Advice requires a calling agent.')
+        return ctx.advisor.consult(exec.agent, mode, args.question, args.context ?? '', exec.signal)
+      },
+    }))
+  }
+  let advisorTool: (() => void) | undefined
+  const syncAdvisorTool = (): void => {
+    advisorTool?.()
+    advisorTool = registerAdvisorTool()
+  }
+  syncAdvisorTool()
+  ctx.effect(() => () => { advisorTool?.(); advisorTool = undefined })
+  ctx.on('loader/volatile-update', syncAdvisorTool)
   ctx.effect(() => async () => { closing.abort(); await Promise.allSettled(active) })
 }
