@@ -233,8 +233,11 @@ describe('opened turns use the live presentation', () => {
       expect(at).toBeGreaterThan(0)
       expect(frame.lines[at - 1]).toBe(paintSurface(theme, 'toolSuccessBg', 'toolOutput', ' '.repeat(80)))
       expect(frame.lines[at]).toContain(theme.getBgAnsi('toolSuccessBg'))
-      expect(frame.lines[at]).toContain(theme.fg('toolTitle', '$ pwd'))
-      expect(frame.lines[at + 2]).toContain(theme.fg('toolOutput', 'workspace'))
+      // The command is highlighted as shell, so the prompt and the word carry
+      // their own inks rather than one flat title colour over the whole line.
+      expect(stripAnsi(frame.lines[at] ?? '')).toContain('$ pwd')
+      expect(frame.lines[at]).toContain(theme.getFgAnsi('toolTitle'))
+      expect(stripAnsi(frame.lines[at + 2] ?? '')).toContain('workspace')
       expect(frame.lines[at + 3]).toBe(paintSurface(theme, 'toolSuccessBg', 'toolOutput', ' '.repeat(80)))
     }
   })

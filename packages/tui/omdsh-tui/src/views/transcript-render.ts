@@ -15,7 +15,7 @@ import type { FileDiff } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
-import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from '../chrome/box.ts'
+import { DEEP_DRIVING_LABEL, renderEditor, renderFramedBlock, renderWelcome } from '../chrome/box.ts'
 import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/renderer.ts'
 import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
@@ -32,9 +32,10 @@ import {
 } from './prompt-selector.ts'
 import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
-import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeName } from '../chrome/theme.ts'
+import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeColor, type ThemeName } from '../chrome/theme.ts'
+import { highlightToolText, toolPayloadLanguage } from '../chrome/code-highlight.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
-import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapText } from '../chrome/width.ts'
+import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
@@ -185,10 +186,27 @@ export interface ViewOptions {
   turnDetailsKey?: string
   /** Legacy reasoning anchors retained for search and scroll mapping. */
   expandedReasoning?: ReadonlySet<string>
+  /**
+   * Collapse every thought to one line.
+   *
+   * A collapsed thought is still a fold a reader can open, so the identity of
+   * what is open stays in `expandedReasoning`; this flag only decides the
+   * default. Keeping the two apart is what lets Ctrl+T flip the whole
+   * transcript without inventing a second notion of "open".
+   */
+  hideThinking?: boolean
   /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
   openedGroups?: ReadonlySet<string>
   /** Transient activity label that replaces the default working text. */
   workingLabel?: string
+  /**
+   * A confirmation or reading of the last action, drawn once and replaced.
+   *
+   * It sits on the composer's bottom border so it costs no transcript row: a
+   * status that says what a key just did is not part of the conversation, and
+   * appending it to history would make the immutable scrollback carry chatter.
+   */
+  transientStatus?: string
   /**
    * What the terminal reported about itself. A `system` theme and 16-color
    * quantization both read it, so it also keys every formatted-row cache.
@@ -496,39 +514,60 @@ function toolBlockLines(
     : call?.card === 'generic' || call?.card === 'diff' ? call.title
     : !read && presentation.title !== undefined && presentation.title !== block.name ? presentation.title
     : `${block.name}${subject === '' ? '' : ` ${subject}`}`
-  const head = theme.bold(theme.fg(block.status === 'error' ? 'error' : 'toolTitle', title))
-  const rows = wrapText(head, room)
+  // The command line is one ink, not a highlighted program.
+  //
+  // A command is the reader's own intent, and it has to be recognisable at a
+  // glance; syntax colouring it competes with the output below, which is the
+  // part that actually has to be read. Pi splits the two the same way: a flat
+  // bold `toolTitle` line for the call, and language highlighting for whatever
+  // the call returned.
+  const titleInk = block.status === 'error' ? 'error' : 'toolTitle'
+  const rows = wrapTextStable(theme.bold(theme.fg(titleInk, title)), room)
   let body: string[] = []
   if (mode === 'details') {
     let input = block.args
     try { input = JSON.stringify(JSON.parse(input), undefined, 2) } catch { /* Partial arguments retain their received text. */ }
     const output = presentation.output.length > 0 ? presentation.output : block.output.split('\n')
-    const outputRows = diffs === undefined
-      ? output.flatMap(line => wrapText(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
-      : wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
+    const detailLanguage = shell ? 'bash' : toolPayloadLanguage(block.name, subject)
+    const outputRows = diffs !== undefined
+      ? wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
+      : (detailLanguage === undefined
+        ? output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
+        : highlightedLines(output, detailLanguage, theme, block.status === 'error' ? 'error' : undefined))
+        .flatMap(line => wrapTextStable(line, room))
     body = [
-      ...wrapText(theme.fg('dim', 'Input'), room),
-      ...input.split('\n').flatMap(line => wrapText(theme.fg('toolOutput', line), room)),
-      '', ...wrapText(theme.fg('dim', 'Output'), room),
+      ...wrapTextStable(theme.fg('dim', 'Input'), room),
+      // The arguments are JSON here (they were re-serialized above), so they are
+      // highlighted as JSON whatever the tool itself reads.
+      ...highlightedLines(input.split('\n'), 'json', theme, undefined, room),
+      '', ...wrapTextStable(theme.fg('dim', 'Output'), room),
       ...outputRows,
     ]
     // Keep the tool's rich presentation, but expose received text it replaced.
     if (block.output !== '' && (diffs !== undefined || block.output !== output.join('\n'))) {
-      body.push('', ...wrapText(theme.fg('dim', 'Raw result'), room))
+      body.push('', ...wrapTextStable(theme.fg('dim', 'Raw result'), room))
       for (const line of block.output.split('\n')) {
-        body.push(...wrapText(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
+        body.push(...wrapTextStable(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
       }
     }
   } else if (diffs !== undefined) {
     body = wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
   } else if (full || !read || block.status === 'error') {
-    const output = presentation.output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
+    // One highlight pass over the whole payload. Painting line by line handed
+    // the tokenizer a fragment with no opening construct, so a second and third
+    // command row came back bare — the "only the first line is highlighted"
+    // report. A file payload uses the subject's own language.
+    const language = shell ? 'bash' : toolPayloadLanguage(block.name, subject)
+    const output = language === undefined
+      ? presentation.output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
+      : highlightedLines(presentation.output, language, theme, block.status === 'error' ? 'error' : undefined)
     const input = !shell && !read && (call?.card === 'generic' || (call === undefined && presentation.title !== block.name))
-      ? presentation.input.flatMap(line => wrapText(theme.fg('toolOutput', line), room)) : []
-    body = [...input, ...output.flatMap(line => wrapText(line, room))]
+      ? highlightedLines(presentation.input, language ?? 'text', theme, undefined, room)
+      : []
+    body = [...input, ...output.flatMap(line => wrapTextStable(line, room))]
     // Writes carry their content in arguments before the result arrives.
     if (body.length === 0 && block.name === 'write' && typeof args?.['content'] === 'string') {
-      body = args['content'].split('\n').flatMap(line => wrapText(theme.fg('toolOutput', line), room))
+      body = highlightedLines(args['content'].split('\n'), toolPayloadLanguage('write', subject) ?? 'text', theme, undefined, room)
     }
   }
   while (body.length > 0 && stripAnsi(body[body.length - 1]!).trim() === '') body.pop()
@@ -539,23 +578,23 @@ function toolBlockLines(
     body = shell ? body.slice(-limit) : body.slice(0, limit)
     const shortcut = detailsKey === 'Disabled' ? '' : ` · ${detailsKey}: Expand`
     const hint = theme.fg('dim', `… ${omitted} ${shell ? 'earlier' : 'more'} lines${shortcut}`)
-    if (shell) body.unshift(...wrapText(hint, room))
-    else body.push(...wrapText(hint, room))
+    if (shell) body.unshift(...wrapTextStable(hint, room))
+    else body.push(...wrapTextStable(hint, room))
   }
   if (!full && read && block.status !== 'error' && block.output !== '' && detailsKey !== 'Disabled') {
-    body.push(...wrapText(theme.fg('dim', `${detailsKey}: Expand result`), room))
+    body.push(...wrapTextStable(theme.fg('dim', `${detailsKey}: Expand result`), room))
   }
   if (full && block.status === 'error' && call?.card === 'diff') rows.push('', ...wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
   if (body.length > 0) {
     rows.push('')
     for (const row of body) rows.push(row)
   }
-  if (block.status === 'error') rows.push(...wrapText(theme.fg('error', 'Tool failed'), room))
+  if (block.status === 'error') rows.push(...wrapTextStable(theme.fg('error', 'Tool failed'), room))
   if (block.job !== undefined) {
     // The settlement line belongs to the call, not to its output: without a gap
     // it reads as one more line of whatever the command printed.
     if (rows.length > 0) rows.push('')
-    rows.push(...wrapText(theme.fg(
+    rows.push(...wrapTextStable(theme.fg(
       block.status === 'error' ? 'error' : 'muted',
       `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
     ), room))
@@ -572,6 +611,19 @@ function firstLineOf(text: string): string {
   return ''
 }
 
+/**
+ * One row standing in for a thought the reader has not opened.
+ *
+ * The first line is kept so a collapsed thought still says what it was about —
+ * a labelled placeholder would make every thought look the same.
+ */
+function reasoningSummaryRow(reasoning: string, theme: Theme, width: number): string {
+  const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
+  const label = `Thinking: ${firstLineOf(reasoning)}`
+  return assistantContentLines([theme.fg('dim', truncateToWidth(label, Math.max(1, width - paddingX * 2)))], width, paddingX)[0]
+    ?? ''
+}
+
 /** Thinking uses the same quiet Markdown style throughout the turn. */
 function openReasoningLines(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number, mathMode: import('../chrome/math.ts').MathMode = 'auto'): string[] {
   return assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true, mathMode })
@@ -585,6 +637,8 @@ interface GroupRenderContext {
   depth: ColorDepth
   width: number
   matches: ReadonlySet<number>
+  /** Thoughts the reader has opened past the transcript's folded default. */
+  openedThoughts: ReadonlySet<string>
   /**
    * Tool cards painted so far in this transcript pass. Alternation follows the
    * cards actually drawn, so neither a run boundary nor a block that paints
@@ -613,20 +667,32 @@ function groupMemberLines(
   context: GroupRenderContext,
   thoughtOnly = false,
   toolOrdinal = 0,
+  /** The reader opened this run, so its thoughts are laid out in full. */
+  openRun = false,
 ): string[] {
   const { blocks, options, theme, width } = context
   const block = blocks[index]!
   // Search must reveal a match even when it falls outside a tool's normal preview.
   const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
   const surface = toolOrdinal % 2 === 0 ? 'toolSuccessBg' : 'toolAltBg'
-  const signature = [width, options.colors, context.depth, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface].join('\0')
+  const thinkingOpen = openRun
+    || (block.kind === 'assistant' && context.openedThoughts.has(reasoningKey(block)))
+  const signature = [width, options.colors, context.depth, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface, thinkingOpen].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
   else {
     lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey, surface)
-      : block.kind === 'assistant' ? thoughtOnly ? openReasoningLines(block, theme, width, options.mathMode)
-        : blockLines(block, theme, width, { mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto' })
+      : block.kind === 'assistant' ? thoughtOnly
+        ? (options.hideThinking !== true || thinkingOpen
+          ? openReasoningLines(block, theme, width, options.mathMode)
+          : [reasoningSummaryRow(block.reasoning, theme, width)])
+        : blockLines(block, theme, width, {
+          mathMode: options.mathMode ?? 'auto',
+          mermaidMode: options.mermaidMode ?? 'auto',
+          hideThinking: options.hideThinking === true,
+          thinkingOpen,
+        })
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
@@ -634,6 +700,25 @@ function groupMemberLines(
   return search !== undefined && context.matches.has(index)
     ? lines.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
     : [...lines]
+}
+
+/**
+ * Highlight a payload once, then wrap it.
+ *
+ * Every caller goes through this so no tool view can quietly fall back to
+ * per-line painting — the shape that produced a single highlighted row above a
+ * block of plain ones.
+ */
+function highlightedLines(
+  lines: readonly string[],
+  language: string,
+  theme: Theme,
+  errorInk: ThemeColor | undefined,
+  width?: number,
+): string[] {
+  const highlighted = highlightToolText(lines.join('\n'), language, theme)
+  const rows = highlighted.map(line => errorInk === undefined ? line : theme.fg(errorInk, line))
+  return width === undefined ? rows : rows.flatMap(line => wrapTextStable(line, width))
 }
 
 /** A notice that reports on the run's work, as one of its rows. */
@@ -658,7 +743,7 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
   const spans: { index: number; start: number; end: number }[] = []
   for (const index of groupMembers(group)) {
     const isTool = context.blocks[index]?.kind === 'tool'
-    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, context.toolCards.count)
+    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, context.toolCards.count, true)
     if (isTool && rows.length > 0) context.toolCards.count += 1
     if (rows.length > 0 && lines.length > 0) lines.push('')
     offsets.set(index, lines.length)
@@ -698,19 +783,25 @@ export function blockLines(
   block: Block,
   theme: Theme,
   width: number,
-  { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O', mathMode = 'auto', mermaidMode = 'auto' }: {
+  { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O', mathMode = 'auto', mermaidMode = 'auto',
+    hideThinking = false, thinkingOpen = false }: {
     toolsExpanded?: boolean
     omitReasoning?: boolean
     toolDetailsKey?: string
     mathMode?: import('../chrome/math.ts').MathMode
     mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
+    hideThinking?: boolean
+    thinkingOpen?: boolean
   } = {},
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
   if (block.kind === 'assistant') {
     const lines: string[] = []
     if (block.reasoning !== '' && !omitReasoning) {
-      lines.push(...openReasoningLines(block, theme, width, mathMode))
+      const collapsed = hideThinking && !thinkingOpen
+      lines.push(...(collapsed
+        ? [reasoningSummaryRow(block.reasoning, theme, width)]
+        : openReasoningLines(block, theme, width, mathMode)))
       if (block.text !== '') lines.push('')
     }
     if (block.text === '' && block.reasoning === '' && block.streaming) {
@@ -737,7 +828,7 @@ export function blockLines(
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
     const tone = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'dim'
-    return wrapText(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
+    return wrapTextStable(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
       truncateToWidth((index === 0 ? prefix : continuation) + theme.fg(tone, line), width))
   }
   const state = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'info'
@@ -745,7 +836,7 @@ export function blockLines(
     block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'dim',
     text,
   )
-  const wrapped = wrapText(block.text, Math.max(1, width - 4))
+  const wrapped = wrapTextStable(block.text, Math.max(1, width - 4))
   const title = paint(wrapped[0] ?? '')
   return renderFramedBlock({
     header: title,
@@ -838,6 +929,7 @@ interface TranscriptBodyCache {
   toolsExpanded: boolean
   expandedTools: string
   expandedReasoning: string
+  hideThinking: boolean
   openedGroups: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
@@ -887,6 +979,8 @@ interface BlockLinesCache {
   expanded: boolean
   /** The block's thought is painted by the run above it. */
   omitReasoning: boolean
+  hideThinking: boolean
+  thinkingOpen: boolean
   lines: readonly string[]
 }
 
@@ -911,6 +1005,8 @@ function cachedBlockLines(
     && cached.terminalKey === terminalKey(options)
     && cached.expanded === expanded
     && cached.omitReasoning === omitReasoning
+    && cached.hideThinking === (options.hideThinking === true)
+    && cached.thinkingOpen === (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true)
     && cached.mathMode === options.mathMode
     && cached.mermaidMode === options.mermaidMode
     && cached.toolDetailsKey === options.toolDetailsKey
@@ -919,7 +1015,15 @@ function cachedBlockLines(
   const lines = block.kind === 'tool' && toolDetails
     ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
     : blockLines(
-      block, theme, options.width, { toolsExpanded: expanded, omitReasoning, toolDetailsKey: options.toolDetailsKey ?? 'Alt+O', mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto' },
+      block, theme, options.width, {
+        toolsExpanded: expanded,
+        omitReasoning,
+        toolDetailsKey: options.toolDetailsKey ?? 'Alt+O',
+        mathMode: options.mathMode ?? 'auto',
+        mermaidMode: options.mermaidMode ?? 'auto',
+        hideThinking: options.hideThinking === true,
+        thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
+      },
     )
   blockLinesCache.set(block, {
     mathMode: options.mathMode,
@@ -933,6 +1037,8 @@ function cachedBlockLines(
     terminalKey: terminalKey(options),
     expanded,
     omitReasoning,
+    hideThinking: options.hideThinking === true,
+    thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
     lines,
   })
   return lines
@@ -1224,6 +1330,7 @@ function renderTranscriptBody(
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
+  const hideThinking = options.hideThinking === true
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   const themeName = options.themeName ?? 'dark'
   const depth = colorDepthOf(options)
@@ -1247,6 +1354,7 @@ function renderTranscriptBody(
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools
     && cached.expandedReasoning === expandedReasoning
+    && cached.hideThinking === hideThinking
     && cached.openedGroups === openedGroups
     && cached.toolDetailsKey === options.toolDetailsKey
     && cached.turnSpans === state.turnSpans
@@ -1330,10 +1438,14 @@ function renderTranscriptBody(
   // change of shape starts. Global switches reshape from the top.
   const foldMarks: FoldMark[] = []
   if (toolsExpanded) foldMarks.push({ key: 'all', row: 0 })
+  // Collapsing or revealing every thought reshapes from the top, like the
+  // global tool switch above, so it reports the same kind of mark.
+  if (hideThinking) foldMarks.push({ key: 'thinking', row: 0 })
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, depth, width: options.width,
     matches, options: { ...options, expandedReasoning: openedThoughts },
+    openedThoughts,
     toolCards: { count: 0 },
   }
   const compactProcessRow = (block: Block | undefined): boolean => {
@@ -1440,7 +1552,7 @@ function renderTranscriptBody(
           offsets.set(at, lines.length - bodyRow)
           const rows = !group.live && !opened && trailing?.kind === 'tool'
             ? toolRowLine(trailing, theme, options.width, spinnerFrame)
-            : groupMemberLines(at, context)
+            : groupMemberLines(at, context, false, 0, group.live || opened)
           filesAt(at, lines.length, rows.length)
           for (const line of rows) lines.push(line)
         }
@@ -1528,6 +1640,7 @@ function renderTranscriptBody(
     toolsExpanded,
     expandedTools,
     expandedReasoning,
+    hideThinking,
     openedGroups,
     searchKey,
     turnSpans: state.turnSpans,
@@ -1951,11 +2064,13 @@ export function renderQueuedSubmissions(
   const editMultiHint = width >= 72 ? '↑/Alt+Up edit latest · Alt+Q queue' : '↑ edit latest'
   if (labels.length === 1) {
     return [alignAction(
-      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', 'next turn · ') + theme.fg('text', labels[0] ?? ''),
+      // Pi's vocabulary: what Enter typed was a follow-up, and the row says so
+      // in the same word the composer hint uses.
+      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', 'follow-up · ') + theme.fg('text', labels[0] ?? ''),
       theme.fg('dim', editSingleHint),
     )]
   }
-  const summary = ` · ${labels.length} · next turn${hidden === 0 ? '' : ` · ${hidden} earlier`}`
+  const summary = ` · ${labels.length} · follow-up${hidden === 0 ? '' : ` · ${hidden} earlier`}`
   const visibleLabels = labels.slice(start)
   const lines = [
     alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', editMultiHint), false),
@@ -2070,11 +2185,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     body.push(...transcript.lines)
   }
 
-  const working = state.status === 'running'
-    ? renderWorking(theme, Math.max(0, spinnerFrame), options.workingLabel, width, motion)
+  // The activity is drawn inside the composer frame rather than as its own row.
+  // A separate row cost a line, read as another component, and moved when the
+  // composer grew; the frame is where the reader is already looking.
+  const activityLabelText = state.status === 'running'
+    ? options.workingLabel ?? DEEP_DRIVING_LABEL
     : state.status === 'compacting'
-      ? renderWorking(theme, Math.max(0, spinnerFrame), options.workingLabel ?? 'Compacting', width, motion)
-      : []
+      ? options.workingLabel ?? 'Compacting'
+      : undefined
+  const working: string[] = []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const placeholder = options.inspected === undefined && state.status === 'idle'
     && options.input === '' && (options.inputImages ?? 0) === 0
@@ -2092,7 +2211,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
         ?? placeholder
         ?? (state.status === 'running' && options.steerKey !== undefined
-          ? `Enter: next turn · ${options.steerKey}: next step` : null)
+          ? `Enter: follow-up · ${options.steerKey}: next step` : null)
       : options.inspected.writable
         ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
         : 'Read-only · Esc to return'
@@ -2126,6 +2245,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
       : {}),
     ...(inlineHint !== null ? { inlineHint } : {}),
+    ...(options.transientStatus === undefined ? {} : { note: options.transientStatus }),
+    ...(activityLabelText === undefined ? {} : {
+      activity: {
+        frame: motion === 'off' ? SYMBOL.running : SPINNER[Math.max(0, spinnerFrame) % SPINNER.length] ?? SYMBOL.running,
+        label: activityLabelText,
+        shimmer: activityLabelText === DEEP_DRIVING_LABEL && motion === 'full',
+      },
+      spinnerFrame: Math.max(0, spinnerFrame),
+    }),
   }
   const promptSelector = options.promptSelector === undefined
     ? undefined

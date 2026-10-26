@@ -162,3 +162,45 @@ describe('wrapTextStable', () => {
     for (const line of lines) expect(line).toContain('\x1b[32m')
   })
 })
+
+describe('wrapTextStable', () => {
+  const bold = (text: string): string => `\x1b[1m${text}\x1b[22m`
+  const fg = (text: string): string => `\x1b[38;2;224;224;224m${text}\x1b[39m`
+
+  it('reopens a style on every row, not just the first', () => {
+    // The reported regression: a long tool command painted in one bold ink
+    // showed the colour on its first wrapped row and dropped it on the rest,
+    // because `wrapText` attaches escapes to the following glyph and never
+    // synthesizes a reopening sequence at a break.
+    const rows = wrapTextStable(bold(fg('aaaa bbbb cccc dddd eeee ffff gggg')), 14)
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) {
+      expect(row, row).toContain('\x1b[38;2;224;224;224m')
+      expect(row, row).toContain('\x1b[1m')
+    }
+  })
+
+  it('keeps each row inside the width once the reopen sequences are added', () => {
+    for (const width of [8, 12, 14, 20]) {
+      for (const row of wrapTextStable(bold(fg('aaaa bbbb cccc dddd eeee ffff gggg')), width)) {
+        expect(visibleWidth(row), `width ${width}: ${row}`).toBeLessThanOrEqual(width)
+      }
+    }
+  })
+
+  it('restores italic, underline, and inverse across a break', () => {
+    const cases = ['\x1b[3mx\x1b[23m', '\x1b[4mx\x1b[24m', '\x1b[7mx\x1b[27m']
+    for (const open of cases) {
+      const attribute = open.slice(0, open.indexOf('m') + 1)
+      const rows = wrapTextStable(`${attribute}aaaa bbbb cccc dddd eeee\x1b[m`, 10)
+      expect(rows.length).toBeGreaterThan(1)
+      for (const row of rows) expect(row, `${attribute} ${row}`).toContain(attribute)
+    }
+  })
+
+  it('leaves plain text and single-row content untouched', () => {
+    expect(wrapTextStable('short plain text', 40)).toEqual(['short plain text'])
+    const single = bold(fg('fits'))
+    expect(wrapTextStable(single, 40)).toEqual([single])
+  })
+})

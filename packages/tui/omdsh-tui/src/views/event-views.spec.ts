@@ -27,7 +27,16 @@ const view = (state: TranscriptState, input = '') =>
     welcomeTips: [{ key: '/', text: 'Browse available commands' }],
   })
 
-const composerStart = (lines: readonly string[]): number => lines.findIndex(line => line.includes('🐳'))
+/**
+ * The composer's top border.
+ *
+ * An idle composer carries its `🐳` label, which is exactly how production tells
+ * a composer apart from the welcome card above it and from a full-height overlay
+ * that replaces it. A running turn puts the activity in the same border and drops
+ * the label, so {@link activityStart} finds that case instead.
+ */
+const composerStart = (lines: readonly string[]): number => lines.findLastIndex(line => line.includes('🐳'))
+const activityStart = (lines: readonly string[]): number => lines.findLastIndex(line => line.includes('Deep Driving'))
 const composerRows = (lines: readonly string[], start: number): number => {
   if (start < 0) return 0
   const end = lines.slice(start).findIndex(line => stripAnsi(line).startsWith('╰'))
@@ -283,7 +292,7 @@ describe('applyEvent', () => {
       inserted: [],
     }, 3))
     const claimed = view(state)
-    expect(claimed.lines.join('\n')).toContain('Queued · next turn · second follow-up')
+    expect(claimed.lines.join('\n')).toContain('Queued · follow-up · second follow-up')
     expect(claimed.lines.join('\n')).not.toContain('first follow-up')
   })
 
@@ -784,9 +793,13 @@ describe('applyEvent', () => {
       width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors: false,
     })
     expect(running.lines.join('\n')).toContain('read')
-    expect(running.lines.join('\n')).toContain('Ctrl+C: Interrupt')
-    const activity = running.lines.find(line => line.includes('Ctrl+C: Interrupt')) ?? ''
-    expect(activity).toContain('Deep Driving')
+    // The activity lives in the composer's top border, so the row that carries
+    // it is the composer frame rather than a separate line above it.
+    const activity = running.lines.find(line => line.includes('Deep Driving')) ?? ''
+    // The label yields to the activity, so the frame is not carrying both.
+    expect(activity).not.toContain('🐳')
+    // `Esc` is the universal cancel key and needs no printed reminder.
+    expect(activity).not.toContain('Esc: Interrupt')
     expect(activity).not.toContain('Read file')
     state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b' }] } }, 3))
     state = applyEvent(state, ev('tool/result', { message: { role: 'tool', toolCallId: 'call-2', isError: true, content: [{ type: 'text', text: 'nope' }] } }, 4))
@@ -945,7 +958,7 @@ describe('applyEvent', () => {
     ])
     expect(lines.join('\n')).toContain('Todos · 1/2')
     const todo = lines.findIndex(line => line.includes('Render todos above the composer'))
-    const composer = lines.findIndex(line => line.includes('🐳'))
+    const composer = composerStart(lines)
     expect(todo).toBeGreaterThanOrEqual(0)
     expect(composer).toBeGreaterThan(todo)
     expect(lines.slice(todo - 2, todo + 1)).toEqual([
@@ -1233,8 +1246,8 @@ describe('blockLines', () => {
     expect(words).toContainEqual({ text: 'consider', fg: think })
   })
 
-  it('keeps midnight body on terminal ink and thinking in the quieter comment ink', () => {
-    const midnight = createTheme(true, true, 'midnight')
+  it('keeps light body on terminal ink and thinking in the quieter comment ink', () => {
+    const light = createTheme(true, true, 'light')
     const lines = blockLines({
       kind: 'assistant',
       turn: 1,
@@ -1242,17 +1255,17 @@ describe('blockLines', () => {
       text: 'answer',
       reasoning: 'thought',
       streaming: false,
-    }, midnight, 40)
+    }, light, 40)
     const think = lines.find(line => stripAnsi(line).includes('thought')) ?? ''
     const body = lines.find(line => stripAnsi(line).includes('answer')) ?? ''
-    expect(think).toContain(midnight.getFgAnsi('thinkingText'))
-    expect(midnight.getFgAnsi('text')).toBe('\x1b[39m')
+    expect(think).toContain(light.getFgAnsi('thinkingText'))
+    expect(light.getFgAnsi('text')).toBe('\x1b[39m')
     expect(body).not.toContain('\x1b[38;2;')
-    expect(body).not.toContain(midnight.getFgAnsi('thinkingText'))
+    expect(body).not.toContain(light.getFgAnsi('thinkingText'))
   })
 
-  it('keeps dark and catppuccin assistant body on terminal ink', () => {
-    for (const name of ['dark', 'catppuccin'] as const) {
+  it('keeps every shipped palette\'s assistant body on terminal ink', () => {
+    for (const name of ['dark', 'light'] as const) {
       const theme = createTheme(true, true, name)
       const lines = blockLines({
         kind: 'assistant',
@@ -1373,7 +1386,7 @@ describe('renderView', () => {
     const rows = frame.lines.map(stripAnsi)
     const pending = rows.findIndex(row => row.includes('2 pending questions'))
     expect(pending).toBeGreaterThanOrEqual(0)
-    expect(pending).toBeLessThan(rows.findIndex(row => row.includes('🐳')))
+    expect(pending).toBeLessThan(composerStart(rows))
     expect(rows[pending]).toContain('/questions to answer')
     expect(frame.lines.length).toBe(24)
     expect(frame.lines.every(row => visibleWidth(row) <= 60)).toBe(true)
@@ -1393,11 +1406,16 @@ describe('renderView', () => {
       colors: false,
       sessionControls: { goal },
     })
+    // The activity now rides on the composer's top border, so the goal bar is
+    // the last thing above the composer and the activity is inside it.
     const driving = frame.lines.findIndex(line => line.includes('Deep Driving'))
     const bar = frame.lines.findIndex(line => line.includes('Land batch 2'))
     expect(driving).toBeGreaterThan(-1)
-    expect(bar).toBeGreaterThan(driving)
-    expect(bar).toBeLessThan(composerStart(frame.lines))
+    expect(bar).toBeGreaterThan(-1)
+    // The activity rides the composer's own border, so the goal bar is the last
+    // row above the composer frame rather than above a separate activity row.
+    expect(bar).toBeLessThan(activityStart(frame.lines))
+    expect(driving).toBeGreaterThan(bar)
     expect(frame.lines[bar]).toContain('round 2/12')
     const inspecting = renderView(state, {
       width: 60,
@@ -1440,7 +1458,7 @@ describe('renderView', () => {
     })
     const editorStart = composerStart(frame.lines)
     const queue = frame.lines.slice(editorStart - 3, editorStart)
-    expect(queue[0]).toMatch(/^  │ Queued · 2 · next turn\s+↑ edit latest$/u)
+    expect(queue[0]).toMatch(/^  │ Queued · 2 · follow-up\s+↑ edit latest$/u)
     expect(queue.slice(1)).toEqual([
       '  │ 1  first queued',
       '  │ 2  second ↵ queued',
@@ -1451,7 +1469,7 @@ describe('renderView', () => {
     const lines = renderQueuedSubmissions([
       { text: 'one queued message', images: [] },
     ], createTheme(false), 48)
-    expect(lines[0]).toMatch(/^  │ Queued · next turn · one queued mes…\s+↑ edit$/u)
+    expect(lines[0]).toMatch(/^  │ Queued · follow-up · one queued mes…\s+↑ edit$/u)
     expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(48)
   })
 
@@ -1507,10 +1525,13 @@ describe('renderView', () => {
         }],
       },
     })
-    const text = frame.lines.map(stripAnsi).join('\n')
+    const rows = frame.lines.map(stripAnsi)
+    const text = rows.join('\n')
     expect(text).toContain('Agents · 1 running · ↓ select · Alt+A open')
     expect(text).toContain('Explore auth · Running')
     expect(text).not.toContain('read src/auth.ts')
+    // `text` is one joined string, so both sides are compared as character
+    // offsets; the roster row must come before the composer's label.
     expect(text.indexOf('Agents')).toBeLessThan(text.lastIndexOf('🐳'))
   })
 
@@ -2185,7 +2206,7 @@ it('keeps successful hooks silent and replays blocking and failed results with t
 })
 
 describe('human guidance display', () => {
-  it('distinguishes durable next-step guidance from next-turn follow-ups and hides it when claimed', () => {
+  it('distinguishes durable next-step guidance from follow-up queue and hides it when claimed', () => {
     const guide = ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [
       { id: 'steer', source: { kind: 'user' }, content: [{ type: 'text', text: '纠正 🐳 now' }] },
       { id: 'context', source: { kind: 'tool', name: 'context' }, content: [{ type: 'text', text: 'internal context' }] },
@@ -2197,7 +2218,7 @@ describe('human guidance display', () => {
     expect(state).toEqual(applyEvent(applyEvent(initialTranscript(), guide), queued))
     const rendered = view(state).lines.join('\n')
     expect(rendered).toContain('Guidance · next step · 纠正 🐳 now')
-    expect(rendered).toContain('Queued · next turn · next task')
+    expect(rendered).toContain('Queued · follow-up · next task')
     expect(rendered).not.toContain('internal context')
     const claimed = applyEvent(state, ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 2, inserted: [] }, 3))
     expect(view(claimed).lines.join('\n')).not.toContain('Guidance · next step')

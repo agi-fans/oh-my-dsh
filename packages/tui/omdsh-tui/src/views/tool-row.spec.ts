@@ -118,3 +118,68 @@ describe('tool content', () => {
     }
   })
 })
+
+describe('tool card surfaces and payload ink', () => {
+  const color = createTheme(true, true, 'dark', { trueColor: true } as never)
+
+  it('paints the whole command line in one ink and highlights only the output', () => {
+    // A command is the reader's own intent and has to be recognisable at a
+    // glance, so it stays one bold colour across every wrapped row. Syntax
+    // colouring belongs to the output, which is what actually has to be read.
+    const block = tool({
+      name: 'bash',
+      args: JSON.stringify({ command: 'git status --short\nls -la | head -2' }),
+      output: 'M a.ts',
+      status: 'ok',
+    })
+    const rows = blockLines(block, color, 60, { toolsExpanded: false })
+    const commandRows = rows.filter(row => /git status|ls -la/u.test(stripAnsi(row)))
+    expect(commandRows).toHaveLength(2)
+    // One ink for the whole command. `wrapText` opens the bold span on the first
+    // row and closes it after the last, so a continuation row carries the card's
+    // surface ink alone — never a second syntax colour.
+    const syntaxInks = new Set<string>()
+    for (const row of commandRows) {
+      for (const match of row.matchAll(/\x1b\[38;2;([0-9;]+)m/gu)) {
+        const ink = match[0]!
+        if (ink !== color.getFgAnsi('toolOutput')) syntaxInks.add(ink)
+      }
+    }
+    expect([...syntaxInks]).toEqual([color.getFgAnsi('toolTitle')])
+    // The output row is not constrained to that ink.
+    const outputRow = rows.find(row => stripAnsi(row).includes('M a.ts')) ?? ''
+    expect(outputRow).not.toContain(color.getFgAnsi('toolTitle'))
+  })
+
+  it('gives a successful and a failed card different background surfaces', () => {
+    const ok = blockLines(tool({ name: 'bash', args: JSON.stringify({ command: 'true' }), output: 'fine', status: 'ok' }), color, 40)
+    const failed = blockLines(tool({ name: 'bash', args: JSON.stringify({ command: 'false' }), output: 'boom', status: 'error' }), color, 40)
+    expect(ok.join('\n')).toContain(color.getBgAnsi('toolSuccessBg'))
+    expect(failed.join('\n')).toContain(color.getBgAnsi('toolErrorBg'))
+    expect(failed.join('\n')).not.toContain(color.getBgAnsi('toolSuccessBg'))
+  })
+
+  it('gives a running card the pending surface', () => {
+    const rows = blockLines(tool({ name: 'bash', args: JSON.stringify({ command: 'sleep 5' }), output: '', status: 'running' }), color, 40)
+    expect(rows.join('\n')).toContain(color.getBgAnsi('toolPendingBg'))
+  })
+})
+
+describe('wrapped tool command rows', () => {
+  it('keeps the command ink on every wrapped row of a long command', () => {
+    // The command is one bold ink; a long one must not lose that ink after its
+    // first visual row.
+    const command = 'cd /Users/dy/Workspace/dsh-tui && git diff --stat HEAD && echo "=== NEW FILES ===" && wc -l packages/tui/omdsh-tui/src/input/actions.ts'
+    const color = createTheme(true, true, 'dark')
+    const rows = blockLines(tool({ name: 'bash', args: JSON.stringify({ command }), output: '', status: 'ok' }), color, 92)
+      .filter(row => /dsh-tui|NEW FILES|actions\.ts/u.test(stripAnsi(row)))
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) {
+      // `toolOutput` is the card's paired surface ink and may appear; anything
+      // else painting text must be the title ink.
+      const inks = new Set([...row.matchAll(/\x1b\[38;2;[0-9;]+m/gu)].map(match => match[0])
+        .filter(ink => ink !== color.getFgAnsi('toolOutput')))
+      expect([...inks], stripAnsi(row)).toEqual([color.getFgAnsi('toolTitle')])
+    }
+  })
+})

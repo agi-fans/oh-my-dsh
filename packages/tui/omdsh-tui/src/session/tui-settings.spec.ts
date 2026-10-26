@@ -21,6 +21,7 @@ describe('TUI row settings', () => {
       motion: 'full',
       mathMode: 'auto',
       mermaidMode: 'auto',
+      hideThinking: false,
       editor: 'auto',
       terminalProgress: false,
       terminalTitle: 'status',

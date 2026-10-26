@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderEditor, renderFramedBlock, renderWelcome, renderWorking } from './box.ts'
+import { renderEditor, renderFramedBlock, renderWelcome } from './box.ts'
 import { createTheme, THEME_NAMES } from './theme.ts'
 import { stripAnsi } from './width.ts'
 import { oracleWidth } from './width.oracle.ts'
@@ -203,44 +203,96 @@ describe('renderEditor', () => {
     expect(oracleWidth(frame.lines[1] ?? '')).toBe(40)
   })
 
-})
-
-describe('renderWorking', () => {
-  it('uses the DeepSeek Harness loading label by default', () => {
-    const line = renderWorking(theme, 0, undefined, 40)[0] ?? ''
-    expect(line).toContain('Deep Driving')
-    expect(line).toContain('Ctrl+C: Interrupt')
+  it('draws an activity inside the top border and keeps the frame exact', () => {
+    const base = { input: 'hi', inputCursor: 2, status: ' 🐳 ', border: 'border' as const }
+    const frame = renderEditor({
+      ...base,
+      width: 60,
+      activity: { frame: '⠸', label: 'Deep Driving' },
+    }, theme)
+    const top = frame.lines[0] ?? ''
+    // The composer label yields to the activity rather than sharing the border.
+    expect(top).not.toContain('🐳')
+    expect(top).toContain('⠸ Deep Driving')
+    // The activity stays inside the rounded frame with border glyphs on both sides.
+    expect(top).toMatch(/^╭─+ ⠸ Deep Driving ─+/u)
+    expect(top).toMatch(/─╮$/u)
+    expect(oracleWidth(top)).toBe(60)
   })
 
-  it('sweeps a highlight across the Deep Driving label without changing its text or width', () => {
-    const colorTheme = createTheme(true, true)
-    const first = renderWorking(colorTheme, 0, undefined, 40)[0] ?? ''
-    const later = renderWorking(colorTheme, 10, undefined, 40)[0] ?? ''
-    expect(first).not.toBe(later)
-    expect(stripAnsi(first)).toBe(stripAnsi(later))
-    expect(oracleWidth(first)).toBe(oracleWidth(later))
-    expect(later).toContain('\x1b[1m')
+  it('leaves the top-right corner free for the access level', () => {
+    // A cancel hint used to occupy this corner and pushed the access level out
+    // of the frame. `Esc` needs no reminder, so the corner is the badge's.
+    const frame = renderEditor({
+      width: 60,
+      input: '',
+      inputCursor: 0,
+      status: ' 🐳 ',
+      statusRight: ' workspace write ',
+      border: 'border',
+      activity: { frame: '⠸', label: 'Deep Driving' },
+    }, theme)
+    const top = frame.lines[0] ?? ''
+    expect(top).toContain('⠸ Deep Driving')
+    expect(top).toContain('workspace write')
+    expect(top).toMatch(/workspace write ─╮$/u)
+    expect(oracleWidth(top)).toBe(60)
   })
 
-  it('keeps the loading label stable when terminal colors are disabled', () => {
-    const first = renderWorking(theme, 0, undefined, 40)[0] ?? ''
-    const later = renderWorking(theme, 10, undefined, 40)[0] ?? ''
-    expect(first).toBe(later)
+  it('paints the activity without a frame when the composer has no label', () => {
+    const frame = renderEditor({
+      width: 40,
+      input: '',
+      inputCursor: 0,
+      status: '',
+      border: 'border',
+      activity: { frame: '⠸', label: 'Compacting' },
+    }, theme)
+    const top = frame.lines[0] ?? ''
+    expect(top).toContain('⠸ Compacting')
+    expect(oracleWidth(top)).toBe(40)
   })
 
-  it('reduces or removes activity animation through the Motion policy', () => {
-    const colorTheme = createTheme(true, true)
-    const reduced = renderWorking(colorTheme, 10, undefined, 40, 'reduced')[0] ?? ''
-    const off = renderWorking(theme, 10, undefined, 40, 'off')[0] ?? ''
-    expect(reduced).not.toContain('\x1b[1m')
-    expect(stripAnsi(reduced)).toContain('Deep Driving')
-    expect(off).toContain('⟳ Deep Driving')
+  it('keeps the activity label as long as the frame can hold it', () => {
+    const activity = { frame: '⠸', label: 'Deep Driving' }
+    const narrow = renderEditor({ width: 34, input: '', inputCursor: 0, status: ' 🐳 ', border: 'border', activity }, theme)
+    const narrowTop = narrow.lines[0] ?? ''
+    expect(narrowTop).toContain('Deep Driving')
+    expect(oracleWidth(narrowTop)).toBe(34)
+    // The spinner alone is the last thing to survive.
+    const tiny = renderEditor({ width: 18, input: '', inputCursor: 0, status: ' 🐳 ', border: 'border', activity }, theme)
+    expect(tiny.lines[0]).toContain('⠸')
+    expect(tiny.lines[0]).not.toContain('Deep Driving')
+    expect(oracleWidth(tiny.lines[0] ?? '')).toBe(18)
   })
 
-  it('shows the active tool action when available', () => {
-    const line = renderWorking(theme, 0, 'bash · pnpm test', 40)[0] ?? ''
-    expect(line).toContain('bash · pnpm test')
-    expect(line).toContain('Ctrl+C: Interrupt')
-    expect(oracleWidth(line)).toBeLessThanOrEqual(40)
+  it('prints a note on the bottom border and leaves the input row alone', () => {
+    const frame = renderEditor({
+      width: 40,
+      input: 'hi',
+      inputCursor: 2,
+      status: ' 🐳 ',
+      border: 'border',
+      note: 'Thinking: hidden',
+    }, theme)
+    expect(frame.lines[2]).toContain('Thinking: hidden')
+    expect(frame.lines[1]).not.toContain('Thinking: hidden')
+    expect(oracleWidth(frame.lines[2] ?? '')).toBe(40)
+    // The input row and the cursor keep their positions, so a note never moves
+    // the caret the reader is typing at.
+    expect(frame.cursor).toEqual({ row: 1, column: 4 })
+  })
+
+  it('omits a note that cannot fit rather than truncating the frame', () => {
+    const frame = renderEditor({
+      width: 20,
+      input: '',
+      inputCursor: 0,
+      status: '',
+      border: 'border',
+      note: 'A confirmation far too long to fit here',
+    }, theme)
+    expect(frame.lines[2]).not.toContain('A confirmation')
+    expect(oracleWidth(frame.lines[2] ?? '')).toBe(20)
   })
 })

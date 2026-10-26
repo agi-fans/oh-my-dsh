@@ -1708,7 +1708,7 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     // No readline in flight — the runner is busy driving a turn.
     press(term, 'typed during turn\r')
-    expect(stripAnsi(term.captured)).toContain('│ Queued · next turn · typed during turn')
+    expect(stripAnsi(term.captured)).toContain('│ Queued · follow-up · typed during turn')
     expect(stripAnsi(term.captured)).toContain('↑ edit')
     const next = tui.readline()
     expect(await next).toBe('typed during turn')
@@ -1722,7 +1722,7 @@ describe('LocalTui (tty)', () => {
     expect(stripAnsi(term.captured)).toContain('Queued · 2')
     press(term, '\x1b[A')
     const restored = stripAnsi(term.captured)
-    expect(restored).toContain('│ Queued · next turn · first queued')
+    expect(restored).toContain('│ Queued · follow-up · first queued')
     expect(restored).toContain('second queued')
     const next = tui.readline()
     expect(await next).toBe('first queued')
@@ -2268,12 +2268,16 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('inserts a newline with alt+enter and submits the multiline buffer', async () => {
+  it('queues a follow-up with alt+enter and inserts a newline with ctrl+j', async () => {
+    // Pi splits these: Enter is which turn, Ctrl+J is a newline, and Alt+Enter
+    // parks the draft behind the running turn instead of interrupting the flow
+    // of typing. omdsh keeps Alt+Enter as a newline alias only where the
+    // platform has no follow-up chord of its own.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
     press(term, 'one')
-    press(term, '\x1b\r')
+    press(term, '\n')
     press(term, 'two\r')
     expect(await pending).toBe('one\ntwo')
     tui.dispose()
@@ -3283,6 +3287,7 @@ describe('LocalTui (tty)', () => {
       motion: 'full',
       mathMode: 'auto',
       mermaidMode: 'auto',
+      hideThinking: false,
       editor: 'auto',
       terminalTitle: 'status',
       terminalState: 'auto',
@@ -3427,7 +3432,7 @@ describe('LocalTui (tty)', () => {
       const tui = new LocalTui(term, 'm', undefined)
       tui.notice('probe', { level: 'error' })
 
-      expect(term.captured).toContain('\x1b[38;2;252;67;83mprobe')
+      expect(term.captured).toContain('\x1b[38;2;255;138;138mprobe')
       tui.dispose()
     } finally {
       vi.unstubAllEnvs()
@@ -3484,14 +3489,14 @@ describe('LocalTui (tty)', () => {
       const term = new FakeTerminal()
       const tui = new LocalTui(term, 'm', false)
       tui.notice('colorless', { level: 'error' })
-      expect(term.captured).not.toContain('\x1b[38;2;252;67;83m')
+      expect(term.captured).not.toContain('\x1b[38;2;255;138;138m')
       expect(term.captured).not.toContain('\x1b[31m')
 
       tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
       tui.notice('colorful', { level: 'error' })
 
       // Dark error ink is #fc4353; the 16-color fallback emits `31`.
-      expect(term.captured).toContain('\x1b[38;2;252;67;83mcolorful')
+      expect(term.captured).toContain('\x1b[38;2;255;138;138mcolorful')
       expect(term.captured).not.toContain('\x1b[31m')
       tui.dispose()
     } finally {
@@ -5213,5 +5218,31 @@ describe('wheel acceleration option', () => {
       const after = term.visible().findIndex(row => row.includes(before!.label))
       expect(after - before!.at).toBe(accel ? 1 : 3)
     } finally { tui.dispose() }
+  })
+})
+
+describe('transcript thinking controls', () => {
+  it('folds every thought with Ctrl+T and reports the change on the composer border', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.event(ev('assistant/message', {
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'weighing the two options' },
+          { type: 'text', text: 'Done.' },
+        ],
+      },
+    }, 1))
+    const shown = stripAnsi(term.captured)
+    expect(shown).toContain('weighing the two options')
+    press(term, '\x14')
+    const hidden = stripAnsi(term.captured)
+    // The thought collapses to one row that still says what it was about.
+    expect(hidden).toContain('Thinking: weighing the two options')
+    expect(hidden).toContain('Thinking: hidden')
+    // The confirmation rides the composer border, never the transcript.
+    expect(tui.prefs().hideThinking).toBe(true)
+    tui.dispose()
   })
 })

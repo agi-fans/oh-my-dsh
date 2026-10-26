@@ -35,7 +35,7 @@ describe('local Message Queue controls', () => {
     term.press('\x1b[B\r')
     await flush()
     expect(stripAnsi(term.captured)).toContain('Edit Queued Message')
-    term.press('\x01\x0b  updated\x1b\rline\r')
+    term.press('\x01\x0b  updated\nline\r')
     await flush()
     term.press('\x1b[27u')
     await flush()

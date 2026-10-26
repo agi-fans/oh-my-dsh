@@ -4,9 +4,8 @@
  * @module @agi-fans/dsh-tui
  */
 
-import { BOX, DEEPSEEK_LOGO, SYMBOL, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
-import type { MotionMode } from '../session/tui-settings.ts'
-import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapText, cursorOnWrapped } from './width.ts'
+import { BOX, DEEPSEEK_LOGO, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
+import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped } from './width.ts'
 import { formatRelativeAge } from './relative-time.ts'
 import { WELCOME_TIPS, type WelcomeTip } from './welcome-tips.ts'
 
@@ -95,7 +94,7 @@ export function renderFramedBlock(options: FramedBlockOptions, theme: Theme): st
       body.push(bar(BOX.teeRight, BOX.teeLeft, [section.label]))
     }
     for (const raw of section.lines) {
-      for (const wrapped of wrapText(expandTabs(raw, 8, 2), contentWidth)) {
+      for (const wrapped of wrapTextStable(expandTabs(raw, 8, 2), contentWidth)) {
         body.push(border(v) + ' ' + padToWidth(wrapped, contentWidth) + ' ' + border(v))
       }
     }
@@ -222,16 +221,105 @@ export interface EditorOptions {
   /** Optional right-aligned cap on the top border (permission mode). */
   statusRight?: string
   border: ThemeColor
+  /**
+   * Activity drawn in the top border instead of as a row above the editor.
+   *
+   * The composer is where the reader is looking while they wait, so a spinner
+   * that sits on its own row above the box costs a line and reads as a separate
+   * component. `label` is empty only when the caller wants the spinner alone,
+   * which is what a narrow terminal degrades to.
+   */
+  activity?: EditorActivity
+  /** Animation frame, forwarded to the activity's shimmer when it has one. */
+  spinnerFrame?: number
+  /**
+   * One line of confirmation drawn in the bottom border.
+   *
+   * Replaced rather than appended: what a key just did is a reading of the last
+   * action, not a record of the conversation, so it belongs to the frame that
+   * is already on screen.
+   */
+  note?: string
   /** Dim ghost text painted after the caret (slash-arg hint). */
   inlineHint?: string
   /** Paint one wrapped input slice without changing its visible width. */
   paintInput?: (text: string, sourceStart: number) => string
 }
 
+/** One in-flight activity shown in the composer's top border. */
+export interface EditorActivity {
+  /** Spinner frame, already resolved by the caller; `-1` stops the animation. */
+  readonly frame: string
+  readonly label: string
+  /** Whether the label is painted with the driving shimmer. */
+  readonly shimmer?: boolean
+}
+
 /** Editor frame plus a cursor offset relative to the editor's first row. */
 export interface EditorFrame {
   lines: string[]
   cursor: { row: number; column: number }
+}
+
+/** The pieces {@link topBorderWithActivity} composes, already painted. */
+interface TopBorderParts {
+  readonly topLeft: string
+  readonly topRight: string
+  readonly status: string
+  readonly trailing: string
+  readonly fillWidth: number
+  readonly border: (text: string) => string
+  readonly theme: Theme
+  readonly h: string
+}
+
+/**
+ * Compose `╭─ ⠸ Deep Driving ─────────────────────────╮`.
+ *
+ * The border glyphs stay visible on both sides of the activity, so it reads as
+ * part of the frame rather than as a label floating on it. Width is spent in a
+ * fixed order — the activity label, then the spinner alone — so a narrow
+ * terminal still shows that work is happening.
+ *
+ * The frame carries the activity and nothing else. A cancel hint used to sit on
+ * the right of it, but `Esc` is the universal "stop this" key everywhere in the
+ * TUI; printing it on every running turn was a permanent reminder of something
+ * a reader already knows, and it pushed the access level off the right corner.
+ */
+function topBorderWithActivity(options: EditorOptions, parts: TopBorderParts): string {
+  const { topLeft, topRight, status, trailing, fillWidth, border, theme, h } = parts
+  const activity = options.activity!
+  const width = fillWidth + 4
+  /**
+   * `head` and `tail` are measured, never estimated: the fill is whatever is
+   * left after them. Anything else either overflows the frame — which the
+   * renderer then truncates, eating the closing corner — or leaves a gap.
+   */
+  const assemble = (label: string): string => {
+    const tail = trailing + topRight
+    const head = topLeft + status + border(h + ' ') + label
+    const rest = Math.max(0, width - visibleWidth(head) - visibleWidth(tail) - 1)
+    return head + border(' ' + h.repeat(rest)) + tail
+  }
+  const paintLabel = (room: number): string => {
+    if (room <= 0) return ''
+    const head = activity.frame + ' '
+    const labelRoom = room - visibleWidth(head)
+    if (labelRoom <= 0) return truncateToWidth(activity.frame, room)
+    const painted = activity.shimmer === true
+      ? renderDrivingShimmer(theme, activity.label, options.spinnerFrame ?? 0)
+      : theme.fg('muted', activity.label)
+    return truncateToWidth(head + painted, room)
+  }
+  // Room for the activity is what the corners, the composer label and its
+  // separator leave behind.
+  const fixed = visibleWidth(topLeft) + visibleWidth(status) + 2 + 1 + visibleWidth(trailing) + visibleWidth(topRight)
+  const budget = Math.max(0, width - fixed)
+  // `⠸` plus a ten-cell label is the smallest activity worth printing; below
+  // that the spinner alone still says the turn is alive.
+  const labelMinimum = visibleWidth(activity.frame) + 1 + 10
+  if (budget >= labelMinimum) return assemble(paintLabel(budget))
+  return assemble(truncateToWidth(activity.frame, Math.max(0, budget)))
 }
 
 /**
@@ -245,11 +333,15 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   const h = BOX.horizontal
   const border = (text: string): string => theme.fg(options.border, text)
 
+  // The composer label yields to the activity: while a turn runs the border
+  // already says where the reader is, and a second label beside a spinner only
+  // pushes the words that matter out of the frame.
+  const label = options.activity === undefined ? options.status : ''
   const topLeft = border(BOX.topLeft + h.repeat(padX))
   const topRight = border(h.repeat(padX) + BOX.topRight)
   const fillWidth = Math.max(0, width - visibleWidth(BOX.topLeft + h.repeat(padX)) - visibleWidth(h.repeat(padX) + BOX.topRight))
   const statusRight = options.statusRight ?? ''
-  let status = options.status
+  let status = label
   let trailing = statusRight
   if (visibleWidth(status) + visibleWidth(trailing) + (trailing === '' ? 0 : 1) > fillWidth) {
     const rightBudget = Math.max(0, fillWidth - visibleWidth(status) - (status === '' || fillWidth === 0 ? 0 : 1))
@@ -259,7 +351,11 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
     }
   }
   const statusFill = Math.max(0, fillWidth - visibleWidth(status) - visibleWidth(trailing))
-  const top = topLeft + status + border(h.repeat(statusFill)) + trailing + topRight
+  const top = options.activity === undefined
+    ? topLeft + status + border(h.repeat(statusFill)) + trailing + topRight
+    : topBorderWithActivity(options, {
+      topLeft, topRight, status, trailing, fillWidth, border, theme, h,
+    })
 
   const layout = wrapIndexed(options.input, contentWidth)
   const caret = cursorOnWrapped(layout, options.inputCursor, options.input)
@@ -282,7 +378,14 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   }
   const bottomLeft = border(BOX.bottomLeft + h.repeat(padX))
   const bottomRight = border(h.repeat(padX) + BOX.bottomRight)
-  lines.push(bottomLeft + border(h.repeat(fillWidth)) + bottomRight)
+  const note = options.note === undefined || options.note === '' ? '' : theme.fg('dim', options.note)
+  if (note === '' || visibleWidth(note) + 4 > fillWidth) {
+    lines.push(bottomLeft + border(h.repeat(fillWidth)) + bottomRight)
+  } else {
+    const head = bottomLeft + border(h + ' ') + note
+    const rest = Math.max(0, width - visibleWidth(head) - 1 - visibleWidth(bottomRight))
+    lines.push(head + border(' ' + h.repeat(rest)) + bottomRight)
+  }
 
   return {
     lines,
@@ -307,26 +410,4 @@ function renderDrivingShimmer(theme: Theme, text: string, spinnerFrame: number):
     if (distance === 2) return theme.fg('text', character)
     return theme.fg('muted', character)
   }).join('')
-}
-
-/** Activity row that sits above the editor while a turn is in flight. */
-export function renderWorking(
-  theme: Theme,
-  spinnerFrame: number,
-  action = DEEP_DRIVING_LABEL,
-  width?: number,
-  motion: MotionMode = 'full',
-): string[] {
-  const frame = motion === 'off'
-    ? SYMBOL.running
-    : ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][spinnerFrame % 10] ?? '⠋'
-  const prefix = ' ' + theme.fg('accent', frame) + ' '
-  const hint = ' ' + theme.fg('dim', '⟨Ctrl+C: Interrupt⟩')
-  const paintAction = (text: string): string => action === DEEP_DRIVING_LABEL && motion === 'full'
-    ? renderDrivingShimmer(theme, text, spinnerFrame)
-    : theme.fg('muted', text)
-  if (width === undefined) return [prefix + paintAction(action) + hint]
-  const actionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(hint))
-  if (actionWidth < 8) return [truncateToWidth(prefix + paintAction(action), width)]
-  return [prefix + paintAction(truncateToWidth(action, actionWidth)) + hint]
 }

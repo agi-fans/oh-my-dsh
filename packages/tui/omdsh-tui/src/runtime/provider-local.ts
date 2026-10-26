@@ -226,6 +226,8 @@ import { APP_NAME, APP_VERSION } from '../session/package-metadata.ts'
 import type { StartupChangelogMode } from '../session/release-notes.ts'
 
 const DOUBLE_CTRL_C_MS = 500
+/** How long a confirmation stays on the composer's border before it fades. */
+const TRANSIENT_STATUS_MS = 3_000
 const DOUBLE_ESCAPE_MS = 500
 const STREAMING_REVEAL_MS = 1000 / 30
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
@@ -569,11 +571,25 @@ export class LocalTui implements TuiService {
   #copyOnSelect = true
   #mathMode: import('../chrome/math.ts').MathMode = 'auto'
   #mermaidMode: import('../chrome/mermaid.ts').MermaidMode = 'auto'
+  /** Transcript collapses every thought to one line; Ctrl+T flips it. */
+  #hideThinking = false
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
   #jumpPress: { row: number; column: number; width: number } | undefined
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
+  /** Thoughts a reader opened individually, addressed by reasoning identity. */
+  #expandedReasoning = new Set<string>()
+  /**
+   * The last action's confirmation, drawn on the composer's bottom border.
+   *
+   * A status that reports what a key just did is not part of the conversation,
+   * so it never enters the block list: it replaces itself, and it is dropped by
+   * the next keystroke. Writing it into the transcript would put chatter into
+   * native scrollback, which cannot be taken back.
+   */
+  #transientStatus: string | undefined
+  #transientTimer: ReturnType<typeof setTimeout> | null = null
   /** Turn scopes whose tools stay detailed as new calls arrive during inspection. */
   #detailedTurns = new Set<string>()
   #tools: ToolInfo[] = []
@@ -736,6 +752,7 @@ export class LocalTui implements TuiService {
       blocks: () => this.#state.blocks,
       mathMode: () => this.#mathMode,
       mermaidMode: () => this.#mermaidMode,
+      hideThinking: () => this.#hideThinking,
       promptRequest: () => this.#prompt?.request,
       finishPrompt: answer => { this.#finishPrompt(answer) },
     })
@@ -1275,6 +1292,7 @@ export class LocalTui implements TuiService {
       motion: this.#motion,
       mathMode: this.#mathMode,
       mermaidMode: this.#mermaidMode,
+      hideThinking: this.#hideThinking,
       editor: this.#externalEditor,
       terminalProgress: this.#terminalProgress,
       terminalTitle: this.#terminalTitle,
@@ -1565,6 +1583,7 @@ export class LocalTui implements TuiService {
       this.#term.input.destroy?.()
     }
     if (this.#escapeTimer !== null) clearTimeout(this.#escapeTimer)
+    if (this.#transientTimer !== null) { clearTimeout(this.#transientTimer); this.#transientTimer = null }
     if (this.#autocompleteTimer !== null) clearTimeout(this.#autocompleteTimer)
     this.#autocompleteAbort?.abort()
     this.#autocompleteTimer = null
@@ -1823,6 +1842,7 @@ export class LocalTui implements TuiService {
         imageCellSize: this.#imageCellSize,
         mathMode: this.#mathMode,
         mermaidMode: this.#mermaidMode,
+        hideThinking: this.#hideThinking,
         height: this.#term.height(),
         model: this.#model,
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
@@ -1844,6 +1864,7 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
+        ...(this.#transientStatus === undefined ? {} : { transientStatus: this.#transientStatus }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -2303,6 +2324,9 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
+    // Any input makes the last confirmation stale; a note that survives typing
+    // starts competing with the command the reader is writing.
+    if (event.type === 'key' || event.type === 'text') this.#clearTransientStatus()
     if (event.type === 'cell-size') {
       this.#imageCellSize = { width: event.width, height: event.height }
       if (this.#prompt?.request.documentImage !== undefined) this.#render()
@@ -2430,42 +2454,6 @@ export class LocalTui implements TuiService {
       && this.#prompt === null && this.#settings === null && this.#copySelector === null && this.#search === null) {
       return
     }
-    if (event.type === 'key' && event.id === 'ctrl+c') {
-      if (this.#prompt !== null) {
-        this.#finishPrompt(null)
-        this.#editor.setText('')
-        this.#render()
-        return
-      }
-      if (this.#settings !== null) {
-        this.#settings = null
-        this.#render()
-        return
-      }
-      if (this.#copySelector !== null) {
-        this.#copySelector = null
-        this.#render()
-        return
-      }
-      if (this.#search !== null) {
-        this.#search = null
-        this.#render()
-        return
-      }
-      const now = Date.now()
-      if (now - this.#lastSigintTime < DOUBLE_CTRL_C_MS) {
-        this.#lastSigintTime = 0
-        this.#quit()
-        return
-      }
-      this.#lastSigintTime = now
-      if (this.#state.status !== 'idle') {
-        for (const listener of this.#interrupts) listener()
-      } else {
-        this.#clearComposerWithUndo()
-      }
-      return
-    }
     if (this.#settings !== null) {
       this.#applySettings(event)
       return
@@ -2483,36 +2471,14 @@ export class LocalTui implements TuiService {
       return
     }
     if (this.#handleSubagentLauncher(event)) return
-    if (event.type === 'key' && event.id === 'escape') {
-      if (this.#inspected !== undefined) {
-        if (this.#inspected.writable === true && this.#hasComposerContent()) {
-          this.#clearComposerWithUndo()
-          return
-        }
-        this.#closeInspect()
-        return
-      }
-      if (this.#state.status !== 'idle' || this.#pending === null
-        || this.#hasComposerContent()) {
-        this.#lastEscapeTime = 0
-      } else {
-        const now = Date.now()
-        if (now - this.#lastEscapeTime < DOUBLE_ESCAPE_MS) {
-          this.#lastEscapeTime = 0
-          for (const listener of this.#rewinds) listener()
-        } else {
-          this.#lastEscapeTime = now
-        }
-        return
-      }
-    }
+    // Escape is the one key that gives back exactly one layer, so it is resolved
+    // here — after the overlays and the autocomplete have had their turn — and
+    // not with the other actions above.
+    if (event.type === 'key' && this.#boundAction(event.id) === 'interrupt' && this.#runInterrupt()) return
     if (event.type === 'key' && (event.id === 'backspace' || event.id === 'delete')
       && this.#images.removeAtCursor(event.id)) {
       this.#refreshAutocomplete()
       this.#render()
-      return
-    }
-    if (event.type === 'key' && event.id === 'alt+up' && this.#restoreLatestQueuedSubmission(true)) {
       return
     }
     if (event.type === 'key' && (event.id === 'ctrl+-' || event.id === 'ctrl+_')
@@ -2527,6 +2493,103 @@ export class LocalTui implements TuiService {
       return
     }
     this.#applyCommand(this.#editor.handle(event))
+  }
+
+  /**
+   * Resolve `interrupt` against whatever currently owns the screen.
+   *
+   * One action, one meaning — cancel what is happening — but the thing that is
+   * happening depends on how deep the reader is. The order runs from the most
+   * transient surface to the least, so Escape always gives back exactly one
+   * layer instead of dropping the reader somewhere unrelated.
+   */
+  #runInterrupt(): boolean {
+    if (this.#prompt !== null) {
+      if (this.#prompt.request.presentation === 'progress' || this.#prompt.request.interrupt === undefined) {
+        this.#finishPrompt(null)
+        return true
+      }
+      const handled = this.#prompt.request.interrupt()
+      this.#finishPrompt(null)
+      if (handled !== true && this.#state.status !== 'idle') for (const listener of this.#interrupts) listener()
+      return true
+    }
+    // Escaping a child transcript returns to the parent, and a writable child
+    // with a draft clears it first — the same order the reader expects from
+    // any other depth.
+    if (this.#inspected !== undefined) {
+      if (this.#inspected.writable === true && this.#hasComposerContent()) {
+        this.#clearComposerWithUndo()
+        return true
+      }
+      this.#closeInspect()
+      return true
+    }
+    if (this.#state.status !== 'idle') {
+      // Aborting a turn would strand whatever the user queued behind it. Pi
+      // hands those drafts back first, so nothing typed during the turn is lost
+      // to the abort that ends it.
+      this.#restoreQueuedBeforeAbort()
+      for (const listener of this.#interrupts) listener()
+      return true
+    }
+    if (!this.#hasComposerContent()) {
+      // Nothing to cancel and nothing typed: the second Escape opens the session
+      // tree, which is where a reader goes when they want to leave this point.
+      const now = Date.now()
+      if (now - this.#lastEscapeTime < DOUBLE_ESCAPE_MS) {
+        this.#lastEscapeTime = 0
+        for (const listener of this.#rewinds) listener()
+      } else {
+        this.#lastEscapeTime = now
+      }
+      return true
+    }
+    // Something is typed: Escape is not a no-op, but it also has nothing to
+    // cancel, so the editor keeps the keystroke.
+    return false
+  }
+
+  /**
+   * Empty the composer, or exit on a second press.
+   *
+   * Ctrl+C is a composer gesture everywhere else on a terminal; keeping
+   * interrupt on Escape leaves this to do exactly one job.
+   */
+  #runClearComposer(): boolean {
+    if (this.#prompt !== null) { this.#finishPrompt(null); this.#editor.setText(''); this.#render(); return true }
+    if (this.#settings !== null) { this.#settings = null; this.#render(); return true }
+    if (this.#copySelector !== null) { this.#copySelector = null; this.#render(); return true }
+    if (this.#search !== null) { this.#search = null; this.#render(); return true }
+    if (this.#transcriptSearch !== null) { this.#transcriptSearch = null; this.#render(); return true }
+    const now = Date.now()
+    if (now - this.#lastSigintTime < DOUBLE_CTRL_C_MS) {
+      this.#lastSigintTime = 0
+      this.#quit()
+      return true
+    }
+    this.#lastSigintTime = now
+    // A running turn keeps Ctrl+C as the familiar abort while the composer is
+    // empty; Escape already covers it, and refusing the reflex would be worse.
+    if (this.#state.status !== 'idle' && !this.#hasComposerContent()) {
+      this.#restoreQueuedBeforeAbort()
+      for (const listener of this.#interrupts) listener()
+      return true
+    }
+    this.#clearComposerWithUndo()
+    return true
+  }
+
+  /**
+   * Hand durable follow-ups back to the composer before a turn is abandoned.
+   *
+   * The queued messages would otherwise be delivered to a turn that will never
+   * produce the step they were aimed at, which silently loses them.
+   */
+  #restoreQueuedBeforeAbort(): void {
+    if (!this.#state.nextTurnInbox.some(message => message.source.kind === 'user')) return
+    if (this.#hasComposerContent()) return
+    for (const listener of this.#queueEdits) listener()
   }
 
   #handlePrompt(event: KeyEvent): boolean {
@@ -2930,6 +2993,7 @@ export class LocalTui implements TuiService {
     this.#copyOnSelect = prefs.copyOnSelect ?? true
     this.#mathMode = prefs.mathMode ?? 'auto'
     this.#mermaidMode = prefs.mermaidMode ?? 'auto'
+    this.#hideThinking = prefs.hideThinking === true
     this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -3123,10 +3187,10 @@ export class LocalTui implements TuiService {
     try {
       const delivery = await this.#deliverCopy(text)
       if (this.#disposed) return
-      this.#notice(delivery === 'requested' ? 'Sent ' + label + ' to the terminal clipboard' : 'Copied ' + label)
+      this.#showTransientStatus(delivery === 'requested' ? 'Sent ' + label + ' to the terminal clipboard' : 'Copied ' + label)
     } catch {
       if (this.#disposed) return
-      this.#notice('Copy failed')
+      this.#showTransientStatus('Copy failed')
     }
     this.#render()
   }
@@ -3324,36 +3388,60 @@ export class LocalTui implements TuiService {
       this.#historyNext()
       return
     }
-    if (command.kind === 'interrupt') {
-      if (this.#state.status === 'running') {
-        for (const listener of this.#interrupts) listener()
-      }
-      return
-    }
-    if (command.kind === 'clear') {
-      this.#clearComposerWithUndo({ clearQueueEdit: true, closeSearch: true })
-      return
-    }
-    if (command.kind === 'quit') {
-      this.#quit()
-      return
-    }
-    if (command.kind === 'suspend') {
-      if (process.platform !== 'win32') {
-        if (this.#inspecting) {
-          this.#followTail()
-          this.#render()
-        }
-        // The shell that takes over gets every mode back; SIGCONT takes them again.
-        this.#handOffTerminal()
-        try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
-      }
-      return
-    }
-    if (command.kind === 'resetDisplay') {
-      this.#renderer.reset()
+  }
+
+  /**
+   * Show a one-line confirmation that goes away on its own.
+   *
+   * Replaced, never appended: two presses in a row leave one line saying what
+   * the second one did, which is what the reader is looking for.
+   */
+  #showTransientStatus(text: string, ttlMs = TRANSIENT_STATUS_MS): void {
+    this.#transientStatus = text
+    if (this.#transientTimer !== null) clearTimeout(this.#transientTimer)
+    this.#transientTimer = setTimeout(() => {
+      this.#transientTimer = null
+      if (this.#transientStatus !== text) return
+      this.#transientStatus = undefined
+      if (!this.#disposed && this.#tty) this.#render()
+    }, ttlMs)
+    this.#transientTimer.unref?.()
+    this.#render()
+  }
+
+  /** Any keystroke makes the last confirmation stale. */
+  #clearTransientStatus(): void {
+    if (this.#transientStatus === undefined) return
+    this.#transientStatus = undefined
+    if (this.#transientTimer !== null) { clearTimeout(this.#transientTimer); this.#transientTimer = null }
+  }
+
+  /**
+   * Show or hide thinking across the whole transcript, and remember the choice.
+   *
+   * A revealed transcript is one where no thought is folded, so the per-thought
+   * openings a reader made are dropped at the same time; keeping them would
+   * leave a thought open inside a transcript that claims to show everything.
+   */
+  #toggleThinking(): void {
+    const next = !this.#hideThinking
+    this.#hideThinking = next
+    if (!next) this.#expandedReasoning.clear()
+    const persist = this.#persistPrefs
+    if (persist !== null) void persist(this.prefs(), [{ op: 'set', path: ['hideThinking'], value: next }])
+    this.#showTransientStatus(next ? 'Thinking: hidden' : 'Thinking: shown')
+  }
+
+  /** Hand the terminal to the shell and stop until SIGCONT brings it back. */
+  #suspend(): void {
+    if (process.platform === 'win32') return
+    if (this.#inspecting) {
+      this.#followTail()
       this.#render()
     }
+    // The shell that takes over gets every mode back; SIGCONT takes them again.
+    this.#handOffTerminal()
+    try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
   }
 
   #historyPrev(): void {
@@ -3863,7 +3951,33 @@ export class LocalTui implements TuiService {
 
   /** Run one configured action; returns true when the event was consumed. */
   #runAction(action: TuiAction): boolean {
+    // `interrupt` is resolved further down, after every surface that wants to
+    // interpret Escape itself — a settings search clears before the overlay
+    // closes. Claiming it here would skip that layering.
+    if (action === 'interrupt') return false
+    if (action === 'clear-composer') return this.#runClearComposer()
+    if (action === 'quit') {
+      if (this.#hasComposerContent() || this.#editor.text !== '') return false
+      this.#quit()
+      return true
+    }
+    if (action === 'suspend') {
+      this.#suspend()
+      return true
+    }
+    if (action === 'reset-display') {
+      this.#renderer.reset()
+      this.#render()
+      return true
+    }
     if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (action === 'select-model') { this.#submit('/model'); return true }
+    if (action === 'cycle-thinking') { this.#submit('/model reasoning'); return true }
+    if (action === 'toggle-thinking') {
+      this.#toggleThinking()
+      return true
+    }
+    if (action === 'dequeue') return this.#restoreLatestQueuedSubmission(true)
     if (action === 'stash-draft') {
       if (this.#search !== null) return false
       this.#stashOrRestoreDraft()
@@ -4032,10 +4146,6 @@ export class LocalTui implements TuiService {
       this.#submit('/model previous')
       return true
     }
-    if (action === 'cycle-reasoning') {
-      this.#submit('/model reasoning')
-      return true
-    }
     if (action === 'copy-prompt') {
       void this.#copyPicked(this.#editor.expandedText, 'current prompt')
       return true
@@ -4052,6 +4162,14 @@ export class LocalTui implements TuiService {
       this.#startAsyncPaste(this.#pasteClipboard())
       return true
     }
+    // A queued follow-up is the one action that must still work while the turn
+    // it belongs to is running; Enter is which-turn, this is after-this-turn.
+    if (action === 'follow-up') {
+      if (this.#editor.expandedText.trim() === '') return false
+      this.#submit(this.#editor.expandedText)
+      return true
+    }
+    if (action !== 'external-editor') return false
     try {
       this.#handTerminal(() => {
         this.#literalInput ||= this.#editor.startsWithPaste
