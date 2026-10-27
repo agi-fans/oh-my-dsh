@@ -13,12 +13,12 @@ import type { SessionRuntime } from '../session/session-controller.ts'
 import { writeModelFavorites } from '../session/model-favorites.ts'
 
 describe('model command', () => {
-  it('skips a sole provider and uses a compact model card for a short list', async () => {
+  it('asks for a model in one searchable list instead of provider then model', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const prompt = vi.fn()
-      .mockResolvedValueOnce('deepseek-v4-flash')
+      .mockResolvedValueOnce('deepseek-official/deepseek-v4-flash')
     const tui = { prompt } as unknown as TuiService
     const runtime = {
       selection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
@@ -43,16 +43,136 @@ describe('model command', () => {
 
     await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
+    // One prompt, not three: the provider is a column of the row, not a question.
     expect(prompt).toHaveBeenCalledTimes(1)
-    for (const [request] of prompt.mock.calls) {
-      expect(request).toMatchObject({
-        optionLayout: 'compact',
-        filterable: false,
-        allowCustom: false,
-        initialValue: 'deepseek-v4-flash',
-      })
-      expect(request).not.toHaveProperty('presentation')
-    }
+    const [request] = prompt.mock.calls[0] as [Record<string, unknown>]
+    expect(request).toMatchObject({
+      presentation: 'fullscreen-list',
+      filterable: true,
+      optionLayout: 'compact',
+      allowCustom: false,
+      initialValue: 'deepseek-official/deepseek-v4-flash',
+    })
+    expect(request.options).toEqual([
+      expect.objectContaining({ label: 'deepseek-official/deepseek-v4-flash', badge: { label: 'current', tone: 'success' } }),
+    ])
+    await ctx.fiber.dispose()
+  })
+
+  it('does not ask for a reasoning effort the new model also offers', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const prompt = vi.fn().mockResolvedValueOnce('provider-a/model-a')
+    const changeSelection = vi.fn(async () => undefined)
+    ctx.provide('tui', { prompt } as unknown as TuiService)
+    ctx.provide('omdshSession', {
+      // The reader already sits on `high`, and the new model offers it too.
+      selection: () => ({ provider: 'provider-b', model: 'model-b', reasoningEffort: 'high' }),
+      changeSelection,
+    } as unknown as SessionRuntime)
+    ctx.provide('llm', {
+      listProviders: () => [{ id: 'provider-a' }],
+      listModels: async () => [{ id: 'model-a' }],
+      resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }),
+    } as never)
+    await ctx.plugin(commandModel)
+    const session = ctx.sessions.create(SessionId('model-effort-inherit-test'))
+    const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+
+    await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
+
+    // One prompt: the effort question had an answer already.
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(changeSelection).toHaveBeenCalledWith(agent,
+      expect.objectContaining({ provider: 'provider-a', model: 'model-a', reasoningEffort: 'high' }),
+      expect.anything(), { persist: true })
+    await ctx.fiber.dispose()
+  })
+
+  it('asks for an effort only when the new model does not offer the current one', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const prompt = vi.fn()
+      .mockResolvedValueOnce('provider-a/model-a')
+      .mockResolvedValueOnce('low')
+    ctx.provide('tui', { prompt } as unknown as TuiService)
+    ctx.provide('omdshSession', {
+      selection: () => ({ provider: 'provider-b', model: 'model-b', reasoningEffort: 'high' }),
+      changeSelection: vi.fn(async () => undefined),
+    } as unknown as SessionRuntime)
+    ctx.provide('llm', {
+      listProviders: () => [{ id: 'provider-a' }],
+      listModels: async () => [{ id: 'model-a' }],
+      // `high` is not in this model's vocabulary, so the question is real.
+      resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'medium' }] } }),
+    } as never)
+    await ctx.plugin(commandModel)
+    const session = ctx.sessions.create(SessionId('model-effort-ask-test'))
+    const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+
+    await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
+
+    expect(prompt).toHaveBeenCalledTimes(2)
+    expect(prompt.mock.calls[1]?.[0]).toMatchObject({ title: 'Reasoning effort' })
+    await ctx.fiber.dispose()
+  })
+
+  it('lists every provider together so search spans them', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const prompt = vi.fn().mockResolvedValueOnce('provider-b/model-b')
+    ctx.provide('tui', { prompt } as unknown as TuiService)
+    ctx.provide('omdshSession', {
+      selection: () => ({ provider: 'provider-a', model: 'model-a' }),
+      changeSelection: vi.fn(async () => undefined),
+    } as unknown as SessionRuntime)
+    ctx.provide('llm', {
+      listProviders: () => [{ id: 'provider-a' }, { id: 'provider-b' }],
+      listModels: async (provider: string) => [{ id: provider.replace('provider', 'model') }],
+      resolveModelInfo: async () => ({}),
+    } as never)
+    await ctx.plugin(commandModel)
+    const session = ctx.sessions.create(SessionId('model-flat-list-test'))
+    const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+
+    await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
+
+    // A reader who knows the model never has to answer "which provider first".
+    expect(prompt).toHaveBeenCalledTimes(1)
+    const [request] = prompt.mock.calls[0] as [{ options: { value: string }[] }]
+    expect(request.options.map(option => option.value)).toEqual(['provider-a/model-a', 'provider-b/model-b'])
+    await ctx.fiber.dispose()
+  })
+
+  it('switches only this session from the list without knowing the model id first', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    // The action returns its prefix before the selected value.
+    const prompt = vi.fn().mockResolvedValueOnce('\u0000session:provider-a/model-a')
+    const changeSelection = vi.fn(async () => undefined)
+    ctx.provide('tui', { prompt } as unknown as TuiService)
+    ctx.provide('omdshSession', {
+      selection: () => ({ provider: 'other', model: 'other-model' }),
+      changeSelection,
+    } as unknown as SessionRuntime)
+    ctx.provide('llm', {
+      listProviders: () => [{ id: 'provider-a' }],
+      listModels: async () => [{ id: 'model-a' }],
+      resolveModelInfo: async () => ({}),
+    } as never)
+    await ctx.plugin(commandModel)
+    const session = ctx.sessions.create(SessionId('model-session-action-test'))
+    const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+
+    const result = await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
+
+    expect(result).toMatchObject({ result: { kind: 'success', text: expect.stringContaining('Session model: provider-a/model-a') } })
+    // `persist: false` is what keeps the saved default untouched.
+    expect(changeSelection).toHaveBeenCalledWith(agent, expect.objectContaining({ provider: 'provider-a' }), expect.anything(), { persist: false })
     await ctx.fiber.dispose()
   })
 
@@ -242,10 +362,21 @@ describe('model query command', () => {
     await miss.dispose()
   })
 
-  it('rejects a bare --session flag', async () => {
-    const env = await queryEnv('/model --session')
+  it('opens the same list for a bare --session instead of demanding a query', async () => {
+    // `--session` used to require a model id because the scope had no picker.
+    // The list makes the scope reachable on its own, so the flag is now a noun
+    // the reader can browse rather than a syntax they have to spell.
+    const prompt = vi.fn().mockResolvedValueOnce(null)
+    const env = await queryEnv('/model --session', prompt)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt.mock.calls[0]?.[0]).toMatchObject({
+      presentation: 'fullscreen-list',
+      filterable: true,
+      title: 'Model · this session',
+    })
+    // Cancelling the list is not an error.
+    expect(env.result?.result).toMatchObject({ kind: 'success' })
     expect(env.selection).not.toHaveBeenCalled()
-    expect(env.result.result).toMatchObject({ kind: 'error', text: expect.stringContaining('Usage') })
     await env.dispose()
   })
 })

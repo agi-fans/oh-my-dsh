@@ -37,9 +37,9 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 | Form | Effect |
 |---|---|
-| `/model` | Open the provider, model, and reasoning-effort picker. |
-| `/model <query>` | Resolve a `provider/model` or fuzzy model name; an exact match switches immediately and an ambiguous match opens the picker. |
-| `/model --session <query>` | Switch the active session without writing the saved default. Does not combine with a subcommand. |
+| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The reasoning effort is asked for only when the new model does not offer the current one. |
+| `/model <query>` | Resolve a `provider/model` or fuzzy model name; an exact match switches immediately and an ambiguous match opens the list filtered to the matches. |
+| `/model --session` | The same list, scoped to the active session without writing the saved default. Accepts a query as well. Does not combine with a subcommand. |
 | `/model next` / `/model previous` | Cycle to the next or previous favorite model. |
 | `/model reasoning` | Cycle the current model's reasoning effort. |
 | `/model favorite` / `/model unfavorite` | Add or remove the current model from the local favorites list, stored in `$OMDSH_HOME/omdsh/model-favorites.json`. |

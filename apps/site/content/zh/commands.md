@@ -37,9 +37,9 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 | 形式 | 效果 |
 |---|---|
-| `/model` | 打开 provider、模型与推理强度选择器。 |
-| `/model <query>` | 解析 `provider/model` 或模糊模型名；精确匹配立即切换，歧义时打开选择器。 |
-| `/model --session <query>` | 只切换当前会话，不写入保存的默认值；不能与子命令组合。 |
+| `/model` | 打开一个可搜索的列表，列出所有 provider 的全部模型，并标出当前模型。`Enter` 切换保存的默认值；`Ctrl+D` 只对当前会话生效。仅当新模型不提供当前推理强度时才会询问强度。 |
+| `/model <query>` | 解析 `provider/model` 或模糊模型名；精确匹配立即切换，歧义时打开过滤后的列表。 |
+| `/model --session` | 同一个列表，只作用于当前会话，不写入保存的默认值；也可附带查询。不能与子命令组合。 |
 | `/model next` / `/model previous` | 切换到下一个或上一个收藏模型。 |
 | `/model reasoning` | 循环切换当前模型的推理强度。 |
 | `/model favorite` / `/model unfavorite` | 把当前模型加入或移出本地收藏列表，保存在 `$OMDSH_HOME/omdsh/model-favorites.json`。 |

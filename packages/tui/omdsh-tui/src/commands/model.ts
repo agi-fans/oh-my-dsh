@@ -227,6 +227,35 @@ async function loadCatalog(ctx: Context): Promise<ModelCatalogEntry[]> {
   return catalog
 }
 
+/**
+ * Marker the prompt prepends when the reader asks for one session only.
+ *
+ * NUL cannot occur in a model id, so it separates the scope from the value
+ * without needing a second return channel from the picker.
+ */
+const SESSION_SCOPE = '\u0000session:'
+
+/** Every model as one row, with the current and favorite ones marked. */
+function catalogOptions(
+  catalog: readonly ModelCatalogEntry[],
+  current: ModelSelection,
+  favorites: readonly FavoriteModel[],
+): { label: string; value: string; description?: string; badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' } }[] {
+  return catalog.map(entry => {
+    const id = `${entry.provider}/${entry.model}`
+    const isCurrent = entry.provider === current.provider && entry.model === current.model
+    const isFavorite = favorites.some(favorite => favorite.provider === entry.provider && favorite.model === entry.model)
+    return {
+      label: id,
+      value: id,
+      ...(entry.description === '' ? {} : { description: entry.description }),
+      ...(isCurrent
+        ? { badge: { label: 'current', tone: 'success' as const } }
+        : isFavorite ? { badge: { label: 'favorite', tone: 'muted' as const } } : {}),
+    }
+  })
+}
+
 function pickEffort(current: ModelSelection, info: LlmResolvedModelInfo): ReasoningEffortId | undefined {
   if (current.reasoningEffort === undefined) return undefined
   const efforts = info.reasoning?.efforts.map(effort => String(effort.id)) ?? []
@@ -295,88 +324,105 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   const body = sessionOnly ? raw.slice('--session'.length).trim() : raw
   const action = body.toLowerCase()
   if (sessionOnly) {
-    // Session scope accepts a query only; subcommand flags cannot combine.
-    if (body === '') return { kind: 'error', text: 'Usage: /model --session <query>' }
+    // Session scope takes a query, or none at all to open the same list.
     if (action === 'next' || action === 'previous' || action === 'reasoning'
       || action === 'favorite' || action === 'unfavorite' || action === 'favorites') {
       return { kind: 'error', text: 'Invalid arguments: /model --session does not take a subcommand.' }
     }
-    return resolveQuerySelect(ctx, invocation, body, true)
+    if (body !== '') return resolveQuerySelect(ctx, invocation, body, true)
   }
   if (action === 'next') return cycleFavorite(ctx, invocation, 1)
   if (action === 'previous') return cycleFavorite(ctx, invocation, -1)
   if (action === 'reasoning') return cycleReasoning(ctx, invocation)
   if (action === 'favorite' || action === 'unfavorite' || action === 'favorites') return manageFavorite(ctx, invocation, action)
   if (body !== '') return resolveQuerySelect(ctx, invocation, body, false)
-  const providers = ctx.llm.listProviders()
-  if (providers.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
+  const catalog = await loadCatalog(ctx)
+  if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
-  let provider = providers[0]?.id
-  if (providers.length > 1) {
-    const providerRaw = await ctx.tui.prompt({
-      ...fixedChoice(providers.length),
-      title: 'Model provider',
-      question: 'Choose a provider',
-      options: providers.map(entry => ({
-        label: entry.id === 'deepseek-official' ? 'deepseek' : entry.id,
-        value: entry.id,
-      })),
-      initialValue: current.provider,
-      signal: invocation.signal,
-    })
-    if (providerRaw === null) return { kind: 'success' }
-    provider = selected(providerRaw, providers.map(entry => entry.id))
-    if (provider === undefined || !providers.some(entry => entry.id === provider)) {
-      return { kind: 'error', text: `Unknown provider: ${providerRaw}` }
-    }
-  }
-  if (provider === undefined) return { kind: 'error', text: 'No model provider is available.' }
-  const models = await ctx.llm.listModels(provider)
-  if (models.length === 0) return { kind: 'error', text: `No models are available for ${provider}.` }
-  const modelRaw = await ctx.tui.prompt({
-    ...fixedChoice(models.length),
-    title: 'Model',
-    question: `Choose a model for ${provider}`,
-    options: models.map(model => ({ label: model.id, value: model.id, description: model.description ?? model.name })),
-    ...(provider === current.provider ? { initialValue: current.model } : {}),
+  /**
+   * One list for every provider.
+   *
+   * Choosing a model used to take three prompts — provider, then model, then
+   * reasoning effort — and the first two were asking the reader to narrow a list
+   * the terminal can filter itself. Provider is not a decision a reader needs to
+   * make first: it is one column of the model they already have in mind, so it
+   * becomes part of the row and part of the search text.
+   */
+  const favorites = readModelFavorites(favoritesPath())
+  const picked = await ctx.tui.prompt({
+    presentation: 'fullscreen-list',
+    optionLayout: 'compact',
+    filterable: true,
+    allowCustom: false,
+    notify: false,
+    title: sessionOnly ? 'Model · this session' : 'Model',
+    question: 'Type to search every provider, then Enter to switch',
+    options: catalogOptions(catalog, current, favorites),
+    ...(current.provider === '' || current.model === '' ? {} : { initialValue: `${current.provider}/${current.model}` }),
+    // Enter applies the scope the reader already asked for. The action is the
+    // other scope, so "just this once" no longer requires knowing the model id
+    // before opening the list.
+    ...(sessionOnly
+      ? {}
+      : { actions: [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }] }),
     signal: invocation.signal,
   })
-  if (modelRaw === null) return { kind: 'success' }
-  const model = selected(modelRaw, models.map(entry => entry.id))
-  if (model === undefined || !models.some(entry => entry.id === model)) {
-    return { kind: 'error', text: `Unknown model: ${modelRaw}` }
-  }
-  const info = await ctx.llm.resolveModelInfo(provider, model, invocation.signal)
-  let reasoningEffort = current.reasoningEffort
-  if (info.reasoning === undefined) {
-    reasoningEffort = undefined
-  } else {
-    const effortRaw = await ctx.tui.prompt({
-      ...fixedChoice(info.reasoning.efforts.length),
-      title: 'Reasoning effort',
-      question: 'Choose reasoning effort',
-      options: info.reasoning.efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
-      ...(reasoningEffort === undefined ? {} : { initialValue: String(reasoningEffort) }),
-      signal: invocation.signal,
-    })
-    if (effortRaw === null) return { kind: 'success' }
-    const effortIds = info.reasoning.efforts.map(entry => String(entry.id))
-    const resolved = selected(effortRaw, effortIds)
-    if (resolved === undefined || !effortIds.includes(resolved)) {
-      return { kind: 'error', text: `Unknown reasoning effort: ${effortRaw}` }
-    }
-    reasoningEffort = ReasoningEffortId(resolved)
-  }
+  if (picked === null) return { kind: 'success' }
+  const scoped = picked.startsWith(SESSION_SCOPE)
+  const chosen = scoped ? picked.slice(SESSION_SCOPE.length) : picked
+  const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === chosen)
+  if (entry === undefined) return { kind: 'error', text: `Unknown model: ${chosen}` }
+  const useSession = sessionOnly || scoped
+  const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
+  const reasoningEffort = await resolveEffort(ctx, invocation, current, info, useSession)
+  if (reasoningEffort === null) return { kind: 'success' }
   const selection: ModelSelection = {
-    provider,
-    model,
+    provider: entry.provider,
+    model: entry.model,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
   }
-  await ctx.omdshSession.changeSelection(invocation.agent, selection, info)
+  await ctx.omdshSession.changeSelection(invocation.agent, selection, info, { persist: !useSession })
   return {
     kind: 'success',
-    text: `Default model: ${provider}/${model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`,
+    text: `${useSession ? 'Session' : 'Default'} model: ${entry.provider}/${entry.model}`
+      + (reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`),
   }
+}
+
+/**
+ * Ask for a reasoning effort only when the choice is actually open.
+ *
+ * The prompt used to appear on every switch to a reasoning model, including one
+ * that kept an effort the new model also offers — a question whose answer was
+ * already decided. It now appears when the new model's vocabulary does not
+ * contain the current effort, which is the only case where the reader has
+ * something to say. `undefined` means "no reasoning", `null` means "cancelled".
+ */
+async function resolveEffort(
+  ctx: Context,
+  invocation: CommandInvocation,
+  current: ModelSelection,
+  info: LlmResolvedModelInfo,
+  sessionOnly: boolean,
+): Promise<ReasoningEffortId | undefined | null> {
+  const efforts = info.reasoning?.efforts ?? []
+  if (efforts.length === 0) return undefined
+  const ids = efforts.map(effort => String(effort.id))
+  const inherited = current.reasoningEffort === undefined ? undefined : String(current.reasoningEffort)
+  if (inherited !== undefined && ids.includes(inherited)) return ReasoningEffortId(inherited)
+  // A single effort is not a choice; take it rather than asking.
+  if (ids.length === 1) return ReasoningEffortId(ids[0]!)
+  const raw = await ctx.tui.prompt({
+    ...fixedChoice(efforts.length),
+    title: sessionOnly ? 'Reasoning effort · this session' : 'Reasoning effort',
+    question: 'Choose reasoning effort',
+    options: efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
+    ...(ids[0] === undefined ? {} : { initialValue: ids[0] }),
+    signal: invocation.signal,
+  })
+  if (raw === null) return null
+  const resolved = selected(raw, ids)
+  return resolved === undefined || !ids.includes(resolved) ? undefined : ReasoningEffortId(resolved)
 }
 
 export function apply(ctx: Context): void {
