@@ -43,7 +43,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 ## Interface
 
-设置分为 Appearance、Input、Notifications 与 Startup。通知依赖保持可见：通知关闭时 **Notify when** 不生效，**Long turn** 仅用于 long-running 策略。
+设置分为 Appearance、Input、Notifications 与 Startup。
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
@@ -53,22 +53,19 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
 | Mermaid in replies | auto / source | auto | 绘制能够完整容纳的图形，或显示 Mermaid 源码。 |
 | Terminal title | status / session / workspace / off | status | 显示根 Agent 状态与会话名、仅保留会话名、显示状态与工作区及 Git 分支，或停止设置标题。 |
-| Program status | auto / on / off | auto | 向支持的终端报告根 Agent 生命周期；Auto 等待能力响应，On 强制报告，Off 关闭。 |
+| Terminal status | auto / on / off | auto | 向支持的终端报告根 Agent 生命周期；Auto 等待能力响应，On 强制报告，Off 关闭。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |
-| Terminal activity | on / off | off | 支持的终端标签页与任务栏中的忙碌/空闲状态。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
-| Notifications | off / long-running / always | off | 回合结束或需要输入时通知。 |
-| Notify when | unfocused / always | unfocused | 终端报告获得焦点时不发通知；没有焦点报告的终端沿用所选通知策略。 |
-| Long turn | 15s / 30s / 1m / 2m | 30s | 触发长任务通知的最短时长。 |
+| Notifications | off / unfocused / always | off | 回合结束或需要输入时通知。`unfocused` 等到终端失去焦点才通知；`always` 无论焦点都通知。 |
 
-通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。当 **Notify when** 为 `unfocused` 时，在待发通知送出前回到终端会取消该通知。
+通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。在 `unfocused` 模式下，待发通知送出前回到终端会取消该通知。不足三十秒的回合不会通知：这条界线只决定到达的通知是不是噪音，因此固定而不再可配。
 
-Terminal title 和 Program status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Program status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。Terminal activity 仍是单独启用的 OSC 9 进度提示。
+Terminal title 和 Terminal status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Terminal status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。原先单独启用的 OSC 9 忙碌/空闲提示已移除：它用更弱的协议重复了 Terminal status 已经报告的内容。
 
 工具预览使用当前主题的背景色，四周保留内边距。用户消息和工具卡片的背景有配套文字色，普通回复正文继续使用终端默认前景色。浅色终端应选择 `light`，深色终端选择 `dark` 或 `system`。卡片底色本身就表明状态——进行中为中性色、成功为绿色、失败为红色——这一区分在 16 色终端上依然成立，只有进行中与成功这一对在该模式下会共用同一底色。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 
@@ -112,16 +109,13 @@ Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows �
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
 | Telemetry | on / off | on | 显示页脚第二行的会话指标；模型和工作区信息仍然显示。 |
-| Context label | compact / full | compact | 在占用值前显示 `Ctx` 或 `Context`。 |
-| Context style | percent / bar / tokens / detailed | percent | 显示百分比、十格占用条、已用/窗口 Token 数，或百分比与 Token 数。 |
+| Density | minimal / standard / verbose | standard | 页脚显示多少内容。`minimal` 只保留占用与成本并使用 `Ctx` 标签；`standard` 显示全部分组并使用 `Ctx`；`verbose` 使用长标签（`Context`）与详细上下文形式。 |
 
-状态项上的 `Ctrl+R` 只恢复继承颜色；**Restore layout** 经确认后恢复完整的继承布局、可见性和颜色。
+在任意页脚项上按 `Space` 可显示或隐藏该项，该选择在所有 Density 下持续生效。**Restore layout** 经确认后恢复继承的 Density 与可见性。
 
-状态项可以就地重排与换色：`Space` 显示或隐藏一项，`Enter` 开始移动（`↑`/`↓` 重排，`←`/`→` 选择列），每一项都有自己的颜色。
+每一项都有固定位置，没有可拖动的东西：一行只表明该项是否出现。第一行左侧是身份——Model（`deepseek`）、Effort（`max`）与 Session，右侧是位置——Path（`~/project`）与 Git（`main *1`）。Session 在 `verbose` 以下默认关闭，因为终端窗口标题无论如何都会显示会话标题。第二行在任何 Density 下都按同一顺序列出 Context（`Ctx 1.6%`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。
 
-第一行默认顺序：Model（`deepseek`）、Effort（`max`）、Path（`~/project`）、Git（`main *1`）与 Session；Session 默认关闭，因为终端窗口标题无论如何都会显示会话标题。
-
-第二行的遥测分组默认全部显示：Context（`Ctx 1.6%`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。Context style 只改变显示形式：`tokens` 显示 `Ctx 16.4K/1M`，`detailed` 显示 `Ctx 1.6% · 16.4K/1M`，`bar` 显示占用条，不同时显示百分比。所有样式都会在占用升高时使用警告和错误颜色。终端较窄时，按配置顺序选择能完整放下的分组。默认优先保留上下文、缓存、Token 和延迟，再考虑时长和活动计数；放不下的分组会被跳过，后续较小的分组仍有机会显示。
+上下文表示形式跟随 Density：`standard` 与 `minimal` 显示百分比，`verbose` 显示 `Ctx 1.6% · 16.4K/1M`；所有形式都会在占用升高时使用警告和错误颜色。终端较窄时按固定顺序选取能完整放下的分组，放不下的分组被跳过，后续较小的分组仍有机会显示；不会有项目移到第二列，也不会因终端变宽而改变位置。需要引起注意的角色保留自己的颜色：脏工作区分支保持 `warning`，缓存命中率保持成功色。
 
 ## 持久化
 

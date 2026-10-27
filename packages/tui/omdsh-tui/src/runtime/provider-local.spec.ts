@@ -1105,14 +1105,15 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('renders the package version in the welcome title', () => {
+  it('renders the product name and package version in the welcome title', () => {
     const manifest = JSON.parse(
       readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
     ) as { version: string }
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
 
-    expect(stripAnsi(term.captured)).toContain(`omdsh v${manifest.version}`)
+    // The header names the product; the command a reader types stays `omdsh`.
+    expect(stripAnsi(term.captured)).toContain(`Oh-My-DSH v${manifest.version}`)
     tui.dispose()
   })
 
@@ -1266,12 +1267,12 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('renders typed input inside the rounded editor', () => {
+  it('renders typed input inside the ruled editor', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', true)
     press(term, 'ab')
     expect(term.captured).toContain('ab')
-    expect(term.captured).toContain('╰─')
+    expect(term.captured).toMatch(/^─+ ⠋|🐳/mu)
     expect(term.raw).toBe(true)
     tui.dispose()
   })
@@ -1398,7 +1399,7 @@ describe('LocalTui (tty)', () => {
     const pending = tui.readline()
     press(term, 'hi\r')
     expect(await pending).toBe('hi')
-    expect(term.captured).toContain('╰─')
+    expect(term.captured).toMatch(/^─+ ⠋|🐳/mu)
     tui.dispose()
   })
 
@@ -1754,7 +1755,7 @@ describe('LocalTui (tty)', () => {
     void tui.readline()
     press(term, '\x1b[A')
     expect(term.captured).toContain('one')
-    expect(term.captured).toContain('╰─')
+    expect(term.captured).toMatch(/^─+ ⠋|🐳/mu)
     tui.dispose()
   })
 
@@ -1765,7 +1766,7 @@ describe('LocalTui (tty)', () => {
     tui.onInterrupt(() => { fired += 1 })
     press(term, 'abc\x03')
     expect(fired).toBe(0)
-    expect(term.captured).toContain('╰─')
+    expect(term.captured).toMatch(/^─+ ⠋|🐳/mu)
     tui.dispose()
   })
 
@@ -1947,6 +1948,24 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('Resume this session with omdsh --resume session-double-c')
   })
 
+  it('names the product in the header while the resume hint stays the runnable command', () => {
+    const term = new FakeTerminal()
+    term.columns = 80
+    const tui = new LocalTui(term, 'm', false)
+    tui.setSession({ id: 'session-name-layers', recent: [] })
+    const pending = tui.readline()
+    press(term, '\x03')
+    press(term, '\x03')
+    void pending
+    tui.dispose()
+
+    // Naming the product and naming the command are two different jobs. The
+    // header says what this is; `--resume` has to name something a shell finds.
+    expect(stripAnsi(term.captured)).toContain('Oh-My-DSH v')
+    expect(term.captured).toContain('Resume this session with omdsh --resume session-name-layers')
+    expect(term.captured).not.toContain('Oh-My-DSH --resume')
+  })
+
   it('prints the resume command below both fixed status lines', async () => {
     const term = new FakeTerminal()
     term.columns = 80
@@ -2048,7 +2067,6 @@ describe('LocalTui (tty)', () => {
       theme: 'dark',
       colors: false,
       motion: 'off',
-      terminalProgress: false,
       expandTools: false,
     })
     tui.setStatus('running')
@@ -2063,28 +2081,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('mirrors busy state to opt-in native terminal progress and clears it', async () => {
-    vi.useFakeTimers()
-    try {
-      const term = new FakeTerminal()
-      const tui = new LocalTui(term, 'm', false)
-      tui.applyStoredPrefs({
-        theme: 'dark',
-        colors: false,
-        motion: 'off',
-        terminalProgress: true,
-        expandTools: false,
-      })
-      tui.event(ev('turn/start', { turn: 1 }, 1))
-      expect(term.captured.match(/\x1b\]9;4;3\x07/gu)).toHaveLength(1)
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(term.captured.match(/\x1b\]9;4;3\x07/gu)).toHaveLength(2)
-      tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
-      expect(term.captured).toContain('\x1b]9;4;0;\x07')
-      tui.dispose()
-    } finally {
-      vi.useRealTimers()
-    }
+  it('never writes the retired OSC 9 progress sequences', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, motion: 'off', expandTools: false })
+    tui.event(ev('turn/start', { turn: 1 }, 1))
+    tui.setStatus('running')
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
+    // The busy/idle indicator used to duplicate what Program status already
+    // reports, so the OSC 9 progress channel is gone rather than quiet.
+    expect(term.captured).not.toContain('\x1b]9;4;')
+    tui.dispose()
   })
 
   it('uses the durable turn ending reason in terminal notifications', async () => {
@@ -2094,10 +2101,8 @@ describe('LocalTui (tty)', () => {
       theme: 'dark',
       colors: false,
       motion: 'off',
-      terminalProgress: false,
       expandTools: false,
       notifications: 'always',
-      notificationThreshold: '30s',
     })
     tui.event(ev('turn/start', { turn: 1 }, 1))
     tui.event(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 2))
@@ -3294,50 +3299,15 @@ describe('LocalTui (tty)', () => {
       editor: 'auto',
       terminalTitle: 'status',
       terminalState: 'auto',
-      terminalProgress: false,
       copyOnSelect: true,
       mouseInteraction: 'auto',
       pasteProtection: true,
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
-      notificationThreshold: '30s',
-      notificationFocus: 'unfocused',
       statusBar: {
-        enabled: true,
-        labels: 'compact',
-        contextStyle: 'percent',
-        groups: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
-        order: ['context', 'cache', 'tokens', 'speed', 'durations', 'counts'],
-        meta: ['model', 'effort', 'path', 'git'],
-        metaOrder: ['model', 'effort', 'path', 'git', 'session'],
-        colors: {
-          model: 'default',
-          effort: 'default',
-          path: 'default',
-          git: 'default',
-          session: 'default',
-          metrics: 'default',
-          context: 'default',
-          cache: 'default',
-          tokens: 'default',
-          speed: 'default',
-          durations: 'default',
-          counts: 'default',
-        },
-        sides: {
-          model: 'left',
-          effort: 'left',
-          path: 'right',
-          git: 'right',
-          session: 'left',
-          context: 'left',
-          cache: 'left',
-          tokens: 'left',
-          speed: 'left',
-          durations: 'right',
-          counts: 'right',
-        },
+        density: 'standard',
+        hidden: [],
       },
     }])
     press(term, '\x03')
@@ -3348,19 +3318,24 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('persists context style changes and restores them on the next launch', () => {
+  it('persists a status density change and restores it on the next launch', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     let saved: ReturnType<LocalTui['prefs']> | undefined
     tui.setPrefsPersist(prefs => { saved = prefs })
     void tui.readline()
-    press(term, '/settings\r\t\x1b[B\x1b[B\r')
-    if (saved === undefined) throw new Error('Context style was not persisted')
-    expect(saved.statusBar?.contextStyle).toBe('bar')
+    // Interface → walk down to Density → cycle its value. The row lives in
+    // Interface because it shapes the whole footer, not just its second line.
+    press(term, '/settings\r')
+    press(term, 'Density')
+    press(term, '\r')
+    press(term, '\x1b[C')
+    if (saved === undefined) throw new Error('Density was not persisted')
+    expect(saved.statusBar?.density).not.toBe('standard')
     tui.dispose()
     const restored = new LocalTui(new FakeTerminal(), 'm', false)
     restored.applyStoredPrefs(saved)
-    expect(restored.prefs().statusBar?.contextStyle).toBe('bar')
+    expect(restored.prefs().statusBar?.density).toBe(saved.statusBar?.density)
     restored.dispose()
   })
 
@@ -4414,8 +4389,8 @@ describe('document and file interaction', () => {
   it('keeps browsing quiet while attention notifications remain enabled for questions', async () => {
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
-      tui.applyStoredPrefs({ theme: 'dark', colors: false, motion: 'off', terminalProgress: false, expandTools: false,
-        notifications: 'always', notificationThreshold: '30s' })
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, motion: 'off', expandTools: false,
+        notifications: 'always' })
       const before = term.captured.length
       const document = tui.prompt({ title: 'File', question: 'File', presentation: 'document', notify: false, options: [{ label: 'Files' }] })
       press(term, '\r')
@@ -4690,7 +4665,7 @@ describe('focus-aware notifications', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
-      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'unfocused' })
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'unfocused' })
       expect(term.captured).toContain('\x1b[?1004h')
       press(term, '\x1b[I')
       tui.event(ev('turn/start', { turn: 1 }, 100))
@@ -4714,7 +4689,7 @@ describe('focus-aware notifications', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
-      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'unfocused' })
       press(term, '\x1b[O')
       tui.event(ev('turn/start', { turn: 1 }, 1))
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
@@ -4731,20 +4706,32 @@ describe('focus-aware notifications', () => {
     } finally { tui.dispose(); vi.useRealTimers() }
   })
 
-  it('allows an explicit always-focus preference and falls back when reports are unavailable', async () => {
+  it('reports while focused in always mode, and marks one-shot endings unfocused-only', async () => {
     vi.useFakeTimers()
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
-      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'unfocused' })
+      // Attention requests ignore focus in either mode: the turn cannot continue
+      // without the reader, so staying silent while they watch is wrong.
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
+      expect(term.captured).toContain('\x1b[?1004h')
       const question = tui.prompt({ question: 'Input', options: [{ label: 'Yes' }] })
       await vi.advanceTimersByTimeAsync(30)
       expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
       press(term, '\r')
       await question
+
+      // A finished turn is news only if the reader looked away, so `always`
+      // reports it while focused and `unfocused` does not.
       press(term, '\x1b[I')
-      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always', notificationFocus: 'always' })
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'unfocused' })
       tui.event(ev('turn/start', { turn: 1 }, 1))
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
+      await vi.advanceTimersByTimeAsync(30)
+      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
+      tui.event(ev('turn/start', { turn: 2 }, 3))
+      tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 4))
       await vi.advanceTimersByTimeAsync(30)
       expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(2)
     } finally { tui.dispose(); vi.useRealTimers() }

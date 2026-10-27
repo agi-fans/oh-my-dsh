@@ -11,10 +11,10 @@
 import type { TuiLoopStatus, TuiSessionControls, TuiSessionStats } from '../definition.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
-  itemSide,
+  isResolvedStatusBarConfig,
   resolveStatusBarConfig,
-  type StatusBarConfig,
-  type StatusColorToken,
+  type ResolvedStatusBarConfig,
+  type StatusBarInput,
   type StatusGroupId,
   type StatusItemId,
   type StatusMetaId,
@@ -55,7 +55,8 @@ export interface StatusFooterOptions {
   pwd?: string
   branch?: string
   stats?: TuiSessionStats
-  config: StatusBarConfig
+  /** A resolved layout, or the stored document it resolves from. */
+  config: ResolvedStatusBarConfig | StatusBarInput
   width: number
   /** Settings preview: underline the focused item. */
   focus?: StatusItemId
@@ -113,7 +114,7 @@ function metric(label: string, value: string, tone: StatusTone = 'value'): Statu
 }
 
 /** English semantic groups; language selection will replace copy here. */
-function buildStatusGroups(stats: TuiSessionStats, config: StatusBarConfig): StatusGroup[] {
+function buildStatusGroups(stats: TuiSessionStats, config: ResolvedStatusBarConfig): StatusGroup[] {
   const groups: StatusGroup[] = []
   if (stats.contextWindow !== undefined && stats.contextWindow > 0) {
     const used = stats.contextTokens ?? 0
@@ -189,42 +190,31 @@ function groupsWidth(groups: readonly StatusGroup[]): number {
     + GROUP_SEPARATOR.length * (groups.length - 1)
 }
 
-function tokenThemeColor(token: StatusColorToken | undefined, fallback: ThemeColor): ThemeColor {
-  if (token === undefined || token === 'default') return fallback
-  return token === 'label' ? 'customMessageLabel' : token
-}
-
-function itemColor(config: StatusBarConfig, id: StatusItemId, fallback: ThemeColor): ThemeColor {
-  const direct = config.colors?.[id]
-  if (direct !== undefined && direct !== 'default') return tokenThemeColor(direct, fallback)
-  return fallback
-}
-
-function toneColor(tone: StatusTone, config: StatusBarConfig, group: StatusGroupId): ThemeColor {
+/**
+ * The tone a part is painted with.
+ *
+ * There is no per-item colour any more. Both shipped palettes already paint each
+ * part the right way — a dirty branch stays `warning`, the effort stays
+ * `customMessageLabel`, a group value stays `text` — and offering eight theme
+ * tokens per row let a reader paint a footer that no longer said anything.
+ */
+function toneColor(tone: StatusTone): ThemeColor {
   if (tone === 'positive') return 'success'
   if (tone === 'warning') return 'warning'
   if (tone === 'error') return 'error'
   if (tone === 'separator') return 'dim'
   if (tone === 'label') return 'muted'
-  const custom = itemColor(config, group, 'text')
-  if (config.colors?.[group] !== undefined && config.colors[group] !== 'default') return custom
-  if (config.colors?.metrics !== undefined && config.colors.metrics !== 'default') return tokenThemeColor(config.colors.metrics, 'text')
   return tone === 'value' ? 'text' : 'customMessageLabel'
 }
 
-function paintGroup(group: StatusGroup, theme: Theme, config: StatusBarConfig, focus?: StatusItemId): string {
-  const painted = group.parts.map(item => theme.fg(toneColor(item.tone, config, group.id), item.text)).join('')
+function paintGroup(group: StatusGroup, theme: Theme, focus?: StatusItemId): string {
+  const painted = group.parts.map(item => theme.fg(toneColor(item.tone), item.text)).join('')
   return focus === group.id ? theme.underline(painted) : painted
 }
 
-function paintColumn(
-  groups: readonly StatusGroup[],
-  theme: Theme,
-  config: StatusBarConfig,
-  focus?: StatusItemId,
-): string {
+function paintColumn(groups: readonly StatusGroup[], theme: Theme, focus?: StatusItemId): string {
   const separator = theme.fg('dim', GROUP_SEPARATOR)
-  return groups.map(group => paintGroup(group, theme, config, focus)).join(separator)
+  return groups.map(group => paintGroup(group, theme, focus)).join(separator)
 }
 
 function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[]): number {
@@ -239,22 +229,25 @@ function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[])
  * can still use the free columns; configured order and column sides are never
  * rearranged, so only the visible set changes with width.
  */
+/**
+ * Fit as many groups as the row holds, in catalog order.
+ *
+ * Groups are no longer assigned to a column: the second line is one row that
+ * fills and then stops, so the reader sees the highest-priority numbers and
+ * nothing rearranges when the terminal grows. A group that does not fit is
+ * skipped rather than moving to the other column, so a smaller later group can
+ * still appear — the degradation order stays the priority order.
+ */
 function selectFooterGroups(
   groups: readonly StatusGroup[],
   width: number,
-  config: StatusBarConfig,
 ): { left: StatusGroup[]; right: StatusGroup[] } {
   const left: StatusGroup[] = []
-  const right: StatusGroup[] = []
   for (const group of groups) {
-    const rightSide = itemSide(config, group.id) === 'right'
-    const candidateLeft = rightSide ? left : [...left, group]
-    const candidateRight = rightSide ? [...right, group] : right
-    if (splitWidth(candidateLeft, candidateRight) > width) continue
-    if (rightSide) right.push(group)
-    else left.push(group)
+    if (splitWidth([...left, group], []) > width) continue
+    left.push(group)
   }
-  return { left, right }
+  return { left, right: [] }
 }
 
 function renderSplitRow(left: string, right: string, width: number): string {
@@ -304,38 +297,33 @@ function loopStatus(loop: TuiLoopStatus | undefined): { text: string; tone: Them
   return { text: 'LOOP', tone: 'accent' }
 }
 
-function gitTone(branch: string, config: StatusBarConfig): ThemeColor {
-  const custom = config.colors?.git
-  if (custom !== undefined && custom !== 'default') return tokenThemeColor(custom, 'muted')
+function gitTone(branch: string): ThemeColor {
+  // A dirty worktree is the one thing on the first line that needs attention, so
+  // it keeps `warning` whatever else has been reconfigured.
   return /(?:^|\s)[*?]\d+/.test(branch) ? 'warning' : 'muted'
 }
 
-function visibleMetaIds(config: StatusBarConfig): StatusMetaId[] {
-  const order = config.metaOrder ?? ['model', 'effort', 'path', 'git', 'session']
-  const visible = new Set(config.meta ?? ['model', 'effort', 'path', 'git'])
-  return order.filter(id => visible.has(id))
+/** Visible first-line pieces, always in catalog order. */
+function visibleMetaIds(config: ResolvedStatusBarConfig): StatusMetaId[] {
+  return config.meta
 }
 
 function buildMetaParts(
   options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch' | 'sessionTitle'>,
-  config: StatusBarConfig,
+  config: ResolvedStatusBarConfig,
 ): { id: StatusItemId; text: string; color: ThemeColor }[] {
   const parts: { id: StatusItemId; text: string; color: ThemeColor }[] = []
   for (const id of visibleMetaIds(config)) {
-    if (id === 'model' && options.model !== '') {
-      parts.push({ id, text: options.model, color: itemColor(config, 'model', 'text') })
-    }
+    if (id === 'model' && options.model !== '') parts.push({ id, text: options.model, color: 'text' })
     if (id === 'effort' && options.reasoningEffort !== undefined && options.reasoningEffort !== '') {
-      parts.push({ id, text: options.reasoningEffort, color: itemColor(config, 'effort', 'customMessageLabel') })
+      parts.push({ id, text: options.reasoningEffort, color: 'customMessageLabel' })
     }
     if (id === 'session' && options.sessionTitle !== undefined && options.sessionTitle !== '') {
-      parts.push({ id, text: options.sessionTitle, color: itemColor(config, 'session', 'customMessageLabel') })
+      parts.push({ id, text: options.sessionTitle, color: 'customMessageLabel' })
     }
-    if (id === 'path' && options.pwd !== undefined && options.pwd !== '') {
-      parts.push({ id, text: options.pwd, color: itemColor(config, 'path', 'muted') })
-    }
+    if (id === 'path' && options.pwd !== undefined && options.pwd !== '') parts.push({ id, text: options.pwd, color: 'muted' })
     if (id === 'git' && options.branch !== undefined && options.branch !== '') {
-      parts.push({ id, text: options.branch, color: gitTone(options.branch, config) })
+      parts.push({ id, text: options.branch, color: gitTone(options.branch) })
     }
   }
   return parts
@@ -365,15 +353,27 @@ export function renderPermissionBadge(permission: string | undefined, theme: The
   return theme.fg(permissionTone(permission), permissionLabel(permission))
 }
 
+/**
+ * Split the first line into its two columns.
+ *
+ * The split is positional, not configured: identity stays with the left column
+ * (which model, which effort, which session) and place stays on the right (where
+ * the work is, on which branch). That is what the columns meant before a reader
+ * could drag items between them, and it is what keeps the line readable at a
+ * glance — a path on the left and a model on the right reads as noise.
+ */
+const LEFT_META: readonly StatusItemId[] = ['model', 'effort', 'session']
+const RIGHT_META: readonly StatusItemId[] = ['path', 'git']
+
 function splitMetaParts(
   options: Pick<StatusFooterOptions, 'model' | 'reasoningEffort' | 'pwd' | 'branch' | 'sessionTitle'>,
-  config: StatusBarConfig,
+  config: ResolvedStatusBarConfig,
 ): { left: ReturnType<typeof buildMetaParts>; right: ReturnType<typeof buildMetaParts> } {
   const left: ReturnType<typeof buildMetaParts> = []
   const right: ReturnType<typeof buildMetaParts> = []
   for (const part of buildMetaParts(options, config)) {
-    if (itemSide(config, part.id) === 'right') right.push(part)
-    else left.push(part)
+    if (RIGHT_META.includes(part.id)) right.push(part)
+    else if (LEFT_META.includes(part.id)) left.push(part)
   }
   return { left, right }
 }
@@ -382,7 +382,7 @@ function metadataColumns(
   options: StatusFooterOptions,
   theme: Theme,
   innerWidth: number,
-  config: StatusBarConfig,
+  config: ResolvedStatusBarConfig,
   focus?: StatusItemId,
 ): { left: string; right: string } {
   const separator = ' · '
@@ -420,19 +420,19 @@ function metadataColumns(
  * session telemetry second. Both rows use left/right columns and exact width.
  */
 export function renderStatusFooter(options: StatusFooterOptions, theme: Theme): string[] {
-  const normalized = resolveStatusBarConfig(options.config)
+  const normalized = isResolvedStatusBarConfig(options.config) ? options.config : resolveStatusBarConfig(options.config)
   const width = Math.max(0, options.width)
   if (width === 0) return []
   const innerWidth = Math.max(0, width - FOOTER_PADDING * 2)
   const metadata = metadataColumns({ ...options, config: normalized }, theme, innerWidth, normalized, options.focus)
   const telemetryGroups = options.stats === undefined || !normalized.enabled
     ? { left: [], right: [] }
-    : selectFooterGroups(buildStatusGroups(options.stats, normalized), innerWidth, normalized)
+    : selectFooterGroups(buildStatusGroups(options.stats, normalized), innerWidth)
   return [
     renderSplitRow(metadata.left, metadata.right, width),
     renderSplitRow(
-      paintColumn(telemetryGroups.left, theme, normalized, options.focus),
-      paintColumn(telemetryGroups.right, theme, normalized, options.focus),
+      paintColumn(telemetryGroups.left, theme, options.focus),
+      paintColumn(telemetryGroups.right, theme, options.focus),
       width,
     ),
   ]

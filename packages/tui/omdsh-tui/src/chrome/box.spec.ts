@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderEditor, renderFramedBlock, renderWelcome } from './box.ts'
+import { renderPermissionBadge } from './status-line.ts'
 import { createTheme, THEME_NAMES } from './theme.ts'
 import { stripAnsi } from './width.ts'
 import { oracleWidth } from './width.oracle.ts'
@@ -139,6 +140,22 @@ describe('renderWelcome', () => {
     expect(lines.join('\n')).toContain('omdsh v0.1.0')
   })
 
+  it('names the product in full on the header, at every width that shows the lockup', () => {
+    // The header names what this is; the command a reader types stays `omdsh`.
+    // A longer name spends more of the row, so the folded layouts are the ones
+    // that can regress: below the lockup width the wordmark moves under the mark
+    // and the hint wraps, and every row still has to fit the terminal.
+    const name = 'Oh-My-DSH'
+    for (const width of [140, 100, 92, 80, 64, 52, 40, 36, 30, 24]) {
+      const lines = renderWelcome({ width, version: '0.21.0', appName: name }, theme)
+      const text = lines.map(stripAnsi).join('\n')
+      expect(text, `width ${width}`).toContain(name)
+      // The version stays on the name's own row, never orphaned onto a third.
+      expect(text, `width ${width}`).toMatch(new RegExp(`${name} v0\\.21\\.0`, 'u'))
+      for (const line of lines) expect(oracleWidth(line), `width ${width}`).toBeLessThanOrEqual(width)
+    }
+  })
+
   it('does not repeat the model or its effort, which the footer already shows', () => {
     const lines = renderWelcome({
       width: 92, model: 'deepseek-v4-pro', reasoningEffort: 'max', version: '0.1.0', appName: 'omdsh',
@@ -160,13 +177,15 @@ describe('renderEditor', () => {
   it('embeds its compact label in the top border and input on its own body row', () => {
     const frame = renderEditor({ width: 40, input: 'hi', inputCursor: 2, status: ' 🐳 ', border: 'border' }, theme)
     expect(frame.lines).toHaveLength(3)
-    expect(frame.lines[0]).toMatch(/^╭─/)
+    // Ruled above and below, with no side borders: the composer sits inside a
+    // screen that already has a status footer under it.
+    expect(frame.lines[0]).toMatch(/^──/)
     expect(frame.lines[0]).toContain('🐳')
     expect(frame.lines[0]).not.toContain('idle')
-    expect(frame.lines[1]).toMatch(/^│ /)
-    expect(frame.lines[1]).toContain('hi')
-    expect(frame.lines[2]).toMatch(/^╰─/)
-    expect(frame.cursor).toEqual({ row: 1, column: 4 })
+    // One column of padding, no side border.
+    expect(frame.lines[1]).toMatch(/^ hi/)
+    expect(frame.lines[2]).toMatch(/^─+$/u)
+    expect(frame.cursor).toEqual({ row: 1, column: 3 })
   })
 
   it('places an optional permission cap on the top-right of the editor', () => {
@@ -179,9 +198,8 @@ describe('renderEditor', () => {
       border: 'border',
     }, theme)
     const top = frame.lines[0] ?? ''
-    expect(top.startsWith('╭')).toBe(true)
     expect(top.indexOf('🐳')).toBeLessThan(top.indexOf('full access'))
-    expect(top).toMatch(/full access ─+╮$/)
+    expect(top).toMatch(/full access ─$/u)
     expect(oracleWidth(top)).toBe(40)
   })
 
@@ -196,7 +214,7 @@ describe('renderEditor', () => {
     }, theme)
     expect(frame.lines[1]).toContain('/copy ')
     expect(frame.lines[1]).toContain('text|code|cmd')
-    expect(frame.cursor).toEqual({ row: 1, column: 8 })
+    expect(frame.cursor).toEqual({ row: 1, column: 7 })
     expect(oracleWidth(frame.lines[1] ?? '')).toBe(40)
   })
 
@@ -211,9 +229,9 @@ describe('renderEditor', () => {
     // The composer label yields to the activity rather than sharing the border.
     expect(top).not.toContain('🐳')
     expect(top).toContain('⠸ Deep Driving')
-    // The activity stays inside the rounded frame with border glyphs on both sides.
-    expect(top).toMatch(/^╭─+ ⠸ Deep Driving ─+/u)
-    expect(top).toMatch(/─╮$/u)
+    // The activity stays inside the rule with border glyphs on both sides.
+    expect(top).toMatch(/^─+ ⠸ Deep Driving ─+/u)
+    expect(top).toMatch(/─$/u)
     expect(oracleWidth(top)).toBe(60)
   })
 
@@ -232,8 +250,32 @@ describe('renderEditor', () => {
     const top = frame.lines[0] ?? ''
     expect(top).toContain('⠸ Deep Driving')
     expect(top).toContain('workspace write')
-    expect(top).toMatch(/workspace write ─╮$/u)
+    expect(top).toMatch(/workspace write ─$/u)
     expect(oracleWidth(top)).toBe(60)
+  })
+
+  it('keeps the access level whole on every width while the activity runs', () => {
+    // The activity row was assembled from `fillWidth + 4`, a constant left over
+    // from the four-cell corner pair this composer no longer draws. Every
+    // running frame was therefore one cell too wide and the renderer truncated
+    // its right-hand rule — which is exactly where the access level stands, so
+    // a running turn showed `workspace write…` instead of the badge.
+    const badge = renderPermissionBadge('workspace-write', theme)
+    for (const width of [220, 120, 100, 80, 60, 48, 40]) {
+      const frame = renderEditor({
+        width,
+        input: '',
+        inputCursor: 0,
+        status: ' 🐳 ',
+        statusRight: ' ' + badge + ' ',
+        border: 'accent',
+        activity: { frame: '⠸', label: 'Deep Driving', shimmer: true },
+      }, theme)
+      const top = frame.lines[0] ?? ''
+      expect(oracleWidth(top), `width ${width}`).toBe(width)
+      // Not merely present: whole, with its closing rule still attached.
+      expect(stripAnsi(top), `width ${width}`).toMatch(/workspace write ─$/u)
+    }
   })
 
   it('paints the activity without a frame when the composer has no label', () => {
@@ -277,7 +319,7 @@ describe('renderEditor', () => {
     expect(oracleWidth(frame.lines[2] ?? '')).toBe(40)
     // The input row and the cursor keep their positions, so a note never moves
     // the caret the reader is typing at.
-    expect(frame.cursor).toEqual({ row: 1, column: 4 })
+    expect(frame.cursor).toEqual({ row: 1, column: 3 })
   })
 
   it('omits a note that cannot fit rather than truncating the frame', () => {

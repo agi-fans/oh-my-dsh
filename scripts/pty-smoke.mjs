@@ -514,7 +514,7 @@ const ok = exitCode === 0
   // one discovery hint. The recent-session list it used to carry is what `/resume`
   // covers instead, so this asserts the shipped shape rather than a list.
   && clean.includes('Into the Unknown')
-  && clean.includes('omdsh v')
+  && clean.includes('Oh-My-DSH v')
   && clean.includes(' commands · ')
   && !clean.includes('Recent sessions')
   && clean.includes('hi')

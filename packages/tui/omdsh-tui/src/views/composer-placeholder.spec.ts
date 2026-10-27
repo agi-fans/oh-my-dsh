@@ -15,9 +15,24 @@ function screen(input: string, status: 'idle' | 'running' = 'idle', modelReady?:
   }).lines.map(stripAnsi).join('\n')
 }
 
+/** The composer's own rows, from its top border to its bottom border. */
+function composerRows(frame: string): string {
+  const lines = frame.split('\n')
+  const start = lines.findLastIndex(line => line.includes('🐳'))
+  if (start < 0) return ''
+  const end = lines.findIndex((line, at) => at > start && line.startsWith('╰'))
+  return lines.slice(start, end < 0 ? undefined : end + 1).join('\n')
+}
+
 describe('composer empty state', () => {
-  it('offers a quiet placeholder while idle and empty', () => {
-    expect(screen('')).toContain('Ask anything · / commands · @ files')
+  it('offers a bare placeholder while idle and empty', () => {
+    // `/ commands` and `@ files` live on the header's hint line. Repeating them
+    // in the composer would cost every frame, since this text is redrawn while
+    // the header's scrolls into history.
+    const composer = composerRows(screen(''))
+    expect(composer).toContain('Ask anything')
+    expect(composer).not.toContain('/ commands')
+    expect(composer).not.toContain('@ files')
   })
 
   it('drops the placeholder once the draft has content', () => {

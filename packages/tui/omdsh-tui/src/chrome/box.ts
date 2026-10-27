@@ -277,7 +277,12 @@ interface TopBorderParts {
 function topBorderWithActivity(options: EditorOptions, parts: TopBorderParts): string {
   const { topLeft, topRight, status, trailing, fillWidth, border, theme, h } = parts
   const activity = options.activity!
-  const width = fillWidth + 4
+  // The frame's own width, measured from the pieces that will be printed. It used
+  // to be `fillWidth + 4`, a constant that belonged to the four-cell corner pair
+  // the composer no longer draws; every activity row then ran one cell long, and
+  // the renderer truncated the overflow — which is the right-hand rule, so it ate
+  // the access level standing there.
+  const width = fillWidth + visibleWidth(topLeft) + visibleWidth(topRight)
   /**
    * `head` and `tail` are measured, never estimated: the fill is whatever is
    * left after them. Anything else either overflows the frame — which the
@@ -317,7 +322,10 @@ function topBorderWithActivity(options: EditorOptions, parts: TopBorderParts): s
 export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame {
   const width = Math.max(4, options.width)
   const padX = 1
-  const contentWidth = Math.max(1, width - 2 - padX * 2)
+  // No side borders: the composer is ruled above and below, the way pi's is. Two
+  // vertical glyphs cost two columns of every input row and add a second frame
+  // inside a screen that already has a status line under it.
+  const contentWidth = Math.max(1, width - padX * 2)
   const h = BOX.horizontal
   const border = (text: string): string => theme.fg(options.border, text)
 
@@ -325,9 +333,11 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   // already says where the reader is, and a second label beside a spinner only
   // pushes the words that matter out of the frame.
   const label = options.activity === undefined ? options.status : ''
-  const topLeft = border(BOX.topLeft + h.repeat(padX))
-  const topRight = border(h.repeat(padX) + BOX.topRight)
-  const fillWidth = Math.max(0, width - visibleWidth(BOX.topLeft + h.repeat(padX)) - visibleWidth(h.repeat(padX) + BOX.topRight))
+  // `── ` before the label and one rule cell after the trailing badge, so the
+  // label reads as sitting in the rule rather than floating on it.
+  const topLeft = border(h.repeat(padX + 1))
+  const topRight = border(h)
+  const fillWidth = Math.max(0, width - visibleWidth(topLeft) - visibleWidth(topRight))
   const statusRight = options.statusRight ?? ''
   let status = label
   let trailing = statusRight
@@ -360,24 +370,19 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
       if (budget > 0) body += theme.fg('dim', truncateToWidth(hint, budget))
     }
     const linePad = padding(Math.max(0, contentWidth - visibleWidth(body)))
-    const left = border(BOX.vertical) + padding(padX)
-    const right = padding(padX) + border(BOX.vertical)
-    lines.push(left + body + linePad + right)
+    lines.push(padding(padX) + body + linePad + padding(padX))
   }
-  const bottomLeft = border(BOX.bottomLeft + h.repeat(padX))
-  const bottomRight = border(h.repeat(padX) + BOX.bottomRight)
   const note = options.note === undefined || options.note === '' ? '' : theme.fg('dim', options.note)
-  if (note === '' || visibleWidth(note) + 4 > fillWidth) {
-    lines.push(bottomLeft + border(h.repeat(fillWidth)) + bottomRight)
+  if (note === '' || visibleWidth(note) + 4 > width) {
+    lines.push(border(h.repeat(width)))
   } else {
-    const head = bottomLeft + border(h + ' ') + note
-    const rest = Math.max(0, width - visibleWidth(head) - 1 - visibleWidth(bottomRight))
-    lines.push(head + border(' ' + h.repeat(rest)) + bottomRight)
+    const head = border(h.repeat(padX + 1)) + note
+    lines.push(head + border(' ' + h.repeat(Math.max(0, width - visibleWidth(head) - 1))))
   }
 
   return {
     lines,
-    cursor: { row: 1 + caret.row, column: 2 + caret.column },
+    cursor: { row: 1 + caret.row, column: 1 + caret.column },
   }
 }
 

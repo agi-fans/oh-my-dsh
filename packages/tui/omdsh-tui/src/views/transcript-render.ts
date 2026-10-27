@@ -30,7 +30,7 @@ import {
   renderPromptTreePage,
   type PromptSelectorState,
 } from './prompt-selector.ts'
-import { resolveStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
+import { resolveStatusBarConfig, type ResolvedStatusBarConfig, type StatusBarConfig, type StatusPreset } from '../chrome/status-config.ts'
 import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line.ts'
 import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeColor, type ThemeName } from '../chrome/theme.ts'
 import { highlightToolText, toolPayloadLanguage } from '../chrome/code-highlight.ts'
@@ -107,8 +107,13 @@ export interface ViewOptions {
   branch?: string
   /** Product version painted on the welcome title. */
   version?: string
-  /** Product name painted on the welcome title. */
+  /** Product name painted on overlay titles; keep this the command a reader can type. */
   appName?: string
+  /**
+   * Product name painted on the startup header. Only the header uses the long
+   * name; overlay titles keep {@link appName} so they still name the command.
+   */
+  displayName?: string
   /** Spinner phase while a turn or tool is running. */
   spinnerFrame?: number
   /** Animation policy for streaming, activity marks, and the working label. */
@@ -156,7 +161,7 @@ export interface ViewOptions {
   /** Descendant whose transcript is currently filling the viewport. */
   inspected?: TuiInspectedSubagent
   /** Visible groups, order, and label style for the status line. */
-  statusBar?: StatusBarConfig
+  statusBar?: ResolvedStatusBarConfig | StatusBarConfig
   /** Legacy status preset accepted while direct render callers migrate. */
   statusPreset?: StatusPreset
   /**
@@ -2169,7 +2174,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const welcome = renderWelcome({
     width,
     version,
-    appName,
+    appName: options.displayName ?? appName,
   }, theme)
 
   const transcript = renderTranscriptBody(state, options, theme, spinnerFrame)
@@ -2195,7 +2200,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     && options.input === '' && (options.inputImages ?? 0) === 0
     ? options.modelReady === false
       ? 'Run /login to connect a model'
-      : 'Ask anything · / commands · @ files'
+      // `/ commands` and `@ files` are already on the header's hint line, and this
+      // one is the copy that costs every frame: the header's scrolls into history
+      // once the conversation starts, this one does not. A bare prompt is enough
+      // to say the composer is ready for words.
+      : 'Ask anything'
     : null
   const inlineHint = options.transcriptSearch !== undefined
     ? transcriptSearchHint({

@@ -9,32 +9,36 @@ import type { EditorChoice, EditorId } from '../input/editor-discovery.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { STARTUP_CHANGELOG_MODES, type StartupChangelogMode } from '../session/release-notes.ts'
 import {
-  STATUS_COLOR_TOKENS,
-  STATUS_CONTEXT_STYLES,
-  STATUS_GROUP_IDS,
-  STATUS_LABEL_STYLES,
-  STATUS_META_IDS,
+  STATUS_DENSITIES,
+  STATUS_ITEM_IDS,
   isStatusItemId,
-  isStatusMetaId,
-  itemSide,
   resolveStatusBarConfig,
+  statusItemVisible,
+  toggleStatusItem,
+  type ResolvedStatusBarConfig,
   type StatusBarConfig,
   type StatusBarInput,
-  type StatusColorToken,
-  type StatusGroupId,
+  type StatusDensity,
   type StatusItemId,
   type StatusPreset,
-  type StatusSide,
 } from '../chrome/status-config.ts'
 import { renderStatusFooter } from '../chrome/status-line.ts'
 import { BOX, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, isThemeName } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
-import { MOTION_MODES, type MotionMode } from '../session/tui-settings.ts'
+import {
+  MOTION_MODES,
+  NOTIFICATION_MODES,
+  resolveNotificationMode,
+  type LegacyNotificationThreshold,
+  type MotionMode,
+  type NotificationMode,
+  type StoredNotificationMode,
+} from '../session/tui-settings.ts'
 import { MATH_MODES, type MathMode } from '../chrome/math.ts'
 import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
-import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
+import type { HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
 import { LIST_CURSOR_CELLS, renderListRowWithValue, type ListRow } from './list-view.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
@@ -88,7 +92,6 @@ export interface TuiPrefs {
   /** Transcript starts with thinking collapsed to one line. */
   hideThinking?: boolean
   editor?: EditorId
-  terminalProgress?: boolean
   terminalTitle?: TerminalTitleMode
   terminalState?: TerminalStateMode
   pasteProtection?: boolean
@@ -100,9 +103,11 @@ export interface TuiPrefs {
   expandTools?: boolean
   checkUpdates?: boolean
   startupChangelog?: StartupChangelogMode
-  notifications?: 'off' | 'long-running' | 'always'
-  notificationFocus?: 'always' | 'unfocused'
-  notificationThreshold?: '15s' | '30s' | '1m' | '2m'
+  notifications?: StoredNotificationMode
+  /** Legacy input; {@link resolveNotificationMode} folds it onto `notifications`. */
+  notificationFocus?: 'always' | 'unfocused' | undefined
+  /** Legacy input from when the minimum turn duration was adjustable. */
+  notificationThreshold?: LegacyNotificationThreshold
   statusBar?: StatusBarInput
   /** Read-only migration input for settings written before status-line customization. */
   statusPreset?: StatusPreset
@@ -119,7 +124,6 @@ export interface SettingsState {
   plugins?: readonly PluginSettingsEntry[]
   editors?: readonly EditorChoice[]
   /** Footer item currently attached to the up/down reorder gesture. */
-  moving?: StatusItemId
   search?: string
   searchOrigin?: string
   actions?: readonly SettingItem[]
@@ -147,13 +151,13 @@ const AGENT_LANGUAGE_LABELS: Record<TuiAgentBehaviorSettings['language'], typeof
 const AGENT_LANGUAGE_IDS = Object.fromEntries(
   Object.entries(AGENT_LANGUAGE_LABELS).map(([id, label]) => [label, id]),
 ) as Record<typeof AGENT_LANGUAGE_VALUES[number], TuiAgentBehaviorSettings['language']>
-const STATUS_ITEM_CONTROLS = 'Left/Right sets color; Space shows or hides; Enter then arrows move it.'
+const STATUS_ITEM_CONTROLS = 'Space shows or hides it.'
 const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: string; sample: string }> = {
-  model: { label: 'Model', description: `Model name on the left of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'deepseek' },
+  model: { label: 'Model', description: `Model name on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'deepseek' },
   effort: { label: 'Effort', description: `Reasoning effort on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'max' },
-  path: { label: 'Path', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
-  git: { label: 'Git', description: `Git branch on the right of the first footer line. A dirty worktree stays warning while color is default. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
-  session: { label: 'Session', description: `Folded session title on the first footer line. Off by default; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
+  path: { label: 'Workspace path on the first footer line. ', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
+  git: { label: 'Git', description: `Git branch on the first footer line. A dirty worktree stays warning. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
+  session: { label: 'Session', description: `Folded session title on the first footer line. Off at Standard and Minimal; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
   context: { label: 'Context', description: `Context occupancy; choose its representation in Context style. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
   cache: { label: 'Cache', description: `Prompt-cache hit rate. Cache-hit percentages stay on the success color. ${STATUS_ITEM_CONTROLS}`, sample: 'Cache 99%' },
   tokens: { label: 'Tokens', description: `Input and output token counts. ${STATUS_ITEM_CONTROLS}`, sample: '5.9M in' },
@@ -162,30 +166,17 @@ const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: strin
   counts: { label: 'Activity', description: `Turn and step counts. ${STATUS_ITEM_CONTROLS}`, sample: '3 turns' },
 }
 
-function itemSwatch(id: StatusItemId, token: StatusColorToken): ThemeColor {
-  if (token !== 'default') return token === 'label' ? 'customMessageLabel' : token
-  if (id === 'effort') return 'customMessageLabel'
-  if (id === 'git') return 'warning'
-  if (id === 'path') return 'muted'
-  return 'text'
-}
 
-function statusItemVisible(config: StatusBarConfig, id: StatusItemId): boolean {
-  return isStatusMetaId(id) ? (config.meta ?? STATUS_META_IDS).includes(id) : config.groups.includes(id)
-}
-
-function statusItemRow(config: StatusBarConfig, id: StatusItemId): SettingItem {
+function statusItemRow(config: ResolvedStatusBarConfig, id: StatusItemId): SettingItem {
   const visible = statusItemVisible(config, id)
-  const color = config.colors?.[id] ?? 'default'
   const copy = STATUS_ITEM_COPY[id]
   return {
     id: `statusItem:${id}`,
-    label: (itemSide(config, id) === 'right' ? '→ ' : '← ') + copy.label,
+    label: copy.label,
     description: copy.description,
     sample: visible ? copy.sample : 'hidden',
-    value: color,
-    values: STATUS_COLOR_TOKENS,
-    swatch: itemSwatch(id, color),
+    value: visible ? 'shown' : 'hidden',
+    values: ['shown', 'hidden'],
     hidden: !visible,
   }
 }
@@ -266,14 +257,7 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       id: 'terminalTitle', label: 'Terminal title', description: 'Status and session, session only, status and workspace, or Off. Changes the terminal tab title.', value: prefs.terminalTitle ?? 'status', values: TERMINAL_TITLE_MODES,
     },
     {
-      id: 'terminalState', label: 'Program status', description: 'Auto detects OSC 7501 support. On forces reports; Off clears reports. Reports the root agent, including when inspecting a child.', value: prefs.terminalState ?? 'auto', values: TERMINAL_STATE_MODES,
-    },
-    {
-      id: 'terminalProgress',
-      label: 'Terminal activity',
-    description: 'Busy/idle status in supported terminal tabs and taskbars',
-      value: prefs.terminalProgress === true ? 'on' : 'off',
-      values: COLOR_VALUES,
+      id: 'terminalState', label: 'Terminal status', description: 'Auto reports the root Agent lifecycle once the terminal answers an OSC 7501 capability query; On reports regardless; Off clears reports.', value: prefs.terminalState ?? 'auto', values: TERMINAL_STATE_MODES,
     },
     {
       id: 'checkUpdates',
@@ -292,23 +276,9 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
     {
       id: 'notifications',
       label: 'Notifications',
-      description: 'Notify when a turn finishes or input is required',
-      value: prefs.notifications ?? 'off',
-      values: ['off', 'long-running', 'always'],
-    },
-    {
-      id: 'notificationFocus',
-      label: 'Notify when',
-      description: 'Only notify while away from the terminal, or regardless of focus. Terminals without focus reports use the existing notification policy.',
-      value: prefs.notificationFocus ?? 'unfocused',
-      values: ['unfocused', 'always'],
-    },
-    {
-      id: 'notificationThreshold',
-      label: 'Long turn',
-      description: 'Minimum duration for long-running notifications',
-      value: prefs.notificationThreshold ?? '30s',
-      values: ['15s', '30s', '1m', '2m'],
+      description: 'Notify when a long turn finishes or input is required. Away also waits until the terminal loses focus; Always reports regardless of focus.',
+      value: resolveNotificationMode(prefs.notifications, prefs.notificationFocus),
+      values: NOTIFICATION_MODES,
     },
   ]
 }
@@ -335,23 +305,17 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
       values: COLOR_VALUES,
     },
     {
-      id: 'statusLabels',
-      label: 'Context label',
-      description: 'Use Ctx or Context before the occupancy value',
-      value: statusBar.labels,
-      values: STATUS_LABEL_STYLES,
+      id: 'statusDensity',
+      label: 'Density',
+      description: 'Minimal shows occupancy and cost; Standard adds cache, latency, durations and activity; Verbose uses long labels and the detailed context form',
+      value: statusBar.density,
+      values: STATUS_DENSITIES,
     },
-    {
-      id: 'statusContextStyle',
-      label: 'Context style',
-      description: 'Percentage, a ten-cell bar, used/window tokens, or percentage with tokens',
-      value: statusBar.contextStyle,
-      values: STATUS_CONTEXT_STYLES,
-    },
-    ...statusBar.metaOrder.filter(id => itemSide(statusBar, id) === 'left').map(id => statusItemRow(statusBar, id)),
-    ...statusBar.metaOrder.filter(id => itemSide(statusBar, id) === 'right').map(id => statusItemRow(statusBar, id)),
-    ...statusBar.order.filter(id => itemSide(statusBar, id) === 'left').map(id => statusItemRow(statusBar, id)),
-    ...statusBar.order.filter(id => itemSide(statusBar, id) === 'right').map(id => statusItemRow(statusBar, id)),
+
+    // Everything is drawn in one fixed order, so the rows below are a list of
+    // what appears rather than a layout to assemble: Space shows or hides, and
+    // nothing has to be dragged into a column.
+    ...STATUS_ITEM_IDS.map(id => statusItemRow(statusBar, id)),
   ]
 }
 
@@ -384,55 +348,8 @@ export function tuiSettingItems(
     ...(actions === undefined ? {} : { actions }) }).flatMap(group => group.items)
 }
 
-function showInOrder<T extends string>(visible: T[], order: readonly T[], id: T): T[] {
-  const next = visible.filter(item => item !== id)
-  const position = order.indexOf(id)
-  const insert = next.findIndex(item => order.indexOf(item) > position)
-  next.splice(insert < 0 ? next.length : insert, 0, id)
-  return next
-}
 
-function updateStatusGroup(config: StatusBarConfig, id: StatusGroupId, value: string): StatusBarConfig {
-  const groups = config.groups.filter(group => group !== id)
-  if (value === 'hidden' || value === 'off') return { ...config, groups }
-  if (value === 'shown') return { ...config, groups: showInOrder(groups, config.order ?? STATUS_GROUP_IDS, id) }
-  const position = Number.parseInt(value, 10)
-  if (!Number.isInteger(position) || position < 1 || position > STATUS_GROUP_IDS.length) return config
-  groups.splice(Math.min(position - 1, groups.length), 0, id)
-  return { ...config, groups }
-}
 
-function toggleStatusItem(config: StatusBarConfig, id: StatusItemId): StatusBarConfig {
-  if (isStatusMetaId(id)) {
-    const meta = config.meta ?? [...STATUS_META_IDS]
-    const hidden = !meta.includes(id)
-    return {
-      ...config,
-      meta: hidden ? showInOrder(meta.filter(item => item !== id), config.metaOrder ?? STATUS_META_IDS, id) : meta.filter(item => item !== id),
-    }
-  }
-  return updateStatusGroup(config, id, statusItemVisible(config, id) ? 'hidden' : 'shown')
-}
-
-function reorderVisible<T extends string>(visible: readonly T[], order: readonly T[], moving: T, direction: 1 | -1): { visible: T[]; order: T[] } {
-  const from = visible.indexOf(moving)
-  if (from < 0) return { visible: [...visible], order: [...order] }
-  const to = Math.max(0, Math.min(visible.length - 1, from + direction))
-  const nextVisible = [...visible]
-  if (to !== from) {
-    nextVisible.splice(from, 1)
-    nextVisible.splice(to, 0, moving)
-  }
-  const visibleSet = new Set(nextVisible)
-  const nextOrder: T[] = []
-  let visibleIndex = 0
-  for (const item of order) {
-    if (visibleSet.has(item)) nextOrder.push(nextVisible[visibleIndex++] as T)
-    else nextOrder.push(item)
-  }
-  for (const item of nextVisible) if (!nextOrder.includes(item)) nextOrder.push(item)
-  return { visible: nextVisible, order: nextOrder }
-}
 
 /** Apply one cycled value back onto the prefs record. */
 export function applySettingValue(prefs: TuiPrefs, id: string, value: string): TuiPrefs {
@@ -449,41 +366,48 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   }
   if (id === 'terminalTitle' && TERMINAL_TITLE_MODES.includes(value as TerminalTitleMode)) return { ...prefs, terminalTitle: value as TerminalTitleMode }
   if (id === 'terminalState' && TERMINAL_STATE_MODES.includes(value as TerminalStateMode)) return { ...prefs, terminalState: value as TerminalStateMode }
-  if (id === 'terminalProgress') return { ...prefs, terminalProgress: value === 'on' }
   if (id === 'checkUpdates') return { ...prefs, checkUpdates: value === 'on' }
   if (id === 'startupChangelog' && STARTUP_CHANGELOG_MODES.includes(value as StartupChangelogMode)) {
     return { ...prefs, startupChangelog: value as StartupChangelogMode }
   }
-  if (id === 'notifications' && ['off', 'long-running', 'always'].includes(value)) {
-    return { ...prefs, notifications: value as NonNullable<TuiPrefs['notifications']> }
+  if (id === 'notifications' && NOTIFICATION_MODES.includes(value as NotificationMode)) {
+    return { ...prefs, notifications: value as NotificationMode }
   }
-  if (id === 'notificationFocus' && ['always', 'unfocused'].includes(value)) return { ...prefs, notificationFocus: value as NonNullable<TuiPrefs['notificationFocus']> }
-  if (id === 'notificationThreshold' && ['15s', '30s', '1m', '2m'].includes(value)) {
-    return { ...prefs, notificationThreshold: value as NonNullable<TuiPrefs['notificationThreshold']> }
+  /**
+   * The status line is one document: a density, plus the parts hidden on top of
+   * it. Row identity decides which field moves — there is no per-item colour or
+   * column left to write, and `enabled` survives only as "telemetry off".
+   */
+  const statusBar = storedStatusBar(prefs)
+  if (id === 'statusDensity' && STATUS_DENSITIES.includes(value as StatusDensity)) {
+    return { ...prefs, statusBar: { ...statusBar, density: value as StatusDensity } }
   }
-  const statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
   if (id === 'statusEnabled') return { ...prefs, statusBar: { ...statusBar, enabled: value === 'on' } }
-  if (id === 'statusLabels' && STATUS_LABEL_STYLES.includes(value as StatusBarConfig['labels'])) {
-    return { ...prefs, statusBar: { ...statusBar, labels: value as StatusBarConfig['labels'] } }
-  }
-  if (id === 'statusContextStyle' && STATUS_CONTEXT_STYLES.includes(value as NonNullable<StatusBarConfig['contextStyle']>)) {
-    return { ...prefs, statusBar: { ...statusBar, contextStyle: value as NonNullable<StatusBarConfig['contextStyle']> } }
-  }
   if (id.startsWith('statusItem:')) {
     const item = id.slice('statusItem:'.length)
-    if (isStatusItemId(item) && STATUS_COLOR_TOKENS.includes(value as StatusColorToken)) {
-      return { ...prefs, statusBar: { ...statusBar, colors: { ...statusBar.colors, [item]: value as StatusColorToken } } }
-    }
-    if (isStatusItemId(item) && (value === 'shown' || value === 'hidden' || value === 'off')) {
-      const wantVisible = value === 'shown'
-      if (statusItemVisible(statusBar, item) === wantVisible) return prefs
-      return { ...prefs, statusBar: toggleStatusItem(statusBar, item) }
-    }
-    if (STATUS_GROUP_IDS.includes(item as StatusGroupId)) {
-      return { ...prefs, statusBar: updateStatusGroup(statusBar, item as StatusGroupId, value) }
-    }
+    if (!isStatusItemId(item)) return prefs
+    if (value !== 'shown' && value !== 'hidden' && value !== 'off') return prefs
+    const resolved = resolveStatusBarConfig(statusBar)
+    if (statusItemVisible(resolved, item) === (value === 'shown')) return prefs
+    return { ...prefs, statusBar: toggleStatusItem(statusBar, item) }
   }
   return prefs
+}
+
+/**
+ * The stored document, with `enabled` folded in.
+ *
+ * `enabled` is not part of the persisted shape any more — hiding telemetry is
+ * just another narrowing — but the row that toggles it still exists, so it is
+ * read here as the `groups`-all-hidden case and written back the same way.
+ */
+function storedStatusBar(prefs: TuiPrefs): StatusBarConfig & { enabled?: boolean } {
+  const resolved = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
+  return {
+    density: resolved.density,
+    hidden: STATUS_ITEM_IDS.filter(id => !statusItemVisible(resolved, id)),
+    enabled: resolved.enabled,
+  }
 }
 
 function adjacentValue(current: string, values: readonly string[], direction: 1 | -1): string {
@@ -521,71 +445,9 @@ function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
   return isStatusItemId(item) ? item : undefined
 }
 
-function startMoving(state: SettingsState, item: StatusItemId): SettingsState {
-  const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
-  const prefs = statusItemVisible(config, item)
-    ? state.prefs
-    : { ...state.prefs, statusBar: toggleStatusItem(config, item) }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${item}`)
-  return { ...state, prefs, selected: Math.max(0, selected), moving: item }
-}
 
-function assignItemSide(config: StatusBarConfig, id: StatusItemId, side: StatusSide): StatusBarConfig {
-  if (itemSide(config, id) === side) return config
-  const next: StatusBarConfig = { ...config, sides: { ...config.sides, [id]: side } }
-  if (isStatusMetaId(id)) {
-    const order = (next.metaOrder ?? STATUS_META_IDS).filter(item => item !== id)
-    let last = -1
-    for (let index = 0; index < order.length; index += 1) {
-      if (itemSide(next, order[index] as StatusItemId) === side) last = index
-    }
-    order.splice(last + 1, 0, id)
-    return { ...next, metaOrder: order }
-  }
-  const order = (next.order ?? STATUS_GROUP_IDS).filter(item => item !== id)
-  let last = -1
-  for (let index = 0; index < order.length; index += 1) {
-    if (itemSide(next, order[index] as StatusItemId) === side) last = index
-  }
-  order.splice(last + 1, 0, id)
-  return { ...next, order }
-}
 
-function moveStatusItem(state: SettingsState, direction: 1 | -1): SettingsState {
-  const moving = state.moving
-  if (moving === undefined) return state
-  const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
-  const side = itemSide(config, moving)
-  if (isStatusMetaId(moving)) {
-    const reordered = reorderVisible(
-      config.meta.filter(id => itemSide(config, id) === side),
-      config.metaOrder,
-      moving,
-      direction,
-    )
-    const prefs = { ...state.prefs, statusBar: { ...config, meta: reordered.visible.concat(config.meta.filter(id => itemSide(config, id) !== side)), metaOrder: reordered.order } }
-    const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
-    return { ...state, prefs, selected, moving }
-  }
-  const reordered = reorderVisible(
-    config.groups.filter(id => itemSide(config, id) === side),
-    config.order,
-    moving,
-    direction,
-  )
-  const prefs = { ...state.prefs, statusBar: { ...config, groups: reordered.visible.concat(config.groups.filter(id => itemSide(config, id) !== side)), order: reordered.order } }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
-  return { ...state, prefs, selected, moving }
-}
 
-function moveStatusItemSide(state: SettingsState, side: StatusSide): SettingsState {
-  const moving = state.moving
-  if (moving === undefined) return state
-  const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
-  const prefs = { ...state.prefs, statusBar: assignItemSide(config, moving, side) }
-  const selected = tuiSettingItems(prefs, state.agent, state.features, state.plugins, state.editors, state.actions).findIndex(row => row.id === `statusItem:${moving}`)
-  return { ...state, prefs, selected, moving }
-}
 
 interface SettingsSection {
   id: 'general' | 'agent' | 'tools' | 'status' | 'integrations' | 'advanced'
@@ -601,11 +463,10 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
       values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
   return [
     { id: 'general' as const, label: 'Interface', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
-      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState', 'terminalProgress'].includes(item.id) ? 'Appearance'
+      resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState'].includes(item.id) ? 'Appearance'
         : ['editor', 'mouseInteraction', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
           : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
-      description: (item.id === 'notificationFocus' && (state.prefs.notifications ?? 'off') === 'off' ? 'Inactive while Notifications is off. '
-        : item.id === 'notificationThreshold' && state.prefs.notifications !== 'long-running' ? 'Applies only to long-running notifications. ' : '') + item.description,
+      description: item.description,
     })), ...(state.actions ?? []).filter(item => item.group === 'Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')) },
     { id: 'agent' as const, label: 'Agent', items: [...(state.actions ?? []).filter(item => item.group !== 'Input'), ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('agent')] },
     { id: 'tools' as const, label: 'Tools', items: [...(state.features === undefined ? [] : featureSettingItems(state.features)), ...owned('tools')] },
@@ -715,7 +576,7 @@ function cycleSelected(state: SettingsState, direction: 1 | -1 = 1): SettingsCom
 
 /** Apply one decoded event to the overlay. */
 export function applySettingsEvent(state: SettingsState, event: KeyEvent): SettingsCommand {
-  if (state.moving === undefined) {
+  {
     if (event.type === 'text' && (state.search !== undefined || event.value !== ' ')) {
       const origin = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]?.id
       const searching = state.search === undefined ? { ...state, search: '', ...(origin === undefined ? {} : { searchOrigin: origin }) } : state
@@ -748,20 +609,6 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
     const selected = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]
     if (selected?.id.startsWith('plugin:') && (event.type === 'key' || selected.values.length === 0)) return { kind: 'open-plugin', id: selected.id.slice('plugin:'.length) }
   }
-  if (state.moving !== undefined) {
-    if (event.type !== 'key') return { kind: 'ignore' }
-    if (event.id === 'up' || event.id === 'down') {
-      return { kind: 'apply', domain: 'tui', state: moveStatusItem(state, event.id === 'up' ? -1 : 1) }
-    }
-    if (event.id === 'left' || event.id === 'right') {
-      return { kind: 'apply', domain: 'tui', state: moveStatusItemSide(state, event.id === 'left' ? 'left' : 'right') }
-    }
-    if (event.id === 'enter' || event.id === 'escape' || event.id === 'ctrl+c') {
-      const { moving: _, ...rest } = state
-      return { kind: 'update', state: rest }
-    }
-    return { kind: 'ignore' }
-  }
   if (event.type === 'text' && event.value === ' ') {
     const item = selectedStatusItem(state)
     if (item === undefined) return cycleSelected(state)
@@ -770,23 +617,13 @@ export function applySettingsEvent(state: SettingsState, event: KeyEvent): Setti
       domain: 'tui',
       state: {
         ...state,
-        prefs: {
-          ...state.prefs,
-          statusBar: toggleStatusItem(resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset), item),
-        },
+        prefs: { ...state.prefs, statusBar: toggleStatusItem(storedStatusBar(state.prefs), item) },
       },
     }
   }
   if (event.type !== 'key') return { kind: 'ignore' }
   switch (event.id) {
     case 'enter':
-      {
-        const item = selectedStatusItem(state)
-        if (item !== undefined) {
-          const { search: _, searchOrigin: __, ...browse } = state
-          return { kind: 'apply', domain: 'tui', state: startMoving(browse, item) }
-        }
-      }
       return cycleSelected(state)
     case 'right':
       return cycleSelected(state)
@@ -821,14 +658,11 @@ export const SETTINGS_ITEM_ROW = 3
 const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate rows' }
 const HOTKEY_CHANGE: HotkeyRow = { keys: '←→', action: 'Change the selected value' }
 const HOTKEY_TOGGLE: HotkeyRow = { keys: 'Space', action: 'Toggle — show or hide a status item, or cycle other rows' }
-const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — move a status item, open configuration, or cycle other rows' }
+const HOTKEY_MOVE: HotkeyRow = { keys: 'Enter', action: 'Change — open configuration, or cycle other rows' }
 const HOTKEY_SECTION: HotkeyRow = { keys: 'Tab / Shift+Tab', action: 'Switch section' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the section edges' }
 const HOTKEY_CLOSE: HotkeyRow = { keys: 'Esc', action: 'Clear search, return to browsing, or close the overlay' }
-const HOTKEY_CANCEL: HotkeyRow = { keys: 'Ctrl+C', action: 'Close the overlay, or place the grabbed item while moving' }
-const HOTKEY_ORDER: HotkeyRow = { keys: '↑↓', action: 'Order the grabbed item while moving' }
-const HOTKEY_COLUMN: HotkeyRow = { keys: '←→', action: 'Column — choose the footer side while moving' }
-const HOTKEY_PLACE: HotkeyRow = { keys: 'Enter / Esc', action: 'Place the grabbed item and stop moving' }
+const HOTKEY_CANCEL: HotkeyRow = { keys: 'Ctrl+C', action: 'Close the overlay' }
 
 /** Keys the settings overlay accepts; `/help` and its bottom hint read this list. */
 export const SETTINGS_HOTKEYS: readonly HotkeyRow[] = [
@@ -840,19 +674,14 @@ export const SETTINGS_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_EDGE,
   { keys: '/ or Text', action: 'Search across all categories' },
   { keys: 'Backspace / Ctrl+U', action: 'Edit or clear the settings search' },
-  { keys: 'Ctrl+R', action: 'Restore inheritance for the selected setting; status items restore their color' },
+  { keys: 'Ctrl+R', action: 'Restore inheritance for the selected setting' },
   HOTKEY_CLOSE,
   HOTKEY_CANCEL,
-  HOTKEY_ORDER,
-  HOTKEY_COLUMN,
-  HOTKEY_PLACE,
 ]
 
 /** Bottom hint for the overlay; the grabbed-row state swaps in its own gestures. */
-function settingsHints(moving: boolean): string {
-  return moving
-    ? formatOverlayHint([HOTKEY_ORDER, HOTKEY_COLUMN, HOTKEY_PLACE])
-    : '↑↓ select · ←→ change · Tab sections · / search · Ctrl+R reset · Esc back'
+function settingsHints(): string {
+  return '↑↓ select · ←→ change · Tab sections · / search · Ctrl+R reset · Esc back'
 }
 
 function fit(text: string, width: number): string {
@@ -1008,7 +837,7 @@ export function renderSettings(
       theme,
       Math.max(1, width - 4),
       above || below,
-      state.moving !== undefined && item.id === `statusItem:${state.moving}`,
+      false,
     ), width))
   }
   lines.push(divider(theme, width))
@@ -1021,10 +850,10 @@ export function renderSettings(
   const fullHint = matches !== undefined ? 'Type filter · ↑↓ select · ←→ change · Enter edit · Tab sections · Esc clear/back'
     : selected?.action !== undefined ? 'Enter open · Tab sections · / search · Esc back'
       : selected?.id.startsWith('plugin:') === true ? `Enter configure${selected.values.length > 0 ? ' · ←→ change' : ''} · Tab sections · / search${selected.resettable ? ' · Ctrl+R reset' : ''} · Esc back`
-        : selected?.id.startsWith('statusItem:') === true && state.moving === undefined
-          ? 'Space show/hide · Enter move · ←→ color · Ctrl+R reset color · / search · Esc back'
-          : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints(state.moving !== undefined)
-  const hints = theme.fg('dim', width < 60 && state.moving === undefined
+        : selected?.id.startsWith('statusItem:') === true
+          ? 'Space show/hide · / search · Esc back'
+          : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints()
+  const hints = theme.fg('dim', width < 60
     ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
     : fullHint)
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))

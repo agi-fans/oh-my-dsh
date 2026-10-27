@@ -653,6 +653,149 @@ const SYSTEM_SUCCESS_GREEN: Rgb = { r: 0x4a, g: 0xc8, b: 0x7a }
 const SYSTEM_NOTICE_BLUE: Rgb = { r: 0x6f, g: 0xa8, b: 0xff }
 
 /**
+ * Relative luminance each card state is held to on a `system` palette.
+ *
+ * These are the shipped dark palette's own fills measured as luminance, so a
+ * `system` card sits where a `dark` one does no matter what green the terminal
+ * reports. They are the one part of the card that must not follow the terminal:
+ * a terminal's green is chosen for *ink* on its background, and spending that
+ * green on a large fill is what pushed the shipped value from 4.4% to 11.7%
+ * luminance and flattened dimmed text on a successful card to 3.3:1.
+ */
+const SYSTEM_CARD_LUMINANCE: Readonly<Record<'pending' | 'success' | 'error', number>> = {
+  pending: 0.0386,
+  success: 0.0440,
+  error: 0.0391,
+}
+
+/**
+ * How far a card may move from the terminal background toward a state hue.
+ *
+ * A card is a step off the reader's own background, not a swatch of the terminal
+ * palette. Scaling a tint to the target luminance directly keeps the hue but not
+ * the calm: a saturated green has to be dimmed so far to reach 4.4% that the
+ * scaled channels clip, and a light terminal turns it neon. Interpolating from the
+ * background toward the hue instead bounds how much of the hue a card can ever
+ * contain, so the fill stays a surface whatever the terminal reports.
+ */
+const SYSTEM_CARD_TINT = 0.34
+
+/**
+ * Where the alternate successful surface sits relative to the primary one.
+ *
+ * A slight step, not a second state: the pair exists so two adjacent successful
+ * calls do not merge into one block. Anything larger starts naming a difference
+ * that is not there.
+ */
+const SYSTEM_ALT_STEP = 1.065
+
+/**
+ * The background-to-hue step that lands closest to a target relative luminance.
+ *
+ * A fixed weight cannot hold a card at one lightness — the same weight applied to
+ * a bright terminal green and to a dim one lands almost three stops apart — so the
+ * weight is solved for instead, by bisection. Hue still comes from the terminal,
+ * which is what makes the fill say "success"; how *much* of it a card spends is
+ * the theme's decision, and the tint cap is what keeps the result a surface.
+ */
+function tintAtLuminance(background: Rgb, tint: Rgb, target: number): Rgb {
+  const at = (weight: number): Rgb => mixRgb(background, tint, weight)
+  const luminanceAt = (weight: number): number => relativeLuminance(at(weight))
+  // Interpolating between two luminance endpoints is monotonic only while one
+  // side sits below the target; a background already brighter than the target
+  // reverses which direction helps, so solve outward from the background.
+  const towardsBrighter = relativeLuminance(background) < target
+  let low = 0
+  let high = SYSTEM_CARD_TINT
+  if (towardsBrighter ? luminanceAt(high) < target : luminanceAt(high) > target) {
+    // The capped step already overshoots or undershoots the target: the cap is
+    // the answer, and the card keeps the calm it was given.
+    return at(high)
+  }
+  for (let step = 0; step < 40; step += 1) {
+    const middle = (low + high) / 2
+    if (towardsBrighter ? luminanceAt(middle) < target : luminanceAt(middle) > target) low = middle
+    else high = middle
+  }
+  return at((low + high) / 2)
+}
+
+/**
+ * The background lifted toward white until it reaches a target luminance.
+ *
+ * Neutral surfaces need a lightness step, not a hue: interpolating toward the
+ * foreground flattens whatever faint tint the terminal's background carries, so
+ * the step is taken toward white and the background's own channel ratios survive.
+ */
+function liftedToLuminance(background: Rgb, target: number): Rgb {
+  // On paper the background is already brighter than a card wants to be, so the
+  // step goes toward black instead; either way it keeps the background's ratios.
+  const pole: Rgb = relativeLuminance(background) < target ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 }
+  const towardsBrighter = pole.r === 255
+  const at = (weight: number): Rgb => mixRgb(background, pole, weight)
+  const luminanceAt = (weight: number): number => relativeLuminance(at(weight))
+  let low = 0
+  let high = 1
+  for (let step = 0; step < 40; step += 1) {
+    const middle = (low + high) / 2
+    if (towardsBrighter ? luminanceAt(middle) < target : luminanceAt(middle) > target) low = middle
+    else high = middle
+  }
+  return at((low + high) / 2)
+}
+
+/**
+ * The contrast a swatch keeps against the surfaces it is drawn on.
+ *
+ * Taken against the *weakest* card rather than against the page, because a
+ * secondary ink is spent on card fills — a hint on a successful card is the case
+ * that has to stay readable, not the same hint on bare background.
+ */
+function worstContrast(ink: Rgb, cards: readonly Rgb[]): number {
+  return Math.min(...cards.map(card => contrastRatio(ink, card)))
+}
+
+/**
+ * A secondary ink held at the contrast the shipped palette achieved.
+ *
+ * A fixed mix weight made the result depend on which side was bright: on a dark
+ * background the step lightened the ink and stayed safe, but against paper it
+ * moved it toward the page, so a light terminal's `dim` ended at 1.75:1 — nearly
+ * invisible. The weight is solved from the contrast actually achieved instead, so
+ * the live cards keep the hierarchy the palette was drawn with: this ink is as
+ * far from the text as the shipped one was from its own cards, no further.
+ */
+function quietInk(
+  foreground: Rgb,
+  background: Rgb,
+  cards: readonly Rgb[],
+  target: number,
+): Rgb {
+  const at = (weight: number): Rgb => mixRgb(foreground, background, weight)
+  /**
+   * Which way the weight moves contrast is the host's answer, not a constant.
+   *
+   * Toward a dark background the ink lightens as it is mixed, so weight raises
+   * contrast; toward paper it fades toward the page, so weight lowers it. Solving
+   * one direction silently returned the palette's cap on every light host, which
+   * is how `dim` came to sit at 1.75:1 while looking correct in the code.
+   */
+  const towardsBrighter = relativeLuminance(background) < relativeLuminance(foreground)
+  let low = 0
+  let high = 1
+  // A background that is itself close to the cards cannot reach the target at any
+  // weight; full foreground is the readable answer and the palette's floor.
+  if (worstContrast(at(0), cards) <= target) return at(0)
+  for (let step = 0; step < 40; step += 1) {
+    const middle = (low + high) / 2
+    const contrast = worstContrast(at(middle), cards)
+    if (towardsBrighter ? contrast > target : contrast >= target) low = middle
+    else high = middle
+  }
+  return at((low + high) / 2)
+}
+
+/**
  * Rebuild the surface and ink swatches from what the terminal reported, so the
  * cards sit on the user's own background instead of a guessed one. The two
  * successful-call surfaces are separated by design: alternation only reads if
@@ -667,33 +810,80 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   const accent = terminal?.palette?.[4] ?? SYSTEM_NOTICE_BLUE
   const error = terminal?.palette?.[1] ?? SYSTEM_ERROR_RED
   const successInk = terminal?.palette?.[2] ?? SYSTEM_SUCCESS_GREEN
-  const card = (weight: number): string => toHex(mixRgb(background, foreground, weight))
   /**
    * A state fill carries its own hue, the way the shipped palettes do.
    *
    * Mixing toward the terminal's *foreground* produced three greys: the states
    * were separated only by lightness, which on a dark background is the one axis
-   * a reader cannot see. Mixing toward the state colour instead keeps the card on
-   * the user's own background and gives it the meaning at the same time.
+   * a reader cannot see. Mixing toward the state colour keeps the card on the
+   * user's own background and gives it the meaning at the same time — but the
+   * *amount* of that colour is fixed by the target luminance, not by a weight.
+   * A weight made the fill follow the terminal's swatch, and a bright terminal
+   * green turned every successful card into a pale one.
    */
-  const stateCard = (tint: Rgb, weight: number): string => toHex(mixRgb(background, tint, weight))
-  const pending = card(0.10)
-  const success = stateCard(successInk, light ? 0.16 : 0.20)
-  // The alternating pair is a plain lightness step: two successive successful
-  // cards must be told apart, not two different states.
-  const altCard = card(0.05)
-  const alt = contrastRatio(mixRgb(background, successInk, light ? 0.16 : 0.20), mixRgb(background, foreground, 0.05)) < 1.06
-    ? card(0.18) : altCard
+  const stateCard = (tint: Rgb, target: number): string => toHex(tintAtLuminance(background, tint, target))
+  /** Relative luminance of a shipped swatch, keeping the light palette's own paper tone. */
+  const swatchLuminance = (color: ThemeColor): number => {
+    const [r, g, b] = hexToRgb(base[color] as string)
+    return relativeLuminance({ r, g, b })
+  }
+  // A light terminal wants the same three states as tinted paper, so its cards
+  // are held at the light palette's own lightness rather than inverted.
+  const target = (state: 'pending' | 'success' | 'error'): number => light
+    ? swatchLuminance(`tool${state[0]!.toUpperCase()}${state.slice(1)}Bg` as ThemeColor)
+    : SYSTEM_CARD_LUMINANCE[state]
+  // Pending is neutral, so it keeps the background's own hue and is only lifted in
+  // lightness: it must stay quieter than a settled card, and it must still read as
+  // belonging to this terminal rather than as a generic grey. Lifting the
+  // background keeps whatever faint tint it has; mixing toward the foreground
+  // instead traded that tint for the foreground's flat grey.
+  const pending = toHex(liftedToLuminance(background, target('pending')))
+  const successRgb = tintAtLuminance(background, successInk, target('success'))
+  const success = toHex(successRgb)
+  /**
+   * The alternating pair is a plain lightness step, and it has to stay one: two
+   * successive successful cards must be told apart, not two different states. It
+   * is derived from the success fill rather than from the background, because a
+   * success fill held at a fixed luminance no longer sits where the old background
+   * step assumed — measuring against the background made the pair collide and
+   * pushed the alternate surface to a brightness no card should reach.
+   */
+  const alt = toHex(tintAtLuminance(background, successInk, target('success') * SYSTEM_ALT_STEP))
+  const errorCard = stateCard(error, target('error'))
+  const cardFills: readonly Rgb[] = [pending, success, alt, errorCard].map(hexToRgb).map(([r, g, b]) => ({ r, g, b }))
+  /**
+   * The contrast the shipped `dim` reached against the shipped cards.
+   *
+   * That is the hierarchy to reproduce: the live cards are derived here, so a
+   * fixed weight cannot know how far it may weaken the ink before it disappears.
+   * `dim` is the only secondary ink that needs solving — it sits closest to the
+   * surface, so it is the first to become unreadable there.
+   */
+  const shippedDimContrast = (): number => {
+    const [r, g, b] = hexToRgb(base.dim as string)
+    const shippedCards: readonly Rgb[] = (['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg'] as const)
+      .map(color => {
+        const [cr, cg, cb] = hexToRgb(base[color] as string)
+        return { r: cr, g: cg, b: cb }
+      })
+    return worstContrast({ r, g, b }, shippedCards)
+  }
   return {
     ...base,
     text: toHex(foreground),
-    muted: toHex(mixRgb(foreground, background, 0.28)),
-    dim: toHex(mixRgb(foreground, background, 0.45)),
+    /**
+     * `muted` is not derived. Both shipped palettes set it to the same swatch as
+     * `toolOutput`, and that swatch already clears its cards on either host;
+     * deriving it separately only produced a second, near-identical grey that
+     * sometimes landed on the wrong side of the ink it was meant to match.
+     */
+    muted: base.muted,
+    dim: toHex(quietInk(foreground, background, cardFills, shippedDimContrast())),
     userMessageBg: toHex(mixRgb(background, accent, 0.14)),
     toolPendingBg: pending,
     toolSuccessBg: success,
     toolAltBg: alt,
-    toolErrorBg: stateCard(error, light ? 0.14 : 0.22),
+    toolErrorBg: errorCard,
   }
 }
 

@@ -52,7 +52,7 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
 
 // Already represented by dedicated controls, or accepted solely for migration.
 const DEDICATED_FIELDS: Record<string, readonly string[]> = {
-  tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalProgress', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
+  tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
   'agent-behavior': ['language'],
   // A deployment without the working-directory service may still set these in
   // its profile; normal sessions always run in the Session's current directory.

@@ -12,6 +12,7 @@ import { createTheme } from '../chrome/theme.ts'
 import { defaultFeatureStates } from '../session/feature-toggles.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { visibleWidth } from '../chrome/width.ts'
+import { STATUS_ITEM_IDS } from '../chrome/status-config.ts'
 
 const theme = createTheme(false)
 const key = (id: string): KeyEvent => ({ type: 'key', id })
@@ -64,13 +65,12 @@ describe('settings search and inheritance', () => {
     expect(renderSettings(state, theme, 40, 12).lines.join('\n')).toContain('No matching settings')
   })
 
-  it('exposes narrow-screen section navigation, dependencies, reset and existing command links', () => {
-    const start = createSettings(prefs, 'notificationFocus', agent, undefined, entries)
+  it('exposes narrow-screen section navigation, reset and existing command links', () => {
+    const start = createSettings(prefs, 'notifications', agent, undefined, entries)
     const frame = renderSettings(start, theme, 40, 20).lines.join('\n')
     expect(frame).toContain('1/5')
     expect(frame).toContain('Tab sections')
-    expect(frame).toContain('Inactive while Notifications is')
-    expect(applySettingsEvent(start, key('ctrl+r'))).toEqual({ kind: 'reset', id: 'notificationFocus', label: 'Notify when' })
+    expect(applySettingsEvent(start, key('ctrl+r'))).toEqual({ kind: 'reset', id: 'notifications', label: 'Notifications' })
     const action = { id: 'command:model', label: 'Model and reasoning', description: 'Session route', value: 'm', values: [], action: 'model' }
     expect(applySettingsEvent(createSettings(prefs, action.id, agent, undefined, [], undefined, [action]), key('enter')))
       .toEqual({ kind: 'open-command', name: 'model' })
@@ -153,24 +153,20 @@ describe('tuiSettingItems / applySettingValue', () => {
       'hideThinking',
       'terminalTitle',
       'terminalState',
-      'terminalProgress',
       'editor',
       'mouseInteraction',
       'pasteProtection',
       'copyOnSelect',
       'notifications',
-      'notificationFocus',
-      'notificationThreshold',
       'checkUpdates',
       'startupChangelog',
       'statusEnabled',
-      'statusLabels',
-      'statusContextStyle',
+      'statusDensity',
       'statusItem:model',
       'statusItem:effort',
-      'statusItem:session',
       'statusItem:path',
       'statusItem:git',
+      'statusItem:session',
       'statusItem:context',
       'statusItem:cache',
       'statusItem:tokens',
@@ -182,15 +178,14 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(items[0]?.value).toBe('dark')
     expect(items[1]?.value).toBe('on')
     expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
-    expect(items.find(item => item.id === 'terminalProgress')).toMatchObject({ label: 'Terminal activity', value: 'off' })
     expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ label: 'Release notes', value: 'summary' })
     expect(items.find(item => item.id === 'statusEnabled')?.value).toBe('on')
     expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Telemetry')
-    expect(items.find(item => item.id === 'statusLabels')?.value).toBe('compact')
-    expect(items.find(item => item.id === 'statusItem:model')).toMatchObject({ label: '← Model', value: 'default', sample: 'deepseek' })
+    // No arrow, no colour: a row says whether the part is shown.
+    expect(items.find(item => item.id === 'statusItem:model')).toMatchObject({ label: 'Model', value: 'shown', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
-      .toMatchObject({ label: '← Context', value: 'default', sample: 'Ctx 1.6%' })
+      .toMatchObject({ label: 'Context', value: 'shown', sample: 'Ctx 1.6%' })
     expect(applySettingValue(prefs, 'theme', 'light')).toEqual({ theme: 'light', colors: true })
     expect(applySettingValue(prefs, 'colors', 'off')).toEqual({ theme: 'dark', colors: false })
     expect(applySettingValue(prefs, 'foldDensity', 'verbose'))
@@ -207,11 +202,10 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(applySettingValue(prefs, 'copyOnSelect', 'off').copyOnSelect).toBe(false)
     expect(applySettingValue(prefs, 'mouseInteraction', 'native').mouseInteraction).toBe('native')
     expect(applySettingValue(prefs, 'mouseInteraction', 'invalid')).toEqual(prefs)
-    expect(applySettingValue(prefs, 'terminalProgress', 'on').terminalProgress).toBe(true)
     expect(applySettingValue(prefs, 'statusEnabled', 'off').statusBar?.enabled).toBe(false)
-    expect(applySettingValue(prefs, 'statusLabels', 'full').statusBar?.labels).toBe('full')
-    expect(applySettingValue(prefs, 'statusItem:model', 'accent').statusBar?.colors?.model).toBe('accent')
-    expect(applySettingValue(prefs, 'statusItem:cache', 'warning').statusBar?.colors?.cache).toBe('warning')
+    // A colour token is no longer accepted as a status item value.
+    expect(applySettingValue(prefs, 'statusItem:model', 'accent')).toEqual(prefs)
+    expect(applySettingValue(prefs, 'statusItem:cache', 'warning')).toEqual(prefs)
     expect(applySettingValue(prefs, 'theme', 'nope')).toEqual(prefs)
   })
 
@@ -231,13 +225,16 @@ describe('tuiSettingItems / applySettingValue', () => {
     }
   })
 
-  it('hides and reorders individual status groups without duplicate positions', () => {
-    const hidden = applySettingValue(prefs, 'statusItem:context', 'off')
-    expect(hidden.statusBar?.groups).toEqual(['cache', 'tokens', 'speed', 'durations', 'counts'])
-    const moved = applySettingValue(hidden, 'statusItem:counts', '1')
-    expect(moved.statusBar?.groups).toEqual(['counts', 'cache', 'tokens', 'speed', 'durations'])
+  it('hides individual parts, and only hiding is a decision it can record', () => {
+    const hidden = applySettingValue(prefs, 'statusItem:context', 'hidden')
+    expect(hidden.statusBar?.hidden).toContain('context')
     const hiddenGit = applySettingValue(prefs, 'statusItem:git', 'hidden')
-    expect(hiddenGit.statusBar?.meta).toEqual(['model', 'effort', 'path'])
+    expect(hiddenGit.statusBar?.hidden).toContain('git')
+    // Ordering is not expressible any more: an old numeric value is not a state.
+    expect(applySettingValue(hidden, 'statusItem:counts', '1')).toEqual(hidden)
+    // Showing again removes the narrowing rather than re-adding to a list.
+    const shownAgain = applySettingValue(hidden, 'statusItem:context', 'shown')
+    expect(shownAgain.statusBar?.hidden).not.toContain('context')
   })
 
   it('exposes update and startup release-note controls', () => {
@@ -248,12 +245,21 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(applySettingValue(prefs, 'startupChangelog', 'expanded').startupChangelog).toBe('expanded')
   })
 
-  it('exposes opt-in terminal notification controls', () => {
+  it('exposes one notification row instead of a policy, a focus rule and a threshold', () => {
     const items = tuiSettingItems(prefs)
-    expect(items.find(item => item.id === 'notifications')).toMatchObject({ value: 'off' })
-    expect(items.find(item => item.id === 'notificationThreshold')).toMatchObject({ value: '30s' })
-    expect(applySettingValue(prefs, 'notifications', 'long-running').notifications).toBe('long-running')
-    expect(applySettingValue(prefs, 'notificationThreshold', '1m').notificationThreshold).toBe('1m')
+    expect(items.find(item => item.id === 'notifications')).toMatchObject({
+      label: 'Notifications',
+      value: 'off',
+      values: ['off', 'unfocused', 'always'],
+    })
+    expect(items.some(item => item.id === 'notificationFocus' || item.id === 'notificationThreshold')).toBe(false)
+    expect(applySettingValue(prefs, 'notifications', 'unfocused').notifications).toBe('unfocused')
+    expect(applySettingValue(prefs, 'notifications', 'always').notifications).toBe('always')
+    // The retired long-running policy has no row and no value of its own.
+    expect(applySettingValue(prefs, 'notifications', 'long-running')).toEqual(prefs)
+    // A pre-merge document still renders as the mode it meant.
+    expect(tuiSettingItems({ ...prefs, notifications: 'long-running', notificationFocus: 'unfocused' })
+      .find(item => item.id === 'notifications')?.value).toBe('unfocused')
   })
 
   it('projects Agent language only when the host binds Agent settings', () => {
@@ -343,48 +349,35 @@ describe('applySettingsEvent', () => {
     expect(english.kind === 'apply' && english.state.prefs).toEqual(prefs)
   })
 
-  it('reorders first-line preview items independently of telemetry groups', () => {
+  it('keeps the first line in fixed columns instead of letting items move', () => {
+    // Identity stays left and place stays right. A reader cannot drag a path to
+    // the left column, because the line is read positionally: model and effort
+    // answer "with what", path and branch answer "where".
+    const preview = renderSettings(createSettings(prefs, 'statusItem:git'), theme, 80, 16).lines.join('\n')
+    expect(preview).toMatch(/deepseek · max\s+~\/project · main \*1/)
+    // The column is not a setting: no key can move an item to the other side,
+    // and a document that still names a side is reduced on read.
     const open = createSettings(prefs, 'statusItem:git')
-    const grabbed = applySettingsEvent(open, key('enter'))
-    const moved = applySettingsEvent(grabbed.kind === 'apply' ? grabbed.state : open, key('up'))
-    expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.metaOrder).toEqual([
-      'model', 'effort', 'git', 'path', 'session',
-    ])
-    const preview = renderSettings(moved.kind === 'apply' ? moved.state : open, theme, 80, 16).lines.join('\n')
-    expect(preview).toMatch(/deepseek · max\s+main \*1 · ~\/project/)
-    const toLeft = applySettingsEvent(moved.kind === 'apply' ? moved.state : open, key('left'))
-    expect(toLeft.kind === 'apply' && toLeft.state.prefs.statusBar?.sides?.git).toBe('left')
+    for (const id of ['enter', 'left', 'right', 'up', 'down']) {
+      const result = applySettingsEvent(open, key(id))
+      if (result.kind !== 'apply') continue
+      expect(result.state.prefs.statusBar).not.toHaveProperty('sides')
+      expect(result.state.prefs.statusBar).not.toHaveProperty('metaOrder')
+    }
   })
 
-  it('grabs a status group and reorders the visible list directly with up/down', () => {
-    const open = createSettings(prefs, 'statusItem:tokens')
-    const grabbed = applySettingsEvent(open, key('enter'))
-    expect(grabbed.kind).toBe('apply')
-    expect(grabbed.kind === 'apply' && grabbed.state.moving).toBe('tokens')
-    const moved = applySettingsEvent(grabbed.kind === 'apply' ? grabbed.state : open, key('up'))
-    expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.groups).toEqual([
-      'context', 'tokens', 'cache', 'speed', 'durations', 'counts',
-    ])
-    expect(moved.kind === 'apply' && moved.state.prefs.statusBar?.order).toEqual([
-      'context', 'tokens', 'cache', 'speed', 'durations', 'counts',
-    ])
-    expect(moved.kind === 'apply' && tuiSettingItems(moved.state.prefs)[moved.state.selected]?.label).toBe('← Tokens')
-    const placed = applySettingsEvent(moved.kind === 'apply' ? moved.state : open, key('enter'))
-    expect(placed.kind === 'update' && placed.state.moving).toBeUndefined()
-  })
-
-  it('shows or hides a status group with space while preserving the visible order', () => {
+  it('shows or hides a status group with space, keeping the row in place', () => {
     const open = createSettings(prefs, 'statusItem:cache')
     const hidden = applySettingsEvent(open, { type: 'text', value: ' ' })
-    expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.groups).toEqual([
-      'context', 'tokens', 'speed', 'durations', 'counts',
-    ])
+    // Hiding is recorded as a narrowing, so the row keeps its slot in the list
+    // and the reader can find it again to turn it back on.
+    expect(hidden.kind === 'apply' && hidden.state.prefs.statusBar?.hidden).toContain('cache')
     expect(hidden.kind === 'apply'
       && tuiSettingItems(hidden.state.prefs)[hidden.state.selected]?.id).toBe('statusItem:cache')
+    expect(hidden.kind === 'apply'
+      && tuiSettingItems(hidden.state.prefs)[hidden.state.selected]?.value).toBe('hidden')
     const shown = applySettingsEvent(hidden.kind === 'apply' ? hidden.state : open, { type: 'text', value: ' ' })
-    expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.groups).toEqual([
-      'context', 'cache', 'tokens', 'speed', 'durations', 'counts',
-    ])
+    expect(shown.kind === 'apply' && shown.state.prefs.statusBar?.hidden).not.toContain('cache')
     expect(shown.kind === 'apply'
       && tuiSettingItems(shown.state.prefs)[shown.state.selected]?.id).toBe('statusItem:cache')
   })
@@ -461,10 +454,9 @@ describe('renderSettings', () => {
     expect(lines).toContain('Tab sections')
     expect(lines).toContain('Color palette')
     expect(lines).not.toContain('Transcript')
-    const terminalActivity = renderSettings(createSettings(prefs, 'terminalProgress'), theme, 40, 12).lines.join('\n')
-    expect(terminalActivity).toContain('Terminal activity')
-    expect(terminalActivity).toContain('Busy/idle status in supported')
-    expect(terminalActivity).toContain('terminal tabs and taskbars')
+    const terminalStatus = renderSettings(createSettings(prefs, 'terminalState'), theme, 40, 12).lines.join('\n')
+    expect(terminalStatus).toContain('Terminal status')
+    expect(terminalStatus).toContain('Auto reports the root Agent')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
     expect(status).toContain('Show session metrics on the second footer')
@@ -484,22 +476,6 @@ describe('renderSettings', () => {
     expect(textPreview).toContain('Ctx 1.6%')
   })
 
-  it('cycles context styles through live previews without moving or hiding the item', () => {
-    let state = createSettings(prefs, 'statusContextStyle')
-    expect(tuiSettingItems(prefs)[state.selected]).toMatchObject({ label: 'Context style', value: 'percent' })
-    for (const [contextStyle, preview] of [['bar', 'Ctx ──────────'], ['tokens', 'Ctx 16.4K/1M'], ['detailed', 'Ctx 1.6% · 16.4K/1M'], ['percent', 'Ctx 1.6%']]) {
-      const result = applySettingsEvent(state, key('enter'))
-      expect(result.kind).toBe('apply')
-      if (result.kind !== 'apply') throw new Error('Context style must apply immediately')
-      state = result.state
-      expect(state.prefs.statusBar?.contextStyle).toBe(contextStyle)
-      expect(state.moving).toBeUndefined()
-      expect(state.prefs.statusBar?.groups).toContain('context')
-      expect(renderSettings(state, theme, 140, 20).lines.join('\n')).toContain(preview)
-    }
-    expect(applySettingValue(prefs, 'statusContextStyle', 'invalid')).toEqual(prefs)
-  })
-
   it('previews metadata when telemetry is disabled, matching the live footer', () => {
     const hidden = applySettingValue(prefs, 'statusEnabled', 'off')
     const preview = renderSettings(createSettings(hidden, 'statusEnabled'), theme, 140, 20).lines.slice(3, 5).join('\n')
@@ -509,25 +485,16 @@ describe('renderSettings', () => {
     expect(preview).not.toContain('Ctx')
   })
 
-  it('renders status rows in their effective order and marks a grabbed row', () => {
-    const reordered: TuiPrefs = {
-      ...prefs,
-      statusBar: {
-        enabled: true,
-        labels: 'compact',
-        groups: ['counts', 'context', 'cache', 'tokens', 'speed', 'durations'],
-        order: ['counts', 'context', 'cache', 'tokens', 'speed', 'durations'],
-      },
-    }
-    const open = createSettings(reordered, 'statusItem:counts')
-    const grabbed = applySettingsEvent(open, key('enter'))
-    const view = renderSettings(grabbed.kind === 'apply' ? grabbed.state : open, theme, 72, 18)
-    const text = view.lines.join('\n')
-    expect(text).toContain('↕ → Activity')
-    expect(text).toContain('moving')
-    expect(text).toContain('↑↓ order · ←→ column')
+  it('lists status rows once each, in catalog order, whatever is hidden', () => {
+    // A hidden row keeps its slot so the reader can find it again; nothing in
+    // the list depends on what happens to be visible.
+    const narrowed: TuiPrefs = { ...prefs, statusBar: { density: 'standard', hidden: ['counts', 'model'] } }
+    const ids = tuiSettingItems(narrowed).map(item => item.id).filter(id => id.startsWith('statusItem:'))
+    expect(ids).toEqual([...STATUS_ITEM_IDS].map(id => `statusItem:${id}`))
+    const view = renderSettings(createSettings(narrowed, 'statusItem:counts'), theme, 72, 18).lines.join('\n')
+    expect(view).toContain('Activity')
+    expect(view).toContain('Space show/hide')
   })
-
   it('marks the selected row with the cursor glyph', () => {
     const selected = renderSettings(createSettings(prefs, 'colors'), theme, 40).lines.join('\n')
     expect(selected).toContain('❯')
@@ -562,8 +529,8 @@ describe('renderSettings', () => {
 
 })
 
-it('persists paste protection and notification focus choices', () => {
+it('persists paste protection and the notification mode', () => {
   expect(applySettingValue(prefs, 'pasteProtection', 'off')).toMatchObject({ pasteProtection: false })
-  expect(applySettingValue(prefs, 'notificationFocus', 'always')).toMatchObject({ notificationFocus: 'always' })
-  expect(tuiSettingItems(prefs).find(row => row.id === 'notificationFocus')?.value).toBe('unfocused')
+  expect(applySettingValue(prefs, 'notifications', 'always')).toMatchObject({ notifications: 'always' })
+  expect(tuiSettingItems(prefs).find(row => row.id === 'notifications')?.value).toBe('off')
 })

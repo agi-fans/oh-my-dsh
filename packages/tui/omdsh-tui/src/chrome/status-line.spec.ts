@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TuiSessionStats } from '../definition.ts'
-import { defaultStatusBarConfig, resolveStatusBarConfig, STATUS_CONTEXT_STYLES, type StatusBarConfig } from './status-config.ts'
+import { DEFAULT_STATUS_DENSITY, resolveStatusBarConfig, STATUS_CONTEXT_STYLES, STATUS_ITEM_IDS, type ResolvedStatusBarConfig, type StatusBarConfig, type StatusContextStyle } from './status-config.ts'
 import {
   formatDuration,
   formatTokens,
@@ -25,8 +25,21 @@ const stats: TuiSessionStats = {
   cacheWriteTokens: 0,
 }
 
-function statusBar(overrides: Partial<StatusBarConfig> = {}): StatusBarConfig {
-  return { ...defaultStatusBarConfig(), ...overrides }
+/** The shipped footer, optionally narrowed or moved to another density. */
+function statusBar(overrides: Partial<StatusBarConfig> = {}): ResolvedStatusBarConfig {
+  return resolveStatusBarConfig({ density: DEFAULT_STATUS_DENSITY, hidden: [], ...overrides })
+}
+
+/**
+ * Context only, in one representation.
+ *
+ * `contextStyle` used to be settable on its own; it now follows the density, so a
+ * test that wants one style says which density produces it rather than reaching
+ * past the document. The styles are exercised as behavior, not as a setting.
+ */
+function contextOnly(style: StatusContextStyle): ResolvedStatusBarConfig {
+  const resolved = statusBar({ hidden: STATUS_ITEM_IDS.filter(id => id !== 'context') })
+  return { ...resolved, contextStyle: style }
 }
 
 /** Read the telemetry row through the same footer used by the live TUI. */
@@ -125,7 +138,7 @@ describe('session status line', () => {
     const compact = telemetryRow(initial, statusBar(), createTheme(false), 80)
     expect(compact).toContain('Ctx 0%')
     expect(compact).not.toContain('Context')
-    expect(telemetryRow(initial, statusBar({ labels: 'full' }), createTheme(false), 80)).toContain('Context 0%')
+    expect(telemetryRow(initial, statusBar({ density: 'verbose' }), createTheme(false), 80)).toContain('Context 0%')
   })
 
   it('renders context pressure as percentage and used/window tokens', () => {
@@ -134,8 +147,9 @@ describe('session status line', () => {
       contextTokens: 12_200,
       contextWindow: 100_000,
     }
-    expect(telemetryGroups(withContext, statusBar({ contextStyle: 'detailed' }))).toContain(
-      'Ctx 12% · 12.2K/100K',
+    // `verbose` selects the detailed form and long labels together.
+    expect(telemetryGroups(withContext, statusBar({ density: 'verbose' }))).toContain(
+      'Context 12% · 12.2K/100K',
     )
   })
 
@@ -145,22 +159,24 @@ describe('session status line', () => {
     ['tokens', 'Ctx 40K/100K'],
     ['detailed', 'Ctx 40% · 40K/100K'],
   ] as const)('renders the %s context style without redundant representations', (contextStyle, expected) => {
-    expect(telemetryRow({ ...stats, contextTokens: 40_000, contextWindow: 100_000 }, statusBar({ groups: ['context'], contextStyle }))).toBe(expected)
+    expect(telemetryRow({ ...stats, contextTokens: 40_000, contextWindow: 100_000 },
+      contextOnly(contextStyle))).toBe(expected)
   })
 
   it('bounds the bar while retaining numeric over-capacity information in percent mode', () => {
     const overflow = { ...stats, contextTokens: 120, contextWindow: 100 }
-    expect(telemetryRow(overflow, statusBar({ groups: ['context'], contextStyle: 'bar' }))).toBe('Ctx ━━━━━━━━━━')
-    expect(telemetryRow(overflow, statusBar({ groups: ['context'] }))).toBe('Ctx 120%')
-    expect(telemetryRow({ ...overflow, contextTokens: -1 }, statusBar({ groups: ['context'], contextStyle: 'bar' }))).toBe('Ctx ──────────')
-    expect(resolveStatusBarConfig({ contextStyle: 'invalid' as never }).contextStyle).toBe('percent')
-    expect(resolveStatusBarConfig({ labels: 'full' }).contextStyle).toBe('percent')
+    expect(telemetryRow(overflow, contextOnly('bar'))).toBe('Ctx ━━━━━━━━━━')
+    expect(telemetryRow(overflow, contextOnly('percent'))).toBe('Ctx 120%')
+    expect(telemetryRow({ ...overflow, contextTokens: -1 }, contextOnly('bar'))).toBe('Ctx ──────────')
+    // The style is a density consequence now, so an unknown density falls back
+    // instead of letting a stray document pick a representation.
+    expect(resolveStatusBarConfig({ density: 'nope' as never }).contextStyle).toBe('percent')
   })
 
   it.each(STATUS_CONTEXT_STYLES)('keeps %s pressure colors and exact footer widths', contextStyle => {
     for (const colors of [true, false]) {
       const theme = createTheme(colors, true)
-      const config = statusBar({ groups: ['context'], contextStyle })
+      const config = contextOnly(contextStyle)
       for (const width of [10, 20, 40, 80, 140]) {
         const lines = renderStatusFooter({ model: '模型 🐳', stats: { ...stats, contextTokens: 80, contextWindow: 100 }, config, width }, theme)
         for (const line of lines) expect(oracleWidth(line)).toBe(width)
@@ -184,13 +200,13 @@ describe('session status line', () => {
     const warning = renderStatusFooter({
       model: 'm',
       stats: base,
-      config: statusBar({ groups: ['context'] }),
+      config: contextOnly('percent'),
       width: 80,
     }, colorTheme)
     const error = renderStatusFooter({
       model: 'm',
       stats: { ...base, contextTokens: 95 },
-      config: statusBar({ groups: ['context'] }),
+      config: contextOnly('percent'),
       width: 80,
     }, colorTheme)
     expect(warning[1]).toContain(colorTheme.getFgAnsi('warning'))
@@ -244,8 +260,8 @@ describe('session status line', () => {
     expect(line).toContain('5.9M in · 73.8K out')
     expect(line).toContain('TTFT 1.2s · 80 tok/s')
     expect(line).not.toContain('LLM 16m51s')
-    // The wide durations group does not fit, so the scan skips it and the
-    // narrower counts group fills the columns it left free.
+    // The wide durations group does not fit and is skipped; the narrower counts
+    // group after it still gets the space, because the scan continues.
     expect(line).toContain('1 turn · 74 steps')
     expect(stripAnsi(line)).not.toContain('…')
     expect(visibleWidth(line)).toBeLessThanOrEqual(80)
@@ -265,14 +281,12 @@ describe('session status line', () => {
         if (testCase.groups.includes(index)) expect(telemetry, label).toContain(group)
         else expect(telemetry, label).not.toContain(group)
       })
-      // Configured order and column sides survive the skip: the row reads as
-      // the left column then the right column, each in configured order.
-      const column = (indices: readonly number[]): string =>
-        indices.map(index => TELEMETRY_GROUPS[index] ?? '').join(' • ')
-      const expected = [
-        column(testCase.groups.filter(index => index < 3)),
-        column(testCase.groups.filter(index => index >= 3)),
-      ].filter(text => text !== '').join(' ')
+      // The row is one line that fills and then stops, in catalog order, so a
+      // group that fits always sits where the catalog puts it — no second column
+      // to move into and no gap where a skipped group used to be.
+      const expected = testCase.groups
+        .map(index => TELEMETRY_GROUPS[index] ?? '')
+        .join(' • ')
       expect(telemetry.trim().replace(/\s+/gu, ' '), label).toBe(expected)
       // A separator never precedes an ellipsis, and a clip only survives with a
       // readable prefix: a metadata item is shown whole, clipped, or not at all.
@@ -304,9 +318,9 @@ describe('session status line', () => {
 
   it('includes every group across the footer columns when space allows', () => {
     const line = telemetryRow(stats, statusBar(), createTheme(false), 160)
-    expect(line).toContain('Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s')
-    expect(line).toContain('LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
-    expect(stripAnsi(line)).toMatch(/tok\/s\s+LLM/u)
+    // One row, every group, in order.
+    expect(stripAnsi(line)).toBe('Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
+      + ' • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
     expect(line).not.toContain('轮')
     expect(line).not.toContain('缓存')
   })
@@ -319,33 +333,40 @@ describe('session status line', () => {
     expect(telemetryRow(stats, statusBar({ enabled: false }), createTheme(false), 200)).toBe('')
   })
 
-  it('migrates legacy presets into the customizable layout', () => {
+  it('migrates legacy presets into a density', () => {
+    // `minimal` meant "no second line"; that is minimal density with telemetry off.
     expect(resolveStatusBarConfig(undefined, 'minimal').enabled).toBe(false)
+    expect(resolveStatusBarConfig(undefined, 'full').density).toBe('verbose')
     expect(resolveStatusBarConfig(undefined, 'full').labels).toBe('full')
-    expect(resolveStatusBarConfig({ enabled: true, labels: 'compact', groups: ['cache'], colors: { model: 'accent' } }).colors).toMatchObject({
-      model: 'accent',
-      path: 'default',
-      git: 'default',
-      metrics: 'default',
-      cache: 'default',
-    })
-    expect(resolveStatusBarConfig({
+    expect(resolveStatusBarConfig(undefined).density).toBe('standard')
+  })
+
+  it('reduces a document written by the old layout engine', () => {
+    // The old shape listed what it wanted shown, plus a colour per item and a
+    // column per item. Both of those are gone; what survives is what it showed.
+    const migrated = resolveStatusBarConfig({
       enabled: true,
       labels: 'compact',
       groups: ['cache'],
-      colors: { metrics: 'warning', tokens: 'accent' },
-    }).colors).toMatchObject({
-      cache: 'warning',
-      tokens: 'accent',
-      metrics: 'warning',
+      meta: ['model'],
+      colors: { metrics: 'warning', tokens: 'accent', model: 'accent' },
+      sides: { model: 'right' },
     })
+    expect(migrated.groups).toEqual(['cache'])
+    expect(migrated.meta).toEqual(['model'])
+    // Every other part is recorded as hidden, so it stays gone across densities.
+    expect(migrated.groups).not.toContain('tokens')
+    expect(migrated.meta).not.toContain('path')
   })
 
-  it('honors configured visibility and order', () => {
-    const custom = statusBar({ groups: ['tokens', 'cache', 'counts'] })
+  it('honors a narrowing and keeps the catalog order', () => {
+    // Hiding is still a per-part decision; the order is not. A reader who keeps
+    // three numbers sees them where they always are, so the footer cannot
+    // reshuffle itself between one session and the next.
+    const custom = statusBar({ hidden: ['context', 'speed', 'durations'] })
     expect(telemetryGroups(stats, custom)).toEqual([
-      '5.9M in · 73.8K out',
       'Cache 99%',
+      '5.9M in · 73.8K out',
       '1 turn · 74 steps',
     ])
   })
@@ -368,7 +389,10 @@ describe('session status line', () => {
     expect(lines).toHaveLength(2)
     expect(lines.every(line => visibleWidth(line) === 140)).toBe(true)
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek-v4-pro · max\s+~\/Workspace\/dsh-tui · main \*6 \?4  $/)
-    expect(stripAnsi(lines[1] ?? '')).toMatch(/^  Cache 99% • 5\.9M in · 73\.8K out • TTFT 1\.2s · 80 tok\/s\s+LLM 16m51s · Tools 3m33s • 1 turn · 74 steps  $/)
+    // Every group on one line: the second footer row no longer splits into
+    // columns, so the separator chain runs straight through.
+    expect(stripAnsi(lines[1] ?? '').trim()).toBe(
+      'Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
   })
 
   it('keeps collaboration and access controls visible in metadata', () => {
@@ -494,24 +518,19 @@ describe('session status line', () => {
     expect(stripAnsi(minimal[1] ?? '').trim()).toBe('')
   })
 
-  it('paints configured status slot colors and keeps semantic exceptions', () => {
+  it('keeps the semantic exceptions that a custom colour used to be needed for', () => {
+    // There is no per-item colour left. What remains is the hierarchy the palette
+    // already encoded: a dirty branch is `warning`, whatever else is configured.
     const theme = createTheme(true, true)
-    const colored = statusBar({
-      colors: { model: 'accent', path: 'border', git: 'success', metrics: 'warning' },
-    })
     const lines = renderStatusFooter({
       model: 'deepseek-v4-pro',
       pwd: '~/ws',
       branch: 'main *1',
       stats,
-      config: colored,
+      config: statusBar(),
       width: 140,
     }, theme)
-    expect(lines[0]).toContain(theme.getFgAnsi('accent'))
-    expect(lines[0]).toContain(theme.getFgAnsi('border'))
-    expect(lines[0]).toContain(theme.getFgAnsi('success'))
-    expect(lines[0]).not.toContain(theme.getFgAnsi('warning'))
-    expect(lines[1]).toContain(theme.getFgAnsi('warning'))
+    expect(lines[0]).toContain(theme.getFgAnsi('warning'))
     expect(lines[1]).toContain(theme.getFgAnsi('success'))
 
     const dirtyDefault = renderStatusFooter({
@@ -564,7 +583,8 @@ describe('session status line', () => {
     const shown = renderStatusFooter({
       model: 'deepseek',
       sessionTitle: 'Fix the parser',
-      config: statusBar({ meta: [...defaultStatusBarConfig().meta, 'session'] }),
+      // `session` joins the first line at Verbose; Standard leaves it off.
+      config: statusBar({ density: 'verbose' }),
       width: 80,
     }, createTheme(false))
     expect(stripAnsi(shown[0] ?? '')).toContain('Fix the parser')

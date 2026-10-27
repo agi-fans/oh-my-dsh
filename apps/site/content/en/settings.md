@@ -43,7 +43,7 @@ The selected published bridge runs its supported synchronous command hooks. Code
 
 ## Interface
 
-Rows are grouped under Appearance, Input, Notifications and Startup. Notification dependencies remain visible: **Notify when** is inactive while notifications are off, and **Long turn** is used only by the long-running policy.
+Rows are grouped under Appearance, Input, Notifications and Startup.
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
@@ -53,22 +53,19 @@ Rows are grouped under Appearance, Input, Notifications and Startup. Notificatio
 | Math in replies | auto / source | auto | Format supported formulas as terminal text, or retain LaTeX delimiters and commands. |
 | Mermaid in replies | auto / source | auto | Draw complete diagrams that fit, or show Mermaid source. |
 | Terminal title | status / session / workspace / off | status | Show the root Agent state with the session name, retain only the session name, show state with workspace and Git branch, or stop setting the title. |
-| Program status | auto / on / off | auto | Report root Agent lifecycle to supporting terminals; Auto waits for a capability reply, On forces reporting, and Off disables it. |
+| Terminal status | auto / on / off | auto | Report root Agent lifecycle to supporting terminals; Auto waits for a capability reply, On forces reporting, and Off disables it. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Keybindings | Default / custom count | Default | Open the shortcut remapping picker, save to `keybindings.json`, and apply immediately. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
-| Terminal activity | on / off | off | Busy/idle status in supported terminal tabs and taskbars. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
 | Release notes | summary / expanded / hidden | summary | Show new release notes once after an upgrade. |
-| Notifications | off / long-running / always | off | Notify when a turn finishes or input is required. |
-| Notify when | unfocused / always | unfocused | Suppress notifications while the terminal reports focus; terminals without focus reports use the selected notification policy. |
-| Long turn | 15s / 30s / 1m / 2m | 30s | Minimum duration before a long-running notification. |
+| Notifications | off / unfocused / always | off | Notify when a turn finishes or input is required. `unfocused` waits until the terminal loses focus; `always` reports regardless of focus. |
 
-Notifications coalesce brief event bursts, prioritizing questions, approvals, and failures over successful completion. Returning to the terminal before a pending notification is sent cancels it when **Notify when** is `unfocused`.
+Notifications coalesce brief event bursts, prioritizing questions, approvals, and failures over successful completion. Returning to the terminal before a pending notification is sent cancels it in `unfocused` mode. A turn shorter than thirty seconds never notifies: the boundary decides whether an arriving notification is noise, so it is fixed rather than configurable.
 
-Terminal title and Program status share the root Agent lifecycle with Herdr. Pending prompts take priority over running work; completion and failure remain visible until new work or a session switch. Inspecting a subagent does not replace the root state. Program status uses OSC 7501 and sends only the session name as optional metadata, never prompt bodies, tool arguments or errors. These controls apply immediately and clear owned metadata on exit; redirected input or output sends no terminal control sequences. Terminal activity remains the separate opt-in OSC 9 progress indicator.
+Terminal title and Terminal status share the root Agent lifecycle with Herdr. Pending prompts take priority over running work; completion and failure remain visible until new work or a session switch. Inspecting a subagent does not replace the root state. Terminal status uses OSC 7501 and sends only the session name as optional metadata, never prompt bodies, tool arguments or errors. These controls apply immediately and clear owned metadata on exit; redirected input or output sends no terminal control sequences. The separate OSC 9 busy/idle indicator is gone: it repeated what Terminal status already reports through a weaker protocol.
 
 Tool previews use the active theme's background colors with padding on every side. Prompt and tool-card backgrounds have paired text colors; ordinary reply text keeps the terminal's default foreground. Match `light` to a light terminal and `dark` or `system` to a dark one. A card's fill alone names its state — neutral while running, green on success, red on failure — and that distinction survives on 16-color terminals, where the pending and success fills are the only pair that must share an entry. Turns share one presentation, described in [Keyboard and keys](keyboard.md#transcript); there is no transcript density setting. Legacy `foldDensity` and `expandTools` values are accepted but no longer affect the view.
 
@@ -112,16 +109,13 @@ Rows that back a command (`session-query` backs `/resume`, `workspace` backs `@`
 | Row | Values | Default | Effect |
 |---|---|---|---|
 | Telemetry | on / off | on | Show session metrics on the second footer line; model and workspace metadata remain visible. |
-| Context label | compact / full | compact | Use `Ctx` or `Context` before the occupancy value. |
-| Context style | percent / bar / tokens / detailed | percent | Show percentage, a ten-cell occupancy bar, used/window tokens, or percentage with tokens. |
+| Density | minimal / standard / verbose | standard | How much the footer says. `minimal` keeps occupancy and cost with `Ctx` labels; `standard` shows every telemetry group with `Ctx`; `verbose` uses long labels (`Context`) and the detailed context form. |
 
-`Ctrl+R` on a status item restores only its inherited color. **Restore layout** confirms restoration of the complete inherited layout, visibility and colors.
+`Space` on any footer part shows or hides it, and the choice keeps applying across densities. **Restore layout** confirms restoration of the inherited density and visibility.
 
-Status items are reordered and restyled in place: `Space` shows or hides an item, `Enter` starts moving one (`↑`/`↓` reorder, `←`/`→` choose the column), and each item has its own color.
+Every part has a fixed place, and there is nothing to drag: a row says only whether that part appears. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, because the terminal window title carries the session title regardless. The second line lists Context (`Ctx 1.6%`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`), in that order at every density.
 
-First line, in default order: Model (`deepseek`), Effort (`max`), Path (`~/project`), Git (`main *1`), and Session, which is off by default because the terminal window title carries the session title regardless.
-
-Second line telemetry groups, all shown by default: Context (`Ctx 1.6%`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`). Context style changes only the representation: `tokens` shows `Ctx 16.4K/1M`, `detailed` shows `Ctx 1.6% · 16.4K/1M`, and `bar` shows occupancy without also printing a percentage. Every style retains warning and error colors as occupancy rises. When the terminal is narrow, complete groups are selected in configured order. The default order prioritizes context, cache, tokens, and latency before durations and activity counts; a group that does not fit is skipped so a smaller later group can still appear.
+The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Ctx 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal complete groups are taken in catalog order, so a group that does not fit is skipped and a smaller later group can still appear; nothing moves to a second column or changes place as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
 
 ## Persistence
 

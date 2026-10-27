@@ -121,6 +121,91 @@ describe('tool state surfaces', () => {
     }
   })
 
+  /**
+   * The `system` palette derived its fills by mixing a terminal swatch into the
+   * background at a fixed weight, so the card's lightness was the terminal's
+   * choice rather than the theme's. A terminal reporting a bright green produced
+   * a card at 11.7% luminance — nearly three times the shipped 4.4% — where dimmed
+   * card text fell to 3.33:1. The fills are held at a target luminance now, and
+   * this is the assertion that keeps them there for any terminal swatch.
+   */
+  const SYSTEM_TERMINAL_GREENS: readonly { r: number; g: number; b: number }[] = [
+    { r: 0x4a, g: 0xc8, b: 0x7a }, // bright
+    { r: 0x2e, g: 0xa0, b: 0x43 }, // mid
+    { r: 0x3f, g: 0x8f, b: 0x5f }, // dull
+    { r: 0x00, g: 0xff, b: 0x88 }, // maximal chroma
+  ]
+  const BACKGROUNDS = [
+    { label: 'dark', background: { r: 0x15, g: 0x14, b: 0x1a }, foreground: { r: 0xe0, g: 0xe0, b: 0xe0 }, scheme: 'dark' as const },
+    { label: 'tinted', background: { r: 0x1b, g: 0x1b, b: 0x26 }, foreground: { r: 0xdc, g: 0xdc, b: 0xe4 }, scheme: 'dark' as const },
+    { label: 'light', background: { r: 0xf5, g: 0xf5, b: 0xf7 }, foreground: { r: 0x24, g: 0x24, b: 0x24 }, scheme: 'light' as const },
+  ]
+
+  it.each(BACKGROUNDS)('$label keeps a system card at the shipped lightness for every terminal green', host => {
+    const shippedDark = createTheme(true, true, 'dark')
+    const shippedLight = createTheme(true, true, 'light')
+    const ceiling = Math.max(...CARD_BACKGROUNDS.map(color => luminance(shippedDark.getBgAnsi(color)) * 1.25))
+    const paperFloor = Math.min(...CARD_BACKGROUNDS.map(color => luminance(shippedLight.getBgAnsi(color)) * 0.85))
+    for (const green of SYSTEM_TERMINAL_GREENS) {
+      const palette: { r: number; g: number; b: number }[] = []
+      palette[1] = { r: 0xff, g: 0x5f, b: 0x5f }
+      palette[2] = green
+      const theme = createTheme(true, true, 'system', {
+        background: host.background, foreground: host.foreground, scheme: host.scheme, palette,
+      } as never)
+      for (const color of CARD_BACKGROUNDS) {
+        const fill = theme.getBgAnsi(color)
+        const measured = luminance(fill)
+        if (host.scheme === 'light') {
+          // A light host keeps tinted paper: never darker than the shipped paper.
+          expect(measured, `${color} on green ${JSON.stringify(green)}`).toBeGreaterThanOrEqual(paperFloor)
+        } else {
+          // A dark host keeps a dark surface regardless of how bright its green is.
+          expect(measured, `${color} on green ${JSON.stringify(green)}`).toBeLessThanOrEqual(ceiling)
+        }
+      }
+    }
+  })
+
+  /**
+   * The contrast each shipped palette actually achieved for a card ink.
+   *
+   * This is the bar, not an invented 4.5: `dim` is deliberately quiet in both
+   * shipped palettes and lands just under 4:1 there, so demanding AA of the
+   * derived value would either fail the shipped colours too or force a hierarchy
+   * the design never had. What must not happen is the derived ink falling *below*
+   * what the palette it stands in for already offered.
+   */
+  const shippedCardContrast = (name: 'dark' | 'light', ink: 'toolOutput' | 'dim'): number => {
+    const theme = createTheme(true, true, name)
+    const value = theme.getFgAnsi(ink)
+    return Math.min(...CARD_BACKGROUNDS.map(color => contrast(value, theme.getBgAnsi(color))))
+  }
+
+  it.each(BACKGROUNDS)('$label keeps card ink as readable as the palette it replaces', host => {
+    // The fill was the variable: a bright terminal green lifted the card and
+    // dropped dimmed text to 3.33:1, and a light host pushed `dim` to 1.75:1
+    // against its own cards. Both are measured here against the shipped floor.
+    const floor = host.scheme === 'light' ? 'light' : 'dark'
+    for (const green of SYSTEM_TERMINAL_GREENS) {
+      const palette: { r: number; g: number; b: number }[] = []
+      palette[1] = { r: 0xff, g: 0x5f, b: 0x5f }
+      palette[2] = green
+      const theme = createTheme(true, true, 'system', {
+        background: host.background, foreground: host.foreground, scheme: host.scheme, palette,
+      } as never)
+      for (const color of CARD_BACKGROUNDS) {
+        const fill = theme.getBgAnsi(color)
+        for (const ink of ['toolOutput', 'dim'] as const) {
+          const ratio = contrast(theme.getFgAnsi(ink), fill)
+          const expected = shippedCardContrast(floor, ink)
+          expect(ratio, `${ink} on ${color} with green ${JSON.stringify(green)}`)
+            .toBeGreaterThanOrEqual(expected * 0.95)
+        }
+      }
+    }
+  })
+
   it.each(['truecolor', 'ansi16'] as const)('%s keeps a failed card colder or warmer than a successful one', depth => {
     // The state has to be legible as *different*, not merely as another code:
     // the pending and error fills drift away from the neutral success fill.

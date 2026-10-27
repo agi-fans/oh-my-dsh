@@ -14,9 +14,7 @@
 import {
   TerminalNotificationController,
   TerminalNotificationQueue,
-  type NotificationFocus,
   terminalNotificationSequence,
-  terminalProgressSequence,
 } from './terminal-notifications.ts'
 import { PROGRAM_STATUS_QUERY, programStatusSequence, terminalTitle, type TerminalTitleMode, type TerminalStateMode } from './terminal-state.ts'
 import { TerminalSession } from './terminal-session.ts'
@@ -188,8 +186,16 @@ import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
 import type { ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
-import { TUI_SETTINGS_ENTRY, TUI_SETTINGS_FIELDS, type MotionMode, type TuiSettings } from '../session/tui-settings.ts'
-import { defaultStatusBarConfig, resolveStatusBarConfig, type StatusBarConfig } from '../chrome/status-config.ts'
+import {
+  NOTIFICATION_THRESHOLD_MS,
+  resolveNotificationMode,
+  TUI_SETTINGS_ENTRY,
+  TUI_SETTINGS_FIELDS,
+  type MotionMode,
+  type NotificationMode,
+  type TuiSettings,
+} from '../session/tui-settings.ts'
+import { DEFAULT_STATUS_DENSITY, resolveStatusBarConfig, type ResolvedStatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
 import { PasteBurst, type PasteEmission } from '../input/paste-burst.ts'
 import { DEFAULT_KEYBINDINGS, loadKeybindings, saveKeybindings, TUI_ACTION_LABELS, TUI_ACTIONS, type TuiAction } from '../input/keybindings-config.ts'
@@ -225,7 +231,7 @@ import {
   type ClipboardImageReader,
   type ImagePathReader,
 } from '../input/image-paste.ts'
-import { APP_NAME, APP_VERSION } from '../session/package-metadata.ts'
+import { APP_DISPLAY_NAME, APP_NAME, APP_VERSION } from '../session/package-metadata.ts'
 import type { StartupChangelogMode } from '../session/release-notes.ts'
 
 const DOUBLE_CTRL_C_MS = 500
@@ -249,7 +255,6 @@ const TRANSIENT_STATUS_MS = 3_000
 const SHELL_PAINT_INTERVAL_MS = 80
 const DOUBLE_ESCAPE_MS = 500
 const STREAMING_REVEAL_MS = 1000 / 30
-const TERMINAL_PROGRESS_KEEPALIVE_MS = 1_000
 
 /**
  * Durable settlement events that arrive in bursts while a turn runs. Renders
@@ -556,25 +561,20 @@ export class LocalTui implements TuiService {
   #compactionStartedAt: number | undefined
   readonly #readImageInput: ((ref: ImageAttachmentRef, signal: AbortSignal) => Promise<TuiInputImage | undefined>) | undefined
   #writtenProgramState: string | undefined
-  #terminalProgress = false
-  #terminalProgressActive = false
-  #terminalProgressTick: ReturnType<typeof setInterval> | null = null
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
   #notifications = new TerminalNotificationController()
   #notificationQueue = new TerminalNotificationQueue()
   #notificationTimer: ReturnType<typeof setTimeout> | undefined
   #terminalFocused: boolean | undefined
-  #notificationFocus: NotificationFocus = 'unfocused'
   /**
    * Herdr lifecycle authority for this pane. The plugin entry injects the
    * environment-aware reporter; a directly constructed instance is inert so
    * tests running inside a Herdr pane cannot report against the live server.
    */
   readonly #herdr: HerdrAgentReporter
-  #notificationPolicy: 'off' | 'long-running' | 'always' = 'off'
-  #notificationThreshold: '15s' | '30s' | '1m' | '2m' = '30s'
-  #statusBar: StatusBarConfig = defaultStatusBarConfig()
+  #notificationPolicy: NotificationMode = 'off'
+  #statusBar: ResolvedStatusBarConfig = resolveStatusBarConfig({ density: DEFAULT_STATUS_DENSITY, hidden: [] })
   #toolsExpanded = false
   /**
    * The reader opened something with Ctrl+O or Alt+O and is reading it.
@@ -1391,7 +1391,6 @@ export class LocalTui implements TuiService {
       mermaidMode: this.#mermaidMode,
       hideThinking: this.#hideThinking,
       editor: this.#externalEditor,
-      terminalProgress: this.#terminalProgress,
       terminalTitle: this.#terminalTitle,
       terminalState: this.#terminalState,
       copyOnSelect: this.#copyOnSelect,
@@ -1400,17 +1399,7 @@ export class LocalTui implements TuiService {
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
-      notificationThreshold: this.#notificationThreshold,
-      notificationFocus: this.#notificationFocus,
-      statusBar: {
-        ...this.#statusBar,
-        groups: [...this.#statusBar.groups],
-        ...(this.#statusBar.order === undefined ? {} : { order: [...this.#statusBar.order] }),
-        ...(this.#statusBar.meta === undefined ? {} : { meta: [...this.#statusBar.meta] }),
-        ...(this.#statusBar.metaOrder === undefined ? {} : { metaOrder: [...this.#statusBar.metaOrder] }),
-        ...(this.#statusBar.colors === undefined ? {} : { colors: { ...this.#statusBar.colors } }),
-        ...(this.#statusBar.sides === undefined ? {} : { sides: { ...this.#statusBar.sides } }),
-      },
+      statusBar: { density: this.#statusBar.density, hidden: [] },
     }
   }
 
@@ -1646,7 +1635,6 @@ export class LocalTui implements TuiService {
       this.#tick = null
     }
     this.#stopRevealTick()
-    this.#setTerminalProgress(false)
     if (this.#loopTick !== null) {
       clearInterval(this.#loopTick)
       this.#loopTick = null
@@ -1738,7 +1726,6 @@ export class LocalTui implements TuiService {
   #syncTick(): void {
     if (!this.#tty) return
     const busy = this.#busy()
-    this.#setTerminalProgress(this.#terminalProgress && busy)
     if (busy && this.#motion !== 'off') {
       if (this.#tick === null) {
         this.#tick = setInterval(() => {
@@ -1792,29 +1779,6 @@ export class LocalTui implements TuiService {
     if (this.#revealTick === null) return
     clearInterval(this.#revealTick)
     this.#revealTick = null
-  }
-
-  #setTerminalProgress(active: boolean): void {
-    if (!this.#tty) return
-    if (active) {
-      if (this.#terminalProgressActive) return
-      this.#terminalProgressActive = true
-      this.#term.output.write(terminalProgressSequence(true))
-      this.#terminalProgressTick = setInterval(() => {
-        if (!this.#disposed && this.#terminalProgressActive) {
-          this.#term.output.write(terminalProgressSequence(true))
-        }
-      }, TERMINAL_PROGRESS_KEEPALIVE_MS)
-      this.#terminalProgressTick.unref?.()
-      return
-    }
-    if (this.#terminalProgressTick !== null) {
-      clearInterval(this.#terminalProgressTick)
-      this.#terminalProgressTick = null
-    }
-    if (!this.#terminalProgressActive) return
-    this.#terminalProgressActive = false
-    this.#term.output.write(terminalProgressSequence(false))
   }
 
   #syncLoopTick(): void {
@@ -1955,6 +1919,7 @@ export class LocalTui implements TuiService {
         ...(this.#sessionTitle === undefined ? {} : { sessionTitle: this.#sessionTitle }),
         version: APP_VERSION,
         appName: APP_NAME,
+        displayName: APP_DISPLAY_NAME,
         spinnerFrame: this.#spinner,
         motion: this.#motion,
         colorDepth: this.#colorDepth,
@@ -2432,7 +2397,7 @@ export class LocalTui implements TuiService {
     if (this.#session.handle(event)) return
     if (event.type === 'focus') {
       this.#terminalFocused = event.focused
-      if (event.focused && this.#notificationFocus === 'unfocused') this.#notificationQueue.clear()
+      if (event.focused && this.#notificationPolicy === 'unfocused') this.#notificationQueue.clear()
       return
     }
     if (event.type === 'mouse') {
@@ -3093,7 +3058,6 @@ export class LocalTui implements TuiService {
     this.#flushPasteBurst(true)
     this.#pasteProtection = prefs.pasteProtection !== false
     this.#externalEditor = prefs.editor ?? 'auto'
-    this.#terminalProgress = prefs.terminalProgress ?? false
     this.#terminalTitle = prefs.terminalTitle ?? 'status'
     this.#terminalState = prefs.terminalState ?? 'auto'
     this.#syncWindowTitle()
@@ -3104,9 +3068,7 @@ export class LocalTui implements TuiService {
     this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
-    this.#notificationPolicy = prefs.notifications ?? 'off'
-    this.#notificationThreshold = prefs.notificationThreshold ?? '30s'
-    this.#notificationFocus = prefs.notificationFocus ?? 'unfocused'
+    this.#notificationPolicy = resolveNotificationMode(prefs.notifications, prefs.notificationFocus)
     if (this.#notificationPolicy === 'off') this.#notificationQueue.clear()
     this.#configureNotifications()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
@@ -4041,22 +4003,24 @@ export class LocalTui implements TuiService {
   }
 
   #configureNotifications(): void {
-    const thresholds = { '15s': 15_000, '30s': 30_000, '1m': 60_000, '2m': 120_000 } as const
     this.#notifications.configure({
       policy: this.#notificationPolicy,
-      thresholdMs: thresholds[this.#notificationThreshold],
+      thresholdMs: NOTIFICATION_THRESHOLD_MS,
     })
   }
 
   #emitNotification(notification: ReturnType<TerminalNotificationController['humanPrompt']>): void {
     if (notification === undefined || !this.#tty || this.#disposed) return
-    if (this.#notificationFocus === 'unfocused' && this.#terminalFocused === true) return
+    if (this.#notificationPolicy === 'unfocused' && this.#terminalFocused === true) return
     this.#notificationQueue.offer(notification)
     if (this.#notificationTimer !== undefined) return
     this.#notificationTimer = setTimeout(() => {
       this.#notificationTimer = undefined
-      const pending = this.#notificationQueue.take(this.#notificationFocus, this.#terminalFocused)
+      const pending = this.#notificationQueue.take()
       if (pending === undefined || this.#disposed || this.#notificationPolicy === 'off') return
+      // Re-read focus at delivery time: the reader may have come back inside the
+      // coalescing window, and a turn finishing while they watch is not news.
+      if (this.#notificationPolicy === 'unfocused' && this.#terminalFocused === true) return
       const sequence = terminalNotificationSequence(pending)
       if (sequence !== '') this.#term.output.write(sequence)
     }, 25)
@@ -4706,7 +4670,6 @@ export function apply(ctx: Context, config: Config): void {
       mathMode: config.mathMode.get(),
       mermaidMode: config.mermaidMode.get(),
       editor: config.editor.get(),
-      terminalProgress: config.terminalProgress.get(),
       terminalTitle: config.terminalTitle.get(),
       terminalState: config.terminalState.get(),
       copyOnSelect: config.copyOnSelect.get(),
@@ -4715,7 +4678,6 @@ export function apply(ctx: Context, config: Config): void {
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),
       notifications: config.notifications.get(),
-      notificationThreshold: config.notificationThreshold.get(),
       notificationFocus: config.notificationFocus.get(),
     }
     const statusBar = config.statusBar.get()

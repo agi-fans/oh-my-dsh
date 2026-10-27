@@ -1,6 +1,6 @@
 /** Opt-in terminal notifications kept outside the transcript renderer. */
 
-export type TerminalNotificationPolicy = 'off' | 'long-running' | 'always'
+export type TerminalNotificationPolicy = 'off' | 'unfocused' | 'always'
 
 export interface TerminalNotificationOptions {
   readonly policy: TerminalNotificationPolicy
@@ -22,7 +22,6 @@ const DEFAULT_OPTIONS: TerminalNotificationOptions = {
   policy: 'off',
   thresholdMs: 30_000,
 }
-
 const END_REASON_COPY: Readonly<Record<string, string>> = {
   'max-tokens': 'Output token limit reached',
   blocked: 'Turn was blocked',
@@ -71,7 +70,7 @@ export class TerminalNotificationController {
     if (startedAt === undefined || this.#options.policy === 'off') return undefined
 
     const elapsedMs = Math.max(0, endedAt - startedAt)
-    if (this.#options.policy === 'long-running' && elapsedMs < this.#options.thresholdMs) return undefined
+    if (this.#options.policy === 'unfocused' && elapsedMs < this.#options.thresholdMs) return undefined
     return {
       title: event.reason && event.reason !== 'complete' && event.reason !== 'completed' ? 'omdsh needs attention' : 'omdsh finished',
       body: notificationBody(event.reason, elapsedMs),
@@ -84,8 +83,6 @@ export class TerminalNotificationController {
   }
 }
 
-export type NotificationFocus = 'always' | 'unfocused'
-
 /** Keep one notification per event burst, with input requests and failures first. */
 export class TerminalNotificationQueue {
   #pending: TerminalNotification | undefined
@@ -97,11 +94,11 @@ export class TerminalNotificationQueue {
 
   clear(): void { this.#pending = undefined }
 
-  take(condition: NotificationFocus, focused: boolean | undefined): TerminalNotification | undefined {
+  /** Drain the coalesced event. Whether it should be delivered is the caller's policy. */
+  take(): TerminalNotification | undefined {
     const pending = this.#pending
     this.clear()
-    // A terminal without focus reports retains the existing notification behavior.
-    return condition === 'unfocused' && focused === true ? undefined : pending
+    return pending
   }
 }
 
@@ -113,9 +110,4 @@ function cleanNotificationText(value: string): string {
 export function terminalNotificationSequence(notification: TerminalNotification): string {
   const message = cleanNotificationText(`${notification.title}: ${notification.body}`)
   return message ? `\x1b]9;${message}\x07` : ''
-}
-
-/** Windows Terminal-compatible native taskbar/tab progress sequences. */
-export function terminalProgressSequence(active: boolean): string {
-  return active ? '\x1b]9;4;3\x07' : '\x1b]9;4;0;\x07'
 }

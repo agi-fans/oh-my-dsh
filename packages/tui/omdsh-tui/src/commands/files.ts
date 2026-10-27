@@ -1,6 +1,6 @@
 /**
- * File attachments: a file added to the composer, and the session's own log of
- * what has been attached.
+ * File attachments: one surface for adding a file to the composer and for
+ * reading back everything this session has already attached.
  *
  * There used to be a `/files` browser as well — a full-screen directory walker
  * with its own workspace search and a deliverables view. It was a file manager
@@ -30,11 +30,33 @@ export function userPath(input: string, cwd: string): string {
   return resolve(cwd, unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
 }
 
+/** Staged leaf names the picker offers, mapped back to the durable reference. */
+const ADD_CANDIDATE_PREFIX = 'add:'
+
+/**
+ * One attachment surface, not three. A path argument attaches immediately; no
+ * argument opens the session's stored attachments with an Add entry at the top,
+ * so reading what is there and adding something new are the same gesture
+ * instead of two commands the reader has to keep apart.
+ */
 export async function attachFile(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const input = invocation.rawInput.trim()
+  // A bare `/attach` reads this session's log, which needs no composer; asking
+  // for a path, or offering to add one, is the part that does.
+  if (input === '' && ctx.tui.interactive !== true) return listAttachments(ctx, invocation)
+  if (input === '') return attachments(ctx, invocation)
   if (ctx.tui.interactive !== true || ctx.tui.stageFileAttachment === undefined) return { kind: 'error', text: 'File drafts require an interactive composer.' }
-  let input = invocation.rawInput.trim()
-  if (input === '') input = await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, notify: false, signal: invocation.signal }) ?? ''
-  if (input === '' || invocation.signal.aborted) return { kind: 'success' }
+  return stageAttachment(ctx, invocation, input)
+}
+
+/** Plain-mode list: the same rows the picker offers, as transcript text. */
+function listAttachments(_ctx: Context, invocation: CommandInvocation): CommandResult {
+  const refs = logAttachments(invocation.agent.session.snapshotEvents())
+  return { kind: 'success', text: refs.map(ref => `${ref.name ?? ref.attachmentId} · ${ref.bytes} bytes`).join('\n') || 'No attachments in this session.' }
+}
+
+async function stageAttachment(ctx: Context, invocation: CommandInvocation, input: string): Promise<CommandResult> {
+  if (ctx.tui.stageFileAttachment === undefined) return { kind: 'error', text: 'File drafts require an interactive composer.' }
   const path = userPath(input, currentWorkingDirectory(ctx, invocation.agent.session))
   const info = await stat(path)
   if (!info.isFile()) return { kind: 'error', text: 'Select a regular file to attach.' }
@@ -48,14 +70,29 @@ export async function attachFile(ctx: Context, invocation: CommandInvocation): P
 }
 
 async function attachments(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const refs = logAttachments(invocation.agent.session.snapshotEvents())
-  if (ctx.tui.interactive !== true) return { kind: 'success', text: refs.map(ref => `${ref.name ?? ref.attachmentId} · ${ref.bytes} bytes`).join('\n') || 'No attachments in this session.' }
+  if (ctx.tui.interactive !== true) return listAttachments(ctx, invocation)
   while (!invocation.signal.aborted) {
-    const answer = await ctx.tui.prompt({ title: 'Attachments', question: 'Choose a stored attachment', emptyText: 'No attachments in this session.',
+    // Re-read every pass: adding a file during this loop has to show up in it.
+    const refs = logAttachments(invocation.agent.session.snapshotEvents())
+    const answer = await ctx.tui.prompt({
+      title: 'Attachments',
+      question: ctx.tui.stageFileAttachment === undefined ? 'Choose a stored attachment' : 'Choose a stored attachment, or add a file',
       presentation: 'fullscreen-list', optionLayout: 'compact', filterable: true, allowCustom: false, signal: invocation.signal,
       notify: false,
-      options: refs.map((ref, index) => ({ label: ref.name ?? String(ref.attachmentId), value: String(index), description: `${ref.bytes.toLocaleString()} bytes · ${'mediaType' in ref ? ref.mediaType : 'file'}` })) })
+      options: [
+        ...(ctx.tui.stageFileAttachment === undefined
+          ? []
+          : [{ label: 'Add a file', value: ADD_CANDIDATE_PREFIX, description: 'Attach a new file from disk without sending it' }]),
+        ...refs.map((ref, index) => ({ label: ref.name ?? String(ref.attachmentId), value: String(index), description: `${ref.bytes.toLocaleString()} bytes · ${'mediaType' in ref ? ref.mediaType : 'file'}` })),
+      ],
+    })
     if (answer === null) break
+    if (answer === ADD_CANDIDATE_PREFIX && ctx.tui.stageFileAttachment !== undefined) {
+      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, notify: false, signal: invocation.signal }) ?? '')
+      if (staged.kind === 'error') return staged
+      // The list the reader just left is now stale; reopen it with the new row.
+      continue
+    }
     const ref = refs[Number(answer)]
     if (ref === undefined) continue
     // Verify the durable bytes before opening the provider-owned original.
@@ -83,7 +120,11 @@ export function apply(ctx: Context): void {
     try { return await handler(ctx, invocation) } catch (error) { return { kind: 'error', text: invocation.signal.aborted ? 'File operation cancelled.' : error instanceof Error ? error.message : String(error) } }
   }
   registerCommands(ctx, [
-    { name: 'attach', description: 'Add a file to the composer without sending it', input: { hint: '[path]' }, handler: safe(attachFile) },
-    { name: 'attachments', description: 'View this session’s stored attachments', handler: safe(attachments) },
+    {
+      name: 'attach',
+      description: 'Attach a file to the composer, or review what this session already attached',
+      input: { hint: '[path]' },
+      handler: safe(attachFile),
+    },
   ], 'omdsh file interaction')
 }

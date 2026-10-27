@@ -154,7 +154,7 @@ describe('session transcript boundaries', () => {
     const f = await fixture(true)
     try {
       await f.runtime.start()
-      expect(f.output()).toContain('omdsh v')
+      expect(f.output()).toContain('Oh-My-DSH v')
       const initialHistory = f.terminal!.scrollback()
       await f.runtime.changeAgentPreset(f.runtime.agent!, 'minimal')
       expect(f.terminal!.scrollback()).toEqual(initialHistory)
@@ -168,7 +168,7 @@ describe('session transcript boundaries', () => {
       f.ctx.emit('tools/change')
       expect(f.terminal!.scrollback()).toEqual(history)
       expect(f.output()).not.toContain('catalog prompt 0')
-      expect(f.output()).not.toContain('omdsh v')
+      expect(f.output()).not.toContain('Oh-My-DSH v')
       expect(f.output()).not.toContain('session opened')
       expect(f.output()).toContain('catalog prompt 39')
     } finally { await f.dispose() }

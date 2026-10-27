@@ -39,8 +39,10 @@ const composerStart = (lines: readonly string[]): number => lines.findLastIndex(
 const activityStart = (lines: readonly string[]): number => lines.findLastIndex(line => line.includes('Deep Driving'))
 const composerRows = (lines: readonly string[], start: number): number => {
   if (start < 0) return 0
-  const end = lines.slice(start).findIndex(line => stripAnsi(line).startsWith('╰'))
-  return end === -1 ? 0 : end + 1
+  // The composer is ruled above and below with no side borders, so its last row
+  // is a plain rule rather than a rounded corner.
+  const end = lines.slice(start + 1).findIndex(line => /^─+$/u.test(stripAnsi(line)))
+  return end === -1 ? 0 : end + 2
 }
 
 describe('applyEvent', () => {
@@ -311,7 +313,8 @@ describe('applyEvent', () => {
     expect(frame.lines.some((line) => line.includes('hi'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('Hello'))).toBe(true)
     expect(frame.lines.some((line) => line.includes('Deep Driving'))).toBe(true)
-    expect(frame.lines.some((line) => line.includes('╭'))).toBe(true)
+    // The composer is ruled above and below; it draws no corners.
+    expect(frame.lines.some((line) => /^─+ ⠋/u.test(stripAnsi(line)))).toBe(true)
   })
 
   it('settles the streaming block on assistant/message', () => {
@@ -814,9 +817,10 @@ describe('applyEvent', () => {
     // exists", which it always did. The failure is what still marks.
     expect(frame.lines.some((line) => line.includes('✔'))).toBe(false)
     expect(frame.lines.some((line) => line.includes('✘'))).toBe(true)
-    // The header is a lockup now, so the only frame on screen is the composer.
-    expect(frame.lines.some((line) => line.includes('╭─'))).toBe(true)
-    expect(frame.lines.some((line) => line.includes('╭───'))).toBe(false)
+    // The header is a lockup now, so the only frame on screen is the composer,
+    // and that frame is a pair of rules rather than a box.
+    expect(frame.lines.some((line) => stripAnsi(line).includes('🐳'))).toBe(true)
+    expect(frame.lines.some((line) => line.includes('╭'))).toBe(false)
   })
 
   it('folds a settled call to one row and restores its output on toolsExpanded', () => {
@@ -1440,10 +1444,9 @@ describe('renderView', () => {
     const frame = renderView(state, { width: 60, height: 24, model: 'm', input: 'abc', inputCursor: 2, colors: false })
     const editorStart = composerStart(frame.lines)
     const editorRows = composerRows(frame.lines, editorStart)
-    expect(frame.cursor).toEqual({ row: editorStart + 1, column: 4 })
-    expect(frame.lines[editorStart + 1]).toMatch(/^│ /)
-    expect(frame.lines[editorStart + 1]).toContain('abc')
-    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
+    expect(frame.cursor).toEqual({ row: editorStart + 1, column: 3 })
+    expect(frame.lines[editorStart + 1]).toMatch(/^ abc/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
     expect(frame.lines.at(-2)).toContain('m')
   })
 
@@ -1666,7 +1669,7 @@ describe('renderView', () => {
     expect(frame.lines[0]).toContain('Pg↑')
     const editorStart = composerStart(frame.lines)
     const editorRows = composerRows(frame.lines, editorStart)
-    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
     expect(frame.transcript?.hiddenBelow).toBe(0)
     expect(frame.transcript?.hiddenAbove).toBeGreaterThan(0)
   })
@@ -1732,13 +1735,14 @@ describe('renderView', () => {
     expect(frame.lines[0]).not.toContain('earlier line')
   })
 
-  it('paints the lockup header, the rounded editor, and no readline prompt', () => {
+  it('paints the lockup header, the ruled editor, and no readline prompt', () => {
     const frame = view(initialTranscript())
     const text = frame.lines.join('\n')
     expect(text).toContain('Into the Unknown')
     expect(text).toContain('omdsh')
-    expect(text).toContain('╭')
-    expect(text).toContain('╰')
+    // The composer is ruled above and below rather than enclosed in a box.
+    expect(text).toContain('🐳')
+    expect(text).not.toContain('╭')
     // The header is a lockup, not a bordered card: one labelled hint line
     // rather than a tips table and a session list.
     expect(text).toContain('Tips:')
@@ -1746,7 +1750,7 @@ describe('renderView', () => {
     expect(text).not.toMatch(/(^|\n)> /)
     const editorStart = composerStart(frame.lines)
     const editorRows = composerRows(frame.lines, editorStart)
-    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
     expect(text).toContain('/ commands')
   })
 
@@ -1786,7 +1790,7 @@ describe('renderView', () => {
     expect(plain[modelRow]).not.toContain('omdsh')
     expect(plain.at(-1)).toContain('1 turn · 74 steps')
     expect(plain.at(-1)).toContain('5.9M in · 73.8K out')
-    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^╰─+╯$/)
+    expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
     expect(frame.lines).toHaveLength(24)
   })
 
@@ -1947,7 +1951,8 @@ describe('renderView', () => {
       colors: false,
     })
     expect(frame.lines.join('\n')).toContain('text|code|cmd')
-    expect(frame.cursor?.column).toBe(8)
+    // One column of padding, no side border.
+    expect(frame.cursor?.column).toBe(7)
   })
 
   it('highlights a leading slash command in the editor without restyling its arguments', () => {

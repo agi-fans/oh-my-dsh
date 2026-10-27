@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
 import { resolveStatusBarConfig, STATUS_CONTEXT_STYLES, type StatusBarConfig } from '../chrome/status-config.ts'
 import { FOLD_DENSITIES } from './fold-policy.ts'
-import { TUI_SETTINGS_FIELDS } from './tui-settings.ts'
+import { resolveNotificationMode, TUI_SETTINGS_FIELDS } from './tui-settings.ts'
 
 const RowSettings = z.object(TUI_SETTINGS_FIELDS)
 
@@ -23,7 +23,6 @@ describe('TUI row settings', () => {
       mermaidMode: 'auto',
       hideThinking: false,
       editor: 'auto',
-      terminalProgress: false,
       terminalTitle: 'status',
       terminalState: 'auto',
       copyOnSelect: true,
@@ -36,9 +35,23 @@ describe('TUI row settings', () => {
       checkUpdates: true,
       startupChangelog: 'summary',
       notifications: 'off',
-      notificationThreshold: '30s',
-      notificationFocus: 'unfocused',
-      statusBar: undefined,
+      notificationFocus: undefined,
+      notificationThreshold: undefined,
+      // The status line is one plain object now, so it always materializes.
+      statusBar: {
+        density: 'standard',
+        hidden: [],
+        // Declared so an older document still loads; nothing writes them.
+        enabled: undefined,
+        labels: undefined,
+        contextStyle: undefined,
+        groups: undefined,
+        order: undefined,
+        meta: undefined,
+        metaOrder: undefined,
+        colors: undefined,
+        sides: undefined,
+      },
       statusPreset: undefined,
     })
   })
@@ -63,7 +76,6 @@ describe('TUI row settings', () => {
       theme: 'light',
       colors: false,
       motion: 'off',
-      terminalProgress: false,
       foldDensity: 'verbose',
     })
   })
@@ -72,28 +84,44 @@ describe('TUI row settings', () => {
     expect(resolve({ foldDensity, expandTools: true })).toMatchObject({ foldDensity, expandTools: true })
   })
 
-  it('validates the status-line detail and drops retired display fields', () => {
-    expect(resolve({ statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] } })).toMatchObject({
-      statusBar: { enabled: false, labels: 'full', groups: ['tokens', 'cache'] },
+  it('folds a stored notification document onto one mode', () => {
+    // Every stored value, including the one this change introduces, has to
+    // survive the fold; only the retired policy is rewritten.
+    expect(resolveNotificationMode('off', undefined)).toBe('off')
+    expect(resolveNotificationMode('off', 'always')).toBe('off')
+    expect(resolveNotificationMode('unfocused', undefined)).toBe('unfocused')
+    expect(resolveNotificationMode('unfocused', 'always')).toBe('unfocused')
+    expect(resolveNotificationMode('always', 'unfocused')).toBe('always')
+    expect(resolveNotificationMode('long-running', undefined)).toBe('unfocused')
+    expect(resolveNotificationMode('long-running', 'always')).toBe('always')
+    expect(resolveNotificationMode(undefined, undefined)).toBe('off')
+    // A pre-merge short-turn threshold no longer exists as a choice.
+    expect(resolve({ notificationThreshold: '1m' }).notificationThreshold).toBe('1m')
+    expect(resolve({ notifications: 'long-running' }).notifications).toBe('long-running')
+  })
+
+  it('stores a density and its narrowings, and drops the retired layout engine', () => {
+    expect(resolve({ statusBar: { density: 'verbose', hidden: ['session'] } })).toMatchObject({
+      statusBar: { density: 'verbose', hidden: ['session'] },
     })
-    const retired = resolve({
-      statusBar: { enabled: true, labels: 'compact', groups: ['context'], contextDisplay: 'gauge' },
-    }).statusBar
-    expect(resolveStatusBarConfig(retired as StatusBarConfig)).not.toHaveProperty('contextDisplay')
-    expect(resolve({
+    // A document written by the old engine still parses; the retired layout
+    // fields it carries are simply not part of the stored shape any more.
+    const legacy = resolve({
       statusBar: {
         enabled: true,
         labels: 'compact',
         groups: ['cache'],
         order: ['tokens', 'cache', 'context'],
         colors: { model: 'accent', metrics: 'warning' },
+        sides: { model: 'right' },
       },
-    })).toMatchObject({
-      statusBar: {
-        order: ['tokens', 'cache', 'context'],
-        colors: { model: 'accent', metrics: 'warning' },
-      },
-    })
+    }).statusBar
+    // The resolver reduces the old document to a density: what it listed as
+    // shown survives as a narrowing, and its per-item colour and column are gone.
+    const reduced = resolveStatusBarConfig(legacy as StatusBarConfig)
+    expect(reduced.groups).toEqual(['cache'])
+    expect(reduced).not.toHaveProperty('colors')
+    expect(reduced).not.toHaveProperty('sides')
   })
 
   it('validates startup update and release-note preferences', () => {
@@ -103,10 +131,12 @@ describe('TUI row settings', () => {
     })
   })
 
-  it.each(STATUS_CONTEXT_STYLES)('persists the %s context representation in the TUI schema', contextStyle => {
-    expect(resolve({ statusBar: { contextStyle } }).statusBar).toMatchObject({ contextStyle })
+  it.each(STATUS_CONTEXT_STYLES)('renders the %s context representation from a density', contextStyle => {
+    // The representation is chosen by density now, so it is still reachable and
+    // still validated — just not as an independent stored field.
+    const config = { ...resolveStatusBarConfig({ density: 'standard' }), contextStyle }
+    expect(config.contextStyle).toBe(contextStyle)
     expect(resolveStatusBarConfig(resolve({ statusBar: {} }).statusBar as StatusBarConfig).contextStyle).toBe('percent')
-    expect(() => RowSettings({ statusBar: { contextStyle: 'invalid' } })).toThrow()
   })
 
   it('keeps a legacy status preset available for runtime migration', () => {

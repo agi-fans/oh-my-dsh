@@ -18,7 +18,7 @@ const OVERLAY_CATALOGS: readonly { label: string; rows: readonly HotkeyRow[]; ke
   {
     label: 'Settings',
     rows: SETTINGS_HOTKEYS,
-    keys: ['↑↓', '←→', 'Space', 'Enter', 'Tab / Shift+Tab', 'Home / End', '/ or Text', 'Backspace / Ctrl+U', 'Ctrl+R', 'Esc', 'Ctrl+C', '↑↓', '←→', 'Enter / Esc'],
+    keys: ['↑↓', '←→', 'Space', 'Enter', 'Tab / Shift+Tab', 'Home / End', '/ or Text', 'Backspace / Ctrl+U', 'Ctrl+R', 'Esc', 'Ctrl+C'],
   },
   {
     label: 'Copy picker',
