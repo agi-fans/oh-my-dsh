@@ -2871,39 +2871,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('opens long command catalogs at their heading instead of their tail', () => {
-    const cases = [
-      {
-        command: '/help\r',
-        heading: 'Commands · 30 core',
-        prepare: (tui: LocalTui): void => {
-          tui.setCommands(Array.from({ length: 24 }, (_, index) => ({
-            name: `runtime-${index}`,
-            description: `Runtime command ${index} with a deliberately descriptive explanation`,
-          })))
-        },
-      },
-      {
-        command: '/tools\r',
-        heading: 'Available Tools',
-        prepare: (tui: LocalTui): void => {
-          tui.setTools(Array.from({ length: 24 }, (_, index) => ({
-            name: `tool-${index}`,
-            description: `Tool ${index} performs a concrete operation for the active agent`,
-          })))
-        },
-      },
-    ]
-
-    for (const entry of cases) {
-      const term = new FakeTerminal()
-      const tui = new LocalTui(term, 'm', false)
-      entry.prepare(tui)
-      const before = term.captured.length
-      press(term, entry.command)
-      expect(stripAnsi(term.captured.slice(before))).toContain(entry.heading)
-      tui.dispose()
-    }
+  it('opens a long command catalog at its heading instead of its tail', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    tui.setCommands(Array.from({ length: 24 }, (_, index) => ({
+      name: `runtime-${index}`,
+      description: `Runtime command ${index} with a deliberately descriptive explanation`,
+    })))
+    press(term, '/help\r')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('Commands · 30 core')
+    tui.dispose()
   })
 
   it('treats /exit as quit', async () => {
@@ -2915,32 +2893,30 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('lists agent tools on /tools after setTools', async () => {
+  it('lists agent tools on /tools in the reader', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
     press(term, '/tools\r')
-    expect(term.captured).toContain('Available Tools')
+    await flushAsyncPaste()
+    expect(term.captured).toContain('omdsh · Tools')
     expect(term.captured).toContain('0 active')
     expect(term.captured).toContain('No tools are currently visible to the agent.')
+    // Leaving returns to the composer, so the list never becomes a session row.
+    term.captured = ''
+    press(term, '\x03')
+    await flushAsyncPaste()
+    expect(term.captured).not.toContain('No tools are currently visible')
     tui.setTools([
       { name: 'bash', description: 'Run a shell command and return its complete output with COMPLETE_TAIL metadata for diagnostics.' },
       { name: 'fs', description: '' },
     ])
     press(term, '/tools\r')
+    await flushAsyncPaste()
     expect(term.captured).toContain('2 active')
-    expect(term.captured).toContain('Tool')
     expect(term.captured).toContain('Description')
     expect(term.captured).toContain('bash')
     expect(term.captured).toContain('Run a shell command')
-    expect(term.captured).toContain('Descriptions shortened')
-    expect(term.captured).not.toContain('COMPLETE_TAIL')
     expect(term.captured).toContain('No description provided.')
-    press(term, '\x0f')
-    expect(term.captured).toContain('COMPLETE_TAIL')
-    expect(term.captured).toContain('Collapse descriptions')
-    press(term, 'ok\r')
-    expect(await pending).toBe('ok')
     tui.dispose()
   })
 
@@ -2955,12 +2931,11 @@ describe('LocalTui (tty)', () => {
     expect(term.captured).toContain('/settings, /set')
     for (let index = 0; index < 8; index += 1) press(term, '\x1b[6~')
     expect(term.captured).toContain('Essential Shortcuts')
-    // Closing leaves a composer, not a transcript of help text.
+    // Closing leaves a composer, not a transcript of help text. Ctrl+C is one
+    // byte, so it cannot be read as the start of an Escape sequence.
     term.captured = ''
-    for (let index = 0; index < 2; index += 1) {
-      press(term, '\x1b')
-      await new Promise(resolve => setTimeout(resolve, 40))
-    }
+    press(term, '\x03')
+    await flushAsyncPaste()
     expect(term.captured).not.toContain('Essential Shortcuts')
     tui.dispose()
   })

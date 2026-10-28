@@ -56,7 +56,6 @@ import { blockFileAction } from './file-actions.ts'
 import type { TranscriptFileRegion } from '../chrome/renderer.ts'
 import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { toolArgsObject } from '../chrome/tool-args.ts'
-import { renderToolsPanel } from '../chrome/tools-list.ts'
 import { renderCommandOutput, renderCommandSeparator, renderShell } from '../chrome/command-output.ts'
 import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
@@ -882,7 +881,6 @@ export function blockLines(
   if (block.kind === 'tool') {
     return toolBlockLines(block, theme, width, toolsExpanded ? 'full' : 'preview', toolDetailsKey)
   }
-  if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width, block.surface)
   if (block.kind === 'shell') return renderShell(block, theme, width)
@@ -1023,9 +1021,6 @@ export function blockSearchText(block: Block): string {
     return block.reasoning === '' ? block.text : `${block.reasoning}\n${block.text}`
   }
   if (block.kind === 'tool') return `${block.args}\n${block.output}${block.job === undefined ? '' : `\n${block.job.id} ${block.job.status} ${block.job.detail ?? ''}`}`
-  if (block.kind === 'toolCatalog') {
-    return block.tools.map(tool => `${tool.name} ${tool.description}`).join('\n')
-  }
   if (block.kind === 'workspace') {
     // Only the served file paths are searchable; a turn whose summary the
     // host no longer holds contributes no path text.
@@ -1811,7 +1806,6 @@ function renderTranscriptBody(
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
-  if (block?.kind === 'toolCatalog') return 'tools'
   if (block?.kind === 'commandOutput') return block.command
   return undefined
 }

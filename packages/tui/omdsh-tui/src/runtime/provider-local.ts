@@ -187,7 +187,7 @@ import { fileDocument, reviewFiles } from './file-review.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
-import type { ToolInfo } from '../chrome/tools-list.ts'
+import { formatToolsText, type ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import {
   NOTIFICATION_THRESHOLD_MS,
@@ -1357,10 +1357,10 @@ export class LocalTui implements TuiService {
     if (reason !== 'refresh') this.#fileReviewAbort?.abort()
     this.#trajectory = null
     const state = replayEvents(events, presentations)
-    // Notices and tool catalogs do not turn a blank session into a document
-    // that /new needs to separate. Refreshes are the same document.
+    // A notice does not turn a blank session into a document that /new needs
+    // to separate. Refreshes are the same document.
     const boundary = reason === 'open' || (reason === 'new' && this.#state.blocks.some(block =>
-      block.kind !== 'notice' && block.kind !== 'toolCatalog'))
+      block.kind !== 'notice'))
     const blocks = boundary ? [transcriptSeam('session-opened'), ...state.blocks] : state.blocks
     this.#state = { ...state, status, compactCommandId: undefined, blocks }
     this.#plain.resetPrinted()
@@ -3866,8 +3866,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.name === 'tools') {
-      this.#toolCatalog()
-      this.#render()
+      void this.#runTools()
       return
     }
     if (args !== '' && args !== 'full') {
@@ -4111,17 +4110,18 @@ export class LocalTui implements TuiService {
     }))
   }
 
-  #toolCatalog(): void {
-    this.#state = {
-      ...this.#state,
-      blocks: [...this.#state.blocks, { kind: 'toolCatalog', tools: this.#tools }],
-    }
-    this.#focusLatestBlock()
-  }
-
-  #focusLatestBlock(): void {
-    this.#follow = false
-    this.#focusBlock = Math.max(0, this.#state.blocks.length - 1)
+  /**
+   * Tools are reference, like the command list: a table of names and
+   * descriptions the reader consults and dismisses, not a step of the work.
+   */
+  async #runTools(): Promise<void> {
+    this.#followTail()
+    await this.prompt(readPrompt({
+      title: 'Tools',
+      question: `${this.#tools.length} active`,
+      detail: formatToolsText(this.#tools),
+      cancelLabel: 'Close',
+    }))
   }
 
   /** Resolve a configured action for one key id, tolerating camelCase ids. */
@@ -4588,11 +4588,6 @@ export class LocalTui implements TuiService {
       this.#inspect((group.answer ?? group.until) - 1)
       this.#render()
       return
-    }
-    if (anchor !== undefined && this.#state.blocks[anchor]?.kind === 'toolCatalog') {
-      this.#toolsExpanded = !this.#toolsExpanded
-      this.#inspect(anchor)
-      this.#render()
     }
     // A live turn already has the process presentation; Alt+O owns tool details.
   }

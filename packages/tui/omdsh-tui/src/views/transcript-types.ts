@@ -11,7 +11,6 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
-import type { ToolInfo } from '../chrome/tools-list.ts'
 import { blocksText } from '../session/content-text.ts'
 
 export type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
@@ -82,7 +81,6 @@ export type Block =
     /** The turn that made the call, so two turns with no prompt between them still read as two runs. */
     turn?: number
   }
-  | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string; surface?: 'aside' }
   | {
     /**

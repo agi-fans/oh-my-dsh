@@ -284,7 +284,7 @@ if (!(await waitFor(() => cleanOutput(out).includes('Agent: Minimal'), 'Minimal 
 }
 mark = out.length
 term.write('/tools\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Available Tools'), 'Minimal tool catalog', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Tools'), 'Minimal tool catalog', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -295,52 +295,16 @@ if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_ed
   term.kill()
   process.exit(1)
 }
+// The catalog is a reader now: leaving it returns to the composer, and Ctrl+O on
+// a blank transcript has no turn group to inspect.
+term.write('\x03')
+await sleep(100)
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'inspection jump label', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x1b[F')
-if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'End returns to latest', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x0f')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'reopen after End', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-term.write('\x1b[<64;10;5M')
-mark = out.length
-term.write('/settings\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends inspection mouse tracking', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'inspection restored after settings', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('/trajectory\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command opens over inspection', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'inspection restored after trajectory command', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x0f')
-if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'inspection closed', deadline))) {
+await sleep(200)
+if (out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
+  || cleanOutput(out.slice(mark)).includes('Jump to latest message')) {
+  console.error('FAIL: Ctrl+O entered inspection with nothing to inspect')
   term.kill()
   process.exit(1)
 }
@@ -388,6 +352,32 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('error:'), 'rend
   term.kill()
   process.exit(1)
 }
+term.write('\x1b[<64;10;5M')
+mark = out.length
+term.write('/settings\r')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends transcript mouse tracking', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'mouse restored after settings', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('/trajectory\r')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command owns the screen', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'mouse restored after trajectory command', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
 term.write('\x1b')
 await sleep(100)
 term.write('\x1b')
@@ -469,7 +459,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library
 term.write('\x03')
 await sleep(100)
 // Forking before the first turn leaves no completed turn to open. Ctrl+O must not enter an
-// unrelated full-output mode; use the catalog to exercise cleanup on exit.
+// unrelated full-output mode; the tool reader stands in for an overlay on exit.
 mark = out.length
 term.write('\x0f')
 await sleep(200)
@@ -481,18 +471,15 @@ if (out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h')) {
 // Editing from a historical turn restores the original prompt in the composer.
 term.write('\x15')
 term.write('/tools\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Available Tools'), 'tool catalog before exit', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Tools'), 'composer restored before exit', deadline))) {
   console.error(cleanOutput(out.slice(mark)).slice(-2000))
   term.kill()
   process.exit(1)
 }
-mark = out.length
-term.write('\x0f')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Collapse descriptions'), 'inspection before exit', deadline))) {
-  console.error(cleanOutput(out.slice(mark)).slice(-3000))
-  term.kill()
-  process.exit(1)
-}
+// The reader owns Ctrl+C while it is open: the first closes it, the next two
+// follow the shipped exit rule.
+term.write('\x03')
+await sleep(100)
 term.write('\x03')
 await sleep(100)
 term.write('\x03')
@@ -509,7 +496,10 @@ const clean = cleanOutput(out)
 const ok = exitCode === 0
   && out.includes('\x1b[?1004h')
   && out.includes('\x1b[?1004l')
-  && out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
+  // Mouse reporting is only on while a frame owns it, so assert the shipped
+  // invariant — it ends disabled — rather than that one particular surface turned
+  // it off on the way out.
+  && out.lastIndexOf('\x1b[?1006l\x1b[?1002l\x1b[?1000l') > out.lastIndexOf('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
   // The header is a lockup now: the mark, its name and version, the slogan, and
   // one discovery hint. The recent-session list it used to carry is what `/resume`
   // covers instead, so this asserts the shipped shape rather than a list.

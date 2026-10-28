@@ -37,7 +37,7 @@ Every completed turn ends with a record of the files that turn changed, with the
 
 ## Tools and integrations: `/tools` and `/mcp`
 
-`/tools` lists the tools visible to the agent, grouped the way the registry exposes them. `/mcp` groups connected tools by their MCP server; both views update automatically when a tool list changes after an MCP reconnect. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
+`/tools` lists the tools visible to the agent, grouped the way the registry exposes them, in a reader you close with `Esc`. `/mcp` groups connected tools by their MCP server in its own reader. Neither is a transcript row, so reopen it after a tool list changes following an MCP reconnect. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
 
 ## Herdr pane integration
 

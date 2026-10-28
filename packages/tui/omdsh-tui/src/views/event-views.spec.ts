@@ -1079,37 +1079,23 @@ describe('blockLines', () => {
     expect(stripAnsi(panel[0] ?? '')).toMatch(/^╭─── Panel /u)
   })
 
-  it('renders the tool catalog as an unframed heading and a protected Markdown table', () => {
-    const lines = blockLines({
-      kind: 'toolCatalog',
-      tools: [
-        { name: 'ask_user_question', description: 'Ask a concise question when confirmation is needed.' },
-        { name: 'bash', description: 'Execute a bash command and return stdout and stderr.' },
-      ],
-    }, theme, 72)
-    expect(lines.every(line => visibleWidth(line) <= 72)).toBe(true)
-    expect(lines[0]).toContain('Available Tools')
-    expect(lines[0]).toContain('2 active')
-    expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
-    expect(lines[1]).toBe('')
-    expect(lines.join('\n')).toContain('Description')
-    expect(lines.join('\n')).toContain('ask_user_question')
-    expect(lines.join('\n')).toContain('Descriptions shortened')
-    expect(lines.join('\n')).toContain('Ctrl+O: Expand')
-    const askRow = lines.findIndex(line => line.includes('ask_user_question'))
-    const bashRow = lines.findIndex(line => line.includes('bash'))
-    expect(bashRow - askRow).toBeGreaterThan(1)
-    expect(lines.slice(askRow + 1, bashRow).some(line => /^\s*├.*┼.*┤$/u.test(stripAnsi(line)))).toBe(true)
-    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╭'))).toHaveLength(1)
-    expect(lines.filter(line => stripAnsi(line).trimStart().startsWith('╰'))).toHaveLength(1)
-    expect(lines.some(line => stripAnsi(line).trimStart().startsWith('╰'))).toBe(true)
-    const expanded = blockLines({
-      kind: 'toolCatalog',
-      tools: [{ name: 'bash', description: 'Execute a bash command and return all stdout and stderr without shortening this complete description.' }],
-    }, theme, 48, { toolsExpanded: true })
-    expect(expanded.join('\n')).toContain('without')
-    expect(expanded.join('\n')).toContain('shortening this complete')
-    expect(expanded.join('\n')).toContain('Ctrl+O: Collapse descriptions')
+  it('writes the tool list as a table the reader can show', () => {
+    // `/tools` is reference now, so the body is plain Markdown rather than a
+    // transcript panel: the reader renders it, and a `|` in a description must
+    // not become a column.
+    const text = formatToolsText([
+      { name: 'ask_user_question', description: 'Ask a question | with a pipe.' },
+      { name: 'bash', description: 'Execute a bash command.' },
+    ])
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('| Tool | Description |')
+    expect(lines[1]).toBe('|---|---|')
+    expect(text).toContain('`ask_user_question`')
+    expect(text).toContain('Ask a question \\| with a pipe.')
+    // Sorted, so the list reads the same however the host ordered it.
+    expect(lines[2]).toContain('ask_user_question')
+    expect(lines[3]).toContain('bash')
+    expect(formatToolsText([])).toBe('No tools are currently visible to the agent.')
   })
 
   it('paints the prompt as one tinted slab, padding rows included', () => {
@@ -2268,3 +2254,4 @@ describe('notice-shaped plugin injections', () => {
     expect(state.blocks).toHaveLength(0)
   })
 })
+import { formatToolsText } from '../chrome/tools-list.ts'
