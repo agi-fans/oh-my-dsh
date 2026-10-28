@@ -61,10 +61,12 @@ import { renderCommandOutput, renderCommandSeparator, renderShell } from '../chr
 import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
+import { formatElapsed } from '../chrome/relative-time.ts'
 import {
   blockMatchesQuery, matchedRows, searchMatches, transcriptSearchHint,
   type SearchableBlock, type TranscriptSearchMatch,
 } from './transcript-search.ts'
+export { formatElapsed }
 import type { MotionMode } from '../session/tui-settings.ts'
 import {
   contentToText,
@@ -820,14 +822,6 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
 }
 
 /** A settled turn's length, the way a person would say it. */
-export function formatElapsed(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000))
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
-}
-
 /** A completed turn's duration and any failures remain visible when folded. */
 function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string, expandKey = 'Ctrl+O'): string[] {
   const label = elapsed === undefined ? 'Worked' : `Worked for ${elapsed}`

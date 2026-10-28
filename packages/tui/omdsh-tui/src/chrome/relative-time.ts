@@ -26,3 +26,17 @@ export function formatRelativeUntil(timestamp: number, now = Date.now()): string
   const hours = Math.floor(minutes / 60)
   return hours < 24 ? `in ${hours}h` : `in ${Math.floor(hours / 24)}d`
 }
+
+/**
+ * Compact elapsed duration: `45s`, `16m51s`, `1h 5m`.
+ *
+ * Rounds once at the printed precision, so a value just under a boundary cannot
+ * read as the next unit.
+ */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}

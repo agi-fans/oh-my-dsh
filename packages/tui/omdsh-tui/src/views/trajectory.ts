@@ -9,6 +9,8 @@ import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { firstVisibleStreamTime } from './stream-time.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
+import { renderTimelineOverview, trajectoryTimeline, type TimelineLane } from './trajectory-timeline.ts'
+import { formatElapsed } from '../chrome/relative-time.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
@@ -995,6 +997,30 @@ function searchPosition(state: TrajectoryState): string {
 }
 
 /** Render the full-screen ledger without touching the ordinary transcript viewport. */
+/** Lane ink, matching how the ledger paints the same kinds. */
+const LANE_TONE: Readonly<Record<TimelineLane, 'accent' | 'success' | 'dim'>> = {
+  llm: 'accent',
+  tools: 'success',
+  other: 'dim',
+}
+
+/**
+ * The overview rows, or `undefined` when no record recorded a duration.
+ *
+ * A session that has only just started has nothing to show, and an empty
+ * three-lane bar would read as "all lanes are zero" rather than "not yet".
+ */
+function timelineRows(state: TrajectoryState, theme: Theme, width: number): string[] | undefined {
+  const overview = trajectoryTimeline(state.ledger.records, { width })
+  if (overview === undefined || width < 24) return undefined
+  return renderTimelineOverview(overview, {
+    width,
+    formatDuration: formatElapsed,
+    paint: (lane, text) => theme.fg(LANE_TONE[lane], text),
+    paintEmpty: text => theme.fg('borderMuted', text),
+  }).map(row => truncateToWidth(' ' + row, width))
+}
+
 export function renderTrajectory(
   state: TrajectoryState,
   theme: Theme,
@@ -1015,7 +1041,14 @@ export function renderTrajectory(
     ? `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_PAGE, HOTKEY_SECTION, HOTKEY_CLOSE])}`
     : `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_DETAILS, HOTKEY_SEARCH, HOTKEY_MATCH, HOTKEY_TURN, HOTKEY_CALLS, HOTKEY_EDGE])}${state.following ? ' ●' : ''}`), safeWidth)
   const divider = theme.fg('border', '─'.repeat(safeWidth))
-  const bodyHeight = Math.max(0, safeHeight - 4)
+  /*
+   * The overview answers "where did the time go" before the reader has to open a
+   * single record. It sits between the toolbar and the ledger, only in the list
+   * view: the detail panel is already about one record's timing, and repeating
+   * the project-wide bars beside it would split attention for no gain.
+   */
+  const overview = state.details ? undefined : timelineRows(state, theme, safeWidth)
+  const bodyHeight = Math.max(0, safeHeight - 4 - (overview?.length ?? 0))
   const wideDetails = state.details && safeWidth >= 96
   let body: string[]
   if (wideDetails) {
@@ -1037,7 +1070,7 @@ export function renderTrajectory(
       ? ' ' + formatOverlayHint([HOTKEY_PAGE, HOTKEY_SECTION, HOTKEY_CLOSE])
       : ' ' + formatOverlayHint([HOTKEY_CLOSE])
   const footer = truncateToWidth(theme.fg(state.searching ? 'accent' : 'dim', footerText), safeWidth)
-  const lines = [header, toolbar, divider, ...body.slice(0, bodyHeight), footer].slice(0, safeHeight)
+  const lines = [header, toolbar, divider, ...(overview ?? []), ...body.slice(0, bodyHeight), footer].slice(0, safeHeight)
   while (lines.length < safeHeight) lines.push('')
   return {
     lines,
