@@ -17,6 +17,7 @@ import type {
 } from '@deepseek-ai/dsh-schedule'
 import { formatRelativeUntil } from '../chrome/relative-time.ts'
 import { registerCommands } from './registration.ts'
+import { askPrompt } from '../prompt-intents.ts'
 
 export const name = 'omdsh-command-schedule'
 export const inject = ['commands', 'schedule', 'tui']
@@ -103,17 +104,15 @@ function missText(result: ScheduleUpdateResult): string | undefined {
 }
 
 async function edit(ctx: Context, invocation: CommandInvocation, record: ScheduleRecord, field: 'title' | 'prompt'): Promise<CommandResult> {
-  const value = await ctx.tui.prompt({
+  const value = await ctx.tui.prompt(askPrompt({
     title: field === 'title' ? 'Reminder name' : 'Reminder instruction',
     question: field === 'title' ? 'Rename this reminder' : 'What should the reminder say?',
     detail: field === 'title'
       ? 'The name appears in the task list and reminder catalog.'
       : 'The instruction is delivered to this Session when the reminder fires.',
     initialInput: field === 'title' ? record.title : record.prompt,
-    allowCustom: true,
-    notify: false,
     signal: invocation.signal,
-  })
+  }))
   invocation.signal.throwIfAborted()
   if (value === null) return { kind: 'success' }
   const result = await ctx.schedule.update({

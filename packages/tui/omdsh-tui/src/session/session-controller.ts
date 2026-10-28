@@ -951,7 +951,7 @@ export class SessionRuntime {
           const label = await this.#tui.prompt({
             title: 'Label Conversation Node', question: `Label for ${node.label}`,
             initialInput: draft, detail: error ?? 'Up to 120 characters. Alt+U in the tree clears a label.',
-            allowCustom: true, notify: false, signal,
+            signal,
           })
           if (label === null) break
           this.assertActive(agent)

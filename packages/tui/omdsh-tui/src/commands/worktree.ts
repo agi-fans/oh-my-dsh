@@ -7,6 +7,7 @@ import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 import { listWorktrees } from '../session/worktrees.ts'
 import { cancellable } from '../runtime/cancellable.ts'
+import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 
 export const name = 'omdsh-command-worktree'
 export const inject = ['commands', 'tui', 'workingDirectory', 'subprocess', 'sandbox', 'sandboxPolicy']
@@ -14,14 +15,18 @@ export const inject = ['commands', 'tui', 'workingDirectory', 'subprocess', 'san
 async function create(ctx: Context, invocation: CommandInvocation, signal: AbortSignal): Promise<void> {
   const service = ctx.get('worktrees')
   if (service === undefined) return
-  const name = await ctx.tui.prompt({ title: 'Create worktree', question: 'New branch name', allowCustom: true, signal, notify: false })
+  const name = await ctx.tui.prompt(askPrompt({ title: 'Create worktree', question: 'New branch name', signal }))
   if (name === null || signal.aborted) return
-  const from = await ctx.tui.prompt({ title: 'Create worktree', question: 'Local base commit, branch or tag', initialInput: 'HEAD', allowCustom: true, signal, notify: false })
+  const from = await ctx.tui.prompt(askPrompt({ title: 'Create worktree', question: 'Local base commit, branch or tag', initialInput: 'HEAD', signal }))
   if (from === null || signal.aborted) return
-  const confirm = await ctx.tui.prompt({ title: 'Create worktree', question: `${name.trim() || 'Generated name'} · ${from.trim() || 'HEAD'}`,
+  const confirmed = await confirmPrompt(request => ctx.tui.prompt(request), {
+    title: 'Create worktree',
+    question: `${name.trim() || 'Generated name'} · ${from.trim() || 'HEAD'}`,
     detail: 'Creates a new branch and checkout, then enters it. Uncommitted files stay here. Leaving retains the checkout and branch. Current Access applies; dependencies are not installed.',
-    options: [{ label: 'Create and enter', value: 'create' }], allowCustom: false, signal, notify: false })
-  if (confirm !== 'create' || signal.aborted) return
+    acceptLabel: 'Create and enter',
+    signal,
+  })
+  if (!confirmed || signal.aborted) return
   if (invocation.agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before creating a worktree.')
   const outcome = await cancellable(ctx.tui, {
     title: 'Creating worktree',

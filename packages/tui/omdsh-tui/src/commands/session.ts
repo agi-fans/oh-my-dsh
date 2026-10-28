@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
+import { askPrompt } from '../prompt-intents.ts'
 import { formatRelativeAge } from '../chrome/relative-time.ts'
 import { formatPermission, formatTokens } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
@@ -113,7 +114,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       invocation.signal.throwIfAborted()
       if (answer === 'library:') { search = undefined; archivedView = false; selectedId = undefined; continue }
       if (answer === 'search:') {
-        const query = await ctx.tui.prompt({ title: 'Search session content', question: 'Enter search text', allowCustom: true, notify: false, signal: invocation.signal })
+        const query = await ctx.tui.prompt(askPrompt({ title: 'Search session content', question: 'Enter search text', signal: invocation.signal }))
         if (query === null || query.trim() === '') continue
         const result = await findSessions(ctx, { ...invocation, rawInput: query })
         if (result.kind === 'rows') { search = result; archivedView = false; selectedId = undefined; continue }

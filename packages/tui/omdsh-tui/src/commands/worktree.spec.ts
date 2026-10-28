@@ -59,7 +59,7 @@ describe('/worktree', () => {
   it('creates only after confirmation using the published owner-scoped service', async () => {
     const h = await harness(true)
     try {
-      h.answers.push('create', 'feature', 'HEAD', 'create', null)
+      h.answers.push('create', 'feature', 'HEAD', 'accept', null)
       await h.execute()
       expect(h.create).toHaveBeenCalledWith(h.agent, { name: 'feature', from: 'HEAD' }, expect.any(AbortSignal))
       expect(h.prompt.mock.calls[3]![0].detail).toContain('Uncommitted files stay here')
@@ -72,7 +72,7 @@ describe('/worktree', () => {
     const h = await harness(true)
     let cleaned = false
     try {
-      h.answers.push('create', 'feature', 'HEAD', 'create')
+      h.answers.push('create', 'feature', 'HEAD', 'accept')
       h.prompt.mockImplementation(async request => request.title === 'Creating worktree' ? 'cancel' : h.answers.shift() ?? null)
       h.create.mockImplementation((...args: unknown[]) => new Promise((_, reject) => {
         const signal = args[2] as AbortSignal
@@ -110,6 +110,7 @@ it('enables creation in place through the existing Plugin Manager without creati
     h.answers.push('enable', null)
     expect((await h.execute())?.result.kind).toBe('success')
     expect(setBundleEnabled).toHaveBeenCalledWith('@deepseek-ai/dsh-experimental-tool-worktree', true)
+    // After enabling, the reopened list offers creation.
     expect(h.prompt.mock.calls[1]![0].options).toContainEqual(expect.objectContaining({ value: 'create' }))
     expect(h.create).not.toHaveBeenCalled()
   } finally { await h.ctx.fiber.dispose() }

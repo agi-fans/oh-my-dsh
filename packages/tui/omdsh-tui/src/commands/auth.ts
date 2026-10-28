@@ -26,6 +26,7 @@ import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { APP_VERSION } from '../session/package-metadata.ts'
 import { registerCommands } from './registration.ts'
+import { askPrompt } from '../prompt-intents.ts'
 
 export const name = 'omdsh-command-auth'
 export const inject = ['commands', 'credentials', 'settings', 'tui', 'llm']
@@ -551,16 +552,14 @@ async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config
     return { kind: 'error', text: unmanagedCredentialMessage(DEEPSEEK_API_KEY, current, 'replace') }
   }
   if (config.openDashboard !== false) openDeepSeekDashboard()
-  const raw = await ctx.tui.prompt({
-    title: 'Login to DeepSeek',
-    question: current.configured ? 'Paste a new DeepSeek API key' : 'Paste your DeepSeek API key',
-    detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated and stored locally as ${DEEPSEEK_API_KEY}.`,
-    allowCustom: true,
-    secret: true,
-    notify: false,
-    submitLabel: 'validate',
-    signal: invocation.signal,
-  })
+  const raw = await ctx.tui.prompt(askPrompt({
+      title: 'Login to DeepSeek',
+      question: current.configured ? 'Paste a new DeepSeek API key' : 'Paste your DeepSeek API key',
+      detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated and stored locally as ${DEEPSEEK_API_KEY}.`,
+      secret: true,
+      submitLabel: 'validate',
+      signal: invocation.signal,
+  }))
   if (raw === null) return { kind: 'success' }
 
   let apiKey: string
@@ -601,16 +600,14 @@ async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: 
     return { kind: 'error', text: unmanagedCredentialMessage(ref, current, 'replace') }
   }
   const label = entry.displayName
-  const raw = await ctx.tui.prompt({
-    title: `Login to ${label}`,
-    question: current.configured ? `Paste a new ${label} API key` : `Paste your ${label} API key`,
-    detail: `The key is stored locally and activates the ${entry.provider} route for the next model request. Use /model to select it.`,
-    allowCustom: true,
-    secret: true,
-    notify: false,
-    submitLabel: 'save',
-    signal: invocation.signal,
-  })
+  const raw = await ctx.tui.prompt(askPrompt({
+      title: `Login to ${label}`,
+      question: current.configured ? `Paste a new ${label} API key` : `Paste your ${label} API key`,
+      detail: `The key is stored locally and activates the ${entry.provider} route for the next model request. Use /model to select it.`,
+      secret: true,
+      submitLabel: 'save',
+      signal: invocation.signal,
+  }))
   if (raw === null) return { kind: 'success' }
 
   let apiKey: string
@@ -698,39 +695,33 @@ async function collectCustomModels(
     } catch (error) {
       if (invocation.signal.aborted) return undefined
       const detail = error instanceof Error ? error.message : 'the endpoint did not list models'
-      const fallback = await ctx.tui.prompt({
-        title: 'Custom models',
-        question: 'Enter model ids',
-        detail: `Could not fetch models (${detail}). Type one or more ids, separated by commas.`,
-        allowCustom: true,
-        notify: false,
-        signal: invocation.signal,
-      })
+      const fallback = await ctx.tui.prompt(askPrompt({
+          title: 'Custom models',
+          question: 'Enter model ids',
+          detail: `Could not fetch models (${detail}). Type one or more ids, separated by commas.`,
+          signal: invocation.signal,
+  }))
       if (fallback === null) return undefined
       return parseModelIds(fallback)
     }
   }
-  const typed = await ctx.tui.prompt({
-    title: 'Custom models',
-    question: 'Enter model ids',
-    detail: 'Separate multiple ids with commas. Example: llama3.1, qwen2.5-coder',
-    allowCustom: true,
-    notify: false,
-    signal: invocation.signal,
-  })
+  const typed = await ctx.tui.prompt(askPrompt({
+      title: 'Custom models',
+      question: 'Enter model ids',
+      detail: 'Separate multiple ids with commas. Example: llama3.1, qwen2.5-coder',
+      signal: invocation.signal,
+  }))
   if (typed === null) return undefined
   return parseModelIds(typed)
 }
 
 async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const idRaw = await ctx.tui.prompt({
-    title: 'Custom provider',
-    question: 'Provider id',
-    detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
-    allowCustom: true,
-    notify: false,
-    signal: invocation.signal,
-  })
+  const idRaw = await ctx.tui.prompt(askPrompt({
+      title: 'Custom provider',
+      question: 'Provider id',
+      detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
+      signal: invocation.signal,
+  }))
   if (idRaw === null) return { kind: 'success' }
   let id: string
   try {
@@ -742,14 +733,12 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'error', text: `${id} is a catalog provider. Use /login and choose it from the list.` }
   }
 
-  const urlRaw = await ctx.tui.prompt({
-    title: 'Custom provider',
-    question: 'Base URL',
-    detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
-    allowCustom: true,
-    notify: false,
-    signal: invocation.signal,
-  })
+  const urlRaw = await ctx.tui.prompt(askPrompt({
+      title: 'Custom provider',
+      question: 'Base URL',
+      detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
+      signal: invocation.signal,
+  }))
   if (urlRaw === null) return { kind: 'success' }
   let baseURL: string
   try {
@@ -778,16 +767,14 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'error', text: `Unknown API protocol: ${api}` }
   }
 
-  const keyRaw = await ctx.tui.prompt({
-    title: `Login to ${id}`,
-    question: `Paste your ${id} API key`,
-    detail: 'Leave empty if the endpoint does not need a key.',
-    allowCustom: true,
-    secret: true,
-    notify: false,
-    submitLabel: 'continue',
-    signal: invocation.signal,
-  })
+  const keyRaw = await ctx.tui.prompt(askPrompt({
+      title: `Login to ${id}`,
+      question: `Paste your ${id} API key`,
+      detail: 'Leave empty if the endpoint does not need a key.',
+      secret: true,
+      submitLabel: 'continue',
+      signal: invocation.signal,
+  }))
   if (keyRaw === null) return { kind: 'success' }
   let apiKey: string | undefined
   if (keyRaw.trim() !== '') {

@@ -20,6 +20,7 @@ import { logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
 import { previewImages } from '../runtime/image-preview.ts'
 import { registerCommands } from './registration.ts'
+import { askPrompt } from '../prompt-intents.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-files'
@@ -88,7 +89,7 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     })
     if (answer === null) break
     if (answer === ADD_CANDIDATE_PREFIX && ctx.tui.stageFileAttachment !== undefined) {
-      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt({ title: 'Attach file', question: 'Path to the file', allowCustom: true, notify: false, signal: invocation.signal }) ?? '')
+      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt(askPrompt({ title: 'Attach file', question: 'Path to the file', signal: invocation.signal })) ?? '')
       if (staged.kind === 'error') return staged
       // The list the reader just left is now stale; reopen it with the new row.
       continue
