@@ -9,6 +9,7 @@ import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { firstVisibleStreamTime } from './stream-time.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
+import { highlightCodeLines, toolPayloadLanguage } from '../chrome/code-highlight.ts'
 import { renderTimelineOverview, trajectoryTimeline, type TimelineLane } from './trajectory-timeline.ts'
 import { formatElapsed } from '../chrome/relative-time.ts'
 
@@ -712,6 +713,23 @@ export function applyTrajectoryEvent(
     }
     return { state }
   }
+  /**
+   * A wheel gesture scrolls whatever the reader is reading.
+   *
+   * The view received wheel events already but ignored everything that was not a
+   * key, so a mouse reader found the only way to scroll the detail pane was
+   * `PgUp`/`PgDn` — while the wheel silently did nothing at all. It now scrolls
+   * the detail when one is open and moves the selection otherwise, which is what
+   * the same gesture does in the transcript.
+   */
+  if (event.type === 'wheel') {
+    const step = Math.max(1, Math.round(detailPageLines / 2))
+    if (state.details) {
+      const delta = event.direction === 'up' ? -step : step
+      return { state: { ...state, detailScroll: Math.max(0, state.detailScroll + delta) } }
+    }
+    return { state: move(state, (event.direction === 'up' ? -1 : 1) * 3) }
+  }
   if (event.type !== 'key') return { state }
   // This ledger keeps three keys that the shared reading would move through a
   // list: `tab` switches the detail tab, `pageUp`/`pageDown` scroll an open
@@ -720,6 +738,19 @@ export function applyTrajectoryEvent(
   // shares — up, down, and closing one layer.
   if (event.id === 'tab' || event.id === 'right') return { state: moveTab(state, 1) }
   if (event.id === 'shift+tab' || event.id === 'left') return { state: moveTab(state, -1) }
+  /**
+   * With the detail pane open, the arrows belong to it.
+   *
+   * They used to move the record selection even then, so a reader scrolling a long
+   * payload changed which record the pane described instead of scrolling: the
+   * content jumped out from under them and the pane snapped back to the top of a
+   * different record. `Tab` still switches tabs and `Esc` still closes the pane,
+   * so nothing is lost — the selection simply stops competing with the text.
+   */
+  if (state.details && (event.id === 'up' || event.id === 'down')) {
+    const delta = event.id === 'up' ? -1 : 1
+    return { state: { ...state, detailScroll: Math.max(0, state.detailScroll + delta) } }
+  }
   const navigation = listNavigation(event)
   if (navigation.kind === 'close') {
     // One layer per press: an open detail panel closes before the ledger does.
@@ -751,9 +782,9 @@ export function applyTrajectoryEvent(
 
 // Every key `applyTrajectoryEvent` accepts. Rows whose first word is the footer
 // label are also printed by the overlay's toolbar and footer.
-const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate records' }
+const HOTKEY_NAVIGATE: HotkeyRow = { keys: '↑↓', action: 'Navigate records, or scroll an open detail' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first record, or follow the newest' }
-const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Scroll — page the detail or the record list' }
+const HOTKEY_PAGE: HotkeyRow = { keys: '↑↓ / PgUp / PgDn', action: 'Scroll the open detail, or page the record list' }
 const HOTKEY_DETAILS: HotkeyRow = { keys: 'Enter', action: 'Details — open or close the detail panel' }
 const HOTKEY_SECTION: HotkeyRow = { keys: 'Tab / ←→', action: 'Section — switch the detail tab' }
 const HOTKEY_SEARCH: HotkeyRow = { keys: '/', action: 'Search the ledger' }
@@ -975,17 +1006,53 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
   return lines.slice(start, start + height).map(line => truncateToWidth(line.text, width))
 }
 
+/**
+ * Language a detail tab's text should be highlighted as.
+ *
+ * Only the payload and result tabs hold source. The summary is prose, and timing
+ * and schema are already-structured text whose value is the field names, not
+ * syntax colouring — highlighting those would add noise to a four-line table.
+ */
+function detailLanguage(state: TrajectoryState, record: TrajectoryRecord | undefined): string | undefined {
+  if (record === undefined) return undefined
+  if (state.detailTab !== 'payload' && state.detailTab !== 'result') return undefined
+  return toolPayloadLanguage(record.type === 'tool/call' ? record.label.toLowerCase() : '')
+}
+
 function detailRows(state: TrajectoryState, theme: Theme, width: number, height: number): string[] {
   const tabs = DETAIL_TABS.map(tab => tab === state.detailTab ? theme.fg('accent', `[${tab}]`) : theme.fg('dim', tab)).join(' ')
-  const body = wrapText(detailText(state, selectedRecord(state)), Math.max(1, width - 2))
+  const record = selectedRecord(state)
+  const raw = detailText(state, record)
+  const language = detailLanguage(state, record)
+  /*
+   * Highlight before wrapping, then number the wrapped rows.
+   *
+   * The pane used to print one undifferentiated run of text: a JSON payload and a
+   * shell command looked identical, and with no gutter there was no way to tell
+   * where a wrapped line ended and the next began. A reader scanning a stack trace
+   * or a diff needs both, and both already exist in this codebase — this reuses
+   * the same highlighter and gutter the document reader uses.
+   */
+  const gutter = String(raw.split('\n').length).length
+  const numberWidth = Math.max(2, gutter)
+  const room = Math.max(1, width - numberWidth - 2)
+  const highlighted = language === undefined
+    ? raw.split('\n')
+    : highlightCodeLines(raw.split('\n'), language, theme)
+  const body = highlighted.flatMap(line => wrapText(line, room))
   const viewportHeight = Math.max(0, height - 2)
   const maxScroll = Math.max(0, body.length - viewportHeight)
   const start = Math.min(state.detailScroll, maxScroll)
   const end = Math.min(body.length, start + viewportHeight)
   const position = body.length > viewportHeight
-    ? theme.fg('dim', ` ${start + 1}-${end} / ${body.length} lines · PgUp/PgDn scroll`)
+    ? theme.fg('dim', ` ${start + 1}-${end} / ${body.length} lines · ↑↓ or PgUp/PgDn scroll`)
     : ''
-  return [truncateToWidth(tabs, width), truncateToWidth(position, width), ...body.slice(start, end)]
+  // The number column is the line's position in the wrapped body, which is what
+  // the reader scrolls through; a source line number would not match a row that
+  // wrapped across four of them.
+  const numbered = body.slice(start, end).map((line, index) =>
+    theme.fg('dim', String(start + index + 1).padStart(numberWidth) + ' ') + line)
+  return [truncateToWidth(tabs, width), truncateToWidth(position, width), ...numbered]
 }
 
 /** `(3/10)`-style position while the search is active, or ''. */

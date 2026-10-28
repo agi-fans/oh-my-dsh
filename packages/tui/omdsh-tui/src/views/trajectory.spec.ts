@@ -398,3 +398,68 @@ describe('trajectory search navigation', () => {
     expect(trajectoryDetailMetrics(state, 24).pageLines).toBe(18)
   })
 })
+
+describe('trajectory detail reading', () => {
+  const toolEvents = [
+    event(1, 'turn/start', { turn: 1 }, 0),
+    event(2, 'step/start', { turn: 1, step: 1 }, 10),
+    event(3, 'tool/call', { turn: 1, step: 1, callId: 'a', name: 'bash', arguments: JSON.stringify({ command: 'ls' }) }, 20),
+    event(4, 'tool/result', { turn: 1, step: 1, callId: 'a', message: { callId: 'a', content: [{ type: 'text', text: 'x' }] } }, 30),
+  ] as unknown as readonly SessionEvent[]
+
+  const openDetail = () => ({ ...createTrajectory(toolEvents), details: true })
+
+  it('numbers the detail rows so a wrapped line is distinguishable', () => {
+    const frame = renderTrajectory({ ...openDetail(), detailTab: 'payload' }, createTheme(false), 80, 20)
+    const rows = frame.lines.map(stripAnsi)
+    // The gutter starts at 1 and counts the rows the reader scrolls, not source lines.
+    expect(rows.some(row => /^\s*1 /.test(row))).toBe(true)
+    expect(rows.some(row => /^\s*2 /.test(row))).toBe(true)
+  })
+
+  it('scrolls the detail with the arrows instead of moving the selection', () => {
+    // The arrows used to move the record selection while the pane was open, so
+    // the text jumped out from under the reader.
+    const before = openDetail()
+    const selected = before.selectedId
+    const moved = applyTrajectoryEvent(before, { type: 'key', id: 'down' } as never).state
+    expect(moved.detailScroll).toBe(1)
+    expect(moved.selectedId).toBe(selected)
+    const back = applyTrajectoryEvent(moved, { type: 'key', id: 'up' } as never).state
+    expect(back.detailScroll).toBe(0)
+  })
+
+  it('never scrolls past the top', () => {
+    const state = applyTrajectoryEvent(openDetail(), { type: 'key', id: 'up' } as never).state
+    expect(state.detailScroll).toBe(0)
+  })
+
+  it('scrolls the detail with the wheel', () => {
+    // Wheel events reached the view before this and were dropped, so a mouse
+    // reader had no way to scroll at all.
+    const wheeled = applyTrajectoryEvent(openDetail(), { type: 'wheel', direction: 'down' } as never).state
+    expect(wheeled.detailScroll).toBeGreaterThan(0)
+    const back = applyTrajectoryEvent(wheeled, { type: 'wheel', direction: 'up' } as never).state
+    expect(back.detailScroll).toBeLessThan(wheeled.detailScroll)
+  })
+
+  it('keeps the arrows on record navigation when no detail is open', () => {
+    // Two records, so there is somewhere to move to.
+    const ledger = { ...createTrajectory([
+      ...toolEvents,
+      event(5, 'tool/call', { turn: 1, step: 1, callId: 'b', name: 'bash', arguments: '{}' }, 40),
+    ] as unknown as readonly SessionEvent[]), details: false }
+    // The ledger follows the newest record, so `up` is the direction with room.
+    const moved = applyTrajectoryEvent(ledger, { type: 'key', id: 'up' } as never).state
+    expect(moved.detailScroll).toBe(0)
+    expect(moved.selectedId).not.toBe(ledger.selectedId)
+  })
+
+  it('still switches tabs and closes the pane while it is open', () => {
+    const open = { ...openDetail(), detailTab: 'summary' as const }
+    const tabbed = applyTrajectoryEvent(open, { type: 'key', id: 'tab' } as never).state
+    expect(tabbed.detailTab).not.toBe('summary')
+    const closed = applyTrajectoryEvent(open, { type: 'key', id: 'escape' } as never).state
+    expect(closed.details).toBe(false)
+  })
+})

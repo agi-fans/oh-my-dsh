@@ -48,7 +48,7 @@ const OVERLAY_CATALOGS: readonly { label: string; rows: readonly HotkeyRow[]; ke
     label: 'Trajectory',
     rows: TRAJECTORY_HOTKEYS,
     keys: [
-      '↑↓', 'Home / End', 'PgUp / PgDn', 'Enter', 'Tab / ←→', '/', 'n/N',
+      '↑↓', 'Home / End', '↑↓ / PgUp / PgDn', 'Enter', 'Tab / ←→', '/', 'n/N',
       'Ctrl+N / Ctrl+P', 't', 'c', 'Text', 'Backspace', 'Esc / Ctrl+C',
     ],
   },
