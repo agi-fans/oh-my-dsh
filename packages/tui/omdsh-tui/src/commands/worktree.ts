@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-plugin-manager'
 import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 import { listWorktrees } from '../session/worktrees.ts'
+import { cancellable } from '../runtime/cancellable.ts'
 
 export const name = 'omdsh-command-worktree'
 export const inject = ['commands', 'tui', 'workingDirectory', 'subprocess', 'sandbox', 'sandboxPolicy']
@@ -22,15 +23,17 @@ async function create(ctx: Context, invocation: CommandInvocation, signal: Abort
     options: [{ label: 'Create and enter', value: 'create' }], allowCustom: false, signal, notify: false })
   if (confirm !== 'create' || signal.aborted) return
   if (invocation.agent.status !== 'idle') throw new Error('Finish or interrupt the active turn before creating a worktree.')
-  const cancellation = new AbortController(), finished = new AbortController()
-  const pending = ctx.tui.prompt({ title: 'Creating worktree', question: name.trim() || 'New checkout',
+  const outcome = await cancellable(ctx.tui, {
+    title: 'Creating worktree',
+    question: name.trim() || 'New checkout',
     detail: 'Enter or Esc cancels. Partial files or branches may remain if creation fails or is cancelled.',
-    options: [{ label: 'Cancel', value: 'cancel' }], allowCustom: false, notify: false,
-    signal: AbortSignal.any([signal, finished.signal]) }).then(() => { if (!finished.signal.aborted) cancellation.abort(new Error('Worktree creation cancelled.')) }, () => { cancellation.abort() })
-  try {
-    const result = await service.create(invocation.agent, { ...(name.trim() === '' ? {} : { name: name.trim() }), from: from.trim() || 'HEAD' }, AbortSignal.any([signal, cancellation.signal]))
-    ctx.tui.notice(`Entered ${result.branch} · ${result.path}`)
-  } finally { finished.abort(); await pending }
+    surface: ctx.tui.interactive === true,
+  }, signal, work => service.create(invocation.agent, {
+    ...(name.trim() === '' ? {} : { name: name.trim() }),
+    from: from.trim() || 'HEAD',
+  }, work))
+  if (outcome === undefined || outcome.reason !== undefined) return
+  ctx.tui.notice(`Entered ${outcome.value.branch} · ${outcome.value.path}`)
 }
 
 async function manage(ctx: Context, invocation: CommandInvocation, signal: AbortSignal): Promise<CommandResult> {

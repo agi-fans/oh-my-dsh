@@ -1,4 +1,5 @@
 /** Human-only recovery review; uses existing list and document surfaces. */
+import { cancellable } from './cancellable.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from './file-recovery-local.ts'
@@ -37,11 +38,12 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
       : 'No complete snapshot for this Turn. Enable File recovery snapshots in Settings → Tools before starting new Turns.'))
     return
   }
-  const plan = await provider.store.plan(record.before, record.after, upstream)
+  const before = record.before, after = record.after
+  const plan = await provider.store.plan(before, after, upstream)
   const ready = plan.operations.filter(operation => operation.status === 'ready')
   const protectedPaths = plan.operations.filter(operation => operation.status === 'conflict')
   let history = ''
-  try { history = (await provider.savedReports(record.before, record.after, upstream)).map(reportText).join('\n\n') }
+  try { history = (await provider.savedReports(before, after, upstream)).map(reportText).join('\n\n') }
   catch (error) { ctx.tui.notice('Saved recovery reports could not be read: ' + (error instanceof Error ? error.message : String(error)), { level: 'error' }) }
   if (ready.length === 0) {
     await ctx.tui.prompt({ title: 'File recovery', question: 'No files can be restored', presentation: 'document',
@@ -89,18 +91,20 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
     allowCustom: false, notify: false, signal: upstream, onSuperseded: () => {} })
   if (confirmed !== 'restore') return
   assertActive(); upstream.throwIfAborted()
-  const cancel = new AbortController(), finished = new AbortController()
-  let superseded = false
-  const progress = ctx.tui.prompt({ title: 'Restoring files', question: `${paths.length} selected files`, presentation: 'progress',
+  const outcome = await cancellable(ctx.tui, {
+    title: 'Restoring files',
+    question: `${paths.length} selected files`,
     detail: 'Cancellation may leave a partial restoration. Completed operations and backups are retained in the report.',
-    signal: AbortSignal.any([upstream, finished.signal]), notify: false,
-    interrupt: () => { cancel.abort(); return true }, onSuperseded: () => { superseded = true; cancel.abort() } })
-    .then(() => { if (!finished.signal.aborted) cancel.abort() }, error => { cancel.abort(error) })
-  let report
-  try { report = await provider.restore(agent, record.before, record.after, paths, AbortSignal.any([upstream, cancel.signal])) }
-  finally { finished.abort(); await progress }
+  // Bound before the closure: the `ready` check narrowed these above, and that
+  // narrowing does not survive into a callback.
+    surface: true,
+  }, upstream, work => provider.restore(agent, before, after, paths, work))
   assertActive()
-  if (superseded || upstream.aborted) return
+  // A superseded restore had its surface taken away, so its partial receipt is
+  // not shown: nobody is looking. A reader who cancelled directly still gets the
+  // report, because they chose to stop mid-way and need to know what was written.
+  if (outcome === undefined || outcome.reason === 'superseded' || upstream.aborted) return
+  const report = outcome.value
   const restored = report.entries.filter(entry => entry.status === 'restored').length
   ctx.tui.notice(`File recovery: ${restored} restored · ${report.entries.length - restored} skipped or incomplete. Report: ${report.id}`)
   await ctx.tui.prompt({ title: 'File recovery report', question: 'Per-file results', presentation: 'document',

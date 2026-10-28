@@ -6,6 +6,7 @@ import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {} from '../runtime/session-runtime.ts'
 import type {} from '../runtime/btw.ts'
 import { registerCommands } from './registration.ts'
+import { cancellable } from '../runtime/cancellable.ts'
 import { formatTokens } from '../chrome/status-line.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -44,24 +45,27 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
       }
       if (question !== '') {
         lastQuestion = question
-        const abort = new AbortController(), finished = new AbortController()
-        const signal = AbortSignal.any([invocation.signal, abort.signal])
         detail = 'Answering from the captured conversation. No tools; output stays outside the main context.'
-        let superseded = false
-        const reading = ctx.tui.interactive === true ? ctx.tui.prompt({ title: 'Side question', question,
-          detail, refreshDocument: () => detail, presentation: 'document', allowCustom: false, notify: false,
-          options: [{ label: 'Cancel', value: 'cancel' }], signal: AbortSignal.any([invocation.signal, finished.signal]),
-          interrupt: () => { abort.abort(); return true }, onSuperseded: () => { superseded = true; abort.abort() } })
-          .then(() => { if (!finished.signal.aborted) abort.abort() }, error => { abort.abort(error) }) : Promise.resolve()
-        try {
-          const reply = await ctx.omdshBtw.consult(parent, question, ctx.omdshSession.selection(parent), signal, text => { detail = text }, topicId)
-          topicId = reply.topic.sessionId
-          lastReplyText = `${reply.text}${reply.error === undefined ? '' : '\n\n' + reply.error}`.trim()
-          detail = `${reply.text}${reply.error === undefined ? '' : '\n\n' + reply.error}`
-            + `\n\n${reply.topic.status} · ${reply.usage === undefined ? 'Usage unavailable' : formatTokens(reply.usage.totalTokens) + ' tokens'} · Separate session: ${topicId}`
-          if (ctx.tui.interactive !== true) return { kind: reply.error === undefined ? 'success' : 'error', text: detail }
-          if (signal.aborted || superseded) return { kind: 'success' }
-        } finally { finished.abort(); await reading }
+        const outcome = await cancellable(ctx.tui, {
+          title: 'Side question',
+          question,
+          detail,
+          presentation: 'document',
+          document: () => detail,
+          surface: ctx.tui.interactive === true,
+        }, invocation.signal, signal => ctx.omdshBtw.consult(
+          parent, question, ctx.omdshSession.selection(parent), signal,
+          text => { detail = text }, topicId,
+        ))
+        // Cancelled or superseded: the answer never completed, so nothing is
+        // recorded and the loop returns to the reading surface it came from.
+        if (outcome === undefined || outcome.reason !== undefined) return { kind: 'success' }
+        const reply = outcome.value
+        topicId = reply.topic.sessionId
+        lastReplyText = `${reply.text}${reply.error === undefined ? '' : '\n\n' + reply.error}`.trim()
+        detail = `${reply.text}${reply.error === undefined ? '' : '\n\n' + reply.error}`
+          + `\n\n${reply.topic.status} · ${reply.usage === undefined ? 'Usage unavailable' : formatTokens(reply.usage.totalTokens) + ' tokens'} · Separate session: ${topicId}`
+        if (ctx.tui.interactive !== true) return { kind: reply.error === undefined ? 'success' : 'error', text: detail }
         question = ''
       }
       const action = await ctx.tui.prompt({ title: 'Side question', question: 'Independent answer', detail, presentation: 'document',
