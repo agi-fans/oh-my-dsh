@@ -882,6 +882,11 @@ export function blockLines(
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width, block.surface)
+  if (block.kind === 'aside') {
+    const body = block.text === '' ? (block.status === 'running' ? '…' : '') : block.text
+    const text = [block.question, '', ...(body === '' ? [] : [body]), ...(block.detail === undefined ? [] : ['', block.detail])].join('\n')
+    return renderCommandOutput('btw', text, theme, width, 'aside')
+  }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]

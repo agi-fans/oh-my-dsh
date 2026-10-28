@@ -84,6 +84,14 @@ export type Block =
   }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
   | { kind: 'commandOutput'; command: string; text: string; surface?: 'aside' }
+  /**
+   * A side-conversation answer, streamed into the transcript.
+   *
+   * Its own kind rather than a command block: it arrives over time, so the card
+   * has to be updated while it runs, and it belongs to a conversation that is
+   * not the main one.
+   */
+  | { kind: 'aside'; question: string; text: string; status: 'running' | 'done' | 'error'; detail?: string }
   | {
     /**
      * A Shell line the reader ran themselves with a leading `!`.

@@ -483,6 +483,20 @@ export interface TuiService {
   /** Append command output; preserve the viewport unless focus is requested. */
   commandOutput(command: string, text: string, options?: TuiOutputOptions): void
   /**
+   * Run one side question as a live transcript block.
+   *
+   * The block is appended before the work starts and updated as the answer
+   * arrives, so a side question is asked and read in place: no second prompt to
+   * collect the question, no card to sit through, no reader to leave. `onUpdate`
+   * receives the accumulated text; the promise settles with what to show once the
+   * consultation ends.
+   */
+  asideQuestion?(request: {
+    question: string
+    run: (onUpdate: (text: string) => void, signal: AbortSignal) => Promise<{ text: string; detail?: string; failed?: boolean }>
+    signal: AbortSignal
+  }): Promise<void>
+  /**
    * Run one Shell line as a live transcript card.
    *
    * `onOutput` receives the accumulated output as the command writes it, so the

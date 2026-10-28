@@ -1172,6 +1172,63 @@ export class LocalTui implements TuiService {
     return result
   }
 
+  /**
+   * A side question, streamed into its own transcript block.
+   *
+   * Modelled on `shellCommand` rather than on `commandOutput`: the answer arrives
+   * over time, and the reader should watch it arrive where it will stay. Coalesced
+   * the same way, because a chatty stream would otherwise spend the turn in the
+   * renderer.
+   */
+  async asideQuestion(request: {
+    question: string
+    run: (onUpdate: (text: string) => void, signal: AbortSignal) => Promise<{ text: string; detail?: string; failed?: boolean }>
+    signal: AbortSignal
+  }): Promise<void> {
+    const block = { kind: 'aside' as const, question: request.question, text: '', status: 'running' as const }
+    this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
+    this.#followTail()
+    if (this.#tty) this.#render()
+    else this.#plain.print()
+    const update = (change: Partial<Extract<Block, { kind: 'aside' }>>): void => {
+      const at = this.#state.blocks.findLastIndex(entry => entry.kind === 'aside' && entry.question === request.question)
+      if (at < 0) return
+      const next = this.#state.blocks.slice()
+      next[at] = { ...(next[at] as Extract<Block, { kind: 'aside' }>), ...change }
+      this.#state = { ...this.#state, blocks: next }
+    }
+    let lastPaint = 0
+    let pending = ''
+    let pendingPaint: ReturnType<typeof setTimeout> | undefined
+    const paint = (): void => { if (this.#tty && !this.#disposed) this.#render() }
+    const stream = (text: string): void => {
+      pending = text
+      const now = Date.now()
+      if (now - lastPaint < SHELL_PAINT_INTERVAL_MS) {
+        if (pendingPaint !== undefined) clearTimeout(pendingPaint)
+        pendingPaint = setTimeout(paint, SHELL_PAINT_INTERVAL_MS - (now - lastPaint))
+        return
+      }
+      lastPaint = now
+      update({ text: pending })
+      paint()
+    }
+    try {
+      const result = await request.run(stream, request.signal)
+      update({
+        text: result.text,
+        status: result.failed === true ? 'error' : 'done',
+        ...(result.detail === undefined ? {} : { detail: result.detail }),
+      })
+    } catch (error) {
+      update({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
+    } finally {
+      if (pendingPaint !== undefined) clearTimeout(pendingPaint)
+      paint()
+      if (this.#tty) this.#render()
+    }
+  }
+
   /** Append a Shell card and follow it, so the reader sees it start. */
   #insertShellBlock(block: Extract<Block, { kind: 'shell' }>): void {
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
