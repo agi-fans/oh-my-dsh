@@ -632,22 +632,19 @@ describe('spare rows above the document', () => {
     { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: '' },
   ] as TranscriptState['blocks']
 
-  it('keeps a short conversation next to the composer instead of the top', () => {
-    // The transcript used to hug the top of the screen and leave its slack
-    // between the last row and the composer, so folding a run — which shortens
-    // the transcript — opened a gap in the middle of the screen.
+  it('keeps the header at the top and the conversation beside the composer', () => {
+    // The slack sits between the header and the conversation: a fold shortens the
+    // conversation into that slack, so neither the header nor the newest rows move.
     const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' as const }
     const frame = renderView(state, { width: 80, height: 40, model: 'm', input: '', inputCursor: 0, colors: false })
-    const top = frame.documentRows?.frameStart ?? 0
-    expect(top).toBeGreaterThan(0)
-    // The spare rows are above the document and carry nothing.
-    expect(frame.lines.slice(0, top).every(line => stripAnsi(line).trim() === '')).toBe(true)
-    // The document ends at the composer, not at the top of the frame.
+    // The header keeps the first rows it is read on.
+    expect(frame.documentRows?.frameStart ?? 0).toBe(0)
+    expect(stripAnsi(frame.lines[0] ?? '')).not.toBe('')
+    // The conversation ends at the composer, and the gap is above it.
     const composer = frame.lines.findIndex(line => stripAnsi(line).includes('🐳'))
-    expect(composer).toBeGreaterThan(0)
-    // Frame row of the composer, converted back to a document row, is at or
-    // after the end of the document: nothing sits between them.
-    expect(composer - top).toBeGreaterThanOrEqual(frame.documentRows?.documentEnd ?? 0)
+    const conversation = frame.lines.findIndex(line => stripAnsi(line).includes('map the project'))
+    expect(conversation).toBeGreaterThan(10)
+    expect(composer - conversation).toBeLessThanOrEqual(6)
   })
 
   it('puts the header at the top when the session has no conversation yet', () => {

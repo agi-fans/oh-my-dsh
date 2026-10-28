@@ -1771,9 +1771,11 @@ describe('MainScreenRenderer reflow across a collapsed run with a failure', () =
     // The run really opened: the rows differ, and the answer moved down. A
     // fixture that renders the same shape twice never reaches the mapper at all.
     expect(open.lines).not.toEqual(closed.lines)
-    const answerAt = (t: Frame['transcript']): number =>
-      (t.bodyRow ?? 0) + t.blockStarts[collapsed().findIndex(b => b.kind === 'assistant')]!
-    expect(answerAt(open.transcript)).toBeGreaterThan(answerAt(closed.transcript))
+    // The run opened, so the transcript body starts higher: the spare rows that
+    // sat between the header and the conversation were consumed by the rows the
+    // run added. The answer's own document row is unchanged — that is the point
+    // of the padding, and this guard only has to prove the fixture really moved.
+    expect(open.transcript?.bodyRow ?? 0).toBeLessThan(closed.transcript?.bodyRow ?? 0)
     renderer.reflow(1)
     renderer.render({ ...frame(open.lines, open.lines.length - 2), transcript: open.transcript })
     expect(emu.scrollback.slice(0, frozen.length)).toEqual(frozen)

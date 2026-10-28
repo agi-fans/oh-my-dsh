@@ -2501,21 +2501,22 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const bottomRows = working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   /**
-   * Spare rows go above the document while the reader is at the tail.
+   * Spare rows sit between the header and the conversation while at the tail.
    *
-   * A short transcript used to leave its slack between the last row and the
-   * composer, so the conversation hugged the top of the screen and a fold — which
-   * shortens the transcript — widened that gap in the middle of the screen. The
-   * reader's eye is on the newest rows, next to the composer; padding above them
-   * keeps those rows where they were when something above them folds, and lets
-   * the header travel with the document it belongs to.
+   * A short transcript used to leave its slack below the last row, so folding a
+   * run — which shortens the transcript — widened a gap in the middle of the
+   * screen while nothing the reader was looking at moved. Moving the slack to the
+   * top of the *frame* fixed that but dragged the header down with it, and a
+   * header that drops to the bottom the moment the first message arrives is worse
+   * than the gap.
+   *
+   * Between the header and the transcript, both stay put: the header keeps the
+   * row it is read on, the newest rows keep the row they are watched on, and the
+   * slack absorbs whatever a fold removes.
    *
    * Not while scrolled: a window is already full, and padding a scrollback view
    * would shift the rows the reader deliberately positioned.
    */
-  // Only above a document that has rows. A session with nothing in it yet is the
-  // startup header, and the header's job then is to be the first thing read; the
-  // padding exists so the *conversation* stays next to the composer.
   const topPad = windowed === undefined && transcript.lines.length > 0 ? fill : 0
   if (topPad === 0) lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
@@ -2553,7 +2554,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   // Padding rows are not document rows: `frameStart` below tells the renderer
   // which frame row the document begins at, so they never map to content.
-  const frameLines = topPad === 0 ? lines : [...Array.from({ length: topPad }, () => ''), ...lines]
+  const frameLines = topPad === 0
+    ? lines
+    : [...lines.slice(0, transcriptStart), ...Array.from({ length: topPad }, () => ''), ...lines.slice(transcriptStart)]
   // Every settled block was already rendered against this width. Mirroring
   // OMP's stable-prefix preparation, only validate the mutable suffix instead
   // of measuring the complete native-scrollback history on every frame.
@@ -2565,7 +2568,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // that is a known range, not a frame that failed to report one, and treating
   // it as "no body" would clear the record on every ordinary follow frame.
   const windowRange: DocumentRows | null | undefined = windowed === undefined
-    ? (body.length === 0 ? null : { documentStart: 0, documentEnd: body.length, frameStart: topPad })
+    ? (body.length === 0 ? null : { documentStart: 0, documentEnd: body.length + topPad, frameStart: 0 })
     : windowed.documentRows
   const bodySource: DocumentRows | null = windowRange === undefined
     ? null
@@ -2576,11 +2579,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       const block = state.blocks[at]!
       if (block.kind !== 'user') continue
       const previous = stickyHeaders.at(-1)
-      if (previous !== undefined) previous.end = transcriptStart + transcript.blockStarts[at]!
+      if (previous !== undefined) previous.end = transcriptStart + topPad + transcript.blockStarts[at]!
       const padding = width > 4 ? 2 : 0
       const label = truncateToWidth(promptSummary(block), Math.max(1, width - padding * 2))
       stickyHeaders.push({
-        start: transcriptStart + (transcript.blockStarts[at + 1] ?? transcript.lines.length),
+        start: transcriptStart + topPad + (transcript.blockStarts[at + 1] ?? transcript.lines.length),
         end: body.length,
         text: paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth(' '.repeat(padding) + label, width)),
       })
@@ -2614,11 +2617,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         hiddenBelow: 0,
       }),
       blockStarts: transcript.blockStarts,
-      fileRegions: transcript.fileRegions.map(region => ({ ...region, start: transcriptStart + region.start, end: transcriptStart + region.end })),
+      fileRegions: transcript.fileRegions.map(region => ({ ...region, start: transcriptStart + topPad + region.start, end: transcriptStart + topPad + region.end })),
       blockDrawStarts: transcript.blockDrawStarts,
       foldShape: transcript.foldShape,
       foldMarks: transcript.foldMarks,
-      bodyRow: transcriptStart,
+      bodyRow: transcriptStart + topPad,
     },
   }
 }
