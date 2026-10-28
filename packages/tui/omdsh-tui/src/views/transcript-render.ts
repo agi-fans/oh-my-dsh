@@ -2500,7 +2500,24 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ? ' '.repeat(jumpColumn) + theme.inverse(jumpText) : '')
   const bottomRows = working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
-  lines.push(...Array.from({ length: fill }, () => ''))
+  /**
+   * Spare rows go above the document while the reader is at the tail.
+   *
+   * A short transcript used to leave its slack between the last row and the
+   * composer, so the conversation hugged the top of the screen and a fold — which
+   * shortens the transcript — widened that gap in the middle of the screen. The
+   * reader's eye is on the newest rows, next to the composer; padding above them
+   * keeps those rows where they were when something above them folds, and lets
+   * the header travel with the document it belongs to.
+   *
+   * Not while scrolled: a window is already full, and padding a scrollback view
+   * would shift the rows the reader deliberately positioned.
+   */
+  // Only above a document that has rows. A session with nothing in it yet is the
+  // startup header, and the header's job then is to be the first thing read; the
+  // padding exists so the *conversation* stays next to the composer.
+  const topPad = windowed === undefined && transcript.lines.length > 0 ? fill : 0
+  if (topPad === 0) lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...working)
   lines.push(...goal)
   lines.push(...questions)
@@ -2522,9 +2539,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? pendingRow
       : Math.min(pendingRow ?? transcript.liveFrom, transcript.liveFrom)
     if (liveRow !== undefined) {
-      liveStart = transcriptStart + liveRow
+      liveStart = transcriptStart + liveRow + topPad
     } else {
-      liveStart = lines.length - bottomRows
+      liveStart = lines.length - bottomRows + topPad
     }
     // liveStart marks the first row that is still live/mutable. Rows above it
     // are committed. Off-screen live rows are bounded by the renderer: it only
@@ -2534,10 +2551,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     liveStart = 0
   }
 
+  // Padding rows are not document rows: `frameStart` below tells the renderer
+  // which frame row the document begins at, so they never map to content.
+  const frameLines = topPad === 0 ? lines : [...Array.from({ length: topPad }, () => ''), ...lines]
   // Every settled block was already rendered against this width. Mirroring
   // OMP's stable-prefix preparation, only validate the mutable suffix instead
   // of measuring the complete native-scrollback history on every frame.
-  const trimmed = fitFrame(lines, width, isFollowing ? liveStart : 0)
+  const trimmed = fitFrame(frameLines, width, isFollowing ? liveStart + topPad : 0)
   const caret = promptSelector?.cursor ?? settings?.cursor ?? copySelector?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   // Which document rows this frame's body came from. `body` already includes the
   // header, so a window's own range is already in document coordinates and must
@@ -2545,7 +2565,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // that is a known range, not a frame that failed to report one, and treating
   // it as "no body" would clear the record on every ordinary follow frame.
   const windowRange: DocumentRows | null | undefined = windowed === undefined
-    ? (body.length === 0 ? null : { documentStart: 0, documentEnd: body.length, frameStart: 0 })
+    ? (body.length === 0 ? null : { documentStart: 0, documentEnd: body.length, frameStart: topPad })
     : windowed.documentRows
   const bodySource: DocumentRows | null = windowRange === undefined
     ? null
@@ -2569,10 +2589,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   return {
     lines: trimmed,
     stickyHeaders,
-    ...(jumpToLatest === undefined ? {} : { jumpToLatest }),
+    ...(jumpToLatest === undefined ? {} : { jumpToLatest: { ...jumpToLatest, row: jumpToLatest.row + topPad } }),
     documentRows: bodySource,
     cursor: {
-      row: editorStart + caret.row,
+      row: editorStart + caret.row + topPad,
       column: Math.min(caret.column, width),
     },
     cursorVisible: state.status === 'compacting'

@@ -447,7 +447,9 @@ describe('a run whose work settles after its answer', () => {
     const starts = frame.transcript!.blockStarts
     // Offsets are transcript-body rows; the frame places the body below its
     // header, so a row on screen is the body row plus that placement.
-    const bodyRow = frame.transcript!.bodyRow ?? 0
+    // Frame row of document row 0: spare rows sit above the conversation.
+    const top = frame.documentRows?.frameStart ?? 0
+    const bodyRow = (frame.transcript!.bodyRow ?? 0) + top
     const rows = frame.lines.map(stripAnsi)
     const answerAt = blocks.findIndex(block => block.kind === 'assistant')
     const noticeAt = blocks.findIndex(block => block.kind === 'notice')
@@ -592,7 +594,9 @@ describe('a frame says which document rows its body came from', () => {
     // would let a resize credit the terminal with committing them.
     expect(frame.documentRows?.documentStart).toBe(0)
     expect(frame.documentRows?.documentEnd).toBeLessThan(frame.lines.length)
-    expect(frame.documentRows?.frameStart).toBe(0)
+    // The document begins after the spare rows, so frame row 0 is padding.
+    const top = frame.documentRows?.frameStart ?? 0
+    expect(frame.lines.slice(0, top).every(line => stripAnsi(line).trim() === '')).toBe(true)
     // And it covers the welcome header and the transcript itself.
     expect(frame.documentRows?.documentEnd).toBeGreaterThan(10)
   })
@@ -619,5 +623,38 @@ describe('compact trailing process rows', () => {
     const folded = renderView({ ...state, status: 'idle' }, options).lines.map(stripAnsi).join('\n')
     expect(folded).toContain('bash-2 failed')
     expect(folded).toContain('exit code: 2')
+  })
+})
+
+describe('spare rows above the document', () => {
+  const blocks = [
+    { kind: 'user', text: 'map the project' },
+    { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: '' },
+  ] as TranscriptState['blocks']
+
+  it('keeps a short conversation next to the composer instead of the top', () => {
+    // The transcript used to hug the top of the screen and leave its slack
+    // between the last row and the composer, so folding a run — which shortens
+    // the transcript — opened a gap in the middle of the screen.
+    const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' as const }
+    const frame = renderView(state, { width: 80, height: 40, model: 'm', input: '', inputCursor: 0, colors: false })
+    const top = frame.documentRows?.frameStart ?? 0
+    expect(top).toBeGreaterThan(0)
+    // The spare rows are above the document and carry nothing.
+    expect(frame.lines.slice(0, top).every(line => stripAnsi(line).trim() === '')).toBe(true)
+    // The document ends at the composer, not at the top of the frame.
+    const composer = frame.lines.findIndex(line => stripAnsi(line).includes('🐳'))
+    expect(composer).toBeGreaterThan(0)
+    // Frame row of the composer, converted back to a document row, is at or
+    // after the end of the document: nothing sits between them.
+    expect(composer - top).toBeGreaterThanOrEqual(frame.documentRows?.documentEnd ?? 0)
+  })
+
+  it('puts the header at the top when the session has no conversation yet', () => {
+    // With nothing to anchor to the composer, the startup header is the first
+    // thing to read and stays where it is.
+    const frame = renderView(initialTranscript(), { width: 80, height: 40, model: 'm', input: '', inputCursor: 0, colors: false })
+    expect(frame.documentRows?.frameStart ?? 0).toBe(0)
+    expect(stripAnsi(frame.lines[0] ?? '')).not.toBe('')
   })
 })

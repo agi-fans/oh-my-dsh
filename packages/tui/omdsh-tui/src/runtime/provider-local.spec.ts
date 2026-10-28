@@ -615,7 +615,10 @@ describe('LocalTui folds against a scrolling terminal', () => {
     const tui = new LocalTui(term, 'm', colors)
     try {
       longTurn(tui, 6, 8)
-      expect(term.visible().findIndex(row => row.trim() !== '')).toBeLessThanOrEqual(2)
+      // Spare rows sit above the conversation, so a short turn hugs the composer
+      // instead of the top of the screen.
+      const firstContentAtStart = term.visible().findIndex(row => row.trim() !== '')
+      expect(firstContentAtStart).toBeGreaterThan(2)
       const history = term.scrollback()
       press(term as never, '\x0f')
       press(term as never, '\x1bo')
@@ -627,7 +630,10 @@ describe('LocalTui folds against a scrolling terminal', () => {
       expect(summary).toBeGreaterThanOrEqual(0)
       expect(prompt).toBeGreaterThanOrEqual(0)
       expect(summary - prompt).toBeLessThanOrEqual(4)
-      expect(firstContent).toBeLessThanOrEqual(2)
+      // The conversation ends at the composer, not at the top of the screen.
+      const composerAt = screen.findIndex(row => row.includes('🐳'))
+      expect(composerAt).toBeGreaterThan(0)
+      expect(screen.slice(firstContent, composerAt).join('\n')).toContain('map the project 1')
       expect(screen.join('\n')).toContain('answer 1 line 7')
       expect(term.scrollback()).toEqual(history)
     } finally { tui.dispose() }

@@ -14,8 +14,10 @@ describe('file regions', () => {
     const open = renderView(state, { ...options, toolsExpanded: true })
     const region = open.transcript?.fileRegions?.find(region => region.block === 0)
     expect(region).toBeDefined()
-    expect(open.lines.slice(region!.start, region!.end).join('\n')).toContain('Read a.ts')
-    expect(open.lines.slice(region!.start, region!.end).join('\n')).not.toContain('Done')
+    // Regions are document rows; the frame may precede them with spare rows.
+    const top = open.documentRows?.frameStart ?? 0
+    expect(open.lines.slice(top + region!.start, top + region!.end).join('\n')).toContain('Read a.ts')
+    expect(open.lines.slice(top + region!.start, top + region!.end).join('\n')).not.toContain('Done')
   })
 
   it('maps only visible Changed files rows and keeps the folded more-files label inactive', () => {

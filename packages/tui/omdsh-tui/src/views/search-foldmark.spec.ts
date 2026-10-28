@@ -38,6 +38,8 @@ interface Rendered {
   screen: string
   lines: readonly string[]
   bodyRow: number
+  /** Frame rows of spare space above the document; 0 when it fills the frame. */
+  documentTop: number
   /** Navigation offset and drawn start of the answer, both body-relative. */
   offsets: { navigation: number | undefined; drawn: number | undefined }
   foldShape: string | undefined
@@ -58,6 +60,9 @@ function view(
   })
   const rows = frame.lines.map(stripAnsi)
   const bodyRow = frame.transcript?.bodyRow ?? 0
+  // Spare rows above the document, so a body-relative row can be turned into a
+  // frame row. Zero when the transcript fills the frame.
+  const documentTop = frame.documentRows?.frameStart ?? 0
   const thoughtMark = frame.transcript?.foldMarks
     ?.find(mark => mark.key.startsWith('thought:'))
   const drawnThought = rows.findIndex(row => row.includes('lockfile shared 0'))
@@ -66,6 +71,7 @@ function view(
     screen: rows.join('\n'),
     lines: rows,
     bodyRow,
+    documentTop,
     offsets: {
       navigation: frame.transcript?.blockStarts[answerAt],
       drawn: frame.transcript?.blockDrawStarts?.[answerAt],
@@ -138,7 +144,7 @@ describe('a search that opens a thought the run took', () => {
     // query matching both would navigate to.
     const label = both.lines.findIndex(line => line.includes('lockfile shared 0'))
     expect(label).toBeGreaterThan(-1)
-    expect(both.markRows.thought).toBe(label - both.bodyRow)
+    expect(both.markRows.thought).toBe(label - both.documentTop - both.bodyRow)
   })
 
   it('keeps the answer\'s drawn start apart from where a search aims it', () => {
@@ -169,7 +175,7 @@ describe('a search that opens a thought the run took', () => {
     const label = rendered.lines.findIndex(line => line.includes('lockfile shared 0'))
 
     expect(label).toBeGreaterThan(-1)
-    expect(rendered.markRows.thought).toBe(label - rendered.bodyRow)
+    expect(rendered.markRows.thought).toBe(label - rendered.documentTop - rendered.bodyRow)
     // With no search there is nothing to aim away from the words, so the
     // navigation offset and the drawn start are the same row — and that row is
     // the answer's own first line. The separation is a search's doing, not a
@@ -179,7 +185,7 @@ describe('a search that opens a thought the run took', () => {
     expect(rendered.offsets.navigation).toBe(rendered.offsets.drawn)
     const words = rendered.lines.findIndex(line => line.includes('answer shared 0'))
     expect(words).toBeGreaterThan(-1)
-    expect(rendered.offsets.drawn).toBe(words - rendered.bodyRow)
+    expect(rendered.offsets.drawn).toBe(words - rendered.documentTop - rendered.bodyRow)
   })
 
   it('leaves the host\'s own opened set alone', () => {
