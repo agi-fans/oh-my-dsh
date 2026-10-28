@@ -35,7 +35,7 @@ import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line
 import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeColor, type ThemeName } from '../chrome/theme.ts'
 import { highlightToolText, toolPayloadLanguage } from '../chrome/code-highlight.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
-import { padToWidth, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
+import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
@@ -61,7 +61,10 @@ import { renderCommandOutput, renderCommandSeparator, renderShell } from '../chr
 import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-colors.ts'
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
-import { blockMatchesQuery, transcriptSearchHint } from './transcript-search.ts'
+import {
+  blockMatchesQuery, matchedRows, searchMatches, transcriptSearchHint,
+  type SearchableBlock, type TranscriptSearchMatch,
+} from './transcript-search.ts'
 import type { MotionMode } from '../session/tui-settings.ts'
 import {
   contentToText,
@@ -178,7 +181,13 @@ export interface ViewOptions {
    * inverse; `matches` are block indexes in render order and `focus` selects
    * the one the caller has scrolled to.
    */
-  transcriptSearch?: { query: string; matches: readonly number[]; focus: number; editing: boolean }
+  /**
+   * Search intent only.
+   *
+   * Occurrences are not passed in: they are derived here, from the same rows the
+   * reader sees, so the painted span and the reported count cannot disagree.
+   */
+  transcriptSearch?: { query: string; focus: number; editing: boolean }
   /** Legacy full-output override for direct callers and the tool catalog. */
   toolsExpanded?: boolean
   /** Tool calls whose complete inputs and results are visible. */
@@ -640,6 +649,8 @@ interface GroupRenderContext {
   depth: ColorDepth
   width: number
   matches: ReadonlySet<number>
+  /** Every query occurrence, in reading order, for the painter. */
+  occurrences: readonly TranscriptSearchMatch[]
   /** Thoughts the reader has opened past the transcript's folded default. */
   openedThoughts: ReadonlySet<string>
   /**
@@ -699,10 +710,62 @@ function groupMemberLines(
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
-  const search = options.transcriptSearch
-  return search !== undefined && context.matches.has(index)
-    ? lines.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
-    : [...lines]
+  return [...paintSearch(lines, index, context.occurrences, theme)]
+}
+
+/**
+ * Paint the query occurrences of one block onto its rows.
+ *
+ * One painter for both the run path and the block path: painting the row instead
+ * of the occurrence was the original defect, and having two copies of the fix
+ * would let one of them regress back to it.
+ */
+function paintSearch(
+  lines: readonly string[],
+  block: number,
+  occurrences: readonly TranscriptSearchMatch[],
+  theme: Theme,
+): readonly string[] {
+  const spansByRow = matchedRows(occurrences, block)
+  if (spansByRow.size === 0) return lines
+  return lines.map((line, row) => {
+    const spans = spansByRow.get(row)
+    return spans === undefined ? line : inverseSpans(line, spans, theme)
+  })
+}
+
+/**
+ * Invert the given display-cell spans of one rendered row.
+ *
+ * `sliceCells` is what makes this safe for CJK, emoji, and combining marks: the
+ * spans are in display cells, which is the only measure the reader's eye agrees
+ * with. Offsets computed from string indexes land mid-glyph and shear the row.
+ */
+function inverseSpans(line: string, spans: readonly { start: number; width: number }[], theme: Theme): string {
+  const plain = stripAnsi(line)
+  const total = visibleWidth(plain)
+  // Merge overlapping spans, then walk them left to right so no cell is painted
+  // twice and the untouched gaps keep their original styling.
+  const ordered = [...spans].sort((left, right) => left.start - right.start)
+  const merged: { start: number; width: number }[] = []
+  for (const span of ordered) {
+    const last = merged.at(-1)
+    const end = span.start + span.width
+    if (last !== undefined && span.start <= last.start + last.width) {
+      last.width = Math.max(last.width, end - last.start)
+    } else merged.push({ start: span.start, width: span.width })
+  }
+  let out = ''
+  let at = 0
+  for (const span of merged) {
+    const start = Math.max(at, Math.min(span.start, total))
+    const end = Math.min(total, Math.max(start, span.start + span.width))
+    if (start > at) out += sliceCells(line, at, start - at)
+    if (end > start) out += theme.inverse(sliceCells(line, start, end - start))
+    at = end
+  }
+  if (at < total) out += sliceCells(line, at, total - at)
+  return out
 }
 
 /**
@@ -887,6 +950,74 @@ function renderTranscriptBoundary(label: string, theme: Theme, width: number): s
   if (room < 2) return truncateToWidth(labelText, Math.max(1, width))
   const left = Math.floor(room / 2)
   return rule.repeat(left) + ' ' + labelText + ' ' + rule.repeat(room - left)
+}
+
+/**
+ * Rendered rows of every block, as the search index sees them.
+ *
+ * The searchable text used to be the block's source (`blockSearchText`), which is
+ * not what the reader is looking at: Markdown source carries `**` and backticks,
+ * a table is one source line but several rendered rows, and a folded run hides
+ * rows that the source still contains. Matching rendered rows is the only way the
+ * reported hit and the painted span agree.
+ *
+ * Plain text only — the caller strips SGR — and cached on the block array, which
+ * is replaced rather than mutated whenever the transcript changes.
+ */
+const renderedBlockCache = new WeakMap<readonly Block[], ReadonlyMap<string, readonly SearchableBlock[]>>()
+
+export function renderedBlocks(state: TranscriptState, options: {
+  width: number
+  colors?: boolean
+  themeName?: ThemeName
+  terminal?: TerminalColors
+  colorDepth?: ColorDepth
+  mathMode?: import('../chrome/math.ts').MathMode
+  toolsExpanded?: boolean
+  hideThinking?: boolean
+  expandedTools?: ReadonlySet<string>
+  expandedReasoning?: ReadonlySet<string>
+  openedGroups?: ReadonlySet<string>
+}): readonly SearchableBlock[] {
+  const theme = createTheme(
+    options.colors === true,
+    options.colorDepth ?? 'truecolor',
+    options.themeName ?? 'dark',
+    options.terminal,
+  )
+  const key = [
+    options.width,
+    options.toolsExpanded === true,
+    options.hideThinking === true,
+    [...(options.expandedTools ?? [])].sort().join(','),
+    [...(options.expandedReasoning ?? [])].sort().join(','),
+    [...(options.openedGroups ?? [])].sort().join(','),
+  ].join('\u0000')
+  const cached = renderedBlockCache.get(state.blocks)?.get(key)
+  if (cached !== undefined) return cached
+  const blocks: SearchableBlock[] = state.blocks.map((block, index) => ({
+    block: index,
+    // The source text is the fallback for a block kind the painter does not lay
+    // out as rows of its own; matching something is better than matching nothing.
+    lines: renderedRows(block, theme, options).map(stripAnsi),
+  }))
+  const byKey = new Map(renderedBlockCache.get(state.blocks) ?? [])
+  byKey.set(key, blocks)
+  renderedBlockCache.set(state.blocks, byKey)
+  return blocks
+}
+
+/** Plain rows one block contributes, without the search highlighting applied. */
+function renderedRows(block: Block, theme: Theme, options: { width: number; mathMode?: import('../chrome/math.ts').MathMode; hideThinking?: boolean; expandedReasoning?: ReadonlySet<string> }): string[] {
+  if (block.kind === 'assistant') {
+    const thinkingOpen = options.hideThinking !== true || options.expandedReasoning?.has(reasoningKey(block)) === true
+    return thinkingOpen && block.reasoning !== ''
+      ? openReasoningLines(block, theme, options.width, options.mathMode)
+      : assistantMarkdown(block.text, theme, options.width, {
+        ...(options.mathMode === undefined ? {} : { mathMode: options.mathMode }),
+      })
+  }
+  return blockSearchText(block).split('\n')
 }
 
 /** Plain text of one block, used by transcript search and match painting. */
@@ -1298,6 +1429,8 @@ interface TranscriptBody {
   foldMarks: readonly FoldMark[]
   /** Body row of the first run still at work, which must not freeze yet. */
   liveFrom: number | undefined
+  /** Every query occurrence in this layout, for the composer hint's count. */
+  occurrences: readonly TranscriptSearchMatch[]
 }
 
 /**
@@ -1343,9 +1476,19 @@ function renderTranscriptBody(
     ? spinnerFrame
     : -1
   const search = options.transcriptSearch
-  const searchKey = search === undefined
-    ? ''
-    : `${search.query}\u0000${search.focus}\u0000${search.matches.join(',')}`
+  const searchKey = search === undefined ? '' : `${search.query}\u0000${search.focus}`
+  /*
+   * The fold logic asks "does this range contain a hit", which is a question about
+   * blocks; the painter asks "which cells on this row". Both are answered from one
+   * occurrence list, computed from the rendered rows so a hit cannot exist in the
+   * count and be missing from the paint.
+   *
+   * It is computed before the cache check because the composer hint reports its
+   * length: a cache hit still has to say how many matches there are.
+   */
+  const occurrences = search === undefined || search.query.trim() === ''
+    ? []
+    : searchMatches(renderedBlocks(state, options), search.query)
   const cached = transcriptBodyCache.get(state.blocks)
   if (cached !== undefined
     && cached.width === options.width
@@ -1375,10 +1518,13 @@ function renderTranscriptBody(
       foldShape: cached.foldShape,
       foldMarks: cached.foldMarks,
       liveFrom: cached.liveFrom,
+      // Recomputed on a cache hit from the same input, so the hint's count is
+      // never a stale number left over from an earlier query.
+      occurrences,
     }
   }
 
-  const matches = new Set(search?.matches ?? [])
+  const matches = new Set(occurrences.map(match => match.block))
   const lines: string[] = []
   const fileRegions: TranscriptFileRegion[] = []
   const filesAt = (index: number, start: number, length: number, expanded = false): void => {
@@ -1449,7 +1595,7 @@ function renderTranscriptBody(
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, depth, width: options.width,
-    matches, options: { ...options, expandedReasoning: openedThoughts },
+    matches, occurrences, options: { ...options, expandedReasoning: openedThoughts },
     openedThoughts,
     toolCards: { count: 0 },
   }
@@ -1532,9 +1678,7 @@ function renderTranscriptBody(
           answer, options, theme, themeName, depth, toolsExpanded,
           absorbed.has(group.answer),
         )
-        for (const line of (search !== undefined && matches.has(group.answer)
-          ? rendered.map(row => blockMatchesQuery(stripAnsi(row), search.query) ? theme.inverse(row) : row)
-          : rendered)) lines.push(line)
+        for (const line of paintSearch(rendered, group.answer, occurrences, theme)) lines.push(line)
         if (thoughtHit && thoughtRow !== undefined) blockStarts[group.answer] = bodyRow + thoughtRow
         if (thoughtHit && thoughtRow !== undefined) offsets.set(group.answer, thoughtRow)
         // One block, two rows: the run painted its thought above, this painted
@@ -1620,9 +1764,7 @@ function renderTranscriptBody(
       absorbed.has(index),
     )
     filesAt(index, lines.length, rendered.length, expanded)
-    lines.push(...(search !== undefined && matches.has(index)
-      ? rendered.map(line => blockMatchesQuery(stripAnsi(line), search.query) ? theme.inverse(line) : line)
-      : rendered))
+    lines.push(...paintSearch(rendered, index, occurrences, theme))
     blockDrawStarts[index] = blockStarts[index]!
     previous = block
   }
@@ -1657,7 +1799,7 @@ function renderTranscriptBody(
     lines,
     blockStarts,
   })
-  return { lines, blockStarts, blockDrawStarts, fileRegions, foldShape, foldMarks, liveFrom }
+  return { lines, blockStarts, blockDrawStarts, fileRegions, foldShape, foldMarks, liveFrom, occurrences }
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -2094,7 +2236,12 @@ export function renderQueuedSubmissions(
  * @returns the frame to hand to a renderer.
  */
 export function renderView(state: TranscriptState, options: ViewOptions): Frame {
-  const theme = createTheme(options.colors, colorDepthOf(options), options.themeName ?? 'dark', options.terminal)
+  const theme = createTheme(
+    options.colors === true,
+    options.colorDepth ?? 'truecolor',
+    options.themeName ?? 'dark',
+    options.terminal,
+  )
   const width = options.width
   const height = options.height
   const appName = options.appName ?? 'omdsh'
@@ -2211,7 +2358,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       query: options.transcriptSearch.query,
       editing: options.transcriptSearch.editing,
       focus: options.transcriptSearch.focus,
-    }, options.transcriptSearch.matches.length)
+    }, transcript.occurrences.length)
     : options.inspected === undefined
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
         ?? placeholder

@@ -152,7 +152,7 @@ import {
 import {
   applyEvent,
   applyStreamChunk,
-  blockSearchText,
+  renderedBlocks,
   initialTranscript,
   replayEvents,
   renderView,
@@ -168,7 +168,8 @@ import {
 import {
   applyTranscriptSearchEvent,
   createTranscriptSearch,
-  searchBlockIndexes,
+  searchMatches,
+  type TranscriptSearchMatch,
   type TranscriptSearchState,
 } from '../views/transcript-search.ts'
 import {
@@ -1932,7 +1933,6 @@ export class LocalTui implements TuiService {
         ...(this.#transcriptSearch === null ? {} : {
           transcriptSearch: {
             query: this.#transcriptSearch.query,
-            matches: searchBlockIndexes(this.#state.blocks.map(blockSearchText), this.#transcriptSearch.query),
             focus: this.#transcriptSearch.focus,
             editing: this.#transcriptSearch.editing,
           },
@@ -4566,18 +4566,45 @@ export class LocalTui implements TuiService {
     else set.add(key)
   }
 
+  /**
+   * Every occurrence of the active query, in reading order.
+   *
+   * Stepping needs the same list the painter uses, so it asks the renderer rather
+   * than scanning source text: a hit inside a folded row or a wrapped Markdown
+   * table exists only in the rendered rows.
+   */
+  #searchOccurrences(): readonly TranscriptSearchMatch[] {
+    const search = this.#transcriptSearch
+    if (search === null || search.query.trim() === '') return []
+    const options = {
+      width: this.#term.width(),
+      colors: this.#colors,
+      themeName: this.#themeName,
+      ...(this.#colorDepth === undefined ? {} : { colorDepth: this.#colorDepth }),
+      mathMode: this.#mathMode,
+      toolsExpanded: this.#toolsExpanded,
+      hideThinking: this.#hideThinking,
+      expandedTools: this.#detailedToolIds(),
+      ...(this.#openedGroups === undefined ? {} : { openedGroups: this.#openedGroups }),
+    }
+    return searchMatches(renderedBlocks(this.#state, options as never), search.query)
+  }
+
   /** Fold one event into the active transcript search. */
   #applyTranscriptSearch(event: KeyEvent): void {
     const state = this.#transcriptSearch
     if (state === null) return
-    const command = applyTranscriptSearchEvent(state, event, this.#state.blocks.map(blockSearchText))
+    const command = applyTranscriptSearchEvent(state, event, this.#searchOccurrences())
     if (command.kind === 'close') {
       this.#transcriptSearch = null
       this.#render()
       return
     }
     this.#transcriptSearch = command.state
-    if (command.kind === 'focus') this.#focusBlock = command.block
+    if (command.kind === 'focus') {
+      this.#focusBlock = command.match.block
+      this.#focusBlockEdge = 'start'
+    }
     this.#render()
   }
 }
