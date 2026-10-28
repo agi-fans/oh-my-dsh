@@ -1618,16 +1618,27 @@ function renderTranscriptBody(
       if (lines.length > 0) lines.push('')
       const headerRow = lines.length
       const opened = openGroups.has(groupIndex)
-      const shape = group.live ? 'live' : opened ? 'open' : 'folded'
+      /**
+       * A run the reader stopped keeps the rows it had while it ran.
+       *
+       * Folding it at the moment of the interrupt would take those rows out from
+       * under the reader, and — because a fold shortens the document — leave the
+       * viewport starting inside rows already committed to native history, which
+       * cannot be repainted. It stays open until the next submission, which is
+       * the point at which the reader has moved on.
+       */
+      const stopped = group.turn !== undefined && (state.stoppedTurns ?? []).includes(group.turn)
+      const shown = opened || stopped
+      const shape = group.live ? 'live' : shown ? 'open' : 'folded'
       foldMarks.push({ key: `run:${group.key}:${shape}`, row: headerRow })
       if (group.live) liveFrom ??= headerRow
       // A live run has no header: it becomes a group when its turn ends.
-      if (!group.live && !opened) {
+      if (!group.live && !shown) {
         lines.push(...processGroupHeader(group, theme, options.width, elapsedOf(groupIndex), options.turnDetailsKey))
       }
       const bodyRow = lines.length
       let offsets = new Map<number, number>()
-      if (group.live || opened) {
+      if (group.live || shown) {
         const body = processGroupBody(group, context)
         for (const line of body.lines) lines.push(line)
         offsets = body.offsets

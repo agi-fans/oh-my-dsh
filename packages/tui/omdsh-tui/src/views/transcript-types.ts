@@ -169,6 +169,17 @@ export interface TranscriptState {
    * replayed session reports the time it originally took, not the replay's.
    */
   turnSpans?: Readonly<Record<number, { start: number; end?: number }>>
+  /**
+   * Turns the reader stopped before they finished.
+   *
+   * Their runs keep their rows until the next submission. Interrupting is an
+   * action taken while watching that work, so folding at that moment takes the
+   * rows out from under the reader — and, because a fold shortens the document,
+   * it also exposes rows already committed to native history. A completed run
+   * folds because its summary describes finished work; an interrupted one has no
+   * conclusion to summarize.
+   */
+  stoppedTurns?: readonly number[]
 
 }
 

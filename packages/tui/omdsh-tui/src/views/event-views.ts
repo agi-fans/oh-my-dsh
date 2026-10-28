@@ -440,6 +440,13 @@ function foldEvent(
       // A compaction still open here cannot be the turn's own: clear it so a
       // late `compaction/end` cannot restore a stale running status.
       const span = state.turnSpans?.[event.data.turn]
+      // The reader stopped this turn. Its run stays open until the next
+      // submission, because folding now would move the rows they were watching
+      // and shorten the document under them.
+      const stopped = reason.kind === 'aborted' || reason.kind === 'interrupted'
+      const stoppedTurns = stopped
+        ? [...new Set([...(state.stoppedTurns ?? []), event.data.turn])]
+        : state.stoppedTurns
       return {
         ...state,
         blocks,
@@ -447,6 +454,7 @@ function foldEvent(
         compactCommandId: undefined,
         compaction: undefined,
         turnError: failure,
+        ...(stoppedTurns === undefined ? {} : { stoppedTurns }),
         ...(span === undefined
           ? {}
           : { turnSpans: { ...state.turnSpans, [event.data.turn]: { start: span.start, end: event.time } } }),
@@ -478,8 +486,11 @@ function foldEvent(
       const blocks = editableBlocks(state, mutable)
       const image = firstImage(event.data.content)
       blocks.push({ kind: 'user', text, ...(image === undefined ? {} : { image }) })
-      // A new submission is the acknowledgement that clears the fixed failure row.
-      return { ...state, blocks, turnError: undefined }
+      // A new submission is the acknowledgement that clears the fixed failure row,
+      // and it also ends the standing of any run the reader had stopped: they have
+      // moved on, so the run folds like every other finished one.
+      const { stoppedTurns: _settled, ...rest } = state
+      return { ...rest, blocks, turnError: undefined }
     }
     case 'assistant/attempt': {
       // A settled model attempt with no surface message (failed, retried,

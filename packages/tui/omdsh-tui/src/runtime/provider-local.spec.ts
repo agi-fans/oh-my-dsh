@@ -371,6 +371,62 @@ function longTurn(tui: LocalTui, steps: number, answerLines: number, end = true,
   }
 }
 
+describe('a run the reader stopped', () => {
+  /** One turn whose work overflows a short screen, ended by `reason`. */
+  const interruptedTurn = (term: ScrollingTerminal, tui: LocalTui, reason: 'aborted' | 'interrupted') => {
+    tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'map the project' }] }, 1))
+    tui.event(ev('turn/start', { turn: 1 }, 2))
+    for (let step = 0; step < 8; step += 1) {
+      tui.event(ev('tool/call', { turn: 1, step: 1, callId: `c${step}`, name: 'read', arguments: `{"path":"src/${step}.ts"}` }, 10 + step * 2))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: `c${step}`, content: [{ type: 'text', text: `out ${step}` }] } }, 11 + step * 2))
+    }
+    void term
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: reason } }, 40))
+  }
+
+  it.each(['aborted', 'interrupted'] as const)('stays open after %s instead of folding under the reader', reason => {
+    // Folding here would take the rows the reader was watching out from under
+    // them, and — because a fold shortens the document — leave the viewport
+    // starting inside rows already committed to native history, which cannot be
+    // repainted. That is the half-header and the blank band it produced.
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      interruptedTurn(term, tui, reason)
+      const screen = term.visible()
+      // No summary row: the run is still shown as work, not as a conclusion.
+      expect(screen.some(row => row.includes('Worked for'))).toBe(false)
+      // The viewport starts on content, not on a band of empty rows.
+      expect(screen[0]?.trim()).not.toBe('')
+      // The rows the run produced are still there.
+      expect(screen.join('\n')).toContain('src/7.ts')
+    } finally { tui.dispose() }
+  })
+
+  it('folds once the reader submits again, because they have moved on', () => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      interruptedTurn(term, tui, 'aborted')
+      tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'next question' }] }, 50))
+      const screen = term.visible().join('\n')
+      expect(screen).toContain('Worked for')
+      expect(screen).toContain('next question')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps folding a turn that ended on its own conclusion', () => {
+    // A completed or failed turn is a conclusion with a summary that describes
+    // it; only a turn the reader stopped has nothing to summarize.
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      longTurn(tui, 6, 8)
+      expect(term.visible().join('\n')).toContain('Worked for')
+    } finally { tui.dispose() }
+  })
+})
+
 describe('LocalTui folds against a scrolling terminal', () => {
   it('serializes rapid selection copies so an older helper cannot overwrite a newer copy', async () => {
     const term = new ScrollingTerminal(80, 20)
