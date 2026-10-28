@@ -253,6 +253,23 @@ describe('renderMarkdown', () => {
     expect(plain('run $(cat <<EOF) and $x^2$')).toContain('x²')
   })
 
+  it('sets a heading in bold and its own level markers, never underlined', () => {
+    // Underline sits on the baseline and crowds a line of prose. Every level says
+    // what it is with `#` markers instead, so H1 and H2 do not need a second
+    // signal that only they can use.
+    const painted = renderMarkdown('# one\n\n## two\n\n### three', color, 40)
+    for (const [index, line] of painted.entries()) {
+      expect(line, `line ${index}`).not.toMatch(/\x1b\[4m/u)
+      expect(line).toContain(color.getFgAnsi('mdHeading'))
+      expect(line).toMatch(/\x1b\[1m/u)
+    }
+    // Each level keeps its own marker, so the outline survives without underline.
+    const text = painted.join('\n')
+    expect(text).toContain('# one')
+    expect(text).toContain('## two')
+    expect(text).toContain('### three')
+  })
+
   it('keeps headings on mdHeading when the surrounding style is body text', () => {
     const light = createTheme(true, true, 'light')
     const painted = renderMarkdown('# Title\n\nbody', light, 40, { color: 'text' }).join('\n')

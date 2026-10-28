@@ -565,16 +565,18 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
       // than the border ink used for component frames.
       return [theme.fg('mdHr', '─'.repeat(Math.max(1, width)))]
     case 'heading': {
-      // Levels have to look different or a document's outline disappears. H1
-      // and H2 carry their weight and an underline; the deeper levels are bold
-      // only, and keep their `###` markers so the level is still readable when
-      // the terminal cannot render underline.
+      /**
+       * A heading is bold, coloured, and carries its level as markers.
+       *
+       * H1 and H2 used to be underlined instead, which sits on the text baseline
+       * and crowds a line of prose; it also made the rule uneven, since the
+       * deeper levels could only say their level with `###`. One shape for every
+       * level keeps the outline readable and the line calm.
+       */
       const depthLevel = (token as Tokens.Heading).depth
       const headingInk = style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading'
       const body = renderInlineTokens(token.tokens, theme, style, depth + 1)
-      const painted = depthLevel <= 2
-        ? theme.fg(headingInk, theme.underline(theme.bold(body)))
-        : theme.bold(theme.fg(headingInk, '#'.repeat(Math.max(0, depthLevel)) + ' ' + body))
+      const painted = theme.bold(theme.fg(headingInk, '#'.repeat(Math.max(0, depthLevel)) + ' ' + body))
       return wrapStyled(painted, width)
     }
     case 'paragraph':
