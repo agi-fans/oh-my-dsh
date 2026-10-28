@@ -39,7 +39,7 @@ describe('native plugin management', () => {
     expect(plugins.changeText({ ...changed, stage: 'install', application, enabled: true })).not.toContain('enabled')
   })
   it('offers an exact runtime-matched install for missing official bundles without enabling an absent package', async () => {
-    const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'install', null, null])
+    const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'accept', null, null])
     await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
     expect(h.prompt.mock.calls[1]![0].options?.[0]?.description).toContain('Not installed')
     expect(h.prompt.mock.calls[2]![0].options?.map(option => option.value)).toEqual(['check', 'install'])
@@ -52,7 +52,7 @@ describe('native plugin management', () => {
 
   it('refreshes the picker after installation completes without cancelling during prompt cleanup', async () => {
     const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'install', 'bundles', null, null])
-    const answers = ['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'install', 'bundles', null, null]
+    const answers = ['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'accept', 'bundles', null, null]
     h.prompt.mockReset().mockImplementation(request => {
       if (request.presentation !== 'progress') return Promise.resolve(answers.shift() ?? null)
       return new Promise(resolve => {
@@ -88,7 +88,7 @@ describe('native plugin management', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it.each(['uninstall', null])('confirms uninstall of a profile-owned bundle: %s', async consent => {
+  it.each(['accept', null])('confirms uninstall of a profile-owned bundle: %s', async consent => {
     const bundle = '@deepseek-ai/dsh-subagent-codex'
     const h = await harness(['bundles', bundle, 'remove', consent, null])
     h.manager.listBundles.mockResolvedValue([{ name: bundle, official: true, availability: 'profile', installed: true,
@@ -98,7 +98,7 @@ describe('native plugin management', () => {
       expect(h.prompt.mock.calls[2]![0].options).toContainEqual({ label: 'Uninstall', value: 'remove' })
       expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Uninstall bundle', question: bundle })
       expect(h.prompt.mock.calls[3]![0].detail).toContain('every session using this profile')
-      if (consent === 'uninstall') expect(h.manager.removeBundle).toHaveBeenCalledWith(bundle)
+      if (consent === 'accept') expect(h.manager.removeBundle).toHaveBeenCalledWith(bundle)
       else expect(h.manager.removeBundle).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
@@ -117,7 +117,7 @@ describe('native plugin management', () => {
   })
 
   it('toggles an addressable entry and reports the observed application result', async () => {
-    const h = await harness(['entries', row.entryId, 'toggle', null])
+    const h = await harness(['entries', row.entryId, 'accept', null])
     await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
     expect(h.manager.setPluginEnabled).toHaveBeenCalledWith(row.entryId, false)
     expect(h.commandOutput).toHaveBeenCalledWith('/plugins', 'tool-web: applied · disabled')
@@ -177,7 +177,7 @@ describe('native plugin management', () => {
   })
 
   it('cancels an install by its request id and waits for restoration before returning', async () => {
-    const h = await harness(['install', 'demo', 'install', 'cancel', null])
+    const h = await harness(['install', 'demo', 'accept', 'cancel', null])
     const settlement = Promise.withResolvers<ChangeResult>()
     h.manager.installBundle.mockImplementation(() => settlement.promise)
     const operation = h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
@@ -193,7 +193,7 @@ describe('native plugin management', () => {
   })
 
   it('aborts a pending install on unmount and joins its settlement', async () => {
-    const h = await harness(['install', 'demo', 'install'])
+    const h = await harness(['install', 'demo', 'accept'])
     const settlement = Promise.withResolvers<ChangeResult>()
     h.manager.installBundle.mockImplementation(() => settlement.promise)
     h.prompt.mockImplementation(request => new Promise(resolve => {
@@ -210,7 +210,7 @@ describe('native plugin management', () => {
   })
 
   it.each([null, 'approve'])('retries dependency scripts only after explicit group approval: %s', async approval => {
-    const h = await harness(['install', 'demo', 'install', null, approval, null, null])
+    const h = await harness(['install', 'demo', 'accept', null, approval === 'approve' ? 'accept' : null, null, null])
     h.manager.installBundle.mockResolvedValueOnce({ ...changed, application: 'failed', pendingBuilds: ['native-a', 'native-b'] })
     await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
     const consent = h.prompt.mock.calls.find(([request]) => request.title === 'Dependency scripts')![0]

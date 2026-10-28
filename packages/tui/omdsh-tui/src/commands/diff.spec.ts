@@ -194,7 +194,8 @@ describe('/review target selection', () => {
   }
 
   it.each(['changes', 'base', 'commit'])('queues an explicitly confirmed %s review with a verified Git target and preserves the worktree', async target => {
-    const h = await reviewHarness(target === 'changes' ? [target, 'start'] : [target, 'HEAD~1', 'start'])
+    // The confirm row answers `accept`; the intent owns that internal value.
+    const h = await reviewHarness(target === 'changes' ? [target, 'accept'] : [target, 'HEAD~1', 'accept'])
     try {
       expect((await h.execute())?.result.kind).toBe('success')
       expect(h.steer).toHaveBeenCalledTimes(1)

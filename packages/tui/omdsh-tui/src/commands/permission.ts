@@ -6,6 +6,7 @@ import type { CommandDefinition, CommandInvocation, CommandResult } from '@deeps
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '../definition.ts'
 import { registerCommands } from './registration.ts'
+import { choosePrompt, confirmPrompt } from '../prompt-intents.ts'
 import type {} from '../runtime/approval-rules.ts'
 import { approvalActionDetail } from '../views/approval-rule.ts'
 
@@ -19,21 +20,15 @@ function titleCase(value: string): string {
 }
 
 async function confirmFullAccess(ctx: Context, invocation: CommandInvocation): Promise<boolean> {
-  const answer = await ctx.tui.prompt({
+  return confirmPrompt(request => ctx.tui.prompt(request), {
     title: 'Full access',
     question: 'Allow unrestricted filesystem access without approval prompts?',
     detail: 'Only enable this permission for a workspace and task you trust.',
-    options: [
-      { label: 'Cancel', value: 'cancel', description: 'Keep the current permission.' },
-      { label: 'Enable full access', value: 'confirm', description: 'Disable sandbox and approval protection.' },
-    ],
-    initialValue: 'cancel',
-    allowCustom: false,
-    notify: false,
-    submitLabel: 'choose',
+    acceptLabel: 'Enable full access',
+    acceptDescription: 'Disable sandbox and approval protection.',
+    cancelDescription: 'Keep the current permission.',
     signal: invocation.signal,
   })
-  return answer === 'confirm'
 }
 
 async function selectAccess(
@@ -52,16 +47,14 @@ async function selectAccess(
     }
   })
   if (options.length === 0) return { kind: 'error', text: 'No permissions are configured.' }
-  const selected = await ctx.tui.prompt({
+  const selected = await ctx.tui.prompt(choosePrompt({
     title: 'Access',
     question: 'Choose how omdsh may access your workspace',
     options: [...options, ...(ctx.get('omdshApprovalRules') === undefined ? [] : [{ label: 'Approval rules', value: 'rules', description: 'Inspect and revoke remembered decisions' }])],
     initialValue: current,
-    allowCustom: false,
-    notify: false,
     submitLabel: 'apply',
     signal: invocation.signal,
-  })
+  }))
   if (selected === null || selected === current) return { kind: 'success' }
   // The composer Shell keeps the session pinned to the Access level it was
   // created in, so a spent one is closed before the switch. A Shell still

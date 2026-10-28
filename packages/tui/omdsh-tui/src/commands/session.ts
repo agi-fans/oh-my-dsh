@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
-import { askPrompt } from '../prompt-intents.ts'
+import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 import { formatRelativeAge } from '../chrome/relative-time.ts'
 import { formatPermission, formatTokens } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
@@ -141,14 +141,12 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         const row = recent.find(item => item.id === target)
         if (row === undefined) continue
         selectedId = target
-        const title = await ctx.tui.prompt({
+        const title = await ctx.tui.prompt(askPrompt({
           title: 'Rename Session',
           question: `New title for “${row.title}”`,
           initialInput: row.title,
-          allowCustom: true,
-          notify: false,
           signal: invocation.signal,
-        })
+        }))
         if (title !== null) await ctx.omdshSession.renameSession(invocation.agent, target, title, invocation.signal)
         continue
       }
@@ -163,10 +161,15 @@ async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, 
   try {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
-      const answer = await ctx.tui.prompt({ title: 'Migrate session', question: ctx.omdshSession.recentSessions.find(row => row.id === id)?.title ?? id,
+      const migrate = await confirmPrompt(request => ctx.tui.prompt(request), {
+        title: 'Migrate session',
+        question: ctx.omdshSession.recentSessions.find(row => row.id === id)?.title ?? id,
         detail: 'Opening this session writes a current-format generation and retains the historical source. Browsing the Session Library does not migrate it.',
-        options: [{ label: 'Migrate and resume', value: 'resume' }], allowCustom: false, signal: invocation.signal, notify: false })
-      if (answer !== 'resume' || invocation.signal.aborted) return { kind: 'success' }
+        acceptLabel: 'Migrate and resume',
+        cancelLabel: null,
+        signal: invocation.signal,
+      })
+      if (!migrate || invocation.signal.aborted) return { kind: 'success' }
     }
     await ctx.omdshSession.resumeSession(invocation.agent, id, invocation.signal)
     return { kind: 'success', text: `Resumed ${id}.` }

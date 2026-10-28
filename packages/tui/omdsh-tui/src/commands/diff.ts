@@ -6,6 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from './registration.ts'
+import { askPrompt, choosePrompt, confirmPrompt } from '../prompt-intents.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
@@ -212,11 +213,16 @@ async function startReview(ctx: Context, invocation: CommandInvocation): Promise
   } else {
     const tui = ctx.get('tui')
     if (tui?.interactive !== true) return { kind: 'error', text: 'Usage: /review [changes | base <branch> | commit <rev> | <rev>]' }
-    const selected = await tui.prompt({ title: 'Code review', question: 'Choose changes to review', options: [
-      { label: 'Current changes', value: 'changes', description: 'Staged, unstaged and untracked files' },
-      { label: 'Against a base branch', value: 'base', description: 'Changes from the merge base to HEAD' },
-      { label: 'One commit', value: 'commit', description: 'Changes introduced by a commit' },
-    ], allowCustom: false, signal, notify: false })
+    const selected = await tui.prompt(choosePrompt({
+      title: 'Code review',
+      question: 'Choose changes to review',
+      options: [
+        { label: 'Current changes', value: 'changes', description: 'Staged, unstaged and untracked files' },
+        { label: 'Against a base branch', value: 'base', description: 'Changes from the merge base to HEAD' },
+        { label: 'One commit', value: 'commit', description: 'Changes introduced by a commit' },
+      ],
+      signal,
+    }))
     if (selected === null || signal.aborted) return { kind: 'success' }
     if (selected !== 'changes' && selected !== 'base' && selected !== 'commit') return { kind: 'error', text: 'Unknown review target.' }
     target = selected
@@ -230,7 +236,12 @@ async function startReview(ctx: Context, invocation: CommandInvocation): Promise
       let ref = directRef
       if (ref === undefined) {
         if (tui?.interactive !== true) return { kind: 'error', text: 'Enter a local branch or commit.' }
-        const prompted = await tui.prompt({ title: target === 'base' ? 'Review against a base branch' : 'Review a commit', question: target === 'base' ? 'Local base branch or revision' : 'Commit or revision', initialInput: target === 'commit' ? 'HEAD' : '', allowCustom: true, signal, notify: false })
+        const prompted = await tui.prompt(askPrompt({
+          title: target === 'base' ? 'Review against a base branch' : 'Review a commit',
+          question: target === 'base' ? 'Local base branch or revision' : 'Commit or revision',
+          initialInput: target === 'commit' ? 'HEAD' : '',
+          signal,
+        }))
         if (prompted === null || signal.aborted) return { kind: 'success' }
         ref = prompted
       }
@@ -242,8 +253,14 @@ async function startReview(ctx: Context, invocation: CommandInvocation): Promise
       scope = target === 'base' ? `Review changes from merge base ${base} to HEAD using git diff ${base} HEAD. Exclude staged, unstaged and untracked changes.` : `Review only changes introduced by commit ${base}. Inspect its patch and surrounding code; include the initial commit or merge parents when applicable.`
     }
     if (raw === '' && tui?.interactive === true) {
-      const confirm = await tui.prompt({ title: 'Start code review', question: label, detail: 'Uses the current agent and model. Requests a review without edits; current Access and Plan mode remain in effect.', options: [{ label: 'Start review', value: 'start' }], allowCustom: false, signal, notify: false })
-      if (confirm !== 'start' || signal.aborted) return { kind: 'success' }
+      const confirmed = await confirmPrompt(request => tui.prompt(request), {
+        title: 'Start code review',
+        question: label,
+        detail: 'Uses the current agent and model. Requests a review without edits; current Access and Plan mode remain in effect.',
+        acceptLabel: 'Start review',
+        signal,
+      })
+      if (!confirmed || signal.aborted) return { kind: 'success' }
     }
     if (invocation.agent.status !== 'idle') return { kind: 'error', text: 'The agent became busy. Retry /review after the turn finishes.' }
     invocation.agent.steer(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: [

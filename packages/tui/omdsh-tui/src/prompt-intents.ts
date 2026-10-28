@@ -180,8 +180,19 @@ export async function confirmPrompt(
     detail?: string
     /** Verb on the accepting row; the declining row is always a cancel. */
     acceptLabel?: string
-    /** Label of the declining row; defaults to `Cancel`. */
-    cancelLabel?: string
+    /** One line under the accepting row saying what accepting does. */
+    acceptDescription?: string
+    /**
+     * Label of the declining row; defaults to `Cancel`.
+     *
+     * Pass `null` for a one-way door: the reader either proceeds or dismisses.
+     * That is a different intent from a yes/no question — "install and enable"
+     * has no meaningful opposite to put beside it — and it is what 24 call sites
+     * meant by a list with a single row.
+     */
+    cancelLabel?: string | null
+    /** One line under the declining row; usually what staying put means. */
+    cancelDescription?: string
     signal?: AbortSignal
     notify?: boolean
   },
@@ -191,8 +202,14 @@ export async function confirmPrompt(
     title: request.title,
     question: request.question,
     ...(request.detail === undefined ? {} : { detail: request.detail }),
-    options: [{ label: accept, value: 'accept' }, { label: request.cancelLabel ?? 'Cancel', value: 'cancel' }],
-    initialValue: 'cancel',
+    options: request.cancelLabel === null
+      ? [{ label: accept, value: 'accept', ...(request.acceptDescription === undefined ? {} : { description: request.acceptDescription }) }]
+      : [
+        { label: accept, value: 'accept', ...(request.acceptDescription === undefined ? {} : { description: request.acceptDescription }) },
+        { label: request.cancelLabel ?? 'Cancel', value: 'cancel', ...(request.cancelDescription === undefined ? {} : { description: request.cancelDescription }) },
+      ],
+    // A one-way door preselects its only row; dismissal is still a no.
+    ...(request.cancelLabel === null ? { initialValue: 'accept' } : { initialValue: 'cancel' }),
     allowCustom: false,
     notify: request.notify ?? false,
     ...(request.signal === undefined ? {} : { signal: request.signal }),

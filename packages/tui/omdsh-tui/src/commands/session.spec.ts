@@ -240,14 +240,15 @@ describe('stored session migration', () => {
     h.prompt.mockResolvedValueOnce('old').mockResolvedValueOnce(null)
     await h.execute('/resume')
     expect(h.prompt.mock.calls[0]![0].options![0]!.description).toContain('migration required')
-    expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Migrate session', options: [{ value: 'resume' }] })
+    expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Migrate session', options: [{ value: 'accept' }] })
     expect(h.resumeSession).not.toHaveBeenCalled()
   })
 
   it.each(['/resume old', '/resume needle'])('confirms migration before %s', async line => {
     const h = await harness({ migration: true, hits: [hit('old', 'needle')], libraryRows: [] })
     if (line.endsWith('needle')) h.prompt.mockResolvedValueOnce('old')
-    h.prompt.mockResolvedValueOnce('resume')
+    // The migrate row is a one-way door, so it answers `accept`.
+    h.prompt.mockResolvedValueOnce('accept')
     expect((await h.execute(line))?.result.kind).toBe('success')
     expect(h.resumeSession).toHaveBeenCalledWith(h.agent, 'old', expect.any(AbortSignal))
   })

@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { BundleInfo, ChangeResult, PluginInfo, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager'
 import { registerCommands } from './registration.ts'
+import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 import { editSettingsEntry, nativeIntegrationId, showIntegrationStatus } from '../runtime/plugin-settings.ts'
 import { externalAgentGuide } from '../session/external-agents.ts'
 
@@ -74,17 +75,28 @@ async function install(ctx: Context, spec: string, signal: AbortSignal, approved
 async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, saveExact = false): Promise<ChangeResult | undefined> {
   const inspected = await ctx.pluginManager.inspect(spec, undefined, signal)
   if (inspected.status === 'refused') { ctx.tui.notice(inspected.reason, { level: 'error' }); return }
-  const consent = await ctx.tui.prompt({ title: 'Install bundle', question: inspected.name ?? spec,
+  const consent = await confirmPrompt(request => ctx.tui.prompt(request), {
+    title: 'Install bundle',
+    question: inspected.name ?? spec,
     detail: `${inspected.version ?? ''} ${inspected.description ?? ''}\nInstalled Host code runs with your user permissions and affects all sessions in this profile.`,
-    options: [{ label: 'Install and enable', value: 'install' }], allowCustom: false, notify: false, signal })
-  if (consent !== 'install' || signal.aborted) return
+    acceptLabel: 'Install and enable',
+    // Nothing to put opposite "install": the reader either proceeds or leaves.
+    cancelLabel: null,
+    signal,
+  })
+  if (!consent || signal.aborted) return
   let result = await install(ctx, spec, signal, undefined, saveExact)
   if (result.pendingBuilds?.length && !signal.aborted) {
     ctx.tui.commandOutput('/plugins', changeText(result))
-    const approved = await ctx.tui.prompt({ title: 'Dependency scripts', question: 'Allow these scripts and retry?',
+    const approved = await confirmPrompt(request => ctx.tui.prompt(request), {
+      title: 'Dependency scripts',
+      question: 'Allow these scripts and retry?',
       detail: `${result.pendingBuilds.join('\n')}\nPermission persists by package name in this profile. Scripts run with your user permissions.`,
-      options: [{ label: 'Allow scripts and retry', value: 'approve' }], allowCustom: false, notify: false, signal })
-    if (approved === 'approve' && !signal.aborted) result = await install(ctx, spec, signal, result.pendingBuilds, saveExact)
+      acceptLabel: 'Allow scripts and retry',
+      cancelLabel: null,
+      signal,
+    })
+    if (approved && !signal.aborted) result = await install(ctx, spec, signal, result.pendingBuilds, saveExact)
   }
   return result
 }
@@ -107,9 +119,14 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       if (row === undefined) continue
       const reason = pluginReadOnly(row)
       if (reason !== undefined) { ctx.tui.notice(`${row.moduleName}: read-only (${reason}).`); continue }
-      const choice = await ctx.tui.prompt({ title: 'Plugin entry', question: row.moduleName,
-        options: [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }], allowCustom: false, notify: false, signal })
-      if (choice === 'toggle' && !signal.aborted) result = await ctx.pluginManager.setPluginEnabled(row.entryId, !row.enabled)
+      const choice = await confirmPrompt(request => ctx.tui.prompt(request), {
+        title: 'Plugin entry',
+        question: row.moduleName,
+        acceptLabel: row.enabled ? 'Disable' : 'Enable',
+        cancelLabel: null,
+        signal,
+      })
+      if (choice && !signal.aborted) result = await ctx.pluginManager.setPluginEnabled(row.entryId, !row.enabled)
     } else if (action === 'bundles') {
       const rows = await ctx.pluginManager.listBundles()
       const selected = await ctx.tui.prompt({ ...list, title: 'Bundles', question: 'Choose a bundle',
@@ -138,14 +155,20 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       if (choice === 'install' && row.installTarget !== undefined) result = await confirmInstall(ctx, row.installTarget.spec, signal, true)
       if (choice === 'toggle') result = await ctx.pluginManager.setBundleEnabled(row.name, !row.enabled)
       if (choice === 'remove' && row.removable) {
-        const consent = await ctx.tui.prompt({ title: row.installed ? 'Uninstall bundle' : 'Remove bundle from profile', question: row.name,
-          detail: row.installed ? `Unload this bundle and remove its package for every session using this profile.${guide === undefined ? '' : ' Native login and user settings are kept.'}`
+        const consent = await confirmPrompt(request => ctx.tui.prompt(request), {
+          title: row.installed ? 'Uninstall bundle' : 'Remove bundle from profile',
+          question: row.name,
+          detail: row.installed
+            ? `Unload this bundle and remove its package for every session using this profile.${guide === undefined ? '' : ' Native login and user settings are kept.'}`
             : 'Remove this bundle from the profile selection. No installed package is removed.',
-          options: [{ label: row.installed ? 'Uninstall' : 'Remove from profile', value: 'uninstall' }], allowCustom: false, notify: false, signal })
-        if (consent === 'uninstall' && !signal.aborted) result = await ctx.pluginManager.removeBundle(row.name)
+          acceptLabel: row.installed ? 'Uninstall' : 'Remove from profile',
+          cancelLabel: null,
+          signal,
+        })
+        if (consent && !signal.aborted) result = await ctx.pluginManager.removeBundle(row.name)
       }
     } else if (action === 'install') {
-      const spec = await ctx.tui.prompt({ title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', allowCustom: true, notify: false, signal })
+      const spec = await ctx.tui.prompt(askPrompt({ title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', signal }))
       if (spec === null || spec.trim() === '' || signal.aborted) continue
       result = await confirmInstall(ctx, spec.trim(), signal)
     }
