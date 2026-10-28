@@ -3,10 +3,8 @@
 import { execFile } from 'node:child_process'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from './registration.ts'
-import { askPrompt, choosePrompt, confirmPrompt } from '../prompt-intents.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
@@ -186,105 +184,11 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
   }
 }
 
-async function startReview(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  if (invocation.agent.status !== 'idle') return { kind: 'error', text: 'Finish or interrupt the active turn before starting a review.' }
-  const raw = invocation.rawInput.trim()
-  const signal = invocation.signal
-  const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
-  let target: 'changes' | 'base' | 'commit'
-  let directRef: string | undefined
-  if (raw !== '') {
-    const baseMatch = /^base\s+(\S+)$/iu.exec(raw)
-    const commitMatch = /^commit\s+(\S+)$/iu.exec(raw)
-    if (/^changes$/iu.test(raw)) {
-      target = 'changes'
-    } else if (baseMatch !== null) {
-      target = 'base'
-      directRef = baseMatch[1]!.trim()
-    } else if (commitMatch !== null) {
-      target = 'commit'
-      directRef = commitMatch[1]!.trim()
-    } else if (!/\s/u.test(raw) && !raw.startsWith('-')) {
-      target = 'commit'
-      directRef = raw
-    } else {
-      return { kind: 'error', text: 'Usage: /review [changes | base <branch> | commit <rev> | <rev>]' }
-    }
-  } else {
-    const tui = ctx.get('tui')
-    if (tui?.interactive !== true) return { kind: 'error', text: 'Usage: /review [changes | base <branch> | commit <rev> | <rev>]' }
-    const selected = await tui.prompt(choosePrompt({
-      title: 'Code review',
-      question: 'Choose changes to review',
-      options: [
-        { label: 'Current changes', value: 'changes', description: 'Staged, unstaged and untracked files' },
-        { label: 'Against a base branch', value: 'base', description: 'Changes from the merge base to HEAD' },
-        { label: 'One commit', value: 'commit', description: 'Changes introduced by a commit' },
-      ],
-      signal,
-    }))
-    if (selected === null || signal.aborted) return { kind: 'success' }
-    if (selected !== 'changes' && selected !== 'base' && selected !== 'commit') return { kind: 'error', text: 'Unknown review target.' }
-    target = selected
-  }
-  try {
-    await gitOutput(cwd, ['rev-parse', '--show-toplevel'], signal)
-    let scope = 'Review the current staged, unstaged and untracked changes. Inspect git status and both staged and unstaged diffs; read untracked files as needed.'
-    let label = 'Current changes'
-    const tui = ctx.get('tui')
-    if (target !== 'changes') {
-      let ref = directRef
-      if (ref === undefined) {
-        if (tui?.interactive !== true) return { kind: 'error', text: 'Enter a local branch or commit.' }
-        const prompted = await tui.prompt(askPrompt({
-          title: target === 'base' ? 'Review against a base branch' : 'Review a commit',
-          question: target === 'base' ? 'Local base branch or revision' : 'Commit or revision',
-          initialInput: target === 'commit' ? 'HEAD' : '',
-          signal,
-        }))
-        if (prompted === null || signal.aborted) return { kind: 'success' }
-        ref = prompted
-      }
-      if (ref.trim() === '') return { kind: 'error', text: 'Enter a local branch or commit.' }
-      const resolved = (await gitOutput(cwd, ['rev-parse', '--verify', '--end-of-options', `${ref.trim()}^{commit}`], signal)).trim()
-      const base = target === 'base' ? (await gitOutput(cwd, ['merge-base', resolved, 'HEAD'], signal)).trim() : resolved
-      if (!/^[a-f0-9]{40,64}$/u.test(base)) throw new Error('Git did not resolve a commit.')
-      label = target === 'base' ? `Against ${ref.trim()}` : `Commit ${base.slice(0, 12)}`
-      scope = target === 'base' ? `Review changes from merge base ${base} to HEAD using git diff ${base} HEAD. Exclude staged, unstaged and untracked changes.` : `Review only changes introduced by commit ${base}. Inspect its patch and surrounding code; include the initial commit or merge parents when applicable.`
-    }
-    if (raw === '' && tui?.interactive === true) {
-      const confirmed = await confirmPrompt(request => tui.prompt(request), {
-        title: 'Start code review',
-        question: label,
-        detail: 'Uses the current agent and model. Requests a review without edits; current Access and Plan mode remain in effect.',
-        acceptLabel: 'Start review',
-        signal,
-      })
-      if (!confirmed || signal.aborted) return { kind: 'success' }
-    }
-    if (invocation.agent.status !== 'idle') return { kind: 'error', text: 'The agent became busy. Retry /review after the turn finishes.' }
-    invocation.agent.steer(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: [
-      `Code review: ${label}`, `Working directory: ${cwd}`, scope,
-      'Review only. Do not edit files, change configuration, install dependencies, commit, or perform fixes. Use non-mutating inspection.',
-      'Report actionable regressions caused by the selected changes, with severity, file and line, evidence and impact. Follow repository instructions. Distinguish confirmed findings from uncertainty. If no findings remain, say so and list material validation gaps. Return findings in the final reply without applying them.',
-    ].join('\n\n') }] }))
-    return { kind: 'success' }
-  } catch (error) {
-    if (signal.aborted) return { kind: 'success' }
-    return { kind: 'error', text: `Could not prepare review: ${error instanceof Error ? error.message : String(error)}` }
-  }
-}
-
 export function apply(ctx: Context): void {
   registerCommands(ctx, [{
     name: 'diff',
     description: 'Summarize the workspace changes, or show one file',
     input: { hint: '[path|turn [number]]' },
     handler: invocation => showDiff(ctx, invocation),
-  }, {
-    name: 'review',
-    description: 'Review current changes, a base branch or one commit',
-    input: { hint: '[changes|base <branch>|commit <rev>|<rev>]' },
-    handler: invocation => startReview(ctx, invocation),
-  }], 'omdsh workspace review commands')
+  }], 'omdsh workspace commands')
 }
