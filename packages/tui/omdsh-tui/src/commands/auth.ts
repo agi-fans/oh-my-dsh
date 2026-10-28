@@ -10,12 +10,7 @@ import {
 import type {} from '@deepseek-ai/dsh-authorization'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import {
-  credentialKey,
-  credentialKeyId,
-  credentialKeyScope,
   credentialRef,
-  isCredentialKeySegment,
-  parseCredentialKey,
   type CredentialInfo,
   type CredentialKey,
   type CredentialRef,
@@ -26,7 +21,50 @@ import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { APP_VERSION } from '../session/package-metadata.ts'
 import { registerCommands } from './registration.ts'
+import {
+  authorizationFlows,
+  catalogForRecord,
+  catalogProvidersWithoutFlows,
+  fallbackDeepSeekEntry,
+  flowChoiceValue,
+  isAccountFlow,
+  isDeepSeek,
+  isPiAiDeepSeekFlow,
+  loginAuthorizationFlows,
+  logoutableProviders,
+  parseFlowChoice,
+  profileApiKeyEnv,
+  providerListId,
+} from './auth-providers.ts'
 import { askPrompt } from '../prompt-intents.ts'
+
+import {
+  CUSTOM_PROTOCOLS,
+  CUSTOM_PROVIDER_VALUE,
+  DEEPSEEK_API_KEYS_URL,
+  DEEPSEEK_MODELS_URL,
+  managedProviderCredentialRef,
+  normalizeApiKey,
+  normalizeDeepSeekApiKey,
+  parseBaseURL,
+  parseModelIds,
+  parseProviderId,
+  validateDeepSeekApiKey,
+} from './auth-input.ts'
+
+export {
+  CUSTOM_PROTOCOLS,
+  CUSTOM_PROVIDER_VALUE,
+  DEEPSEEK_API_KEYS_URL,
+  DEEPSEEK_MODELS_URL,
+  managedProviderCredentialRef,
+  normalizeApiKey,
+  normalizeDeepSeekApiKey,
+  parseBaseURL,
+  parseModelIds,
+  parseProviderId,
+  validateDeepSeekApiKey,
+}
 
 export const name = 'omdsh-command-auth'
 export const inject = ['commands', 'credentials', 'settings', 'tui', 'llm']
@@ -42,96 +80,15 @@ export const DEEPSEEK_PROVIDER = 'deepseek-official'
 export const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
 export const DEEPSEEK_SETTINGS = 'llm-deepseek'
 export const PI_AI_SETTINGS = 'llm-pi-ai'
-export const DEEPSEEK_API_KEYS_URL = 'https://platform.deepseek.com/api_keys'
-export const DEEPSEEK_MODELS_URL = 'https://api.deepseek.com/v1/models'
-export const CUSTOM_PROVIDER_VALUE = '__omdsh_custom__'
+/** Sentinel the provider picker returns for "sign in to the DeepSeek account". */
 export const DEEPSEEK_ACCOUNT_CHOICE = '__omdsh_deepseek_account__'
+/** Prefix a picker value carries when it names an authorization flow. */
 export const FLOW_VALUE_PREFIX = '__omdsh_flow__:'
-const PI_AI_RECORD_SCOPE = 'llm-pi-ai'
 
+/** A long list becomes a full-screen page; a short one stays inline. */
 const FULLSCREEN_CHOICE_THRESHOLD = 8
+/** Default when the credential store has nothing to say about a provider. */
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
-const PROVIDER_ID = /^[a-z][a-z0-9-]*$/u
-const CUSTOM_PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages'] as const
-
-/** Match DeepSeek's own login normalization without accepting an empty Bearer value. */
-export function normalizeDeepSeekApiKey(raw: string): string {
-  return normalizeApiKey(raw, 'DeepSeek')
-}
-
-/** Trim a pasted key and reject an empty Bearer value. */
-export function normalizeApiKey(raw: string, providerLabel: string): string {
-  const normalized = raw.trim().replace(/^bearer\b\s*/iu, '')
-  if (normalized === '') throw new Error(`Paste a non-empty ${providerLabel} API key.`)
-  return normalized
-}
-
-/** omdsh-managed credential reference for one catalog provider route. */
-export function managedProviderCredentialRef(provider: string): CredentialRef {
-  return credentialRef(`OMDSH_${provider.toUpperCase().replace(/[^A-Z0-9]+/gu, '_')}_API_KEY`)
-}
-
-/** Lowercase kebab-case route id used as the permanent provider key. */
-export function parseProviderId(raw: string): string {
-  const id = raw.trim().toLowerCase()
-  if (!PROVIDER_ID.test(id)) {
-    throw new Error('Provider id must start with a letter and use only lowercase letters, digits, and hyphens.')
-  }
-  if (id === 'custom' || id === CUSTOM_PROVIDER_VALUE) {
-    throw new Error('Choose a different provider id.')
-  }
-  return id
-}
-
-/** Absolute http(s) prefix the adapter will call. */
-export function parseBaseURL(raw: string): string {
-  const value = raw.trim().replace(/\/+$/u, '')
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error('Base URL must be an absolute http or https URL.')
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Base URL must be an http or https URL.')
-  }
-  return value
-}
-
-/** One or more model ids from a comma- or whitespace-separated list. */
-export function parseModelIds(raw: string): string[] {
-  const ids = [...new Set(raw.split(/[,\s]+/u).map(item => item.trim()).filter(item => item !== ''))]
-  if (ids.length === 0) throw new Error('Enter at least one model id.')
-  return ids
-}
-
-/** Validate a candidate without ever reading or returning a response body. */
-export async function validateDeepSeekApiKey(
-  apiKey: string,
-  signal: AbortSignal,
-  fetchImpl: typeof fetch = globalThis.fetch,
-): Promise<void> {
-  let response: Response
-  try {
-    response = await fetchImpl(DEEPSEEK_MODELS_URL, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      signal,
-    })
-  } catch {
-    if (signal.aborted) throw new Error('DeepSeek login was cancelled.')
-    throw new Error('Could not reach DeepSeek to validate the API key. Check your network and try again.')
-  }
-  if (response.ok) return
-  if (response.status === 401 || response.status === 403) {
-    throw new Error('DeepSeek rejected this API key. Copy a valid key from the DeepSeek dashboard and try again.')
-  }
-  throw new Error(`DeepSeek could not validate the API key (HTTP ${response.status}). Try again later.`)
-}
-
 function credentialSource(info: CredentialInfo): string {
   if (info.source === 'env') return 'the current process environment'
   if (info.source === 'project-env') return 'the project .env file'
@@ -153,80 +110,6 @@ function unmanagedCredentialMessage(
         ? 'Remove it from the user .env file and restart omdsh.'
         : 'Update that source directly and restart omdsh.'
   return `${String(ref)} is supplied by ${credentialSource(info)} and /${action === 'replace' ? 'login' : 'logout'} cannot ${action} it. ${instruction}`
-}
-
-function isDeepSeek(entry: LlmConfigurableProvider): boolean {
-  return entry.provider === DEEPSEEK_PROVIDER
-}
-
-function isPiAiLoginable(entry: LlmConfigurableProvider): boolean {
-  return entry.settingsNs === 'llm-pi-ai' && entry.provider !== 'deepseek'
-}
-
-/** Picker labels are route ids; the official adapter keeps the DeepSeek product name. */
-export function providerListId(entry: LlmConfigurableProvider): string {
-  return isDeepSeek(entry) ? 'DeepSeek' : entry.provider
-}
-
-function fallbackDeepSeekEntry(): LlmConfigurableProvider {
-  return {
-    provider: DEEPSEEK_PROVIDER,
-    displayName: 'DeepSeek',
-    settingsNs: 'llm-deepseek',
-    settingsPath: [],
-  }
-}
-
-function loginableProviders(ctx: Context): LlmConfigurableProvider[] {
-  const listed = ctx.llm.listConfigurableProviders()
-  const loginable = listed.filter(entry => isDeepSeek(entry) || isPiAiLoginable(entry))
-  return loginable.length > 0 ? loginable : [fallbackDeepSeekEntry()]
-}
-
-function authorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
-  return ctx.get('authorization')?.list() ?? []
-}
-
-function isPiAiDeepSeekFlow(flow: AuthorizationEntry): boolean {
-  return credentialKeyScope(flow.key) === PI_AI_RECORD_SCOPE && credentialKeyId(flow.key) === 'deepseek'
-}
-
-function isAccountFlow(flow: AuthorizationEntry): boolean {
-  return credentialKeyScope(flow.key) === 'deepseek-account-platform'
-}
-
-function loginAuthorizationFlows(ctx: Context): readonly AuthorizationEntry[] {
-  return authorizationFlows(ctx).flatMap(flow => {
-    if (isAccountFlow(flow)) return []
-    if (!isPiAiDeepSeekFlow(flow)) return [flow]
-
-    const profile = walkPath(sectionValue(ctx, PI_AI_SETTINGS), ['providers', 'deepseek'])
-    if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return []
-    return [{ ...flow, label: 'DeepSeek (pi-ai compatibility)' }]
-  })
-}
-
-function catalogAuthorizationFlow(ctx: Context, provider: string): AuthorizationEntry | undefined {
-  const authorization = ctx.get('authorization')
-  if (authorization === undefined || !isCredentialKeySegment(provider)) return undefined
-  return authorization.describe(credentialKey(PI_AI_RECORD_SCOPE, provider))
-}
-
-function catalogProvidersWithoutFlows(ctx: Context): LlmConfigurableProvider[] {
-  return loginableProviders(ctx).filter(entry => isDeepSeek(entry) || catalogAuthorizationFlow(ctx, entry.provider) === undefined)
-}
-
-function flowChoiceValue(key: CredentialKey): string {
-  return FLOW_VALUE_PREFIX + key
-}
-
-function parseFlowChoice(raw: string): CredentialKey | undefined {
-  if (!raw.startsWith(FLOW_VALUE_PREFIX)) return undefined
-  try {
-    return parseCredentialKey(raw.slice(FLOW_VALUE_PREFIX.length))
-  } catch {
-    return undefined
-  }
 }
 
 type LoginChoice =
@@ -257,50 +140,7 @@ function loginChoiceValues(
   ]
 }
 
-function sectionValue(ctx: Context, namespace: string): unknown {
-  // A provider's configured fields are the live volatile config of its own
-  // profile entry, so the roster reads the same values a form would show.
-  return ctx.settings.describe().find(row => String(row.ns) === namespace)?.value
-}
-
-function walkPath(root: unknown, path: readonly string[]): unknown {
-  let cursor = root
-  for (const key of path) {
-    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) return undefined
-    cursor = (cursor as Record<string, unknown>)[key]
-  }
-  return cursor
-}
-
-function profileApiKeyEnv(ctx: Context, entry: LlmConfigurableProvider): string | undefined {
-  const profile = walkPath(sectionValue(ctx, entry.settingsNs), entry.settingsPath)
-  if (isDeepSeek(entry)) {
-    if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return String(DEEPSEEK_API_KEY)
-    const apiKeyEnv = (profile as Record<string, unknown>)['apiKeyEnv']
-    return typeof apiKeyEnv === 'string' && apiKeyEnv.trim() !== '' ? apiKeyEnv : String(DEEPSEEK_API_KEY)
-  }
-  if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return undefined
-  const apiKeyEnv = (profile as Record<string, unknown>)['apiKeyEnv']
-  return typeof apiKeyEnv === 'string' && apiKeyEnv.trim() !== '' ? apiKeyEnv : undefined
-}
-
-function hasStoredProfile(ctx: Context, entry: LlmConfigurableProvider): boolean {
-  if (isDeepSeek(entry)) return true
-  const profile = walkPath(sectionValue(ctx, entry.settingsNs), entry.settingsPath)
-  return typeof profile === 'object' && profile !== null && !Array.isArray(profile)
-}
-
-function logoutableProviders(ctx: Context): LlmConfigurableProvider[] {
-  return loginableProviders(ctx).filter(entry => isDeepSeek(entry) || hasStoredProfile(ctx, entry))
-}
-
-function catalogForRecord(ctx: Context, key: CredentialKey): LlmConfigurableProvider | undefined {
-  const id = credentialKeyId(key)
-  const scope = credentialKeyScope(key)
-  return loginableProviders(ctx).find(entry => entry.provider === id && entry.settingsNs === scope)
-}
-
-function isFlowRecordLogout(choice: LogoutChoice): choice is FlowRecordLogout {
+export function isFlowRecordLogout(choice: LogoutChoice): choice is FlowRecordLogout {
   return typeof choice !== 'string' && 'key' in choice && 'writable' in choice && !('provider' in choice)
 }
 
