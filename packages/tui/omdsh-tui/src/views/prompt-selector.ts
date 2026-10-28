@@ -8,7 +8,7 @@ import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
+import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import { formatHotkeyKeys, formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { renderListRow, type ListRow } from './list-view.ts'
 
@@ -384,7 +384,55 @@ export function renderPromptSelectorPage(
 
 const documentCache = new WeakMap<TuiPrompt, Map<string, string[]>>()
 
-function documentRows(request: TuiPrompt, theme: Theme, width: number): string[] {
+/**
+ * Case-insensitive find over rows the reader can already see.
+ *
+ * A rendered page has no source model to search, so the rows are the document.
+ * Offsets are display cells, not string indexes, so CJK and emoji highlights land
+ * on the glyphs the reader pointed at rather than shearing them.
+ */
+export function findInRows(rows: readonly string[], query: string): TextMatch[] {
+  const needle = query.trim().toLowerCase()
+  if (needle === '') return []
+  const matches: TextMatch[] = []
+  for (const [row, line] of rows.entries()) {
+    const plain = stripAnsi(line).toLowerCase()
+    for (let at = plain.indexOf(needle); at >= 0; at = plain.indexOf(needle, at + needle.length)) {
+      matches.push({ row, start: visibleWidth(stripAnsi(line).slice(0, at)), width: visibleWidth(query.trim()) })
+    }
+  }
+  return matches
+}
+
+/** One occurrence of a find query in a rendered document row. */
+export interface TextMatch {
+  row: number
+  /** First cell of the hit, and how many cells it covers. */
+  start: number
+  width: number
+}
+
+/** Invert the matched cells of one styled row. */
+export function highlightMatches(line: string, spans: readonly { start: number; width: number }[], theme: Theme): string {
+  if (spans.length === 0) return line
+  const plain = stripAnsi(line)
+  const total = visibleWidth(plain)
+  const ordered = [...spans].sort((left, right) => left.start - right.start)
+  let out = ''
+  let at = 0
+  for (const span of ordered) {
+    const start = Math.max(at, Math.min(span.start, total))
+    const end = Math.min(total, Math.max(start, span.start + span.width))
+    if (start > at) out += sliceCells(line, at, start - at)
+    if (end > start) out += theme.inverse(sliceCells(line, start, end - start))
+    at = end
+  }
+  if (at < total) out += sliceCells(line, at, total - at)
+  return out
+}
+
+/** The rows a rendered document shows, shared with the find that searches them. */
+export function documentRows(request: TuiPrompt, theme: Theme, width: number): string[] {
   let cache = documentCache.get(request)
   if (cache === undefined) { cache = new Map(); documentCache.set(request, cache) }
   const key = `${width}:${theme.name}:${theme.getFgAnsi('accent')}`
@@ -459,7 +507,7 @@ export function renderPlanReviewPage(
   }
   const feedback = state.feedback === true
   const actionRows = documentActionRows(state, theme, width, pageHeight)
-  const readerInput = source !== undefined && state.documentInput !== undefined
+  const readerInput = state.documentInput !== undefined
   const customHints = (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`)
   let readerHints = source === undefined ? [] : wrapTextStable(readerInput ? 'Enter apply · Esc cancel'
     : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
@@ -482,11 +530,20 @@ export function renderPlanReviewPage(
   const visible = document.slice(start, start + bodyRows)
   const query = state.documentQuery ?? ''
   const matches = source === undefined ? [] : documentMatches(source, query)
+  const textMatches = source === undefined ? findInRows(document, query) : []
   const matching = new Set(matches)
   if (layout !== undefined) for (let at = 0; at < visible.length; at++) {
     if (matching.has(layout.sourceRows[start + at] ?? -1)) {
       const row = visible[at] ?? ''
       visible[at] = theme.inverse(layout.gutterWidth === 0 ? row : '›' + row.slice(1))
+    }
+  }
+  if (textMatches.length > 0) {
+    // Paint the hits themselves, so the reader sees the word, not just the row.
+    for (const match of textMatches) {
+      const at = match.row - start
+      if (at < 0 || at >= visible.length) continue
+      visible[at] = highlightMatches(visible[at] ?? '', [match], theme)
     }
   }
   while (visible.length < bodyRows) visible.push('')
@@ -524,6 +581,19 @@ export function renderPlanReviewPage(
       column: Math.min(Math.max(1, width - 3), 5 + visibleWidth(displayBeforeCursor)),
     }
   } else {
+    if (source === undefined && (readerInput || query !== '')) {
+      // A rendered page has no line numbers to cite, so the status is the find
+      // itself: the query, how many hits it has, and where the reader is in them.
+      const index = textMatches.findIndex(match => match.row === state.documentTarget)
+      const hits = textMatches.length === 0
+        ? 'No match'
+        : `${index < 0 ? 1 : index + 1}/${textMatches.length} matching rows`
+      const label = state.documentInput === 'search' ? 'Find: ' : ''
+      const value = input.replace(/\r?\n/gu, ' ')
+      const status = readerInput ? label + value : `${hits} · “${query}”`
+      cursor = { row: lines.length, column: Math.min(width - 3, 2 + visibleWidth(label + value.slice(0, inputCursor))) }
+      lines.push(pageRow(theme, theme.fg('muted', status), width))
+    }
     if (source !== undefined) {
       const row = layout?.sourceRows[start] ?? 0
       const model = documentModel(source)
@@ -546,7 +616,11 @@ export function renderPlanReviewPage(
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
       : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])
         + (state.request.presentation === 'plan-review' ? ' · Ctrl+X editor' : '')
-    lines.push(...(source === undefined ? [`[${shortcuts}]`] : readerHints).map(hint => pageRow(theme, theme.fg('dim', hint), width)))
+    // A page long enough to need scrolling is a page someone will want to search.
+    const pageHint = source === undefined && state.request.presentation === 'document'
+      ? `[${shortcuts} · / find · Ctrl+N/P match]`
+      : `[${shortcuts}]`
+    lines.push(...(source === undefined ? [pageHint] : readerHints).map(hint => pageRow(theme, theme.fg('dim', hint), width)))
     lines.push(pageBottom(theme, width))
   }
 

@@ -2255,3 +2255,29 @@ describe('notice-shaped plugin injections', () => {
   })
 })
 import { formatToolsText } from '../chrome/tools-list.ts'
+import { findInRows, highlightMatches } from './prompt-selector.ts'
+
+describe('find in a rendered document', () => {
+  it('reports every hit in display cells, not string indexes', () => {
+    // The document has no source model, so the rows are the document. CJK text
+    // must not shear: a "hit" measured in string indexes lands mid-glyph.
+    const rows = ['  Reads files', '  读取文件与目录', '  reads again 读取']
+    const matches = findInRows(rows, '读取')
+    expect(matches.map(match => match.row)).toEqual([1, 2])
+    // Row 1 starts after two indent cells; row 2 after "  reads again ".
+    expect(matches[0]).toMatchObject({ start: 2, width: 4 })
+    expect(matches[1]?.start).toBe(14)
+    expect(findInRows(rows, 'READS').map(match => match.row)).toEqual([0, 2])
+    expect(findInRows(rows, '   ')).toEqual([])
+  })
+
+  it('paints only the matched cells and leaves the rest of the row alone', () => {
+    const line = '  run /settings, /set now'
+    const painted = highlightMatches(line, [{ start: 6, width: 9 }], createTheme(true))
+    expect(stripAnsi(painted)).toBe(stripAnsi(line))
+    expect(painted).not.toBe(line)
+    // Only the hit is wrapped in a style; the plain text is unchanged.
+    expect(painted).toMatch(/\u001b\[[0-9;]*m/u)
+    expect(visibleWidth(painted)).toBe(visibleWidth(line))
+  })
+})

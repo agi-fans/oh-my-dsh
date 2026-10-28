@@ -2987,6 +2987,33 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('finds inside a rendered document, which has no source to search', async () => {
+    // `/help` is sixty rows of grouped commands. Without find it was the one
+    // surface a reader could not look anything up in.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    press(term, '/help\r')
+    await flushAsyncPaste()
+    term.captured = ''
+    press(term, '/')
+    press(term, 'settings')
+    await flushAsyncPaste()
+    // The query is live, so the count is known before Enter.
+    expect(stripAnsi(term.captured)).toContain('Find: settings')
+    term.captured = ''
+    press(term, '\r')
+    await flushAsyncPaste()
+    const committed = stripAnsi(term.captured)
+    expect(committed).toContain('/settings, /set')
+    expect(committed).toMatch(/1\/\d+ matching rows · “settings”/u)
+    // Ctrl+N walks to the next hit without leaving the page.
+    term.captured = ''
+    press(term, '\x0e')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toMatch(/2\/\d+ matching rows/u)
+    tui.dispose()
+  })
+
   it('opens /help full with every shortcut in the same surface', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)

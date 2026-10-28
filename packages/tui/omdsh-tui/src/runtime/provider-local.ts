@@ -216,6 +216,8 @@ import {
   selectedPromptAnswer,
   selectedFilteredPromptAnswer,
   togglePromptSelection,
+  documentRows,
+  findInRows,
   type PromptSelectorState,
 } from '../views/prompt-selector.ts'
 import { edgeIndex, listNavigation, navigateIndex } from '../views/list-navigation.ts'
@@ -2301,7 +2303,7 @@ export class LocalTui implements TuiService {
   async #acceptPastedText(text: string): Promise<void> {
     if (this.#prompt !== null) {
       const prompt = this.#prompt
-      if (prompt.request.documentSource !== undefined && prompt.documentInput !== undefined) {
+      if (prompt.documentInput !== undefined) {
         this.#handleDocumentReader({ type: 'text', value: text }, prompt)
         return
       }
@@ -2938,6 +2940,7 @@ export class LocalTui implements TuiService {
     const document = prompt.request.presentation === 'document'
     const disarmed = prompt.armedUntil !== undefined && Date.now() < prompt.armedUntil
     if (document && prompt.request.documentSource !== undefined && this.#handleDocumentReader(event, prompt)) return true
+    if (document && prompt.request.documentSource === undefined && this.#handleRenderedDocument(event, prompt)) return true
     if (document && event.type === 'text') {
       const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.value.toLowerCase())
       if (action !== undefined && !disarmed) { this.#finishPrompt(action.valuePrefix); this.#render() }
@@ -3032,6 +3035,73 @@ export class LocalTui implements TuiService {
       return true
     }
     return true
+  }
+
+  /**
+   * Find in a rendered document.
+   *
+   * The source reader searches its model; a rendered page is its rows, so the
+   * search runs over exactly what the reader is looking at. Without this, `/help`
+   * — sixty rows of grouped commands — was the one surface with no way to look
+   * something up in it.
+   */
+  #handleRenderedDocument(event: KeyEvent, prompt: PendingPrompt): boolean {
+    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors), Math.max(1, this.#term.width() - 6))
+    // Always build on the newest state: typing updates the query while the find
+    // is open, and jumping from a stale copy would drop it again.
+    const jumpTo = (row: number): void => {
+      this.#prompt = { ...(this.#prompt ?? prompt), documentScroll: Math.max(0, row - 1), documentTarget: row, documentAnchor: undefined }
+    }
+    if (prompt.documentInput !== undefined) {
+      if (event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) {
+        this.#editor.setText('')
+        this.#prompt = { ...prompt, documentInput: undefined, documentQuery: prompt.documentOriginalQuery ?? '', documentError: undefined }
+        this.#render()
+        return true
+      }
+      if (event.type === 'key' && (event.id === 'enter' || event.id === 'ctrl+j')) {
+        const query = this.#editor.text.trim()
+        this.#prompt = { ...(this.#prompt ?? prompt), documentInput: undefined, documentQuery: query, documentError: undefined }
+        const matches = findInRows(rows(), query)
+        if (matches.length > 0) jumpTo(matches[0]!.row)
+        else this.#prompt = { ...(this.#prompt ?? prompt), documentTarget: undefined }
+        this.#render()
+        return true
+      }
+      // Typing narrows the query as it is entered, so the count is live.
+      if (event.type === 'text') {
+        this.#editor.handle(event)
+        this.#prompt = { ...(this.#prompt ?? prompt), documentQuery: this.#editor.text }
+        this.#render()
+        return true
+      }
+      if (event.type === 'key') {
+        this.#editor.handle(event)
+        this.#prompt = { ...(this.#prompt ?? prompt), documentQuery: this.#editor.text }
+        this.#render()
+        return true
+      }
+      return false
+    }
+    const search = event.type === 'key' && event.id === 'ctrl+f' || event.type === 'text' && event.value === '/'
+    if (search) {
+      this.#editor.setText(prompt.documentQuery ?? '')
+      this.#prompt = { ...prompt, documentInput: 'search', documentOriginalQuery: prompt.documentQuery ?? '', documentError: undefined }
+      this.#render()
+      return true
+    }
+    if (event.type === 'key' && (event.id === 'ctrl+n' || event.id === 'ctrl+p')) {
+      const matches = findInRows(rows(), prompt.documentQuery ?? '')
+      if (matches.length === 0) return true
+      const current = prompt.documentTarget ?? prompt.documentScroll ?? 0
+      const from = event.id === 'ctrl+n'
+        ? (matches.findIndex(match => match.row > current) + matches.length) % matches.length
+        : (matches.findLastIndex(match => match.row < current) + matches.length) % matches.length
+      jumpTo(matches[from]!.row)
+      this.#render()
+      return true
+    }
+    return false
   }
 
   #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
