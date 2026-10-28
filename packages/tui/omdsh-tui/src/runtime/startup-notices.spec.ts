@@ -33,6 +33,7 @@ describe('startup notices plugin', () => {
     ctx.provide('tui', {
       notice,
       prompt,
+      interactive: true,
       prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: false, startupChangelog: 'summary' }),
     } as unknown as TuiService)
     await ctx.plugin(startupNotices, { currentVersion: '0.3.0', changelogPath, dshHome: root })
@@ -51,6 +52,32 @@ describe('startup notices plugin', () => {
     await ctx.fiber.dispose()
   })
 
+  it('answers /changelog as text when nothing can open a reader', async () => {
+    // A pipe has no reader and no one to close it: awaiting a prompt there hung
+    // the command after EOF and ate the next line when the pipe stayed open.
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-changelog-pipe-'))
+    roots.push(root)
+    const changelogPath = join(root, 'CHANGELOG.md')
+    writeFileSync(changelogPath, '# Changelog\n\n## [0.3.0] - 2026-08-16\n\n### Fixed\n\n- Fixed startup.\n')
+    mkdirSync(join(root, 'profiles'), { recursive: true })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const prompt = vi.fn(() => Promise.resolve(null))
+    ctx.provide('tui', {
+      notice: vi.fn(),
+      prompt,
+      prefs: () => ({ theme: 'dark', colors: false, expandTools: false, checkUpdates: false, startupChangelog: 'off' }),
+    } as unknown as TuiService)
+    await ctx.plugin(startupNotices, { currentVersion: '0.3.0', changelogPath, dshHome: root })
+    const session = ctx.sessions.create(SessionId('changelog-pipe'))
+    const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
+    const result = await ctx.commands.execute(agent, '/changelog', [], new AbortController().signal)
+    expect(prompt).not.toHaveBeenCalled()
+    expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('## [0.3.0]') })
+    await ctx.fiber.dispose()
+  })
+
   it('checks npm after startup and presents a non-blocking upgrade command', async () => {
     const root = mkdtempSync(join(tmpdir(), 'omdsh-update-notice-'))
     roots.push(root)
@@ -65,6 +92,7 @@ describe('startup notices plugin', () => {
     ctx.provide('tui', {
       notice,
       prompt,
+      interactive: true,
       prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: true, startupChangelog: 'summary' }),
     } as unknown as TuiService)
     await ctx.plugin(startupNotices, {

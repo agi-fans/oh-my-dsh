@@ -663,21 +663,46 @@ describe('the side-question pane', () => {
     { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: '' },
   ] as TranscriptState['blocks']
 
-  it('docks above the composer and leaves the transcript alone', () => {
+  it('docks above the composer and adds nothing to the transcript', () => {
     // The exchange belongs to a conversation that is not this one, so it must not
-    // become a transcript row the reader resumes back into.
+    // become a transcript row: it takes rows from the viewport and gives them back
+    // when it closes.
     const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' as const }
-    const plain = renderView(state, { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false })
-    const withPane = renderView(state, { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false, aside: panel })
-    const rows = withPane.lines.map(stripAnsi)
-    const text = rows.join('\n')
-    expect(text).toContain('/btw why did the build fail?')
-    expect(text).toContain('The lockfile changed.')
-    // The pane sits directly above the composer, and the transcript rows above it
-    // are the same rows the plain frame painted.
-    const composer = rows.findIndex(row => row.includes('🐳'))
-    expect(rows.slice(0, composer).join('\n')).toContain('The lockfile changed.')
-    expect(plain.lines.map(stripAnsi).slice(0, 9)).toEqual(rows.slice(0, 9))
+    const frame = (aside?: typeof panel): string[] => renderView(state,
+      { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false, scrollStart: 0, ...(aside === undefined ? {} : { aside }) },
+    ).lines.map(stripAnsi)
+    const plain = frame()
+    const withPane = frame(panel)
+    const question = withPane.findIndex(row => row.includes('/btw why did the build fail?'))
+    const answer = withPane.findIndex(row => row.includes('The lockfile changed.'))
+    const hint = withPane.findIndex(row => row.includes('esc close'))
+    const composer = withPane.findIndex(row => row.includes('🐳'))
+    expect(question).toBeGreaterThan(0)
+    expect(answer).toBeGreaterThan(question)
+    expect(hint).toBeGreaterThan(answer)
+    expect(composer).toBeGreaterThan(hint)
+    // The pane displaces transcript rows instead of overflowing the terminal.
+    expect(withPane.length).toBe(plain.length)
+    // The composer and footer are untouched by the pane.
+    expect(withPane.slice(composer)).toEqual(plain.slice(composer))
+    // And the transcript never carried the aside.
+    expect(plain.join('\n')).not.toContain('/btw')
+  })
+
+  it('stays inside the frame when the answer is long', () => {
+    // A pane that is not counted against the budget drops the composer off screen.
+    const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' as const }
+    const tall = { ...panel, text: Array.from({ length: 40 }, (_, at) => `answer row ${at + 1}`).join('\n') }
+    const lines = renderView(state, { width: 80, height: 24, model: 'm', input: '', inputCursor: 0, colors: false, scrollStart: 0, aside: tall })
+      .lines.map(stripAnsi)
+    expect(lines.length).toBeLessThanOrEqual(24)
+    const composer = lines.findIndex(row => row.includes('🐳'))
+    expect(composer).toBeGreaterThan(0)
+    // Composer, its input row, and the two-line footer all survive.
+    expect(lines.length - composer).toBeGreaterThanOrEqual(4)
+    // The answer is windowed, not truncated mid-row or spilled below the footer.
+    expect(lines.join('\n')).toContain('answer row 1')
+    expect(lines.at(-1)).not.toContain('answer row')
   })
 
   it('says how to leave', () => {

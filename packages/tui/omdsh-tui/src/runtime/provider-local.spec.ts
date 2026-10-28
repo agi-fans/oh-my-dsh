@@ -2920,6 +2920,53 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('shows the last streamed chunk even when it arrived inside the paint window', async () => {
+    // Two chunks inside one throttle window used to schedule a repaint of the
+    // old text, so the words before a pause never appeared until more arrived.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    let release: (() => void) | undefined
+    const done = tui.asideQuestion?.({
+      question: 'why?',
+      signal: new AbortController().signal,
+      run: async onUpdate => {
+        onUpdate('first')
+        onUpdate('first second')
+        await new Promise<void>(resolve => { release = resolve })
+        return { text: 'first second' }
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 120))
+    // Still running, so only the throttled paint can have put this on screen.
+    expect(stripAnsi(term.captured)).toContain('first second')
+    release?.()
+    await done
+    tui.dispose()
+  })
+
+  it('stops a side consultation when the reader closes the pane', async () => {
+    // Closing used to hide the pane while the request kept running unseen.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    let seen: AbortSignal | undefined
+    const done = tui.asideQuestion?.({
+      question: 'why?',
+      signal: new AbortController().signal,
+      run: async (_onUpdate, signal) => {
+        seen = signal
+        await new Promise<void>(resolve => { signal.addEventListener('abort', () => resolve(), { once: true }) })
+        return { text: '', failed: true }
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    press(term, '\x1b')
+    // A bare Escape waits for a possible sequence before it settles.
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(seen?.aborted).toBe(true)
+    await done
+    tui.dispose()
+  })
+
   it('opens /help in the reading surface instead of the transcript', async () => {
     // Reference material printed into the transcript pushed the conversation into
     // scrollback and then vanished on resume; it belongs in a surface that closes.

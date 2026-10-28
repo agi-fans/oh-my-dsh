@@ -606,6 +606,8 @@ export class LocalTui implements TuiService {
   #openedGroups = new Set<string>()
   /** Side-conversation pane; owned here so Esc can close it from any state. */
   #aside: AsidePanel | undefined
+  /** Set while the pane is open, so closing it stops the work it was showing. */
+  #asideAbort: AbortController | undefined
   /** Thoughts a reader opened individually, addressed by reasoning identity. */
   #expandedReasoning = new Set<string>()
   /**
@@ -1184,12 +1186,30 @@ export class LocalTui implements TuiService {
    * the same way, because a chatty stream would otherwise spend the turn in the
    * renderer.
    */
+  /** Navigation belongs to the pane only when nothing else is claiming it. */
+  #asideOwnsKeys(): boolean {
+    return this.#editor.text === '' && this.#ac === null && this.#prompt === null
+  }
+
+  /**
+   * Leaving the pane stops the consultation.
+   *
+   * Without this the request kept running invisibly and its answer was dropped,
+   * so the reader could neither read it nor stop paying for it.
+   */
+  #closeAside(): void {
+    this.#asideAbort?.abort()
+    this.#asideAbort = undefined
+    this.#aside = undefined
+    this.#render()
+  }
+
   /**
    * A side question, streamed into its own pane above the composer.
    *
    * Not a transcript block: the exchange belongs to a conversation that is not
-   * this one, and a transcript row is a permanent part of the session the reader
-   * would resume back into. The pane is docked, `Esc` closes it, and the session
+   * this one, so it gets its own pane rather than a row in the conversation the
+   * reader is working in. The pane is docked, `Esc` closes it, and the session
    * looks exactly as it did. Coalesced the same way a Shell card is, because a
    * chatty stream would otherwise spend the turn in the renderer.
    */
@@ -1198,6 +1218,12 @@ export class LocalTui implements TuiService {
     run: (onUpdate: (text: string) => void, signal: AbortSignal) => Promise<{ text: string; detail?: string; failed?: boolean }>
     signal: AbortSignal
   }): Promise<void> {
+    this.#asideAbort?.abort()
+    const abort = new AbortController()
+    this.#asideAbort = abort
+    // Leaving the pane and losing the session both stop the consultation.
+    if (request.signal.aborted) abort.abort()
+    else request.signal.addEventListener('abort', () => abort.abort(), { once: true })
     this.#aside = { question: request.question, text: '', status: 'running', scroll: 0 }
     this.#render()
     let lastPaint = 0
@@ -1207,29 +1233,36 @@ export class LocalTui implements TuiService {
     const show = (change: Partial<AsidePanel>): void => {
       if (this.#aside !== undefined) this.#aside = { ...this.#aside, ...change }
     }
-    const stream = (text: string): void => {
-      pending = text
-      const now = Date.now()
-      if (now - lastPaint < SHELL_PAINT_INTERVAL_MS) {
-        if (pendingPaint !== undefined) clearTimeout(pendingPaint)
-        pendingPaint = setTimeout(paint, SHELL_PAINT_INTERVAL_MS - (now - lastPaint))
-        return
-      }
-      lastPaint = now
+    /**
+     * The pending text is applied by the paint, not merely followed by one: a
+     * chunk that arrives inside the throttle window used to schedule a repaint of
+     * the *old* text, so the last words before a pause never appeared.
+     */
+    const flush = (): void => {
+      if (pendingPaint !== undefined) { clearTimeout(pendingPaint); pendingPaint = undefined }
+      lastPaint = Date.now()
       show({ text: pending })
       paint()
     }
+    const stream = (text: string): void => {
+      pending = text
+      const wait = SHELL_PAINT_INTERVAL_MS - (Date.now() - lastPaint)
+      if (wait <= 0) { flush(); return }
+      if (pendingPaint !== undefined) clearTimeout(pendingPaint)
+      pendingPaint = setTimeout(flush, wait)
+    }
     try {
-      const result = await request.run(stream, request.signal)
+      const result = await request.run(stream, abort.signal)
       show({
         text: result.text,
         status: result.failed === true ? 'error' : 'done',
         ...(result.detail === undefined ? {} : { detail: result.detail }),
       })
     } catch (error) {
-      show({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
+      if (!abort.signal.aborted) show({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
     } finally {
       if (pendingPaint !== undefined) clearTimeout(pendingPaint)
+      if (this.#asideAbort === abort) this.#asideAbort = undefined
       paint()
     }
   }
@@ -1676,6 +1709,7 @@ export class LocalTui implements TuiService {
     this.#steerHandler = undefined
     this.#imagePreviewAbort?.abort()
     this.#fileReviewAbort?.abort()
+    this.#asideAbort?.abort()
     for (const directory of this.#imageTemporary) { try { rmSync(directory, { recursive: true, force: true }) } catch { /* OS may still hold the opened file. */ } }
     this.#imageTemporary.clear()
     this.#queueHotkeyAbort?.abort()
@@ -2541,24 +2575,6 @@ export class LocalTui implements TuiService {
       this.#inspectEscapeFenceUntil = 0
     }
     if (this.#handlePrompt(event)) return
-    /**
-     * The side pane is read, not typed into: the composer stays where it is.
-     * Only leaving and scrolling belong to it, so every other key is the
-     * composer's as usual — the reader can keep working while the answer streams.
-     */
-    if (this.#aside !== undefined && event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) {
-      this.#aside = undefined
-      this.#render()
-      return
-    }
-    if (this.#aside !== undefined && event.type === 'key'
-      && (event.id === 'up' || event.id === 'down' || event.id === 'pageup' || event.id === 'pagedown')) {
-      const step = event.id === 'pageup' || event.id === 'pagedown' ? 6 : 1
-      const delta = event.id === 'up' || event.id === 'pageup' ? -step : step
-      this.#aside = { ...this.#aside, scroll: Math.max(0, this.#aside.scroll + delta) }
-      this.#render()
-      return
-    }
     if (this.#trajectory !== null) {
       const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height())
       const { pageLines } = trajectoryDetailMetrics(this.#trajectory, this.#term.height())
@@ -2600,6 +2616,27 @@ export class LocalTui implements TuiService {
       this.#applySettings(event)
       return
     }
+    /**
+     * The side pane is a companion, not a mode: it answers where the reader is
+     * already working, so it must not take keys the composer is using. It reads
+     * navigation only while the composer is empty and nothing else is offering a
+     * choice — a draft, an autocomplete list, or historical recall all keep their
+     * arrows, and Escape keeps closing whatever is actually on top.
+     */
+    if (this.#aside !== undefined && this.#asideOwnsKeys() && event.type === 'key'
+      && (event.id === 'up' || event.id === 'down' || event.id === 'pageUp' || event.id === 'pageDown')) {
+      const step = event.id === 'pageUp' || event.id === 'pageDown' ? 6 : 1
+      const delta = event.id === 'up' || event.id === 'pageUp' ? -step : step
+      this.#aside = { ...this.#aside, scroll: Math.max(0, this.#aside.scroll + delta) }
+      this.#render()
+      return
+    }
+    if (this.#aside !== undefined && event.type === 'key' && event.id === 'escape'
+      && this.#editor.text === '' && this.#ac === null) {
+      this.#closeAside()
+      return
+    }
+
     if (this.#copySelector !== null) {
       this.#applyCopySelector(event)
       return
@@ -4107,6 +4144,9 @@ export class LocalTui implements TuiService {
       question: full ? 'Commands and every shortcut' : 'Commands and essential shortcuts',
       detail: text,
       cancelLabel: 'Close',
+      // Reference yields to anything that needs the reader: an approval or a
+      // question must not fail because a help page happened to be open.
+      onSuperseded: () => {},
     }))
   }
 
@@ -4121,6 +4161,7 @@ export class LocalTui implements TuiService {
       question: `${this.#tools.length} active`,
       detail: formatToolsText(this.#tools),
       cancelLabel: 'Close',
+      onSuperseded: () => {},
     }))
   }
 

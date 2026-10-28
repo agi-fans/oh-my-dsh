@@ -2026,28 +2026,31 @@ const ASIDE_MAX_ROWS = 12
  * The side-conversation pane: a rule, the question, the answer, and how to leave.
  *
  * A pane rather than a transcript block because the exchange belongs to a
- * conversation that is not this one. Writing it into the transcript made it a
- * permanent row of the session the reader would resume back into; docked above
- * the composer, Esc closes it and the session looks exactly as it did.
+ * conversation that is not this one: the reader is working in the transcript, and
+ * an answer from elsewhere should not become a row of it. Docked above the
+ * composer, `Esc` closes it and the session looks exactly as it did.
  */
 export function renderAside(panel: AsidePanel, theme: Theme, width: number, available = ASIDE_MAX_ROWS): string[] {
   if (width <= 0) return []
   const rule = theme.fg('border', '─'.repeat(width))
   const head = ' ' + theme.bold(theme.fg('accent', '/btw')) + ' ' + theme.fg('text', panel.question)
   const body = panel.text === ''
-    ? [theme.fg('dim', panel.status === 'running' ? '  …' : '  No answer.')]
-    : renderMarkdown(panel.text, theme, Math.max(1, width - 2)).map(line => '  ' + line)
+    ? [theme.fg('dim', panel.status === 'running' ? '…' : 'No answer.')]
+    : renderMarkdown(panel.text, theme, Math.max(1, width - 2))
   const detail = panel.detail === undefined || panel.detail === ''
     ? []
-    : ['', '  ' + theme.fg('dim', panel.detail)]
+    : ['', theme.fg('dim', panel.detail)]
   const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: 'Esc', action: 'close' }]))
-  const rows = [truncateToWidth(head, width), '', ...body, ...detail]
-  // The answer can be longer than the pane; keep the head fixed and window the rest.
-  const room = Math.max(1, Math.min(ASIDE_MAX_ROWS, available) - 3)
-  const scrollable = rows.length > 2
-  const start = scrollable ? Math.max(0, Math.min(panel.scroll, rows.length - 2 - room)) : 0
-  const windowed = scrollable ? rows.slice(0, 2).concat(rows.slice(2 + start, 2 + start + room)) : rows
-  return [rule, ...windowed.map(line => truncateToWidth(line, width)), truncateToWidth(hint, width), rule]
+  // Two rules, the question, its blank line, and the hint are always drawn. What
+  // is left is the answer's window, so the pane never grows past its cap.
+  const cap = Math.max(6, Math.min(ASIDE_MAX_ROWS, available))
+  const windowRows = Math.max(1, cap - 4)
+  const content = [...body, ...detail]
+  const maxStart = Math.max(0, content.length - windowRows)
+  const first = Math.max(0, Math.min(panel.scroll, maxStart))
+  const rows = [head, '', ...content.slice(first, first + windowRows)]
+  return [rule, ...rows.map(line => '  ' + line).map(line => truncateToWidth(line, width)),
+    truncateToWidth(hint, width), rule]
 }
 
 /** Compact, unframed Todo tree placed above queued messages. */
@@ -2516,7 +2519,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
-  const reserved = inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
+  const reserved = aside.length + inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusIndex = options.focusBlock === undefined
     ? undefined

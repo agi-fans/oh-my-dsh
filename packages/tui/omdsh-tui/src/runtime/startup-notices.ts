@@ -145,13 +145,17 @@ async function showChangelog(tui: TuiService, config: ResolvedConfig, invocation
   if (input !== '' && input !== 'full') return { kind: 'error', text: 'Usage: /changelog [full]' }
   try {
     const changelog = await readFile(config.changelogPath, 'utf8')
-    // Release notes are reference, not conversation: printed inline they pushed
-    // the session out of view and then vanished on resume anyway.
+    const text = changelogText(changelog, input === 'full')
+    // A pipe has no reader to open and no one to close it; the text is the answer.
+    if (tui.interactive !== true) return { kind: 'success', text }
+    // Release notes are reference, not conversation: the reader keeps 60 rows of
+    // them out of the transcript, where they pushed the session out of view.
     await tui.prompt(readPrompt({
       title: 'Changelog',
       question: input === 'full' ? 'Every recorded release' : 'Recent releases',
-      detail: changelogText(changelog, input === 'full'),
+      detail: text,
       cancelLabel: 'Close',
+      onSuperseded: () => {},
       signal: invocation.signal,
     }))
     return { kind: 'success' }
