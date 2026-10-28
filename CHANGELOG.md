@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- `/rate` and the `dsh-message-feedback` service behind it. The feedback it recorded was log-only: nothing read it, exported it, or sent it anywhere, so a reader who filed a judgment took a four-step flow to write a record with no consumer. This is the scope principle in `docs/design/philosophy.md` applied — a capability with no path to being used is maintenance cost, not a feature.
 - `Notifications → Terminal activity`, the opt-in OSC 9 busy/idle indicator. It reported the same lifecycle as Terminal status through a weaker protocol that carried no state, and it cost a keepalive write on every second of a running turn. A terminal tab that answers OSC 7501 already shows what omdsh is doing.
 - `/attachments`. `/attach` without a path now opens the same list with an **Add a file** entry at the top, so reviewing what this session attached and attaching something new are one surface rather than two commands to keep apart. A `/attach <path>` invocation and a bare `/attach` in a pipe both behave as before.
 

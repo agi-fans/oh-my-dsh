@@ -98,10 +98,6 @@
       "types": "./lib/commands/jobs.d.ts",
       "default": "./lib/commands/jobs.js"
     },
-    "./command-rate": {
-      "types": "./lib/commands/rate.d.ts",
-      "default": "./lib/commands/rate.js"
-    },
     "./command-schedule": {
       "types": "./lib/commands/schedule.d.ts",
       "default": "./lib/commands/schedule.js"

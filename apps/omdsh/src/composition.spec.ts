@@ -379,11 +379,13 @@ describe('dsh spine expansion', () => {
     for (const row of expanded) expect(row.name, `row ${row.id}`).toBeTruthy()
   })
 
-  it('mounts message feedback with a note budget', () => {
-    const row = productRows().find(entry => entry.id === 'message-feedback')
-    expect(row?.name).toBe('@deepseek-ai/dsh-message-feedback')
-    expect(row?.config).toEqual({ maxNoteBytes: 8192 })
-    expect(productRows().some(entry => entry.id === 'session-persistence')).toBe(true)
+  it('leaves the writer-only feedback service out of the shipped profile', () => {
+    // `/rate` was the only consumer and it recorded judgments nothing read. With
+    // it gone, mounting the service would be a write path with no reader.
+    const rows = productRows()
+    expect(rows.some(entry => entry.id === 'message-feedback')).toBe(false)
+    expect(rows.some(entry => entry.id === 'tui-command-rate')).toBe(false)
+    expect(rows.some(entry => entry.id === 'session-persistence')).toBe(true)
   })
 
   it('mounts durable reminders with a background session controller', () => {
@@ -631,10 +633,12 @@ describe('upstream capability adaptation rows', () => {
     expect(rows.find(entry => entry.id === 'web-server')?.config).toMatchObject({ host: '127.0.0.1', port: 0 })
   })
 
-  it('keeps the write-only /feedback command out of the shipped profile', () => {
+  it('keeps every write-only feedback path out of the shipped profile', () => {
+    // Upstream's session-level `/feedback` and our per-reply `/rate` failed the
+    // same test: both wrote records nothing could read.
     const rows = productRows()
     expect(rows.some(entry => entry.id === 'command-feedback')).toBe(false)
-    expect(rows.find(entry => entry.id === 'message-feedback')?.name).toBe('@deepseek-ai/dsh-message-feedback')
+    expect(rows.some(entry => entry.id === 'message-feedback')).toBe(false)
   })
 
   it('declares PTC presentation in the code preset and keeps the native default', () => {

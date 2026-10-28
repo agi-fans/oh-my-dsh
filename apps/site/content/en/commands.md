@@ -76,7 +76,6 @@ The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Pare
 | `/review [changes\|base <branch>\|commit <rev>\|<rev>]` | Review current changes, a local base branch or one commit directly with arguments, or choose interactively without arguments. Requests findings with file and line references without applying fixes; current Access and Plan mode remain in effect. |
 | `/tools` | List the tools visible to the agent. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
-| `/rate` | Rate a finalized assistant reply as positive or negative, optionally file a category and note, or clear an existing rating. Feedback is stored in the local Session log and never enters model context. |
 | `/schedule` | List this session's durable reminders, edit a name or instruction, open retained delivery records, or delete one. Each row answers how soon it fires (`in 12m`) alongside the absolute instant, and a reminder that can no longer fire reads `ended` instead of `next`. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
 
 ## Files and terminals
