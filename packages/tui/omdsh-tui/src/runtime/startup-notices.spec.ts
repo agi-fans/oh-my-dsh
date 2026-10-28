@@ -29,8 +29,10 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const notice = vi.fn()
+    const prompt = vi.fn(() => Promise.resolve(null))
     ctx.provide('tui', {
       notice,
+      prompt,
       prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: false, startupChangelog: 'summary' }),
     } as unknown as TuiService)
     await ctx.plugin(startupNotices, { currentVersion: '0.3.0', changelogPath, dshHome: root })
@@ -40,7 +42,11 @@ describe('startup notices plugin', () => {
     await ctx.omdshStartup.afterSessionStart()
     expect(notice).toHaveBeenCalledWith("What's New · v0.3.0\n1 fix · /changelog for details")
     const result = await ctx.commands.execute(agent, '/changelog', [], new AbortController().signal)
-    expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('## [0.3.0]') })
+    expect(result?.result).toMatchObject({ kind: 'success' })
+    // Release notes open in the reading surface rather than the transcript.
+    const request = prompt.mock.calls[0]?.[0] as { presentation?: string; detail?: string; title?: string } | undefined
+    expect(request).toMatchObject({ title: 'Changelog', presentation: 'document' })
+    expect(request?.detail).toContain('## [0.3.0]')
 
     await ctx.fiber.dispose()
   })
@@ -55,8 +61,10 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const notice = vi.fn()
+    const prompt = vi.fn(() => Promise.resolve(null))
     ctx.provide('tui', {
       notice,
+      prompt,
       prefs: () => ({ theme: 'dark', colors: true, expandTools: false, checkUpdates: true, startupChangelog: 'summary' }),
     } as unknown as TuiService)
     await ctx.plugin(startupNotices, {

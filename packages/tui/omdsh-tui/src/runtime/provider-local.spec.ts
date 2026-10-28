@@ -2944,22 +2944,37 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('runs /help locally and keeps readline pending', async () => {
+  it('opens /help in the reading surface instead of the transcript', async () => {
+    // Reference material printed into the transcript pushed the conversation into
+    // scrollback and then vanished on resume; it belongs in a surface that closes.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    const pending = tui.readline()
     press(term, '/help\r')
+    await flushAsyncPaste()
+    expect(term.captured).toContain('omdsh · Help')
     expect(term.captured).toContain('/settings, /set')
-    press(term, '\x1b[F')
+    for (let index = 0; index < 8; index += 1) press(term, '\x1b[6~')
     expect(term.captured).toContain('Essential Shortcuts')
-    expect(term.captured).toContain('/help [full]')
+    // Closing leaves a composer, not a transcript of help text.
+    term.captured = ''
+    for (let index = 0; index < 2; index += 1) {
+      press(term, '\x1b')
+      await new Promise(resolve => setTimeout(resolve, 40))
+    }
+    expect(term.captured).not.toContain('Essential Shortcuts')
+    tui.dispose()
+  })
+
+  it('opens /help full with every shortcut in the same surface', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
     press(term, '/help full\r')
+    await flushAsyncPaste()
+    expect(term.captured).toContain('omdsh · Help')
     for (let index = 0; index < 12; index += 1) press(term, '\x1b[6~')
     expect(term.captured).toContain('Keyboard Shortcuts')
     expect(term.captured).toContain('Navigation')
     expect(term.captured).not.toContain('/hotkeys')
-    press(term, 'hi\r')
-    expect(await pending).toBe('hi')
     tui.dispose()
   })
 

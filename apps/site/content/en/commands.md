@@ -6,7 +6,7 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 Command completion prioritizes common tasks and matches names, aliases and description keywords. `/help` groups commands by task; third-party contributions remain discoverable.
 
-Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` for the command list plus the essential shortcuts (`/help full` adds the complete keyboard catalog). The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups the catalog by user task, including extension commands.
+Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` to open the command list plus the essential shortcuts in a reader you close with Esc (`/help full` adds the complete keyboard catalog). The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups the catalog by user task, including extension commands. `/help` and `/changelog` open in the document reader rather than the transcript: they are reference, and printing sixty rows of it into scrollback pushed the conversation out of view only to lose the reference on resume.
 
 `[brackets]` mark optional arguments and `|` separates alternatives. A command with a picker runs without arguments.
 

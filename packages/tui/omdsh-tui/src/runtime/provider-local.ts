@@ -149,6 +149,7 @@ import {
   updateAgentHub,
   type AgentHubState,
 } from '../views/agent-hub.ts'
+import { readPrompt } from '../prompt-intents.ts'
 import {
   applyEvent,
   applyStreamChunk,
@@ -3874,29 +3875,9 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    const full = args === 'full'
-    this.#state = {
-      ...this.#state,
-      blocks: [...this.#state.blocks, {
-        kind: 'commandOutput',
-        command: 'help',
-        text: [
-          formatHelpText(this.#commands()),
-          '',
-          full
-            ? `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} shortcuts**`
-            : '**Essential Shortcuts**',
-          '',
-          full
-            ? formatHotkeysText(this.#keybindings)
-            : formatEssentialHotkeysText(this.#keybindings),
-          ...(full ? [] : ['', 'Use `/help full` to view every keyboard shortcut.']),
-        ].join('\n'),
-      }],
-    }
-    this.#focusLatestBlock()
-    this.#render()
+    void this.#runHelp(args === 'full')
   }
+
 
   #commands(): readonly SlashCommand[] {
     const localNames = new Set(BUILTIN_SLASH_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]))
@@ -4104,6 +4085,30 @@ export class LocalTui implements TuiService {
       const sequence = terminalNotificationSequence(pending)
       if (sequence !== '') this.#term.output.write(sequence)
     }, 25)
+  }
+
+  /**
+   * Help is reference, not conversation: 60 rows of it pushed into immutable
+   * scrollback and vanished on resume, so the reader paid for it twice. It opens
+   * in the reading surface instead, where it can be searched and left with Esc.
+   */
+  async #runHelp(full: boolean): Promise<void> {
+    const text = [
+      formatHelpText(this.#commands()),
+      '',
+      full
+        ? `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} shortcuts**`
+        : '**Essential Shortcuts**',
+      '',
+      full ? formatHotkeysText(this.#keybindings) : formatEssentialHotkeysText(this.#keybindings),
+      ...(full ? [] : ['', 'Use `/help full` to view every keyboard shortcut.']),
+    ].join('\n')
+    await this.prompt(readPrompt({
+      title: 'Help',
+      question: full ? 'Commands and every shortcut' : 'Commands and essential shortcuts',
+      detail: text,
+      cancelLabel: 'Close',
+    }))
   }
 
   #toolCatalog(): void {
