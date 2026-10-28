@@ -69,6 +69,14 @@ export interface TuiCommand {
 export interface TuiOutputOptions {
   /** Reveal a requested result at the live tail, ending any inspection. */
   focus?: boolean
+  /**
+   * Paint the block on a transcript surface instead of the page.
+   *
+   * A command result that is *not* about the workspace — a side question's
+   * answer — has to read as an aside at a glance. Without a surface it looked
+   * like ordinary prose that happened to start with a heading.
+   */
+  surface?: 'aside'
 }
 
 /** Presentation intent for a direct, non-session notice. */

@@ -51,7 +51,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/queue` | Review, edit, delete, and reorder pending human messages. |
 | `/steer <message>` | Guide the active turn before its next model step. |
-| `/btw [question]` | Ask a separate question from the current committed conversation snapshot, or reopen a saved topic. |
+| `/btw [question]` | Ask a separate question from the current committed conversation snapshot. Without a question, the composer asks for one. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
@@ -61,9 +61,9 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 ## Side questions
 
-`/btw` uses the current model and reasoning selection in a separate, durable session. The first question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. Follow-ups keep that original snapshot and the topic’s own questions and answers. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
+`/btw` uses the current model and reasoning selection in a separate, durable session. The question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
 
-The reader streams the answer; Esc or Ctrl+C cancels only the consultation. Parent approvals take priority. After completion, choose **Follow-up**, **Share to conversation** (posting the answer to the main transcript and session context), **Quote to composer**, **Topics**, or return to the conversation. Advice is not sent to the primary model unless shared. Model requests, including the copied input context, incur separate charges; displayed usage covers only this consultation’s latest request attempts, not inherited history. An interrupted or failed topic remains in history with any retained output. Topics and their session logs are stored under `OMDSH_HOME`.
+The wait is the compact progress card; Esc or Ctrl+C cancels only the consultation, and parent approvals take priority. The answer then lands in the transcript on its own surface, with the question as its first line — nothing takes the screen, and no menu follows it. The advice is not sent to the primary model: quote it into the composer with `Alt+C` or your usual copy path if you want the conversation to continue from it. Model requests, including the copied input context, incur separate charges; the displayed usage covers only this consultation’s latest request attempts, not inherited history. The consultation’s own session log is stored under `OMDSH_HOME`.
 
 ## Observability
 

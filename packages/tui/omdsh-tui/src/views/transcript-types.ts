@@ -83,7 +83,7 @@ export type Block =
     turn?: number
   }
   | { kind: 'toolCatalog'; tools: readonly ToolInfo[] }
-  | { kind: 'commandOutput'; command: string; text: string }
+  | { kind: 'commandOutput'; command: string; text: string; surface?: 'aside' }
   | {
     /**
      * A Shell line the reader ran themselves with a leading `!`.

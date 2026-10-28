@@ -5,7 +5,15 @@ import { BOX, paintSurface, type Theme } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText, wrapTextStable } from './width.ts'
 
 /** Render a command result without the generic notice frame. */
-export function renderCommandOutput(command: string, text: string, theme: Theme, width: number): string[] {
+export function renderCommandOutput(command: string, text: string, theme: Theme, width: number, surface?: 'aside'): string[] {
+  const plain = renderCommandOutputRows(command, text, theme, width)
+  if (surface === undefined || !theme.colors) return plain
+  // A tinted block, not a border: the answer is prose from somewhere else, and a
+  // frame around it would claim it is a component the reader operates.
+  return plain.map(row => paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(row, width)))
+}
+
+function renderCommandOutputRows(command: string, text: string, theme: Theme, width: number): string[] {
   const normalized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimEnd()
   const rows = normalized.split('\n')
   if (rows.length <= 1) {
