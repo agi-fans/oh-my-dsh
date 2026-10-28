@@ -125,6 +125,36 @@ describe('plan review page', () => {
   })
 })
 
+describe('a question that is only text', () => {
+  const textPrompt = (over: Record<string, unknown> = {}) => renderPromptSelector({
+    request: { title: 'Advisor', question: 'What should the advisor answer?', allowCustom: true, ...over },
+    selected: 0, checked: new Set(),
+  } as unknown as PromptSelectorState, createTheme(false), 72, '', 0)
+
+  it('uses one frame: the composer itself, not a card above a second editor', () => {
+    // The card plus a separate editor under it drew two borders that each looked
+    // like the place to type, two hint lines saying what Enter does, and a label
+    // reading `answer` that named nothing new.
+    const frame = textPrompt()
+    const lines = frame.lines.map(line => stripAnsi(line))
+    expect(lines.filter(line => /^[╭╰─]/u.test(line)).length).toBe(2)
+    expect(lines[0]).toContain('Advisor')
+    expect(lines[1]).toContain('What should the advisor answer?')
+    // The keys ride the bottom rule rather than costing a row of their own.
+    expect(lines[1]).not.toContain('enter')
+    expect(lines.at(-1)).toContain('enter answer')
+    expect(frame.cursorVisible).toBe(true)
+    expect(frame.cursor.row).toBe(1)
+  })
+
+  it('keeps the card when the question carries supporting copy', () => {
+    // A question with a paragraph under it needs rows the bottom rule cannot give.
+    const frame = textPrompt({ detail: 'Uses a committed snapshot and no tools.' })
+    expect(frame.lines.map(line => stripAnsi(line)).join('\n')).toContain('Uses a committed snapshot')
+    expect(frame.lines.length).toBeGreaterThan(4)
+  })
+})
+
 describe('secret prompt', () => {
   it('masks the value without changing editor indices or exposing the key', () => {
     const secret = 'sk-secret-value'
@@ -144,7 +174,9 @@ describe('secret prompt', () => {
     expect(maskPromptSecret(secret)).toBe('•'.repeat(secret.length))
     expect(text).not.toContain(secret)
     expect(text).toContain('•'.repeat(secret.length))
-    expect(text).toContain('API key · hidden')
+    // The label is the prompt's own title plus the fact that typing is masked, so
+    // the frame names the thing being asked for instead of a generic `API key`.
+    expect(text).toContain('· hidden')
     expect(frame.cursorVisible).toBe(true)
   })
 })

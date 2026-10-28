@@ -625,6 +625,37 @@ export function renderPromptSelector(
   }
   const secret = state.request.secret === true
   const displayInput = secret ? maskPromptSecret(input) : input
+  /**
+   * A question that is only text is the composer, not a card above it.
+   *
+   * This path used to draw a framed question and then a second framed editor
+   * under it: two borders that each looked like the place to type, two hint
+   * lines saying what Enter does, and a label reading `answer` that named
+   * nothing the reader had not already been told. A modal question is an
+   * interaction state the composer can carry itself — label in the top rule,
+   * question as the placeholder, keys in the bottom rule — which is also how pi
+   * mounts a dialog, in the editor's own slot.
+   *
+   * A prompt that also offers options keeps the card: a list plus a text field
+   * genuinely is two things. So does one that carries supporting copy, and one
+   * counting down a deadline — both need rows the bottom rule cannot give them.
+   */
+  const detail = state.request.detail ?? ''
+  if (options.length === 0 && detail === '' && state.request.wait === undefined) {
+    const label = secret ? `${state.request.title} · hidden` : state.request.title
+    const editor = renderEditor({
+      width,
+      input: displayInput,
+      inputCursor,
+      status: ' ' + theme.fg('accent', label) + ' ',
+      ...(state.request.question === '' ? {} : { inlineHint: state.request.question }),
+      // The keys live on the bottom rule so the frame says how to answer without
+      // spending a row on it.
+      ...(hints.length === 0 ? {} : { note: hints.join(' · ') }),
+      border: 'accent',
+    }, theme)
+    return { lines: editor.lines, cursor: editor.cursor, cursorVisible: true }
+  }
   const editor = renderEditor({
     width,
     input: displayInput,

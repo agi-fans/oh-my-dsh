@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-plugin-manager'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TuiAdvisor, TuiSubagentActivity } from '../definition.ts'
 import { registerCommands } from './registration.ts'
+import { askPrompt } from '../prompt-intents.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap { 'omdsh-advisor': { kind: 'omdsh-advisor' } & ContextFormed }
@@ -66,7 +67,11 @@ export async function requestAdvice(ctx: Context, invocation: CommandInvocation,
     if (raw !== '' && providerOnlyMatch === null) {
       question = raw
     } else {
-      const input = await ctx.tui.prompt({ title: 'Advisor', question: 'Question', allowCustom: true, notify: false, signal })
+      const input = await ctx.tui.prompt(askPrompt({
+        title: 'Advisor',
+        question: 'What should the advisor answer?',
+        signal,
+      }))
       if (input === null || input.trim() === '' || signal.aborted) return { kind: 'success' }
       question = input.trim()
     }
