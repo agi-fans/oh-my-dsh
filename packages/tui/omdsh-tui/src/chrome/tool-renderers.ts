@@ -251,6 +251,63 @@ function presentFallback(name: string, raw: string, output: string): PartialTool
   }
 }
 
+/**
+ * Cost of a call's own arguments, in cells, before the collapsed preview stops.
+ *
+ * The preview sits on the title line beside the tool label, so a long JSON
+ * argument list would push the label out of the row. pi uses the same budget
+ * (`COLLAPSED_ARGS_CHARS`); the value is a reading width, not a data limit.
+ */
+const MCP_ARGS_PREVIEW_CELLS = 100
+
+/**
+ * Split a bridged MCP tool name into its server and raw tool names.
+ *
+ * `@deepseek-ai/dsh-mcp-client` names every bridged tool `mcp__<server>__<raw>`
+ * (index.js:97). A name that does not carry both parts is not a bridged tool.
+ */
+function mcpToolLabel(name: string): { server: string; tool: string } | undefined {
+  const match = /^mcp__(.+?)__(.+)$/u.exec(name)
+  if (match === null) return undefined
+  return { server: match[1]!, tool: match[2]! }
+}
+
+/**
+ * Presentation for a bridged MCP tool.
+ *
+ * MCP tools carry no `presentCall`, so a card for one used to read
+ * `mcp__github__create_issue` above the raw argument JSON, one line per brace. That
+ * is a degraded card for a tool the reader did use, and it is what a resumed or
+ * replayed session shows whenever the server has not connected yet — the tool
+ * definition is absent then, so no presentation exists to ask for.
+ *
+ * The bridge itself supplies only a name, a schema, and a text result, so this is
+ * deliberately a generic presentation: `server/tool` as the title, the arguments
+ * as one `key=value` line, and the result text as the output. It does not try to
+ * understand what a particular MCP tool means — a tool that wants a richer card
+ * ships its own `presentCall`, which still wins because this runs only when no
+ * presentation exists.
+ */
+function mcpFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
+  const label = mcpToolLabel(name)
+  if (label === undefined) return undefined
+  const args = parsedObject(raw)
+  const pairs = args === undefined
+    ? []
+    : Object.entries(args).map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value) ?? String(value)}`)
+  const preview = pairs.join(' ')
+  const line = preview.length > MCP_ARGS_PREVIEW_CELLS
+    ? `${preview.slice(0, MCP_ARGS_PREVIEW_CELLS - 3)}...`
+    : preview
+  return {
+    title: `${label.server}/${label.tool}`,
+    // The arguments live on the summary line, so no `lines` are produced: the
+    // raw-JSON fallback would print the same values again, one brace per row.
+    ...(line === '' ? {} : { summary: line }),
+    ...(output.trim() === '' ? {} : { outputPreview: 'head' as const }),
+  }
+}
+
 /** Presentation for Harness delegation tools that do not ship presentCall. */
 function subagentFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
   const args = parsedObject(raw) ?? {}
@@ -436,6 +493,7 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   const fallback = input.presentation === undefined
     ? presentFallback(input.name, input.arguments, input.output)
       ?? subagentFallback(input.name, input.arguments, input.output)
+      ?? mcpFallback(input.name, input.arguments, input.output)
     : undefined
   const call = callPresentation(input.presentation?.call, input.name)
   const result = resultPresentation(input.presentation?.result)
@@ -446,8 +504,17 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   // A streamed prefix has no card yet, so a decoded preview replaces the raw
   // JSON fragment. Predicates such as `present` still own their richer fallback.
   const partialLines = input.partial === true ? partialArgumentLines(input.arguments) : undefined
+  /**
+   * A fallback that already put the arguments on its summary line has decided how
+   * the call reads. Printing the raw JSON underneath would say the same thing
+   * again in a worse shape — which is exactly what an MCP card did before it had
+   * a fallback, one brace per row.
+   */
+  const fallbackCarriesArgs = fallback?.lines === undefined && fallback?.summary !== undefined
   const callLines = call.lines
-    ?? (semanticCall ? [] : fallback?.lines ?? partialLines ?? fallbackArgumentLines(input.arguments))
+    ?? (semanticCall || fallbackCarriesArgs
+      ? []
+      : fallback?.lines ?? partialLines ?? fallbackArgumentLines(input.arguments))
   const outputLines = result.lines ?? (
     fallback?.hideOutput === true || input.output === '' ? [] : input.output.split('\n')
   )

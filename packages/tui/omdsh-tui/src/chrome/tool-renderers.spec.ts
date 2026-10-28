@@ -266,3 +266,58 @@ describe('renderTool partial arguments', () => {
     })).toMatchObject({ title: 'Read src/a.ts', input: [] })
   })
 })
+
+describe('renderTool MCP fallback', () => {
+  /**
+   * A bridged MCP tool ships no `presentCall`, and on a resumed session the tool
+   * definition is not even present — the server has not connected yet. The card
+   * used to read `mcp__github__create_issue` above the raw argument JSON, one
+   * brace per row. Presentation must not depend on the tool being live, so the
+   * name alone has to be enough to render something readable.
+   */
+  const call = {
+    name: 'mcp__github__create_issue',
+    arguments: JSON.stringify({ owner: 'agi-fans', repo: 'oh-my-dsh', title: 'Fix the parser' }),
+    output: '{"number":42}',
+    partial: false,
+  }
+
+  it('names the server and the tool instead of the bridged identifier', () => {
+    const card = renderTool(call)
+    expect(card.title).toBe('github/create_issue')
+    expect(card.title).not.toContain('mcp__')
+  })
+
+  it('puts the arguments on one line rather than expanding raw JSON', () => {
+    const card = renderTool(call)
+    expect(card.summary).toBe('owner=agi-fans repo=oh-my-dsh title=Fix the parser')
+    // No `lines` means no brace-per-row dump: the summary already carries them.
+    expect(card.input).toEqual([])
+    expect(card.output).toEqual(['{"number":42}'])
+  })
+
+  it('cuts a long argument list so the label keeps the row', () => {
+    const card = renderTool({
+      ...call,
+      arguments: JSON.stringify({ body: 'x'.repeat(400) }),
+    })
+    const summary = card.summary ?? ''
+    expect(summary.length).toBeLessThanOrEqual(100)
+    expect(summary.endsWith('...')).toBe(true)
+  })
+
+  it('leaves a non-bridged name to the generic fallback', () => {
+    // Only the `mcp__<server>__<tool>` shape belongs to the bridge.
+    const card = renderTool({ ...call, name: 'mcp__broken' })
+    expect(card.title).toBe('mcp__broken')
+  })
+
+  it('yields to a tool that ships its own presentation', () => {
+    // A richer card from the owning plugin always wins; this is only a fallback.
+    const card = renderTool({
+      ...call,
+      presentation: { call: { card: 'generic', title: 'Create issue', kind: 'write' } },
+    })
+    expect(card.title).toBe('Create issue')
+  })
+})
