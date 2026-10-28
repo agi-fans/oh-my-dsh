@@ -8,6 +8,7 @@ import type {} from '../runtime/btw.ts'
 import { registerCommands } from './registration.ts'
 import { cancellable } from '../runtime/cancellable.ts'
 import { formatTokens } from '../chrome/status-line.ts'
+import { askPrompt, choosePrompt } from '../prompt-intents.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap { 'omdsh-btw': { kind: 'omdsh-btw' } & ContextFormed }
@@ -36,6 +37,7 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
           lastQuestion = topics.find(topic => topic.sessionId === topicId)?.question ?? ''
           detail = await ctx.omdshBtw.read(parent, topicId, invocation.signal)
           lastReplyText = detail
+          ctx.tui.commandOutput('btw', `${lastQuestion}\n\n${detail}`, { focus: true })
         } else {
           const answer = await ctx.tui.prompt({ title: 'Side question', question: 'What would you like to ask?',
             detail: 'Uses a committed conversation snapshot and the current model. No tools; billed separately.', allowCustom: true, notify: false, signal: invocation.signal, onSuperseded: () => {} })
@@ -45,13 +47,24 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
       }
       if (question !== '') {
         lastQuestion = question
-        detail = 'Answering from the captured conversation. No tools; output stays outside the main context.'
+        /**
+         * The answer is a transcript block, not a document that takes the screen.
+         *
+         * A side question is read *beside* the conversation it was asked from —
+         * that is the whole point of asking it here rather than in the main turn.
+         * Opening a full-screen reader for the wait and then a second one for the
+         * answer moved the reader out of the interface they were using, twice, for
+         * something that is not a different place but another row.
+         *
+         * The wait is the compact progress card the composer already shows for
+         * long operations; the answer lands above the composer as a command
+         * block, whose first line is the question.
+         */
         const outcome = await cancellable(ctx.tui, {
           title: 'Side question',
           question,
-          detail,
-          presentation: 'document',
-          document: () => detail,
+          detail: 'Answering from the captured conversation. No tools; output stays outside the main context.',
+          presentation: 'progress',
           surface: ctx.tui.interactive === true,
         }, invocation.signal, signal => ctx.omdshBtw.consult(
           parent, question, ctx.omdshSession.selection(parent), signal,
@@ -66,9 +79,12 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
         detail = `${reply.text}${reply.error === undefined ? '' : '\n\n' + reply.error}`
           + `\n\n${reply.topic.status} · ${reply.usage === undefined ? 'Usage unavailable' : formatTokens(reply.usage.totalTokens) + ' tokens'} · Separate session: ${topicId}`
         if (ctx.tui.interactive !== true) return { kind: reply.error === undefined ? 'success' : 'error', text: detail }
+        ctx.tui.commandOutput('btw', `${lastQuestion}\n\n${detail}`, { focus: true })
         question = ''
       }
-      const action = await ctx.tui.prompt({ title: 'Side question', question: 'Independent answer', detail, presentation: 'document',
+      const action = await ctx.tui.prompt(choosePrompt({
+        title: 'Side question',
+        question: lastQuestion === '' ? 'What next?' : lastQuestion,
         options: [
           { label: 'Follow-up', value: 'followup' },
           { label: 'Share to conversation', value: 'share' },
@@ -76,7 +92,8 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
           { label: 'Topics', value: 'topics' },
           { label: 'Back to conversation', value: 'back' },
         ],
-        allowCustom: false, notify: false, signal: invocation.signal, onSuperseded: () => {} })
+        signal: invocation.signal,
+      }))
       if (action === null || action === 'back') return { kind: 'success' }
       if (action === 'share') {
         const body = (lastReplyText || detail).trim()
@@ -105,8 +122,11 @@ export async function sideQuestion(ctx: Context, invocation: CommandInvocation):
         return { kind: 'success' }
       }
       if (action === 'topics') { topicId = undefined; continue }
-      const answer = await ctx.tui.prompt({ title: 'Follow-up side question', question: 'Continue this topic’s fixed snapshot', allowCustom: true,
-        notify: false, signal: invocation.signal, onSuperseded: () => {} })
+      const answer = await ctx.tui.prompt(askPrompt({
+        title: 'Follow-up',
+        question: 'Continue this topic’s fixed snapshot',
+        signal: invocation.signal,
+      }))
       if (answer === null) return { kind: 'success' }
       question = answer
     }

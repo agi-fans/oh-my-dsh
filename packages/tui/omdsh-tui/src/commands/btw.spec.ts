@@ -11,25 +11,28 @@ function harness(question = 'Side question') {
     update('Independent answer')
     return { topic: { sessionId: 'side', status: 'completed' }, text: 'Independent answer', usage: { totalTokens: 12 } }
   })
-  const ctx = { tui: { interactive: true, prompt }, omdshSession: { assertActive: vi.fn(), selection: () => ({ provider: 'p', model: 'm' }) },
+  const commandOutput = vi.fn()
+  const ctx = { tui: { interactive: true, prompt, commandOutput }, omdshSession: { assertActive: vi.fn(), selection: () => ({ provider: 'p', model: 'm' }) },
     omdshBtw: { consult, list: vi.fn(() => []), read: vi.fn(async () => 'Saved question and answer') } } as unknown as Context
-  return { ctx, parent, prompt, consult, invocation: { agent: parent, rawInput: question, signal: new AbortController().signal } as unknown as CommandInvocation }
+  return { ctx, parent, prompt, consult, commandOutput, invocation: { agent: parent, rawInput: question, signal: new AbortController().signal } as unknown as CommandInvocation }
 }
 
 describe('side-question reader', () => {
-  it('streams advice separately, cancels the progress reader on completion and returns to the parent', async () => {
+  it('answers inline instead of opening a document, and keeps the reader in the conversation', async () => {
     const h = harness()
-    let document: string | undefined
     h.prompt.mockImplementationOnce(async request => new Promise(resolve => {
-      document = request.refreshDocument!()
+      // The wait is the compact progress card, not a full-screen reader.
+      expect(request.presentation).toBe('progress')
+      expect(request.refreshDocument).toBeUndefined()
       request.signal!.addEventListener('abort', () => resolve(null), { once: true })
-    })).mockImplementationOnce(async request => {
-      expect(request.detail).toContain('Independent answer')
-      expect(request.detail).toContain('12 tokens')
-      return 'back'
-    })
+    })).mockResolvedValueOnce('back')
     expect(await sideQuestion(h.ctx, h.invocation)).toEqual({ kind: 'success' })
-    expect(document).toContain('outside the main context')
+    // The answer lands as a transcript block whose title is the question asked.
+    expect(h.commandOutput).toHaveBeenCalledWith('btw',
+      expect.stringContaining('Side question'), { focus: true })
+    const [, body] = h.commandOutput.mock.calls[0]!
+    expect(body).toContain('Independent answer')
+    expect(body).toContain('12 tokens')
     expect(h.consult).toHaveBeenCalledWith(h.parent, 'Side question', { provider: 'p', model: 'm' }, expect.any(AbortSignal), expect.any(Function), undefined)
   })
   it.each(['interrupt', 'superseded'])('cancels only its own request when %s', async kind => {
@@ -49,6 +52,8 @@ describe('side-question reader', () => {
     expect(h.prompt).toHaveBeenCalledOnce()
     expect(signal!.aborted).toBe(true)
     expect(h.invocation.signal.aborted).toBe(false)
+    // Nothing was answered, so nothing was written into the transcript.
+    expect(h.commandOutput).not.toHaveBeenCalled()
   })
   it('continues a saved topic without replacing the active session', async () => {
     const h = harness('')
@@ -62,8 +67,8 @@ describe('side-question reader', () => {
   })
   it('supports sharing the side answer to the main conversation or quoting it in the composer', async () => {
     const shared = harness('Why did the build fail?')
-    const commandOutput = vi.fn(), notice = vi.fn(), inject = vi.fn(), insertText = vi.fn()
-    Object.assign(shared.ctx.tui, { commandOutput, notice, insertText })
+    const notice = vi.fn(), inject = vi.fn(), insertText = vi.fn()
+    Object.assign(shared.ctx.tui, { notice, insertText })
     Object.assign(shared.parent, { inject })
     shared.prompt
       .mockImplementationOnce(async request => new Promise(resolve => { request.signal!.addEventListener('abort', () => resolve(null), { once: true }) }))
@@ -73,7 +78,8 @@ describe('side-question reader', () => {
     expect(inject).toHaveBeenCalledWith(expect.objectContaining({
       source: expect.objectContaining({ kind: 'omdsh-btw', form: 'notice' }),
     }))
-    expect(commandOutput).not.toHaveBeenCalled()
+    // The inline block is not durable, so sharing is still what outlives a resume.
+    expect(shared.commandOutput).toHaveBeenCalledTimes(1)
 
     const quoted = harness('Summarize the API')
     Object.assign(quoted.ctx.tui, { insertText, notice })
