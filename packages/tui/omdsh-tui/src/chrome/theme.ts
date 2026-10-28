@@ -133,21 +133,35 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   toolDiffAdded: '#89d281',
   toolDiffRemoved: '#ff8a8a',
   toolDiffContext: '#a8aeb8',
-  mdHeading: '#7c93ff',
-  mdLink: '#7c93ff',
-  mdLinkUrl: '#7186bd',
-  mdCode: '#8a9099',
-  mdCodeBlock: '#9cdcfe',
+  // Content inks share one lightness and differ only in hue, the way pi's dark
+  // palette does. Two rules follow from that and neither held before:
+  //
+  // - A hue names a role, so no single hue may carry several. `mdHeading`,
+  //   `mdLink` and `mdListBullet` were all the accent blue, which made every
+  //   document look like one long link.
+  // - Nothing that is prose may be achromatic. Inline code was `#8a9099`
+  //   (chroma 0.015) and a prose-shaped codespan was `muted` — two greys the
+  //   reader cannot tell apart, for the one role that has to read as "this is
+  //   code".
+  //
+  // The syntax set used to be VSCode Dark+ values, which are drawn for a #1e1e1e
+  // editor and span 29 points of lightness here. These sit at 78% with chroma
+  // under 0.12, so a highlighted block varies in hue and not in weight.
+  mdHeading: '#ceb75b',
+  mdLink: '#83bdf8',
+  mdLinkUrl: '#7e95ad',
+  mdCode: '#d3a1ea',
+  mdCodeBlock: '#82cb9b',
   mdCodeBlockBorder: '#3d424a',
-  mdKeyword: '#569cd6',
-  syntaxString: '#ce9178',
-  syntaxNumber: '#b5cea8',
-  syntaxFunction: '#dcdcaa',
-  syntaxType: '#4ec9b0',
+  mdKeyword: '#83bdf8',
+  syntaxString: '#e7a875',
+  syntaxNumber: '#82cb9b',
+  syntaxFunction: '#cdb760',
+  syntaxType: '#d1a3e6',
   mdQuote: '#777d88',
   mdQuoteBorder: '#3d424a',
   mdHr: '#3d424a',
-  mdListBullet: '#7c93ff',
+  mdListBullet: '#a595c4',
   // The composer's border while a `!` line is being typed. Green because that
   // is the one signal that says "this leaves the model and runs on your machine".
   shellMode: '#89d281',
@@ -179,21 +193,24 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   toolDiffAdded: '#4a6f4a',
   toolDiffRemoved: '#93403f',
   toolDiffContext: '#666666',
-  mdHeading: '#3b57e0',
-  mdLink: '#3b57e0',
-  mdLinkUrl: '#5b6f9e',
-  mdCode: '#567b7b',
-  mdCodeBlock: '#567b7b',
+  // The same hue-per-role map as the dark palette, darkened for paper. Both
+  // palettes have to name a role with a hue, or switching themes would teach a
+  // reader a second visual language.
+  mdHeading: '#6d5900',
+  mdLink: '#1c62b3',
+  mdLinkUrl: '#465f7f',
+  mdCode: '#804797',
+  mdCodeBlock: '#247448',
   mdCodeBlockBorder: '#6c6c6c',
-  mdKeyword: '#0451a5',
-  syntaxString: '#a31515',
-  syntaxNumber: '#098558',
-  syntaxFunction: '#795e26',
-  syntaxType: '#267e97',
+  mdKeyword: '#1d5da7',
+  syntaxString: '#a24e10',
+  syntaxNumber: '#247448',
+  syntaxFunction: '#6d5900',
+  syntaxType: '#7e4a93',
   mdQuote: '#6c6c6c',
   mdQuoteBorder: '#b8b8b8',
   mdHr: '#b8b8b8',
-  mdListBullet: '#3b57e0',
+  mdListBullet: '#66508b',
   shellMode: '#2f8f4e',
   thinkingText: '#6c6c6c',
   customMessageLabel: '#7e57c2',

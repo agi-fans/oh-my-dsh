@@ -189,11 +189,6 @@ function clampNesting(source: string): string {
   return restore(restore(bounded))
 }
 
-function isProseCodespan(text: string): boolean {
-  const words = text.trim().split(/\s+/u).filter(Boolean)
-  return words.length >= 4 || (words.length >= 2 && /[,;]/.test(text))
-}
-
 function renderMath(token: MathToken, theme: Theme, style?: MarkdownStyle, width?: number): string[] {
   const rows = token.pending === true || style?.mathMode === 'source' ? undefined : mathLayout(token.text, token.display === true && width !== undefined, width)
   return (rows ?? token.raw.trimEnd().split('\n')).map(row => paintFg(theme, ink(style, 'mdCode'), row, style))
@@ -284,7 +279,12 @@ function renderInlineTokens(
         out += paintStrike(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
         break
       case 'codespan':
-        out += paintFg(theme, ink(style, isProseCodespan(token.text) ? 'muted' : 'mdCode'), token.text, style)
+        // Every codespan is one thing — "this is code" — so it gets one ink. The
+        // two-word threshold used to send a quoted phrase to `muted`, which made
+        // inline code grey in one length and violet in another for no reading
+        // benefit; a phrase long enough to be quietened is quietened by the prose
+        // around it, not by losing its identity.
+        out += paintFg(theme, ink(style, 'mdCode'), token.text, style)
         break
       case 'link':
         out += paintLink(renderInlineTokens(token.tokens, theme, style, depth + 1) || token.text, token.href, theme, style) + openBase(theme, style)

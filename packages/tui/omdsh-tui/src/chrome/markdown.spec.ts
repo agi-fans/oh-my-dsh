@@ -24,7 +24,7 @@ describe('renderInline', () => {
     const painted = renderInline('[docs](https://example.com)', color)
     expect(painted).toContain('\x1b]8;;https://example.com\x07')
     expect(painted).toContain('\x1b[4m')
-    expect(painted).toContain('\x1b[38;2;124;147;255m')
+    expect(painted).toContain(color.getFgAnsi('mdLink'))
   })
 })
 
@@ -292,13 +292,15 @@ describe('renderMarkdown', () => {
     expect(painted).not.toContain(color.getFgAnsi('accent') + 'const')
   })
 
-  it('paints command codespans but not long backtick prose', () => {
+  it('paints every codespan as code, whatever its shape', () => {
+    // Inline code answers one question — "is this code" — so it has one ink. The
+    // two-word threshold used to send a phrase to `muted`, which made inline code
+    // grey in one length and violet in another with no reading benefit.
     const painted = renderMarkdown('use `git commit -F` then `pwd, and drop a summary that` done', color, 80).join('\n')
     const code = color.getFgAnsi('mdCode')
-    expect(painted).toContain(code)
+    expect(painted.split(code).length - 1).toBe(2)
     expect(painted).toContain('pwd, and drop a summary that')
-    const after = painted.slice(painted.indexOf('pwd, and drop a summary that') - 20)
-    expect(after).not.toContain(code + 'pwd')
+    expect(painted).not.toContain(color.getFgAnsi('muted') + 'pwd')
   })
 })
 

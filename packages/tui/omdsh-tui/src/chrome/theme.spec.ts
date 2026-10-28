@@ -49,7 +49,9 @@ describe('createTheme', () => {
   it('emits 24-bit SGR for hex colors', () => {
     const theme = createTheme(true, true)
     expect(theme.getFgAnsi('accent')).toBe('\x1b[38;2;124;147;255m')
-    expect(theme.getFgAnsi('mdLink')).toBe('\x1b[38;2;124;147;255m')
+    // A hue names a role, so the link no longer borrows the accent: `accent` is
+    // chrome (borders, badges) and `mdLink` is prose.
+    expect(theme.getFgAnsi('mdLink')).not.toBe(theme.getFgAnsi('accent'))
     expect(theme.underline('x')).toBe('\x1b[4mx\x1b[24m')
     expect(theme.strikethrough('x')).toBe('\x1b[9mx\x1b[29m')
     expect(theme.inverse('x')).toBe('\x1b[7mx\x1b[27m')
