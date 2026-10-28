@@ -655,3 +655,34 @@ describe('spare rows above the document', () => {
     expect(stripAnsi(frame.lines[0] ?? '')).not.toBe('')
   })
 })
+
+describe('the side-question pane', () => {
+  const panel = { question: 'why did the build fail?', text: 'The lockfile changed.', status: 'done' as const, scroll: 0 }
+  const blocks = [
+    { kind: 'user', text: 'map the project' },
+    { kind: 'assistant', turn: 1, step: 1, text: 'answer', reasoning: '' },
+  ] as TranscriptState['blocks']
+
+  it('docks above the composer and leaves the transcript alone', () => {
+    // The exchange belongs to a conversation that is not this one, so it must not
+    // become a transcript row the reader resumes back into.
+    const state = { ...initialTranscript(), blocks, turn: 1, status: 'idle' as const }
+    const plain = renderView(state, { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false })
+    const withPane = renderView(state, { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false, aside: panel })
+    const rows = withPane.lines.map(stripAnsi)
+    const text = rows.join('\n')
+    expect(text).toContain('/btw why did the build fail?')
+    expect(text).toContain('The lockfile changed.')
+    // The pane sits directly above the composer, and the transcript rows above it
+    // are the same rows the plain frame painted.
+    const composer = rows.findIndex(row => row.includes('🐳'))
+    expect(rows.slice(0, composer).join('\n')).toContain('The lockfile changed.')
+    expect(plain.lines.map(stripAnsi).slice(0, 9)).toEqual(rows.slice(0, 9))
+  })
+
+  it('says how to leave', () => {
+    const frame = renderView({ ...initialTranscript(), blocks, turn: 1, status: 'idle' as const },
+      { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false, aside: panel })
+    expect(frame.lines.map(stripAnsi).join('\n')).toContain('esc close')
+  })
+})

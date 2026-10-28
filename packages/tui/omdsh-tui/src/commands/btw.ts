@@ -7,7 +7,6 @@ import type {} from '../runtime/session-runtime.ts'
 import type {} from '../runtime/btw.ts'
 import { registerCommands } from './registration.ts'
 import { formatTokens } from '../chrome/status-line.ts'
-import { askPrompt } from '../prompt-intents.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap { 'omdsh-btw': { kind: 'omdsh-btw' } & ContextFormed }
@@ -31,20 +30,10 @@ export const inject = ['commands', 'tui', 'omdshSession', 'omdshBtw']
 export async function sideQuestion(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const parent = invocation.agent
   ctx.omdshSession.assertActive(parent)
-  let question = invocation.rawInput.trim()
-  if (question === '') {
-    // Nothing typed after the command: the composer collects it, because that is
-    // where the reader already is.
-    if (ctx.tui.interactive !== true) return { kind: 'error', text: 'Usage: /btw <question>' }
-    const answer = await ctx.tui.prompt(askPrompt({
-      title: 'Side question',
-      question: 'What would you like to ask?',
-      detail: 'Uses a committed conversation snapshot and the current model. No tools; billed separately.',
-      signal: invocation.signal,
-    }))
-    if (answer === null || answer.trim() === '' || invocation.signal.aborted) return { kind: 'success' }
-    question = answer.trim()
-  }
+  const question = invocation.rawInput.trim()
+  // Nothing to ask yet, so say how: a prompt here would be a second way to ask
+  // the same command, and the reader would have to learn both.
+  if (question === '') return { kind: 'error', text: 'Usage: /btw <your question>' }
   const consult = (onUpdate: (text: string) => void, signal: AbortSignal) => ctx.omdshBtw.consult(
     parent, question, ctx.omdshSession.selection(parent), signal, onUpdate,
   ).then(reply => {

@@ -153,6 +153,7 @@ import {
   applyEvent,
   applyStreamChunk,
   renderedBlocks,
+  type AsidePanel,
   initialTranscript,
   replayEvents,
   renderView,
@@ -602,6 +603,8 @@ export class LocalTui implements TuiService {
   #jumpPress: { row: number; column: number; width: number } | undefined
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
+  /** Side-conversation pane; owned here so Esc can close it from any state. */
+  #aside: AsidePanel | undefined
   /** Thoughts a reader opened individually, addressed by reasoning identity. */
   #expandedReasoning = new Set<string>()
   /**
@@ -1180,27 +1183,29 @@ export class LocalTui implements TuiService {
    * the same way, because a chatty stream would otherwise spend the turn in the
    * renderer.
    */
+  /**
+   * A side question, streamed into its own pane above the composer.
+   *
+   * Not a transcript block: the exchange belongs to a conversation that is not
+   * this one, and a transcript row is a permanent part of the session the reader
+   * would resume back into. The pane is docked, `Esc` closes it, and the session
+   * looks exactly as it did. Coalesced the same way a Shell card is, because a
+   * chatty stream would otherwise spend the turn in the renderer.
+   */
   async asideQuestion(request: {
     question: string
     run: (onUpdate: (text: string) => void, signal: AbortSignal) => Promise<{ text: string; detail?: string; failed?: boolean }>
     signal: AbortSignal
   }): Promise<void> {
-    const block = { kind: 'aside' as const, question: request.question, text: '', status: 'running' as const }
-    this.#state = { ...this.#state, blocks: [...this.#state.blocks, block] }
-    this.#followTail()
-    if (this.#tty) this.#render()
-    else this.#plain.print()
-    const update = (change: Partial<Extract<Block, { kind: 'aside' }>>): void => {
-      const at = this.#state.blocks.findLastIndex(entry => entry.kind === 'aside' && entry.question === request.question)
-      if (at < 0) return
-      const next = this.#state.blocks.slice()
-      next[at] = { ...(next[at] as Extract<Block, { kind: 'aside' }>), ...change }
-      this.#state = { ...this.#state, blocks: next }
-    }
+    this.#aside = { question: request.question, text: '', status: 'running', scroll: 0 }
+    this.#render()
     let lastPaint = 0
     let pending = ''
     let pendingPaint: ReturnType<typeof setTimeout> | undefined
     const paint = (): void => { if (this.#tty && !this.#disposed) this.#render() }
+    const show = (change: Partial<AsidePanel>): void => {
+      if (this.#aside !== undefined) this.#aside = { ...this.#aside, ...change }
+    }
     const stream = (text: string): void => {
       pending = text
       const now = Date.now()
@@ -1210,22 +1215,21 @@ export class LocalTui implements TuiService {
         return
       }
       lastPaint = now
-      update({ text: pending })
+      show({ text: pending })
       paint()
     }
     try {
       const result = await request.run(stream, request.signal)
-      update({
+      show({
         text: result.text,
         status: result.failed === true ? 'error' : 'done',
         ...(result.detail === undefined ? {} : { detail: result.detail }),
       })
     } catch (error) {
-      update({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
+      show({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
     } finally {
       if (pendingPaint !== undefined) clearTimeout(pendingPaint)
       paint()
-      if (this.#tty) this.#render()
     }
   }
 
@@ -2010,6 +2014,7 @@ export class LocalTui implements TuiService {
         subagentLauncherFocused: this.#subagentLauncherFocused,
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
         ...(this.#trajectory === null ? {} : { trajectory: this.#trajectory }),
+        ...(this.#aside === undefined ? {} : { aside: this.#aside }),
         ...(this.#agentHub === null ? {} : { agentHub: this.#agentHub }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
@@ -2535,6 +2540,24 @@ export class LocalTui implements TuiService {
       this.#inspectEscapeFenceUntil = 0
     }
     if (this.#handlePrompt(event)) return
+    /**
+     * The side pane is read, not typed into: the composer stays where it is.
+     * Only leaving and scrolling belong to it, so every other key is the
+     * composer's as usual — the reader can keep working while the answer streams.
+     */
+    if (this.#aside !== undefined && event.type === 'key' && (event.id === 'escape' || event.id === 'ctrl+c')) {
+      this.#aside = undefined
+      this.#render()
+      return
+    }
+    if (this.#aside !== undefined && event.type === 'key'
+      && (event.id === 'up' || event.id === 'down' || event.id === 'pageup' || event.id === 'pagedown')) {
+      const step = event.id === 'pageup' || event.id === 'pagedown' ? 6 : 1
+      const delta = event.id === 'up' || event.id === 'pageup' ? -step : step
+      this.#aside = { ...this.#aside, scroll: Math.max(0, this.#aside.scroll + delta) }
+      this.#render()
+      return
+    }
     if (this.#trajectory !== null) {
       const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height())
       const { pageLines } = trajectoryDetailMetrics(this.#trajectory, this.#term.height())

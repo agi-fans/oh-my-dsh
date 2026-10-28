@@ -51,7 +51,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/queue` | Review, edit, delete, and reorder pending human messages. |
 | `/steer <message>` | Guide the active turn before its next model step. |
-| `/btw [question]` | Ask a separate question from the current committed conversation snapshot. Without a question, the composer asks for one. |
+| `/btw <question>` | Ask a separate question from the current committed conversation snapshot, answered in a pane above the composer. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
@@ -63,7 +63,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 `/btw` uses the current model and reasoning selection in a separate, durable session. The question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
 
-The answer streams into its own tinted block in the transcript while the consultation runs, with the question as its first line; Esc or Ctrl+C interrupts only the consultation, and parent approvals take priority. Nothing takes the screen, no card is shown while waiting, and no menu follows the answer. The advice is not sent to the primary model: quote it into the composer with `Alt+C` or your usual copy path if you want the conversation to continue from it. Model requests, including the copied input context, incur separate charges; the displayed usage covers only this consultation’s latest request attempts, not inherited history. The consultation’s own session log is stored under `OMDSH_HOME`.
+The answer streams into a pane docked above the composer while the consultation runs. The pane is not part of the conversation: it belongs to the side session, so nothing about it is written into the transcript, and `Esc` closes it and returns the composer exactly as it was. `↑`/`↓` scroll it. Ctrl+C interrupts only the consultation, and parent approvals take priority. The advice is not sent to the primary model: quote it into the composer with `Alt+C` or your usual copy path if you want the conversation to continue from it. Model requests, including the copied input context, incur separate charges; the displayed usage covers only this consultation’s latest request attempts, not inherited history. The consultation’s own session log is stored under `OMDSH_HOME`.
 
 ## Observability
 

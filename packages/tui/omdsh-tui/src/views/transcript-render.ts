@@ -62,6 +62,7 @@ import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-color
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { formatElapsed } from '../chrome/relative-time.ts'
+import { formatOverlayHint } from './hotkey-format.ts'
 import {
   blockMatchesQuery, matchedRows, searchMatches, transcriptSearchHint,
   type SearchableBlock, type TranscriptSearchMatch,
@@ -190,6 +191,8 @@ export interface ViewOptions {
    * reader sees, so the painted span and the reported count cannot disagree.
    */
   transcriptSearch?: { query: string; focus: number; editing: boolean }
+  /** Side-conversation pane docked above the composer. */
+  aside?: AsidePanel
   /** Legacy full-output override for direct callers and the tool catalog. */
   toolsExpanded?: boolean
   /** Tool calls whose complete inputs and results are visible. */
@@ -882,11 +885,6 @@ export function blockLines(
   if (block.kind === 'toolCatalog') return renderToolsPanel(block.tools, theme, width, toolsExpanded)
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width, block.surface)
-  if (block.kind === 'aside') {
-    const body = block.text === '' ? (block.status === 'running' ? '…' : '') : block.text
-    const text = [block.question, '', ...(body === '' ? [] : [body]), ...(block.detail === undefined ? [] : ['', block.detail])].join('\n')
-    return renderCommandOutput('btw', text, theme, width, 'aside')
-  }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]
@@ -2017,6 +2015,47 @@ function todoPreviewStart(todos: readonly TodoItem[]): number {
   return pending >= 0 ? pending : Math.max(0, todos.length - TODO_PREVIEW)
 }
 
+/** A side question's own pane, docked above the composer. */
+export interface AsidePanel {
+  question: string
+  text: string
+  status: 'running' | 'done' | 'error'
+  detail?: string
+  /** First wrapped row shown, so a long answer can be read back. */
+  scroll: number
+}
+
+/** How many rows the pane may take before it starts scrolling. */
+const ASIDE_MAX_ROWS = 12
+
+/**
+ * The side-conversation pane: a rule, the question, the answer, and how to leave.
+ *
+ * A pane rather than a transcript block because the exchange belongs to a
+ * conversation that is not this one. Writing it into the transcript made it a
+ * permanent row of the session the reader would resume back into; docked above
+ * the composer, Esc closes it and the session looks exactly as it did.
+ */
+export function renderAside(panel: AsidePanel, theme: Theme, width: number, available = ASIDE_MAX_ROWS): string[] {
+  if (width <= 0) return []
+  const rule = theme.fg('border', '─'.repeat(width))
+  const head = ' ' + theme.bold(theme.fg('accent', '/btw')) + ' ' + theme.fg('text', panel.question)
+  const body = panel.text === ''
+    ? [theme.fg('dim', panel.status === 'running' ? '  …' : '  No answer.')]
+    : renderMarkdown(panel.text, theme, Math.max(1, width - 2)).map(line => '  ' + line)
+  const detail = panel.detail === undefined || panel.detail === ''
+    ? []
+    : ['', '  ' + theme.fg('dim', panel.detail)]
+  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: 'Esc', action: 'close' }]))
+  const rows = [truncateToWidth(head, width), '', ...body, ...detail]
+  // The answer can be longer than the pane; keep the head fixed and window the rest.
+  const room = Math.max(1, Math.min(ASIDE_MAX_ROWS, available) - 3)
+  const scrollable = rows.length > 2
+  const start = scrollable ? Math.max(0, Math.min(panel.scroll, rows.length - 2 - room)) : 0
+  const windowed = scrollable ? rows.slice(0, 2).concat(rows.slice(2 + start, 2 + start + room)) : rows
+  return [rule, ...windowed.map(line => truncateToWidth(line, width)), truncateToWidth(hint, width), rule]
+}
+
 /** Compact, unframed Todo tree placed above queued messages. */
 export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {
   if (todos.length === 0 || width <= 0) return []
@@ -2462,6 +2501,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ? []
     : renderTurnError(state.turnError, theme, width)
   const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
+  const aside = editor === undefined || options.inspected !== undefined || options.aside === undefined
+    ? []
+    : renderAside(options.aside, theme, width, Math.max(4, Math.floor(height / 2)))
   const goal = editor === undefined || options.inspected !== undefined || options.sessionControls?.goal === undefined
     ? []
     : renderGoalBar(options.sessionControls.goal, theme, width)
@@ -2514,7 +2556,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const jumpToLatest = showJump ? { row: lines.length, column: jumpColumn, width: visibleWidth(jumpText) } : undefined
   if (visible.length > 0) lines.push(showJump
     ? ' '.repeat(jumpColumn) + theme.inverse(jumpText) : '')
-  const bottomRows = working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
+  const bottomRows = aside.length + working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   /**
    * Spare rows sit between the header and the conversation while at the tail.
@@ -2535,6 +2577,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
    */
   const topPad = windowed === undefined && transcript.lines.length > 0 ? fill : 0
   if (topPad === 0) lines.push(...Array.from({ length: fill }, () => ''))
+  lines.push(...aside)
   lines.push(...working)
   lines.push(...goal)
   lines.push(...questions)

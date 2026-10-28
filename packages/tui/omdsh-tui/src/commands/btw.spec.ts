@@ -52,14 +52,14 @@ describe('side question', () => {
     expect(result.detail).toContain('Separate session: side')
   })
 
-  it('asks in the composer when no question was typed', async () => {
+  it('says how to ask when no question was typed, instead of opening a prompt', async () => {
+    // A prompt would be a second way to ask the same command; the reader would
+    // have to learn both, and the bare form would still need explaining.
     const h = harness('')
-    h.prompt.mockResolvedValueOnce('What changed?')
-    expect(await sideQuestion(h.ctx, h.invocation)).toEqual({ kind: 'success' })
-    expect(h.prompt).toHaveBeenCalledOnce()
-    expect(h.prompt.mock.calls[0]?.[0]).toMatchObject({ title: 'Side question', allowCustom: true })
-    // The block carries the collected question; running it is the block's job.
-    expect(h.asideQuestion.mock.calls[0]?.[0]).toMatchObject({ question: 'What changed?' })
+    const result = await sideQuestion(h.ctx, h.invocation)
+    expect(result).toMatchObject({ kind: 'error', text: 'Usage: /btw <your question>' })
+    expect(h.prompt).not.toHaveBeenCalled()
+    expect(h.asideQuestion).not.toHaveBeenCalled()
   })
 
   it('answers once, without a block, when there is no terminal to stream into', async () => {
