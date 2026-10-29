@@ -65,8 +65,9 @@ describe('permission command', () => {
     Object.assign(h.ctx.tui, { notice })
     const result = await h.ctx.commands.execute(h.agent, '/permission', [], new AbortController().signal)
     expect(result?.result).toEqual({ kind: 'success', text: 'No approval rules for this session or workspace.' })
-    expect(h.prompt.mock.calls[2]?.[0].documentSource.text).toContain('echo hello')
-    expect(h.prompt.mock.calls[2]?.[0].documentSource.text).toContain('Wider access')
+    // The rule reads as the card's detail; the choice stays on the card.
+    expect(h.prompt.mock.calls[2]?.[0].detail).toContain('echo hello')
+    expect(h.prompt.mock.calls[2]?.[0].detail).toContain('Wider access')
     expect(revoke).toHaveBeenCalledWith(h.agent, 'rule-1')
     expect(notice).toHaveBeenCalledWith('Approval rule revoked.')
     expect(h.switched).not.toHaveBeenCalled()

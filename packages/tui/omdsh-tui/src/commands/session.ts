@@ -119,7 +119,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         const result = await findSessions(ctx, { ...invocation, rawInput: query })
         if (result.kind === 'rows') { search = result; archivedView = false; selectedId = undefined; continue }
         if (result.text !== undefined) {
-          await ctx.tui.prompt({ title: 'Session search', question: '', presentation: 'document', documentSource: { text: result.text, language: 'text' }, options: [{ label: 'Back to library', value: 'back' }], allowCustom: false, notify: false, signal: invocation.signal })
+          ctx.tui.commandOutput('Session search', result.text)
           continue
         }
         continue

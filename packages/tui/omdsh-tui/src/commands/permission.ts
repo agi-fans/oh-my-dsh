@@ -92,7 +92,7 @@ async function manageRules(ctx: Context, invocation: CommandInvocation): Promise
     const rule = entries.find(entry => entry.id === id)
     if (rule === undefined) continue
     const selected = await ctx.tui.prompt({ title: 'Approval rule', question: `${rule.decision === 'allow' ? 'Allow' : 'Reject'} · ${rule.scope}`,
-      presentation: 'document', documentSource: { text: approvalActionDetail(rule), language: 'text' },
+      detail: approvalActionDetail(rule),
       options: [{ label: 'Back', value: 'back' }, { label: 'Revoke rule', value: 'revoke', description: 'Future matching requests require a new decision.' }],
       allowCustom: false, notify: false, signal: invocation.signal })
     if (selected === 'revoke') { invocation.signal.throwIfAborted(); rules.revoke(invocation.agent, id); ctx.tui.notice('Approval rule revoked.') }

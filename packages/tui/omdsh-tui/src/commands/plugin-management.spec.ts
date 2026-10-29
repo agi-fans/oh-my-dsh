@@ -129,10 +129,9 @@ describe('native plugin management', () => {
     try {
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
       expect(h.prompt.mock.calls[2]![0].detail).toContain('no executable from PATH')
-      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Codex · Status', presentation: 'document', notify: false })
-      expect(h.prompt.mock.calls[3]![0].documentSource?.text).toContain('Package: not installed')
-      expect(h.prompt.mock.calls[3]![0].documentSource?.text).toContain('authentication: not tested')
-      expect(h.commandOutput).not.toHaveBeenCalled()
+      // Status is a result, so it lands in the transcript rather than on a surface.
+      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('Package: not installed'))
+      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('authentication: not tested'))
       expect(h.manager.installBundle).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })

@@ -55,8 +55,9 @@ async function harness(options: HarnessOptions = {}) {
       : { sessionId: id, status: 'fulfilled' as const, value: { session: { id }, title: { title } } }
   }))
   const renameSession = vi.fn(async () => {})
+  const output = vi.fn()
   ctx.provide('omdshSession', { refreshRecent: vi.fn(), resumeSession, renameSession, openSessionTree, recentSessions: options.libraryRows ?? [], sessionLibraryPath: sessionLibraryPath() } as unknown as SessionRuntime)
-  ctx.provide('tui', { prompt, notice: vi.fn(), interactive: options.interactive ?? true } as unknown as TuiService)
+  ctx.provide('tui', { prompt, notice: vi.fn(), commandOutput: output, interactive: options.interactive ?? true } as unknown as TuiService)
   if (options.omitQueryService !== true) {
     ctx.provide('sessionQuery', { searchSessions, readTitleSnapshots } as never)
   }
@@ -77,7 +78,7 @@ async function harness(options: HarnessOptions = {}) {
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   const execute = (line: string) => ctx.commands.execute(agent, line, [], new AbortController().signal)
-  return { execute, prompt, resumeSession, renameSession, openSessionTree, searchSessions, agent }
+  return { execute, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
 }
 
 describe('/tree', () => {
@@ -282,10 +283,12 @@ it('returns immediately after resuming a hit selected from library search', asyn
 it('keeps an empty-search notice visible until acknowledged and returns to the library', async () => {
   isolatedLibrary()
   const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [] })
-  h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('back').mockResolvedValueOnce(null)
+  h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce(null)
   await h.execute('/resume')
-  expect(h.prompt.mock.calls[2]![0]).toMatchObject({ presentation: 'document', documentSource: { text: expect.stringContaining('No sessions match') } })
-  expect(h.prompt.mock.calls[3]![0].title).toBe('Session Library')
+  // The result is output, not a surface: it goes to the transcript and the
+  // library comes straight back.
+  expect(h.output).toHaveBeenCalledWith('Session search', expect.stringContaining('No sessions match'))
+  expect(h.prompt.mock.calls[2]![0].title).toBe('Session Library')
   expect(h.resumeSession).not.toHaveBeenCalled()
 })
 

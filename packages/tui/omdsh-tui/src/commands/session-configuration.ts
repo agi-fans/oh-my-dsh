@@ -37,16 +37,8 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
     })
     if (action === 'inspect') {
       const diagnostics = await presetDiagnostics(ctx.agentPresets, invocation.agent)
-      await ctx.tui.prompt({
-        title: 'Agent composition',
-        question: 'Declared presets and this session’s retained composition',
-        detail: diagnostics,
-        presentation: 'document',
-        allowCustom: false,
-        notify: false,
-        options: [{ label: 'Close', value: 'close' }],
-        signal: invocation.signal,
-      })
+      // Composition is a report; the transcript is where reports live.
+      ctx.tui.commandOutput('Agent composition', diagnostics)
     }
     return { kind: 'success' }
   }

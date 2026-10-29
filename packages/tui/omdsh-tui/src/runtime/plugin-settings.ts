@@ -80,7 +80,7 @@ export async function showSettingsError(tui: Pick<TuiService, 'notice' | 'prompt
     ...(signal === undefined ? {} : { signal }) })
 }
 
-/** Keep diagnostics on a reading surface until dismissed, including when opened from /plugins. */
+/** Diagnostics are a result: they go to the transcript, folded when long. */
 export async function showIntegrationStatus(ctx: Context, bundle: string, signal: AbortSignal): Promise<void> {
   const manager = ctx.get('pluginManager')
   if (manager === undefined || signal.aborted) return
@@ -88,9 +88,7 @@ export async function showIntegrationStatus(ctx: Context, bundle: string, signal
   const text = row === undefined ? 'This integration is no longer registered in this profile.'
     : externalAgentDiagnostic(row, await manager.listPlugins())
   if (signal.aborted) return
-  await ctx.tui.prompt({ title: `${NATIVE_INTEGRATIONS.find(item => item.bundle === bundle)?.label ?? bundle} · Status`,
-    question: 'Package and profile registration', presentation: 'document', documentSource: { text, language: 'text' },
-    options: [{ label: 'Back', value: 'back' }], allowCustom: false, notify: false, signal })
+  ctx.tui.commandOutput(`${NATIVE_INTEGRATIONS.find(item => item.bundle === bundle)?.label ?? bundle} · Status`, text)
 }
 
 export interface ConfigField {

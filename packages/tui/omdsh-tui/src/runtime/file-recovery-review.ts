@@ -46,10 +46,11 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
   try { history = (await provider.savedReports(before, after, upstream)).map(reportText).join('\n\n') }
   catch (error) { ctx.tui.notice('Saved recovery reports could not be read: ' + (error instanceof Error ? error.message : String(error)), { level: 'error' }) }
   if (ready.length === 0) {
-    await ctx.tui.prompt({ title: 'File recovery', question: 'No files can be restored', presentation: 'document',
-      detail: (protectedPaths.length === 0 ? 'Files are unchanged or already match the original snapshot.'
-        : protectedPaths.map(operation => `${pathLabel(operation.path)} · ${operation.reason}`).join('\n')) + (history === '' ? '' : '\n\n## Saved reports\n\n' + history),
-      options: [{ label: 'Back', value: 'back' }], allowCustom: false, notify: false, signal: upstream, onSuperseded: () => {} })
+    // A result, not a surface: nothing here needs an answer.
+    ctx.tui.commandOutput('File recovery', 'No files can be restored\n\n'
+      + (protectedPaths.length === 0 ? 'Files are unchanged or already match the original snapshot.'
+        : protectedPaths.map(operation => `${pathLabel(operation.path)} · ${operation.reason}`).join('\n'))
+      + (history === '' ? '' : '\n\n## Saved reports\n\n' + history))
     return
   }
   const options = ready.map((operation, index) => ({ label: pathLabel(operation.path), value: 'file-' + index,
@@ -62,8 +63,7 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
     detail: `${protectedPaths.length} conflicts will be preserved. Select files; Enter reviews the restoration.`,
     actions: history === '' ? [] : [{ key: 'Alt+H', label: 'saved reports', valuePrefix: 'reports:', scope: 'list' }], signal: upstream, onSuperseded: () => {} })
     if (answer !== 'reports:') break
-    await ctx.tui.prompt({ title: 'Saved recovery reports', question: 'Pending operations do not establish completion', presentation: 'document', detail: history,
-      options: [{ label: 'Back', value: 'back' }], allowCustom: false, notify: false, signal: upstream, onSuperseded: () => {} })
+    ctx.tui.commandOutput('Saved recovery reports', history)
     assertActive(); upstream.throwIfAborted()
   }
   if (answer === null || answer === '') return
@@ -74,7 +74,9 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
   for (;;) {
     assertActive(); upstream.throwIfAborted()
     const selected = ready.find(operation => operation.path === paths[index])!
-    const action = await ctx.tui.prompt({ title: 'File snapshots', question: `${index + 1}/${paths.length} · ${pathLabel(selected.path)}`, presentation: 'document',
+    // The preview is the detail of a choice, so it belongs on the card that offers
+    // the choice rather than on a page of its own.
+    const action = await ctx.tui.prompt({ title: 'File snapshots', question: `${index + 1}/${paths.length} · ${pathLabel(selected.path)}`,
       detail: await preview(ctx, selected, upstream),
       options: [...(index > 0 ? [{ label: 'Previous', value: 'previous' }] : []), ...(index + 1 < paths.length ? [{ label: 'Next', value: 'next' }] : []),
         { label: 'Review restoration', value: 'review' }, { label: 'Cancel', value: 'cancel' }],
@@ -86,7 +88,7 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
   }
   assertActive(); upstream.throwIfAborted()
   const confirmed = await ctx.tui.prompt({ title: 'Confirm file recovery', question: `Restore ${paths.length} files from before Turn ${turn}?`,
-    presentation: 'document', detail: `Directory: ${JSON.stringify(plan.root)}\n\n${paths.map(pathLabel).join('\n')}\n\nFiles changed after the retained snapshot are skipped. The snapshot may include changes from other processes during the Turn. Messages and the Git index stay unchanged. Displaced files are retained as backups in this directory.`,
+    detail: `Directory: ${JSON.stringify(plan.root)}\n\n${paths.map(pathLabel).join('\n')}\n\nFiles changed after the retained snapshot are skipped. The snapshot may include changes from other processes during the Turn. Messages and the Git index stay unchanged. Displaced files are retained as backups in this directory.`,
     options: [{ label: 'Cancel', value: 'cancel' }, { label: 'Restore selected files', value: 'restore' }], initialValue: 'cancel',
     allowCustom: false, notify: false, signal: upstream, onSuperseded: () => {} })
   if (confirmed !== 'restore') return
@@ -107,7 +109,5 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
   const report = outcome.value
   const restored = report.entries.filter(entry => entry.status === 'restored').length
   ctx.tui.notice(`File recovery: ${restored} restored · ${report.entries.length - restored} skipped or incomplete. Report: ${report.id}`)
-  await ctx.tui.prompt({ title: 'File recovery report', question: 'Per-file results', presentation: 'document',
-    detail: reportText(report),
-    options: [{ label: 'Back to Session Tree', value: 'back' }], allowCustom: false, notify: false, signal: upstream, onSuperseded: () => {} })
+  ctx.tui.commandOutput('File recovery report', reportText(report))
 }

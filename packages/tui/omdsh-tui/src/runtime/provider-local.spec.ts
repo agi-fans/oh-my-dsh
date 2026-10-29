@@ -3113,7 +3113,7 @@ describe('LocalTui (tty)', () => {
   it.each([
     ['Codex', 'codex', false], ['Codex', 'codex', true],
     ['Claude Code', 'claude', false], ['Claude Code', 'claude', true],
-  ] as const)('keeps %s status visible until dismissed and returns through its settings (color=%s)', async (label, id, color) => {
+  ] as const)('prints %s status into the transcript and returns through its settings (color=%s)', async (label, id, color) => {
     const term = new ScrollingTerminal(90, 24)
     const tui = new LocalTui(term, 'm', color)
     const ctx = new Context()
@@ -3132,19 +3132,17 @@ describe('LocalTui (tty)', () => {
       press(term, '\x1b[B\r')
       await flushAsyncPaste()
       expect(listPlugins).toHaveBeenCalledTimes(1)
-      expect(term.visible().join('\n')).toContain('Package: available (installation)')
-      // Idle rendering and navigation must leave the report open.
+      // The status is output, so it does not take the settings surface; it waits
+      // in the transcript behind it and is read after leaving.
       await flushAsyncPaste()
-      press(term, '\x1b[B')
-      expect(term.visible().join('\n')).toContain('Profile: disabled')
-      press(term, color ? '\r' : '\x1b[27u')
-      await flushAsyncPaste()
-      expect(term.visible().join('\n')).toContain('Installation status')
       expect(term.visible().join('\n')).not.toContain('Package: available (installation)')
       press(term, '\x1b[27u')
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain(`❯ ${label}`)
       expect(term.visible().join('\n')).toContain('● Integrations')
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Package: available (installation)')
     } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
   })
 

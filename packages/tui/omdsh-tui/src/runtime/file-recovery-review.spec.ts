@@ -11,10 +11,10 @@ function harness() {
     savedReports: vi.fn(async () => []),
     store: { plan: vi.fn(async () => ({ root: '/workspace', operations: [operation] })) },
     restore: vi.fn(async () => ({ id: 'restore-proof', root: '/workspace', entries: [{ path: operation.path, status: 'restored', backup: '' }] })) }
-  const prompt = vi.fn<TuiService['prompt']>(), notice = vi.fn(), assertActive = vi.fn()
-  const ctx = { get: () => provider, tui: { prompt, notice } } as unknown as Context
+  const prompt = vi.fn<TuiService['prompt']>(), notice = vi.fn(), assertActive = vi.fn(), commandOutput = vi.fn()
+  const ctx = { get: () => provider, tui: { prompt, notice, commandOutput } } as unknown as Context
   const signal = new AbortController().signal
-  return { ctx, agent, provider, prompt, notice, assertActive, signal }
+  return { ctx, agent, provider, prompt, notice, commandOutput, assertActive, signal }
 }
 
 describe('file recovery review', () => {
@@ -22,10 +22,12 @@ describe('file recovery review', () => {
     const h = harness()
     h.provider.store.plan.mockResolvedValueOnce({ root: '/workspace', operations: [{ path: 'changed.ts', status: 'conflict', reason: 'Later user edit' }] } as never)
     h.provider.savedReports.mockResolvedValueOnce([{ id: 'restore-pending', root: '/workspace', entries: [{ path: 'changed.ts', status: 'planned', backup: 'retained.backup' }] }] as never)
-    h.prompt.mockResolvedValueOnce('back')
     await reviewFileRecovery(h.ctx, h.agent, 'source', 2, h.signal, h.assertActive)
-    expect(h.prompt.mock.calls[0]![0].detail).toContain('Completion unconfirmed')
-    expect(h.prompt.mock.calls[0]![0].detail).toContain('retained.backup')
+    // Nothing to answer, so nothing opens: the result is printed.
+    expect(h.prompt).not.toHaveBeenCalled()
+    const report = h.commandOutput.mock.calls[0]![1] as string
+    expect(report).toContain('Completion unconfirmed')
+    expect(report).toContain('retained.backup')
     expect(h.provider.restore).not.toHaveBeenCalled()
   })
   it('selects delimiter-bearing paths with opaque values, previews snapshots and requires confirmation', async () => {
@@ -36,12 +38,11 @@ describe('file recovery review', () => {
       expect(request.detail).toContain('other processes')
       return 'restore'
     }).mockImplementationOnce(async request => new Promise(resolve => request.signal!.addEventListener('abort', () => resolve(null), { once: true })))
-      .mockResolvedValueOnce('back')
     await reviewFileRecovery(h.ctx, h.agent, 'source', 2, h.signal, h.assertActive)
     expect(h.provider.checkpoint).toHaveBeenCalledWith('source', 2)
     expect(h.prompt.mock.calls[1]![0].detail).toContain('Before Turn')
     expect(h.provider.restore).toHaveBeenCalledWith(h.agent, 'before', 'after', ['中文, file.ts'], expect.any(AbortSignal))
-    expect(h.prompt.mock.calls[4]![0].detail).toContain('restored')
+    expect(h.commandOutput).toHaveBeenCalledWith('File recovery report', expect.stringContaining('restored'))
   })
   it('saves nothing and mutates nothing when confirmation is cancelled', async () => {
     const h = harness(); h.prompt.mockResolvedValueOnce('file-0').mockResolvedValueOnce('review').mockResolvedValueOnce('cancel')
@@ -58,7 +59,6 @@ describe('file recovery review', () => {
     const h = harness(); let progress: Parameters<TuiService['prompt']>[0]
     h.prompt.mockResolvedValueOnce('file-0').mockResolvedValueOnce('review').mockResolvedValueOnce('restore')
       .mockImplementationOnce(async request => { progress = request; return new Promise(resolve => request.signal!.addEventListener('abort', () => resolve(null), { once: true })) })
-      .mockResolvedValueOnce('back')
     h.provider.restore.mockImplementationOnce(async (_agent, _before, _after, _paths, signal) => {
       if (mode === 'interrupt') expect(progress.interrupt!()).toBe(true)
       else progress.onSuperseded!('')
@@ -67,7 +67,10 @@ describe('file recovery review', () => {
     })
     await reviewFileRecovery(h.ctx, h.agent, 'source', 2, h.signal, h.assertActive)
     expect(h.signal.aborted).toBe(false)
-    expect(h.prompt).toHaveBeenCalledTimes(mode === 'superseded' ? 4 : 5)
-    if (mode === 'interrupt') expect(h.prompt.mock.calls[4]![0].detail).toContain('unconfirmed')
+    expect(h.prompt).toHaveBeenCalledTimes(4)
+    // A superseded restore had its surface taken away, so its receipt is not
+    // printed either; a reader who cancelled keeps the report.
+    expect(h.commandOutput).toHaveBeenCalledTimes(mode === 'superseded' ? 0 : 1)
+    if (mode === 'interrupt') expect(h.commandOutput.mock.calls[0]![1]).toContain('unconfirmed')
   })
 })

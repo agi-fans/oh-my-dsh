@@ -42,8 +42,9 @@ describe('plugin configuration', () => {
     const describe = vi.fn(() => [section])
     ctx.provide('settings', { describe, writable: true, mutate } as never)
     ctx.provide('credentials', { set, unset } as never)
-    ctx.provide('tui', { prompt, notice } as unknown as TuiService)
-    return { ctx, prompt, notice, mutate, set, unset, section, describe }
+    const commandOutput = vi.fn()
+    ctx.provide('tui', { prompt, notice, commandOutput } as unknown as TuiService)
+    return { ctx, prompt, notice, commandOutput, mutate, set, unset, section, describe }
   }
 
   it('places built-in forms in product categories and preserves unclaimed fields in Advanced', async () => {
@@ -199,9 +200,10 @@ describe('plugin configuration', () => {
     try {
       const operation = config.editSettingsEntry(h.ctx, 'integration:codex', closing.signal)
       await vi.waitFor(() => { expect(h.prompt).toHaveBeenCalledTimes(2) })
-      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ presentation: 'document', notify: false, signal: closing.signal })
-      expect(h.prompt.mock.calls[1]![0].documentSource?.text).toContain('Profile: enabled')
-      expect(h.prompt.mock.calls[1]![0].documentSource?.text).toContain('authentication: not tested')
+      // Status prints into the transcript, so nothing waits to be dismissed —
+      // and a cancellation still stops it before it reads again.
+      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('Profile: enabled'))
+      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('authentication: not tested'))
       expect(h.prompt).toHaveBeenCalledTimes(2)
       closing.abort()
       await operation

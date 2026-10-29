@@ -229,16 +229,14 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integrat
 }
 mark = out.length
 term.write('\x1b[F\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Package: available') && cleanOutput(out.slice(mark)).includes('Profile: disabled'), 'native status reading page', deadline))) {
+// The status is a transcript result now: it does not cover the settings surface,
+// so the reading happens after leaving rather than on a page of its own.
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Installation status'), 'native status selected', deadline))) {
   term.kill()
   process.exit(1)
 }
-mark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integration') && cleanOutput(out.slice(mark)).includes('Installation status'), 'return from native status reading page', deadline))) {
-  term.kill()
-  process.exit(1)
-}
+// Nothing covers the settings surface any more, so Escape closes it and the
+// report reads where it was printed.
 let settingsClosed = false
 for (let attempt = 0; attempt < 5 && !settingsClosed; attempt += 1) {
   mark = out.length
@@ -247,6 +245,12 @@ for (let attempt = 0; attempt < 5 && !settingsClosed; attempt += 1) {
   settingsClosed = cleanOutput(out.slice(mark)).includes('Ask anything')
 }
 if (!settingsClosed) {
+  console.error(cleanOutput(out).slice(-2500))
+  term.kill()
+  process.exit(1)
+}
+if (!cleanOutput(out).includes('Package: available') || !cleanOutput(out).includes('Profile: disabled')) {
+  console.error('FAIL: the native status result never reached the transcript')
   console.error(cleanOutput(out).slice(-2500))
   term.kill()
   process.exit(1)
