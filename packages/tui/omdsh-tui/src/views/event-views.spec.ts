@@ -2357,3 +2357,27 @@ describe('whether a list takes the screen', () => {
     expect(drawn.text).toContain('No archived sessions')
   })
 })
+
+describe('user text in the transcript', () => {
+  it('draws a pasted credential masked and keeps the words around it', () => {
+    // A terminal is shown to other people. The stored message keeps the key —
+    // the model still needs it — so only the drawn form is masked.
+    const key = 'sk-proj-9f3a2b7c1d4e5f60718293a4b5c6d7e8'
+    const rows = renderView(
+      { ...initialTranscript(), blocks: [{ kind: 'user', text: `use ${key} please` }], turn: 1, status: 'idle' } as never,
+      { width: 80, height: 20, model: 'm', input: '', inputCursor: 0, colors: false },
+    ).lines.map(stripAnsi).join('\n')
+    expect(rows).toContain('sk-proj-')
+    expect(rows).not.toContain('9f3a2b7c')
+    expect(rows).toContain('use ')
+    expect(rows).toContain('please')
+  })
+
+  it('leaves an ordinary message exactly as written', () => {
+    const rows = renderView(
+      { ...initialTranscript(), blocks: [{ kind: 'user', text: 'explain the sk-learn pipeline' }], turn: 1, status: 'idle' } as never,
+      { width: 80, height: 20, model: 'm', input: '', inputCursor: 0, colors: false },
+    ).lines.map(stripAnsi).join('\n')
+    expect(rows).toContain('explain the sk-learn pipeline')
+  })
+})

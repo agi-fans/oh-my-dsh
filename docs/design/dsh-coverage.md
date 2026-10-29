@@ -54,6 +54,7 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-sidebar-terminal` | `!cmd`、`!!cmd` 与终端控制台 |
 | `ui-workspace` | `/resume`（含搜索、pin、archive、fork） |
 | `ui-schedule` | `/schedule` |
+| `ui-secret-mask` | 转录里绘制的用户消息；凭证尾部打码 |
 | `ui-theme` | `/settings → Theme` |
 | `ui-open-in-app` | 阅读器的 Open 与 Editor |
 | `ui-settings` | `/settings` |
@@ -82,20 +83,3 @@ DSH 把持久 workflow 运行作为嵌套对话展开。omdsh 只有模型侧 `t
 ### `ui-settings-session-log`：会话日志上传开关
 
 这个设置页由 `session-log-deepseek` 的 Host 设置提供，而 omdsh 没有挂载它，所以设置本身不存在——不是表面缺失，是能力未挂载。要在终端里提供它，先决定是否接受「随官方 API 请求上传会话日志」，这属于产品政策问题而不是 UI 问题。
-
-### `ui-secret-mask`：粘贴凭证的打码显示
-
-共享屏幕或截图时，DSH 把已识别凭证的首八位之后画成 `*`，只改绘制，消息文本、复制内容与模型输入都保持原文。终端面对同一个场景——录屏、结对、投屏——所以这不是 Web 专属问题。
-
-## 五、有意不提供
-
-| DSH | 理由 |
-|---|---|
-| `ui-message-feedback` | DSH 自己的契约写明：评分是「关于输出的信号，永不作为输入」，是只写进日志再由官方产品面读取的数据。omdsh 不是官方客户端，没有那个下游，`/rate` 会变成写进日志再没人读的记录。 |
-| `ui-directory-picker-browse` | 选择一个工作目录的浏览器内界面。终端里启动目录由 shell 决定，`--cwd` 与 `omdsh` 的工作目录参数已经回答同一个问题。 |
-
-## 六、维护
-
-这张表随 DSH 版本更新。升级到新的 DSH cohort 时，先 `ls packages/client | grep '^ui-'` 比对本文，把新增包按「已覆盖 / 缺口 / Web 外壳 / 有意不提供」归档，再决定是否实现。
-
-一个能力面在表里处于「缺口」是允许的状态，但必须写在这里并给出理由——否则它会在下一次清理里被误当作冗余删掉，`/trajectory` 就是这样丢过一次。

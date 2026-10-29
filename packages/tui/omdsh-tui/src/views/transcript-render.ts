@@ -62,6 +62,7 @@ import { terminalColorsKey, type TerminalColors } from '../chrome/terminal-color
 import type { ColorDepth } from '../chrome/theme.ts'
 import { renderPathMentionRows } from '../chrome/path-mentions.ts'
 import { formatElapsed } from '../chrome/relative-time.ts'
+import { maskSecrets } from '../chrome/secret-mask.ts'
 import { formatOverlayHint } from './hotkey-format.ts'
 import {
   blockMatchesQuery, matchedRows, searchMatches, transcriptSearchHint,
@@ -325,7 +326,9 @@ function assistantMarkdown(
  */
 function userBubble(text: string, theme: Theme, width: number): string[] {
   const gutter = '  '
-  const wrapped = renderPathMentionRows(text, Math.max(1, width - gutter.length), theme)
+  // Drawn masked, stored plain: the key still reaches the model and the copy
+  // action still returns what the reader sent, but a shared screen shows stars.
+  const wrapped = renderPathMentionRows(maskSecrets(text), Math.max(1, width - gutter.length), theme)
   const rows = ['', ...wrapped, '']
   // The padding rows share the prompt's tint, so the prompt is one slab that
   // opens the turn. Unpainted, they were two blank rows of their own on top of
