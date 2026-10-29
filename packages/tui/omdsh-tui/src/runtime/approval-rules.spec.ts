@@ -53,10 +53,11 @@ describe('Harness approval rules', () => {
     const h = await harness(); h.offQuestion()
     const prompt = vi.fn<TuiService['prompt']>().mockResolvedValueOnce('remember-allow').mockImplementationOnce(async request => {
       expect(request.initialValue).toBe('cancel')
-      expect(request.documentSource?.text).toContain('echo hello')
-      expect(request.documentSource?.text).toContain(h.root)
-      expect(request.documentSource?.text).toContain('workspace-write')
-      expect(request.documentSource?.text).toContain('Wider file access')
+      // The exact invocation and scope are the decision's detail, drawn on the card.
+      expect(request.detail).toContain('echo hello')
+      expect(request.detail).toContain(h.root)
+      expect(request.detail).toContain('workspace-write')
+      expect(request.detail).toContain('Wider file access')
       return 'session'
     })
     const dispose = bindHumanInteraction(h.ctx, { prompt, toolCallContext: () => 'Probe call' } as unknown as TuiService, () => h.agent)

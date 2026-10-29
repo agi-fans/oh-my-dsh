@@ -108,9 +108,7 @@ async function askQuestions(
         ...(question.detail === undefined ? {} : { detail: question.detail }),
         ...(question.options === undefined ? {} : { options: question.options }),
         ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
-        ...(question.intent?.kind === 'plan-review'
-          ? { presentation: 'plan-review' as const, approveValue: question.intent.approve }
-          : {}),
+        ...(question.intent?.kind === 'plan-review' ? { approveValue: question.intent.approve } : {}),
         ...(request.questions.length > 1 ? { title: `${question.header ?? 'Question'} · ${index + 1}/${request.questions.length}` } : {}),
         ...(index > 0 ? { actions: [{ key: 'alt+left', label: 'previous question', valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
         ...restoredAnswer,
@@ -200,12 +198,13 @@ export function approvalDetail(tui: TuiService, request: ApprovalRequest): { det
 async function askApproval(ctx: Context, tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
   const rules = ctx.get('omdshApprovalRules')
   const action = rules?.describe(request)
+  // The action and its reason are the detail of a decision, so they belong on
+  // the card that carries the decision rather than on a page of their own.
   const raw = await tui.prompt({
     title: 'Approval required',
     question: `Allow ${request.toolName} once?`,
-    presentation: 'document',
     armMs: 500,
-    documentSource: { text: approvalDetail(tui, request).detail ?? request.toolName, language: 'text' },
+    detail: approvalDetail(tui, request).detail ?? request.toolName,
     options: [
       { label: 'Allow once', description: 'Run only this requested action.' },
       { label: 'Reject', description: 'Deny this action.' },
@@ -240,8 +239,8 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   if ((raw === 'remember-allow' || raw === 'remember-reject') && action !== undefined && rules !== undefined) {
     const decision = raw === 'remember-allow' ? 'allow' : 'reject'
     const scope = await tui.prompt({ title: 'Remember approval decision', question: `Where should this exact invocation be ${decision === 'allow' ? 'allowed' : 'rejected'}?`,
-      presentation: 'document', documentSource: { text: approvalActionDetail(action), language: 'text' },
-      detail: 'Matches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.',
+      detail: approvalActionDetail(action)
+        + '\n\nMatches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.',
       options: [{ label: 'This session', value: 'session', description: 'Retained on resume; not inherited by forks or children.' },
         { label: 'This workspace', value: 'workspace', description: 'Applies to sessions with this same workspace boundary.' },
         { label: 'Cancel', value: 'cancel', description: 'Save nothing and cancel this request.' }],
