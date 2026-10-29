@@ -296,7 +296,9 @@ if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_ed
   process.exit(1)
 }
 // The catalog is a reader now: leaving it returns to the composer, and Ctrl+O on
-// a blank transcript has no turn group to inspect.
+// a blank transcript has no turn group to inspect. scripts/pty-inspect-smoke.mjs
+// covers the positive path, where a settled tool call gives the frame something
+// to open.
 term.write('\x03')
 await sleep(100)
 mark = out.length
@@ -458,8 +460,9 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Library
 }
 term.write('\x03')
 await sleep(100)
-// Forking before the first turn leaves no completed turn to open. Ctrl+O must not enter an
-// unrelated full-output mode; the tool reader stands in for an overlay on exit.
+// Forking before the first turn leaves no completed turn to open, so Ctrl+O must
+// not enter an unrelated full-output mode. The tool reader stands in for an
+// overlay on exit here; the frame itself is exercised by pty-inspect-smoke.
 mark = out.length
 term.write('\x0f')
 await sleep(200)
