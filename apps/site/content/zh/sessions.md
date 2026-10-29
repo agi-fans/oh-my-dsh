@@ -12,7 +12,7 @@ description: "omdsh 把持久会话与本地数据存在哪里、Session Library
 - `/resume` 打开会话库，显示消息预览、时间、事件数与完成状态；`/resume <session-id>` 直接跳过选择器，`/resume <查询>` 搜索持久消息正文并恢复选中的结果。在会话库内按 `Alt+S` 搜索，搜索结果支持重命名、标记与归档，`Alt+L` 返回全部会话。
 - `/new` 新建干净会话，而不是从当前会话分叉。
 - `/retry` 把最近一条人类提示作为新回合再次提交。
-- 连按两次 `Esc` 或运行 `/tree` 打开 Session Tree，浏览当前对话的回合与分支。选中节点只预览内容；在 Turn 上按 Enter 会从该消息之前创建分支并恢复提示，在分支节点上按 Enter 或使用 `Alt+Enter` 则从该分支的最新状态继续。
+- 连按两次 `Esc` 打开 Session Tree，浏览当前对话的回合与分支。选中节点只预览内容；在 Turn 上按 Enter 会从该消息之前创建分支并恢复提示，在分支节点上按 Enter 或使用 `Alt+Enter` 则从该分支的最新状态继续。
 
 走查见[恢复并管理长会话](tutorials/long-session.md)。
 

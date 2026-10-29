@@ -16,7 +16,6 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 |---|---|
 | `/new` | Start a new session. |
 | `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `p` pins a session and `r` renames it. |
-| `/tree` | Browse turns and forks, edit from a historical message, continue a branch, or restore selected Turn files with `Alt+R` when snapshots exist. |
 | `/session` | Show the current session's details. |
 | `/retry` | Run the most recent human prompt again. |
 | `/todo` | Print the current session todo list into the transcript. |

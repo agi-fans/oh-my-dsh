@@ -12,7 +12,7 @@ Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back 
 - `/resume` opens the Session Library with message previews, age, event counts and completion state; `/resume <session-id>` skips the selector, and `/resume <query>` searches durable message content and resumes the chosen hit. `Alt+S` searches from inside the library, search results keep rename, pin and archive actions, and `Alt+L` returns to all sessions.
 - `/new` starts a clean session rather than branching the current one.
 - `/retry` submits the latest human prompt again as a new turn.
-- `Esc` twice or `/tree` opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
+- `Esc` twice opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
 
 See [Recover and manage a long session](tutorials/long-session.md) for the walkthrough.
 

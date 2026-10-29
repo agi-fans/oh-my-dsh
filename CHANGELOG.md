@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [0.22.0] - 2026-10-29
 
+### Removed
+
+- `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
+
 ### Changed
 
 - The Session Tree opens as a block above the composer instead of taking the whole screen. Double-Esc is a rewind gesture, and the conversation being rewound — the thing the reader needs to see while choosing a point in it — used to disappear behind the tree. It is bounded to a little over half the terminal, matching how pi mounts its tree selector. `Ctrl+↑`/`Ctrl+↓` now scroll the preview they always claimed to.

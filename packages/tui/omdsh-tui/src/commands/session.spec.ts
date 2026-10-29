@@ -81,21 +81,6 @@ async function harness(options: HarnessOptions = {}) {
   return { execute, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
 }
 
-describe('/tree', () => {
-  it('opens the same Session Tree controller as double Escape', async () => {
-    const { execute, openSessionTree } = await harness()
-    expect((await execute('/tree'))?.result).toMatchObject({ kind: 'success' })
-    expect(openSessionTree).toHaveBeenCalledWith(expect.any(AbortSignal))
-  })
-  it('rejects arguments and active turns without opening a tree', async () => {
-    const { execute, openSessionTree, agent } = await harness()
-    expect((await execute('/tree extra'))?.result).toMatchObject({ kind: 'error', text: 'Usage: /tree' })
-    Object.assign(agent, { status: 'running' })
-    expect((await execute('/tree'))?.result).toMatchObject({ kind: 'error', text: expect.stringContaining('Finish or interrupt') })
-    expect(openSessionTree).not.toHaveBeenCalled()
-  })
-})
-
 describe('/resume library and search', () => {
   it('searches session content and resumes the chosen hit', async () => {
     const titles = new Map([['session-a', 'Fix the parser'], ['session-b', 'Add export flag']])
