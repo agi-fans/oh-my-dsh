@@ -758,6 +758,12 @@
   - id: tui-command-trajectory
     name: '@agi-fans/dsh-tui/command-trajectory'
 
+  - id: tui-command-plugins
+    name: '@agi-fans/dsh-tui/command-plugins'
+
+  - id: tui-command-schedule
+    name: '@agi-fans/dsh-tui/command-schedule'
+
   - id: tui-command-integrations
     name: '@agi-fans/dsh-tui/command-integrations'
 

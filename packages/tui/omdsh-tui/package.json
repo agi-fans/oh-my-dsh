@@ -102,6 +102,14 @@
       "types": "./lib/commands/auth.d.ts",
       "default": "./lib/commands/auth.js"
     },
+    "./command-plugins": {
+      "types": "./lib/commands/plugins.d.ts",
+      "default": "./lib/commands/plugins.js"
+    },
+    "./command-schedule": {
+      "types": "./lib/commands/schedule.d.ts",
+      "default": "./lib/commands/schedule.js"
+    },
     "./command-trajectory": {
       "types": "./lib/commands/trajectory.d.ts",
       "default": "./lib/commands/trajectory.js"
