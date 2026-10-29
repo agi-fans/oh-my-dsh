@@ -55,7 +55,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
 | `/compact` | Compact older conversation history. |
-| `/jobs [kill <id>]` | List background jobs, or stop one by id. |
+| `/jobs [<id>\|kill <id>]` | List background jobs, replay one run's narration, or stop one by id. A run's `log` channel is producer narration that only observers see, so replaying it takes nothing from the model's own read; `stdout` and `stderr` stay with the model. |
 
 ## Side questions
 

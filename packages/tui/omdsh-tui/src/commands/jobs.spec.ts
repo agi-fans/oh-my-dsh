@@ -27,6 +27,7 @@ interface JobsHarness {
   agent: Agent
   kill: ReturnType<typeof vi.fn>
   list: ReturnType<typeof vi.fn>
+  readAt: ReturnType<typeof vi.fn>
 }
 
 async function jobsHarness(jobs: readonly JobView[]): Promise<JobsHarness> {
@@ -35,8 +36,9 @@ async function jobsHarness(jobs: readonly JobView[]): Promise<JobsHarness> {
   await ctx.plugin(CommandRuntime)
   const kill = vi.fn(() => 'requested' as const)
   const list = vi.fn(() => [...jobs])
+  const readAt = vi.fn(() => ({ chunks: [], next: 0, lossy: false }))
   ctx.provide('tui', {} as unknown as TuiService)
-  ctx.provide('jobs', { list, kill } as never)
+  ctx.provide('jobs', { list, kill, readAt } as never)
   const session = ctx.sessions.create(SessionId('jobs-command-test'))
   const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
   let scope!: Scope
@@ -45,7 +47,7 @@ async function jobsHarness(jobs: readonly JobView[]): Promise<JobsHarness> {
     Object.defineProperty(scope.ctx, 'agent', { configurable: true, value: agent })
   }, { inject: ['commands'] }))
   await scope.ctx.plugin(commandJobs)
-  return { ctx, scope, agent, kill, list }
+  return { ctx, scope, agent, kill, list, readAt }
 }
 
 async function run(ctx: Context, agent: Agent, line: string) {
@@ -73,6 +75,7 @@ describe('jobs command', () => {
     expect(text).toContain('Jobs · 1 running · 1 finished')
     expect(text).toContain('| `bash-1` | running')
     expect(text).toContain('| `bash-2` | completed · 42s · exit code: 0 | pnpm build |')
+    expect(text).toContain('`/jobs <id>` replays a run')
     expect(text).toContain('`/jobs kill <id>` stops a running job.')
   })
 
@@ -93,7 +96,7 @@ describe('jobs command', () => {
 
   it('rejects unknown subcommands and a missing id', async () => {
     const { ctx, agent } = await jobsHarness([snapshot()])
-    expect(await run(ctx, agent, '/jobs stop')).toEqual({ kind: 'error', text: 'Usage: /jobs [kill <id>]' })
+    expect(await run(ctx, agent, '/jobs kill bash-1 extra')).toEqual({ kind: 'error', text: 'Usage: /jobs kill <id>' })
     expect(await run(ctx, agent, '/jobs kill')).toEqual({ kind: 'error', text: 'Usage: /jobs kill <id>' })
   })
 
@@ -102,6 +105,48 @@ describe('jobs command', () => {
     kill.mockImplementationOnce(() => { throw new Error('unknown job: bash-9') })
     expect(await run(ctx, agent, '/jobs kill bash-9'))
       .toEqual({ kind: 'error', text: 'unknown job: bash-9' })
+  })
+})
+
+describe('replaying one run', () => {
+  it('replays the observer-only narration and leaves model output alone', async () => {
+    // `log` is the channel the Harness documents as producer narration that only
+    // observers see; `stdout` feeds the model's consuming cursor.
+    const { ctx, agent, readAt } = await jobsHarness([snapshot({ kind: 'workflow', label: 'migrate', status: 'completed' })])
+    readAt.mockReturnValueOnce({
+      chunks: [
+        { at: 0, text: 'phase 1: survey\n', channel: 'log' },
+        { at: 16, text: 'raw model output\n', channel: 'stdout' },
+        { at: 33, text: 'phase 2: patch\n', channel: 'log' },
+      ],
+      next: 48,
+      lossy: false,
+    } as never)
+    const result = await run(ctx, agent, '/jobs bash-1')
+    expect(readAt).toHaveBeenCalledWith(JobId('bash-1'), 0, agent.session.id)
+    const text = result?.kind === 'success' ? result.text : ''
+    expect(text).toContain('phase 1: survey')
+    expect(text).toContain('phase 2: patch')
+    expect(text).not.toContain('raw model output')
+  })
+
+  it('says when retention dropped the head instead of starting mid-run', async () => {
+    const { ctx, agent, readAt } = await jobsHarness([snapshot({ kind: 'workflow' })])
+    readAt.mockReturnValueOnce({ chunks: [{ at: 0, text: 'phase 9\n', channel: 'log' }], next: 8, lossy: true } as never)
+    const text = await run(ctx, agent, '/jobs bash-1')
+    expect(text?.kind === 'success' ? text.text : '').toContain('no longer retained')
+  })
+
+  it('explains a run that only wrote model-facing output', async () => {
+    const { ctx, agent, readAt } = await jobsHarness([snapshot()])
+    readAt.mockReturnValueOnce({ chunks: [{ at: 0, text: 'output', channel: 'stdout' }], next: 6, lossy: false } as never)
+    const text = await run(ctx, agent, '/jobs bash-1')
+    expect(text?.kind === 'success' ? text.text : '').toContain('stays with the model')
+  })
+
+  it('rejects an id this session does not own', async () => {
+    const { ctx, agent } = await jobsHarness([snapshot()])
+    expect(await run(ctx, agent, '/jobs bash-9')).toEqual({ kind: 'error', text: 'No job bash-9 in this session.' })
   })
 })
 

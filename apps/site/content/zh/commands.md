@@ -55,7 +55,7 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/plan [off\|<message>]` | 进入 Plan 模式并可同时发送首个规划请求，`off` 直接退出。composer 中的图片会随规划请求一起发送。 |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | 为会话设置或查看长期目标。 |
 | `/compact` | 压缩较早的对话历史。 |
-| `/jobs [kill <id>]` | 列出后台任务，或按 id 停止一个。 |
+| `/jobs [<id>\|kill <id>]` | 列出后台任务、回放一次运行的叙述，或按 id 停止一个。运行的 `log` 通道是只有观察者能看到的产出者叙述，回放它不会占用模型自己的读取；`stdout` 与 `stderr` 仍归模型。 |
 
 ## 旁路咨询
 

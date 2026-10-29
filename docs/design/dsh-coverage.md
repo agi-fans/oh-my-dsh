@@ -38,7 +38,8 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-user-questions` | 问题卡片；`/questions` 补答 |
 | `ui-plan` | `/plan` 与 plan review 卡片 |
 | `ui-goal` | `/goal` 与底部目标条 |
-| `ui-jobs` | `/jobs` |
+| `ui-jobs` | `/jobs` 与 `/jobs <id>`（回放一次运行的观察者叙述） |
+| `ui-workflow-run` | `/jobs <id>` 的 `log` 通道回放 |
 | `ui-subagent` | 转录里的子 Agent 行与检查 |
 | `ui-model-selection` | `/model`（列表与参数补全） |
 | `ui-permission-presets` | `/permission` |
@@ -75,10 +76,6 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 ### `ui-plugin-market`：市场索引
 
 DSH 的 Plugins 面板有一个 Discover 标签页，浏览市场索引并安装其中的 bundle。omdsh 需要先有 `/plugins` 面板（已恢复），市场索引才可以挂上去。
-
-### `ui-workflow-run`：workflow 运行回放
-
-DSH 把持久 workflow 运行作为嵌套对话展开。omdsh 只有模型侧 `tool-workflow`，运行过程在转录里只是一张工具卡。
 
 ### `ui-settings-session-log`：会话日志上传开关
 
