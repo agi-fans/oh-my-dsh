@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-29
+
 ### Changed
 
 - The Session Tree opens as a block above the composer instead of taking the whole screen. Double-Esc is a rewind gesture, and the conversation being rewound — the thing the reader needs to see while choosing a point in it — used to disappear behind the tree. It is bounded to a little over half the terminal, matching how pi mounts its tree selector. `Ctrl+↑`/`Ctrl+↓` now scroll the preview they always claimed to.
@@ -732,7 +734,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0
