@@ -2944,6 +2944,38 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('offers the finished side answer to /copy', async () => {
+    // Reading an answer and being unable to take it anywhere is a dead end.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    let release: (() => void) | undefined
+    const done = tui.asideQuestion?.({
+      question: 'why did the build fail?',
+      signal: new AbortController().signal,
+      run: async onUpdate => {
+        onUpdate('The lockfile changed.')
+        await new Promise<void>(resolve => { release = resolve })
+        return { text: 'The lockfile changed.' }
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 40))
+    // A running answer has nothing to copy yet.
+    term.captured = ''
+    press(term, '/copy\r')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('Nothing to copy')
+    release?.()
+    await done
+    await flushAsyncPaste()
+    term.captured = ''
+    press(term, '/copy\r')
+    await flushAsyncPaste()
+    const picker = stripAnsi(term.captured)
+    expect(picker).toContain('why did the build fail?')
+    expect(picker).toContain('side answer')
+    tui.dispose()
+  })
+
   it('stops a side consultation when the reader closes the pane', async () => {
     // Closing used to hide the pane while the request kept running unseen.
     const term = new FakeTerminal()

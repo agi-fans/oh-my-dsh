@@ -4058,9 +4058,15 @@ export class LocalTui implements TuiService {
     else this.#search = displaced.state
   }
 
+  /** The pane's answer, offered to `/copy` while it is on screen and finished. */
+  #copyableAside(): { question: string; text: string } | undefined {
+    if (this.#aside === undefined || this.#aside.status === 'running' || this.#aside.text.trim() === '') return undefined
+    return { question: this.#aside.question, text: this.#aside.text }
+  }
+
   async #runCopy(args: string): Promise<void> {
     if (args.trim() === '') {
-      const items = buildCopyTargets(this.#state.blocks)
+      const items = buildCopyTargets(this.#state.blocks, undefined, this.#copyableAside())
       if (items.length === 0) {
         this.#notice('Nothing to copy.')
         this.#render()

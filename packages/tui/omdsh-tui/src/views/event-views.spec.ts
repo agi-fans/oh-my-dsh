@@ -2256,6 +2256,8 @@ describe('notice-shaped plugin injections', () => {
 })
 import { formatToolsText } from '../chrome/tools-list.ts'
 import { findInRows, highlightMatches } from './prompt-selector.ts'
+import { buildCopyTargets } from './copy-targets.ts'
+import type { Block } from './event-views.ts'
 
 describe('find in a rendered document', () => {
   it('reports every hit in display cells, not string indexes', () => {
@@ -2279,5 +2281,28 @@ describe('find in a rendered document', () => {
     // Only the hit is wrapped in a style; the plain text is unchanged.
     expect(painted).toMatch(/\u001b\[[0-9;]*m/u)
     expect(visibleWidth(painted)).toBe(visibleWidth(line))
+  })
+})
+
+describe('copying a side answer', () => {
+  it('offers the pane text first, because it is what the reader just read', () => {
+    // The pane is not a transcript block, so /copy could not reach it: the answer
+    // had no way out of the terminal.
+    const items = buildCopyTargets(
+      [{ kind: 'assistant', turn: 1, step: 1, text: 'the main answer', reasoning: '' }],
+      undefined,
+      { question: 'why did the build fail?', text: 'The lockfile changed.' },
+    )
+    expect(items[0]).toMatchObject({ text: 'The lockfile changed.', copyMessage: 'side answer' })
+    expect(items[0]?.hint).toContain('side answer')
+    expect(items[0]?.label).toBe('why did the build fail?')
+    // The transcript is still there behind it.
+    expect(items.some(item => item.text === 'the main answer')).toBe(true)
+  })
+
+  it('ignores a pane with no finished answer', () => {
+    const blocks = [{ kind: 'assistant', turn: 1, step: 1, text: 'the main answer', reasoning: '' }] as Block[]
+    expect(buildCopyTargets(blocks, undefined, { question: 'q', text: '   ' })[0]?.text).toBe('the main answer')
+    expect(buildCopyTargets(blocks)[0]?.text).toBe('the main answer')
   })
 })

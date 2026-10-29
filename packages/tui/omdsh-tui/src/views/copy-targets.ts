@@ -95,14 +95,34 @@ function pushCodePicks(items: CopyPick[], source: string, nextId: () => string):
   }
 }
 
-/** Newest-first picker rows from the live transcript. */
-export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_LIMIT): CopyPick[] {
+/** The side answer, when one is on screen and finished. */
+export interface CopyableAside {
+  question: string
+  text: string
+}
+
+/**
+ * Newest-first picker rows from the live transcript.
+ *
+ * The side pane is not a block, so it has to be handed in: without this the one
+ * thing the reader just read had no way out of the terminal.
+ */
+export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_LIMIT, aside?: CopyableAside): CopyPick[] {
   const items: CopyPick[] = []
   let messages = 0
   let codes = 0
   let commands = 0
   let outputs = 0
   const cap = Math.max(0, limit)
+  if (aside !== undefined && aside.text.trim() !== '') {
+    items.push({
+      id: 'aside:1',
+      label: firstLine(aside.question),
+      hint: 'side answer · ' + pluralLines(aside.text),
+      text: aside.text,
+      copyMessage: 'side answer',
+    })
+  }
   for (let i = blocks.length - 1; i >= 0 && items.length < cap; i -= 1) {
     const block = blocks[i]
     if (block === undefined) continue

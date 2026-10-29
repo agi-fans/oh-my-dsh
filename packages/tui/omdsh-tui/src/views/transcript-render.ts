@@ -2040,7 +2040,7 @@ export function renderAside(panel: AsidePanel, theme: Theme, width: number, avai
   const detail = panel.detail === undefined || panel.detail === ''
     ? []
     : ['', theme.fg('dim', panel.detail)]
-  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: 'Esc', action: 'close' }]))
+  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: '/copy', action: 'copy' }, { keys: 'Esc', action: 'close' }]))
   // Two rules, the question, its blank line, and the hint are always drawn. What
   // is left is the answer's window, so the pane never grows past its cap.
   const cap = Math.max(6, Math.min(ASIDE_MAX_ROWS, available))
