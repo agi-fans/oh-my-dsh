@@ -372,18 +372,6 @@ if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?
   process.exit(1)
 }
 mark = out.length
-term.write('/trajectory\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Trajectory'), 'trajectory command owns the screen', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
-term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'mouse restored after trajectory command', deadline))) {
-  term.kill()
-  process.exit(1)
-}
-mark = out.length
 term.write('\x1b')
 await sleep(100)
 term.write('\x1b')

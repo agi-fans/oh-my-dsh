@@ -8,19 +8,20 @@ describe('runner managed children on EOF', () => {
     const ctx = new Context()
     const settlement = Promise.withResolvers<boolean>()
     const waitForChildren = vi.fn(() => settlement.promise)
-    const disable = vi.fn(), exit = vi.fn()
+    const exit = vi.fn()
     const off = () => () => {}
     ctx.provide('tui', { readInput: async () => null, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
     ctx.provide('omdshSession', { start: async () => {}, agent: { whenIdle: async () => {} } } as never)
     ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
-    ctx.provide('omdshLoop', { disable } as never)
     ctx.provide('subagents', { waitForChildren } as never)
     ctx.provide('appExit', exit)
     try {
       const fiber = await ctx.plugin(runner)
       await vi.waitFor(() => { expect(waitForChildren).toHaveBeenCalledOnce() })
       await fiber.dispose()
-      await vi.waitFor(() => { expect(disable).toHaveBeenCalledOnce() })
+      // The runner owns no resend loop any more, so unloading only has to
+      // release the reader and leave the host alive.
+      await new Promise(resolve => setImmediate(resolve))
       expect(exit).not.toHaveBeenCalled()
       settlement.resolve(true)
       await new Promise(resolve => setImmediate(resolve))

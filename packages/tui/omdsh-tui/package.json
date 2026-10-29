@@ -82,10 +82,6 @@
       "types": "./lib/commands/steer.d.ts",
       "default": "./lib/commands/steer.js"
     },
-    "./command-loop": {
-      "types": "./lib/commands/loop.d.ts",
-      "default": "./lib/commands/loop.js"
-    },
     "./command-model": {
       "types": "./lib/commands/model.d.ts",
       "default": "./lib/commands/model.js"
@@ -97,10 +93,6 @@
     "./command-jobs": {
       "types": "./lib/commands/jobs.d.ts",
       "default": "./lib/commands/jobs.js"
-    },
-    "./command-schedule": {
-      "types": "./lib/commands/schedule.d.ts",
-      "default": "./lib/commands/schedule.js"
     },
     "./model-readiness": {
       "types": "./lib/session/model-readiness.d.ts",
@@ -118,10 +110,6 @@
       "types": "./lib/commands/export.d.ts",
       "default": "./lib/commands/export.js"
     },
-    "./command-trajectory": {
-      "types": "./lib/commands/trajectory.d.ts",
-      "default": "./lib/commands/trajectory.js"
-    },
     "./command-integrations": {
       "types": "./lib/commands/integrations.d.ts",
       "default": "./lib/commands/integrations.js"
@@ -131,10 +119,6 @@
       "default": "./lib/runtime/startup-notices.js"
     },
     "./package.json": "./package.json",
-    "./command-plugins": {
-      "types": "./lib/commands/plugins.d.ts",
-      "default": "./lib/commands/plugins.js"
-    },
     "./subagent-model-selection": {
       "types": "./lib/runtime/subagent-model-selection.d.ts",
       "default": "./lib/runtime/subagent-model-selection.js"
@@ -146,10 +130,6 @@
     "./command-files": {
       "types": "./lib/commands/files.d.ts",
       "default": "./lib/commands/files.js"
-    },
-    "./command-worktree": {
-      "types": "./lib/commands/worktree.d.ts",
-      "default": "./lib/commands/worktree.js"
     },
     "./hook-settings": {
       "types": "./lib/runtime/hook-settings.d.ts",

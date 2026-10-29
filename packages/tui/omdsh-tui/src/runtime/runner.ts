@@ -16,11 +16,10 @@ import type { TuiService } from '../definition.ts'
 import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image-paste.ts'
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
-import type {} from '../commands/loop.ts'
 import { composerShellCommand, composerShellShare, runComposerShell } from './composer-shell.ts'
 
 export const name = 'omdsh-runner'
-export const inject = ['tui', 'omdshSession', 'omdshStartup', 'omdshLoop']
+export const inject = ['tui', 'omdshSession', 'omdshStartup']
 
 function fail(error: unknown, exit: (code: number) => void): void {
   console.error('omdsh: ' + (error instanceof Error ? error.message : String(error)))
@@ -31,7 +30,6 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   await ctx.get('loader')?.await()
   const controller = ctx.get('omdshSession')
   if (controller === undefined) return
-  const loop = ctx.get('omdshLoop')
 
   await controller.start()
   // The unmount may have landed while startup was pending; nothing may start
@@ -50,7 +48,6 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
     }
     if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
-    loop?.pause(controller.agent)
     controller.agent?.cancel({ kind: 'user' })
   })
   let queueEditInFlight = false
@@ -86,8 +83,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         if (!operation.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
       } finally {
         operation = undefined
-        loop?.syncAgent(controller.agent)
-      }
+        }
     } else if (args.length > 0) {
       await controller.send(args.join(' '))
     }
@@ -113,7 +109,6 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         } finally {
           shellActive = false
           operation = undefined
-          loop?.syncAgent(controller.agent)
         }
       } else if (!submission.literal && !submission.files?.length && looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
@@ -131,13 +126,13 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           }
         } finally {
           operation = undefined
-          loop?.syncAgent(controller.agent)
         }
       } else {
         try {
-          const agent = controller.agent
-          const handledByLoop = agent === undefined ? false : await loop?.submit(submission, agent) ?? false
-          if (!handledByLoop) await controller.send(submission)
+          // `/loop` used to intercept submissions here. The command is gone: a
+          // repeated prompt is what the agent's own turns are for, and a
+          // process-local resender could run unattended through a token budget.
+          await controller.send(submission)
         } catch (error: unknown) {
           tui.restoreInput(submission)
           tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
@@ -169,7 +164,6 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   } finally {
     cancelled.removeEventListener('abort', onCancelled)
     operation?.abort(new Error('runner disposed'))
-    loop?.disable()
     offQueueEdit()
     offRewind()
     offInterrupt()

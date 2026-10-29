@@ -737,17 +737,11 @@
   - id: tui-command-session
     name: '@agi-fans/dsh-tui/command-session'
 
-  - id: tui-command-worktree
-    name: '@agi-fans/dsh-tui/command-worktree'
-
   - id: tui-command-session-configuration
     name: '@agi-fans/dsh-tui/command-session-configuration'
 
   - id: tui-command-steer
     name: '@agi-fans/dsh-tui/command-steer'
-
-  - id: tui-command-loop
-    name: '@agi-fans/dsh-tui/command-loop'
 
   - id: tui-command-model
     name: '@agi-fans/dsh-tui/command-model'
@@ -761,20 +755,11 @@
   - id: tui-command-diff
     name: '@agi-fans/dsh-tui/command-diff'
 
-  - id: tui-command-trajectory
-    name: '@agi-fans/dsh-tui/command-trajectory'
-
   - id: tui-command-integrations
     name: '@agi-fans/dsh-tui/command-integrations'
 
-  - id: tui-command-plugins
-    name: '@agi-fans/dsh-tui/command-plugins'
-
   - id: tui-command-jobs
     name: '@agi-fans/dsh-tui/command-jobs'
-
-  - id: tui-command-schedule
-    name: '@agi-fans/dsh-tui/command-schedule'
 
   - id: tui-startup-notices
     name: '@agi-fans/dsh-tui/startup-notices'

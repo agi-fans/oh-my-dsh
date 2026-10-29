@@ -31,7 +31,6 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/login` | Sign in to a provider: a catalog entry, an API key, a DeepSeek account browser sign-in (or an existing shared grant), or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove a file-stored provider credential or sign out the shared DeepSeek account; environment-owned values are left untouched. |
 | `/settings` | Open Interface, Agent, Tools, Status line, Integrations and Advanced settings. Alias: `/set`. |
-| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them. Installation can be cancelled before application. |
 
 ### `/model`
 
@@ -53,7 +52,6 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/steer <message>` | Guide the active turn before its next model step. |
 | `/btw <question>` | Ask a separate question from the current committed conversation snapshot, answered in a pane above the composer. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
-| `/loop [count\|duration] [prompt]` | Repeat a prompt after every completed turn: a count or a duration repeats a fixed number of times or until the time elapses, and a bare count makes the next composer message the repeated prompt. Run `/loop` again to disable it. See [Guide an active turn](tutorials/guide-a-turn.md). |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
 | `/compact` | Compact older conversation history. |
@@ -70,19 +68,16 @@ The answer streams into a pane docked above the composer while the consultation 
 | Command | What it does |
 |---|---|
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
-| `/trajectory` | Open the event ledger: Turn and Step grouping, live following, search, folding, timings, token usage, and tool payloads. Requires an interactive terminal. |
 | `/advisor [codex\|claude] [question]` | Request an independent opinion from an installed native advisor inline in the transcript. The advisor chosen in Settings decides which model is reached, so `/advisor <question>` asks only the question; naming a provider overrides that choice for one request. No advisor is configured by default, and the command points at the setting instead of consulting when none is. Automatically supplies a read-only workspace snapshot and records the advice for follow-up turns. See [Subagents and delegation](subagents.md#independent-advice). |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
 | `/tools` | List the tools visible to the agent as a transcript result. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
-| `/schedule` | List this session's durable reminders in the composer card, edit a name or instruction, open retained delivery records, or delete one. Each row answers how soon it fires (`in 12m`) alongside the absolute instant, and a reminder that can no longer fire reads `ended` instead of `next`. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
 
 ## Files and terminals
 
 | Command | What it does |
 |---|---|
 | `/attach [path]` | Stream a file into durable storage and stage a reference in the composer without submitting a message. Without a path, open this session’s stored attachments, where **Add a file** stages another one. |
-| `/worktree [return]` | Browse and switch Git worktrees. Enable the Git Worktrees bundle in `/plugins` to create a checkout; `return` restores the session’s original directory. |
 
 Type `!command` in the composer to run a line in a persistent Shell without adding output to model context, or `!!command` to share the output to the conversation on return; see [Composer Shell](keyboard.md#composer-shell).
 
@@ -110,7 +105,6 @@ The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or
 |---|---|
 | `/copy [text\|code\|cmd]` | Copy the last assistant reply, the last fenced code block, or the last bash command; without an argument, open the copy picker, which also lists a finished `/btw` answer. `command` is accepted for `cmd`. |
 | `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
-| `/import <archive.zip>` | Import a portable `/export archive` ZIP bundle into local storage and resume its root session. |
 | `/changelog [full]` | Show recent release notes, or the complete packaged release history with `full`. |
 
 ## Skills

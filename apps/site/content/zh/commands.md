@@ -31,7 +31,6 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/login` | 登录 provider：目录条目、API key、DeepSeek 账户浏览器登录（或已共享的授权），或自定义 provider（自带 id、base URL、协议与模型 id）。 |
 | `/logout` | 删除存储在文件中的提供方凭据，或登出共享的 DeepSeek 账户；环境变量提供的值保持不变。 |
 | `/settings` | 打开 Interface、Agent、Tools、Integrations、Status line 与 Advanced 设置。别名：`/set`。 |
-| `/plugins` | 查看 Profile 插件和 bundle，启用、停用、安装或移除。安装可在应用前取消。 |
 
 ### `/model`
 
@@ -53,7 +52,6 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | `/steer <message>` | 在活动回合的下一个模型步骤前引导它。 |
 | `/btw <question>` | 基于当前已提交的会话快照另问一个问题，回答显示在 composer 上方的面板里。 |
 | `/questions` | 回答限时等待后留下的问题，也可用于恢复的会话。 |
-| `/loop [count\|duration] [prompt]` | 在每个完成的回合后重复一条提示：count 或 duration 决定重复次数或持续时长；只给 count 时，下一条 composer 消息会成为被重复的提示。再次运行 `/loop` 关闭。见[引导运行中的任务](tutorials/guide-a-turn.md)。 |
 | `/plan [off\|<message>]` | 进入 Plan 模式并可同时发送首个规划请求，`off` 直接退出。composer 中的图片会随规划请求一起发送。 |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | 为会话设置或查看长期目标。 |
 | `/compact` | 压缩较早的对话历史。 |
@@ -70,19 +68,16 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 | 命令 | 作用 |
 |---|---|
 | `/context` | 在转录中打印基于 projection 的上下文用量分解，内容会保留在转录里。 |
-| `/trajectory` | 打开事件账本：Turn 与 Step 分组、实时跟随、搜索、折叠、耗时、Token 用量与工具载荷。需要交互式终端。 |
 | `/advisor [codex\|claude] [question]` | 在主转录流中直接向已安装的原生顾问请求独立意见。在 Settings 里选定的顾问决定访问哪个模型，因此 `/advisor <question>` 只问问题；显式写出 provider 会覆盖该次请求的选择。默认没有配置顾问，未配置时命令指向设置而不是发起咨询。自动附带只读工作区概览，并将顾问意见写入当前会话上下文以便后续追问。见[子智能体与委派](subagents.md#独立咨询)。 |
 | `/diff [path\|turn [number]]` | 交互模式逐文件查看当前 Git 改动；`turn` 查看保留的回合快照，不带编号时取最近一次。非交互模式保留文字汇总；不会暂存或提交。 |
 | `/tools` | 以转录结果的形式列出 agent 可见的工具。 |
 | `/mcp` | 在主转录流中按服务器分组显示 MCP 插件注册与可用工具表格；不验证连接健康状态或认证。 |
-| `/schedule` | 在 composer 卡片中列出本会话的持久提醒，修改名称或指令，查看交付记录，或删除提醒。每行在绝对时间之外回答还有多久触发（`in 12m`），已无法再次触发的提醒显示 `ended` 而不是 `next`。创建提醒与调整时间由模型侧的 `schedule_*` 工具完成。 |
 
 ## 文件与终端
 
 | 命令 | 作用 |
 |---|---|
 | `/attach [path]` | 流式保存文件，并把引用暂存到 composer，不会直接发送消息；不带路径时列出本会话已存储的附件，其中 **Add a file** 可再暂存一个文件。 |
-| `/worktree [return]` | 浏览并切换 Git worktree。在 `/plugins` 启用 Git Worktrees bundle 后可创建 checkout；`return` 回到会话的原始目录。 |
 
 在输入框中键入 `!command`，即可在持久 Shell 中执行一行命令且输出不会自动进入模型上下文；键入 `!!command` 则在返回时将输出分享到主对话流与会话上下文；详见 [Composer Shell](keyboard.md#composer-shell)。
 
@@ -110,7 +105,6 @@ PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attach` 的列表�
 |---|---|
 | `/copy [text\|code\|cmd]` | 复制最近的助手回复、最近的围栏代码块或最近的 bash 命令；不带参数时打开复制选择器，其中也会列出已完成的 `/btw` 回答。`command` 与 `cmd` 等价。 |
 | `/export [html\|markdown\|archive] [path]` | 导出 Markdown/HTML 转录，或包含逻辑日志、子会话及原始附件的 ZIP。 |
-| `/import <archive.zip>` | 将 `/export archive` 导出的便携式 ZIP 归档导入本地存储，并恢复其根会话。 |
 | `/changelog [full]` | 显示最近的版本说明；`full` 显示打包的完整历史。 |
 
 ## Skills

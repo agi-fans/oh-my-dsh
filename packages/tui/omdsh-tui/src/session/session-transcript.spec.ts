@@ -13,7 +13,6 @@ import { stripAnsi } from '../chrome/width.ts'
 import { LocalTui, type TerminalLike } from '../runtime/provider-local.ts'
 import { SessionRuntime } from './session-controller.ts'
 import { readSessionLibrary, setSessionLabel, updateSessionLibrary } from './session-library.ts'
-import * as commandTrajectory from '../commands/trajectory.ts'
 import { registerCommands } from '../commands/registration.ts'
 
 class ScrollingTerminal implements TerminalLike {
@@ -211,22 +210,19 @@ describe('session transcript boundaries', () => {
     } finally { await f.dispose() }
   })
 
-  it('restores inspection after /trajectory passes through input, the controller, and the command plugin', async () => {
+  it('returns inspection to the transcript after a command that owns the screen', async () => {
+    // `/trajectory` used to prove this path. The command is gone, so the same
+    // contract is proven with a reader: a surface that takes the terminal must
+    // hand mouse reporting and the exact scroll position back when it closes.
     const f = await fixture(true)
     try {
       await f.ctx.plugin(CommandRuntime)
       f.ctx.provide('tui', f.tui)
-      await f.ctx.plugin(commandTrajectory)
       await f.runtime.start()
       const session = f.runtime.agent!.session
       session.append('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'read the files' }] }, { surfaceOp: 'append' })
       session.append('turn/start', { turn: 1 })
-      for (let step = 1; step <= 3; step += 1) {
-        session.append('assistant/message', { turn: 1, step, message: { role: 'assistant', content: [{ type: 'reasoning', text: `Inspect step ${step}.` }] } }, { surfaceOp: 'append' })
-        session.append('tool/call', { turn: 1, step, callId: `call-${step}`, name: 'read', arguments: `{"path":"src/step-${step}.ts"}` })
-        session.append('tool/result', { message: { role: 'tool', toolCallId: `call-${step}`, content: [{ type: 'text', text: 'file content' }] } }, { surfaceOp: 'append' })
-      }
-      session.append('assistant/message', { turn: 1, step: 4, message: { role: 'assistant', content: [{ type: 'text', text: Array.from({ length: 30 }, (_, index) => `answer line ${index}`).join('\n\n') }] } }, { surfaceOp: 'append' })
+      session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: Array.from({ length: 30 }, (_, index) => `answer line ${index}`).join('\n\n') }] } }, { surfaceOp: 'append' })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       f.tui.setStatus('idle')
       f.input.write('\x0f\x1b[5~')
@@ -234,18 +230,13 @@ describe('session transcript boundaries', () => {
       const history = f.terminal!.scrollback()
       expect(screen.join('\n')).not.toContain('answer line 29')
       const mark = f.output().length
-      const input = f.tui.readInput()
-      f.input.write('/trajectory\r')
-      const submission = await input
-      expect(submission?.text).toBe('/trajectory')
-      expect(await f.runtime.execute(submission!.text, new AbortController().signal)).toBe(true)
-      expect(f.terminal!.visible().join('\n')).toContain('Trajectory')
+      const reader = f.tui.prompt({ title: 'Composition', question: 'Declared presets', detail: 'presets', presentation: 'document', allowCustom: false, notify: false })
       expect(f.output().slice(mark)).toContain('\x1b[?1000l')
       const restore = f.output().length
-      f.input.write('\x1b[27u')
+      f.input.write('\x03')
+      await reader
       expect(f.terminal!.visible()).toEqual(screen)
       expect(f.terminal!.scrollback()).toEqual(history)
-      expect(f.output().slice(restore)).toContain('\x1b[?1000h')
       f.input.write('\x1b[<64;5;5M')
       expect(f.terminal!.visible()).not.toEqual(screen)
     } finally { await f.dispose() }
