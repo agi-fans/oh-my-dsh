@@ -59,10 +59,25 @@ export type TuiStatus = 'idle' | 'running'
 export type TuiTranscriptReplacement = 'initial' | 'new' | 'open' | 'refresh'
 
 /** Command metadata contributed by the active agent's plugin scope. */
+/** One candidate a command offers for its own argument. */
+export interface TuiArgumentOption {
+  value: string
+  description?: string
+}
+
 export interface TuiCommand {
   name: string
   description: string
   inputHint?: string
+  /**
+   * Candidates for this command's argument, read as the reader types.
+   *
+   * A command whose arguments are enumerable offers them here instead of opening
+   * a picker: `/model cl` completes to the models that match, and Enter runs the
+   * line the reader is already writing. This is the omdsh shape of pi's
+   * `getArgumentCompletions`.
+   */
+  complete?: (prefix: string) => readonly TuiArgumentOption[]
 }
 
 /** Whether direct output should interrupt transcript browsing. */

@@ -3995,6 +3995,7 @@ export class LocalTui implements TuiService {
         name: command.name,
         description: command.description,
         ...(command.inputHint === undefined ? {} : { inputHint: command.inputHint }),
+        ...(command.complete === undefined ? {} : { complete: command.complete }),
       }))
     return [...BUILTIN_SLASH_COMMANDS, ...runtime]
   }

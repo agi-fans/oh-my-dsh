@@ -475,6 +475,14 @@ export class SessionRuntime {
   #recent: TuiRecentSession[] = []
   #archivedSessions = new Set<string>()
   #skillCommands: TuiCommand[] = []
+  /**
+   * Live argument vocabularies, keyed by command.
+   *
+   * A snapshot rather than a callback into the services: completion runs on every
+   * keystroke and must not await a catalog. It is rebuilt whenever the commands
+   * are pushed, which is also when a model or provider list can have changed.
+   */
+  #argumentOptions = new Map<string, readonly { value: string; description?: string }[]>()
   #started = false
   readonly #retired: AgentHandle[] = []
   // Weak: deduplication must not retain disposed session graphs.
@@ -1151,6 +1159,39 @@ export class SessionRuntime {
     })
   }
 
+  /**
+   * Rebuild the argument vocabularies the composer completes.
+   *
+   * A snapshot, because completion runs per keystroke: `/model provider/model`,
+   * `/resume <id>` and `/login <provider>` are all names that already exist in
+   * this process, so the reader types toward them instead of opening a picker.
+   */
+  async #refreshArgumentOptions(): Promise<void> {
+    const options = new Map<string, { value: string; description?: string }[]>()
+    const llm = this.#ctx.get('llm')
+    if (llm !== undefined) {
+      const models: { value: string; description?: string }[] = []
+      const providers: { value: string; description?: string }[] = []
+      for (const provider of llm.listProviders()) {
+        providers.push({ value: provider.id, ...(provider.name === undefined ? {} : { description: provider.name }) })
+        for (const model of await llm.listModels(provider.id)) {
+          models.push({
+            value: `${provider.id}/${model.id}`,
+            ...(model.name === undefined ? {} : { description: model.name }),
+          })
+        }
+      }
+      options.set('model', models)
+      options.set('login', providers)
+    }
+    options.set('resume', this.#recent.map(row => ({
+      value: row.id,
+      ...(row.title === undefined ? {} : { description: row.title }),
+    })))
+    this.#argumentOptions = options
+    this.#pushCommands()
+  }
+
   async refreshRecent(): Promise<void> {
     // Coalesce concurrent callers: the recent list is one snapshot, and a
     // burst of title/status events must not queue a read of every stored log.
@@ -1173,6 +1214,9 @@ export class SessionRuntime {
 
   async #refreshRecentNow(): Promise<void> {
     this.#archivedSessions = new Set(readSessionLibrary(this.#libraryPath).archived)
+    // The recent list is what `/resume` completes from, so a refresh of one is a
+    // refresh of the other. Deferred to avoid recursing through #pushCommands.
+    queueMicrotask(() => { void this.#refreshArgumentOptions().catch(() => {}) })
     const persistence = this.#ctx.get('sessionPersistence')
     if (persistence === undefined) {
       this.#recent = []
@@ -1410,11 +1454,15 @@ export class SessionRuntime {
   #pushCommands(): void {
     const agent = this.agent
     const runtime = agent === undefined ? [] : (this.#ctx.get('commands')?.list(agent) ?? [])
-    const commands: TuiCommand[] = runtime.map(command => ({
-      name: command.name,
-      description: command.description,
-      ...(command.input?.hint === undefined ? {} : { inputHint: command.input.hint }),
-    }))
+    const commands: TuiCommand[] = runtime.map(command => {
+      const options = this.#argumentOptions.get(command.name)
+      return {
+        name: command.name,
+        description: command.description,
+        ...(command.input?.hint === undefined ? {} : { inputHint: command.input.hint }),
+        ...(options === undefined ? {} : { complete: (prefix: string) => matchArgumentOptions(options, prefix) }),
+      }
+    })
     const names = new Set(commands.map(command => command.name))
     for (const skill of this.#skillCommands) {
       if (names.has(skill.name)) continue
@@ -1674,4 +1722,15 @@ export class SessionRuntime {
     catch (error) { this.#ctx.logger.warn(error) }
     finally { await Promise.allSettled(handles.map(handle => handle.dispose())) }
   }
+}
+
+/** Candidates for an argument prefix, matched the way the command list matches. */
+export function matchArgumentOptions(
+  options: readonly { value: string; description?: string }[],
+  prefix: string,
+): readonly { value: string; description?: string }[] {
+  const lower = prefix.trim().toLowerCase()
+  if (lower === '') return options
+  return options.filter(option => option.value.toLowerCase().includes(lower)
+    || (option.description ?? '').toLowerCase().includes(lower))
 }

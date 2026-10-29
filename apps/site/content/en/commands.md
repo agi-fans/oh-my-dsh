@@ -4,7 +4,7 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 # Commands
 
-Command completion prioritizes common tasks and matches names, aliases and description keywords. `/help` groups commands by task; third-party contributions remain discoverable.
+Command completion prioritizes common tasks and matches names, aliases and description keywords. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` groups commands by task; third-party contributions remain discoverable.
 
 Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` to print the command list plus the essential shortcuts into the conversation (`/help full` adds the complete keyboard catalog); a result longer than twelve rows folds to one line, and `Ctrl+O` opens it. The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups the catalog by user task, including extension commands. Inside a document reader — file recovery, plugin settings, session composition — `/` opens a find line over the rendered rows: the count updates as you type, Enter jumps to the first hit, and Ctrl+N/Ctrl+P walk them. Command results, including `/help` and `/changelog`, stay in the conversation instead, folded when long.
 

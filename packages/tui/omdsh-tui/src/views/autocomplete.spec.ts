@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { slashSuggestions } from './autocomplete.ts'
 import {
   applySlashCompletion,
   COMMAND_GROUPS,
@@ -285,4 +286,27 @@ it('assigns every shipped TUI command to a task group', () => {
       .map(match => match[1]!))
   const assigned = new Set(COMMAND_GROUPS.flatMap(group => group.names))
   expect([...new Set(names)].filter(name => !assigned.has(name)).sort()).toEqual([])
+})
+
+describe('argument completion from live state', () => {
+  const commands = [
+    { name: 'model', description: 'Pick a model', complete: (prefix: string) => [
+      { value: 'deepseek/flash', description: 'DeepSeek Flash' },
+      { value: 'anthropic/opus', description: 'Claude Opus' },
+    ].filter(option => option.value.includes(prefix.toLowerCase())) },
+  ]
+
+  it('completes the argument the reader is typing, without a picker', () => {
+    const result = slashSuggestions('/model deep', 11, commands)
+    expect(result?.items.map(item => item.value)).toEqual(['deepseek/flash'])
+    expect(result?.items[0]).toMatchObject({ kind: 'argument' })
+  })
+
+  it('offers every candidate for an empty prefix', () => {
+    expect(slashSuggestions('/model ', 7, commands)?.items).toHaveLength(2)
+  })
+
+  it('offers nothing when the prefix matches nothing, so the line stays the reader\'s', () => {
+    expect(slashSuggestions('/model zzz', 10, commands)).toBeNull()
+  })
 })

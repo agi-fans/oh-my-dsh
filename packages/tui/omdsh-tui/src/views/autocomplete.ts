@@ -31,6 +31,14 @@ export interface SlashCommand {
   arguments?: readonly SlashArgument[]
   /** Free-form argument usage contributed by a runtime command plugin. */
   inputHint?: string
+  /**
+   * Live candidates for this command's argument.
+   *
+   * Static `arguments` describe a fixed vocabulary; this reports one that lives
+   * in runtime state — the models on offer, the sessions that exist — so the
+   * reader completes the line instead of opening a picker to choose from it.
+   */
+  complete?: (prefix: string) => readonly { value: string; description?: string }[]
 }
 
 /** One ranked suggestion shown in the popup. */
@@ -256,9 +264,26 @@ export function slashSuggestions(
     return { items, prefix: before }
   }
   const command = resolveSlashCommand(token.slice(1, space), commands)
+  const prefix = token.slice(space + 1)
+  const lower = prefix.toLowerCase()
+  // A live vocabulary wins over a static one: the static list says what the
+  // argument means, the live one says what it can be right now.
+  if (command?.complete !== undefined) {
+    const items: AutocompleteItem[] = []
+    for (const option of command.complete(prefix)) {
+      if (!fuzzyMatch(lower, option.value.toLowerCase())) continue
+      items.push({
+        value: option.value,
+        label: option.value,
+        ...(option.description === undefined ? {} : { description: option.description }),
+        kind: 'argument',
+      })
+    }
+    return items.length === 0 ? null : { items, prefix: before }
+  }
   const args = command?.arguments
   if (args === undefined || args.length === 0) return null
-  const items = buildSlashArgumentCompletions(args, token.slice(space + 1).toLowerCase())
+  const items = buildSlashArgumentCompletions(args, lower)
   if (items.length === 0) return null
   return { items, prefix: before }
 }
