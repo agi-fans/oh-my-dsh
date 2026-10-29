@@ -43,11 +43,9 @@ describe('startup notices plugin', () => {
     await ctx.omdshStartup.afterSessionStart()
     expect(notice).toHaveBeenCalledWith("What's New · v0.3.0\n1 fix · /changelog for details")
     const result = await ctx.commands.execute(agent, '/changelog', [], new AbortController().signal)
-    expect(result?.result).toMatchObject({ kind: 'success' })
-    // Release notes open in the reading surface rather than the transcript.
-    const request = prompt.mock.calls[0]?.[0] as { presentation?: string; detail?: string; title?: string } | undefined
-    expect(request).toMatchObject({ title: 'Changelog', presentation: 'document' })
-    expect(request?.detail).toContain('## [0.3.0]')
+    // Release notes are output: they come back as text for the transcript to fold.
+    expect(prompt).not.toHaveBeenCalled()
+    expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('## [0.3.0]') })
 
     await ctx.fiber.dispose()
   })

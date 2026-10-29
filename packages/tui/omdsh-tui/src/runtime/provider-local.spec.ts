@@ -2893,30 +2893,25 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('lists agent tools on /tools in the reader', async () => {
+  it('lists agent tools as a transcript result', async () => {
+    // Output goes into the transcript, like every other command result.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     press(term, '/tools\r')
     await flushAsyncPaste()
-    expect(term.captured).toContain('omdsh · Tools')
-    expect(term.captured).toContain('0 active')
-    expect(term.captured).toContain('No tools are currently visible to the agent.')
-    // Leaving returns to the composer, so the list never becomes a session row.
-    term.captured = ''
-    press(term, '\x03')
-    await flushAsyncPaste()
-    expect(term.captured).not.toContain('No tools are currently visible')
+    expect(stripAnsi(term.captured)).toContain('No tools are currently visible')
     tui.setTools([
-      { name: 'bash', description: 'Run a shell command and return its complete output with COMPLETE_TAIL metadata for diagnostics.' },
+      { name: 'bash', description: 'Run a shell command.' },
       { name: 'fs', description: '' },
     ])
+    term.captured = ''
     press(term, '/tools\r')
     await flushAsyncPaste()
-    expect(term.captured).toContain('2 active')
-    expect(term.captured).toContain('Description')
-    expect(term.captured).toContain('bash')
-    expect(term.captured).toContain('Run a shell command')
-    expect(term.captured).toContain('No description provided.')
+    const listed = stripAnsi(term.captured)
+    expect(listed).toContain('bash')
+    expect(listed).toContain('Run a shell command')
+    // A result is not a mode: the composer never leaves.
+    expect(listed).toContain('🐳')
     tui.dispose()
   })
 
@@ -2999,63 +2994,66 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('opens /help in the reading surface instead of the transcript', async () => {
-    // Reference material printed into the transcript pushed the conversation into
-    // scrollback and then vanished on resume; it belongs in a surface that closes.
+  it('folds /help into the transcript and opens it with Ctrl+O', async () => {
+    // Reference is output: sixty rows fold behind one line rather than taking the
+    // frame, which is the shape a long tool result already uses.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     press(term, '/help\r')
     await flushAsyncPaste()
-    expect(term.captured).toContain('omdsh · Help')
-    expect(term.captured).toContain('/settings, /set')
-    for (let index = 0; index < 8; index += 1) press(term, '\x1b[6~')
-    expect(term.captured).toContain('Essential Shortcuts')
-    // Closing leaves a composer, not a transcript of help text. Ctrl+C is one
-    // byte, so it cannot be read as the start of an Escape sequence.
+    const folded = stripAnsi(term.captured)
+    expect(folded).toContain('Commands ·')
+    expect(folded).toMatch(/… \d+ more lines · Ctrl\+O: Expand/u)
+    expect(folded).toContain('🐳')
     term.captured = ''
-    press(term, '\x03')
+    press(term, '\x0f')
     await flushAsyncPaste()
-    expect(term.captured).not.toContain('Essential Shortcuts')
+    expect(stripAnsi(term.captured)).toContain('Essential Shortcuts')
     tui.dispose()
   })
 
   it('finds inside a rendered document, which has no source to search', async () => {
-    // `/help` is sixty rows of grouped commands. Without find it was the one
-    // surface a reader could not look anything up in.
+    // Documents that are not transcript output still need find: file recovery,
+    // plugin settings, session composition. `/changelog` used to prove the path;
+    // it is a transcript result now.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    press(term, '/help\r')
+    const pending = tui.prompt({
+      title: 'Composition',
+      question: 'Declared presets',
+      detail: 'Presets\n\n- settings preset\n- other preset',
+      options: [{ label: 'Close', value: 'close' }],
+      presentation: 'document',
+      allowCustom: false,
+      notify: false,
+    } as never)
     await flushAsyncPaste()
     term.captured = ''
     press(term, '/')
     press(term, 'settings')
     await flushAsyncPaste()
-    // The query is live, so the count is known before Enter.
     expect(stripAnsi(term.captured)).toContain('Find: settings')
     term.captured = ''
     press(term, '\r')
     await flushAsyncPaste()
-    const committed = stripAnsi(term.captured)
-    expect(committed).toContain('/settings, /set')
-    expect(committed).toMatch(/1\/\d+ matching rows · “settings”/u)
-    // Ctrl+N walks to the next hit without leaving the page.
-    term.captured = ''
-    press(term, '\x0e')
-    await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toMatch(/2\/\d+ matching rows/u)
+    expect(stripAnsi(term.captured)).toMatch(/1\/\d+ matching rows · “settings”/u)
+    press(term, '\x03')
+    await pending
     tui.dispose()
   })
 
-  it('opens /help full with every shortcut in the same surface', async () => {
+  it('gives /help full the whole shortcut catalog behind the same fold', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     press(term, '/help full\r')
     await flushAsyncPaste()
-    expect(term.captured).toContain('omdsh · Help')
-    for (let index = 0; index < 12; index += 1) press(term, '\x1b[6~')
-    expect(term.captured).toContain('Keyboard Shortcuts')
-    expect(term.captured).toContain('Navigation')
-    expect(term.captured).not.toContain('/hotkeys')
+    expect(stripAnsi(term.captured)).toMatch(/… \d+ more lines · Ctrl\+O: Expand/u)
+    term.captured = ''
+    press(term, '\x0f')
+    await flushAsyncPaste()
+    const opened = stripAnsi(term.captured)
+    expect(opened).toContain('Keyboard Shortcuts')
+    expect(opened).toContain('Navigation')
     tui.dispose()
   })
 

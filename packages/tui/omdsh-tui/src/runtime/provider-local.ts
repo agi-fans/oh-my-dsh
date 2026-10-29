@@ -149,7 +149,6 @@ import {
   updateAgentHub,
   type AgentHubState,
 } from '../views/agent-hub.ts'
-import { readPrompt } from '../prompt-intents.ts'
 import {
   applyEvent,
   applyStreamChunk,
@@ -581,6 +580,8 @@ export class LocalTui implements TuiService {
   #notificationPolicy: NotificationMode = 'off'
   #statusBar: ResolvedStatusBarConfig = resolveStatusBarConfig({ density: DEFAULT_STATUS_DENSITY, hidden: [] })
   #toolsExpanded = false
+  /** Command outputs the reader opened; the rest fold after their preview. */
+  #expandedOutputs = new Set<Block>()
   /**
    * The reader opened something with Ctrl+O or Alt+O and is reading it.
    *
@@ -2036,6 +2037,7 @@ export class LocalTui implements TuiService {
           },
         }),
         toolsExpanded: this.#toolsExpanded,
+        expandedOutputs: this.#expandedOutputs,
         expandedTools: this.#detailedToolIds(),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
@@ -3973,7 +3975,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (command.name === 'tools') {
-      void this.#runTools()
+      this.#runTools()
       return
     }
     if (args !== '' && args !== 'full') {
@@ -3981,7 +3983,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    void this.#runHelp(args === 'full')
+    this.#runHelp(args === 'full')
   }
 
 
@@ -4204,7 +4206,7 @@ export class LocalTui implements TuiService {
    * scrollback and vanished on resume, so the reader paid for it twice. It opens
    * in the reading surface instead, where it can be searched and left with Esc.
    */
-  async #runHelp(full: boolean): Promise<void> {
+  #runHelp(full: boolean): void {
     const text = [
       formatHelpText(this.#commands()),
       '',
@@ -4215,30 +4217,17 @@ export class LocalTui implements TuiService {
       full ? formatHotkeysText(this.#keybindings) : formatEssentialHotkeysText(this.#keybindings),
       ...(full ? [] : ['', 'Use `/help full` to view every keyboard shortcut.']),
     ].join('\n')
-    await this.prompt(readPrompt({
-      title: 'Help',
-      question: full ? 'Commands and every shortcut' : 'Commands and essential shortcuts',
-      detail: text,
-      cancelLabel: 'Close',
-      // Reference yields to anything that needs the reader: an approval or a
-      // question must not fail because a help page happened to be open.
-      onSuperseded: () => {},
-    }))
+    this.commandOutput('help', text, { focus: true })
   }
 
   /**
    * Tools are reference, like the command list: a table of names and
    * descriptions the reader consults and dismisses, not a step of the work.
    */
-  async #runTools(): Promise<void> {
-    this.#followTail()
-    await this.prompt(readPrompt({
-      title: 'Tools',
-      question: `${this.#tools.length} active`,
-      detail: formatToolsText(this.#tools),
-      cancelLabel: 'Close',
-      onSuperseded: () => {},
-    }))
+  #runTools(): void {
+    // The first row of a command result is its heading, so a table needs one.
+    const heading = `Tools · ${this.#tools.length} active`
+    this.commandOutput('tools', `${heading}\n\n${formatToolsText(this.#tools)}`, { focus: true })
   }
 
   /** Resolve a configured action for one key id, tolerating camelCase ids. */
@@ -4678,6 +4667,19 @@ export class LocalTui implements TuiService {
       return
     }
     const anchor = this.#viewportBlock()
+    /**
+     * A long command result folds like a tool card, and this is the key that
+     * opens it. It is answered before the run lookup because a command's output
+     * is not a run: the reader aimed at those rows, not at the run above them.
+     */
+    const anchored = anchor === undefined ? undefined : this.#state.blocks[anchor]
+    if (anchor !== undefined && anchored?.kind === 'commandOutput') {
+      if (this.#expandedOutputs.has(anchored)) this.#expandedOutputs.delete(anchored)
+      else this.#expandedOutputs.add(anchored)
+      this.#inspect(anchor)
+      this.#render()
+      return
+    }
     const groups = turnGroups(this.#state).filter(item => !item.live)
     // The answer, changed-file record, and following notices still address
     // their turn when the reader is following the tail.
@@ -4780,6 +4782,7 @@ export class LocalTui implements TuiService {
       ...(this.#colorDepth === undefined ? {} : { colorDepth: this.#colorDepth }),
       mathMode: this.#mathMode,
       toolsExpanded: this.#toolsExpanded,
+      expandedOutputs: this.#expandedOutputs,
       hideThinking: this.#hideThinking,
       expandedTools: this.#detailedToolIds(),
       ...(this.#openedGroups === undefined ? {} : { openedGroups: this.#openedGroups }),

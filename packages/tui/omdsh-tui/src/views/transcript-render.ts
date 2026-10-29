@@ -195,6 +195,8 @@ export interface ViewOptions {
   aside?: AsidePanel
   /** Legacy full-output override for direct callers and the tool catalog. */
   toolsExpanded?: boolean
+  /** Command outputs the reader expanded; the rest fold after the preview. */
+  expandedOutputs?: ReadonlySet<Block>
   /** Tool calls whose complete inputs and results are visible. */
   expandedTools?: ReadonlySet<string>
   /** Effective application binding used in preview hints. */
@@ -847,7 +849,10 @@ export function blockLines(
   theme: Theme,
   width: number,
   { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O', mathMode = 'auto', mermaidMode = 'auto',
-    hideThinking = false, thinkingOpen = false }: {
+    hideThinking = false, thinkingOpen = false, expandedOutput = false, outputExpandKey = 'Ctrl+O' }: {
+    expandedOutput?: boolean
+    /** Key that opens a folded command result; it is not the per-call detail key. */
+    outputExpandKey?: string
     toolsExpanded?: boolean
     omitReasoning?: boolean
     toolDetailsKey?: string
@@ -883,7 +888,13 @@ export function blockLines(
     return toolBlockLines(block, theme, width, toolsExpanded ? 'full' : 'preview', toolDetailsKey)
   }
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
-  if (block.kind === 'commandOutput') return renderCommandOutput(block.command, block.text, theme, width, block.surface)
+  if (block.kind === 'commandOutput') {
+    return renderCommandOutput(block.command, block.text, theme, width, {
+      ...(block.surface === undefined ? {} : { surface: block.surface }),
+      expanded: expandedOutput,
+      ...(expandedOutput ? {} : { expandKey: outputExpandKey }),
+    })
+  }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]
@@ -1048,6 +1059,8 @@ interface TranscriptBodyCache {
   mathMode: import('../chrome/math.ts').MathMode | undefined
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
+  /** Command outputs the reader opened, in block order. */
+  expandedOutputs: string
   turnDetailsKey: string | undefined
   width: number
   colors: boolean
@@ -1100,6 +1113,8 @@ interface BlockLinesCache {
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
   toolDetails: boolean
+  /** A command output the reader opened, so its own rows must be recomputed. */
+  expandedOutput: boolean
   width: number
   colors: boolean
   depth: ColorDepth
@@ -1139,7 +1154,8 @@ function cachedBlockLines(
     && cached.mathMode === options.mathMode
     && cached.mermaidMode === options.mermaidMode
     && cached.toolDetailsKey === options.toolDetailsKey
-    && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)) return cached.lines
+    && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
+    && cached.expandedOutput === (options.expandedOutputs?.has(block) === true)) return cached.lines
   const toolDetails = block.kind === 'tool' && options.expandedTools?.has(block.callId) === true
   const lines = block.kind === 'tool' && toolDetails
     ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
@@ -1152,6 +1168,8 @@ function cachedBlockLines(
         mermaidMode: options.mermaidMode ?? 'auto',
         hideThinking: options.hideThinking === true,
         thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
+        expandedOutput: options.expandedOutputs?.has(block) === true,
+        outputExpandKey: options.turnDetailsKey ?? 'Ctrl+O',
       },
     )
   blockLinesCache.set(block, {
@@ -1159,6 +1177,7 @@ function cachedBlockLines(
     mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
     toolDetails,
+    expandedOutput: options.expandedOutputs?.has(block) === true,
     width: options.width,
     colors: options.colors,
     depth,
@@ -1463,6 +1482,9 @@ function renderTranscriptBody(
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const hideThinking = options.hideThinking === true
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
+  // A command output the reader opened paints different rows, so the body cache
+  // has to see it; without this the frame is reused and the key looks dead.
+  const expandedOutputs = [...(options.expandedOutputs ?? [])].join('\u0000')
   const themeName = options.themeName ?? 'dark'
   const depth = colorDepthOf(options)
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
@@ -1497,6 +1519,7 @@ function renderTranscriptBody(
     && cached.expandedReasoning === expandedReasoning
     && cached.hideThinking === hideThinking
     && cached.openedGroups === openedGroups
+    && cached.expandedOutputs === expandedOutputs
     && cached.toolDetailsKey === options.toolDetailsKey
     && cached.turnSpans === state.turnSpans
     && cached.turnDetailsKey === options.turnDetailsKey
@@ -1793,6 +1816,7 @@ function renderTranscriptBody(
     expandedReasoning,
     hideThinking,
     openedGroups,
+    expandedOutputs,
     searchKey,
     turnSpans: state.turnSpans,
     status: state.status,

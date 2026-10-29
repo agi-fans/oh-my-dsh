@@ -8,7 +8,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from '../commands/registration.ts'
 import type { TuiService } from '../definition.ts'
-import { readPrompt } from '../prompt-intents.ts'
 import { changelogText, resolveStartupChangelog } from '../session/release-notes.ts'
 import { APP_VERSION, PACKAGE_NAME } from '../session/package-metadata.ts'
 import { checkForUpdate, type UpdateCheckCache } from '../session/update-check.ts'
@@ -140,25 +139,14 @@ class StartupNotices implements OmdshStartupService {
   }
 }
 
-async function showChangelog(tui: TuiService, config: ResolvedConfig, invocation: CommandInvocation): Promise<CommandResult> {
+async function showChangelog(config: ResolvedConfig, invocation: CommandInvocation): Promise<CommandResult> {
   const input = invocation.rawInput.trim().toLowerCase()
   if (input !== '' && input !== 'full') return { kind: 'error', text: 'Usage: /changelog [full]' }
   try {
     const changelog = await readFile(config.changelogPath, 'utf8')
-    const text = changelogText(changelog, input === 'full')
-    // A pipe has no reader to open and no one to close it; the text is the answer.
-    if (tui.interactive !== true) return { kind: 'success', text }
-    // Release notes are reference, not conversation: the reader keeps 60 rows of
-    // them out of the transcript, where they pushed the session out of view.
-    await tui.prompt(readPrompt({
-      title: 'Changelog',
-      question: input === 'full' ? 'Every recorded release' : 'Recent releases',
-      detail: text,
-      cancelLabel: 'Close',
-      onSuperseded: () => {},
-      signal: invocation.signal,
-    }))
-    return { kind: 'success' }
+    // Release notes are output, so they belong in the transcript with the rest of
+    // it; a long one folds behind its first rows instead of taking the screen.
+    return { kind: 'success', text: changelogText(changelog, input === 'full') }
   } catch (error: unknown) {
     return { kind: 'error', text: 'Changelog unavailable: ' + (error instanceof Error ? error.message : String(error)) }
   }
@@ -177,7 +165,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'changelog',
     description: 'Show recent release notes',
     input: { hint: '[full]' },
-    handler: invocation => showChangelog(tui, resolved, invocation),
+    handler: invocation => showChangelog(resolved, invocation),
   }], 'omdsh changelog command')
   ctx.provide('omdshStartup', new StartupNotices(tui, resolved))
 }

@@ -4,9 +4,30 @@ import { renderMarkdown } from './markdown.ts'
 import { BOX, paintSurface, type Theme } from './theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapText, wrapTextStable } from './width.ts'
 
-/** Render a command result without the generic notice frame. */
-export function renderCommandOutput(command: string, text: string, theme: Theme, width: number, surface?: 'aside'): string[] {
-  const plain = renderCommandOutputRows(command, text, theme, width)
+/** Rows of command output shown before the rest folds behind one line. */
+export const COMMAND_OUTPUT_PREVIEW = 12
+
+/**
+ * Render a command result without the generic notice frame.
+ *
+ * A result longer than the preview folds after it, the same way a tool card does:
+ * the reader keeps the conversation and one line that says how much is behind it.
+ */
+export function renderCommandOutput(
+  command: string,
+  text: string,
+  theme: Theme,
+  width: number,
+  options: { surface?: 'aside'; expanded?: boolean; expandKey?: string } = {},
+): string[] {
+  const rows = renderCommandOutputRows(command, text, theme, width)
+  const plain = options.expanded === true || rows.length <= COMMAND_OUTPUT_PREVIEW + 1
+    ? rows
+    : [
+        ...rows.slice(0, COMMAND_OUTPUT_PREVIEW),
+        theme.fg('dim', `  … ${rows.length - COMMAND_OUTPUT_PREVIEW} more lines${options.expandKey === undefined ? '' : ` · ${options.expandKey}: Expand`}`),
+      ]
+  const { surface } = options
   if (surface === undefined || !theme.colors) return plain
   // A tinted block, not a border: the answer is prose from somewhere else, and a
   // frame around it would claim it is a component the reader operates.
