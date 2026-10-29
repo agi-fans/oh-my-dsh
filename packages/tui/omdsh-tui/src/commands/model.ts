@@ -17,18 +17,19 @@ import {
   type FavoriteModel,
 } from '../session/model-favorites.ts'
 import { registerCommands } from './registration.ts'
+import { INLINE_LIST_LIMIT } from '../views/prompt-selector.ts'
 
 export const name = 'omdsh-command-model'
 export const inject = ['commands', 'omdshSession', 'tui', 'llm']
 
-const FULLSCREEN_CHOICE_THRESHOLD = 8
-
 function fixedChoice(optionCount: number) {
-  const fullscreen = optionCount > FULLSCREEN_CHOICE_THRESHOLD
+  // The list says what it is; the renderer decides whether it fits the composer
+  // card, so this command no longer keeps its own threshold.
+  const wantsPage = optionCount > INLINE_LIST_LIMIT
   return {
-    ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
+    presentation: 'fullscreen-list' as const,
     optionLayout: 'compact' as const,
-    filterable: fullscreen,
+    filterable: wantsPage,
     allowCustom: false,
     notify: false,
   }

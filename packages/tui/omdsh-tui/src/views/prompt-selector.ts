@@ -247,6 +247,9 @@ function optionRow(
   const row: ListRow = {
     label: marker + option.label,
     ...(option.description === undefined ? {} : { description: option.description }),
+    // A badge is part of what the row says — a session's status, a command's
+    // kind. The paged list drew it, so the card must draw it too.
+    ...(option.badge?.label === undefined ? {} : { value: theme.fg(option.badge.tone ?? 'muted', option.badge.label) }),
   }
   return renderListRow(row, theme, Math.max(1, width), { selected: index === state.selected })
 }
@@ -442,6 +445,32 @@ export function documentRows(request: TuiPrompt, theme: Theme, width: number): s
   if (cache.size >= 4) cache.clear()
   cache.set(key, lines)
   return lines
+}
+
+/**
+ * How many rows the composer card can hold before a list is worth the screen.
+ *
+ * The card already windows ten rows; below this a list reads better beside the
+ * conversation than instead of it. Two commands had grown their own copy of this
+ * number while seventeen call sites ignored it entirely.
+ */
+export const INLINE_LIST_LIMIT = 8
+
+/**
+ * Does this list need the whole screen?
+ *
+ * The composer card and the paged list share their navigation, so this is only a
+ * question of fit. A tree has depth to show; a list longer than the card's window
+ * cannot be read in place; and a list whose rows carry a preview is being browsed
+ * for that preview, which the card does not draw. Everything else — most lists,
+ * most of the time — stays beside the conversation it interrupted.
+ */
+export function promptNeedsPage(request: TuiPrompt): boolean {
+  // A list is a choice, and a choice belongs beside the conversation whatever its
+  // length: the card windows its rows, filters by typing, and shows the selected
+  // row's preview. Counting rows was the wrong variable — a long list is still a
+  // list. Only a tree has structure the card cannot show.
+  return request.presentation === 'fullscreen-tree'
 }
 
 /** Render a bounded, scrollable Markdown document with fixed actions. */
@@ -660,6 +689,18 @@ export function renderPromptSelector(
     if (options.length > maxVisible) {
       body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · scroll for more`))
     }
+    // The paged list draws the selected row's preview beside the rows; the card
+    // gives it three lines underneath, so demoting a previewed list keeps the
+    // content it was being browsed for.
+    const preview = options[state.selected]?.preview
+    if (preview !== undefined && preview !== '') {
+      const lines = wrapTextStable(preview, contentWidth).slice(0, 3)
+      body.push('', ...lines.map(line => theme.fg('dim', '  ' + line)))
+    }
+  } else if (state.request.emptyText !== undefined) {
+    // The paged list says why it is empty and what to press instead; the card has
+    // to say the same thing, or demoting a list loses the sentence that explains it.
+    body.push('', theme.fg('dim', `  ${state.request.emptyText}`))
   }
   const submit = state.request.submitLabel?.trim()
     || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')

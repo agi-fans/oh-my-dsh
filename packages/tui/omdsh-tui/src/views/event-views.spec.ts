@@ -1884,7 +1884,10 @@ describe('renderView', () => {
     expect(frame.lines.length).toBeLessThanOrEqual(24)
   })
 
-  it('renders resume as one full-height searchable session list', () => {
+  it('renders resume beside the conversation, with the selected preview', () => {
+    // A session list is a choice. Taking the frame for two sessions hid the
+    // conversation and cost an extra mode to leave; the card keeps the rows, the
+    // search field, and now the preview the paged list used to own.
     const frame = renderView(initialTranscript(), {
       width: 80,
       height: 24,
@@ -1916,15 +1919,14 @@ describe('renderView', () => {
       },
     })
     const text = frame.lines.join('\n')
-    expect(frame.lines).toHaveLength(24)
-    expect(frame.lines[0]).toContain('omdsh')
+    expect(frame.documentRows).not.toBeNull()
     expect(text).toContain('Resume Session')
     expect(text).toContain('Fix renderer scrolling')
     expect(text).toContain('The scrolling path still feels sluggish.')
-    expect(text).toContain('2m ago · 42 events · ✔ done')
-    expect(text).not.toContain('Choose a session')
-    expect(text).not.toContain('answer')
-    expect(frame.cursor?.row).toBe(5)
+    // Description and badge both survive the demotion, laid out as the card's
+    // own columns rather than the page's dotted run-on.
+    expect(text).toContain('2m ago · 42 events')
+    expect(text).toContain('done')
   })
 
   it('paints slash-argument ghost text in the editor', () => {
@@ -2257,6 +2259,7 @@ describe('notice-shaped plugin injections', () => {
 import { formatToolsText } from '../chrome/tools-list.ts'
 import { findInRows, highlightMatches } from './prompt-selector.ts'
 import { buildCopyTargets } from './copy-targets.ts'
+import type { TuiPrompt } from '../definition.ts'
 import type { Block } from './event-views.ts'
 
 describe('find in a rendered document', () => {
@@ -2304,5 +2307,53 @@ describe('copying a side answer', () => {
     const blocks = [{ kind: 'assistant', turn: 1, step: 1, text: 'the main answer', reasoning: '' }] as Block[]
     expect(buildCopyTargets(blocks, undefined, { question: 'q', text: '   ' })[0]?.text).toBe('the main answer')
     expect(buildCopyTargets(blocks)[0]?.text).toBe('the main answer')
+  })
+})
+
+describe('whether a list takes the screen', () => {
+  const frame = (request: Partial<TuiPrompt>) => {
+    const drawn = renderView(initialTranscript(), {
+      width: 90, height: 20, model: 'm', input: '', inputCursor: 0, colors: false, appName: 'omdsh',
+      promptSelector: { request: { title: 'Scheduled tasks', question: 'Choose the reminder', allowCustom: false, ...request } as TuiPrompt, selected: 0, checked: new Set() },
+    })
+    return { text: drawn.lines.map(stripAnsi).join('\n'), fullScreen: drawn.documentRows === null }
+  }
+
+  it('keeps a short list beside the conversation it interrupted', () => {
+    // /schedule with two reminders is a choice, not a document: taking the whole
+    // frame for it hid the conversation and cost two extra surfaces to leave.
+    const drawn = frame({
+      presentation: 'fullscreen-list',
+      options: [
+        { label: 'Check CI', value: '1', description: 'every 900s · next in 12m' },
+        { label: 'Standup', value: '2', description: 'daily 09:00 · next in 3h' },
+      ],
+    })
+    expect(drawn.fullScreen).toBe(false)
+    expect(drawn.text).toContain('Check CI')
+    expect(drawn.text).toContain('Standup')
+  })
+
+  it('keeps a long list in the card too, windowed', () => {
+    // A long list is still a list: the card windows it and filters by typing.
+    const drawn = frame({
+      presentation: 'fullscreen-list',
+      options: Array.from({ length: 12 }, (_, at) => ({ label: `item ${at}`, value: String(at) })),
+    })
+    expect(drawn.fullScreen).toBe(false)
+    expect(drawn.text).toContain('item 0')
+    expect(drawn.text).toContain('/12 · scroll for more')
+  })
+
+  it('draws the selected preview in the card', () => {
+    const drawn = frame({ presentation: 'fullscreen-list', options: [{ label: 's1', value: '1', preview: 'last words of the session' }] })
+    expect(drawn.fullScreen).toBe(false)
+    expect(drawn.text).toContain('last words of the session')
+  })
+
+  it('says why the list is empty and what to press instead', () => {
+    // Demoting a list must not drop the sentence that explains the empty state.
+    const drawn = frame({ presentation: 'fullscreen-list', options: [], emptyText: 'No archived sessions. Alt+V shows archived sessions.' })
+    expect(drawn.text).toContain('No archived sessions')
   })
 })

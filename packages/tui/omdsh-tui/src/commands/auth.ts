@@ -21,6 +21,7 @@ import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { APP_VERSION } from '../session/package-metadata.ts'
 import { registerCommands } from './registration.ts'
+import { INLINE_LIST_LIMIT } from '../views/prompt-selector.ts'
 import {
   authorizationFlows,
   catalogForRecord,
@@ -85,8 +86,6 @@ export const DEEPSEEK_ACCOUNT_CHOICE = '__omdsh_deepseek_account__'
 /** Prefix a picker value carries when it names an authorization flow. */
 export const FLOW_VALUE_PREFIX = '__omdsh_flow__:'
 
-/** A long list becomes a full-screen page; a short one stays inline. */
-const FULLSCREEN_CHOICE_THRESHOLD = 8
 /** Default when the credential store has nothing to say about a provider. */
 const UNCONFIGURED: CredentialInfo = { configured: false, writable: true }
 function credentialSource(info: CredentialInfo): string {
@@ -239,7 +238,7 @@ async function pickLoginChoice(
   const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
   const includeAccount = account?.getState !== undefined
   const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
-  const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
+  const fullscreen = values.length > INLINE_LIST_LIMIT
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
     optionLayout: 'compact',
@@ -525,8 +524,8 @@ async function collectCustomModels(
           multiSelect: true,
           allowCustom: false,
           notify: false,
-          filterable: discovered.length > FULLSCREEN_CHOICE_THRESHOLD,
-          ...(discovered.length > FULLSCREEN_CHOICE_THRESHOLD ? { presentation: 'fullscreen-list' as const } : {}),
+          filterable: discovered.length > INLINE_LIST_LIMIT,
+          presentation: 'fullscreen-list' as const,
           signal: invocation.signal,
         })
         if (picked === null) return undefined
@@ -763,7 +762,7 @@ async function pickLogoutChoice(
   const values = choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
     ? DEEPSEEK_ACCOUNT_CHOICE
     : isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
-  const fullscreen = values.length > FULLSCREEN_CHOICE_THRESHOLD
+  const fullscreen = values.length > INLINE_LIST_LIMIT
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
     optionLayout: 'compact',

@@ -27,6 +27,7 @@ import {
   renderPlanReviewPage,
   renderPromptSelector,
   renderPromptSelectorPage,
+  promptNeedsPage,
   renderPromptTreePage,
   type PromptSelectorState,
 } from './prompt-selector.ts'
@@ -2325,7 +2326,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  if (options.promptSelector?.request.presentation === 'fullscreen-list' || options.promptSelector?.request.presentation === 'fullscreen-tree') {
+  // A short list keeps the conversation on screen; only a list that cannot be
+  // read in the composer card takes the whole frame.
+  if (options.promptSelector !== undefined && promptNeedsPage(options.promptSelector.request)) {
     const selector = (options.promptSelector.request.presentation === 'fullscreen-tree' ? renderPromptTreePage : renderPromptSelectorPage)(
       options.promptSelector,
       theme,

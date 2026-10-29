@@ -75,7 +75,7 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
 | `/tools` | List the tools visible to the agent in a reader; `Esc` closes it. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
-| `/schedule` | List this session's durable reminders, edit a name or instruction, open retained delivery records, or delete one. Each row answers how soon it fires (`in 12m`) alongside the absolute instant, and a reminder that can no longer fire reads `ended` instead of `next`. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
+| `/schedule` | List this session's durable reminders in the composer card, edit a name or instruction, open retained delivery records, or delete one. Each row answers how soon it fires (`in 12m`) alongside the absolute instant, and a reminder that can no longer fire reads `ended` instead of `next`. Creating or retiming reminders goes through the model-facing `schedule_*` tools. |
 
 ## Files and terminals
 
