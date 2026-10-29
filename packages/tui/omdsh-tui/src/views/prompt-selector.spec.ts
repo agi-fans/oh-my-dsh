@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { togglePromptSelection, selectedPromptAnswer, refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptSelectorPage, type PromptSelectorState } from './prompt-selector.ts'
+import { togglePromptSelection, selectedPromptAnswer, refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptTreePage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
@@ -181,7 +181,7 @@ describe('secret prompt', () => {
   })
 })
 
-describe('full-screen selector density', () => {
+describe('selector density', () => {
   it('keeps compact choices and their descriptions on one row', () => {
     const state: PromptSelectorState = {
       request: {
@@ -200,10 +200,9 @@ describe('full-screen selector density', () => {
       checked: new Set(),
     }
 
-    const frame = renderPromptSelectorPage(state, createTheme(false), 80, 24, '', 0, 'omdsh')
+    const frame = renderPromptSelector(state, createTheme(false), 80, '', 0)
     const rows = frame.lines.map(stripAnsi)
 
-    expect(frame.lines).toHaveLength(24)
     // One row per choice: the shared list row puts the description in its own
     // column instead of trailing an em dash, so long labels line up with each
     // other rather than pushing their descriptions to different columns.
@@ -254,16 +253,16 @@ it('renders scrolling documents in bounded cells and keeps action selection visi
 
 describe('Session Library footer actions', () => {
   it.each([false, true])('keeps archive and view switching discoverable when empty (colors=%s)', colors => {
-    const frame = renderPromptSelectorPage({ request: { title: 'Session Library', question: '', options: [], actions: [
+    const frame = renderPromptSelector({ request: { title: 'Session Library', question: '', allowCustom: false, options: [], actions: [
       { key: 'r', label: 'rename', valuePrefix: 'rename:' }, { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
       { key: 'Alt+A', label: 'archive', valuePrefix: 'archive:' },
       { key: 'Alt+V', label: 'archived sessions', valuePrefix: 'view:', scope: 'list' },
-    ] }, selected: 0, checked: new Set() }, createTheme(colors), 60, 24, '', 0, 'omdsh')
+    ] }, selected: 0, checked: new Set() }, createTheme(colors), 60, '', 0)
     const text = stripAnsi(frame.lines.join(' '))
+    // The card carries the action hints too, so archive and view stay discoverable.
     expect(text).toContain('Alt+A')
     expect(text).toContain('Alt+V')
-    expect(frame.lines).toHaveLength(24)
-    expect(frame.lines.every(line => visibleWidth(line) === 60)).toBe(true)
+    expect(frame.lines.every(line => visibleWidth(line) <= 60)).toBe(true)
   })
 })
 
@@ -289,7 +288,7 @@ describe('live prompt choices', () => {
     expect(empty.selected).toBe(0)
     for (const width of [24, 40, 80]) {
       for (const current of [next, empty]) {
-        const frame = renderPromptSelectorPage(current, createTheme(color), width, 20, '', 0, 'omdsh')
+        const frame = renderPromptSelector(current, createTheme(color), width, '', 0)
         expect(frame.lines.length).toBeLessThanOrEqual(20)
         expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
       }
@@ -320,9 +319,9 @@ describe('image preview page', () => {
 })
 
 
-it.each([[60, 24], [24, 9]])('paints filtered multi-select checkboxes by original identity at %sx%s', (width, height) => {
+it.each([[60, 24], [24, 9]])('paints filtered multi-select checkboxes by original identity at %sx%s', (width, _height) => {
   const state: PromptSelectorState = { request: { title: 'Models', question: '', presentation: 'fullscreen-list', filterable: true, optionLayout: 'compact', multiSelect: true, options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }, selected: 0, checked: new Set([1]) }
-  const frame = renderPromptSelectorPage(state, createTheme(false), width, height, 'Beta', 4, 'omdsh')
+  const frame = renderPromptSelector({ ...state, request: { ...state.request, allowCustom: false } }, createTheme(false), width, 'Beta', 4)
   expect(stripAnsi(frame.lines.join('\n'))).toContain('[x] Beta')
   expect(togglePromptSelection(state, 'Beta').checked).toEqual(new Set())
   expect(selectedPromptAnswer({ ...state, checked: new Set(), request: { ...state.request, allowEmptySelection: true } })).toBe('')

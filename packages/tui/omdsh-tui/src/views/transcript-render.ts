@@ -26,8 +26,6 @@ import {
   renderImagePreviewPage,
   renderPlanReviewPage,
   renderPromptSelector,
-  renderPromptSelectorPage,
-  promptNeedsPage,
   renderPromptTreePage,
   type PromptSelectorState,
 } from './prompt-selector.ts'
@@ -2353,27 +2351,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  // A short list keeps the conversation on screen; only a list that cannot be
-  // read in the composer card takes the whole frame.
-  if (options.promptSelector !== undefined && promptNeedsPage(options.promptSelector.request)) {
-    const selector = (options.promptSelector.request.presentation === 'fullscreen-tree' ? renderPromptTreePage : renderPromptSelectorPage)(
-      options.promptSelector,
-      theme,
-      width,
-      height,
-      options.input,
-      options.inputCursor,
-      appName,
-    )
-    return {
-      lines: fitFrame(selector.lines, width),
-      ...(selector.document === undefined ? {} : { promptDocument: selector.document }),
-      cursor: selector.cursor,
-      cursorVisible: true,
-      // A full-screen surface drew no transcript body.
-      documentRows: null,
-    }
-  }
   if (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document') {
     const review = options.promptSelector.request.documentImage === undefined ? renderPlanReviewPage(
       options.promptSelector,
@@ -2489,7 +2466,26 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       spinnerFrame: Math.max(0, spinnerFrame),
     }),
   }
-  const promptSelector = options.promptSelector === undefined
+  /**
+   * A tree is not a page.
+   *
+   * It used to take the whole frame, which hid the conversation the reader was
+   * about to rewind to — the one thing they need to see while choosing a point in
+   * it. Bounded to a little over half the screen it sits above the composer with
+   * the transcript still behind it, the way pi mounts its tree selector.
+   */
+  const treeRows = options.promptSelector === undefined || options.promptSelector.request.presentation !== 'fullscreen-tree'
+    ? undefined
+    : renderPromptTreePage(
+      options.promptSelector,
+      theme,
+      width,
+      Math.max(10, Math.min(height - 8, Math.floor(height * 0.6))),
+      options.input,
+      options.inputCursor,
+      appName,
+    )
+  const promptSelector = treeRows ?? (options.promptSelector === undefined
     ? undefined
     : renderPromptSelector(
       options.promptSelector,
@@ -2498,7 +2494,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       options.input,
       options.inputCursor,
       Math.max(3, Math.min(10, height - working.length - 14)),
-    )
+    ))
   const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
     : renderSettings(options.settings, theme, width)
@@ -2679,6 +2675,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     lines: trimmed,
     stickyHeaders,
     ...(jumpToLatest === undefined ? {} : { jumpToLatest: { ...jumpToLatest, row: jumpToLatest.row + topPad } }),
+    // The tree's preview is a scrollable document too: without its coordinates
+    // the advertised Ctrl+↑↓ had nothing to move, because the card path never
+    // reported them.
+    ...(promptSelector?.document === undefined ? {} : { promptDocument: promptSelector.document }),
     documentRows: bodySource,
     cursor: {
       row: editorStart + caret.row + topPad,

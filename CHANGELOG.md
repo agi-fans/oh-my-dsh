@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- The Session Tree opens as a block above the composer instead of taking the whole screen. Double-Esc is a rewind gesture, and the conversation being rewound — the thing the reader needs to see while choosing a point in it — used to disappear behind the tree. It is bounded to a little over half the terminal, matching how pi mounts its tree selector. `Ctrl+↑`/`Ctrl+↓` now scroll the preview they always claimed to.
+
 ### Added
 
 - A `/trajectory` detail pane numbers its rows and syntax-highlights payloads and results, so a wrapped JSON payload or a shell command reads as source instead of one undifferentiated run of text. Reaching a detail pane no longer costs the scroll: `↑`/`↓` and the mouse wheel scroll the open pane instead of moving the record selection under the reader.

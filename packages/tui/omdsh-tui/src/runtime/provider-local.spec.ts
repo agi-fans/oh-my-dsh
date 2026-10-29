@@ -625,8 +625,11 @@ describe('LocalTui folds against a scrolling terminal', () => {
     try {
       const pending = tui.prompt(request)
       const history = term.scrollback()
-      press(term as never, '\x1b[1;5B')
+      // Ctrl+Down scrolls the preview, not the list: after a few steps the first
+      // preview line has left the pane while the branch above it has not moved.
+      for (let step = 0; step < 6; step += 1) press(term as never, '\x1b[1;5B')
       expect(term.visible().join('\n')).not.toContain('preview row 0')
+      expect(term.visible().join('\n')).toContain('Conversation')
       press(term as never, '\x1b[D')
       expect(term.visible().join('\n')).not.toContain('Alternative request')
       press(term as never, '\x1b[C')

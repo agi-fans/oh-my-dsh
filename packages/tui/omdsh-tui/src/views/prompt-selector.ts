@@ -220,7 +220,7 @@ export function searchPromptSelection(state: PromptSelectorState, query: string)
   return { ...state, selected, previewScroll: 0 }
 }
 
-/** Visible option window centered around the selected row. */
+
 export function promptSelectorVisibleRange(
   count: number,
   selected: number,
@@ -238,11 +238,19 @@ function optionRow(
   state: PromptSelectorState,
   theme: Theme,
   width: number,
+  /**
+   * The option's index in the request, when the visible row is a filtered one.
+   *
+   * Checked state is keyed by the request's order, not the filtered list's: a
+   * query that hides the row above must not move every checkbox below it.
+   */
+  identity: number = index,
 ): string {
   // The multi-select marker is part of the label so the shared row keeps one
   // cursor cell and one description gap for every prompt, checked or not.
+  const checked = state.checked.has(identity)
   const marker = state.request.multiSelect === true
-    ? theme.fg(state.checked.has(index) ? 'success' : 'dim', state.checked.has(index) ? '[x] ' : '[ ] ')
+    ? theme.fg(checked ? 'success' : 'dim', checked ? '[x] ' : '[ ] ')
     : ''
   const row: ListRow = {
     label: marker + option.label,
@@ -283,106 +291,6 @@ function pageDivider(theme: Theme, width: number): string {
 
 function pageBottom(theme: Theme, width: number): string {
   return pageBorder(theme, BOX.bottomLeft + BOX.horizontal.repeat(Math.max(0, width - 2)) + BOX.bottomRight)
-}
-
-function optionBadge(option: PromptOption, theme: Theme): string {
-  const badge = option.badge
-  if (badge === undefined) return ''
-  const icon = badge.tone === 'success'
-    ? SYMBOL.success
-    : badge.tone === 'error'
-      ? SYMBOL.error
-      : badge.tone === 'warning'
-        ? SYMBOL.warning
-        : SYMBOL.done
-  return theme.fg(badge.tone === 'muted' ? 'dim' : badge.tone, `${icon} ${badge.label}`)
-}
-
-/** Render an OMP-style full-height searchable selector with one outer frame. */
-export function renderPromptSelectorPage(
-  state: PromptSelectorState,
-  theme: Theme,
-  width: number,
-  height: number,
-  input: string,
-  inputCursor: number,
-  appName: string,
-): PromptSelectorFrame {
-  const pageHeight = Math.max(1, height)
-  const options = filteredPromptOptions(state.request, input)
-  const visibleChecked = new Set(options.flatMap((option, index) => state.checked.has(state.request.options?.indexOf(option) ?? -1) ? [index] : []))
-  if (pageHeight < 10 || width < 16) {
-    return renderPromptSelector({ ...state, request: { ...state.request, options }, checked: visibleChecked }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
-  }
-  const selected = Math.max(0, Math.min(state.selected, Math.max(0, options.length - 1)))
-  const compact = state.request.optionLayout === 'compact'
-  const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`).join(' · ')
-  const hints = wrapTextStable(formatOverlayHint([HOTKEY_TEXT, HOTKEY_NAVIGATE, ...(state.request.multiSelect === true ? [HOTKEY_TOGGLE] : []), HOTKEY_SELECT, HOTKEY_CANCEL])
-    + (actionHints === '' ? '' : ' · ' + actionHints), width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
-  const fixedRows = (compact ? 9 : 11) + hints.length - 1
-  const visibleCount = compact
-    ? Math.max(1, pageHeight - fixedRows)
-    : Math.max(1, Math.floor((pageHeight - fixedRows) / 4))
-  const { start, end } = promptSelectorVisibleRange(options.length, selected, visibleCount)
-  const detail = state.request.detail === undefined || state.request.detail === ''
-    ? ''
-    : ' ' + theme.fg('muted', `(${state.request.detail})`)
-  const heading = theme.bold(state.request.title) + detail
-  const lines = compact
-    ? [
-        pageTop(theme, width, appName),
-        pageRow(theme, ' ' + heading, width),
-        pageDivider(theme, width),
-      ]
-    : [
-        pageTop(theme, width, appName),
-        pageRow(theme, '', width),
-        pageRow(theme, ' ' + heading, width),
-        pageRow(theme, '', width),
-        pageDivider(theme, width),
-      ]
-  const searchPrefix = theme.fg('dim', '> ')
-  const searchText = truncateToWidth(input, Math.max(1, width - 8))
-  const searchRow = lines.length
-  lines.push(pageRow(theme, searchPrefix + searchText, width), pageRow(theme, '', width))
-
-  if (options.length === 0) {
-    // The generic line is a fallback only: this selector also serves approvals
-    // and questions, whose empty states have nothing to do with sessions.
-    const fallback = state.request.emptyText ?? 'No matching options.'
-    const empty = input === '' ? fallback : `No match for “${input}”.`
-    lines.push(pageRow(theme, '  ' + theme.fg('muted', empty), width))
-  } else {
-    for (let index = start; index < end; index += 1) {
-      const option = options[index]
-      if (option === undefined) continue
-      if (compact) {
-        lines.push(pageRow(theme, optionRow(option, index, { ...state, selected, checked: visibleChecked }, theme, Math.max(1, width - 6)), width))
-        continue
-      }
-      const active = index === selected
-      const check = state.request.multiSelect === true ? visibleChecked.has(index) ? '[x] ' : '[ ] ' : ''
-      lines.push(pageRow(theme, renderListRow({ label: check + option.label }, theme, Math.max(1, width - 6), { selected: active }), width))
-      lines.push(pageRow(theme, '  ' + theme.fg('dim', option.preview ?? ''), width))
-      const badge = optionBadge(option, theme)
-      const description = option.description === undefined ? '' : theme.fg('dim', option.description)
-      const separator = description !== '' && badge !== '' ? theme.fg('dim', ' · ') : ''
-      lines.push(pageRow(theme, '  ' + description + separator + badge, width), pageRow(theme, '', width))
-    }
-  }
-
-  const footerRows = 3 + hints.length
-  const targetBeforeFooter = Math.max(0, pageHeight - footerRows)
-  if (lines.length > targetBeforeFooter) lines.length = targetBeforeFooter
-  while (lines.length < targetBeforeFooter) lines.push(pageRow(theme, '', width))
-  const position = options.length === 0 ? '' : `${selected + 1}/${options.length}`
-  lines.push(pageRow(theme, theme.fg('dim', position.trim()), width),
-    ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageRow(theme, '', width), pageBottom(theme, width))
-  const cursorColumn = Math.min(Math.max(1, width - 3), 4 + visibleWidth(input.slice(0, inputCursor)))
-  return {
-    lines,
-    cursor: { row: searchRow, column: cursorColumn },
-  }
 }
 
 const documentCache = new WeakMap<TuiPrompt, Map<string, string[]>>()
@@ -685,7 +593,7 @@ export function renderPromptSelector(
   if (options.length > 0) {
     const { start, end } = promptSelectorVisibleRange(options.length, state.selected, maxVisible)
     body.push('', ...options.slice(start, end).map((option, offset) =>
-      optionRow(option, start + offset, state, theme, contentWidth)))
+      optionRow(option, start + offset, state, theme, contentWidth, (state.request.options ?? []).indexOf(option))))
     if (options.length > maxVisible) {
       body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · scroll for more`))
     }

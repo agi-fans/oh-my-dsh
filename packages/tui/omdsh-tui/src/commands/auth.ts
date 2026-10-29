@@ -21,7 +21,6 @@ import type {} from '../definition.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { APP_VERSION } from '../session/package-metadata.ts'
 import { registerCommands } from './registration.ts'
-import { INLINE_LIST_LIMIT } from '../views/prompt-selector.ts'
 import {
   authorizationFlows,
   catalogForRecord,
@@ -238,7 +237,7 @@ async function pickLoginChoice(
   const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
   const includeAccount = account?.getState !== undefined
   const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
-  const fullscreen = values.length > INLINE_LIST_LIMIT
+  const fullscreen = true
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
     optionLayout: 'compact',
@@ -524,7 +523,7 @@ async function collectCustomModels(
           multiSelect: true,
           allowCustom: false,
           notify: false,
-          filterable: discovered.length > INLINE_LIST_LIMIT,
+          filterable: true,
           presentation: 'fullscreen-list' as const,
           signal: invocation.signal,
         })
@@ -762,7 +761,7 @@ async function pickLogoutChoice(
   const values = choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
     ? DEEPSEEK_ACCOUNT_CHOICE
     : isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
-  const fullscreen = values.length > INLINE_LIST_LIMIT
+  const fullscreen = true
   const raw = await ctx.tui.prompt({
     ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
     optionLayout: 'compact',

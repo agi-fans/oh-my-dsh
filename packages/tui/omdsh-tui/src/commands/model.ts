@@ -17,19 +17,17 @@ import {
   type FavoriteModel,
 } from '../session/model-favorites.ts'
 import { registerCommands } from './registration.ts'
-import { INLINE_LIST_LIMIT } from '../views/prompt-selector.ts'
 
 export const name = 'omdsh-command-model'
 export const inject = ['commands', 'omdshSession', 'tui', 'llm']
 
-function fixedChoice(optionCount: number) {
-  // The list says what it is; the renderer decides whether it fits the composer
-  // card, so this command no longer keeps its own threshold.
-  const wantsPage = optionCount > INLINE_LIST_LIMIT
+function fixedChoice() {
+  // Nothing here decides how tall the list is: a list is a list, and the card
+  // windows it. `optionCount` stays a parameter because the label names the size.
   return {
     presentation: 'fullscreen-list' as const,
     optionLayout: 'compact' as const,
-    filterable: wantsPage,
+    filterable: true,
     allowCustom: false,
     notify: false,
   }
@@ -306,7 +304,7 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
     entry = matches[0]
   } else {
     const raw = await ctx.tui.prompt({
-      ...fixedChoice(matches.length),
+      ...fixedChoice(),
       title: sessionOnly ? 'Model (session)' : 'Model',
       question: `Matches for "${query.trim()}"; use provider:model to disambiguate`,
       options: matches.map(match => ({ label: `${match.provider}/${match.model}`, value: `${match.provider}/${match.model}`, description: match.description })),
@@ -414,7 +412,7 @@ async function resolveEffort(
   // A single effort is not a choice; take it rather than asking.
   if (ids.length === 1) return ReasoningEffortId(ids[0]!)
   const raw = await ctx.tui.prompt({
-    ...fixedChoice(efforts.length),
+    ...fixedChoice(),
     title: sessionOnly ? 'Reasoning effort · this session' : 'Reasoning effort',
     question: 'Choose reasoning effort',
     options: efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
