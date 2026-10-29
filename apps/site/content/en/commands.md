@@ -70,6 +70,7 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/advisor [codex\|claude] [question]` | Request an independent opinion from an installed native advisor inline in the transcript. The advisor chosen in Settings decides which model is reached, so `/advisor <question>` asks only the question; naming a provider overrides that choice for one request. No advisor is configured by default, and the command points at the setting instead of consulting when none is. Automatically supplies a read-only workspace snapshot and records the advice for follow-up turns. See [Subagents and delegation](subagents.md#independent-advice). |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
+| `/trajectory` | Inspect the session's event ledger: turns and steps, live following, search, folding, per-step timing and token usage, and tool payloads. This is the Harness's event-sourced history made visible — the record every projection is derived from — so it shows the shape of a run rather than only its output. Requires an interactive terminal. |
 | `/tools` | List the tools visible to the agent as a transcript result. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
 
