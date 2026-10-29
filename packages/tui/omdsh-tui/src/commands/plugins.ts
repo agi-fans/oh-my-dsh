@@ -4,6 +4,9 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { BundleInfo, ChangeResult, PluginInfo, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager'
+// The market service declares itself on Context; the type import is what makes
+// `ctx.get('pluginMarket')` typed, and it is what keeps the dependency honest.
+import type PluginMarket from '@deepseek-ai/dsh-plugin-market'
 import { registerCommands } from './registration.ts'
 import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 import { editSettingsEntry, nativeIntegrationId, showIntegrationStatus } from '../runtime/plugin-settings.ts'
@@ -101,14 +104,99 @@ async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, s
   return result
 }
 
+/**
+ * Browse the plugin indexes the profile configures and install an entry.
+ *
+ * The Host service owns fetching, validating and annotating an index; this only
+ * presents it, which is the split the Harness client makes too. With no source
+ * configured the answer is that sentence rather than an empty list, because the
+ * next step is a setting rather than a choice.
+ */
+/** Index text in the reader's language when the index offers one. */
+function marketText(text: { readonly en: string } | string): string {
+  return typeof text === 'string' ? text : text.en
+}
+
+async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
+  const market: PluginMarket | undefined = ctx.get('pluginMarket')
+  if (market === undefined) {
+    ctx.tui.notice('The plugin market is not mounted in this profile.', { level: 'error' })
+    return
+  }
+  while (!signal.aborted) {
+    // `listIndexes` is the public read: the configured sources without fetching them.
+    const sources = market.listIndexes()
+    const usable = sources.filter(source => source.error === undefined)
+    if (usable.length === 0) {
+      ctx.tui.commandOutput('/plugins discover', sources.length === 0
+        ? 'No plugin index sources are configured. Add one in Settings to browse a market.'
+        : 'No usable plugin index source:\n\n' + sources.map(source => `${source.url} · ${source.error}`).join('\n'))
+      return
+    }
+    const text = await ctx.tui.prompt(askPrompt({ title: 'Discover plugins', question: 'Search the plugin indexes (empty lists everything)', signal }))
+    if (text === null || signal.aborted) return
+    try {
+      // Search every source, so the reader does not have to know which index
+      // happens to carry what they are looking for.
+      const pages = await Promise.all(usable.map(source => market.search(source.url, {
+        ...(text.trim() === '' ? {} : { text: text.trim() }),
+        sort: { kind: 'relevance' }, offset: 0, limit: 20,
+      })))
+      const entries = pages.flatMap(page => page.entries.map(entry => ({ page, entry })))
+      if (entries.length === 0) {
+        ctx.tui.commandOutput('/plugins discover', `No plugin matches "${text.trim()}".`)
+        return
+      }
+      const chosen = await ctx.tui.prompt({ ...list, title: 'Discover · results', question: `${entries.length} matching plugins`,
+        options: entries.map(({ page, entry }, at) => {
+          // The version that install is offered for is the one the index defaults
+          // to; its compatibility is what decides whether the offer is honest.
+          const version = entry.versions.find(item => item.version === entry.defaultVersion) ?? entry.versions[0]
+          return {
+            label: entry.name,
+            value: String(at),
+            description: [
+              entry.defaultVersion ?? '',
+              marketText(page.title),
+              entry.installation.status === 'installed' ? 'installed' : '',
+              version?.compatibility.compatible === false ? 'incompatible' : '',
+            ].filter(part => part !== '').join(' · '),
+            ...(entry.description === undefined ? {} : { preview: marketText(entry.description) }),
+          }
+        }), signal })
+      const picked = chosen === null ? undefined : entries[Number(chosen)]
+      if (picked === undefined) continue
+      const version = picked.entry.versions.find(item => item.version === picked.entry.defaultVersion) ?? picked.entry.versions[0]
+      if (version === undefined) { ctx.tui.notice(`${picked.entry.name} lists no version.`, { level: 'error' }); continue }
+      if (version.compatibility.compatible === false) {
+        ctx.tui.notice(`${picked.entry.name} ${version.version} requires ${Object.entries(version.compatibility.requirements).map(([key, value]) => `${key} ${value}`).join(', ')}.`, { level: 'error' })
+        continue
+      }
+      const result = await confirmInstall(ctx, version.install.spec, signal, true)
+      if (result !== undefined) ctx.tui.commandOutput('/plugins', changeText(result))
+      return
+    } catch (error) {
+      if (signal.aborted) return
+      ctx.tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      return
+    }
+  }
+}
+
 async function manage(ctx: Context, invocation: CommandInvocation, signal: AbortSignal): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /plugins' }
   if (invocation.agent.status === 'running') return { kind: 'error', text: 'Wait for the current turn to finish before managing plugins.' }
   while (!signal.aborted) {
     const action = await ctx.tui.prompt({ ...list, title: 'Plugins', question: 'Manage this profile',
       detail: 'Changes affect every session using this profile. Package replacements may require a restart.',
-      options: [{ label: 'Plugin entries', value: 'entries' }, { label: 'Bundles', value: 'bundles' }, { label: 'Install bundle', value: 'install' }], signal })
+      options: [
+        { label: 'Plugin entries', value: 'entries' },
+        { label: 'Bundles', value: 'bundles' },
+        { label: 'Discover', value: 'discover', description: 'Browse the plugin indexes this profile configures and install an entry.' },
+        { label: 'Install bundle', value: 'install' },
+      ], signal })
     if (action === null) break
+    if (action === 'discover') { await discover(ctx, signal); continue }
     let result: ChangeResult | undefined
     if (action === 'entries') {
       const rows = await ctx.pluginManager.listPlugins()

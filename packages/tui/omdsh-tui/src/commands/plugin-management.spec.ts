@@ -219,3 +219,65 @@ describe('native plugin management', () => {
     await h.ctx.fiber.dispose()
   })
 })
+
+describe('Discover', () => {
+  const entry = {
+    name: 'dsh-plugin-example',
+    defaultVersion: '1.2.0',
+    description: { en: 'An example plugin.' },
+    versions: [{ version: '1.2.0', install: { spec: 'dsh-plugin-example@1.2.0' }, compatibility: { compatible: true } }],
+    installation: { status: 'not-installed' },
+  }
+
+  async function discoverHarness(options: { indexes: unknown[]; entries?: unknown[] }) {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(Commands)
+    const prompt = vi.fn<TuiService['prompt']>(async () => null)
+    const commandOutput = vi.fn(), notice = vi.fn()
+    const search = vi.fn(async () => ({
+      url: 'https://market.test/index.json', title: { en: 'Test market' }, metadata: {},
+      fetchedAt: 1, entries: options.entries ?? [entry], total: 1, nextOffset: null,
+    }))
+    ctx.provide('pluginMarket', { listIndexes: () => options.indexes, search } as never)
+    // The command plugin injects the manager, so it must exist for the row to mount.
+    ctx.provide('pluginManager', { listPlugins: async () => [], listBundles: async () => [] } as never)
+    ctx.provide('tui', { prompt, commandOutput, notice } as unknown as TuiService)
+    await ctx.plugin(plugins)
+    const session = ctx.sessions.create(SessionId('market-test'))
+    const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+    return { ctx, agent, prompt, commandOutput, notice, search }
+  }
+
+  it('says a source must be configured instead of showing an empty list', async () => {
+    // The next step is a setting, not a choice, so a picker would be the wrong answer.
+    const h = await discoverHarness({ indexes: [] })
+    try {
+      h.prompt.mockResolvedValueOnce('discover')
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.commandOutput).toHaveBeenCalledWith('/plugins discover', expect.stringContaining('No plugin index sources'))
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('lists a source that cannot be read with the reason it was refused', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json', error: 'not canonical' }] })
+    try {
+      h.prompt.mockResolvedValueOnce('discover')
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.commandOutput).toHaveBeenCalledWith('/plugins discover', expect.stringContaining('not canonical'))
+      expect(h.search).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('searches the configured indexes and offers the entry that was chosen', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
+    try {
+      h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example').mockResolvedValueOnce('0').mockResolvedValueOnce(null)
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.search).toHaveBeenCalledWith('https://market.test/index.json', expect.objectContaining({ text: 'example', offset: 0 }))
+      const results = h.prompt.mock.calls[2]![0]
+      expect(results.options?.[0]).toMatchObject({ label: 'dsh-plugin-example', value: '0' })
+      expect(results.options?.[0]?.preview).toBe('An example plugin.')
+    } finally { await h.ctx.fiber.dispose() }
+  })
+})

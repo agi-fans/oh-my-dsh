@@ -758,6 +758,11 @@
   - id: tui-command-trajectory
     name: '@agi-fans/dsh-tui/command-trajectory'
 
+  # Plugin index sources; empty until the reader configures one, so a profile
+  # with no `indexes` pays no fetch.
+  - id: plugin-market
+    name: '@deepseek-ai/dsh-plugin-market'
+
   - id: tui-command-plugins
     name: '@agi-fans/dsh-tui/command-plugins'
 

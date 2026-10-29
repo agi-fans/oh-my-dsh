@@ -199,6 +199,7 @@
     "@deepseek-ai/dsh-permission-presets": "0.2.1-rc.3",
     "@deepseek-ai/dsh-plan-mode": "0.2.1-rc.3",
     "@deepseek-ai/dsh-plugin-manager": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-plugin-market": "0.2.1-rc.3",
     "@deepseek-ai/dsh-sandbox": "0.2.1-rc.3",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.1-rc.3",
     "@deepseek-ai/dsh-schedule": "0.2.1-rc.3",

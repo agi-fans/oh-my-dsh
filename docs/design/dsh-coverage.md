@@ -67,15 +67,12 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-settings-agent-loop` | `/settings → Agent` |
 | `ui-settings-subagent` | `/settings → Tools` |
 | `ui-plugin-manager` | `/plugins` |
+| `ui-plugin-market` | `/plugins → Discover`（`dsh-plugin-market` Host 服务只做呈现） |
 | `ui-settings-plugins` `ui-settings-plugin-inventory` | `/plugins` 与 `/settings → Integrations` |
 
 ## 四、缺口
 
 按影响排序。
-
-### `ui-plugin-market`：市场索引
-
-DSH 的 Plugins 面板有一个 Discover 标签页，浏览市场索引并安装其中的 bundle。omdsh 需要先有 `/plugins` 面板（已恢复），市场索引才可以挂上去。
 
 ### `ui-settings-session-log`：会话日志上传开关
 

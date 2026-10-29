@@ -134,6 +134,7 @@
     "@deepseek-ai/dsh-persona": "0.2.1-rc.3",
     "@deepseek-ai/dsh-plan-mode": "0.2.1-rc.3",
     "@deepseek-ai/dsh-plugin-manager": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-plugin-market": "0.2.1-rc.3",
     "@deepseek-ai/dsh-ptc-runtime-node": "0.2.1-rc.3",
     "@deepseek-ai/dsh-pwsh-local": "0.2.1-rc.3",
     "@deepseek-ai/dsh-pwsh-sandbox": "0.2.1-rc.3",
