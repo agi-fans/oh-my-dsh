@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- `/steer` and `/todo` are gone. Steering is `Alt+S` on the draft, which is the same handler without typing a six-character prefix; the todo list is already drawn live above the composer, and printing a copy into immutable scrollback produced a list that was stale the moment it appeared.
+
 - `/copy text|code|cmd|output` lost its kinds. `text` meant "the default", so it was a no-op parameter, and the other three named a row the picker already shows with its content, language and size: the reader had to recall a word to skip a keystroke. `/copy` opens the picker; `Alt+C` still copies a selection when there is one.
 - `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
 

@@ -78,10 +78,6 @@
       "types": "./lib/commands/session-configuration.d.ts",
       "default": "./lib/commands/session-configuration.js"
     },
-    "./command-steer": {
-      "types": "./lib/commands/steer.d.ts",
-      "default": "./lib/commands/steer.js"
-    },
     "./command-model": {
       "types": "./lib/commands/model.d.ts",
       "default": "./lib/commands/model.js"

@@ -740,9 +740,6 @@
   - id: tui-command-session-configuration
     name: '@agi-fans/dsh-tui/command-session-configuration'
 
-  - id: tui-command-steer
-    name: '@agi-fans/dsh-tui/command-steer'
-
   - id: tui-command-model
     name: '@agi-fans/dsh-tui/command-model'
 

@@ -262,23 +262,6 @@ function showContext(ctx: Context, invocation: CommandInvocation): CommandResult
   }
 }
 
-function showTodo(invocation: CommandInvocation): CommandResult {
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /todo' }
-  const event = invocation.agent.session.snapshotEvents().findLast(item => item.type === 'todo/write')
-  if (event === undefined) return { kind: 'success', text: 'No todo list has been recorded.' }
-  return {
-    kind: 'success',
-    text: [
-      `Todo · ${event.data.todos.length} item${event.data.todos.length === 1 ? '' : 's'}`,
-      '',
-      ...event.data.todos.map((todo) => todo.status === 'completed'
-        ? `- [x] ${todo.content}`
-        : todo.status === 'in_progress'
-          ? `- [ ] **In progress** · ${todo.content}`
-          : `- [ ] ${todo.content}`),
-    ].join('\n'),
-  }
-}
 
 export function apply(ctx: Context): void {
   registerCommands(ctx, [
@@ -298,6 +281,5 @@ export function apply(ctx: Context): void {
     },
     { name: 'session', description: 'Show current session details', handler: invocation => showSession(ctx, invocation) },
     { name: 'retry', description: 'Run the most recent human prompt again', handler: invocation => retry(ctx, invocation) },
-    { name: 'todo', description: 'Show the current session todo list', handler: showTodo },
   ], 'omdsh session commands')
 }

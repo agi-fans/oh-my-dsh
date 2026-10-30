@@ -18,7 +18,6 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `p` pins a session and `r` renames it. |
 | `/session` | Show the current session's details. |
 | `/retry` | Run the most recent human prompt again. |
-| `/todo` | Print the current session todo list into the transcript. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
 
 ## Session configuration
@@ -48,7 +47,6 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | Command | What it does |
 |---|---|
 | `/queue` | Review, edit, delete, and reorder pending human messages. |
-| `/steer <message>` | Guide the active turn before its next model step. |
 | `/btw <question>` | Ask a separate question from the current committed conversation snapshot, answered in a pane above the composer. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |

@@ -4,7 +4,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandSession from './session.ts'
-import * as commandSteer from './steer.ts'
 import * as commandExport from './export.ts'
 import * as commandTrajectory from './trajectory.ts'
 import type { ChangeResult } from '@deepseek-ai/dsh-plugin-manager'
@@ -68,40 +67,6 @@ describe('omdsh command plugins', () => {
     await ctx.fiber.dispose()
   })
 
-  it('registers steering for active turns without queue-management slash commands', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(CommandRuntime)
-    const steer = vi.fn()
-    const fiber = await ctx.plugin(commandSteer)
-    const session = ctx.sessions.create(SessionId('command-steer-test'))
-    const agent = {
-      id: session.id,
-      session,
-      status: 'running',
-      inbox: { nextTurn: [], nextStep: [] },
-      steer,
-    } as unknown as Agent
-
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['steer'])
-    await expect(ctx.commands.execute(agent, '/steer focus on tests', [], new AbortController().signal))
-      .resolves.toMatchObject({ result: { kind: 'success' } })
-    expect(steer).toHaveBeenCalledOnce()
-
-    agent.status = 'idle'
-    await expect(ctx.commands.execute(agent, '/steer too late', [], new AbortController().signal))
-      .resolves.toMatchObject({
-        result: {
-          kind: 'error',
-          text: expect.stringContaining('only available during an active turn'),
-        },
-      })
-    expect(steer).toHaveBeenCalledOnce()
-
-    await fiber.dispose()
-    await ctx.fiber.dispose()
-  })
-
   it('registers session commands through dsh-commands and removes them with its fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -136,7 +101,7 @@ describe('omdsh command plugins', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'new', 'queue', 'resume', 'retry', 'session', 'todo'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'new', 'queue', 'resume', 'retry', 'session'])
     await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)

@@ -28,7 +28,7 @@ Codex 与 Claude Code bundle 随 omdsh 安装且初始关闭，可从 `/settings
 
 子代理运行时，队列与 composer 上方会显示一份 roster，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。composer 为空时按 `Down` 聚焦它、按 `Enter` 打开所选孩子，或直接按 `Alt+A`。
 
-Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息或 `/steer <message>`，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行在 Agent Hub 显示生命周期状态；尝试打开其转录时，会提示结果位于父会话。完整浮层按键见[键盘与快捷键](keyboard.md)。
+Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息，或按 `Alt+S` 发送的草稿，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行在 Agent Hub 显示生命周期状态；尝试打开其转录时，会提示结果位于父会话。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
 Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记录的阶段。可用子任务的检查面板显示所属 Workflow、阶段及成员结果，与实时生命周期状态分别呈现。恢复会话后重放这些记录；Enter 仍可打开子会话查看详细错误。完整事件历史可通过 `/trajectory` 查看；该界面不提供拓扑编辑器或 worker 脚本日志。
 
@@ -62,5 +62,5 @@ Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记
 ## 相关
 
 - [架构](architecture.md) —— 子智能体的归属与生命周期边界
-- [命令](commands.md) —— `/steer`、`/jobs` 及其余命令目录
+- [命令](commands.md) —— `/jobs` 及其余命令目录
 - [引导运行中的任务](tutorials/guide-a-turn.md) —— 排队、Loop 与任务进度
