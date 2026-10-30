@@ -87,9 +87,11 @@ describe('slashSuggestions', () => {
     expect(slashSuggestions('/he\nmore', 3)).toBe(null)
   })
 
-  it('suggests /copy arguments after a space', () => {
-    const copy = slashSuggestions('/copy c', 7)
-    expect(copy?.items.map((item) => item.value)).toEqual(['code', 'cmd'])
+  it('suggests a command\'s declared arguments after a space', () => {
+    // `/copy` has no arguments any more: what it offers is a list of rows, not a
+    // vocabulary to type. `/help full` is the remaining builtin with a static one.
+    expect(slashSuggestions('/help f', 7)?.items.map(item => item.value)).toEqual(['full'])
+    expect(slashSuggestions('/copy ', 6)).toBe(null)
     expect(slashSuggestions('/settings ', 10)).toBe(null)
   })
 
@@ -109,22 +111,27 @@ describe('slashSuggestions', () => {
 
 describe('slashInlineHint', () => {
   it('shows the catalog after /name and remaining chars of a prefix', () => {
-    expect(slashInlineHint('/copy ', 6)).toBe('text|code|cmd|output')
-    expect(slashInlineHint('/copy com', 9)).toBe('mand')
-    expect(slashInlineHint('/copy out', 9)).toBe('put')
+    expect(slashInlineHint('/help ', 6)).toBe('full')
+    expect(slashInlineHint('/copy ', 6)).toBe(null)
     expect(slashInlineHint('/settings ', 10)).toBe(null)
     expect(slashInlineHint('/help ', 6)).toBe('full')
   })
 })
 
 describe('buildSlashArgumentCompletions', () => {
-  it('matches aliases and still completes the canonical value', () => {
+  it('completes a declared argument vocabulary', () => {
     const items = buildSlashArgumentCompletions(
-      resolveSlashCommand('copy')?.arguments ?? [],
-      'com',
+      resolveSlashCommand('help')?.arguments ?? [],
+      'fu',
     )
     expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ value: 'cmd', label: 'command', kind: 'argument' })
+    expect(items[0]).toMatchObject({ value: 'full', kind: 'argument' })
+  })
+
+  it('offers nothing for an alias the command no longer declares', () => {
+    // `/copy` used to advertise aliases like `command` for `cmd`; both are gone
+    // with the kinds, so nothing may complete for that word any more.
+    expect(buildSlashArgumentCompletions(resolveSlashCommand('copy')?.arguments ?? [], 'com')).toEqual([])
   })
 })
 
@@ -141,11 +148,11 @@ describe('applySlashCompletion', () => {
   })
 
   it('replaces the live argument token without rewriting the command', () => {
-    expect(applySlashCompletion('  /copy com', 11, {
-      value: 'cmd',
-      label: 'command',
+    expect(applySlashCompletion('  /help fu', 10, {
+      value: 'full',
+      label: 'full',
       kind: 'argument',
-    })).toEqual({ text: '  /copy cmd ', cursor: 12 })
+    })).toEqual({ text: '  /help full ', cursor: 13 })
   })
 })
 
@@ -179,7 +186,8 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(text).not.toContain('/theme')
     expect(text).not.toContain('/hotkeys')
     expect(text).toContain('/help [full]')
-    expect(text).toContain('/copy [text|code|cmd|output]')
+    expect(text).toContain('/copy')
+    expect(text).not.toContain('text|code|cmd|output')
     expect(text).not.toContain('/settings [')
     expect(text).toContain('/tools')
     expect(text).not.toContain('/pwd')

@@ -50,13 +50,6 @@ export interface AutocompleteItem {
   kind?: 'command' | 'argument' | 'path' | 'session' | 'heading'
 }
 
-const COPY_ARGUMENTS: readonly SlashArgument[] = [
-  { value: 'text', description: 'Last assistant reply' },
-  { value: 'code', description: 'Last fenced code block' },
-  { value: 'cmd', aliases: ['command'], description: 'Last bash command' },
-  { value: 'output', aliases: ['out'], description: 'Last tool output' },
-]
-
 const HELP_ARGUMENTS: readonly SlashArgument[] = [
   { value: 'full', description: 'Include every keyboard shortcut' },
 ]
@@ -65,7 +58,7 @@ const HELP_ARGUMENTS: readonly SlashArgument[] = [
 export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', aliases: ['h', '?'], description: 'Show commands and essential shortcuts', arguments: HELP_ARGUMENTS },
   { name: 'settings', aliases: ['set'], description: 'Open settings' },
-  { name: 'copy', description: 'Pick text, code, a command, or tool output to copy', arguments: COPY_ARGUMENTS },
+  { name: 'copy', description: 'Copy the last reply, a code block, a command, or tool output' },
   { name: 'tools', description: 'Show tools visible to the agent' },
   { name: 'clear', description: 'Clear the transcript display' },
   { name: 'quit', aliases: ['q', 'exit'], description: 'Quit the application' },

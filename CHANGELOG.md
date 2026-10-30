@@ -9,7 +9,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Removed
 
 - `/copy text|code|cmd|output` lost its kinds. `text` meant "the default", so it was a no-op parameter, and the other three named a row the picker already shows with its content, language and size: the reader had to recall a word to skip a keystroke. `/copy` opens the picker; `Alt+C` still copies a selection when there is one.
-
 - `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
 
 ### Changed

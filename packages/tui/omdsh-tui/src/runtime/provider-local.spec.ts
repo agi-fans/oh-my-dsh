@@ -2633,14 +2633,17 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('suggests /copy arguments and completes the selected kind', () => {
+  it('offers no argument for /copy and completes the one /help declares', () => {
+    // `/copy` used to advertise text|code|cmd|output; the kinds are gone, so the
+    // popup must not claim them. `/help full` is the remaining builtin with one.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    press(term, '/copy c')
-    expect(term.captured).toContain('code')
-    expect(term.captured).toContain('cmd')
+    press(term, '/copy ')
+    expect(term.captured).not.toContain('Last fenced code block')
+    press(term, '\x15/help f')
+    expect(term.captured).toContain('full')
     press(term, '\t')
-    expect(term.captured).toContain('/copy code ')
+    expect(term.captured).toContain('/help full ')
     tui.dispose()
   })
 

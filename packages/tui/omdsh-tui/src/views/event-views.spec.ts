@@ -1934,11 +1934,11 @@ describe('renderView', () => {
       width: 60,
       height: 24,
       model: 'm',
-      input: '/copy ',
+      input: '/help ',
       inputCursor: 6,
       colors: false,
     })
-    expect(frame.lines.join('\n')).toContain('text|code|cmd')
+    expect(frame.lines.join('\n')).toContain('full')
     // One column of padding, no side border.
     expect(frame.cursor?.column).toBe(7)
   })
