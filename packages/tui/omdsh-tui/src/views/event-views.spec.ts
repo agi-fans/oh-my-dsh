@@ -1900,7 +1900,7 @@ describe('renderView', () => {
         request: {
           title: 'Resume Session',
           question: '',
-          presentation: 'fullscreen-list',
+          presentation: 'card',
           filterable: true,
           allowCustom: false,
           options: [
@@ -2330,7 +2330,7 @@ describe('whether a list takes the screen', () => {
     // /schedule with two reminders is a choice, not a document: taking the whole
     // frame for it hid the conversation and cost two extra surfaces to leave.
     const drawn = frame({
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       options: [
         { label: 'Check CI', value: '1', description: 'every 900s · next in 12m' },
         { label: 'Standup', value: '2', description: 'daily 09:00 · next in 3h' },
@@ -2344,7 +2344,7 @@ describe('whether a list takes the screen', () => {
   it('keeps a long list in the card too, windowed', () => {
     // A long list is still a list: the card windows it and filters by typing.
     const drawn = frame({
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       options: Array.from({ length: 12 }, (_, at) => ({ label: `item ${at}`, value: String(at) })),
     })
     expect(drawn.fullScreen).toBe(false)
@@ -2353,14 +2353,14 @@ describe('whether a list takes the screen', () => {
   })
 
   it('draws the selected preview in the card', () => {
-    const drawn = frame({ presentation: 'fullscreen-list', options: [{ label: 's1', value: '1', preview: 'last words of the session' }] })
+    const drawn = frame({ presentation: 'card', options: [{ label: 's1', value: '1', preview: 'last words of the session' }] })
     expect(drawn.fullScreen).toBe(false)
     expect(drawn.text).toContain('last words of the session')
   })
 
   it('says why the list is empty and what to press instead', () => {
     // Demoting a list must not drop the sentence that explains the empty state.
-    const drawn = frame({ presentation: 'fullscreen-list', options: [], emptyText: 'No archived sessions. Alt+V shows archived sessions.' })
+    const drawn = frame({ presentation: 'card', options: [], emptyText: 'No archived sessions. Alt+V shows archived sessions.' })
     expect(drawn.text).toContain('No archived sessions')
   })
 })

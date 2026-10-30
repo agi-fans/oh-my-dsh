@@ -5,7 +5,7 @@ import { filteredPromptOptions, movePromptTree, renderPromptTreePage, searchProm
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
-const request: TuiPrompt = { title: 'Session Tree', question: '', presentation: 'fullscreen-tree', filterable: true,
+const request: TuiPrompt = { title: 'Session Tree', question: '', presentation: 'tree', filterable: true,
   actions: [{ key: 'C', label: 'continue branch', valuePrefix: 'continue:' }], options: [
     { value: 'root', label: 'Conversation' },
     { value: 'first', parentValue: 'root', label: 'Shared turn', preview: 'Full user message 中文 🐳\n\nFull reply 👩‍💻' },

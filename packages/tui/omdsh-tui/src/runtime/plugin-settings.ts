@@ -151,7 +151,7 @@ export function parseConfigValue(field: ConfigField, text: string): unknown {
   return value
 }
 
-const list = { presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const, filterable: true, allowCustom: false, notify: false }
+const list = { presentation: 'card' as const, filterable: true, allowCustom: false, notify: false }
 
 function constantValues(field: ConfigField): unknown[] | undefined {
   return field.schema.type === 'boolean' ? [true, false] : field.schema.type === 'union'

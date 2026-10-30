@@ -172,7 +172,7 @@ export interface TuiPrompt {
     /** Optional semantic badge painted after the description. */
     badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
   }[]
-  /** Text actions require an empty filter; full-screen lists and trees also accept key chords. */
+  /** Text actions require an empty filter; a card list and a tree also accept key chords. */
   actions?: readonly {
     key: string
     label: string
@@ -195,8 +195,17 @@ export interface TuiPrompt {
   secret?: boolean
   /** Option value selected when a fixed-choice prompt opens. */
   initialValue?: string
-  /** A reading surface, searchable list, or non-answerable progress card. */
-  presentation?: 'fullscreen-list' | 'fullscreen-tree' | 'plan-review' | 'document' | 'progress'
+  /**
+   * Where the prompt is drawn: the composer card (`card`, the default), a
+   * full-page tree, a reading surface, or a non-answerable progress card.
+   *
+   * `card` used to be called `card`, from when a long list was worth
+   * the whole screen. Lists do not take the screen any more — the card windows
+   * its rows, filters by typing, and draws the selected row's preview — so the
+   * name described a behaviour its value no longer had, in an API whose whole
+   * point is to be readable at the call site.
+   */
+  presentation?: 'card' | 'tree' | 'plan-review' | 'document' | 'progress'
   /** Suppress attention notifications for user-initiated browsing surfaces. */
   notify?: boolean
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
@@ -220,8 +229,6 @@ export interface TuiPrompt {
   documentPosition?: TuiDocumentPosition
   /** Called on dismissal or action activation with the last visible source position. */
   onDocumentPosition?: (position: TuiDocumentPosition) => void
-  /** Row density for full-screen lists; compact rows keep short choices together. */
-  optionLayout?: 'compact' | 'spacious'
   /** Choice that approves a dedicated review; other choices may collect feedback. */
   approveValue?: string
   /** Let typed text filter the available options. */

@@ -105,7 +105,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
           { key: 'Alt+A', label: archivedView ? 'restore' : 'archive', valuePrefix: 'archive:' },
           { key: 'Alt+V', label: archivedView ? 'active sessions' : 'archived sessions', valuePrefix: 'view:', scope: 'list' },
         ],
-        presentation: 'fullscreen-list',
+        presentation: 'card',
         filterable: true,
         allowCustom: false,
         signal: invocation.signal,

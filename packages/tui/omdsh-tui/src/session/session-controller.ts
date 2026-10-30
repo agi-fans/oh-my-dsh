@@ -928,7 +928,7 @@ export class SessionRuntime {
           { key: 'Alt+B', label: markedOnly ? 'full tree' : 'marked nodes', valuePrefix: 'marked:', scope: 'list' },
           ...(this.#ctx.get('omdshFileRecovery') === undefined ? [] : [{ key: 'Alt+R', label: 'restore Turn files', valuePrefix: 'restore:' }]),
         ],
-        ...(selectedId === undefined ? {} : { initialValue: selectedId }), presentation: 'fullscreen-tree', filterable: true, allowCustom: false, signal,
+        ...(selectedId === undefined ? {} : { initialValue: selectedId }), presentation: 'tree', filterable: true, allowCustom: false, signal,
       })
       if (answer === null) return
       this.assertActive(agent)

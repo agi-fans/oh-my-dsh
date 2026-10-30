@@ -96,7 +96,7 @@ export function maskPromptSecret(input: string): string {
 
 /** Options matching the current full-screen selector query. */
 export function filteredPromptOptions(request: TuiPrompt, query: string, collapsed?: ReadonlySet<string>): readonly PromptOption[] {
-  if (request.presentation === 'fullscreen-tree') return promptTreeRows(request, collapsed, query).map(row => row.option)
+  if (request.presentation === 'tree') return promptTreeRows(request, collapsed, query).map(row => row.option)
   const options = request.options ?? []
   if (request.filterable !== true) return options
   return rankSearchResults(options, query, option =>
@@ -241,7 +241,7 @@ export function movePromptTree(state: PromptSelectorState, direction: 'left' | '
 
 /** Start on a matching node instead of a context-only ancestor. */
 export function searchPromptSelection(state: PromptSelectorState, query: string): PromptSelectorState {
-  const selected = state.request.presentation === 'fullscreen-tree'
+  const selected = state.request.presentation === 'tree'
     ? Math.max(0, promptTreeRows(state.request, state.collapsed, query).findIndex(row => row.matched)) : 0
   return { ...state, selected, previewScroll: 0 }
 }
@@ -387,29 +387,19 @@ export function documentRows(request: TuiPrompt, theme: Theme, width: number): s
 }
 
 /**
- * How many rows the composer card can hold before a list is worth the screen.
+ * Does this prompt need the whole screen?
  *
- * The card already windows ten rows; below this a list reads better beside the
- * conversation than instead of it. Two commands had grown their own copy of this
- * number while seventeen call sites ignored it entirely.
- */
-export const INLINE_LIST_LIMIT = 8
-
-/**
- * Does this list need the whole screen?
- *
- * The composer card and the paged list share their navigation, so this is only a
- * question of fit. A tree has depth to show; a list longer than the card's window
- * cannot be read in place; and a list whose rows carry a preview is being browsed
- * for that preview, which the card does not draw. Everything else — most lists,
- * most of the time — stays beside the conversation it interrupted.
+ * Only a tree does. Length is not the question — a long list is still a list, and
+ * the card windows its rows, filters by typing, and draws the selected row's
+ * preview — so counting rows was the wrong variable. Choosing is a different act
+ * from reading, and a choice belongs beside the conversation it interrupted.
  */
 export function promptNeedsPage(request: TuiPrompt): boolean {
   // A list is a choice, and a choice belongs beside the conversation whatever its
   // length: the card windows its rows, filters by typing, and shows the selected
   // row's preview. Counting rows was the wrong variable — a long list is still a
   // list. Only a tree has structure the card cannot show.
-  return request.presentation === 'fullscreen-tree'
+  return request.presentation === 'tree'
 }
 
 /** Render a bounded, scrollable Markdown document with fixed actions. */
@@ -792,7 +782,7 @@ export function togglePromptSelection(state: PromptSelectorState, query = ''): P
 
 /** Resolve the selected labels in stable option order. */
 export function selectedPromptAnswer(state: PromptSelectorState): string | null {
-  const options = state.request.presentation === 'fullscreen-tree'
+  const options = state.request.presentation === 'tree'
     ? filteredPromptOptions(state.request, '', state.collapsed) : state.request.options ?? []
   if (options.length === 0) return null
   if (state.request.multiSelect !== true) {

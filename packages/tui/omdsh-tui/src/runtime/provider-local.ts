@@ -2831,8 +2831,8 @@ export class LocalTui implements TuiService {
     const count = filtered.length
     const keyAction = prompt.request.actions?.find(item => item.key.toLowerCase() === event.id.toLowerCase())
     if (keyAction !== undefined && (keyAction.scope === 'list'
-      || prompt.request.presentation === 'fullscreen-tree'
-      || prompt.request.presentation === 'fullscreen-list')) {
+      || prompt.request.presentation === 'tree'
+      || prompt.request.presentation === 'card')) {
       if (!disarmed) {
         const selected = filtered[prompt.selected]
         if (keyAction.scope === 'list' || selected !== undefined) {
@@ -2858,7 +2858,7 @@ export class LocalTui implements TuiService {
         const at = restored.findIndex(option => (option.value ?? option.label) === selected)
         this.#prompt = {
           ...prompt,
-          ...(prompt.request.presentation === 'fullscreen-tree' ? { collapsed: new Set() } : {}),
+          ...(prompt.request.presentation === 'tree' ? { collapsed: new Set() } : {}),
           selected: Math.max(0, at),
           previewScroll: 0,
         }
@@ -2869,12 +2869,12 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
-    if (prompt.request.presentation === 'fullscreen-tree' && (event.id === 'left' || event.id === 'right')) {
+    if (prompt.request.presentation === 'tree' && (event.id === 'left' || event.id === 'right')) {
       this.#prompt = movePromptTree(prompt, event.id, this.#editor.text) as PendingPrompt
       this.#render()
       return true
     }
-    if (prompt.request.presentation === 'fullscreen-tree' && (event.id === 'ctrl+up' || event.id === 'ctrl+down')) {
+    if (prompt.request.presentation === 'tree' && (event.id === 'ctrl+up' || event.id === 'ctrl+down')) {
       const start = this.#promptDocument?.start ?? prompt.previewScroll ?? 0
       this.#prompt = { ...prompt, previewScroll: Math.max(0, Math.min(start + (event.id === 'ctrl+up' ? -1 : 1), this.#promptDocument?.maxStart ?? 0)) }
       this.#render()
@@ -2893,13 +2893,13 @@ export class LocalTui implements TuiService {
     // Movement comes from the shared reading, so this selector cannot drift from
     // the other lists about what `tab` or `pageUp` means. `enter` stays below
     // because what it submits depends on the editor and on multi-select.
-    const page = prompt.request.presentation === 'fullscreen-tree'
+    const page = prompt.request.presentation === 'tree'
       ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height()) : 10
     const navigation = listNavigation(event)
     if (navigation.kind === 'move' || navigation.kind === 'page') {
       // The tree clamps: its rows are a structure, and wrapping past the last
       // branch lands the reader somewhere unrelated to the one they left.
-      const wrap = prompt.request.presentation !== 'fullscreen-tree'
+      const wrap = prompt.request.presentation !== 'tree'
       this.#prompt = movePromptSelection(prompt, navigateIndex(navigation, prompt.selected, count, page, { wrap }), count) as PendingPrompt
       this.#render()
       return true

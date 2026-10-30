@@ -84,7 +84,7 @@ async function manageRules(ctx: Context, invocation: CommandInvocation): Promise
     invocation.signal.throwIfAborted()
     const entries = rules.list(invocation.agent)
     if (entries.length === 0) return { kind: 'success', text: 'No approval rules for this session or workspace.' }
-    const id = await ctx.tui.prompt({ title: 'Approval rules', question: 'Choose a remembered decision', presentation: 'fullscreen-list',
+    const id = await ctx.tui.prompt({ title: 'Approval rules', question: 'Choose a remembered decision', presentation: 'card',
       filterable: true, allowCustom: false, notify: false, signal: invocation.signal,
       options: entries.map(rule => ({ label: `${rule.decision === 'allow' ? 'Allow' : 'Reject'} · ${rule.tool}`,
         value: rule.id, description: `${rule.scope} · ${rule.cwd} · ${rule.arguments}` })) })

@@ -103,7 +103,7 @@ describe('local Message Queue controls', () => {
     const { tui, term } = fixture()
     let options = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }]
     const refreshOptions = vi.fn(() => options)
-    const prompt = tui.prompt({ title: 'Live', question: '', options, refreshOptions, presentation: 'fullscreen-list', allowCustom: false })
+    const prompt = tui.prompt({ title: 'Live', question: '', options, refreshOptions, presentation: 'card', allowCustom: false })
     term.press('\x1b[B')
     options = [options[1]!, options[0]!]
     await vi.advanceTimersByTimeAsync(250)
@@ -119,7 +119,7 @@ describe('local Message Queue controls', () => {
     const { tui, term } = fixture()
     term.press('unsent')
     const refresh = vi.fn(() => { throw new Error('session changed') })
-    const prompt = tui.prompt({ title: 'Live', question: '', options: [{ label: 'A' }], refreshOptions: refresh, presentation: 'fullscreen-list' })
+    const prompt = tui.prompt({ title: 'Live', question: '', options: [{ label: 'A' }], refreshOptions: refresh, presentation: 'card' })
     await vi.advanceTimersByTimeAsync(250)
     expect(await prompt).toBe(null)
     expect(stripAnsi(term.captured)).toContain('session changed')

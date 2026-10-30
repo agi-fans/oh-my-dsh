@@ -115,7 +115,7 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
   while (!signal.aborted) {
     if (index === undefined) {
       const answer = await tui.prompt({ title, question: 'Choose a file', emptyText: 'No files to review.',
-        presentation: 'fullscreen-list', optionLayout: 'compact', filterable: true, allowCustom: false, signal, notify: false,
+        presentation: 'card', filterable: true, allowCustom: false, signal, notify: false,
         ...(selected === undefined ? {} : { initialValue: selected }),
         options: files.map((file, at) => ({ label: file.label, value: String(at), ...(file.description === undefined ? {} : { description: file.description }) })) })
       if (answer === null) return

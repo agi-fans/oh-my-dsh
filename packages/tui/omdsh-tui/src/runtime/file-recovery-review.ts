@@ -58,7 +58,7 @@ export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: 
   assertActive()
   let answer: string | null
   for (;;) {
-    answer = await ctx.tui.prompt({ title: `Restore Turn ${turn} files`, question: plan.root, presentation: 'fullscreen-list',
+    answer = await ctx.tui.prompt({ title: `Restore Turn ${turn} files`, question: plan.root, presentation: 'card',
     options, multiSelect: true, initialValues: options.map(option => option.value), allowCustom: false, filterable: true, notify: false,
     detail: `${protectedPaths.length} conflicts will be preserved. Select files; Enter reviews the restoration.`,
     actions: history === '' ? [] : [{ key: 'Alt+H', label: 'saved reports', valuePrefix: 'reports:', scope: 'list' }], signal: upstream, onSuperseded: () => {} })

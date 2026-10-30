@@ -59,13 +59,13 @@ describe('prompt intents', () => {
     })
   })
 
-  it('choose maps the two layout words onto the presentation fields', () => {
-    const fullscreen = choosePrompt({ title: 't', question: 'q', options: [], fullscreen: true, filterable: true })
-    expect(fullscreen).toMatchObject({ presentation: 'fullscreen-list', optionLayout: 'compact', filterable: true })
-    const spacious = choosePrompt({ title: 't', question: 'q', options: [], spacious: true })
-    expect(spacious).toMatchObject({ optionLayout: 'spacious' })
-    // A spacious inline list must not claim a full-screen page.
-    expect(spacious.presentation).toBeUndefined()
+  it('choose builds a card list and claims no page', () => {
+    // A list is a list: the card windows its rows whatever their number, so the
+    // intent takes no layout word and no full-screen claim. `presentation` stays
+    // unset and the default container applies.
+    const list = choosePrompt({ title: 't', question: 'q', options: [], filterable: true })
+    expect(list).toMatchObject({ filterable: true })
+    expect(list.presentation).toBeUndefined()
   })
 
   it('confirm returns a boolean, so dismissal is not consent', async () => {

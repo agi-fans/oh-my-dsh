@@ -78,7 +78,7 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     const answer = await ctx.tui.prompt({
       title: 'Attachments',
       question: ctx.tui.stageFileAttachment === undefined ? 'Choose a stored attachment' : 'Choose a stored attachment, or add a file',
-      presentation: 'fullscreen-list', optionLayout: 'compact', filterable: true, allowCustom: false, signal: invocation.signal,
+      presentation: 'card', filterable: true, allowCustom: false, signal: invocation.signal,
       notify: false,
       options: [
         ...(ctx.tui.stageFileAttachment === undefined

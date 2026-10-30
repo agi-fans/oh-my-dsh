@@ -615,7 +615,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     const term = new ScrollingTerminal(100, 24)
     const tui = new LocalTui(term, 'm', false)
     tui.restoreInput({ text: 'keep this draft', images: [] })
-    const request = { title: 'Session Tree', question: '', presentation: 'fullscreen-tree' as const,
+    const request = { title: 'Session Tree', question: '', presentation: 'tree' as const,
       filterable: true, allowCustom: false, initialValue: 'first',
       actions: [{ key: 'Alt+Enter', label: 'continue branch', valuePrefix: 'continue:' }], options: [
         { value: 'root', label: 'Conversation' },
@@ -787,7 +787,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
     } finally { tui.dispose() }
   })
 
-  it.each([false, true].flatMap(color => (['trajectory', 'settings', 'fullscreen-list', 'plan-review', 'document'] as const).map(surface => ({ color, surface }))))(
+  it.each([false, true].flatMap(color => (['trajectory', 'settings', 'card', 'plan-review', 'document'] as const).map(surface => ({ color, surface }))))(
     'restores the inspected run after closing $surface (color=$color)', async ({ surface, color }) => {
       const term = new ScrollingTerminal(80, 20)
       const tui = new LocalTui(term, 'm', color)
@@ -1599,17 +1599,17 @@ describe('LocalTui (tty)', () => {
       const line = tui.readInput()
       press(term, '/plugins\r')
       expect(await line).toEqual({ text: '/plugins', images: [] })
-      const menu = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'fullscreen-list', filterable: true,
+      const menu = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'card', filterable: true,
         options: [{ label: 'Plugin entries', value: 'entries' }, { label: 'Bundles', value: 'bundles' }], allowCustom: false })
       expect(term.visible().join('\n')).toContain('Plugins')
       press(term, '\r')
       expect(await menu).toBe('entries')
-      const entries = tui.prompt({ title: 'Plugin entries', question: 'Choose an entry to inspect or toggle', presentation: 'fullscreen-list', filterable: true,
+      const entries = tui.prompt({ title: 'Plugin entries', question: 'Choose an entry to inspect or toggle', presentation: 'card', filterable: true,
         options: Array.from({ length: 80 }, (_, index) => ({ label: `plugin-${index}`, value: String(index), description: 'Enabled · active' })), allowCustom: false })
       expect(term.visible().join('\n')).toContain('plugin-0')
       press(term, '\x1b[27u')
       expect(await entries).toBeNull()
-      const parent = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'fullscreen-list', filterable: true,
+      const parent = tui.prompt({ title: 'Plugins', question: 'Manage this profile', presentation: 'card', filterable: true,
         options: [{ label: 'Plugin entries', value: 'entries' }], allowCustom: false })
       press(term, '\x1b[27u')
       expect(await parent).toBeNull()
@@ -1620,13 +1620,13 @@ describe('LocalTui (tty)', () => {
     } finally { tui.dispose() }
   })
 
-  it('filters a full-screen prompt and returns the hidden option value', async () => {
+  it('filters a card list and returns the hidden option value', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const answer = tui.prompt({
       title: 'Resume Session',
       question: '',
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       filterable: true,
       allowCustom: false,
       options: [
@@ -1647,7 +1647,7 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', colors)
     try {
       const answer = tui.prompt({
-        title: 'Model', question: '', presentation: 'fullscreen-list',
+        title: 'Model', question: '', presentation: 'card',
         filterable: true, allowCustom: false,
         options: [
           { label: 'Other', value: 'other', description: 'Official flash route' },
@@ -3160,7 +3160,7 @@ describe('LocalTui (tty)', () => {
     const term = new ScrollingTerminal(80, 24)
     const tui = new LocalTui(term, 'm', color)
     const edit = vi.fn(async (id: string, signal: AbortSignal) => {
-      await tui.prompt({ title: id, question: 'Choose a field', presentation: 'fullscreen-list',
+      await tui.prompt({ title: id, question: 'Choose a field', presentation: 'card',
         options: [{ label: 'timeout', value: 'timeout' }], allowCustom: false, signal })
     })
     const unbind = tui.bindPluginSettings({ entries: () => ['shell', 'subagent'].map(id => ({ id, label: id, description: 'Editable configuration' })), edit })
@@ -4724,12 +4724,12 @@ it('restores raw input after a file editor fails without erasing terminal histor
 it('lets lowercase filename filtering coexist with Shift+P deliverable navigation', async () => {
   const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
   try {
-    const answer = tui.prompt({ title: 'Files · /workspace', question: '/workspace', presentation: 'fullscreen-list', optionLayout: 'compact',
+    const answer = tui.prompt({ title: 'Files · /workspace', question: '/workspace', presentation: 'card',
       filterable: true, allowCustom: false, options: [{ label: '../', value: '/above' }, { label: 'package.json', value: '/workspace/package.json' }],
       actions: [{ key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
     press(term, 'p\r')
     expect(await answer).toBe('/workspace/package.json')
-    const deliverables = tui.prompt({ title: 'Files', question: '/workspace', presentation: 'fullscreen-list', filterable: true,
+    const deliverables = tui.prompt({ title: 'Files', question: '/workspace', presentation: 'card', filterable: true,
       options: [{ label: '../', value: '/above' }], actions: [{ key: 'P', label: 'deliverables', valuePrefix: 'present:' }] })
     press(term, 'P')
     expect(await deliverables).toBe('present:/above')
@@ -5013,7 +5013,7 @@ it('preserves tabs and normalizes CRLF once when bracketed paste spans reads', a
 
 
 describe('list-wide prompt actions', () => {
-  it.each(['fullscreen-list', 'fullscreen-tree'] as const)('keeps list actions working with no match in %s', async presentation => {
+  it.each(['card', 'tree'] as const)('keeps list actions working with no match in %s', async presentation => {
     const term = new ScrollingTerminal(80, 24)
     const tui = new LocalTui(term, 'm', false)
     try {
@@ -5204,7 +5204,7 @@ it.each([false, true])('retains checked models across filtering and saves an exp
   const term = new FakeTerminal()
   const tui = new LocalTui(term, 'm', color)
   try {
-    const request = { title: 'Models', question: '', presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const, filterable: true, multiSelect: true, allowEmptySelection: true, initialValues: ['a'], allowCustom: false,
+    const request = { title: 'Models', question: '', presentation: 'card' as const, filterable: true, multiSelect: true, allowEmptySelection: true, initialValues: ['a'], allowCustom: false,
       options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }
     const pending = tui.prompt(request)
     press(term, 'Beta')

@@ -25,8 +25,7 @@ function fixedChoice() {
   // Nothing here decides how tall the list is: a list is a list, and the card
   // windows it. `optionCount` stays a parameter because the label names the size.
   return {
-    presentation: 'fullscreen-list' as const,
-    optionLayout: 'compact' as const,
+    presentation: 'card' as const,
     filterable: true,
     allowCustom: false,
     notify: false,
@@ -349,8 +348,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
    */
   const favorites = readModelFavorites(favoritesPath())
   const picked = await ctx.tui.prompt({
-    presentation: 'fullscreen-list',
-    optionLayout: 'compact',
+    presentation: 'card',
     filterable: true,
     allowCustom: false,
     notify: false,

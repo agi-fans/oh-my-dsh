@@ -187,8 +187,7 @@ describe('selector density', () => {
       request: {
         title: 'Model',
         question: 'Choose a model',
-        presentation: 'fullscreen-list',
-        optionLayout: 'compact',
+        presentation: 'card',
         filterable: true,
         allowCustom: false,
         options: [
@@ -270,7 +269,7 @@ describe('Session Library footer actions', () => {
 describe('live prompt choices', () => {
   const choices = [{ label: '你好 🐳', value: 'a' }, { label: 'Beta', value: 'b' }, { label: 'Gamma', value: 'c' }]
   it('retains selected and checked identities through reordering and filtering', () => {
-    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'fullscreen-list', filterable: true }, selected: 1, checked: new Set([0, 1]), previewScroll: 5 }
+    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'card', filterable: true }, selected: 1, checked: new Set([0, 1]), previewScroll: 5 }
     const reordered = refreshPromptOptions(state, [choices[1]!, choices[2]!, choices[0]!], '')
     expect(reordered.selected).toBe(0)
     expect(reordered.checked).toEqual(new Set([0, 2]))
@@ -280,7 +279,7 @@ describe('live prompt choices', () => {
     expect(filtered.checked).toEqual(new Set([1]))
   })
   it.each([false, true])('clamps a removed selection, resets its preview and handles an empty list (color=%s)', color => {
-    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'fullscreen-list' }, selected: 1, checked: new Set(), previewScroll: 99 }
+    const state: PromptSelectorState = { request: { title: 'Queue', question: '', options: choices, presentation: 'card' }, selected: 1, checked: new Set(), previewScroll: 99 }
     const next = refreshPromptOptions(state, [choices[0]!, choices[2]!], '')
     expect(next.selected).toBe(1)
     expect(next.previewScroll).toBe(0)
@@ -320,7 +319,7 @@ describe('image preview page', () => {
 
 
 it.each([[60, 24], [24, 9]])('paints filtered multi-select checkboxes by original identity at %sx%s', (width, _height) => {
-  const state: PromptSelectorState = { request: { title: 'Models', question: '', presentation: 'fullscreen-list', filterable: true, optionLayout: 'compact', multiSelect: true, options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }, selected: 0, checked: new Set([1]) }
+  const state: PromptSelectorState = { request: { title: 'Models', question: '', presentation: 'card', filterable: true, multiSelect: true, options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }] }, selected: 0, checked: new Set([1]) }
   const frame = renderPromptSelector({ ...state, request: { ...state.request, allowCustom: false } }, createTheme(false), width, 'Beta', 4)
   expect(stripAnsi(frame.lines.join('\n'))).toContain('[x] Beta')
   expect(togglePromptSelection(state, 'Beta').checked).toEqual(new Set())
@@ -383,7 +382,7 @@ describe('a tree row says everything the option knows', () => {
       request: {
         title: 'Agent Hub',
         question: '',
-        presentation: 'fullscreen-tree',
+        presentation: 'tree',
         filterable: true,
         allowCustom: false,
         options: [
@@ -407,7 +406,7 @@ describe('a tree row says everything the option knows', () => {
       request: {
         title: 'T',
         question: '',
-        presentation: 'fullscreen-tree',
+        presentation: 'tree',
         filterable: true,
         allowCustom: false,
         options: [{ value: 'a', label: 'node', description: 'x'.repeat(400) }],
@@ -425,7 +424,7 @@ describe('preview format', () => {
     createTheme(false), 60, '', 0,
   ).lines.join('\n'))
   const tree = (option: Record<string, unknown>) => stripAnsi(renderPromptTreePage(
-    { request: { title: 'X', question: '', presentation: 'fullscreen-tree', filterable: true, allowCustom: false, options: [option] },
+    { request: { title: 'X', question: '', presentation: 'tree', filterable: true, allowCustom: false, options: [option] },
       selected: 0, checked: new Set() },
     createTheme(false), 100, 20, '', 0, 'omdsh',
   ).lines.join('\n'))
@@ -449,7 +448,7 @@ describe('preview format', () => {
 
 describe('a disabled row', () => {
   const request = {
-    title: 'X', question: '', presentation: 'fullscreen-tree' as const, filterable: true, allowCustom: false,
+    title: 'X', question: '', presentation: 'tree' as const, filterable: true, allowCustom: false,
     options: [
       { value: 'group', label: 'workflow group', disabled: true },
       { value: 'child', parentValue: 'group', label: 'child agent' },

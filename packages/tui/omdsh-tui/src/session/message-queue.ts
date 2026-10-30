@@ -88,7 +88,7 @@ export async function openMessageQueue(options: {
       return choices
     }
     const answer = await tui.prompt({ title: 'Message Queue', question: 'Moves stay within Guidance, Next turn, or Waiting.',
-      notify: false, onSuperseded: () => { superseded = true }, options: refresh(), refreshOptions: refresh, presentation: 'fullscreen-list', filterable: true, allowCustom: false,
+      notify: false, onSuperseded: () => { superseded = true }, options: refresh(), refreshOptions: refresh, presentation: 'card', filterable: true, allowCustom: false,
       ...(selected === undefined ? {} : { initialValue: selected }), emptyText: 'No pending messages.', submitLabel: 'edit', signal,
       actions: [{ key: 'Alt+D', label: 'delete', valuePrefix: 'delete:' }, { key: 'Alt+Up', label: 'move earlier', valuePrefix: 'up:' }, { key: 'Alt+Down', label: 'move later', valuePrefix: 'down:' }] })
     if (answer === null) return

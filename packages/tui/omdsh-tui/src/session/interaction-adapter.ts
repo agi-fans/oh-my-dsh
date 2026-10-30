@@ -165,7 +165,7 @@ async function answerPendingQuestions(
       value: question.callId,
       preview: question.questions.map(item => item.question).join(' / '),
     })),
-    presentation: 'fullscreen-list',
+    presentation: 'card',
     filterable: true,
     allowCustom: false,
     notify: false,

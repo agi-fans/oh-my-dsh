@@ -2494,7 +2494,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
    * it. Bounded to a little over half the screen it sits above the composer with
    * the transcript still behind it, the way pi mounts its tree selector.
    */
-  const treeRows = options.promptSelector === undefined || options.promptSelector.request.presentation !== 'fullscreen-tree'
+  const treeRows = options.promptSelector === undefined || options.promptSelector.request.presentation !== 'tree'
     ? undefined
     : renderPromptTreePage(
       options.promptSelector,

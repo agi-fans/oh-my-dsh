@@ -47,9 +47,8 @@ describe('model command', () => {
     expect(prompt).toHaveBeenCalledTimes(1)
     const [request] = prompt.mock.calls[0] as [Record<string, unknown>]
     expect(request).toMatchObject({
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       filterable: true,
-      optionLayout: 'compact',
       allowCustom: false,
       initialValue: 'deepseek-official/deepseek-v4-flash',
     })
@@ -206,9 +205,8 @@ describe('model command', () => {
     await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       filterable: true,
-      optionLayout: 'compact',
     }))
     await ctx.fiber.dispose()
   })
@@ -370,7 +368,7 @@ describe('model query command', () => {
     const env = await queryEnv('/model --session', prompt)
     expect(prompt).toHaveBeenCalledTimes(1)
     expect(prompt.mock.calls[0]?.[0]).toMatchObject({
-      presentation: 'fullscreen-list',
+      presentation: 'card',
       filterable: true,
       title: 'Model · this session',
     })

@@ -73,6 +73,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- `TuiPrompt.presentation`'s `fullscreen-list` became `fullscreen-tree`'s sibling `card`. A list stopped taking the screen when the composer card learned to window its rows, filter by typing and preview the selected row, so the value described a behaviour it no longer had — in an API whose whole point is being readable at the call site.
+
+- `TuiPrompt.optionLayout` and the `choose` intent's `fullscreen` and `spacious` options are gone. `optionLayout` was written in eight places and read in none; `fullscreen` and `spacious` only ever existed to set it, so their two branches could not do anything either.
+
 - The Agent Hub is gone, and its one irreplaceable action moved into the subagent roster: `↓` on an empty composer selects a row, `↑`/`↓` moves, and `Enter` opens that child's transcript. The hub existed because it was the only trigger for `#openInspect` — a missing key binding, not a layout requirement — and paid for it with a full screen, its own nine-row key table, `Alt+A`, a `T` tree toggle and a wide/narrow two-pane layout. Everything it was the only view of now has a home: the roster is the list, an external child (which keeps no local transcript) prints its status and recent activity as a fold-able result, and recorded workflow runs appear as a line at the top of the roster.
 
 - The advisor is gone: `consult_advisor`, `/advisor`, its Integrations setting, and the 810 lines that composed them. It reached the same ACP transport as a Codex or Claude Code subagent, but handed the second model only a question the primary agent wrote plus a context slice it chose — so the advisor answered from a summary of the problem rather than the problem. Claude Code's advisor reads the full conversation because it runs server-side; a local version would have to serialize that itself, at the cost of choosing what to drop. What it did uniquely — ask for an opinion without giving away the ability to act — stays reachable by delegating a read-only subagent instead.

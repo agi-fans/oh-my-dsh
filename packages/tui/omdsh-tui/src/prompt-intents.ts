@@ -2,7 +2,7 @@
  * The four intents a caller actually has when it asks the reader something.
  *
  * `TuiPrompt` grew to forty-six optional fields because every new surface added
- * one: `presentation`, `optionLayout`, `filterable`, `approveValue`,
+ * one: `presentation`, `filterable`, `approveValue`,
  * `dismissLabel`, `skippable`, `wait`, `interrupt`, `onSuperseded`,
  * `refreshDocument`, `refreshOptions` … A caller passing `{ title, question,
  * allowCustom: true }` had to know that omitting `options` means "free text" and
@@ -124,10 +124,6 @@ export function choosePrompt<const T extends PromptChoice>(request: {
   initialValue?: string
   /** Let typed text filter the rows. */
   filterable?: boolean
-  /** Full-screen page rather than an inline list. */
-  fullscreen?: boolean
-  /** Spell each row across two lines instead of one. */
-  spacious?: boolean
   /** Text shown when the list has no rows; the caller owns this wording. */
   emptyText?: string
   /** Keyboard chords the list accepts besides Enter and the arrows. */
@@ -143,7 +139,6 @@ export function choosePrompt<const T extends PromptChoice>(request: {
   signal?: AbortSignal
   notify?: boolean
 }): TuiPrompt {
-  const fullscreen = request.fullscreen === true
   return {
     title: request.title,
     question: request.question,
@@ -151,8 +146,6 @@ export function choosePrompt<const T extends PromptChoice>(request: {
     options: request.options,
     ...(request.initialValue === undefined ? {} : { initialValue: request.initialValue }),
     ...(request.filterable === true ? { filterable: true } : {}),
-    ...(fullscreen ? { presentation: 'fullscreen-list' as const, optionLayout: 'compact' as const } : {}),
-    ...(request.spacious === true ? { optionLayout: 'spacious' as const } : {}),
     ...(request.emptyText === undefined ? {} : { emptyText: request.emptyText }),
     ...(request.actions === undefined ? {} : { actions: request.actions }),
     ...(request.multiSelect === true ? { multiSelect: true } : {}),

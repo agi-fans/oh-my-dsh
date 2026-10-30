@@ -237,11 +237,9 @@ async function pickLoginChoice(
   const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
   const includeAccount = account?.getState !== undefined
   const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
-  const fullscreen = true
   const raw = await ctx.tui.prompt({
-    ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
-    optionLayout: 'compact',
-    filterable: fullscreen,
+    presentation: 'card',
+    filterable: true,
     title: 'Provider',
     question: 'Choose a provider to sign in or update',
     options: [
@@ -524,7 +522,7 @@ async function collectCustomModels(
           allowCustom: false,
           notify: false,
           filterable: true,
-          presentation: 'fullscreen-list' as const,
+          presentation: 'card' as const,
           signal: invocation.signal,
         })
         if (picked === null) return undefined
@@ -761,11 +759,9 @@ async function pickLogoutChoice(
   const values = choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
     ? DEEPSEEK_ACCOUNT_CHOICE
     : isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
-  const fullscreen = true
   const raw = await ctx.tui.prompt({
-    ...(fullscreen ? { presentation: 'fullscreen-list' as const } : {}),
-    optionLayout: 'compact',
-    filterable: fullscreen,
+    presentation: 'card',
+    filterable: true,
     title: 'Provider',
     question: 'Choose a provider to log out from',
     options: choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE

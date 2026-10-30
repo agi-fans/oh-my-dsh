@@ -48,7 +48,7 @@ function bundleStatus(row: BundleInfo): string {
   return `Installed · ${row.enabled ? 'Enabled' : 'Disabled'}`
 }
 
-const list = { filterable: true, allowCustom: false, optionLayout: 'compact' as const, notify: false }
+const list = { filterable: true, allowCustom: false, notify: false }
 
 async function install(ctx: Context, spec: string, signal: AbortSignal, approvedBuilds?: string[], saveExact = false): Promise<ChangeResult> {
   signal.throwIfAborted()
