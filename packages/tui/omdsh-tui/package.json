@@ -34,10 +34,6 @@
       "types": "./lib/runtime/approval-rules.d.ts",
       "default": "./lib/runtime/approval-rules.js"
     },
-    "./command-advisor": {
-      "types": "./lib/commands/advisor.d.ts",
-      "default": "./lib/commands/advisor.js"
-    },
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"

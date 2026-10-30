@@ -52,7 +52,7 @@ describe('plugin configuration', () => {
     const descriptors = [
       { ...h.section, ns: 'tui', schema: z.object({ theme: z.string(), statusBar: z.dict(z.string()), foldDensity: z.string(), future: z.boolean() }).toJSON() },
       { ...h.section, ns: 'agent-behavior', schema: z.object({ language: z.string() }).toJSON() },
-      { ...h.section, ns: 'advisor', schema: z.object({ advisor: z.union(['off', 'codex', 'claude'] as const), future: z.string() }).toJSON() },
+      { ...h.section, ns: 'sample-form', schema: z.object({ mode: z.union(['off', 'one', 'two'] as const), future: z.string() }).toJSON() },
       { ...h.section, ns: 'agent-loop', schema: z.object({ maxParallelToolCalls: z.number() }).toJSON() },
       { ...h.section, ns: 'bash', schema: z.object({ timeoutMs: z.number(), cwd: z.string() }).toJSON() },
       { ...h.section, ns: 'private-page', autoGenerate: false },
@@ -63,8 +63,8 @@ describe('plugin configuration', () => {
       const entries = config.pluginSettingsEntries(h.ctx)
       expect(entries.find(entry => entry.id === 'advanced:tui')).toMatchObject({ section: 'advanced', fields: ['future'] })
       expect(entries.some(entry => entry.id === 'agent-behavior' || entry.id === 'private-page')).toBe(false)
-      expect(entries.find(entry => entry.id === 'advisor')).toMatchObject({ label: 'Advisor', section: 'integrations', fields: ['advisor'] })
-      expect(entries.find(entry => entry.id === 'advanced:advisor')).toMatchObject({ section: 'advanced', fields: ['future'] })
+      // A namespace without a product form keeps only its unclaimed fields.
+      expect(entries.find(entry => entry.id === 'advanced:sample-form')).toMatchObject({ section: 'advanced', fields: ['mode', 'future'] })
       expect(entries.find(entry => entry.id === 'agent-loop')?.section).toBe('tools')
       expect(entries.find(entry => entry.id === 'bash')).toMatchObject({ section: 'tools', fields: ['timeoutMs'] })
       expect(entries.some(entry => entry.id === 'advanced:bash')).toBe(false)
@@ -74,28 +74,28 @@ describe('plugin configuration', () => {
 
   it('keeps third-party namespaces distinct from product and native control identities', async () => {
     const h = await harness([])
-    h.describe.mockReturnValue(['advisor', 'advanced:advisor', 'integration:codex', 'constructor'].map(ns => ({ ...h.section, ns,
-      schema: z.object({ advisor: z.union(['off', 'codex', 'claude'] as const), extra: z.string() }).toJSON() })))
+    h.describe.mockReturnValue(['sample-form', 'advanced:sample-form', 'integration:codex', 'constructor'].map(ns => ({ ...h.section, ns,
+      schema: z.object({ mode: z.union(['off', 'one', 'two'] as const), extra: z.string() }).toJSON() })))
     h.ctx.provide('pluginManager', {} as never)
     try {
       const entries = config.pluginSettingsEntries(h.ctx)
       expect(new Set(entries.map(entry => entry.id)).size).toBe(entries.length)
       expect(entries.find(entry => entry.id === 'advanced:integration:codex')?.namespace).toBe('integration:codex')
-      expect(entries.find(entry => entry.id === 'advanced:constructor')?.fields).toEqual(['advisor', 'extra'])
+      expect(entries.find(entry => entry.id === 'advanced:constructor')?.fields).toEqual(['mode', 'extra'])
     } finally { await h.ctx.fiber.dispose() }
   })
 
   it('edits product labels with schema validation and writes only the original owner path', async () => {
     // A union value is written as JSON, which is what the option list carries.
-    const h = await harness(['0', '"claude"', null])
-    h.section.ns = 'advisor'
-    h.section.schema = z.object({ advisor: z.union(['off', 'codex', 'claude'] as const) }).toJSON()
+    const h = await harness(['0', '"two"', null])
+    h.section.ns = 'file-recovery'
+    h.section.schema = z.object({ enabled: z.union(['off', 'one', 'two'] as const) }).toJSON()
     try {
-      await config.editSettingsEntry(h.ctx, 'advisor', new AbortController().signal)
-      expect(h.prompt.mock.calls[0]![0]).toMatchObject({ title: 'Advisor', options: expect.arrayContaining([expect.objectContaining({ label: 'Advisor' })]) })
-      expect(h.prompt.mock.calls[1]![0].options?.map(option => option.label)).toEqual(['off', 'codex', 'claude'])
-      expect(h.mutate).toHaveBeenCalledWith('advisor', [{ op: 'set', path: ['advisor'], value: 'claude' }], 7)
-      expect(h.notice).toHaveBeenCalledWith('Advisor: saved.')
+      await config.editSettingsEntry(h.ctx, 'file-recovery', new AbortController().signal)
+      expect(h.prompt.mock.calls[0]![0]).toMatchObject({ title: 'File recovery snapshots', options: expect.arrayContaining([expect.objectContaining({ label: 'Snapshots' })]) })
+      expect(h.prompt.mock.calls[1]![0].options?.map(option => option.label)).toEqual(['off', 'one', 'two'])
+      expect(h.mutate).toHaveBeenCalledWith('file-recovery', [{ op: 'set', path: ['enabled'], value: 'two' }], 7)
+      expect(h.notice).toHaveBeenCalledWith('Snapshots: saved.')
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -160,11 +160,12 @@ describe('plugin configuration', () => {
 
   it('keeps Advanced scoped to unclaimed fields and hides native environment overrides', async () => {
     const h = await harness([null])
-    h.section.ns = 'advisor'
-    h.section.schema = z.object({ advisor: z.union(['off', 'codex', 'claude'] as const), future: z.string() }).toJSON()
+    h.section.ns = 'sample-form'
+    h.section.schema = z.object({ mode: z.union(['off', 'one', 'two'] as const), future: z.string() }).toJSON()
     try {
-      await config.editSettingsEntry(h.ctx, 'advanced:advisor', new AbortController().signal)
-      expect(h.prompt.mock.calls[0]![0].options?.map(option => option.label)).toEqual(['future'])
+      await config.editSettingsEntry(h.ctx, 'advanced:sample-form', new AbortController().signal)
+      // No product form claims anything here, so Advanced owns every field.
+      expect(h.prompt.mock.calls[0]![0].options?.map(option => option.label)).toEqual(['mode', 'future'])
       h.section.ns = 'subagent-codex'
       h.section.schema = z.object({ model: z.string(), permissionMode: z.string(), env: z.dict(z.string()), disposeGraceMs: z.number() }).toJSON()
       expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([{ fields: ['disposeGraceMs'] }])
@@ -293,7 +294,6 @@ describe('plugin configuration', () => {
 
   it.each([
     ['file-recovery', 'enabled', z.boolean(), false, 'true', 'On'],
-    ['advisor', 'advisor', z.union(['off', 'codex', 'claude']), 'off', '"claude"', 'claude'],
     ['hook-settings', 'bridge', z.union(['off', 'codex', 'claude-code']), 'off', '"codex"', 'codex'],
   ] as const)('derives inline %s choices from its schema and writes its owner revision', async (ns, path, schema, current, choice, label) => {
     const h = await harness([])
@@ -311,8 +311,8 @@ describe('plugin configuration', () => {
 
   it('refuses inline edits after a concurrent change, cancellation, or a read-only transition', async () => {
     const h = await harness([])
-    h.section.ns = 'advisor'
-    h.section.schema = z.object({ advisor: z.union(['off', 'codex', 'claude']) }).toJSON()
+    h.section.ns = 'file-recovery'
+    h.section.schema = z.object({ enabled: z.union(['off', 'one', 'two']) }).toJSON()
     try {
       const entry = config.pluginSettingsEntries(h.ctx)[0]!
       h.section.revision++

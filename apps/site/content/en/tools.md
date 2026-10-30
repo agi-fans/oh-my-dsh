@@ -55,8 +55,6 @@ The `cordis` preset adds read-only runtime inspection on top of the native catal
 
 `subagent`, `subagent_fork`, and `subagent_isolated` delegate to child agents, and `workflow_run` fans work out across children from a script. `ralph` iterates fresh agents toward one objective but ships disabled, matching the upstream base bundle; a home overlay restores it with `disabled: false` on its row. The `code` preset denies `workflow_run`, so a PTC session authors its orchestration through `run_code` alone. See [Subagents and delegation](subagents.md).
 
-`consult_advisor` obtains a Codex or Claude Code opinion from an explicit question and text context when the user asks for a second opinion. It returns attributed advice for the primary model to evaluate and uses independent filesystem confinement. Native model charges apply; Settings can disable model consultations. See [Independent advice](subagents.md#independent-advice) for setup and limits.
-
 ## Related
 
 - [Commands](commands.md) — `/tools` and the rest of the catalog

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- The advisor is gone: `consult_advisor`, `/advisor`, its Integrations setting, and the 810 lines that composed them. It reached the same ACP transport as a Codex or Claude Code subagent, but handed the second model only a question the primary agent wrote plus a context slice it chose — so the advisor answered from a summary of the problem rather than the problem. Claude Code's advisor reads the full conversation because it runs server-side; a local version would have to serialize that itself, at the cost of choosing what to drop. What it did uniquely — ask for an opinion without giving away the ability to act — stays reachable by delegating a read-only subagent instead.
+
 - `/steer` and `/todo` are gone. Steering is `Alt+S` on the draft, which is the same handler without typing a six-character prefix; the todo list is already drawn live above the composer, and printing a copy into immutable scrollback produced a list that was stale the moment it appeared.
 
 - `/copy text|code|cmd|output` lost its kinds. `text` meant "the default", so it was a no-op parameter, and the other three named a row the picker already shows with its content, language and size: the reader had to recall a word to skip a keystroke. `/copy` opens the picker; `Alt+C` still copies a selection when there is one.

@@ -32,13 +32,6 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
   'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
-  advisor: {
-    label: 'Advisor',
-    section: 'integrations',
-    fields: { advisor: 'Advisor' },
-    inline: 'advisor',
-    effect: 'Off until you choose a model. A consultation is a paid request to another vendor; the chosen model decides which one the agent reaches, and /advisor uses the same choice.',
-  },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
     effect: 'Default: deepseek-search-api and deepseek-fetch-api. Fallbacks: deepseek-official (Messages) and http (local). With more than one provider installed, an empty value is ambiguous.' },

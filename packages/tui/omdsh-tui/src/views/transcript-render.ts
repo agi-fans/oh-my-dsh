@@ -1225,7 +1225,6 @@ const PROCESS_LABELS: readonly { match: RegExp; label: string }[] = [
   {
     match: /^(subagent|subagent_fork|subagent_isolated|subagent_codex|subagent_claude_code|agent|ralph|workflow_run)$/, label: 'Run subagent',
   },
-  { match: /^consult_advisor$/, label: 'Consult advisor' },
   {
     match: /^(session_search|session_trace|session_event_read|session_event_search|session_event_trace)$/,
     label: 'Search sessions',

@@ -55,8 +55,6 @@ omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T`
 
 `subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理，`workflow_run` 用脚本把工作扇出到多个子代理。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
 
-`consult_advisor` 在用户要求第二意见时，基于明确的问题与文本上下文获取 Codex 或 Claude Code 的意见。它返回带来源的建议供主模型独立判断，并使用独立的文件系统隔离。调用产生原生模型费用；Settings 可关闭模型咨询。设置与限制见[独立咨询](subagents.md#独立咨询)。
-
 ## 相关
 
 - [命令](commands.md) —— `/tools` 及其余命令目录

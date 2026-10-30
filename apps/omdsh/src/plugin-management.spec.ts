@@ -32,21 +32,16 @@ try {
   const manager = ctx.pluginManager
   const forms = pluginSettingsEntries(ctx)
   assert.ok(!forms.some(row => ['tui', 'agent-behavior', 'llm-deepseek', 'llm-pi-ai'].includes(row.id)), 'dedicated and automatic-form-disabled settings stay out of Advanced')
-  assert.equal(forms.find(row => row.id === 'advisor').section, 'integrations')
   assert.equal(forms.find(row => row.id === (process.platform === 'win32' ? 'pwsh' : 'bash')).label, 'Shell')
   assert.equal(ctx.get('translator'), undefined)
   assert.ok(![...ctx.loader.entries()].some(entry => entry.options.id === 'tui-command-reasoning'), 'retired reasoning plugin is not mounted')
   assert.ok(!forms.some(row => row.namespace === 'tui-command-reasoning'), 'retired reasoning settings are absent')
   assert.equal(forms.find(row => row.id === 'subagent').section, 'agent')
   assert.equal(forms.find(row => row.id === 'integration:codex').section, 'integrations')
-  const advisor = ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'advisor')
-  // One field answers both questions: whether an advisor exists and which one.
-  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'off')
-  await setSettingsEntry(ctx, forms.find(row => row.id === 'advisor'), '"claude"', new AbortController().signal)
-  assert.equal(pluginSettingsEntries(ctx).find(row => row.id === 'advisor').inline.value, 'claude')
-  const changedAdvisor = ctx.settings.describe().find(row => row.ns === advisor.ns)
-  assert.equal(changedAdvisor.value.advisor, 'claude')
-  await ctx.settings.mutate(advisor.ns, [{ op: 'unset', path: ['advisor'] }], changedAdvisor.revision)
+  // The advisor was removed with its plugin, so neither its settings section nor
+  // its product form may survive the composition.
+  assert.equal(forms.find(row => row.id === 'advisor'), undefined)
+  assert.equal(ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'advisor'), undefined)
   const bundles = await manager.listBundles()
   assert.equal(bundles.find(row => row.name === '@agi-fans/oh-my-dsh').readOnlyReason, 'management-required')
   for (const name of ['@deepseek-ai/dsh-subagent-codex', '@deepseek-ai/dsh-subagent-claude-code']) {

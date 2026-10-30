@@ -11,7 +11,6 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { StreamDelta } from './views/event-views.ts'
 import type { TuiPrefs } from './views/settings-list.ts'
@@ -21,32 +20,7 @@ import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 /** Context service name providers publish under. */
 export const TUI_SERVICE = 'tui'
 
-export type TuiAdvisor = 'codex' | 'claude'
-/** Configured advisor, or `off` when consultations are disabled. */
-export type TuiAdvisorMode = TuiAdvisor | 'off'
-export interface TuiAdvice { provider: TuiAdvisor; question: string; opinion: string; truncated: boolean }
-export interface AdvisorService {
-  /**
-   * The configured advisor, or `off` when the reader has not chosen one.
-   *
-   * The owner of the setting is the plugin that performs the consultation, so
-   * this is the only place another surface can learn it without reading that
-   * plugin's configuration — which would be a second source of truth for the
-   * same value.
-   */
-  mode(): TuiAdvisorMode
-  /** A bounded, explicit consultation; cancellation waits for native process cleanup. */
-  consult(
-    agent: Agent,
-    provider: TuiAdvisor,
-    question: string,
-    context: string,
-    signal: AbortSignal,
-    onProgress?: (activity: TuiSubagentActivity) => void,
-  ): Promise<TuiAdvice>
-}
 declare module '@deepseek-ai/cordis' {
-  interface Context { advisor: AdvisorService }
   interface Events {
     'subagent/external-activity'(info: { id: string; activity: TuiSubagentActivity }): void
   }
