@@ -67,17 +67,19 @@ describe('/advisor', () => {
           }),
         }),
       )
+      // The card carries the trace, so the result carries no text: printing the
+      // same trace in both is how one consultation appeared twice.
       expect(h.event).toHaveBeenLastCalledWith(expect.objectContaining({
         type: 'tool/result',
         data: expect.objectContaining({
-          message: expect.objectContaining({
-            toolName: 'consult_advisor',
-            isError: false,
-            // The settled trace leads with what the run was and what it cost.
-            content: [{ type: 'text', text: expect.stringContaining('Completed · 1 step') }],
-          }),
+          message: expect.objectContaining({ toolName: 'consult_advisor', isError: false, content: [] }),
         }),
       }))
+      // The settled card says what the run was, so it does not keep claiming to
+      // be in progress after the answer arrived.
+      const settled = h.event.mock.calls.filter(([event]) => (event as { type?: string }).type === 'tool/call')
+        .at(-1)?.[1] as { call?: { content?: { text?: string }[] } } | undefined
+      expect(settled?.call?.content?.[0]?.text).toContain('Completed · 1 step')
       expect(h.setStatus).toHaveBeenNthCalledWith(1, 'running')
       expect(h.setStatus).toHaveBeenNthCalledWith(2, 'idle', { outcome: 'completed' })
       expect(h.consult).toHaveBeenCalledWith(h.invocation.agent, 'claude', 'Review this code', '', expect.any(AbortSignal), expect.any(Function))
@@ -85,7 +87,15 @@ describe('/advisor', () => {
       // advice survives a resume instead of living only in the live TUI.
       expect(h.inject).toHaveBeenCalledWith(expect.objectContaining({
         source: expect.objectContaining({ kind: 'omdsh-advisor', form: 'notice' }),
+        // The reader at the terminal gets an attributed opinion, not the brief
+        // the model works from.
+        content: [{ type: 'text', text: expect.stringMatching(/^Advisor · Claude Code · independent opinion/) }],
       }))
+      const injected = (h.inject.mock.calls[0]?.[0] as { content: { text: string }[] }).content[0]!.text
+      expect(injected).not.toContain('The user consulted external advisor')
+      // The caution survives, because it is what stops the model adopting an
+      // outside opinion that the workspace disagrees with.
+      expect(injected).toContain('Unverified external advice')
       expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
@@ -252,3 +262,15 @@ describe('the consultation trace', () => {
     expect(trace).not.toContain('step 11')
   })
 })
+
+  it('pads in display cells, so a CJK step keeps its duration on the same line', () => {
+    // Padding by string length wrapped the duration onto its own line: one CJK
+    // character is one code unit and two terminal cells.
+    const trace = advisorTrace([
+      { text: '我会只读查看项目说明', status: 'ok', at: 0 },
+      { text: 'Read src/auth.ts', status: 'ok', at: 2_000 },
+    ], 'completed', 5_000)
+    const rows = trace.split('\n').filter(line => line.startsWith('✓'))
+    expect(rows).toHaveLength(2)
+    for (const row of rows) expect(row).toMatch(/[0-9.]+m?s$/u)
+  })

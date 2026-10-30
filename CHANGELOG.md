@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- An `/advisor` consultation no longer prints its own steps twice. The live card and the settled tool result each carried the full trace, so the card showed `In progress` followed by `Completed` with the same rows underneath; the card now settles into one trace and the result carries no text.
+
+- The advisor's opinion reads like advice instead of the brief the model works from: it leads with the provider and the opinion, drops the `The user consulted external advisor…` scaffolding, and keeps one line telling the model to check it against the workspace. A failed recording of that opinion is reported rather than swallowed.
+
+- A step's duration stays on its own line. The padding was counted in string length, so a CJK step label — one character, two cells — pushed the duration onto the next row.
+
 - An external advisor's step is updated in place. Each step is reported at its start and again at its finish, and both were appended, so every command and file appeared twice in the card.
 
 ### Added
