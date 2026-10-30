@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- The pinned DeepSeek Harness cohort moves from `0.2.1-rc.3` to `0.2.1-rc.5` across all 145 runtime packages, and the `examples/hello` fixture follows it. No API changes reached this codebase: typecheck, the full suite, and all three PTY smokes pass unchanged. The one real adjustment was the fixture itself — the compatibility check refused it while it still declared `rc.3`, which is the check doing its job.
+
 - The `/copy` picker is the same composer card as every other list. It had been the last bespoke overlay with its own key model: nine hotkey rows of its own, and a filter that stayed inactive until `/` — so a typed letter did nothing and `Space` copied instead of typing a space. Typing filters now, `Enter` copies, and the selected row's payload is the preview.
 
 - A finished `/btw` answer folds into the transcript when its pane closes, as one `/btw <question>` line with the answer behind `Ctrl+O`. Closing the pane used to be the only way to reclaim the screen height, and it cost the text; now the reader never has to choose. A consultation left before it answers records nothing, and the block is local presentation — the session log is untouched, so a resumed session does not carry it, exactly like any other command output.
