@@ -6,8 +6,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
-## [0.22.0] - 2026-10-29
-
 ### Removed
 
 - `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
@@ -738,8 +736,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...HEAD
-[0.22.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...v0.22.0
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...HEAD
 [0.21.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0
