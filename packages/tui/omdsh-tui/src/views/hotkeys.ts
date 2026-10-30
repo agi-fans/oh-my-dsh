@@ -10,7 +10,6 @@ import type { HotkeyRow, OverlayCatalog } from './hotkey-format.ts'
 export type { HotkeyRow }
 export { formatHotkeyKeys, formatOverlayHint } from './hotkey-format.ts'
 import { AGENT_HUB_HOTKEYS } from './agent-hub.ts'
-import { COPY_SELECTOR_HOTKEYS } from './copy-selector.ts'
 import { HISTORY_SEARCH_HOTKEYS } from './history-search.ts'
 import { PROMPT_SELECTOR_HOTKEYS } from './prompt-selector.ts'
 import { SETTINGS_HOTKEYS } from './settings-list.ts'
@@ -31,7 +30,6 @@ interface HotkeySection {
  */
 const OVERLAY_CATALOGS: readonly OverlayCatalog[] = [
   { label: 'Settings', rows: SETTINGS_HOTKEYS },
-  { label: 'Copy picker', rows: COPY_SELECTOR_HOTKEYS },
   { label: 'Agent Hub', rows: AGENT_HUB_HOTKEYS },
   { label: 'History search', rows: HISTORY_SEARCH_HOTKEYS },
   { label: 'Transcript search', rows: TRANSCRIPT_SEARCH_HOTKEYS },
@@ -156,7 +154,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: '!command', action: 'Run a persistent Shell line; output stays outside model context' },
         { keys: '@ / ./ / ~/', action: 'Complete file paths' },
         { keys: 'Tab', action: 'Accept command or path completion' },
-        { keys: '/copy', action: 'Open the copy picker' },
+        { keys: '/copy', action: 'Choose what to copy' },
         { keys: '/help', action: 'Show commands and keyboard shortcuts' },
       ],
     },

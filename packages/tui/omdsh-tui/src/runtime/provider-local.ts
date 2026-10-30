@@ -2,7 +2,7 @@
  * TUI capability seam — local terminal provider.
 
  * Owns the tty: raw-mode key input (editing, history, slash/tab
- * autocomplete, /settings overlay, /copy picker, Ctrl-R history search, PgUp/PgDn
+ * autocomplete, /settings overlay, Ctrl-R history search, PgUp/PgDn
  * and Shift+Up/Down transcript scroll, Ctrl-O tool
  * expand, bracketed paste, double-Escape conversation rewind, double Ctrl-C exit, Ctrl-D quit),
  * SIGWINCH reflow, and the differential renderer. In non-tty mode
@@ -110,11 +110,6 @@ import {
 import { readTmuxMouseEnabled } from '../input/mouse-policy.ts'
 import { TextSelection } from '../input/text-selection.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from '../input/clipboard.ts'
-import {
-  applyCopySelectorEvent,
-  createCopySelector,
-  type CopySelectorState,
-} from '../views/copy-selector.ts'
 import { buildCopyTargets } from '../views/copy-targets.ts'
 import {
   applyHistorySearchEvent,
@@ -349,7 +344,6 @@ type DisplacedSurface =
   | { kind: 'trajectory'; state: TrajectoryState }
   | { kind: 'agentHub'; state: AgentHubState }
   | { kind: 'settings'; state: SettingsState }
-  | { kind: 'copySelector'; state: CopySelectorState }
   | { kind: 'search'; state: HistorySearchState }
 /**
  * Local terminal presentation service.
@@ -472,7 +466,6 @@ export class LocalTui implements TuiService {
   #features: FeatureStates | undefined
   /** Profile patch the Tools feature controls write; absent hides those controls. */
   #featurePatch: string | undefined
-  #copySelector: CopySelectorState | null = null
   #trajectory: TrajectoryState | null = null
   #agentHub: AgentHubState | null = null
   #pending: PendingRead | null = null
@@ -1046,7 +1039,6 @@ export class LocalTui implements TuiService {
     this.#trajectory = createTrajectory(events)
     this.#agentHub = null
     this.#settings = null
-    this.#copySelector = null
     this.#search = null
     this.#ac = null
     this.#render()
@@ -2072,11 +2064,9 @@ export class LocalTui implements TuiService {
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
           ? { settings: this.#settings }
-          : this.#copySelector !== null
-            ? { copySelector: this.#copySelector }
-            : this.#search !== null
-              ? { historySearch: this.#search }
-              : this.#ac !== null ? { autocomplete: this.#ac } : {}),
+          : this.#search !== null
+            ? { historySearch: this.#search }
+            : this.#ac !== null ? { autocomplete: this.#ac } : {}),
       })
       : { lines: [] }
     this.#focusBlock = undefined
@@ -2249,7 +2239,7 @@ export class LocalTui implements TuiService {
 
   #routeInputBatch(events: readonly KeyEvent[]): void {
     if (this.#pasteProtection && this.#state.status !== 'compacting' && !this.#paste && this.#pasteInFlight === 0
-      && this.#prompt === null && this.#settings === null && this.#copySelector === null
+      && this.#prompt === null && this.#settings === null
       && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
       && events.every(event => event.type === 'text' || (event.type === 'key' && ['enter', 'ctrl+j', 'tab'].includes(event.id)))) {
       if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
@@ -2267,7 +2257,7 @@ export class LocalTui implements TuiService {
 
   #routeInput(event: KeyEvent): void {
     if (event.type === 'focus' || event.type === 'cell-size') { this.#dispatch(event); return }
-    const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null && this.#copySelector === null
+    const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null
       && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
     if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
       || event.type === 'paste-start' || event.type === 'paste-end') {
@@ -2331,7 +2321,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    if (this.#settings !== null || this.#copySelector !== null) return
+    if (this.#settings !== null) return
     if (this.#search !== null) {
       this.#applySearch({ type: 'text', value: text })
       return
@@ -2371,7 +2361,7 @@ export class LocalTui implements TuiService {
   }
 
   async #pasteClipboard(): Promise<void> {
-    if (this.#search === null && this.#settings === null && this.#copySelector === null) {
+    if (this.#search === null && this.#settings === null) {
       const image = await this.#readClipboardImage()
       if (image !== null) {
         if (await this.#images.admit(image)) {
@@ -2616,7 +2606,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'key' && event.id === 'end' && this.#jumpToLatest !== undefined
-      && this.#settings === null && this.#copySelector === null && this.#search === null) {
+      && this.#settings === null && this.#search === null) {
       this.#followTail()
       this.#render()
       return
@@ -2626,7 +2616,7 @@ export class LocalTui implements TuiService {
       if (action !== undefined && this.#runAction(action)) return
     }
     if (this.#inspected !== undefined && this.#inspected.writable !== true && event.type === 'text'
-      && this.#prompt === null && this.#settings === null && this.#copySelector === null && this.#search === null) {
+      && this.#prompt === null && this.#settings === null && this.#search === null) {
       return
     }
     if (this.#settings !== null) {
@@ -2654,10 +2644,6 @@ export class LocalTui implements TuiService {
       return
     }
 
-    if (this.#copySelector !== null) {
-      this.#applyCopySelector(event)
-      return
-    }
     if (this.#search !== null) {
       this.#applySearch(event)
       return
@@ -2761,7 +2747,6 @@ export class LocalTui implements TuiService {
       return true
     }
     if (this.#settings !== null) { this.#settings = null; this.#render(); return true }
-    if (this.#copySelector !== null) { this.#copySelector = null; this.#render(); return true }
     if (this.#search !== null) { this.#search = null; this.#render(); return true }
     if (this.#transcriptSearch !== null) { this.#transcriptSearch = null; this.#render(); return true }
     const now = Date.now()
@@ -3242,7 +3227,6 @@ export class LocalTui implements TuiService {
     }
     this.#prompt = null
     this.#settings = null
-    this.#copySelector = null
     this.#search = null
     this.#trajectory = null
     this.#ac = null
@@ -3434,25 +3418,6 @@ export class LocalTui implements TuiService {
       if (!this.#disposed) this.#rebuildSettings(entries, selected)
       if (this.#tty && !this.#disposed) this.#render()
     })
-  }
-
-  #applyCopySelector(event: KeyEvent): void {
-    if (this.#copySelector === null) return
-    const command = applyCopySelectorEvent(this.#copySelector, event)
-    if (command.kind === 'update') {
-      this.#copySelector = command.state
-      this.#render()
-      return
-    }
-    if (command.kind === 'pick') {
-      this.#copySelector = null
-      void this.#copyPicked(command.item.text, command.item.copyMessage)
-      return
-    }
-    if (command.kind === 'close') {
-      this.#copySelector = null
-      this.#render()
-    }
   }
 
   async #copyPicked(text: string, label: string): Promise<void> {
@@ -3866,7 +3831,6 @@ export class LocalTui implements TuiService {
     this.#ac = null
     this.#search = null
     this.#settings = null
-    this.#copySelector = null
     this.#trajectory = null
     this.#agentHub = null
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
@@ -4048,13 +4012,10 @@ export class LocalTui implements TuiService {
         ? { kind: 'agentHub', state: this.#agentHub }
         : this.#settings !== null
           ? { kind: 'settings', state: this.#settings }
-          : this.#copySelector !== null
-            ? { kind: 'copySelector', state: this.#copySelector }
-            : this.#search !== null ? { kind: 'search', state: this.#search } : null
+          : this.#search !== null ? { kind: 'search', state: this.#search } : null
     this.#trajectory = null
     this.#agentHub = null
     this.#settings = null
-    this.#copySelector = null
     this.#search = null
     return displaced
   }
@@ -4070,8 +4031,7 @@ export class LocalTui implements TuiService {
       this.#settings = displaced.state
       this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])
       this.#refreshSettingsCatalog()
-    } else if (displaced.kind === 'copySelector') this.#copySelector = displaced.state
-    else this.#search = displaced.state
+    } else this.#search = displaced.state
   }
 
   /** The pane's answer, offered to `/copy` while it is on screen and finished. */
@@ -4101,11 +4061,34 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    this.#search = null
-    this.#ac = null
-    this.#settings = null
-    this.#copySelector = createCopySelector(items)
-    this.#render()
+    /**
+     * The same card as every other list.
+     *
+     * This used to be a bespoke overlay with its own key model: a filter that
+     * stayed inactive until `/` — so typing a letter did nothing and Space
+     * copied — and a nine-row hotkey table of its own. It was the last surface
+     * that did not answer to the shared list vocabulary, which is exactly the
+     * inconsistency the reader noticed.
+     */
+    const answer = await this.prompt({
+      title: 'Copy',
+      question: items.length === 1 ? 'One thing to copy' : 'Choose what to copy',
+      filterable: true,
+      allowCustom: false,
+      notify: false,
+      options: items.map(item => ({
+        label: item.label,
+        value: item.id,
+        ...(item.hint === '' ? {} : { description: item.hint }),
+        // The preview is the payload: choosing blind is what the row labels
+        // cannot prevent when two replies open with the same words.
+        preview: item.text,
+      })),
+    })
+    if (answer === null) return
+    const picked = items.find(item => item.id === answer)
+    if (picked === undefined) return
+    void this.#copyPicked(picked.text, picked.copyMessage)
   }
 
   #runSettings(args: string): void {
@@ -4260,7 +4243,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
-    if (this.#prompt !== null || this.#settings !== null || this.#copySelector !== null) return false
+    if (this.#prompt !== null || this.#settings !== null) return false
     if (action === 'select-model') { this.#submit('/model'); return true }
     if (action === 'cycle-thinking') { this.#submit('/model reasoning'); return true }
     if (action === 'toggle-thinking') {

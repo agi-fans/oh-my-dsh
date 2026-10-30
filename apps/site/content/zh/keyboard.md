@@ -109,7 +109,6 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 浮层 | 按键 |
 |---|---|
 | 设置（`/settings`） | `↑`/`↓` 移动行，`←`/`→` 修改值，`Space` 修改值或显示／隐藏状态项，`Enter` 打开配置、修改值或开始移动状态项，`Tab`/`Shift+Tab` 切换分区，`Home`/`End` 跳到两端，`Esc`/`Ctrl+C` 关闭；`/` 或输入文字跨分类搜索，`Backspace`／`Ctrl+U` 编辑查询，`Ctrl+R` 恢复继承（状态项只恢复颜色）。搜索中 `Esc`／`Ctrl+C` 依次清空查询、返回浏览、关闭。 |
-| 复制选择器（`/copy`） | `↑`/`↓` 或 `Tab` 导航，`PgUp`/`PgDn` 翻页，`Home`/`End` 到两端，`Enter`/`Space` 复制，`Esc`/`Ctrl+C` 关闭。 |
 | Agent Hub（`Alt+A`，或 composer 为空时按 `↓`） | `↑`/`↓` 导航，`Home`/`End` 到两端，`Enter` 打开子转录，`Tab`/`←`/`→` 切换检查面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图，`Esc`/`Ctrl+C` 关闭。 |
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+Shift+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |

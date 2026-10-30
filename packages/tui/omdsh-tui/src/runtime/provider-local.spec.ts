@@ -2833,8 +2833,10 @@ describe('LocalTui (tty)', () => {
       stream: [],
     }, 1))
     press(term, '/copy\r')
+    await flushAsyncPaste()
     expect(term.captured).toContain('hello from the model')
-    expect(term.captured).toContain('enter copy')
+    // The card's own vocabulary, not a copy-specific hint line.
+    expect(term.captured).toContain('One thing to copy')
     expect(copied).toEqual([])
     press(term, '\r')
     await new Promise((resolve) => { setTimeout(resolve, 0) })

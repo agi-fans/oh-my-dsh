@@ -2005,28 +2005,35 @@ describe('renderView', () => {
     expect(editorRows).toBeGreaterThan(0)
   })
 
-  it('replaces the editor with the copy picker overlay', () => {
+  it('draws the copy picker as the same card every other list uses', () => {
+    // It used to be a bespoke overlay: bare rows, its own nine-row hotkey table,
+    // and a filter that stayed inactive until `/`. Now it is a prompt.
     const frame = renderView(initialTranscript(), {
       width: 60,
       height: 24,
       model: 'm',
-      input: 'draft',
-      inputCursor: 5,
+      input: '',
+      inputCursor: 0,
       colors: false,
-      copySelector: {
+      promptSelector: {
         selected: 0,
-        items: [
-          { id: 'msg:1', label: 'hello from the model', hint: '1 line', text: 'hello from the model', copyMessage: 'last message' },
-        ],
+        checked: new Set(),
+        request: {
+          title: 'Copy',
+          question: 'Choose what to copy',
+          filterable: true,
+          allowCustom: false,
+          options: [{ label: 'hello from the model', value: 'msg:1', description: '1 line', preview: 'hello from the model' }],
+        },
       },
-    })
+    } as never)
     const text = frame.lines.join('\n')
     expect(text).toContain('Copy')
     expect(text).toContain('hello from the model')
-    expect(text).toContain('enter copy')
-    expect(text).not.toContain('draft')
+    expect(text).toContain('1 line')
+    // The same card owns the filter line: there is no separate overlay chrome.
+    expect(text).toContain('Choose what to copy')
     expect(composerStart(frame.lines)).toBe(-1)
-    expect(frame.cursorVisible).toBe(false)
   })
 
   it('omits the editor hit box while settings is open', () => {

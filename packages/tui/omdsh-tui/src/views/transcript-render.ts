@@ -18,7 +18,6 @@ import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearc
 import { DEEP_DRIVING_LABEL, renderEditor, renderFramedBlock, renderWelcome } from '../chrome/box.ts'
 import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/renderer.ts'
-import { renderCopySelector, type CopySelectorState } from './copy-selector.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
 import { renderAgentHub, type AgentHubState } from './agent-hub.ts'
@@ -136,7 +135,6 @@ export interface ViewOptions {
   /** `/settings` overlay; replaces the editor while open. */
   settings?: SettingsState
   /** `/copy` picker overlay; replaces the editor while open. */
-  copySelector?: CopySelectorState
   /** `/trajectory` full-screen event ledger. */
   trajectory?: TrajectoryState
   /** Keyboard-first full-screen descendant roster and inspector. */
@@ -2511,10 +2509,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
     : renderSettings(options.settings, theme, width)
-  const copySelector = promptSelector !== undefined || settings !== undefined || options.copySelector === undefined
-    ? undefined
-    : renderCopySelector(options.copySelector, theme, width)
-  const search = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || options.historySearch === undefined
+  const search = promptSelector !== undefined || settings !== undefined || options.historySearch === undefined
     ? undefined
     : renderHistorySearch(
       options.historySearch,
@@ -2522,7 +2517,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       width,
       Math.max(1, Math.min(HISTORY_SEARCH_MAX_VISIBLE, height - working.length - 8)),
     )
-  const editor = promptSelector === undefined && settings === undefined && copySelector === undefined && search === undefined
+  const editor = promptSelector === undefined && settings === undefined && search === undefined
     ? renderEditor(editorOpts, theme)
     : undefined
   const queuedSubmissions = editor === undefined || options.inspected !== undefined
@@ -2551,11 +2546,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const subagents = editor === undefined
     ? []
     : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id, options.subagentLauncherFocused)
-  const autocomplete = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
+  const autocomplete = promptSelector !== undefined || settings !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []
     : renderAutocomplete(options.autocomplete.items, options.autocomplete.selected, theme, width)
-  const inputLines = promptSelector?.lines ?? settings?.lines ?? copySelector?.lines ?? search?.lines
+  const inputLines = promptSelector?.lines ?? settings?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
   const spacer = 1
   const reserved = aside.length + inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
@@ -2572,7 +2567,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const requestedStart = focusStart === undefined
     ? (options.scrollStart ?? Number.POSITIVE_INFINITY)
     : transcriptStart + focusStart
-  const hasOverlay = promptSelector !== undefined || settings !== undefined || copySelector !== undefined || search !== undefined
+  const hasOverlay = promptSelector !== undefined || settings !== undefined || search !== undefined
   const isFollowing = requestedStart === Number.POSITIVE_INFINITY && !hasOverlay
   // A run still at work reshapes as it goes — its newest rows scroll, it folds
   // when the turn ends — so none of it may freeze into history until it
@@ -2656,7 +2651,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // OMP's stable-prefix preparation, only validate the mutable suffix instead
   // of measuring the complete native-scrollback history on every frame.
   const trimmed = fitFrame(frameLines, width, isFollowing ? liveStart + topPad : 0)
-  const caret = promptSelector?.cursor ?? settings?.cursor ?? copySelector?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
+  const caret = promptSelector?.cursor ?? settings?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   // Which document rows this frame's body came from. `body` already includes the
   // header, so a window's own range is already in document coordinates and must
   // not have the header added again. No window means the whole body was drawn —
@@ -2700,7 +2695,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     cursorVisible: state.status === 'compacting'
       || (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
-      : promptSelector?.cursorVisible ?? (settings === undefined && copySelector === undefined),
+      : promptSelector?.cursorVisible ?? (settings === undefined),
     liveStart,
     livePinned,
     // A transient frame is either a full-screen surface or the user browsing
