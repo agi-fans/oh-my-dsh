@@ -26,9 +26,7 @@ Every delegation returns an activation id while the Harness runtime owns executi
 
 Codex and Claude Code bundles ship disabled with omdsh and can be enabled and configured in `/settings → Integrations` or `/plugins → Bundles`. They use their own pinned runtimes and native login/settings, expose global `subagent_codex` and `subagent_claude_code` tools to every preset, and run fresh text-only tasks without continuation. Model and Permissions edits their native policies, independently of the parent’s Access. Installation status reports registration only; successful authentication and payload startup require a real delegation. See [Plugins](plugins.md).
 
-While children run, a roster sits above the queue and composer with task names and lifecycle states; running, waiting, and finished children are counted separately. Press `Down` on an empty composer to focus it and `Enter` to open the selected child, or press `Alt+A` directly.
-
-The roster above the composer is the whole surface: `↓` selects a row and `Enter` opens that child's transcript in place. A child transcript stays live while the child runs, and a continuable child accepts your next composer message, or the draft sent with `Alt+S`, so you can redirect running work without cancelling it. Historical one-shot transcripts remain read-only. External executions keep no local transcript, so `Enter` on one prints its lifecycle state and recent activity as a transcript result instead — with a line saying where its results go. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
+While children run, a roster sits above the queue and composer with task names and lifecycle states; running, waiting, and finished children are counted separately. The roster is also the way in: `↓` on an empty composer selects a row, `↑`/`↓` moves, and `Enter` opens that child's transcript in place. A child transcript stays live while the child runs, and a continuable child accepts your next composer message, or the draft sent with `Alt+S`, so you can redirect running work without cancelling it. Historical one-shot transcripts remain read-only. External executions keep no local transcript, so `Enter` on one prints its lifecycle state and recent activity as a transcript result instead — with a line saying where its results go. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
 
 The roster also carries a line per recorded Workflow run with its status and latest phase, so a running workflow is visible without opening anything. The complete event history remains available through `/trajectory`.
 
@@ -51,4 +49,4 @@ Long-running work that continues after a turn shows up in `/jobs` with status an
 
 - [Architecture](architecture.md) — subagent ownership and lifecycle boundaries
 - [Commands](commands.md) — `/jobs` and the rest of the catalog
-- [Guide an active turn](tutorials/guide-a-turn.md) — queueing, Loop, and task progress
+- [Guide an active turn](tutorials/guide-a-turn.md) — queueing, Plan mode, and task progress

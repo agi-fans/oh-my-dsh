@@ -43,7 +43,6 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - 只有本地 Provider 负责 raw mode、按键解码、光标定位、viewport 状态和原子化终端写入。
 - `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、挂载 Agent preset、应用 preset 决定的工具暴露方式、读取 Projection 和清理资源。
 - 命令插件通过 `dsh-commands` 注册元数据和处理器；Runner 不维护第二份命令注册表。
-- Loop 命令以独立插件负责进程内调度与 Footer Projection。重复 Prompt 仍通过 `session-runtime` 提交；Loop 状态不会写入持久会话历史，并在活跃 Agent 发生变化时丢弃。
 - 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
 - Harness Projection 插件负责 token、上下文、耗时、标题和会话统计；状态栏只负责格式化这些输出。
 - `session-runtime` 把带 `origin: subagent` 的后代会话投影为 Composer 上方的实时名册，并可以把视口切换到其中一个孩子的 Transcript。可续写的孩子通过 subagent 宿主队列（`@deepseek-ai/dsh-subagent/internal` 的 `queueHostSubagentPrompt`）接收 Composer 的后续消息，保留用户署名与 FIFO 轮次顺序；一次性运行保持只读。子会话日志留在各自的 Session 中，不会回放到父 Transcript。

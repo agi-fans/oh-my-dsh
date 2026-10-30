@@ -12,7 +12,7 @@ Each walkthrough lives on its own page so a later change can update one path wit
 |---|---|
 | [Complete your first task](tutorials/first-task.md) | Install, `/login`, Agent / Plan / Access, and a first request |
 | [Give the agent precise context](tutorials/precise-context.md) | `@` mentions, image paste, and structured prompts |
-| [Guide an active turn](tutorials/guide-a-turn.md) | Queue, Loop, Plan, Todo, and `/goal` |
+| [Guide an active turn](tutorials/guide-a-turn.md) | Queue, Plan, Todo, and `/goal` |
 | [Recover and manage a long session](tutorials/long-session.md) | Resume, rewind, compact, and export |
 | [Tune the working environment](tutorials/environment.md) | `/model`, `/login` for extra providers, and `/settings` |
 | [Extend a project with Skills and MCP](tutorials/skills-and-mcp.md) | Add one project Skill and one MCP server; full reference is [Skills and MCP](skills-and-mcp.md) |
@@ -38,7 +38,7 @@ The exhaustive lists live in [Commands](commands.md) and [Keyboard and keys](key
 | Inspect session statistics | `/session` |
 | Inspect the session event trajectory | `/trajectory` |
 | Inspect available tools | `/tools` |
-| Repeat work after each completed turn | `/loop [count\|duration] [prompt]` |
+| Work toward a long-running goal | `/goal <objective>` |
 | Read release notes | `/changelog` |
 | Install the latest release | `npm install --global @agi-fans/oh-my-dsh@latest` |
 | Install a local plugin bundle | `omdsh plugin add ./examples/hello` |

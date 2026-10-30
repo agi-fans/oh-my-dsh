@@ -34,7 +34,7 @@ export type TuiAction =
   | 'select-model' | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-thinking' | 'toggle-thinking'
   // Transcript
   | 'toggle-tools' | 'toggle-tool-details' | 'review-changes' | 'search-history' | 'search-transcript'
-  | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down' | 'inspect-subagent'
+  | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down'
 
 const WINDOWS = process.platform === 'win32'
 

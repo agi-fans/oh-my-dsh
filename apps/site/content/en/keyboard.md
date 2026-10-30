@@ -94,6 +94,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 | `Ctrl+Z` | Suspend to the background. |
 | `Alt+L` | Reset the terminal display. |
 | `Ctrl+R` | Search prompt history. |
+| `↓` (empty composer) | Enter the subagent roster; `↑`/`↓` select a child, `Enter` opens its transcript, `Esc` returns to the composer. |
 | `Alt+R` | Retry the latest human prompt. |
 | `Ctrl+L` | Choose model and reasoning effort. |
 | `Ctrl+P` / `Ctrl+Shift+P` | Cycle to the next or previous favorite model. `Alt+P` also cycles backward. |

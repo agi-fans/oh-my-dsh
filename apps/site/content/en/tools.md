@@ -19,7 +19,7 @@ The mounted tools come from published Harness plugins and from the session's Age
 
 ## Git worktrees
 
-Choose **Enable worktree creation** in `/worktree`, or enable the Git Worktrees bundle in `/plugins` → Bundles, to expose `create_worktree`. The bundle ships with omdsh but stays off by default; Minimal still restricts its model tools. `/worktree` lets you create from a local revision, enter an existing registered checkout, or return to the session’s original directory with `/worktree return`. The conversation, original project and Access remain unchanged; file operations, new shells and the footer follow the current directory.
+Enable the Git Worktrees bundle in `/plugins` → Bundles, and turn on **Enable worktree creation** in its settings, to expose `create_worktree`. The bundle ships with omdsh but stays off by default; Minimal still restricts its model tools. `/worktree` lets you create from a local revision, enter an existing registered checkout, or return to the session’s original directory with `/worktree return`. The conversation, original project and Access remain unchanged; file operations, new shells and the footer follow the current directory.
 
 Creation requires Git 2.45 or newer and Node in the same execution environment. It checks out committed files only, skips configured Git filters and does not initialize submodules or install dependencies. Source changes stay in the original checkout. Leaving, disabling the bundle or cancelling creation never automatically deletes branches or files; failures may retain partial artifacts. Return explicitly and review retained artifacts before managing them with Git.
 

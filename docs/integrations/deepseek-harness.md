@@ -59,7 +59,7 @@ Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理
 
 默认 `subagent` 与 `subagent_fork` 使用进程内 continuable provider，保留后续消息、控制和父级 composition。可选 `subagent_isolated` 使用 ACP 的独立进程，提供的是 one-shot 委派，不能在派发后 steering 或追问。
 
-新的外部 catalog 模式为 `external`，没有本地 Session 转录。Agent Hub 消费公开 `subagent/start` 与 `subagent/end` 显示生命周期；结果由 Harness 回传父会话。EOF 等待仍在推进的后代并重新检查父级是否空闲，释放会话前先 drain 后代。历史 `one-shot` 模式仍按原有日志呈现。
+新的外部 catalog 模式为 `external`，没有本地 Session 转录。子代理条消费公开 `subagent/start` 与 `subagent/end` 显示生命周期，`Enter` 在外部行上打印状态与近期活动；结果由 Harness 回传父会话。EOF 等待仍在推进的后代并重新检查父级是否空闲，释放会话前先 drain 后代。历史 `one-shot` 模式仍按原有日志呈现。
 
 ACP 工具必须使用 `maxDepth: provider-managed`，不设置 `agentOptions`、`persona` 或 `toolFilter`。子进程运行独立 home/Profile；默认启动方式要求 PATH 上的 `dsh` 提供 `acp` Profile，`OMDSH_ACP_COMMAND` 和 `OMDSH_ACP_ARGS` 可覆盖命令。不能将这一可选 transport 描述为全部子 Agent 已进程化。
 
@@ -73,7 +73,7 @@ Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；time-c
 
 ## 升级证据与验证
 
-alpha.2 的可选 Git Worktrees bundle 随产品安装但默认关闭。`/worktree` 通过公开 `worktrees.create()` 创建，通过执行 provider 在当前 Access 下读取 Git 的 NUL porcelain registry，并使用 `workingDirectory.set()` 切换或返回；不复制 service 内部实现，不清理 checkout 或分支。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
+alpha.2 的可选 Git Worktrees bundle 随产品安装但默认关闭。创建走公开 `worktrees.create()`，通过执行 provider 在当前 Access 下读取 Git 的 NUL porcelain registry，并使用 `workingDirectory.set()` 切换或返回；不复制 service 内部实现，不清理 checkout 或分支。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
 
 思考沿用 Turn 中的原有展示和过程展开。产品不挂载独立思考阅读命令、translator 或翻译设置；已有 Session plugin records 保留在日志中。
 

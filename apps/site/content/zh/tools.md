@@ -19,7 +19,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Git worktree
 
-在 `/plugins` → Bundles 启用 `@deepseek-ai/dsh-experimental-tool-worktree`，模型即可使用 `create_worktree`。bundle 随 omdsh 提供，默认关闭；Minimal 仍限制其模型工具。`/worktree` 可从本地 revision 创建 checkout、进入已有注册 checkout，或用 `/worktree return` 返回会话原始目录。对话、原始项目和 Access 保持不变，文件操作、新 shell 和状态栏跟随当前目录。
+在 `/plugins` → Bundles 启用 `@deepseek-ai/dsh-experimental-tool-worktree`，模型即可使用 `create_worktree`。bundle 随 omdsh 提供，默认关闭；Minimal 仍限制其模型工具。该 bundle 的设置里可以打开 **启用 worktree 创建**，模型随后能创建 checkout 并进入已有注册 checkout；对话、原始项目和 Access 保持不变，文件操作、新 shell 和状态栏跟随当前目录。
 
 创建需要同一执行环境中的 Git 2.45 或更高版本及 Node。它只检出已提交的文件，跳过配置的 Git filter，不初始化 submodule 或安装依赖；源 checkout 的改动留在原处。离开、禁用 bundle 或取消创建都不会自动删除分支或文件，失败也可能留下部分产物。请明确返回，并检查保留的产物后再用 Git 管理它们。
 

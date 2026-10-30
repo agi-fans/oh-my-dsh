@@ -35,7 +35,7 @@ Run `/login` once inside omdsh to sign in with a DeepSeek account or save an API
 - **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
 - **Rich terminal input:** mention project files and other sessions with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
 - **Readable turns:** follow thinking, replies, and tool previews while the agent works. Completed work folds to a duration summary and the full final answer; `Ctrl+O` restores the process view. Scroll through either view, keep the current prompt pinned, and jump back to the latest message with `End`.
-- **Inspectable work:** press `Alt+O` for full tool inputs and results in the current turn, use `/trajectory` for event details, see the files changed by each turn, and let the model search its earlier sessions in the same workspace. Open the Agent Hub with `Alt+A` to follow child agents and steer continuable tasks.
+- **Inspectable work:** press `Alt+O` for full tool inputs and results in the current turn, use `/trajectory` for event details, see the files changed by each turn, and let the model search its earlier sessions in the same workspace. Press `↓` on an empty composer to select a child agent in the roster and `Enter` to open its transcript, where a continuable task can be steered.
 - **Live operational context:** see Agent, Workflow, Access, model, reasoning effort, workspace, Git state, context pressure, tokens, TTFT, throughput, cache, timings, turns, and steps without leaving the composer; use `/context` for an inline projection-backed breakdown that remains in the transcript.
 - **Responsive by design:** retain settled transcript layout, coalesce scroll updates, emit row-level terminal diffs, and preserve correct display-cell alignment for CJK text and emoji.
 
@@ -52,7 +52,7 @@ The full documentation is published at [omdsh.agi.fans](https://omdsh.agi.fans/)
 **Reference**
 
 - [Sessions and history](https://omdsh.agi.fans/docs/sessions/) — durable logs, the Session Library, and the local data files.
-- [Subagents and delegation](https://omdsh.agi.fans/docs/subagents/) — the three transports, the Agent Hub, steering, and background jobs.
+- [Subagents and delegation](https://omdsh.agi.fans/docs/subagents/) — the three transports, the roster that opens a child's transcript, steering, and background jobs.
 - [Observability](https://omdsh.agi.fans/docs/observability/) — `/trajectory`, `/context`, `/diff`, `/tools`, and `/mcp`.
 - [Settings](https://omdsh.agi.fans/docs/settings/) — appearance, motion, notifications, and the configurable status line.
 - [Permissions and access](https://omdsh.agi.fans/docs/permissions/) — Access presets, sandbox, and approvals.

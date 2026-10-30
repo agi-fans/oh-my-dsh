@@ -66,7 +66,7 @@ The answer streams into a pane docked above the composer while the consultation 
 |---|---|
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
-| `/trajectory` | Inspect the session's event ledger: turns and steps, live following, search, folding, per-step timing and token usage, and tool payloads. This is the Harness's event-sourced history made visible — the record every projection is derived from — so it shows the shape of a run rather than only its output. Requires an interactive terminal. |
+| `/trajectory` | Inspect the session's event ledger: turns, the steps inside them and the records inside each step, live following, search, folding, the wall time each turn took, per-record duration and token usage, and tool payloads. This is the Harness's event-sourced history made visible — the record every projection is derived from — so it shows the shape of a run rather than only its output. Requires an interactive terminal. |
 | `/schedule` | List this session's durable reminders in the composer card, edit a name or instruction, or browse and delete one. |
 | `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Installation can be cancelled before application. |
 | `/tools` | List the tools visible to the agent as a transcript result. |

@@ -12,7 +12,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 |---|---|
 | [完成第一个任务](tutorials/first-task.md) | 安装、`/login`、Agent / Plan / Access，以及第一条请求 |
 | [提供精确的项目上下文](tutorials/precise-context.md) | `@` mention、图片粘贴和结构化 Prompt |
-| [引导运行中的任务](tutorials/guide-a-turn.md) | 队列、Loop、Plan、Todo 和 `/goal` |
+| [引导运行中的任务](tutorials/guide-a-turn.md) | 队列、Plan、Todo 和 `/goal` |
 | [恢复并管理长会话](tutorials/long-session.md) | 恢复、回退、压缩和导出 |
 | [调整工作环境](tutorials/environment.md) | `/model`、为额外提供方 `/login`，以及 `/settings` |
 | [使用 Skills 与 MCP 扩展项目](tutorials/skills-and-mcp.md) | 添加一个项目 Skill 和一个 MCP Server；完整说明见 [Skills 与 MCP](skills-and-mcp.md) |
@@ -38,7 +38,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 | 查看会话统计 | `/session` |
 | 查看会话事件轨迹 | `/trajectory` |
 | 查看可用工具 | `/tools` |
-| 每个回合完成后重复工作 | `/loop [次数\|时长] [Prompt]` |
+| 朝着长期目标推进 | `/goal <objective>` |
 | 阅读版本说明 | `/changelog` |
 | 安装最新版本 | `npm install --global @agi-fans/oh-my-dsh@latest` |
 | 安装本地插件 bundle | `omdsh plugin add ./examples/hello` |

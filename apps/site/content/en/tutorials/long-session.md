@@ -22,7 +22,7 @@ omdsh v0.12.0 and later no longer add the private `omdsh/tools-selected` event, 
 
 ### Explore branches without losing history
 
-When the agent is idle and the composer is empty, press `Esc` twice, or run `/tree`, to open the Session Tree. Browse turns and forks with `↑`/`↓`, fold them with `←`/`→`, and type to search while previewing the selected content. Enter on a Turn prepares a new branch before that message and restores its text, images, and file references into the composer without sending it. Enter on a branch or `Alt+Enter` resumes that branch’s latest state. The original branches stay available; these operations do not roll back workspace files.
+When the agent is idle and the composer is empty, press `Esc` twice to open the Session Tree. Browse turns and forks with `↑`/`↓`, fold them with `←`/`→`, and type to search while previewing the selected content. Enter on a Turn prepares a new branch before that message and restores its text, images, and file references into the composer without sending it. Enter on a branch or `Alt+Enter` resumes that branch’s latest state. The original branches stay available; these operations do not roll back workspace files.
 
 Two neighboring commands cover other session workflows:
 

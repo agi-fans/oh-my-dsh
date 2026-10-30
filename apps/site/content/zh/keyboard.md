@@ -94,6 +94,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+Z` | 挂起到后台。 |
 | `Alt+L` | 重置终端显示。 |
 | `Ctrl+R` | 搜索输入历史。 |
+| `↓`（composer 为空） | 进入子代理名册；`↑`/`↓` 选中一行，`Enter` 打开该子会话转录，`Esc` 回到 composer。 |
 | `Alt+R` | 重试最近一条人类提示。 |
 | `Ctrl+L` | 选择模型和推理强度。 |
 | `Ctrl+P` / `Ctrl+Shift+P` | 切换到下一个或上一个收藏模型；`Alt+P` 也可切换到上一个。 |

@@ -130,7 +130,6 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
         { keys: keysForAction(bindings, 'review-changes'), action: 'Preview the files the tool under the viewport declared' },
         { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript; n/N step across matches' },
-        { keys: keysForAction(bindings, 'inspect-subagent'), action: 'Open a subagent transcript; continuable children can be steered' },
       ],
     },
     {

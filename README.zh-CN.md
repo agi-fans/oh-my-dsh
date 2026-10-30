@@ -35,7 +35,7 @@ omdsh
 - **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。
 - **丰富的终端输入：** 使用 `@` 提及项目文件和其他会话，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
 - **清晰的回合展示：** 运行时跟随思考、回复和工具预览，完成后将过程折叠为耗时摘要，保留完整的最终答复；`Ctrl+O` 恢复过程视图。两种视图均可滚动，当前请求固定在顶部，按 `End` 即可回到最新消息。
-- **可检查的工作过程：** 按 `Alt+O` 查看当前回合的完整工具输入和结果，用 `/trajectory` 检查事件详情，查看每个回合改动的文件，并让模型搜索同一工作区的历史会话。按 `Alt+A` 打开 Agent Hub，跟踪子智能体并跟进可续写任务。
+- **可检查的工作过程：** 按 `Alt+O` 查看当前回合的完整工具输入和结果，用 `/trajectory` 检查事件详情，查看每个回合改动的文件，并让模型搜索同一工作区的历史会话。Composer 为空时按 `↓` 在名册里选中子智能体，按 `Enter` 打开它的转录，可续写任务在那里跟进。
 - **实时运行上下文：** 无需离开 Composer，即可查看 Agent、Workflow、Access、模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤；使用 `/context` 可以在 transcript 中直接查看并保留基于 Projection 的构成明细。
 - **为响应速度而设计：** 复用已完成的 Transcript 布局、合并滚动更新、只输出发生变化的终端行，并正确处理 CJK 文本和 emoji 的显示宽度。
 
@@ -52,7 +52,7 @@ omdsh
 **参考**
 
 - [会话与历史](https://omdsh.agi.fans/zh/docs/sessions/) — 持久日志、Session Library 与本地数据文件。
-- [子智能体与委派](https://omdsh.agi.fans/zh/docs/subagents/) — 三种 transport、Agent Hub、引导与后台任务。
+- [子智能体与委派](https://omdsh.agi.fans/zh/docs/subagents/) — 三种 transport、打开子会话转录的名册、引导与后台任务。
 - [可观测性](https://omdsh.agi.fans/zh/docs/observability/) — `/trajectory`、`/context`、`/diff`、`/tools` 与 `/mcp`。
 - [设置](https://omdsh.agi.fans/zh/docs/settings/) — 外观、动效、通知与可配置的状态栏。
 - [权限与 Access](https://omdsh.agi.fans/zh/docs/permissions/) — Access preset、沙箱与审批。

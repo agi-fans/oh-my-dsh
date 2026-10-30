@@ -26,9 +26,7 @@ omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私�
 
 Codex 与 Claude Code bundle 随 omdsh 安装且初始关闭，可从 `/settings → Integrations` 或 `/plugins → Bundles` 启用和配置。它们使用自带的固定版本运行时及原生登录／设置，向所有 preset 提供全局 `subagent_codex` 和 `subagent_claude_code` 工具，执行不支持追问的独立纯文本任务。Model and Permissions 编辑其原生权限策略，独立于父级 Access。Installation status 只报告注册状态；认证与运行时启动成功仍需真实委派验证。见[插件](plugins.md)。
 
-子代理运行时，队列与 composer 上方会显示一份 roster，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。composer 为空时按 `Down` 聚焦它、按 `Enter` 打开所选孩子，或直接按 `Alt+A`。
-
-Composer 上方的名册就是全部：`↓` 选中一行，`Enter` 就地打开该子会话的转录。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息，或按 `Alt+S` 发送的草稿，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行没有本地转录，因此在外部行上按 `Enter` 会把生命周期状态与近期活动打印成转录结果，并说明结果落在哪里。完整按键见[键盘与快捷键](keyboard.md)。
+子代理运行时，队列与 composer 上方会显示一份名册，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。名册同时也是入口：composer 为空时按 `↓` 选中一行，`↑`/`↓` 移动，`Enter` 就地打开该子会话的转录。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息，或按 `Alt+S` 发送的草稿，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行没有本地转录，因此在外部行上按 `Enter` 会把生命周期状态与近期活动打印成转录结果，并说明结果落在哪里。完整按键见[键盘与快捷键](keyboard.md)。
 
 名册还会为每条已记录的 Workflow 运行显示一行状态与最新阶段，运行中的 workflow 无需打开任何界面即可看到。完整事件历史可通过 `/trajectory` 查看。
 
@@ -51,4 +49,4 @@ Composer 上方的名册就是全部：`↓` 选中一行，`Enter` 就地打开
 
 - [架构](architecture.md) —— 子智能体的归属与生命周期边界
 - [命令](commands.md) —— `/jobs` 及其余命令目录
-- [引导运行中的任务](tutorials/guide-a-turn.md) —— 排队、Loop 与任务进度
+- [引导运行中的任务](tutorials/guide-a-turn.md) —— 排队、Plan mode 与任务进度
