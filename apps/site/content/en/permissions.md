@@ -18,7 +18,7 @@ Workspace write is the default. The preset applies to both the filesystem seam a
 
 ## Approval prompts
 
-When an action needs approval, the prompt shows the tool card the session already streamed — the command, path, or diff summary for the pending call — followed by the asker's own reason. A human prompt displaces any open overlay (such as `/trajectory` or the Agent Hub) and restores it when settled, so a confirmation cannot be accepted behind a stale screen.
+When an action needs approval, the prompt shows the tool card the session already streamed — the command, path, or diff summary for the pending call — followed by the asker's own reason. A human prompt displaces any open overlay (such as `/trajectory` or settings) and restores it when settled, so a confirmation cannot be accepted behind a stale screen.
 
 ### Remembered decisions
 

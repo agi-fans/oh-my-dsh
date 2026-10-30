@@ -1,5 +1,5 @@
 ---
-description: "omdsh 的子智能体与委派：三种 transport、Agent Hub、子代理引导、Workflow 与 Ralph 编排工具，以及后台任务。"
+description: "omdsh 的子智能体与委派：三种 transport、读取子会话转录、子代理引导、Workflow 与 Ralph 编排工具，以及后台任务。"
 ---
 
 # 子智能体与委派
@@ -28,9 +28,9 @@ Codex 与 Claude Code bundle 随 omdsh 安装且初始关闭，可从 `/settings
 
 子代理运行时，队列与 composer 上方会显示一份 roster，包含任务名与生命周期状态；运行中、等待中和已完成的孩子分开计数。composer 为空时按 `Down` 聚焦它、按 `Enter` 打开所选孩子，或直接按 `Alt+A`。
 
-Agent Hub 是全屏视图：roster 加检查面板。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息，或按 `Alt+S` 发送的草稿，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行在 Agent Hub 显示生命周期状态；尝试打开其转录时，会提示结果位于父会话。完整浮层按键见[键盘与快捷键](keyboard.md)。
+Composer 上方的名册就是全部：`↓` 选中一行，`Enter` 就地打开该子会话的转录。`Enter` 就地打开孩子的转录，`Tab` 与方向键切换面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图。子转录在孩子运行期间保持实时；可继续的孩子会接受你的下一条 composer 消息，或按 `Alt+S` 发送的草稿，因此无需取消就能重定向正在运行的工作。历史一次性转录保持只读。外部执行没有本地转录，因此在外部行上按 `Enter` 会把生命周期状态与近期活动打印成转录结果，并说明结果落在哪里。完整按键见[键盘与快捷键](keyboard.md)。
 
-Agent Hub 还显示最近三次已记录的 Workflow 运行、结果和最新记录的阶段。可用子任务的检查面板显示所属 Workflow、阶段及成员结果，与实时生命周期状态分别呈现。恢复会话后重放这些记录；Enter 仍可打开子会话查看详细错误。完整事件历史可通过 `/trajectory` 查看；该界面不提供拓扑编辑器或 worker 脚本日志。
+名册还会为每条已记录的 Workflow 运行显示一行状态与最新阶段，运行中的 workflow 无需打开任何界面即可看到。完整事件历史可通过 `/trajectory` 查看。
 
 ## 编排工具
 

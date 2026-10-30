@@ -71,7 +71,6 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `Alt+V` | Preview the files the tool under the reading position declared. With no tool there it says so and points at `/diff`, which reviews this turn’s changes. |
 | `Ctrl+Shift+F` | Search the current transcript; `n`/`N` step across matches. `Ctrl+F` does the same when the composer is empty, and moves the caret otherwise. |
 | `Ctrl+T` | Show or hide thinking across the transcript. |
-| `Alt+A` | Open the Agent Hub; continuable child agents can be steered from their transcript. |
 
 When the transcript can scroll or contains actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
 
@@ -109,7 +108,6 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 | Overlay | Keys |
 |---|---|
 | Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` change a value or show/hide a status item, `Enter` open configuration, change a value, or start moving a status item, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `/` or typing searches all categories, `Backspace`/`Ctrl+U` edit the query, `Ctrl+R` restores inheritance (status items restore color), `Esc`/`Ctrl+C` clear search, return to browsing, or close. |
-| Agent Hub (`Alt+A`, or `↓` on an empty composer) | `↑`/`↓` navigate, `Home`/`End` edges, `Enter` open the child transcript, `Tab`/`←`/`→` switch the inspector pane, `PgUp`/`PgDn` scroll, `T` toggle the tree, `Esc`/`Ctrl+C` close. |
 | History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
 | Transcript search (`Ctrl+Shift+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `↑`/`↓`, `Home`/`End`, `PgUp`/`PgDn` navigate, `Enter` open details, `Tab`/`←`/`→` switch sections, `/` search, `n`/`N` and `Ctrl+N`/`Ctrl+P` step matches, `t` collapse turns, `c` collapse calls, `Esc`/`Ctrl+C` close. |
@@ -145,7 +143,6 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
 | `copy-prompt` | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `copy-line` | `Ctrl+Alt+C` | Copy the current line. |
-| `inspect-subagent` | `Alt+A` | Open the Agent Hub. |
 | `cycle-model-forward` | `Ctrl+P` | Cycle to the next favorite model. |
 | `cycle-model-backward` | `Ctrl+Shift+P` | Cycle to the previous favorite model (`Alt+P` is equivalent). |
 | `cycle-thinking` | `Shift+Tab` | Cycle the current model's reasoning effort. |

@@ -98,7 +98,6 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'scroll-page-down', primary: ['pagedown'], label: 'Scroll the transcript down one page', scope: 'transcript' },
   { id: 'scroll-fast-up', primary: ['shift+up'], label: 'Scroll the transcript up quickly', scope: 'transcript' },
   { id: 'scroll-fast-down', primary: ['shift+down'], label: 'Scroll the transcript down quickly', scope: 'transcript' },
-  { id: 'inspect-subagent', primary: ['alt+a'], label: 'Open a subagent transcript', scope: 'transcript' },
 ]
 
 export const TUI_ACTIONS: readonly TuiAction[] = TUI_ACTION_CATALOG.map(entry => entry.id)

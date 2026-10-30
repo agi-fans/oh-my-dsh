@@ -71,7 +71,6 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Alt+V` | 预览阅读位置所在工具声明的文件。该位置没有工具时会说明并指向 `/diff`，由它审查本回合的改动。 |
 | `Ctrl+Shift+F` | 搜索当前转录；`n`/`N` 在匹配间跳转。composer 为空时 `Ctrl+F` 等效，非空时移动光标。 |
 | `Ctrl+T` | 显示或折叠整个转录中的思考。 |
-| `Alt+A` | 打开 Agent Hub；可继续的子智能体可以直接在它的转录中被引导。 |
 
 转录可以滚动或包含可操作文件时，折叠和展开视图都支持在当前视口内拖选文字。双击选择单词或路径，三击选择整行，Shift 点击扩展选区；默认松开鼠标后复制。可在 Settings 关闭 **Copy on select**，改用 `Alt+C`、`Enter` 或右键复制；`Esc` 清除选区，`Ctrl+C` 保留清空与中断行为。滚动、调整窗口、输入文字或所选行内容变化时会清除选区。
 
@@ -109,7 +108,6 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 浮层 | 按键 |
 |---|---|
 | 设置（`/settings`） | `↑`/`↓` 移动行，`←`/`→` 修改值，`Space` 修改值或显示／隐藏状态项，`Enter` 打开配置、修改值或开始移动状态项，`Tab`/`Shift+Tab` 切换分区，`Home`/`End` 跳到两端，`Esc`/`Ctrl+C` 关闭；`/` 或输入文字跨分类搜索，`Backspace`／`Ctrl+U` 编辑查询，`Ctrl+R` 恢复继承（状态项只恢复颜色）。搜索中 `Esc`／`Ctrl+C` 依次清空查询、返回浏览、关闭。 |
-| Agent Hub（`Alt+A`，或 composer 为空时按 `↓`） | `↑`/`↓` 导航，`Home`/`End` 到两端，`Enter` 打开子转录，`Tab`/`←`/`→` 切换检查面板，`PgUp`/`PgDn` 滚动，`T` 切换树视图，`Esc`/`Ctrl+C` 关闭。 |
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+Shift+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `↑`/`↓`、`Home`/`End`、`PgUp`/`PgDn` 导航，`Enter` 打开详情，`Tab`/`←`/`→` 切换分区，`/` 搜索，`n`/`N` 与 `Ctrl+N`/`Ctrl+P` 跳转匹配，`t` 折叠回合，`c` 折叠调用，`Esc`/`Ctrl+C` 关闭。 |
@@ -145,7 +143,6 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `copy-prompt` | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `copy-line` | `Ctrl+Alt+C` | 复制当前行。 |
-| `inspect-subagent` | `Alt+A` | 打开 Agent Hub。 |
 | `cycle-model-forward` | `Ctrl+P` | 切换到下一个收藏模型。 |
 | `cycle-model-backward` | `Ctrl+Shift+P` | 切换到上一个收藏模型（`Alt+P` 等效）。 |
 | `cycle-thinking` | `Shift+Tab` | 循环切换当前模型的推理强度。 |

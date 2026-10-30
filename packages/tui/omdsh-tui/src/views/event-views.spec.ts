@@ -1521,7 +1521,7 @@ describe('renderView', () => {
     })
     const rows = frame.lines.map(stripAnsi)
     const text = rows.join('\n')
-    expect(text).toContain('Agents · 1 running · ↓ select · Alt+A open')
+    expect(text).toContain('Agents · 1 running · ↓ select')
     expect(text).toContain('Explore auth · Running')
     expect(text).not.toContain('read src/auth.ts')
     // `text` is one joined string, so both sides are compared as character

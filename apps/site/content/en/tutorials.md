@@ -30,7 +30,7 @@ The exhaustive lists live in [Commands](commands.md) and [Keyboard and keys](key
 | Browse commands and shortcuts | `/help` |
 | Search previous prompts | `Ctrl+R` |
 | Scroll the transcript | `PgUp` / `PgDn`, or `Shift+Up` / `Shift+Down` |
-| Open the Agent Hub | `↓` on an empty composer, then `Enter`, or `Alt+A` |
+| Open a child agent's transcript | `↓` on an empty composer, then `↑`/`↓` and `Enter` |
 | Copy the latest reply, code block, or command | `/copy` |
 | Choose Agent preset | `/agent` |
 | Enter or leave Plan mode | `/plan` / `/plan off` |

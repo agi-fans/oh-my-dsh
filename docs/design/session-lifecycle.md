@@ -20,11 +20,11 @@
 
 ## 子 Agent 展示与流式边界
 
-主界面子 Agent 列表只显示任务名称与 Starting、Running、Waiting、Done、Failed；Waiting 和 Done 不能合并。工具活动在 Agent Hub 和会话 inspector 中查看，后台 thinking、正文和工具参数不能驱动主界面列表重绘。
+主界面子 Agent 列表只显示任务名称与 Starting、Running、Waiting、Done、Failed；Waiting 和 Done 不能合并。工具活动在子会话转录与打印的结果中查看，后台 thinking、正文和工具参数不能驱动主界面列表重绘。
 
 [session-controller](../../packages/tui/omdsh-tui/src/session/session-controller.ts)先校验并缓冲完整的流式增量，只向当前可见会话转发。打开 inspector 后，[live-attempt-tracker](../../packages/tui/omdsh-tui/src/session/live-attempt-tracker.ts)补回进行中前缀，再继续实时显示；关闭后停止转发后台增量。优化必须保留 attempt revision/index 连续性和最终内容，不能为减少重绘直接丢 chunk。
 
-[subagent-roster](../../packages/tui/omdsh-tui/src/session/subagent-roster.ts)从持久事件增量维护名称、状态和有限活动记录，首次加载或恢复才回放历史。无变化时保持行与 snapshot 身份，避免重复排序和复制。TUI 比较列表可见字段；只有 Agent Hub 打开时才为活动变化刷新，并通过现有调度器合并连续状态变化。人工审批和问题继续走及时交互路径。
+[subagent-roster](../../packages/tui/omdsh-tui/src/session/subagent-roster.ts)从持久事件增量维护名称、状态和有限活动记录，首次加载或恢复才回放历史。无变化时保持行与 snapshot 身份，避免重复排序和复制。TUI 比较列表可见字段；活动变化不刷新主界面列表，只在子会话转录里渐进显示。人工审批和问题继续走及时交互路径。
 
 回归要求包括：后台 120 个不改变可见状态的 chunk 不发布 roster 或 transcript 更新；打开 inspector 后前缀完整；活动更新不绘制主列表；Starting → Running → Waiting 可以合并显示；持久工具事件、失败状态、恢复和键盘选择仍正确。这些是工作量与行为断言，不是远程模型延迟承诺。
 

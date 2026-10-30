@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- The Agent Hub is gone, and its one irreplaceable action moved into the subagent roster: `↓` on an empty composer selects a row, `↑`/`↓` moves, and `Enter` opens that child's transcript. The hub existed because it was the only trigger for `#openInspect` — a missing key binding, not a layout requirement — and paid for it with a full screen, its own nine-row key table, `Alt+A`, a `T` tree toggle and a wide/narrow two-pane layout. Everything it was the only view of now has a home: the roster is the list, an external child (which keeps no local transcript) prints its status and recent activity as a fold-able result, and recorded workflow runs appear as a line at the top of the roster.
+
 - The advisor is gone: `consult_advisor`, `/advisor`, its Integrations setting, and the 810 lines that composed them. It reached the same ACP transport as a Codex or Claude Code subagent, but handed the second model only a question the primary agent wrote plus a context slice it chose — so the advisor answered from a summary of the problem rather than the problem. Claude Code's advisor reads the full conversation because it runs server-side; a local version would have to serialize that itself, at the cost of choosing what to drop. What it did uniquely — ask for an opinion without giving away the ability to act — stays reachable by delegating a read-only subagent instead.
 
 - `/steer` and `/todo` are gone. Steering is `Alt+S` on the draft, which is the same handler without typing a six-character prefix; the todo list is already drawn live above the composer, and printing a copy into immutable scrollback produced a list that was stale the moment it appeared.

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYBINDINGS } from '../input/keybindings-config.ts'
-import { AGENT_HUB_HOTKEYS } from './agent-hub.ts'
 import { HISTORY_SEARCH_HOTKEYS } from './history-search.ts'
 import { PROMPT_SELECTOR_HOTKEYS } from './prompt-selector.ts'
 import { SETTINGS_HOTKEYS } from './settings-list.ts'
@@ -18,11 +17,6 @@ const OVERLAY_CATALOGS: readonly { label: string; rows: readonly HotkeyRow[]; ke
     label: 'Settings',
     rows: SETTINGS_HOTKEYS,
     keys: ['↑↓', '←→', 'Space', 'Enter', 'Tab / Shift+Tab', 'Home / End', '/ or Text', 'Backspace / Ctrl+U', 'Ctrl+R', 'Esc', 'Ctrl+C'],
-  },
-  {
-    label: 'Agent Hub',
-    rows: AGENT_HUB_HOTKEYS,
-    keys: ['↑↓', 'Home / End', 'Enter', 'Tab', '← / →', 'PgUp / PgDn', 'T', 'Esc / Ctrl+C'],
   },
   {
     label: 'History search',
@@ -96,8 +90,6 @@ describe('formatHotkeysText', () => {
     expect(text).not.toContain('/hotkeys')
     expect(text).toContain('PgUp')
     expect(text).toContain('Ctrl+O')
-    expect(text).toContain('Alt+A')
-    expect(text).toContain('subagent transcript')
     expect(text).toContain('Ctrl+P')
     expect(text).toContain('favorite model')
     expect(text).toContain('reasoning effort')

@@ -164,9 +164,9 @@ export interface TuiPrompt {
     /**
      * A row that can be focused but not submitted.
      *
-     * A tree needs it for a heading that groups children — the workflow row in the
-     * Agent Hub is a destination for `←`/`→` but has nothing to open, so Enter on it
-     * must stay put rather than close the surface with a value nobody wanted.
+     * A tree needs it for a heading that groups children: the heading is a
+     * destination for `←`/`→` but has nothing to open, so Enter on it must stay put
+     * rather than close the surface with a value nobody wanted.
      */
     disabled?: boolean
     /** Optional semantic badge painted after the description. */

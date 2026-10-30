@@ -30,7 +30,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 | 浏览命令与快捷键 | `/help` |
 | 搜索历史 Prompt | `Ctrl+R` |
 | 滚动 Transcript | `PgUp` / `PgDn` 或 `Shift+Up` / `Shift+Down` |
-| 打开 Agent Hub | 在空 composer 中按 `↓` 再按 `Enter`，或按 `Alt+A` |
+| 打开子代理的转录 | 空 composer 按 `↓`，再用 `↑`/`↓` 选择并 `Enter` |
 | 复制最近的回复、代码块或命令 | `/copy` |
 | 选择 Agent preset | `/agent` |
 | 进入或退出 Plan 状态 | `/plan` / `/plan off` |

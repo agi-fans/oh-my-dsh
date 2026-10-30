@@ -23,7 +23,7 @@
 
 所有应用程序级按键都属于 [action catalog](../../packages/tui/omdsh-tui/src/input/actions.ts) 中的唯一一个 action。每个条目声明 ship 默认键（`primary`）、迁移期仍可解析但不再展示的别名（`aliases`）、面向读者的标签和作用域。`input/editor.ts` 只处理缓冲区内的编辑：Esc、Ctrl+C、Ctrl+Z、Alt+L 一律返回 `ignored`，由 provider 通过用户实际生效的绑定解析，因此改键不会和编辑器争抢同一个键。
 
-`interrupt`（默认 `Esc`）按“最短暂的面 → 最持久的面”顺序只交还一层：prompt → settings → copy picker → 历史搜索 → 转录搜索 → 轨迹 → Agent Hub → 子检视 → 活动回合。回合进行中它会先把排队的跟进消息交回 composer 再中断，避免消息被送进一个永远不会运行的回合。`clear-composer`（默认 `Ctrl+C`）只做清空；连续两次退出。
+`interrupt`（默认 `Esc`）按“最短暂的面 → 最持久的面”顺序只交还一层：prompt → settings → 历史搜索 → 转录搜索 → 轨迹 → 子代理条选择 → 子检视 → 活动回合。回合进行中它会先把排队的跟进消息交回 composer 再中断，避免消息被送进一个永远不会运行的回合。`clear-composer`（默认 `Ctrl+C`）只做清空；连续两次退出。
 
 `keysForAction` 只打印 ship 主键和用户自己写的键，迁移别名永远不出现在提示里。用户文档把两个 action 绑到同一个键时，`reportBindingConflicts` 报告该键实际解析到的 action，而不是让其中一方静默失效。
 
@@ -37,7 +37,6 @@
 | --- | --- | --- |
 | Settings | `tab`/`shift+tab` 切区块；`home`/`end` 跳当前区块两端 | 行属于不同分类，跳到全表首尾没有意义 |
 | Trajectory | `tab`/`←→` 切详情页签；`PgUp`/`PgDn` 滚打开的详情；`home`/`end` 携带 following | 阅读事件账本与浏览扁平列表不是同一件事 |
-| Agent Hub | `tab`/`←→` 开关检视面板；`PgUp`/`PgDn` 滚该面板 | 同上：面板滚动优先于列表翻页 |
 | Prompt 选择器 | 树形视图的翻页用 clamp 而非 wrap | 树是结构，越过末枝会让读者落到无关位置 |
 | Transcript 搜索 | 只取关闭与匹配步进 | 它没有列表 |
 

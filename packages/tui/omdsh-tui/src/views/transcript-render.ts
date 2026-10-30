@@ -20,7 +20,6 @@ import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/renderer.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
-import { renderAgentHub, type AgentHubState } from './agent-hub.ts'
 import {
   renderImagePreviewPage,
   renderPlanReviewPage,
@@ -138,7 +137,6 @@ export interface ViewOptions {
   /** `/trajectory` full-screen event ledger. */
   trajectory?: TrajectoryState
   /** Keyboard-first full-screen descendant roster and inspector. */
-  agentHub?: AgentHubState
   /** Terminal-owned graphics capability and measured cell geometry. */
   imageProtocol?: import('../chrome/terminal-images.ts').ImageProtocol
   imageCellSize?: { width: number; height: number }
@@ -160,7 +158,8 @@ export interface ViewOptions {
   /** Live descendant-subagent roster rendered above the composer. */
   subagents?: TuiSubagentRoster
   /** Composer-boundary launcher focus entered with Down on an empty draft. */
-  subagentLauncherFocused?: boolean
+  /** Roster row the reader is pointing at, when the bar owns the keyboard. */
+  subagentSelection?: number
   /** Descendant whose transcript is currently filling the viewport. */
   inspected?: TuiInspectedSubagent
   /** Visible groups, order, and label style for the status line. */
@@ -2117,7 +2116,8 @@ export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: num
   return lines.map(line => truncateToWidth(line, width))
 }
 
-function subagentPreviewStart(agents: readonly TuiSubagentView[]): number {
+/** First row the bar shows; the provider starts its selection here. */
+export function subagentPreviewStart(agents: readonly TuiSubagentView[]): number {
   if (agents.length <= SUBAGENT_PREVIEW) return 0
   const active = agents.findIndex(agent => agent.phase === 'running' || agent.phase === 'starting')
   if (active >= 0) return Math.max(0, Math.min(active, agents.length - SUBAGENT_PREVIEW))
@@ -2140,6 +2140,16 @@ const SUBAGENT_PHASE_LABELS: Record<TuiSubagentPhase, string> = {
   starting: 'Starting', running: 'Running', waiting: 'Waiting', completed: 'Done', error: 'Failed',
 }
 
+/** How long a child has been (or was) running, as one label. */
+export function formatAgentElapsed(agent: TuiSubagentView, now = Date.now()): string {
+  if (agent.startedAt === undefined) return '—'
+  const live = agent.phase === 'running' || agent.phase === 'starting'
+  const ms = Math.max(0, (live ? now : agent.updatedAt ?? now) - agent.startedAt)
+  if (ms < 1_000) return `${Math.round(ms)}ms`
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`
+  return `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1_000)).padStart(2, '0')}s`
+}
+
 function subagentRowText(agent: TuiSubagentView): string {
   const indent = agent.depth > 1 ? '  '.repeat(agent.depth - 1) : ''
   return `${indent}${agent.label} · ${SUBAGENT_PHASE_LABELS[agent.phase]}`
@@ -2152,7 +2162,7 @@ export function renderSubagents(
   width: number,
   spinnerFrame = 0,
   inspectedId?: string,
-  launcherFocused = false,
+  selected?: number,
 ): string[] {
   const agents = roster?.agents ?? []
   if (agents.length === 0 || width <= 0) return []
@@ -2166,10 +2176,19 @@ export function renderSubagents(
     done === 0 ? undefined : `${done} done`,
     failed === 0 ? undefined : `${failed} failed`,
   ].filter((part): part is string => part !== undefined)
+  const pointing = selected !== undefined
   const headerBody = theme.bold(theme.fg('accent', 'Agents'))
     + (counts.length === 0 ? '' : theme.fg('dim', ` · ${counts.join(' · ')}`))
-    + theme.fg('dim', launcherFocused ? ' · Enter open · Esc return' : ' · ↓ select · Alt+A open')
-  const header = '  ' + (launcherFocused ? theme.inverse(headerBody) : headerBody)
+    // Short enough to survive a narrow bar: the counts already use the width.
+    + theme.fg('dim', pointing ? ' · ↑↓ · Enter open · Esc' : ' · ↓ select')
+  const header = '  ' + (pointing ? theme.inverse(headerBody) : headerBody)
+  // A workflow run belongs to the same roster: it is the one place a reader learns
+  // that a workflow is still going, so it stays as the bar's first row rather than
+  // living in the screen this bar replaced.
+  const workflows = (roster?.workflows ?? []).map(run => '  ' + theme.fg(
+    run.status === 'completed' ? 'success' : run.status === 'open' ? 'accent' : 'warning',
+    `Workflow · ${run.name} · ${run.status}${run.phase === undefined ? '' : ` · ${run.phase}`}`,
+  ))
   const start = subagentPreviewStart(agents)
   const end = Math.min(agents.length, start + SUBAGENT_PREVIEW)
   const rows: Array<TuiSubagentView | string> = [
@@ -2177,10 +2196,10 @@ export function renderSubagents(
     ...agents.slice(start, end),
     ...(end === agents.length ? [] : [`… ${agents.length - end} more`]),
   ]
-  const lines = [header, ...rows.map((row, index) => {
+  const lines = [header, ...workflows, ...rows.map((row, index) => {
     const branch = '  ' + theme.fg('dim', index === rows.length - 1 ? '└─' : '├─') + ' '
     if (typeof row === 'string') return branch + theme.fg('dim', row)
-    const selected = inspectedId === row.id
+    const current = inspectedId === row.id
     const paint = row.phase === 'completed'
       ? (text: string) => theme.fg('dim', theme.strikethrough(text))
       : row.phase === 'error'
@@ -2188,9 +2207,10 @@ export function renderSubagents(
         : row.phase === 'waiting'
           ? (text: string) => theme.fg('dim', text)
           : (text: string) => text
-    const marker = selected ? theme.fg('accent', SYMBOL.cursor) + ' ' : ''
+    const pointed = index === selected
+    const marker = current || pointed ? theme.fg('accent', SYMBOL.cursor) + ' ' : ''
     const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row))
-    return branch + (selected ? theme.bold(body) : body)
+    return branch + (current || pointed ? theme.bold(body) : body)
   })]
   return lines.map(line => truncateToWidth(line, width))
 }
@@ -2331,16 +2351,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const pwd = options.pwd ?? ''
   const motion = options.motion ?? 'full'
   const spinnerFrame = motion === 'off' ? -1 : options.spinnerFrame ?? 0
-  if (options.agentHub !== undefined) {
-    const hub = renderAgentHub(options.agentHub, theme, width, height)
-    return {
-      lines: fitFrame(hub.lines, width),
-      cursor: hub.cursor,
-      cursorVisible: hub.cursorVisible,
-      // A full-screen surface drew no transcript body.
-      documentRows: null,
-    }
-  }
   if (options.trajectory !== undefined) {
     const trajectory = renderTrajectory(options.trajectory, theme, width, height)
     return {
@@ -2544,7 +2554,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
   const subagents = editor === undefined
     ? []
-    : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id, options.subagentLauncherFocused)
+    : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id, options.subagentSelection)
   const autocomplete = promptSelector !== undefined || settings !== undefined || search !== undefined
     || options.autocomplete === undefined
     ? []

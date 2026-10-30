@@ -1,5 +1,5 @@
 ---
-description: "How omdsh delegates work: the three subagent transports, the Agent Hub, steering child agents, Workflow and Ralph orchestration, and background jobs."
+description: "How omdsh delegates work: the three subagent transports, reading a child's transcript, steering child agents, Workflow and Ralph orchestration, and background jobs."
 ---
 
 # Subagents and delegation
@@ -28,9 +28,9 @@ Codex and Claude Code bundles ship disabled with omdsh and can be enabled and co
 
 While children run, a roster sits above the queue and composer with task names and lifecycle states; running, waiting, and finished children are counted separately. Press `Down` on an empty composer to focus it and `Enter` to open the selected child, or press `Alt+A` directly.
 
-The Agent Hub is the full-screen view: the roster plus an inspector pane. `Enter` opens a child's transcript in place, `Tab` and the arrow keys switch panes, `PgUp`/`PgDn` scroll, and `T` toggles the tree. A child transcript stays live while the child runs, and a continuable child accepts your next composer message, or the draft sent with `Alt+S`, so you can redirect running work without cancelling it. Historical one-shot transcripts remain read-only. External executions show lifecycle state in Agent Hub; attempting to open their transcript explains that their results are in the parent session. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
+The roster above the composer is the whole surface: `↓` selects a row and `Enter` opens that child's transcript in place. A child transcript stays live while the child runs, and a continuable child accepts your next composer message, or the draft sent with `Alt+S`, so you can redirect running work without cancelling it. Historical one-shot transcripts remain read-only. External executions keep no local transcript, so `Enter` on one prints its lifecycle state and recent activity as a transcript result instead — with a line saying where its results go. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
 
-Agent Hub also shows the three most recent recorded Workflow runs, their result and latest recorded phase. Each available child’s inspector shows its Workflow, phase and member outcome separately from its live lifecycle state. Records are replayed after resume; Enter still opens the child transcript for detailed errors. The complete event history remains available through `/trajectory`; this view does not provide a topology editor or worker script logs.
+The roster also carries a line per recorded Workflow run with its status and latest phase, so a running workflow is visible without opening anything. The complete event history remains available through `/trajectory`.
 
 ## Orchestration tools
 

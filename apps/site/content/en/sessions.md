@@ -20,7 +20,7 @@ The terminal's native scrollback stays available when you clear the transcript, 
 
 ## Session Tree
 
-The Session Tree places forks at their inherited conversation boundary, marks the active branch, and shows shared turns once. It includes related conversation branches in the same workspace; subagent sessions remain in Agent Hub.
+The Session Tree places forks at their inherited conversation boundary, marks the active branch, and shows shared turns once. It includes related conversation branches in the same workspace; subagent sessions stay out of the tree; reach them from the roster above the composer.
 
 Use `↑`/`↓` or `Tab` to select, `←`/`→` to fold or open a subtree, and type to search while retaining matching nodes’ ancestors. The selected user message and final reply appear beside the tree on wide terminals and below it on narrower ones; `Ctrl+↑`/`Ctrl+↓` scroll the preview. `Esc` clears a search first, then closes the tree; cancelling preserves the composer and active session.
 

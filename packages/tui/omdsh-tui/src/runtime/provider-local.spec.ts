@@ -787,14 +787,13 @@ describe('LocalTui folds against a scrolling terminal', () => {
     } finally { tui.dispose() }
   })
 
-  it.each([false, true].flatMap(color => (['trajectory', 'agentHub', 'settings', 'fullscreen-list', 'plan-review', 'document'] as const).map(surface => ({ color, surface }))))(
+  it.each([false, true].flatMap(color => (['trajectory', 'settings', 'fullscreen-list', 'plan-review', 'document'] as const).map(surface => ({ color, surface }))))(
     'restores the inspected run after closing $surface (color=$color)', async ({ surface, color }) => {
       const term = new ScrollingTerminal(80, 20)
       const tui = new LocalTui(term, 'm', color)
       try {
         const input = tui.readInput()
         if (surface === 'trajectory') tui.setCommands([{ name: 'trajectory', description: 'Inspect session trajectory' }])
-        if (surface === 'agentHub') tui.setSubagents({ agents: [{ id: 'child', label: 'Review', depth: 1, phase: 'running', activity: [] }] })
         longTurn(tui, 30, 30)
         press(term, '\x0f')
         press(term, '\x1b[5~')
@@ -807,7 +806,6 @@ describe('LocalTui folds against a scrolling terminal', () => {
           expect(await input).toEqual({ text: '/trajectory', images: [] })
           tui.openTrajectory([])
         }
-        else if (surface === 'agentHub') press(term, '\x1ba')
         else if (surface === 'settings') press(term, '/settings\r')
         else answer = tui.prompt({
           title: 'Choose', question: 'Continue?', presentation: surface,
@@ -4167,12 +4165,12 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('does not render background activity, but keeps its details available in the Agent Hub', () => {
+  it('does not render background activity, but a selected external agent prints its detail', () => {
     vi.useFakeTimers()
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     try {
-      const agent = { id: 'child', depth: 1, label: 'Worker', phase: 'running' as const, activity: [] }
+      const agent = { id: 'child', depth: 1, label: 'Worker', phase: 'running' as const, mode: 'external' as const, activity: [] }
       tui.setSubagents({ agents: [agent] })
       vi.advanceTimersByTime(8)
       const width = vi.spyOn(term, 'width')
@@ -4182,14 +4180,18 @@ describe('LocalTui (tty)', () => {
       vi.advanceTimersByTime(8)
       expect(width.mock.calls.length).toBe(0)
       expect(term.captured).not.toContain('read file-')
-      press(term, '\x1ba')
-      press(term, '\t')
+      // The bar selects without opening anything: `↓` then `Enter` asks for the
+      // row the reader pointed at.
+      press(term, '\x1b[B')
+      press(term, '\r')
       expect(term.captured).toContain('read file-119')
       width.mockClear()
       tui.setSubagents({ agents: [{ ...agent, activity: [{ text: 'read next-file', status: 'running' }] }] })
       vi.advanceTimersByTime(8)
-      expect(width.mock.calls.length).toBeGreaterThan(0)
-      expect(term.captured).toContain('read next-file')
+      // Nothing is watching the row any more, so a new activity repaints nothing.
+      expect(width.mock.calls.length).toBe(0)
+      // The printed result is a snapshot: a later activity does not rewrite it.
+      expect(term.captured).not.toContain('read next-file')
     } finally {
       tui.dispose()
       vi.useRealTimers()
@@ -4251,7 +4253,7 @@ describe('LocalTui (tty)', () => {
     }
   })
 
-  it('focuses the task launcher with down and activates an agent through the hub', async () => {
+  it('selects a roster row with down and opens that agent directly', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const opened: string[] = []
@@ -4264,10 +4266,8 @@ describe('LocalTui (tty)', () => {
     })
 
     press(term, '\x1b[B')
-    expect(term.captured).toContain('Enter open · Esc return')
-    press(term, '\r')
-    expect(term.captured).toContain('Agent Hub')
-    expect(term.captured).toContain('Enter transcript · Tab inspector')
+    expect(term.captured).toContain('↑↓ · Enter open · Esc')
+    // One stop, not two: the row chosen in the bar opens its transcript.
     press(term, '\x1b[B')
     press(term, '\r')
     await flushAsyncPaste()

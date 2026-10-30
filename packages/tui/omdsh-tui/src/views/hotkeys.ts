@@ -9,7 +9,6 @@ import type { HotkeyRow, OverlayCatalog } from './hotkey-format.ts'
 
 export type { HotkeyRow }
 export { formatHotkeyKeys, formatOverlayHint } from './hotkey-format.ts'
-import { AGENT_HUB_HOTKEYS } from './agent-hub.ts'
 import { HISTORY_SEARCH_HOTKEYS } from './history-search.ts'
 import { PROMPT_SELECTOR_HOTKEYS } from './prompt-selector.ts'
 import { SETTINGS_HOTKEYS } from './settings-list.ts'
@@ -30,7 +29,6 @@ interface HotkeySection {
  */
 const OVERLAY_CATALOGS: readonly OverlayCatalog[] = [
   { label: 'Settings', rows: SETTINGS_HOTKEYS },
-  { label: 'Agent Hub', rows: AGENT_HUB_HOTKEYS },
   { label: 'History search', rows: HISTORY_SEARCH_HOTKEYS },
   { label: 'Transcript search', rows: TRANSCRIPT_SEARCH_HOTKEYS },
   { label: 'Trajectory', rows: TRAJECTORY_HOTKEYS },

@@ -33,7 +33,7 @@ import { ComposerDraftStore, type ComposerDraft } from '../session/composer-draf
 import { mergeJobSettlement } from '../session/job-notice.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
 import { documentDestination, documentLayout, documentLineRow, documentMatches, documentModel, documentPosition, documentStart } from '../views/document-reader.ts'
-import type { TuiDocumentPosition } from '../definition.ts'
+import type { TuiDocumentPosition, TuiSubagentView } from '../definition.ts'
 
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -139,16 +139,12 @@ import {
   type TrajectoryState,
 } from '../views/trajectory.ts'
 import {
-  applyAgentHubEvent,
-  createAgentHub,
-  updateAgentHub,
-  type AgentHubState,
-} from '../views/agent-hub.ts'
-import {
   applyEvent,
   applyStreamChunk,
   renderedBlocks,
   type AsidePanel,
+  formatAgentElapsed,
+  subagentPreviewStart,
   initialTranscript,
   replayEvents,
   renderView,
@@ -342,7 +338,6 @@ interface PluginSettingsBinding {
 /** One overlay surface displaced by an in-flight human prompt. */
 type DisplacedSurface =
   | { kind: 'trajectory'; state: TrajectoryState }
-  | { kind: 'agentHub'; state: AgentHubState }
   | { kind: 'settings'; state: SettingsState }
   | { kind: 'search'; state: HistorySearchState }
 /**
@@ -467,7 +462,6 @@ export class LocalTui implements TuiService {
   /** Profile patch the Tools feature controls write; absent hides those controls. */
   #featurePatch: string | undefined
   #trajectory: TrajectoryState | null = null
-  #agentHub: AgentHubState | null = null
   #pending: PendingRead | null = null
   #queuedSubmissions: TuiSubmission[] = []
   /** Newer queue entries temporarily detached while Up browses backward. */
@@ -641,7 +635,13 @@ export class LocalTui implements TuiService {
   #sessionControls: TuiSessionControls | undefined
   #loopStatus: TuiLoopStatus | undefined
   #subagents: TuiSubagentRoster | undefined
-  #subagentLauncherFocused = false
+  /**
+   * The roster row the reader is pointing at, or `undefined` when the composer
+   * owns the keyboard. `↓` on an empty composer enters the bar; `Enter` opens the
+   * child. The bar is the roster now — the full-screen hub it used to open was a
+   * second stop on the way to the same transcript.
+   */
+  #subagentSelection: number | undefined
   #inspected: TuiInspectedSubagent | undefined
   #promptDocument: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition } | undefined
   /**
@@ -981,11 +981,7 @@ export class LocalTui implements TuiService {
     this.#subagents = roster === undefined
       ? undefined
       : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
-    if ((this.#subagents?.agents.length ?? 0) === 0) this.#subagentLauncherFocused = false
-    if (this.#agentHub !== null) {
-      if (this.#subagents === undefined) this.#agentHub = null
-      else this.#agentHub = updateAgentHub(this.#agentHub, this.#subagents)
-    }
+    if ((this.#subagents?.agents.length ?? 0) === 0) this.#subagentSelection = undefined
     const inspected = this.#inspected
     if (inspected !== undefined) {
       const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
@@ -999,7 +995,7 @@ export class LocalTui implements TuiService {
         }
       }
     }
-    if (!statusChanged && this.#agentHub === null) return
+    if (!statusChanged) return
     this.#syncTick()
     if (this.#tty) this.#scheduleStreamRender()
   }
@@ -1012,7 +1008,7 @@ export class LocalTui implements TuiService {
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     if (inspected !== undefined) {
       this.#inspectEscapeFenceUntil = 0
-      this.#subagentLauncherFocused = false
+      this.#subagentSelection = undefined
     }
     this.#syncTick()
     if (this.#tty) this.#render()
@@ -1037,7 +1033,6 @@ export class LocalTui implements TuiService {
     if (!this.#tty) return false
     this.#finishPrompt(null)
     this.#trajectory = createTrajectory(events)
-    this.#agentHub = null
     this.#settings = null
     this.#search = null
     this.#ac = null
@@ -2055,11 +2050,10 @@ export class LocalTui implements TuiService {
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
         ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
         ...(this.#subagents === undefined ? {} : { subagents: this.#subagents }),
-        subagentLauncherFocused: this.#subagentLauncherFocused,
+        ...(this.#subagentSelection === undefined ? {} : { subagentSelection: this.#subagentSelection }),
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
         ...(this.#trajectory === null ? {} : { trajectory: this.#trajectory }),
         ...(this.#aside === undefined ? {} : { aside: this.#aside }),
-        ...(this.#agentHub === null ? {} : { agentHub: this.#agentHub }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
         ...(this.#settings !== null
@@ -2240,7 +2234,7 @@ export class LocalTui implements TuiService {
   #routeInputBatch(events: readonly KeyEvent[]): void {
     if (this.#pasteProtection && this.#state.status !== 'compacting' && !this.#paste && this.#pasteInFlight === 0
       && this.#prompt === null && this.#settings === null
-      && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
+      && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
       && events.every(event => event.type === 'text' || (event.type === 'key' && ['enter', 'ctrl+j', 'tab'].includes(event.id)))) {
       if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
       for (const event of this.#pasteBurst.pushBatch(events, Date.now())) this.#deliverPasteEmission(event)
@@ -2258,7 +2252,7 @@ export class LocalTui implements TuiService {
   #routeInput(event: KeyEvent): void {
     if (event.type === 'focus' || event.type === 'cell-size') { this.#dispatch(event); return }
     const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null
-      && this.#search === null && this.#trajectory === null && this.#agentHub === null && this.#transcriptSearch === null
+      && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
     if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
       || event.type === 'paste-start' || event.type === 'paste-end') {
       this.#flushPasteBurst(true)
@@ -2588,16 +2582,6 @@ export class LocalTui implements TuiService {
       const command = applyTrajectoryEvent(this.#trajectory, event, { pageSize, detailPageLines: pageLines })
       if ('close' in command) this.#trajectory = null
       else this.#trajectory = command.state
-      this.#render()
-      return
-    }
-    if (this.#agentHub !== null) {
-      const command = applyAgentHubEvent(this.#agentHub, event)
-      if ('close' in command) this.#agentHub = null
-      else if ('open' in command) {
-        this.#agentHub = null
-        this.#openInspect(command.open)
-      } else this.#agentHub = command.state
       this.#render()
       return
     }
@@ -3201,32 +3185,64 @@ export class LocalTui implements TuiService {
   }
 
   #handleSubagentLauncher(event: KeyEvent): boolean {
-    const hasAgents = (this.#subagents?.agents.length ?? 0) > 0
-    if (this.#subagentLauncherFocused) {
-      if (!hasAgents) {
-        this.#subagentLauncherFocused = false
-        return false
-      }
+    const agents = this.#subagents?.agents ?? []
+    if (this.#subagentSelection !== undefined) {
+      if (agents.length === 0) { this.#subagentSelection = undefined; return false }
+      const at = Math.min(this.#subagentSelection, agents.length - 1)
       if (event.type === 'key' && event.id === 'enter') {
-        this.#subagentLauncherFocused = false
-        void this.#pickSubagent()
+        this.#subagentSelection = undefined
+        this.#openSelectedSubagent(agents[at]!)
         return true
       }
-      if (event.type === 'key' && (event.id === 'escape' || event.id === 'up')) {
-        this.#subagentLauncherFocused = false
+      if (event.type === 'key' && event.id === 'escape') {
+        this.#subagentSelection = undefined
         this.#render()
         return true
       }
-      if (event.type === 'key' && event.id === 'down') return true
-      this.#subagentLauncherFocused = false
-      return false
+      if (event.type === 'key' && (event.id === 'up' || event.id === 'down')) {
+        const delta = event.id === 'up' ? -1 : 1
+        // `up` from the first row leaves the bar; `down` stops at the last one.
+        if (at + delta < 0) this.#subagentSelection = undefined
+        else this.#subagentSelection = Math.min(agents.length - 1, at + delta)
+        this.#render()
+        return true
+      }
+      return true
     }
-    if (!hasAgents || event.type !== 'key' || event.id !== 'down') return false
+    if (agents.length === 0 || event.type !== 'key' || event.id !== 'down') return false
     if (this.#editor.text !== '' || this.#images.count > 0 || this.#historyIndex !== 0 || this.#ac !== null) return false
     if (this.#queuedSubmissions.length > 0 || this.#queueEditNewer !== null || this.#queueEditPending) return false
-    this.#subagentLauncherFocused = true
+    this.#subagentSelection = Math.min(agents.length - 1, Math.max(0, subagentPreviewStart(agents)))
     this.#render()
     return true
+  }
+
+  /**
+   * Open what the selected row has.
+   *
+   * A local child has a transcript to read, so `Enter` swaps the view. An external
+   * child has none by construction — its results land in the parent session — so
+   * `Enter` prints its status and recent activity as a fold-able transcript
+   * result instead of opening a surface for it.
+   */
+  #openSelectedSubagent(agent: TuiSubagentView): void {
+    if (agent.mode === 'external') {
+      this.commandOutput(`Agent · ${agent.label}`, [
+        `${agent.phase === 'completed' ? 'Completed' : agent.phase === 'error' ? 'Failed' : 'Running'} · ${formatAgentElapsed(agent)}`,
+        '',
+        `Mode: ${agent.mode}`,
+        `Session: ${agent.id}`,
+        `Parent: ${agent.parentId ?? 'root session'}`,
+        `Depth: ${agent.depth}`,
+        ...(agent.workflow === undefined ? [] : [`Workflow: ${agent.workflow.name}`, `Phase: ${agent.workflow.phase ?? '—'}`]),
+        ...(agent.activity.length === 0 ? [] : ['', 'Recent activity', ...agent.activity.map(item => `${item.status.padEnd(8)} ${item.text}`)]),
+        '',
+        'An external agent keeps no local transcript; its results arrive in this session.',
+      ].join('\n'))
+      return
+    }
+    this.#openInspect(agent.id)
+    this.#render()
   }
 
   #closeInspect(): void {
@@ -3237,21 +3253,6 @@ export class LocalTui implements TuiService {
     for (const listener of this.#inspectCloses) listener()
   }
 
-  #pickSubagent(): void {
-    this.#subagentLauncherFocused = false
-    const agents = this.#subagents?.agents ?? []
-    if (agents.length === 0 && !this.#subagents?.workflows?.length) {
-      this.notice('No subagents are available in this session.')
-      return
-    }
-    this.#prompt = null
-    this.#settings = null
-    this.#search = null
-    this.#trajectory = null
-    this.#ac = null
-    this.#agentHub = createAgentHub(this.#subagents ?? { agents })
-    this.#render()
-  }
 
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
     const previous = options.persist ? this.prefs() : undefined
@@ -3851,7 +3852,6 @@ export class LocalTui implements TuiService {
     this.#search = null
     this.#settings = null
     this.#trajectory = null
-    this.#agentHub = null
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
     // them only to detect and execute Harness commands.
@@ -4027,13 +4027,10 @@ export class LocalTui implements TuiService {
   #displaceSurface(): DisplacedSurface | null {
     const displaced: DisplacedSurface | null = this.#trajectory !== null
       ? { kind: 'trajectory', state: this.#trajectory }
-      : this.#agentHub !== null
-        ? { kind: 'agentHub', state: this.#agentHub }
-        : this.#settings !== null
-          ? { kind: 'settings', state: this.#settings }
-          : this.#search !== null ? { kind: 'search', state: this.#search } : null
+      : this.#settings !== null
+        ? { kind: 'settings', state: this.#settings }
+        : this.#search !== null ? { kind: 'search', state: this.#search } : null
     this.#trajectory = null
-    this.#agentHub = null
     this.#settings = null
     this.#search = null
     return displaced
@@ -4045,7 +4042,6 @@ export class LocalTui implements TuiService {
     this.#promptDisplaced = null
     if (displaced === null) return
     if (displaced.kind === 'trajectory') this.#trajectory = displaced.state
-    else if (displaced.kind === 'agentHub') this.#agentHub = displaced.state
     else if (displaced.kind === 'settings') {
       this.#settings = displaced.state
       this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])
@@ -4422,10 +4418,6 @@ export class LocalTui implements TuiService {
       this.#transcriptSearch = createTranscriptSearch()
       this.#ac = null
       this.#render()
-      return true
-    }
-    if (action === 'inspect-subagent') {
-      void this.#pickSubagent()
       return true
     }
     if (action === 'retry') {
