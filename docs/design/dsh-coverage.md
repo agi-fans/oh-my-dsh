@@ -110,7 +110,19 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-message-feedback` | DSH 自己的契约写明：评分是「关于输出的信号，永不作为输入」，是只写进日志再由官方产品面读取的数据。omdsh 不是官方客户端，没有那个下游，`/rate` 会变成写进日志再没人读的记录。 |
 | `ui-directory-picker-browse` | 选择一个工作目录的浏览器内界面。终端里启动目录由 shell 决定，`--cwd` 与 `omdsh` 的工作目录参数已经回答同一个问题。 |
 
-## 七、维护
+## 七、外部子代理默认关闭
+
+`@deepseek-ai/dsh-subagent-codex` 与 `@deepseek-ai/dsh-subagent-claude-code` 随包安装（`availability: installation`），但**默认 `enabled: false`**，只能由读者在 `/plugins → Bundles` 显式开启。这不是保守，是三个具体事实的结果：
+
+1. **Codex 那条钉死在自己的载荷上。** 插件 `resolve` 自己的依赖 `@openai/codex`，不读 PATH，也没有宿主 CLI 回退（README：「no host-CLI fallback」）。它钉的是 **0.153.4**，而同期上游 CLI 已到 0.166.0——相差十余个版本。插件 README 写明换掉它需要「重新生成上游 schema 证据并重跑带凭据的 nonce 测试」。
+2. **这条钉法不随 DSH 版本变化。** `0.2.1-rc.3` 与 `0.2.1-rc.5` 的 `lib/index.js` 逐字节相同，同一个 Codex 版本声明，同一句协议基线。升级 DSH 不会移动它。
+3. **它没有人类审批通道。** 已知的审批请求直接拒绝，未知的服务器请求 fail closed（同上 README）。需要批准才能完成的任务在 Codex 子代理里必然失败，而失败只回一句安全诊断。
+
+所以默认关闭的理由是**适配性风险**，不是偏好：开启它等于把一个自己钉住协议版本、且无法接受审批的外部代理放进会话。Claude Code 那条没有这个问题（走 `@anthropic-ai/claude-agent-sdk`，不钉 CLI 版本），但两条保持同一个默认值，因为开启它们是同一种决定——把一个外部进程接进来。
+
+判断它是否仍然必要，用 `omdsh doctor` 之前先看 `node -p "require('@deepseek-ai/dsh-subagent-codex/package.json').dependencies['@openai/codex']"` 与分析版 CLI 是否接近；差距在一个大版本内再考虑默认开启。
+
+## 八、维护
 
 这张表随 DSH 版本更新。升级到新的 DSH cohort 时，先 `ls packages/client | grep '^ui-'` 比对本文，把新增包按「已覆盖 / 缺口 / Web 外壳 / 有意不提供」归档，再决定是否实现。
 

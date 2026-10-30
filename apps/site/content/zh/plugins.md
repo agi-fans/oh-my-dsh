@@ -97,7 +97,7 @@ omdsh 不会从某个 extensions 目录加载 TypeScript 文件。那是另一�
 
 `/plugins` 查看运行中插件的启用状态与生命周期，管理 bundle，并提供安装进度、取消、诊断日志及待运行构建脚本的显式授权步骤。它使用已发布的 Harness Plugin Manager，与 `omdsh plugin` 共用 Profile 写锁。终端自身及管理基础设施在该选择器中只读。当前回合结束后才能进入安装管理。
 
-Codex 与 Claude Code 子代理 bundle 随 omdsh 默认安装，初始关闭。Bundles 选择器显示 Installed · Disabled，打开 **Integration settings** 并选择 Enable integration 即可使用，无需在 Profile 中下载；该入口与 `/settings → Integrations` 使用同一套表单。随包集成跟随 omdsh 更新。缺失的软件包提供匹配当前 Harness 版本的 Install；Profile 安装的软件包还提供 Reinstall。安装进度忽略 Enter，避免误取消；Esc 或 Ctrl+C 取消并等待文件恢复。失败或取消不会报告已启用，每次操作后选择器重新读取软件包状态。这些 bundle 自带固定版本的平台运行时，不会回退到 PATH 上的命令。认证与用户／项目设置仍由原生产品管理；omdsh 不负责登录，也不检查凭证。
+Codex 与 Claude Code 子代理 bundle 随 omdsh 默认安装，初始关闭。Bundles 选择器显示 Installed · Disabled，打开 **Integration settings** 并选择 Enable integration 即可使用，无需在 Profile 中下载；该入口与 `/settings → Integrations` 使用同一套表单。随包集成跟随 omdsh 更新。缺失的软件包提供匹配当前 Harness 版本的 Install；Profile 安装的软件包还提供 Reinstall。安装进度忽略 Enter，避免误取消；Esc 或 Ctrl+C 取消并等待文件恢复。失败或取消不会报告已启用，每次操作后选择器重新读取软件包状态。这些 bundle 自带固定版本的平台运行时，不会回退到 PATH 上的命令。正因为固定，两者在你明确开启前都保持关闭：Codex bundle 把自己的 `@openai/codex` 钉在 0.153.4，与你安装的 CLI 版本无关，而它的 README 要求重新生成上游 schema 证据才能移动这个版本——所以 Codex 子代理按它构建时的协议运行，而不是按你 `codex` 命令所讲的协议。Claude Code bundle 不钉 CLI 版本，但两者是同一个决定：把一个自带运行时、带自己协议的外部代理接进会话。认证与用户／项目设置仍由原生产品管理；omdsh 不负责登录，也不检查凭证。
 
 Profile 自行安装的 bundle 提供 Uninstall，确认后卸载插件并移除该 Profile 的软件包，影响使用此 Profile 的全部会话；保留原生 Codex／Claude 登录与用户设置。没有对应 Profile 依赖的条目提供 Remove from profile，仅移除启用选择。随 omdsh 安装的软件包不能单独卸载，可在集成设置中通过 Disable integration 关闭，并随 omdsh 更新。
 

@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- The Codex and Claude Code subagent bundles stay disabled until explicitly enabled, and the documentation now says why: the Codex bundle pins its own `@openai/codex` at 0.153.4, independent of the CLI on `PATH` and unchanged by any DSH release, and it has no human approval channel. Enabling an external agent is a deliberate act, not a default.
+
 - The pinned DeepSeek Harness cohort moves from `0.2.1-rc.3` to `0.2.1-rc.5` across all 145 runtime packages, and the `examples/hello` fixture follows it. No API changes reached this codebase: typecheck, the full suite, and all three PTY smokes pass unchanged. The one real adjustment was the fixture itself — the compatibility check refused it while it still declared `rc.3`, which is the check doing its job.
 
 - The `/copy` picker is the same composer card as every other list. It had been the last bespoke overlay with its own key model: nine hotkey rows of its own, and a filter that stayed inactive until `/` — so a typed letter did nothing and `Space` copied instead of typing a space. Typing filters now, `Enter` copies, and the selected row's payload is the preview.
