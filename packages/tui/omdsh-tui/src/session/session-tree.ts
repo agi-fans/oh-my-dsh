@@ -20,6 +20,8 @@ export interface SessionTreeNode {
   turn?: number
   label: string
   preview: string
+  /** The previews here are markdown, so the reader renders them as such. */
+  previewFormat: 'markdown'
   description: string
   current: boolean
 }
@@ -80,6 +82,7 @@ export function buildSessionTree(branches: readonly SessionTreeBranch[], current
       sessionId: branch.id, kind: 'branch', label: parent === undefined ? `Conversation · ${title}` : `Branch · ${title}`,
       description: current ? 'Current branch' : 'Continue branch', current,
       preview: `### Branch\n\n${title}\n\n${current ? 'This branch is active.' : 'Continue this branch from its latest state.'}\n\n${turns.length} conversation turns.`,
+      previewFormat: 'markdown' as const,
     })
     let previous = branchId
     const positions = [...inherited]
@@ -100,6 +103,7 @@ export function buildSessionTree(branches: readonly SessionTreeBranch[], current
         id, parentId: previous, sessionId: branch.id, kind: 'turn', messageIndex: turn.messageIndex, turn: turn.turn,
         label: `Turn ${turn.turn} · ${turn.preview}`, description: outcome, current: false,
         preview: `## Turn ${turn.turn} · ${outcome}\n\n### User\n\n${content || turn.preview}${attachments === '' ? '' : `\n\nAttachments: ${attachments}`}\n\n### Assistant\n\n${replies.at(-1) ?? 'No final reply recorded.'}`,
+        previewFormat: 'markdown' as const,
       })
       positions.push({ at: turn.branchIndex, id })
       previous = id

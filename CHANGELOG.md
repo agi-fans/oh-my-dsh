@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/copy text|code|cmd|output` lost its kinds. `text` meant "the default", so it was a no-op parameter, and the other three named a row the picker already shows with its content, language and size: the reader had to recall a word to skip a keystroke. `/copy` opens the picker; `Alt+C` still copies a selection when there is one.
 - `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
 
+### Added
+
+- `previewFormat` on a prompt option, and `disabled` on a row. The first ends a real ambiguity: the same `preview` field was rendered as markdown by the tree page and as plain text by the composer card, so an option read differently depending on which surface opened it — markdown is now opt-in and plain is the only default. The second is for a row that groups others: focusable, dimmed, and carrying no answer, so Enter on it stays put instead of closing the surface with a value nobody chose.
+
 ### Fixed
 
 - The Session Tree page draws each option's description and its badge in the option's own tone. Both were dropped when tree rows moved onto this renderer, so a full-screen tree lost an agent's phase colour and its elapsed time — the two things that tell two similar-looking nodes apart.

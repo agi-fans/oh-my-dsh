@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { togglePromptSelection, selectedPromptAnswer, refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptTreePage, type PromptSelectorState } from './prompt-selector.ts'
+import { togglePromptSelection, selectedPromptAnswer, selectedFilteredPromptAnswer, refreshPromptOptions, maskPromptSecret, renderImagePreviewPage, renderPlanReviewPage, renderPromptSelector, renderPromptTreePage, type PromptSelectorState } from './prompt-selector.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
@@ -416,5 +416,57 @@ describe('a tree row says everything the option knows', () => {
       checked: new Set(),
     }, createTheme(false), 40, 20, '', 0, 'omdsh')
     expect(frame.lines.every(line => visibleWidth(line) <= 40)).toBe(true)
+  })
+})
+
+describe('preview format', () => {
+  const card = (option: Record<string, unknown>) => stripAnsi(renderPromptSelector(
+    { request: { title: 'X', question: 'q', filterable: true, allowCustom: false, options: [option] }, selected: 0, checked: new Set() },
+    createTheme(false), 60, '', 0,
+  ).lines.join('\n'))
+  const tree = (option: Record<string, unknown>) => stripAnsi(renderPromptTreePage(
+    { request: { title: 'X', question: '', presentation: 'fullscreen-tree', filterable: true, allowCustom: false, options: [option] },
+      selected: 0, checked: new Set() },
+    createTheme(false), 100, 20, '', 0, 'omdsh',
+  ).lines.join('\n'))
+
+  it('reads a preview as plain text by default, and the same way on both surfaces', () => {
+    const option = { value: 'a', label: 'node', preview: 'a **bold** word' }
+    expect(card(option)).toContain('a **bold** word')
+    expect(tree(option)).toContain('a **bold** word')
+  })
+
+  it('renders markdown only where the caller asked for it', () => {
+    // Before this, the tree page rendered markdown unconditionally and the card
+    // rendered text, so one field meant two things depending on the surface.
+    const option = { value: 'a', label: 'node', preview: 'a **bold** word', previewFormat: 'markdown' }
+    expect(card(option)).toContain('a bold word')
+    expect(card(option)).not.toContain('**')
+    expect(tree(option)).toContain('a bold word')
+    expect(tree(option)).not.toContain('**')
+  })
+})
+
+describe('a disabled row', () => {
+  const request = {
+    title: 'X', question: '', presentation: 'fullscreen-tree' as const, filterable: true, allowCustom: false,
+    options: [
+      { value: 'group', label: 'workflow group', disabled: true },
+      { value: 'child', parentValue: 'group', label: 'child agent' },
+    ],
+  }
+
+  it('is focusable but carries no answer', () => {
+    const state = { request, selected: 0, checked: new Set() }
+    expect(selectedFilteredPromptAnswer(state, '')).toBeNull()
+    expect(selectedPromptAnswer(state)).toBeNull()
+    expect(selectedFilteredPromptAnswer({ ...state, selected: 1 }, '')).toBe('child')
+  })
+
+  it('is drawn without the cursor colour, so it does not read as a destination', () => {
+    const frame = renderPromptTreePage({ request, selected: 0, checked: new Set() }, createTheme(true), 100, 20, '', 0, 'omdsh')
+    const row = frame.lines.find(line => stripAnsi(line).includes('workflow group'))
+    expect(row).toBeDefined()
+    expect(row).not.toContain(createTheme(true).fg('accent', '').slice(0, 5) + 'workflow group')
   })
 })

@@ -125,7 +125,13 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
   const key = `${width}:${theme.key}`
   const cached = cache.get(key)
   if (cached !== undefined) return cached
-  const lines = renderMarkdown(option.preview ?? option.label, theme, width)
+  const source = option.preview ?? option.label
+  // One default for one field: plain text unless the caller says markdown. The
+  // tree page used to render markdown unconditionally while the card rendered
+  // text, so the same `preview` meant two things depending on the surface.
+  const lines = option.previewFormat === 'markdown'
+    ? renderMarkdown(source, theme, width)
+    : wrapTextStable(source, width)
   if (cache.size >= 4) cache.clear()
   cache.set(key, lines)
   return lines
@@ -181,7 +187,10 @@ export function renderPromptTreePage(
       ? ''
       : theme.fg(row.option.badge.tone ?? 'muted', `[${row.option.badge.label}] `)
     const label = badge + row.option.label
-    const text = at === selected ? theme.fg('accent', label) : theme.fg('text', label)
+    // A heading is focusable but not an answer, so it never takes the cursor colour.
+    const text = row.option.disabled === true
+      ? theme.fg('muted', label)
+      : at === selected ? theme.fg('accent', label) : theme.fg('text', label)
     const used = visibleWidth(head) + visibleWidth(label)
     const room = listWidth - used - 2
     const description = row.option.description === undefined || row.option.description === '' || room < 8
@@ -265,6 +274,11 @@ function optionRow(
 ): string {
   // The multi-select marker is part of the label so the shared row keeps one
   // cursor cell and one description gap for every prompt, checked or not.
+  if (option.disabled === true) {
+    // Same reason as the tree: focusable, dimmed, and not a value.
+    const row: ListRow = { label: option.label, ...(option.description === undefined ? {} : { description: option.description }), secondary: true }
+    return renderListRow(row, theme, Math.max(1, width), { selected: index === state.selected })
+  }
   const checked = state.checked.has(identity)
   const marker = state.request.multiSelect === true
     ? theme.fg(checked ? 'success' : 'dim', checked ? '[x] ' : '[ ] ')
@@ -628,7 +642,9 @@ export function renderPromptSelector(
     // content it was being browsed for.
     const preview = options[state.selected]?.preview
     if (preview !== undefined && preview !== '') {
-      const wrapped = wrapTextStable(preview, contentWidth)
+      const wrapped = state.request.options?.[state.selected]?.previewFormat === 'markdown'
+        ? renderMarkdown(preview, theme, contentWidth)
+        : wrapTextStable(preview, contentWidth)
       body.push('', ...wrapped.slice(0, CARD_PREVIEW_LINES).map(line => theme.fg('dim', '  ' + line)))
       if (wrapped.length > CARD_PREVIEW_LINES) {
         body.push(theme.fg('dim', `  … ${wrapped.length - CARD_PREVIEW_LINES} more lines`))
@@ -781,6 +797,7 @@ export function selectedPromptAnswer(state: PromptSelectorState): string | null 
   if (options.length === 0) return null
   if (state.request.multiSelect !== true) {
     const option = options[state.selected]
+    if (option?.disabled === true) return null
     return option?.value ?? option?.label ?? null
   }
   const labels = options.flatMap((option, index) => state.checked.has(index) ? [option.value ?? option.label] : [])
@@ -790,5 +807,7 @@ export function selectedPromptAnswer(state: PromptSelectorState): string | null 
 /** Resolve the selected answer after applying a full-screen selector query. */
 export function selectedFilteredPromptAnswer(state: PromptSelectorState, query: string): string | null {
   const option = filteredPromptOptions(state.request, query, state.collapsed)[state.selected]
+  // A disabled row is focusable but carries no answer, filtered or not.
+  if (option?.disabled === true) return null
   return option?.value ?? option?.label ?? null
 }

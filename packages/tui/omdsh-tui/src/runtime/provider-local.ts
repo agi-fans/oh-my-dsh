@@ -2927,13 +2927,18 @@ export class LocalTui implements TuiService {
     }
     if (event.id === 'enter' && (this.#editor.text === '' || prompt.request.multiSelect === true)) {
       const answer = selectedPromptAnswer(prompt)
-      if (prompt.request.multiSelect === true && answer === null) return true
+      // A disabled row and an empty multi-select both swallow Enter: nothing is
+      // being answered, so the surface stays where the reader is.
+      if (answer === null) return true
       this.#finishPrompt(answer)
       this.#render()
       return true
     }
     if (event.id === 'enter' && prompt.request.filterable === true) {
       const answer = selectedFilteredPromptAnswer(prompt, this.#editor.text)
+      // A heading under a filter is still a heading: clearing the query and
+      // closing on it would lose both the list and the filter.
+      if (answer === null) return true
       this.#editor.setText('')
       this.#finishPrompt(answer)
       this.#render()

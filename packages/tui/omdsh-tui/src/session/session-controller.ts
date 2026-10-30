@@ -916,7 +916,7 @@ export class SessionRuntime {
           return {
             label: label === undefined ? node.label : `◆ ${label} · ${node.label}`,
             value: node.id, ...(node.parentId === undefined ? {} : { parentValue: node.parentId }),
-            preview: node.preview, description: node.description,
+            preview: node.preview, previewFormat: node.previewFormat, description: node.description,
             submitLabel: node.kind === 'turn' ? 'edit from here' : 'continue branch',
             ...(node.current ? { badge: { label: 'Current', tone: 'success' as const } } : {}),
           }

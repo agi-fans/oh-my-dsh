@@ -175,9 +175,26 @@ export interface TuiPrompt {
     parentValue?: string
     /** Action shown for Enter on this option. */
     submitLabel?: string
-    /** Secondary content preview shown above metadata in spacious lists. */
+    /**
+     * Secondary content preview shown above metadata in spacious lists.
+     *
+     * `previewFormat` says how to read it. The same `preview` field was being
+     * drawn two ways — markdown in the tree page, plain text in the composer card
+     * — so an option looked different depending on which surface opened it, and a
+     * caller had no way to say which it meant.
+     */
     preview?: string
+    /** How to interpret {@link preview}; defaults to plain text. */
+    previewFormat?: 'plain' | 'markdown'
     description?: string
+    /**
+     * A row that can be focused but not submitted.
+     *
+     * A tree needs it for a heading that groups children — the workflow row in the
+     * Agent Hub is a destination for `←`/`→` but has nothing to open, so Enter on it
+     * must stay put rather than close the surface with a value nobody wanted.
+     */
+    disabled?: boolean
     /** Optional semantic badge painted after the description. */
     badge?: { label: string; tone: 'success' | 'warning' | 'error' | 'muted' }
   }[]
