@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { buildCopyTargets, extractCodeBlocks, extractCopyTarget, parseCopyKind } from './copy-targets.ts'
+import { buildCopyTargets, extractCodeBlocks } from './copy-targets.ts'
 import type { Block } from './event-views.ts'
 
 const assistant = (text: string): Block =>
@@ -8,73 +8,6 @@ const assistant = (text: string): Block =>
 
 const tool = (name: string, args: string, output = ''): Block =>
   ({ kind: 'tool', callId: ToolCallId('c1'), name, args, status: 'ok', output })
-
-describe('parseCopyKind', () => {
-  it('accepts the OMP tokens and rejects unknown ones', () => {
-    expect(parseCopyKind('')).toBe('text')
-    expect(parseCopyKind(' text ')).toBe('text')
-    expect(parseCopyKind('code')).toBe('code')
-    expect(parseCopyKind('cmd')).toBe('cmd')
-    expect(parseCopyKind('command')).toBe('cmd')
-    expect(parseCopyKind('output')).toBe('output')
-    expect(parseCopyKind('out')).toBe('output')
-    expect(parseCopyKind('nope')).toBeUndefined()
-  })
-})
-
-describe('extractCodeBlocks', () => {
-  it('collects closed fences and ignores an unclosed one', () => {
-    const blocks = extractCodeBlocks('intro\n```js\nconst x = 1\n```\n```\nstill open')
-    expect(blocks).toEqual([{ lang: 'js', code: 'const x = 1' }])
-  })
-})
-
-describe('extractCopyTarget', () => {
-  it('takes the last assistant text', () => {
-    const target = extractCopyTarget([
-      assistant('first'),
-      { kind: 'user', text: 'hi' },
-      assistant('second'),
-    ], 'text')
-    expect(target).toEqual({ text: 'second', label: 'assistant text' })
-  })
-
-  it('takes the last closed fence from assistant or tool output', () => {
-    const fromAssistant = extractCopyTarget([
-      assistant('```py\nold\n```\n```ts\nnew\n```'),
-    ], 'code')
-    expect(fromAssistant).toEqual({ text: 'new', label: 'ts block' })
-    const fromTool = extractCopyTarget([
-      assistant('```js\nold\n```'),
-      tool('bash', '{}', 'see\n```\nplain\n```'),
-    ], 'code')
-    expect(fromTool).toEqual({ text: 'plain', label: 'code block' })
-  })
-
-  it('takes the last bash tool command', () => {
-    const target = extractCopyTarget([
-      tool('bash', '{"command":"ls"}'),
-      tool('fs', '{"path":"/tmp"}'),
-      tool('bash', '{"command":"pwd"}'),
-    ], 'cmd')
-    expect(target).toEqual({ text: 'pwd', label: 'bash command' })
-  })
-
-  it('takes the last non-empty tool output', () => {
-    const target = extractCopyTarget([
-      tool('bash', '{"command":"ls"}', 'file-a\nfile-b\n'),
-      tool('fs', '{"path":"/tmp"}', '   '),
-    ], 'output')
-    expect(target).toEqual({ text: 'file-a\nfile-b\n', label: 'bash output' })
-  })
-
-  it('returns undefined when the transcript has no match', () => {
-    expect(extractCopyTarget([], 'text')).toBeUndefined()
-    expect(extractCopyTarget([assistant('no fence')], 'code')).toBeUndefined()
-    expect(extractCopyTarget([tool('fs', '{}')], 'cmd')).toBeUndefined()
-    expect(extractCopyTarget([tool('fs', '{}', '  ')], 'output')).toBeUndefined()
-  })
-})
 
 describe('buildCopyTargets', () => {
   it('lists newest assistant text, its fences, bash commands, and tool outputs', () => {

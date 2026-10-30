@@ -105,7 +105,7 @@ PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attach` 的列表�
 
 | 命令 | 作用 |
 |---|---|
-| `/copy [text\|code\|cmd]` | 复制最近的助手回复、最近的围栏代码块或最近的 bash 命令；不带参数时打开复制选择器，其中也会列出已完成的 `/btw` 回答。`command` 与 `cmd` 等价。 |
+| `/copy` | 打开复制选择器：最近的助手回复、其中的围栏代码块、最近的 bash 命令与输出，以及已完成的 `/btw` 回答。有选区时 `Alt+C` 会优先复制选区。 |
 | `/export [html\|markdown\|archive] [path]` | 导出 Markdown/HTML 转录，或包含逻辑日志、子会话及原始附件的 ZIP。 |
 | `/changelog [full]` | 显示最近的版本说明；`full` 显示打包的完整历史。 |
 

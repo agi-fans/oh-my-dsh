@@ -6,26 +6,7 @@
 
 import type { Block } from './event-views.ts'
 
-/** What `/copy` should pull from the transcript. */
-export type CopyKind = 'text' | 'code' | 'cmd' | 'output'
-
-/** One clipboard payload plus the status label shown after a successful copy. */
-export interface CopyTarget {
-  text: string
-  label: string
-}
-
 const FENCE = /^```([^\n]*)$/
-
-/** Parse `/copy` arguments. Undefined when the token is not a known kind. */
-export function parseCopyKind(args: string): CopyKind | undefined {
-  const token = args.trim().toLowerCase()
-  if (token === '' || token === 'text') return 'text'
-  if (token === 'code') return 'code'
-  if (token === 'cmd' || token === 'command') return 'cmd'
-  if (token === 'output' || token === 'out') return 'output'
-  return undefined
-}
 
 /** Fenced bodies in document order (`lang` is the info string). */
 export function extractCodeBlocks(text: string): { lang: string; code: string }[] {
@@ -187,36 +168,6 @@ function bashCommand(args: string): string | undefined {
     }
   } catch {
     /* not JSON */
-  }
-  return undefined
-}
-
-/** Walk the transcript backwards for the requested copy target. */
-export function extractCopyTarget(blocks: readonly Block[], kind: CopyKind): CopyTarget | undefined {
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    const block = blocks[i]
-    if (block === undefined) continue
-    if (kind === 'text' && block.kind === 'assistant' && block.text.trim() !== '') {
-      return { text: block.text, label: 'assistant text' }
-    }
-    if (kind === 'code') {
-      const source = block.kind === 'assistant'
-        ? block.text
-        : block.kind === 'tool' ? block.output : ''
-      const fences = extractCodeBlocks(source)
-      const last = fences[fences.length - 1]
-      if (last !== undefined) {
-        const lang = last.lang === '' ? 'code block' : last.lang + ' block'
-        return { text: last.code, label: lang }
-      }
-    }
-    if (kind === 'cmd' && block.kind === 'tool' && block.name === 'bash') {
-      const command = bashCommand(block.args)
-      if (command !== undefined) return { text: command, label: 'bash command' }
-    }
-    if (kind === 'output' && block.kind === 'tool' && block.output.trim() !== '') {
-      return { text: block.output, label: block.name + ' output' }
-    }
   }
   return undefined
 }

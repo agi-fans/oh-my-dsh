@@ -2817,25 +2817,6 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('copies the last assistant reply on /copy', async () => {
-    const copied: string[] = []
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false, 'dark', async (text) => { copied.push(text) })
-    const pending = tui.readline()
-    tui.event(ev('assistant/message', {
-      turn: 1,
-      step: 1,
-      message: { content: [{ type: 'text', text: 'hello from the model' }] },
-      stream: [],
-    }, 1))
-    press(term, '/copy text\r')
-    await new Promise((resolve) => { setTimeout(resolve, 0) })
-    expect(copied).toEqual(['hello from the model'])
-    expect(term.captured).toContain('Copied assistant text')
-    press(term, 'ok\r')
-    expect(await pending).toBe('ok')
-    tui.dispose()
-  })
 
   it('opens the /copy picker and copies the selected row', async () => {
     const copied: string[] = []
@@ -2861,14 +2842,16 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('reports nothing to copy and rejects unknown /copy args', async () => {
+  it('reports nothing to copy and refuses an argument', async () => {
+    // There are no kinds any more: `/copy` asks which row, and an argument is a
+    // mistake rather than a shortcut.
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false, 'dark', async () => { throw new Error('unused') })
     const pending = tui.readline()
     press(term, '/copy\r')
     expect(term.captured).toContain('Nothing to copy.')
     press(term, '/copy nope\r')
-    expect(term.captured).toContain('Usage: /copy [code|cmd|output]')
+    expect(term.captured).toContain('Usage: /copy')
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
     tui.dispose()

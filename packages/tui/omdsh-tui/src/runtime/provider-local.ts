@@ -115,7 +115,7 @@ import {
   createCopySelector,
   type CopySelectorState,
 } from '../views/copy-selector.ts'
-import { buildCopyTargets, extractCopyTarget, parseCopyKind } from '../views/copy-targets.ts'
+import { buildCopyTargets } from '../views/copy-targets.ts'
 import {
   applyHistorySearchEvent,
   createHistorySearch,
@@ -4067,42 +4067,32 @@ export class LocalTui implements TuiService {
     return { question: this.#aside.question, text: this.#aside.text }
   }
 
+  /**
+   * Copy something out of the transcript.
+   *
+   * There used to be four kinds — `text`, `code`, `cmd`, `output` — and each one
+   * asked the reader to remember a word to skip a keystroke in the picker. A kind
+   * that means "the default" is a no-op, and the other three name a row the picker
+   * already shows with its content, its language and its size. One command, one
+   * list: the choice is made by looking, not by recalling.
+   */
   async #runCopy(args: string): Promise<void> {
-    if (args.trim() === '') {
-      const items = buildCopyTargets(this.#state.blocks, undefined, this.#copyableAside())
-      if (items.length === 0) {
-        this.#notice('Nothing to copy.')
-        this.#render()
-        return
-      }
-      this.#search = null
-      this.#ac = null
-      this.#settings = null
-      this.#copySelector = createCopySelector(items)
+    if (args.trim() !== '') {
+      this.#notice('Usage: /copy')
       this.#render()
       return
     }
-    const kind = parseCopyKind(args)
-    if (kind === undefined) {
-      this.#notice('Usage: /copy [code|cmd|output]')
+    const items = buildCopyTargets(this.#state.blocks, undefined, this.#copyableAside())
+    if (items.length === 0) {
+      this.#notice('Nothing to copy.')
       this.#render()
       return
     }
-    const target = extractCopyTarget(this.#state.blocks, kind)
-    if (target === undefined) {
-      this.#notice(
-        kind === 'code'
-          ? 'No code block to copy.'
-          : kind === 'cmd'
-            ? 'No command to copy.'
-            : kind === 'output'
-              ? 'No tool output to copy.'
-              : 'Nothing to copy.',
-      )
-      this.#render()
-      return
-    }
-    await this.#copyPicked(target.text, target.label)
+    this.#search = null
+    this.#ac = null
+    this.#settings = null
+    this.#copySelector = createCopySelector(items)
+    this.#render()
   }
 
   #runSettings(args: string): void {

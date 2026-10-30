@@ -105,7 +105,7 @@ The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or
 
 | Command | What it does |
 |---|---|
-| `/copy [text\|code\|cmd]` | Copy the last assistant reply, the last fenced code block, or the last bash command; without an argument, open the copy picker, which also lists a finished `/btw` answer. `command` is accepted for `cmd`. |
+| `/copy` | Open the copy picker: the last assistant reply, its fenced code blocks, the last bash command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
 | `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
 | `/changelog [full]` | Show recent release notes, or the complete packaged release history with `full`. |
 
