@@ -374,3 +374,47 @@ describe('a filterable card', () => {
     expect(stripAnsi(long.lines.join('\n'))).toContain('… 6 more lines')
   })
 })
+
+describe('a tree row says everything the option knows', () => {
+  it('draws the description and the badge tone the card mode draws', () => {
+    // The page used to drop both, so a full-screen tree lost the agent's phase
+    // colour and its elapsed time — the two things that tell similar nodes apart.
+    const frame = renderPromptTreePage({
+      request: {
+        title: 'Agent Hub',
+        question: '',
+        presentation: 'fullscreen-tree',
+        filterable: true,
+        allowCustom: false,
+        options: [
+          { value: 'child', label: 'review auth', description: 'running · 12s', badge: { label: 'working', tone: 'warning' } },
+        ],
+      },
+      selected: 0,
+      checked: new Set(),
+    }, createTheme(true), 100, 20, '', 0, 'omdsh')
+    const rows = frame.lines
+    const row = rows.find(line => stripAnsi(line).includes('review auth'))
+    expect(row).toBeDefined()
+    expect(stripAnsi(row!)).toContain('running · 12s')
+    expect(stripAnsi(row!)).toContain('[working]')
+    // The tone reaches the badge, so the colour is the caller's decision.
+    expect(row).toContain(createTheme(true).fg('warning', '').slice(0, 5))
+  })
+
+  it('keeps the row inside the list column when the description is long', () => {
+    const frame = renderPromptTreePage({
+      request: {
+        title: 'T',
+        question: '',
+        presentation: 'fullscreen-tree',
+        filterable: true,
+        allowCustom: false,
+        options: [{ value: 'a', label: 'node', description: 'x'.repeat(400) }],
+      },
+      selected: 0,
+      checked: new Set(),
+    }, createTheme(false), 40, 20, '', 0, 'omdsh')
+    expect(frame.lines.every(line => visibleWidth(line) <= 40)).toBe(true)
+  })
+})

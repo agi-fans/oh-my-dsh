@@ -166,11 +166,28 @@ export function renderPromptTreePage(
     const row = rows[at]!
     const marker = at === selected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
     const fold = row.expandable ? state.collapsed?.has(row.option.value ?? row.option.label) && input === '' ? '▸ ' : '▾ ' : '  '
-    const badge = row.option.badge?.label === undefined ? '' : `[${row.option.badge.label}] `
-    const text = badge + row.option.label
     const prefixLimit = Math.max(1, Math.floor(listWidth / 3))
     const prefix = row.prefix.length <= prefixLimit ? row.prefix : '…' + row.prefix.slice(-(prefixLimit - 1))
-    list.push(fit(marker + theme.fg('dim', prefix + fold) + (at === selected ? theme.fg('accent', text) : text), listWidth))
+    const head = marker + theme.fg('dim', prefix + fold)
+    /**
+     * A row says everything the option knows.
+     *
+     * The card mode already drew the badge in its tone and the description in a
+     * column; this page drew neither, so a tree opened full screen lost the
+     * agent's phase colour and its elapsed time — the two things that tell two
+     * similar-looking nodes apart.
+     */
+    const badge = row.option.badge === undefined
+      ? ''
+      : theme.fg(row.option.badge.tone ?? 'muted', `[${row.option.badge.label}] `)
+    const label = badge + row.option.label
+    const text = at === selected ? theme.fg('accent', label) : theme.fg('text', label)
+    const used = visibleWidth(head) + visibleWidth(label)
+    const room = listWidth - used - 2
+    const description = row.option.description === undefined || row.option.description === '' || room < 8
+      ? ''
+      : theme.fg('dim', '  ' + truncateToWidth(row.option.description, room))
+    list.push(fit(head + text + description, listWidth))
   }
   if (rows.length === 0) list.push(fit(theme.fg('dim', state.request.emptyText ?? 'No matching conversation turns.'), listWidth))
   const preview = treePreview(option, theme, Math.max(1, previewWidth))

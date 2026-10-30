@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- The Session Tree page draws each option's description and its badge in the option's own tone. Both were dropped when tree rows moved onto this renderer, so a full-screen tree lost an agent's phase colour and its elapsed time — the two things that tell two similar-looking nodes apart.
+
 - A filterable card now draws the query it is filtering on, with what it kept (`⌕ build · 1/1`); a query that matches nothing says so and stops advertising `Enter`; a truncated preview ends with `… N more lines`; and `Esc` clears an active filter before it closes the list, which only the session tree used to do. All four were lost when lists stopped being full-screen pages — the page printed the query, the empty state and the paged preview, and the card did not.
 
 ### Changed
