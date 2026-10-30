@@ -1086,14 +1086,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   registerCommands(ctx, [
     {
       name: 'login',
-      description: 'Sign in to a provider, or `logout` to sign out',
-      input: { hint: '[logout]' },
-      // Signing out is the other half of the same list, not a second entry in the
-      // command catalog: `/login logout` reaches it without making the reader
-      // remember that a rarely used verb has its own top-level name.
-      handler: invocation => invocation.rawInput.trim().toLowerCase() === 'logout'
-        ? logout(ctx, { ...invocation, rawInput: '' })
-        : login(ctx, invocation, config),
+      description: 'Sign in to a provider',
+      handler: invocation => login(ctx, invocation, config),
+    },
+    {
+      // Its own command: signing in and signing out are two intentions, and
+      // folding the second into `/login logout` made the reader look for a verb
+      // about leaving inside the one about entering.
+      name: 'logout',
+      description: 'Sign out of a stored provider or account',
+      handler: invocation => logout(ctx, invocation),
     },
   ], 'omdsh authentication commands')
 }

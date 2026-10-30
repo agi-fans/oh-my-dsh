@@ -193,13 +193,14 @@ afterEach(() => {
 })
 
 describe('DeepSeek auth commands', () => {
-  it('offers login and logout as one command', async () => {
-    // Signing out is the other half of the same list; giving it a second
-    // top-level name made the catalog longer without adding a capability.
+  it('offers login and logout as two commands', async () => {
+    // Two intentions, two names: `/login logout` made the reader look for the
+    // verb about leaving inside the one about entering.
     const harness = await authHarness()
-    const entries = harness.ctx.commands.list(harness.agent)
-    expect(entries.map(entry => entry.name)).toEqual(['login'])
-    expect(entries[0]?.description).toContain('logout')
+    expect(harness.ctx.commands.list(harness.agent)).toEqual(expect.arrayContaining([
+      { name: 'login', description: 'Sign in to a provider' },
+      { name: 'logout', description: 'Sign out of a stored provider or account' },
+    ]))
     await harness.ctx.fiber.dispose()
   })
 
@@ -261,7 +262,7 @@ describe('DeepSeek auth commands', () => {
 
     const execution = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -288,7 +289,7 @@ describe('DeepSeek auth commands', () => {
 
     const execution = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -324,7 +325,7 @@ describe('DeepSeek auth commands', () => {
     })
     const logout = await logoutHarness.ctx.commands.execute(
       logoutHarness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -419,7 +420,7 @@ describe('catalog provider auth', () => {
 
     const execution = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -696,7 +697,7 @@ describe('authorization service login', () => {
 
     const logout = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -722,7 +723,7 @@ describe('authorization service login', () => {
     })
     const logout = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -750,7 +751,7 @@ describe('authorization service login', () => {
     })
     const logout = await harness.ctx.commands.execute(
       harness.agent,
-      '/login logout',
+      '/logout',
       [],
       new AbortController().signal,
     )
@@ -800,7 +801,7 @@ describe('provider picker labeling', () => {
     const request = harness.prompt.mock.calls[0]?.[0] as { options?: readonly { value: string }[] }
     expect(request.options?.some(option => option.value.startsWith(commandAuth.FLOW_VALUE_PREFIX))).toBe(false)
 
-    const logout = await harness.ctx.commands.execute(harness.agent, '/login logout', [], new AbortController().signal)
+    const logout = await harness.ctx.commands.execute(harness.agent, '/logout', [], new AbortController().signal)
     expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Logout from DeepSeek (pi-ai compatibility)',
       question: 'Remove the stored DeepSeek (pi-ai compatibility) sign-in?',
@@ -895,7 +896,7 @@ describe('DeepSeek account logout', () => {
       fallback: { configured: true, source: 'file', writable: true },
       answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'logout'],
     })
-    const execution = await harness.ctx.commands.execute(harness.agent, '/login logout', [], new AbortController().signal)
+    const execution = await harness.ctx.commands.execute(harness.agent, '/logout', [], new AbortController().signal)
     expect(harness.prompt.mock.calls[0]?.[0].options).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: 'DeepSeek account', value: commandAuth.DEEPSEEK_ACCOUNT_CHOICE }),
     ]))
