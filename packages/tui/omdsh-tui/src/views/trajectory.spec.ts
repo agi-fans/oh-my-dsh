@@ -158,7 +158,7 @@ describe('trajectory ledger', () => {
     const secondPage = renderTrajectory(state, createTheme(false), 120, 14).lines.join('\n')
     expect(secondPage).not.toContain('payload-line-0')
     expect(secondPage).toContain('payload-line-10')
-    expect(secondPage).toContain('11-18 / 30 lines')
+    expect(secondPage).toContain('11-17 / 30')
 
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'tab' }) as { state: typeof state }).state
     expect(state.detailScroll).toBe(0)
@@ -396,7 +396,8 @@ describe('trajectory search navigation', () => {
     expect(trajectoryListMetrics(state, 24).pageSize).toBeGreaterThan(0)
     expect(trajectoryListMetrics(state, 3).pageSize).toBe(0)
     expect(trajectoryDetailMetrics(state, 7).pageLines).toBe(1)
-    expect(trajectoryDetailMetrics(state, 24).pageLines).toBe(18)
+    // Four frame rows and three pane rows of chrome, so the pane scrolls 17 of 24.
+    expect(trajectoryDetailMetrics(state, 24).pageLines).toBe(17)
   })
 })
 
@@ -410,12 +411,25 @@ describe('trajectory detail reading', () => {
 
   const openDetail = () => ({ ...createTrajectory(toolEvents), details: true })
 
-  it('numbers the detail rows so a wrapped line is distinguishable', () => {
-    const frame = renderTrajectory({ ...openDetail(), detailTab: 'payload' }, createTheme(false), 80, 20)
-    const rows = frame.lines.map(stripAnsi)
-    // The gutter starts at 1 and counts the rows the reader scrolls, not source lines.
-    expect(rows.some(row => /^\s*1 /.test(row))).toBe(true)
-    expect(rows.some(row => /^\s*2 /.test(row))).toBe(true)
+  it('numbers source lines only once the content wraps', () => {
+    // Short enough to fit: the block reads as the JSON it is, with no gutter.
+    const short = renderTrajectory({ ...openDetail(), detailTab: 'payload' }, createTheme(false), 100, 20)
+    expect(short.lines.map(stripAnsi).some(row => /^\s*\d+ [{[]/u.test(row))).toBe(false)
+
+    // Too long for the pane: numbers appear, and they now count source lines —
+    // the gutter used to number every wrapped row, so one JSON line spread over
+    // four rows read as four lines and nothing lined up.
+    const state = openDetail()
+    const selected = state.ledger.records.find(record => record.id === state.selectedId)
+    if (selected === undefined) throw new Error('expected a selected record')
+    selected.payload = `{"command": "${'x'.repeat(120)}"}`
+    const wrapped = renderTrajectory({ ...state, detailTab: 'payload' }, createTheme(false), 60, 20).lines.map(stripAnsi)
+    const numbered = wrapped.filter(row => /^\s*\d+ /u.test(row))
+    expect(numbered).toHaveLength(1)
+    expect(numbered[0]?.trimStart()).toMatch(/^1 /u)
+    // The continuation leaves the number column blank rather than inventing a line.
+    const continuation = wrapped.find(row => row.includes('x') && /^\s{3,}x/u.test(row))
+    expect(continuation).toBeDefined()
   })
 
   it('scrolls the detail with the arrows instead of moving the selection', () => {
@@ -551,12 +565,11 @@ describe('trajectory ledger shape', () => {
 
   it('offers only the detail sections a record can fill', () => {
     const state = { ...createTrajectory(shaped), details: true }
-    const rows = renderTrajectory(state, createTheme(false), 110, 20).lines.map(stripAnsi)
-    const tabs = rows.find(row => row.includes('[summary]')) ?? ''
-    // An assistant record has a request payload and a result, and no tool schema.
-    expect(tabs).toContain('payload')
-    expect(tabs).toContain('result')
-    expect(tabs).not.toContain('schema')
+    const rendered = renderTrajectory(state, createTheme(false), 110, 20).lines.map(stripAnsi).join('\n')
+    // An assistant record has a request payload and a result, and no tool schema,
+    // so the section row is exactly what it can fill.
+    expect(rendered).toMatch(/summary +payload +result/u)
+    expect(rendered).not.toMatch(/summary +payload +result +schema/u)
     // `Tab` steps through the sections it does have, so it never lands on one
     // that would print "No tool schema recorded."
     let cycled = state

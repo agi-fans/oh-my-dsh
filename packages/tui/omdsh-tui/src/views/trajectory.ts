@@ -10,11 +10,12 @@ import { firstVisibleStreamTime } from './stream-time.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
 import { highlightCodeLines, toolPayloadLanguage } from '../chrome/code-highlight.ts'
+import { renderMarkdown } from '../chrome/markdown.ts'
 import { renderTimelineOverview, trajectoryTimeline, type TimelineLane } from './trajectory-timeline.ts'
 import { formatDuration, formatTokens } from '../chrome/status-line.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
-export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
+export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema'
 
 export interface TrajectoryRecord {
   id: string
@@ -25,7 +26,11 @@ export interface TrajectoryRecord {
   turn: number | null
   step: number | null
   label: string
+  /** Tool name for a call, so the pane's title can say what was called. */
+  name: string
   summary: string
+  /** Reasoning the model emitted for this record, when it emitted any. */
+  thinking: string
   payload: string
   result: string
   schema: string
@@ -129,7 +134,7 @@ export class TrajectoryLedger {
   normalizedFields(record: TrajectoryRecord): readonly string[] {
     const cached = this.#fieldCache.get(record)
     if (cached !== undefined) return cached
-    const fields = [record.type, record.label, record.summary, record.payload, record.result, record.schema]
+    const fields = [record.type, record.label, record.summary, record.payload, record.result, record.schema, record.thinking]
       .map(field => field.toLocaleLowerCase())
     this.#fieldCache.set(record, fields)
     return fields
@@ -181,7 +186,9 @@ export class TrajectoryLedger {
       turn: place.turn,
       step: place.step,
       label,
+      name: '',
       summary,
+      thinking: '',
       payload: json(event.data),
       result: '',
       schema: '',
@@ -239,7 +246,6 @@ export class TrajectoryLedger {
       const usage = object(message?.['usage'] ?? data['usage'])
       const startedAt = this.#stepStarted.get(key) ?? event.time
       const existing = this.#assistantByStep.get(key)
-      const result = reasoning === '' ? text : `Thinking\n${reasoning}\n\nAnswer\n${text}`
       // Format-v2 messages embed the exact timed stream; derive the first
       // visible token time from it instead of live chunk events.
       if (!this.#stepFirstToken.has(key)) {
@@ -253,7 +259,8 @@ export class TrajectoryLedger {
         const record = this.#base(event, 'assistant', 'ASSISTANT', compact(text, 'Assistant response'), data)
         record.id = `assistant:${key}`
         record.payload = this.#requestByStep.get(key) ?? record.payload
-        record.result = result
+        record.result = text
+        record.thinking = reasoning
         record.startedAt = startedAt
         record.durationMs = Math.max(0, event.time - startedAt)
         const first = this.#stepFirstToken.get(key)
@@ -267,7 +274,8 @@ export class TrajectoryLedger {
           this.#invalidateText(record)
           record.seq = event.seq
           record.summary = compact(text, record.summary)
-          record.result = result
+          record.result = text
+          record.thinking = reasoning
           record.status = data['interrupted'] === true ? 'error' : 'ok'
           record.durationMs = Math.max(0, event.time - startedAt)
           record.inputTokens = tokenValue(usage, 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens')
@@ -284,6 +292,7 @@ export class TrajectoryLedger {
       const record = this.#base(event, parentCallId === null ? 'tool' : 'subtool', name, `${name} ${compact(json(args), '')}`.trim(), data)
       record.id = `tool:${callId}`
       record.label = parentCallId === null ? 'TOOL' : 'SUBTOOL'
+      record.name = name
       record.status = 'running'
       record.parentCallId = parentCallId
       record.schema = this.#schemas.get(name) ?? ''
@@ -415,12 +424,12 @@ export interface TrajectoryState {
 /** One search hit in one record field; derived, never stored. */
 export interface SearchMatch {
   readonly record: TrajectoryRecord
-  readonly field: 'type' | 'label' | 'summary' | 'payload' | 'result' | 'schema'
+  readonly field: 'type' | 'label' | 'summary' | 'payload' | 'result' | 'schema' | 'thinking'
   readonly offset: number
   readonly length: number
 }
 
-const SEARCH_FIELDS: readonly SearchMatch['field'][] = ['type', 'label', 'summary', 'payload', 'result', 'schema']
+const SEARCH_FIELDS: readonly SearchMatch['field'][] = ['type', 'label', 'summary', 'payload', 'result', 'schema', 'thinking']
 
 /** Stable target captured before a ledger mutation, restored afterward. */
 export interface SearchTarget {
@@ -785,10 +794,12 @@ function graphemes(text: string): Iterable<{ index: number; segment: string }> {
 /**
  * Tabs a record can actually fill.
  *
- * The five tabs used to be fixed, so most records offered four that said "No
- * payload recorded." and the reader pressed `Tab` through them to find the one
- * with content. The desktop client instead asks each record which sections it
- * has, which is also why its tab row never shows a dead one.
+ * The tabs used to be fixed, so most records offered four that said "No payload
+ * recorded." and the reader pressed `Tab` through them to find the one with
+ * content. The desktop client instead asks each record which sections it has,
+ * which is also why its tab row never shows a dead one. Timing was a section of
+ * its own until it became clear that the numbers a reader wants first belong in
+ * the summary, beside the record's identity.
  */
 function detailTabsFor(record: TrajectoryRecord | undefined): readonly TrajectoryDetailTab[] {
   if (record === undefined) return ['summary']
@@ -796,8 +807,6 @@ function detailTabsFor(record: TrajectoryRecord | undefined): readonly Trajector
   if (record.payload !== '') tabs.push('payload')
   if (record.result !== '') tabs.push('result')
   if (record.schema !== '') tabs.push('schema')
-  if (record.startedAt !== null || record.durationMs !== null || record.ttftMs !== null
-    || record.inputTokens !== null || record.outputTokens !== null) tabs.push('timing')
   return tabs
 }
 
@@ -1018,8 +1027,10 @@ export function trajectoryListMetrics(state: TrajectoryState, height: number, wi
 
 /** Detail scroll step in wrapped lines for one body height (pure, shared with rendering). */
 export function trajectoryDetailMetrics(_state: TrajectoryState, height: number): { pageLines: number } {
+  // The frame spends four rows on its own chrome and the pane three on its title,
+  // its sections and the gap between them.
   const body = Math.max(0, height - 4)
-  const viewport = Math.max(0, body - 2)
+  const viewport = Math.max(0, body - 3)
   return { pageLines: Math.max(1, viewport) }
 }
 
@@ -1133,29 +1144,79 @@ function selectedRecord(state: TrajectoryState): TrajectoryRecord | undefined {
   return state.ledger.records.find(record => record.id === state.selectedId)
 }
 
-function timingText(record: TrajectoryRecord): string {
-  return [
-    `Event: ${record.type} (#${record.seq})`,
-    `Started: ${record.startedAt === null ? '—' : new Date(record.startedAt).toISOString()}`,
-    `Duration: ${record.durationMs === null ? '—' : `${Math.round(record.durationMs)} ms`}`,
-    `TTFT: ${record.ttftMs === null ? '—' : `${Math.round(record.ttftMs)} ms`}`,
-    `Tokens: ${record.inputTokens ?? '—'} in · ${record.outputTokens ?? '—'} out`,
-    `Status: ${record.status}`,
-  ].join('\n')
+/**
+ * How a detail section should be drawn.
+ *
+ * Not every section is source. The pane used to print every section as code —
+ * a line-number gutter down prose, syntax colouring over a three-word status —
+ * which is why nothing in it read as written language. A section says which of
+ * the three shapes it is and the pane draws it that way.
+ */
+type DetailSection =
+  | { kind: 'fields'; rows: readonly DetailField[] }
+  | { kind: 'prose'; text: string }
+  | { kind: 'code'; text: string; language: string | undefined }
+
+interface DetailField {
+  readonly label: string
+  readonly value: string
+  /** Prose values wrap; a label value is one line and never does. */
+  readonly wrap?: boolean
 }
 
-function detailText(tab: TrajectoryDetailTab, record: TrajectoryRecord | undefined): string {
-  if (record === undefined) return 'No trajectory record selected.'
-  if (tab === 'payload') return record.payload || 'No payload recorded.'
-  if (tab === 'result') return record.result || 'No result recorded.'
-  if (tab === 'schema') return record.schema || 'No tool schema recorded.'
-  if (tab === 'timing') return timingText(record)
-  return [
-    `${record.label} · ${record.type}`,
-    `Turn ${record.turn ?? 'between'} · Step ${record.step ?? '—'} · ${duration(record)}`,
-    '',
-    record.summary,
-  ].join('\n')
+/** Clock time, which is what a reader compares against a log line. */
+function clockTime(ms: number): string {
+  const date = new Date(ms)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/**
+ * Label/value pairs for one record, omitting what it does not have.
+ *
+ * The title already states where the record sits and how long it took, so this
+ * block does not repeat either: it answers what the record is, when it happened,
+ * and what it cost the model.
+ */
+function summaryFields(record: TrajectoryRecord): DetailField[] {
+  const rows: DetailField[] = []
+  rows.push({ label: 'Event', value: `${record.type} · #${record.seq}` })
+  if (record.startedAt !== null) rows.push({ label: 'Started', value: clockTime(record.startedAt) })
+  if (record.ttftMs !== null) rows.push({ label: 'First token', value: formatDuration(record.ttftMs) })
+  if (record.inputTokens !== null || record.outputTokens !== null) {
+    const side = (value: number | null): string => value === null ? '—' : formatTokens(value)
+    rows.push({ label: 'Tokens', value: `${side(record.inputTokens)} in · ${side(record.outputTokens)} out` })
+  }
+  // `ok` on every record is the kind of field that teaches nothing; the ones
+  // worth a line are the ones that went wrong.
+  if (record.status !== 'ok') rows.push({ label: 'Status', value: record.status })
+  return rows
+}
+
+/** The assistant's reasoning and answer are two pieces of writing, not one blob. */
+function assistantWriting(record: TrajectoryRecord, theme: Theme, width: number): string[] {
+  const out: string[] = []
+  if (record.thinking !== '') {
+    out.push(theme.fg('dim', 'Thinking'), ...renderMarkdown(record.thinking, theme, width))
+    if (record.result !== '') out.push('', theme.fg('dim', 'Answer'))
+  }
+  if (record.result !== '') out.push(...renderMarkdown(record.result, theme, width))
+  return out
+}
+
+function detailSection(tab: TrajectoryDetailTab, record: TrajectoryRecord | undefined): DetailSection {
+  if (record === undefined) return { kind: 'prose', text: 'No trajectory record selected.' }
+  if (tab === 'summary') return { kind: 'fields', rows: summaryFields(record) }
+  if (tab === 'payload') return { kind: 'code', text: record.payload, language: 'json' }
+  if (tab === 'schema') return { kind: 'code', text: record.schema, language: 'json' }
+  // A model's answer is prose; a tool's output is whatever the tool spoke.
+  const spoken = record.kind === 'assistant' || record.kind === 'compaction'
+  if (spoken) return { kind: 'prose', text: record.result }
+  return {
+    kind: 'code',
+    text: record.result,
+    language: toolPayloadLanguage(record.type === 'tool/call' ? record.label.toLowerCase() : ''),
+  }
 }
 
 function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height: number): string[] {
@@ -1194,53 +1255,113 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
 }
 
 /**
- * Language a detail tab's text should be highlighted as.
+ * The detail pane.
  *
- * Only the payload and result tabs hold source. The summary is prose, and timing
- * and schema are already-structured text whose value is the field names, not
- * syntax colouring — highlighting those would add noise to a four-line table.
+ * Two rows of header — the record's identity and its section names — then the
+ * section itself. Position and scroll hint ride on the section row rather than
+ * taking a line of their own, and the sections are separated from the content by
+ * whitespace instead of a rule, because in the split view a rule would sit one
+ * column from the pane's own border.
  */
-function detailLanguage(tab: TrajectoryDetailTab, record: TrajectoryRecord | undefined): string | undefined {
-  if (record === undefined) return undefined
-  if (tab !== 'payload' && tab !== 'result') return undefined
-  return toolPayloadLanguage(record.type === 'tool/call' ? record.label.toLowerCase() : '')
-}
-
 function detailRows(state: TrajectoryState, theme: Theme, width: number, height: number): string[] {
   const record = selectedRecord(state)
   const tab = activeTab(state)
-  const tabs = detailTabsFor(record).map(candidate => candidate === tab ? theme.fg('accent', `[${candidate}]`) : theme.fg('dim', candidate)).join(' ')
-  const raw = detailText(tab, record)
-  const language = detailLanguage(tab, record)
-  /*
-   * Highlight before wrapping, then number the wrapped rows.
-   *
-   * The pane used to print one undifferentiated run of text: a JSON payload and a
-   * shell command looked identical, and with no gutter there was no way to tell
-   * where a wrapped line ended and the next began. A reader scanning a stack trace
-   * or a diff needs both, and both already exist in this codebase — this reuses
-   * the same highlighter and gutter the document reader uses.
-   */
-  const gutter = String(raw.split('\n').length).length
-  const numberWidth = Math.max(2, gutter)
-  const room = Math.max(1, width - numberWidth - 2)
-  const highlighted = language === undefined
-    ? raw.split('\n')
-    : highlightCodeLines(raw.split('\n'), language, theme)
-  const body = highlighted.flatMap(line => wrapText(line, room))
-  const viewportHeight = Math.max(0, height - 2)
-  const maxScroll = Math.max(0, body.length - viewportHeight)
+  const tabs = detailTabsFor(record)
+  const section = detailSection(tab, record)
+  const inner = Math.max(1, width - 2)
+  const body = section.kind === 'fields'
+    ? summaryBlock(section.rows, record, theme, inner)
+    : section.kind === 'prose'
+      ? (record !== undefined && record.kind === 'assistant' && tab === 'result'
+        ? assistantWriting(record, theme, inner)
+        : renderMarkdown(section.text, theme, inner))
+      : codeRows(section.text, section.language, theme, inner)
+  const viewport = Math.max(0, height - 3)
+  const maxScroll = Math.max(0, body.length - viewport)
   const start = Math.min(state.detailScroll, maxScroll)
-  const end = Math.min(body.length, start + viewportHeight)
-  const position = body.length > viewportHeight
-    ? theme.fg('dim', ` ${start + 1}-${end} / ${body.length} lines · ↑↓ or PgUp/PgDn scroll`)
-    : ''
-  // The number column is the line's position in the wrapped body, which is what
-  // the reader scrolls through; a source line number would not match a row that
-  // wrapped across four of them.
-  const numbered = body.slice(start, end).map((line, index) =>
-    theme.fg('dim', String(start + index + 1).padStart(numberWidth) + ' ') + line)
-  return [truncateToWidth(tabs, width), truncateToWidth(position, width), ...numbered]
+  const end = Math.min(body.length, start + viewport)
+  const first = truncateToWidth(titleLine(record, theme, width), width)
+  /*
+   * The active section is marked, not only coloured. Every style helper is a
+   * no-op when the terminal has no colour, so colour alone would leave a reader
+   * on such a terminal unable to tell which section they are looking at. `›` is
+   * the same "this one" the ledger uses for its selected row.
+   */
+  const tabsText = tabs.map(candidate => candidate === tab
+    ? theme.bold(theme.fg('accent', `› ${candidate}`))
+    : theme.fg('dim', `  ${candidate}`)).join('  ')
+  const position = body.length > viewport ? theme.fg('dim', `${start + 1}-${end} / ${body.length}`) : ''
+  const gap = Math.max(1, width - visibleWidth(tabsText) - visibleWidth(position))
+  const second = truncateToWidth(tabsText + ' '.repeat(gap) + position, width)
+  return [first, second, '', ...body.slice(start, end).map(line => truncateToWidth(' ' + line, width))]
+}
+
+/** `#3  TOOL` — which record this pane is about, and what it cost. */
+function titleLine(record: TrajectoryRecord | undefined, theme: Theme, width: number): string {
+  if (record === undefined) return ''
+  const where = record.turn === null ? 'Between turns' : `Turn ${record.turn}`
+  const place = record.step === null ? where : `${where} · Step ${record.step}`
+  const called = record.name === '' ? '' : theme.fg('text', ` ${record.name}`)
+  const left = theme.bold(`#${record.index} ${record.label}`) + called + theme.fg('dim', `  ${place}`)
+  const right = record.durationMs === null ? '' : theme.fg('dim', duration(record))
+  const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right))
+  return left + ' '.repeat(gap) + right
+}
+
+/**
+ * The facts, then the record's own text when no other section holds it.
+ *
+ * A record whose text has a section of its own — an answer in `result`, a call in
+ * `payload` — would only see that text flattened into one row here, which is what
+ * made the pane read as a wall of code. A record with nowhere else to put it (a
+ * turn that failed, a message the user sent) gets it as writing, below the facts.
+ */
+function summaryBlock(rows: readonly DetailField[], record: TrajectoryRecord | undefined, theme: Theme, width: number): string[] {
+  const facts = fieldRows(rows, theme, width)
+  if (record === undefined || record.result !== '' || record.summary === '') return facts
+  return [...facts, '', ...renderMarkdown(record.summary, theme, width)]
+}
+
+/** Label/value rows with the label column as wide as the widest label needs. */
+function fieldRows(rows: readonly DetailField[], theme: Theme, width: number): string[] {
+  const labelWidth = Math.max(...rows.map(field => field.label.length))
+  const out: string[] = []
+  for (const field of rows) {
+    const room = Math.max(1, width - labelWidth - 2)
+    const wrapped = field.wrap === true ? wrapText(field.value, room) : [truncateToWidth(field.value, room)]
+    out.push(theme.fg('dim', field.label.padEnd(labelWidth)) + '  ' + (wrapped[0] ?? ''))
+    // A long value continues under itself rather than under its label.
+    for (const line of wrapped.slice(1)) out.push(' '.repeat(labelWidth + 2) + line)
+  }
+  return out
+}
+
+/**
+ * Code, numbered only once it wraps.
+ *
+ * The gutter used to number every wrapped row, so a JSON line spread over four
+ * rows read as four source lines and nothing lined up. Numbers now belong to
+ * source lines, a wrapped continuation leaves the column blank, and the gutter
+ * appears at all only when some line is too long to fit — a short payload reads
+ * better as the block it is.
+ */
+function codeRows(text: string, language: string | undefined, theme: Theme, width: number): string[] {
+  if (text === '') return [theme.fg('dim', 'Nothing recorded.')]
+  const source = text.split('\n')
+  const digits = String(source.length).length
+  const gutter = digits + 1
+  const unwrapped = source.every(line => visibleWidth(line) <= width)
+  const room = Math.max(1, width - (unwrapped ? 0 : gutter))
+  const painted = language === undefined
+    ? source
+    : highlightCodeLines(source, language, theme)
+  const out: string[] = []
+  for (const [index, line] of painted.entries()) {
+    const rows = wrapText(line, room)
+    out.push(unwrapped ? (rows[0] ?? '') : theme.fg('dim', String(index + 1).padStart(digits) + ' ') + (rows[0] ?? ''))
+    for (const rest of rows.slice(1)) out.push(' '.repeat(unwrapped ? 0 : gutter) + rest)
+  }
+  return out
 }
 
 /**

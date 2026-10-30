@@ -16,7 +16,7 @@ From there you can:
 
 - search the full ledger with `/`, then step across matches with `n`/`N` or `Ctrl+N`/`Ctrl+P`; `Enter` locates a match and expands the collapsed turn or call that hides it;
 - collapse or expand turns with `t` and the tool calls inside every step with `c`;
-- open a record's details with `Enter`, including tool payloads, results, schemas, timing, and token usage;
+- open a record's details with `Enter`: a title line naming the record, its duration and, for a call, the tool; then only the sections that record can fill, each drawn for what it holds — facts as label/value rows, an answer or a message as Markdown under a `Thinking`/`Answer` label, a payload or a tool result as code with syntax highlighting. A payload is numbered only once a line is too long for the pane, and a wrapped line leaves the number column blank rather than claiming to be another line;
 - switch between detail sections with `Tab` and the arrow keys. Only the sections a record actually has are offered, so a tool record with no schema never shows an empty one.
 
 Matching scans the full ledger, so collapsed turns and hidden subtool calls still count. `/trajectory` needs an interactive TTY.

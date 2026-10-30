@@ -14,7 +14,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - The timing overview appears once a run has more than one step, and hides while searching. Two rows restating the single request below them was the chrome this view exists to replace.
 
-- A record's detail section list is derived from the record: only sections with content are offered, so `Tab` no longer steps through `No tool schema recorded.` to reach the timing. The reader's last section is remembered and restored when returning to that record.
+- A record's detail section list is derived from the record: only sections with content are offered, so `Tab` no longer steps through `No tool schema recorded.`. The reader's last section is remembered and restored when returning to that record, and the active one is marked with `›` so it stays identifiable on a terminal without colour.
+
+- Detail sections are drawn for what they hold instead of everything being printed as code. Facts are label/value rows, a model's answer and a user's message are rendered as Markdown — its reasoning under a `Thinking` label, its answer under `Answer` — and payloads and tool results stay code with syntax highlighting. Timing and token usage moved from their own section into the summary, where a reader looks first.
+
+- Code in the detail pane is numbered only once a line is too long for the pane, and the numbers count source lines: a wrapped continuation leaves the column blank instead of claiming to be another line.
 
 - Record durations use the status line's precision, so the overview can no longer read `0s` beside a row that says `0.4s`.
 
