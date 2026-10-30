@@ -15,25 +15,69 @@ declare module '@deepseek-ai/dsh-llm' {
 export const name = 'omdsh-command-advisor'
 export const inject = ['commands', 'tui', 'advisor']
 
+/** Most steps the card shows before it folds the earlier ones behind one line. */
+const ADVISOR_STEPS_SHOWN = 8
+
+/**
+ * Record one step, updating it in place when it is a step already seen.
+ *
+ * The agent reports a start and then a finish for the same command or file, and
+ * appending both printed every step twice. A step keeps the moment it was first
+ * observed, so its duration is measurable.
+ */
 function pushAdvisorActivity(list: TuiSubagentActivity[], next: TuiSubagentActivity): void {
   const last = list.at(-1)
-  if (last !== undefined && last.text === next.text && last.status === next.status) return
-  if (last?.status === 'running' && next.status !== 'thinking' && last.text === next.text) {
-    list[list.length - 1] = next
+  if (last !== undefined && last.text === next.text) {
+    if (last.status === next.status) return
+    list[list.length - 1] = { text: next.text, status: next.status, ...(last.at === undefined ? {} : { at: last.at }) }
     return
   }
+  // A repeated thinking line is the same consideration, not a new one.
   if (last?.status === 'thinking' && next.status === 'thinking') {
-    list[list.length - 1] = next
+    list[list.length - 1] = { ...next, ...(last.at === undefined ? {} : { at: last.at }) }
     return
   }
-  list.push(next)
-  if (list.length > 10) list.shift()
+  list.push({ ...next, ...(next.at === undefined ? { at: Date.now() } : {}) })
+  // Bounded so a long consultation cannot grow without limit; the renderer folds
+  // the head rather than this silently dropping it.
+  if (list.length > 200) list.shift()
 }
 
-function formatAdvisorActivities(items: readonly TuiSubagentActivity[]): string {
-  return items
-    .map(item => `${item.status === 'ok' ? '✓' : item.status === 'error' ? '✗' : item.status === 'running' ? '▸' : '·'} ${item.text}`)
+/** A duration as the card reads it: seconds under a minute, then m and s. */
+function activityDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.max(1, Math.round(ms))}ms`
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.floor((ms % 60_000) / 1_000)
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+}
+
+/**
+ * The steps as rows, each with how long it held before the agent moved on.
+ *
+ * The last step's span ends at `end`; while running, that is now.
+ */
+function formatAdvisorActivities(items: readonly TuiSubagentActivity[], end: number): string {
+  const marks = { ok: '✓', error: '✗', running: '▸', thinking: '·' } as const
+  const rows = items.map((item, index) => {
+    const next = items[index + 1]?.at ?? end
+    const spent = item.at === undefined ? '' : activityDuration(Math.max(0, next - item.at))
+    return { mark: marks[item.status], text: item.text, spent }
+  })
+  const width = Math.max(0, ...rows.map(row => row.text.length))
+  return rows
+    .map(row => `${row.mark} ${row.text}${row.spent === '' ? '' : `  ${' '.repeat(Math.max(2, width - row.text.length + 2))}${row.spent}`}`.trimEnd())
     .join('\n')
+}
+
+/** Header line plus the steps, folding the head when there are too many to read. */
+export function advisorTrace(activities: readonly TuiSubagentActivity[], state: 'running' | 'completed', end: number): string {
+  if (activities.length === 0) return state === 'running' ? 'Read-only workspace consultation started.' : 'Completed read-only workspace consultation.'
+  const shown = activities.slice(-ADVISOR_STEPS_SHOWN)
+  const hidden = activities.length - shown.length
+  const total = activities[0]?.at === undefined ? '' : ` · ${activityDuration(Math.max(0, end - activities[0]!.at!))}`
+  const header = `${state === 'running' ? 'In progress' : 'Completed'} · ${activities.length} step${activities.length === 1 ? '' : 's'}${total}`
+  return [header, '', ...(hidden === 0 ? [] : [`… ${hidden} earlier step${hidden === 1 ? '' : 's'}`]), formatAdvisorActivities(shown, end)].join('\n')
 }
 
 export async function requestAdvice(ctx: Context, invocation: CommandInvocation, signal = invocation.signal): Promise<CommandResult> {
@@ -100,7 +144,7 @@ export async function requestAdvice(ctx: Context, invocation: CommandInvocation,
       call: {
         card: 'generic',
         title,
-        content: [{ type: 'text', text: `${question}\n\n${formatAdvisorActivities(activities)}` }],
+        content: [{ type: 'text', text: `${question}\n\n${advisorTrace(activities, 'running', Date.now())}` }],
       },
     })
   }
@@ -143,7 +187,7 @@ export async function requestAdvice(ctx: Context, invocation: CommandInvocation,
     for (let index = 0; index < activities.length; index += 1) {
       if (activities[index]?.status === 'running') activities[index] = { text: activities[index]!.text, status: 'ok' }
     }
-    const settledTrace = activities.length > 0 ? formatAdvisorActivities(activities) : 'Completed read-only workspace consultation.'
+    const settledTrace = advisorTrace(activities, 'completed', Date.now())
     ctx.tui.event?.({
       seq: 0,
       time: Date.now(),

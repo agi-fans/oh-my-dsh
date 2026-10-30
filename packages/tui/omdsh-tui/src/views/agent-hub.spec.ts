@@ -81,3 +81,26 @@ it('presents Workflow outcomes separately from live child state within display-c
     }
   }
 })
+
+describe('the inspector says where a child spent its time', () => {
+  it('annotates each step with how long it held', () => {
+    const state = {
+      roster: {
+        agents: [{
+          id: 'child-1', depth: 1, label: 'review auth', phase: 'running' as const, startedAt: 0, updatedAt: 10_000,
+          activity: [
+            { text: '$ rg -n "jwt" src', status: 'running' as const, at: 0 },
+            { text: 'Read src/auth.ts', status: 'ok' as const, at: 3_000 },
+          ],
+        }],
+      },
+      selectedId: 'child-1',
+      inspector: true,
+      detailScroll: 0,
+      tree: true,
+    }
+    const lines = renderAgentHub(state, createTheme(false), 80, 24, 10_000).lines.join('\n')
+    expect(lines).toContain('3.0s')
+    expect(lines).toContain('7.0s')
+  })
+})

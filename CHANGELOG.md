@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- An `/advisor` consultation reports its own progress: the card leads with how the run ended, how many steps it took and how long it ran, and each step carries the time it held before the agent moved on. A long run folds its head behind `… N earlier steps` instead of silently dropping it, and the Agent Hub inspector shows the same timings for any child.
+
+### Fixed
+
+- An external advisor's step is updated in place. Each step is reported at its start and again at its finish, and both were appended, so every command and file appeared twice in the card.
+
+### Added
+
 - `previewFormat` on a prompt option, and `disabled` on a row. The first ends a real ambiguity: the same `preview` field was rendered as markdown by the tree page and as plain text by the composer card, so an option read differently depending on which surface opened it — markdown is now opt-in and plain is the only default. The second is for a row that groups others: focusable, dimmed, and carrying no answer, so Enter on it stays put instead of closing the surface with a value nobody chose.
 
 ### Fixed

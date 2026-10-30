@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinition, CommandInvocation } from '@deepseek-ai/dsh-commands'
 import type { TuiAdvisor, TuiPrompt, TuiSubagentActivity } from '../definition.ts'
 import { describe, expect, it, vi } from 'vitest'
-import { apply, requestAdvice } from './advisor.ts'
+import { advisorTrace, apply, requestAdvice } from './advisor.ts'
 
 function harness(answers: (string | null)[], interactive = true) {
   const ctx = new Context()
@@ -73,7 +73,8 @@ describe('/advisor', () => {
           message: expect.objectContaining({
             toolName: 'consult_advisor',
             isError: false,
-            content: [{ type: 'text', text: '✓ $ rg --files' }],
+            // The settled trace leads with what the run was and what it cost.
+            content: [{ type: 'text', text: expect.stringContaining('Completed · 1 step') }],
           }),
         }),
       }))
@@ -213,5 +214,41 @@ describe('/advisor without a configured advisor', () => {
       expect(await requestAdvice(h.ctx, h.invocation)).toEqual({ kind: 'success' })
       expect(h.consult).toHaveBeenCalledWith(h.invocation.agent, 'claude', 'Explain this stack trace', '', expect.any(AbortSignal), expect.any(Function))
     } finally { await h.ctx.fiber.dispose() }
+  })
+})
+
+describe('the consultation trace', () => {
+  const steps: TuiSubagentActivity[] = [
+    { text: '$ rg -n "ALTER TABLE" src', status: 'ok', at: 0 },
+    { text: 'Read src/migrations.ts', status: 'ok', at: 3_100 },
+    { text: 'considering the rollback path', status: 'thinking', at: 3_500 },
+  ]
+
+  it('leads with what the run was and what it cost', () => {
+    const trace = advisorTrace(steps, 'completed', 63_500)
+    expect(trace.split('\n')[0]).toBe('Completed · 3 steps · 1m 03s')
+    // Running and finished read from the same builder, so the card does not
+    // change shape when the answer arrives.
+    expect(advisorTrace(steps, 'running', 4_000)).toContain('In progress · 3 steps')
+  })
+
+  it('puts each step on one line with the time it held', () => {
+    const rows = advisorTrace(steps, 'completed', 63_500).split('\n').filter(line => line.startsWith('✓') || line.startsWith('·'))
+    expect(rows).toHaveLength(3)
+    // A step's span is the distance to the next one: that is all an external
+    // agent reports, so the number is honest without claiming to be its own.
+    expect(rows[0]).toContain('3.1s')
+    expect(rows[1]).toContain('400ms')
+    // The last span runs to the end of the consultation rather than to nothing.
+    expect(rows[2]).toContain('1m 00s')
+  })
+
+  it('folds the head rather than dropping it when a run has many steps', () => {
+    const many: TuiSubagentActivity[] = Array.from({ length: 20 }, (_, at) => ({ text: `step ${at + 1}`, status: 'ok' as const, at: at * 1_000 }))
+    const trace = advisorTrace(many, 'completed', 20_000)
+    expect(trace).toContain('Completed · 20 steps')
+    expect(trace).toContain('… 12 earlier steps')
+    expect(trace).toContain('step 20')
+    expect(trace).not.toContain('step 11')
   })
 })

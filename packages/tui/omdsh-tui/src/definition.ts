@@ -315,6 +315,14 @@ export interface TuiSubagentActivity {
   /** Compact tool or thinking label, already shortened for a one-line HUD. */
   readonly text: string
   readonly status: 'running' | 'ok' | 'error' | 'thinking'
+  /**
+   * When this step was first observed, in epoch milliseconds.
+   *
+   * External agents report only that a step started and that it finished, so a
+   * step's duration is the distance to the next step — what it took before the
+   * agent moved on — not a figure the advisor reports about itself.
+   */
+  readonly at?: number
 }
 
 /** One origin-classified descendant projected into the terminal HUD. */

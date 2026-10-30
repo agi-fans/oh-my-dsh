@@ -124,6 +124,13 @@ function phaseColor(phase: TuiSubagentView['phase']): 'accent' | 'success' | 'wa
   return 'dim'
 }
 
+/** A span as the inspector reads it. */
+function durationSpan(ms: number): string {
+  if (ms < 1_000) return `${Math.max(1, Math.round(ms))}ms`
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`
+  return `${Math.floor(ms / 60_000)}m${Math.floor((ms % 60_000) / 1_000)}s`
+}
+
 function duration(agent: TuiSubagentView, now: number): string {
   if (agent.startedAt === undefined) return '—'
   const end = agent.phase === 'running' || agent.phase === 'starting' ? now : agent.updatedAt ?? now
@@ -158,9 +165,15 @@ function rosterRows(state: AgentHubState, theme: Theme, width: number, height: n
 function inspectorText(agent: TuiSubagentView | undefined, now: number): string {
   if (agent === undefined) return 'No subagent selected.'
   const current = agent.activity.at(-1)
+  // Each step carries how long it held before the next one, so the inspector can
+  // say where a child spent its time instead of only what it did.
   const activity = agent.activity.length === 0
     ? ['No activity recorded.']
-    : agent.activity.map(item => `${item.status.padEnd(8)} ${item.text}`)
+    : agent.activity.map((item, index) => {
+      const next = agent.activity[index + 1]?.at ?? agent.updatedAt ?? now
+      const spent = item.at === undefined ? '' : ` · ${durationSpan(Math.max(0, next - item.at))}`
+      return `${item.status.padEnd(8)} ${item.text}${spent}`
+    })
   return [
     agent.label,
     '',
