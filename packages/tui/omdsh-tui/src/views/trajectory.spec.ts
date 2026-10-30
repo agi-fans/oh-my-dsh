@@ -10,6 +10,7 @@ import {
   trajectoryVisibleRecords,
   captureSearchTarget,
   trajectoryListMetrics,
+  trajectoryOverviewHeight,
   trajectoryDetailMetrics,
   trajectorySearch,
 } from './trajectory.ts'
@@ -461,5 +462,135 @@ describe('trajectory detail reading', () => {
     expect(tabbed.detailTab).not.toBe('summary')
     const closed = applyTrajectoryEvent(open, { type: 'key', id: 'escape' } as never).state
     expect(closed.details).toBe(false)
+  })
+})
+
+describe('trajectory ledger shape', () => {
+  /** One turn, two steps: a request with two calls, then a request with none. */
+  const shaped = [
+    event(1, 'turn/start', { turn: 1 }, 0),
+    event(2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'inspect the repo' }] }, 10),
+    event(3, 'step/start', { turn: 1, step: 1 }, 100),
+    event(4, 'assistant/message', {
+      turn: 1, step: 1,
+      message: { content: [{ type: 'text', text: 'Looking at the README.' }] },
+      stream: [],
+      usage: { inputTokens: 12_400, outputTokens: 812 },
+    }, 4_400),
+    event(5, 'tool/call', { turn: 1, step: 1, callId: 'c1', name: 'read', arguments: { path: 'README.md' } }, 4_500),
+    event(6, 'tool/result', { turn: 1, step: 1, callId: 'c1', message: { content: [{ type: 'text', text: 'README contents' }] } }, 4_900),
+    event(7, 'tool/call', { turn: 1, step: 1, callId: 'c2', name: 'grep', arguments: { pattern: 'ALTER TABLE' } }, 5_000),
+    event(8, 'tool/result', { turn: 1, step: 1, callId: 'c2', message: { content: [{ type: 'text', text: 'no match' }] } }, 6_100),
+    event(9, 'step/start', { turn: 1, step: 2 }, 6_200),
+    event(10, 'assistant/message', {
+      turn: 1, step: 2,
+      message: { content: [{ type: 'text', text: 'Nothing to change.' }] },
+      stream: [],
+      usage: { inputTokens: 13_000, outputTokens: 90 },
+    }, 9_000),
+    event(11, 'turn/end', { turn: 1, reason: { kind: 'completed' } }, 9_100),
+  ] as unknown as readonly SessionEvent[]
+
+  const text = (state: ReturnType<typeof createTrajectory>, width = 110, height = 20): string =>
+    renderTrajectory(state, createTheme(false), width, height).lines.map(stripAnsi).join('\n')
+
+  it('groups records under a turn rule and a step per request', () => {
+    const rendered = text(createTrajectory(shaped))
+    // The three levels, in the order a reader descends them.
+    expect(rendered).toMatch(/── Turn 1 .* 9s/u)
+    expect(rendered).toContain('Step 1')
+    expect(rendered).toContain('Step 2')
+    expect(rendered.indexOf('Step 1')).toBeLessThan(rendered.indexOf('ASSISTANT'))
+    expect(rendered.indexOf('Step 2')).toBeGreaterThan(rendered.indexOf('grep'))
+    // The location column and the internal nouns are gone: the headers say where
+    // a record is, and `12 records · 6 requests · 9 calls` counted what the reader
+    // never named.
+    expect(rendered).toContain('1 turn · 2 steps · 9s')
+    expect(rendered).not.toContain('records ·')
+    expect(rendered).not.toContain('T1·1')
+  })
+
+  it('states a request what it cost, without an em dash for a record that cost nothing', () => {
+    const rows = text(createTrajectory(shaped)).split('\n')
+    const assistant = rows.find(row => row.includes('ASSISTANT'))
+    expect(assistant).toContain('12.4K→812')
+    expect(assistant).toMatch(/4\.3s/u)
+    // A user message never had a duration; a column of em dashes would read as
+    // missing data rather than as "this row was never timed".
+    const user = rows.find(row => row.includes('USER'))
+    expect(user).not.toContain('—')
+  })
+
+  it('reports what the calls fold hid on the step it hid it from', () => {
+    const folded = applyTrajectoryEvent(createTrajectory(shaped), { type: 'text', value: 'c' } as never).state
+    const rendered = text(folded)
+    expect(rendered).not.toContain('README.md')
+    expect(rendered).toContain('Step 1 · read grep')
+  })
+
+  it('expands the calls again to reach a record a search found', () => {
+    let state = createTrajectory(shaped)
+    state = applyTrajectoryEvent(state, { type: 'text', value: 'c' } as never).state
+    expect(state.callsCollapsed).toBe(true)
+    state = applyTrajectoryEvent(state, { type: 'text', value: '/' } as never).state
+    for (const char of 'grep') {
+      state = applyTrajectoryEvent(state, { type: 'text', value: char } as never).state
+    }
+    state = applyTrajectoryEvent(state, { type: 'key', id: 'enter' } as never).state
+    expect(state.callsCollapsed).toBe(false)
+    expect(text(state)).toContain('grep')
+  })
+
+  it('folds a turn into its rule without losing how much it folded', () => {
+    const folded = applyTrajectoryEvent(createTrajectory(shaped), { type: 'text', value: 't' } as never).state
+    const rendered = text(folded)
+    expect(rendered).toContain('── Turn 1 · 2 steps · collapsed')
+    // The span survives the fold: it is the reason the turn was worth folding.
+    expect(rendered).toMatch(/9s/u)
+  })
+
+  it('offers only the detail sections a record can fill', () => {
+    const state = { ...createTrajectory(shaped), details: true }
+    const rows = renderTrajectory(state, createTheme(false), 110, 20).lines.map(stripAnsi)
+    const tabs = rows.find(row => row.includes('[summary]')) ?? ''
+    // An assistant record has a request payload and a result, and no tool schema.
+    expect(tabs).toContain('payload')
+    expect(tabs).toContain('result')
+    expect(tabs).not.toContain('schema')
+    // `Tab` steps through the sections it does have, so it never lands on one
+    // that would print "No tool schema recorded."
+    let cycled = state
+    const seen = new Set<string>()
+    for (let index = 0; index < 8; index += 1) {
+      cycled = applyTrajectoryEvent(cycled, { type: 'key', id: 'tab' } as never).state
+      seen.add(cycled.detailTab)
+    }
+    expect(seen.has('schema')).toBe(false)
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('opens the timing overview only where there is a shape to compare', () => {
+    // Two steps: the bars say something the rows cannot say as quickly.
+    expect(text(createTrajectory(shaped))).toContain('LLM')
+    // One step: the same fact in two extra rows, above the one row that states it.
+    const single = shaped.filter(item => !('step' in (item.data as object) && (item.data as { step?: number }).step === 2))
+      .filter(item => item.seq < 9)
+    expect(text(createTrajectory(single as unknown as readonly SessionEvent[]), 110, 40)).not.toContain('LLM')
+    // Searching is about text, not time.
+    let searching = createTrajectory(shaped)
+    searching = applyTrajectoryEvent(searching, { type: 'text', value: '/' } as never).state
+    searching = applyTrajectoryEvent(searching, { type: 'text', value: 'r' } as never).state
+    expect(text(searching)).not.toContain('LLM')
+  })
+
+  it('keeps the overview out of the page size it reserves', () => {
+    const state = createTrajectory(shaped)
+    expect(trajectoryOverviewHeight(state, 110)).toBe(2)
+    // Too narrow to draw a bar, so the rows go back to the ledger.
+    expect(trajectoryOverviewHeight(state, 10)).toBe(0)
+    // The bars sit between the toolbar and the ledger, so a page that ignored
+    // them would scroll past what the frame can show.
+    expect(trajectoryListMetrics(state, 10, 110).pageSize)
+      .toBeLessThan(trajectoryListMetrics(state, 10, 10).pageSize)
   })
 })

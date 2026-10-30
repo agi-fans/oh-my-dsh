@@ -8,12 +8,16 @@ omdsh reads everything it shows from Harness projections and the durable session
 
 ## Session ledger: `/trajectory`
 
-`/trajectory` opens a keyboard-driven event ledger for the active session. Events group by Turn and Step, and the ledger follows the live tail while a turn runs. From there you can:
+`/trajectory` opens a keyboard-driven event ledger for the active session. It is three levels deep — a turn, the steps inside it, and the records inside each step — and the ledger follows the live tail while a turn runs.
+
+A turn rule states the step count when folded and the wall time it took, a step header marks one model request and, when calls are folded, lists the tools hidden under it, and a record row ends with what that record cost: input and output tokens for a model request, duration for everything. Records with no recorded duration leave the column empty instead of printing a dash, because they were never timed rather than timed at zero. A timing overview sits above the ledger once a run has more than one step, and hides while you search.
+
+From there you can:
 
 - search the full ledger with `/`, then step across matches with `n`/`N` or `Ctrl+N`/`Ctrl+P`; `Enter` locates a match and expands the collapsed turn or call that hides it;
-- collapse or expand turns with `t` and tool calls with `c`;
+- collapse or expand turns with `t` and the tool calls inside every step with `c`;
 - open a record's details with `Enter`, including tool payloads, results, schemas, timing, and token usage;
-- switch between detail sections with `Tab` and the arrow keys.
+- switch between detail sections with `Tab` and the arrow keys. Only the sections a record actually has are offered, so a tool record with no schema never shows an empty one.
 
 Matching scans the full ledger, so collapsed turns and hidden subtool calls still count. `/trajectory` needs an interactive TTY.
 

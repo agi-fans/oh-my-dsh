@@ -11,7 +11,7 @@ import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
 import { highlightCodeLines, toolPayloadLanguage } from '../chrome/code-highlight.ts'
 import { renderTimelineOverview, trajectoryTimeline, type TimelineLane } from './trajectory-timeline.ts'
-import { formatElapsed } from '../chrome/relative-time.ts'
+import { formatDuration, formatTokens } from '../chrome/status-line.ts'
 
 export type TrajectoryKind = 'system' | 'user' | 'context' | 'assistant' | 'tool' | 'subtool' | 'compaction' | 'warning' | 'error'
 export type TrajectoryDetailTab = 'summary' | 'payload' | 'result' | 'schema' | 'timing'
@@ -505,11 +505,16 @@ export function restoreSearchTarget(state: TrajectoryState, target: SearchTarget
   return { ...state, searchFocus: index, selectedId: match.record.id }
 }
 
+/** Whether a record is a tool call, shown or hidden by the calls fold. */
+function isCall(record: TrajectoryRecord): boolean {
+  return record.kind === 'tool' || record.kind === 'subtool'
+}
+
 export function trajectoryVisibleRecords(state: TrajectoryState): TrajectoryRecord[] {
   const query = state.query.trim().toLocaleLowerCase()
   const firstInCollapsed = new Set<number>()
   return state.ledger.records.filter((record) => {
-    if (state.callsCollapsed && record.kind === 'subtool') return false
+    if (state.callsCollapsed && isCall(record)) return false
     if (record.turn !== null && state.collapsedTurns.has(record.turn)) {
       if (firstInCollapsed.has(record.turn)) return false
       firstInCollapsed.add(record.turn)
@@ -517,6 +522,141 @@ export function trajectoryVisibleRecords(state: TrajectoryState): TrajectoryReco
     if (query === '') return true
     return state.ledger.recordMatches(record, query)
   })
+}
+
+/** Totals for one turn, counted over the whole ledger rather than the visible rows. */
+interface TrajectoryTurnStats {
+  turn: number | null
+  steps: number
+  errors: number
+  warnings: number
+  spanMs: number | null
+}
+
+interface TurnStatsCacheEntry {
+  readonly version: number
+  readonly stats: ReadonlyMap<string, TrajectoryTurnStats>
+  /** Tool names and counts per step, keyed `${turnKey}:${step}`. */
+  readonly calls: ReadonlyMap<string, readonly (readonly [string, number])[]>
+}
+
+/**
+ * One pass over the ledger for everything a frame needs to describe structure:
+ * turn totals and per-step call histograms.
+ *
+ * A folded turn still has to state how much it folded, and the calls fold has to
+ * say what it hid, so both come from every record rather than from the rows that
+ * survived folding. Deriving them per render would walk a 10,000-record ledger
+ * several times per keystroke; the ledger already counts its own mutations, so
+ * one pass lasts until it moves.
+ */
+const turnStatsCache = new WeakMap<TrajectoryLedger, TurnStatsCacheEntry>()
+
+function trajectoryIndex(ledger: TrajectoryLedger): TurnStatsCacheEntry {
+  const cached = turnStatsCache.get(ledger)
+  if (cached !== undefined && cached.version === ledger.version) return cached
+  const spans = new Map<string, { turn: number | null; steps: Set<number>; errors: number; warnings: number; earliest: number; latest: number }>()
+  const calls = new Map<string, Map<string, number>>()
+  for (const record of ledger.records) {
+    const key = record.turn === null ? 'between' : String(record.turn)
+    let entry = spans.get(key)
+    if (entry === undefined) {
+      entry = { turn: record.turn, steps: new Set(), errors: 0, warnings: 0, earliest: Number.POSITIVE_INFINITY, latest: Number.NEGATIVE_INFINITY }
+      spans.set(key, entry)
+    }
+    if (record.step !== null) entry.steps.add(record.step)
+    if (record.status === 'error') entry.errors += 1
+    if (record.status === 'warning') entry.warnings += 1
+    if (record.startedAt !== null) {
+      entry.earliest = Math.min(entry.earliest, record.startedAt)
+      // A running record has no end yet. Counting its start as its end keeps the
+      // span from inventing elapsed time the ledger never recorded.
+      entry.latest = Math.max(entry.latest, record.startedAt + (record.durationMs ?? 0))
+    }
+    if (!isCall(record)) continue
+    const callKey = `${key}:${record.step ?? 'none'}`
+    const counts = calls.get(callKey) ?? new Map<string, number>()
+    const name = record.summary.split(/\s/u)[0] ?? record.label
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+    calls.set(callKey, counts)
+  }
+  const stats = new Map<string, TrajectoryTurnStats>()
+  for (const [key, entry] of spans) {
+    stats.set(key, {
+      turn: entry.turn,
+      steps: entry.steps.size,
+      errors: entry.errors,
+      warnings: entry.warnings,
+      spanMs: entry.latest > entry.earliest ? entry.latest - entry.earliest : null,
+    })
+  }
+  const entry: TurnStatsCacheEntry = {
+    version: ledger.version,
+    stats,
+    calls: new Map([...calls].map(([key, counts]) => [key, [...counts]])),
+  }
+  turnStatsCache.set(ledger, entry)
+  return entry
+}
+
+/** One rendered list row: a turn rule, a step group, or a record. */
+type TrajectoryRow =
+  | { kind: 'turn'; id: string; stats: TrajectoryTurnStats; collapsed: boolean }
+  | { kind: 'step'; id: string; step: number; hiddenCalls: readonly (readonly [string, number])[] }
+  | { kind: 'record'; id: string; record: TrajectoryRecord }
+
+/**
+ * The ledger as three levels, the shape the desktop client settled on.
+ *
+ * A turn is the question, a step is one model request and the calls it made, and
+ * a record is one event. The flat list this replaced gave a user message and a
+ * tool result the same weight, so answering "which step took sixteen minutes"
+ * meant reading a location column on every row and adding durations up by hand.
+ * Step headers also give the calls fold somewhere to report what it hid, which is
+ * why the histogram comes from the whole ledger and not from the visible rows.
+ */
+function trajectoryRows(state: TrajectoryState): TrajectoryRow[] {
+  const index = trajectoryIndex(state.ledger)
+  const rows: TrajectoryRow[] = []
+  const buckets: { turn: number | null; records: TrajectoryRecord[] }[] = []
+  for (const record of trajectoryVisibleRecords(state)) {
+    const last = buckets.at(-1)
+    if (last !== undefined && last.turn === record.turn) last.records.push(record)
+    else buckets.push({ turn: record.turn, records: [record] })
+  }
+  for (const bucket of buckets) {
+    const key = bucket.turn === null ? 'between' : String(bucket.turn)
+    rows.push({
+      kind: 'turn',
+      id: `turn:${key}`,
+      stats: index.stats.get(key) ?? { turn: bucket.turn, steps: 0, errors: 0, warnings: 0, spanMs: null },
+      collapsed: bucket.turn !== null && state.collapsedTurns.has(bucket.turn),
+    })
+    let step: number | null | undefined
+    let group: TrajectoryRecord[] = []
+    const flush = (): void => {
+      if (group.length === 0) return
+      if (step !== null && step !== undefined) {
+        rows.push({
+          kind: 'step',
+          id: `step:${key}:${step}`,
+          step,
+          hiddenCalls: state.callsCollapsed ? index.calls.get(`${key}:${step}`) ?? [] : [],
+        })
+      }
+      for (const record of group) rows.push({ kind: 'record', id: record.id, record })
+      group = []
+    }
+    for (const record of bucket.records) {
+      if (record.step !== step) {
+        flush()
+        step = record.step
+      }
+      group.push(record)
+    }
+    flush()
+  }
+  return rows
 }
 
 /** Derived search result: matches in ledger order plus per-record hit counts. */
@@ -602,7 +742,7 @@ function locateMatch(state: TrajectoryState, index: number): TrajectoryState {
     searchFocus: index,
     selectedId: record.id,
     collapsedTurns,
-    callsCollapsed: state.callsCollapsed && record.kind !== 'subtool',
+    callsCollapsed: state.callsCollapsed && !isCall(record),
     detailScroll: 0,
     following: false,
   }
@@ -642,12 +782,42 @@ function graphemes(text: string): Iterable<{ index: number; segment: string }> {
   return trajectorySegmenter.segment(text)
 }
 
-const DETAIL_TABS: readonly TrajectoryDetailTab[] = ['summary', 'payload', 'result', 'schema', 'timing']
+/**
+ * Tabs a record can actually fill.
+ *
+ * The five tabs used to be fixed, so most records offered four that said "No
+ * payload recorded." and the reader pressed `Tab` through them to find the one
+ * with content. The desktop client instead asks each record which sections it
+ * has, which is also why its tab row never shows a dead one.
+ */
+function detailTabsFor(record: TrajectoryRecord | undefined): readonly TrajectoryDetailTab[] {
+  if (record === undefined) return ['summary']
+  const tabs: TrajectoryDetailTab[] = ['summary']
+  if (record.payload !== '') tabs.push('payload')
+  if (record.result !== '') tabs.push('result')
+  if (record.schema !== '') tabs.push('schema')
+  if (record.startedAt !== null || record.durationMs !== null || record.ttftMs !== null
+    || record.inputTokens !== null || record.outputTokens !== null) tabs.push('timing')
+  return tabs
+}
+
+/**
+ * The tab the pane is actually showing.
+ *
+ * The state keeps the reader's last choice, so returning to a record brings the
+ * same section back; a record without that section falls back to its first one
+ * instead of printing an empty placeholder.
+ */
+function activeTab(state: TrajectoryState): TrajectoryDetailTab {
+  const tabs = detailTabsFor(selectedRecord(state))
+  return tabs.includes(state.detailTab) ? state.detailTab : tabs[0] ?? 'summary'
+}
 
 function moveTab(state: TrajectoryState, delta: number): TrajectoryState {
-  const current = DETAIL_TABS.indexOf(state.detailTab)
-  const next = (current + delta + DETAIL_TABS.length) % DETAIL_TABS.length
-  return { ...state, detailTab: DETAIL_TABS[next] ?? 'summary', detailScroll: 0 }
+  const tabs = detailTabsFor(selectedRecord(state))
+  const current = Math.max(0, tabs.indexOf(activeTab(state)))
+  const next = (current + delta + tabs.length) % tabs.length
+  return { ...state, detailTab: tabs[next] ?? 'summary', detailScroll: 0 }
 }
 
 export interface TrajectoryViewOptions {
@@ -813,37 +983,37 @@ export const TRAJECTORY_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_CLOSE,
 ]
 
-/** List paging capacity in records for one body height (pure, shared with rendering). */
-export function trajectoryListMetrics(state: TrajectoryState, height: number): { pageSize: number } {
-  const body = Math.max(0, height - 4)
-  if (body <= 0) return { pageSize: 0 }
-  const layout = rowLayout(state)
-  if (layout.length === 0) return { pageSize: 1 }
-  const selected = Math.max(0, layout.findIndex(row => row.id === state.selectedId))
-  const start = Math.max(0, Math.min(layout.length - 1, selected - Math.floor(body / 2)))
-  // Count record rows inside the window; turn headers only occupy space.
-  let rows = 0
-  let count = 0
-  for (let index = start; index < layout.length; index += 1) {
-    rows += 1
-    if (rows > body) break
-    if (layout[index]?.turnHeader !== true) count += 1
-  }
-  return { pageSize: Math.max(1, count) }
+/**
+ * Rows the timing overview occupies, or 0 when it is not drawn.
+ *
+ * Rendering and paging both need this: the overview sits between the toolbar and
+ * the ledger, so a page that ignored it would scroll three rows further than the
+ * frame can show.
+ */
+export function trajectoryOverviewHeight(state: TrajectoryState, width = Number.POSITIVE_INFINITY): number {
+  if (state.details || state.query !== '') return 0
+  if (width < 24) return 0
+  let steps = 0
+  for (const stats of trajectoryIndex(state.ledger).stats.values()) steps += stats.steps
+  if (steps < 2) return 0
+  const overview = trajectoryTimeline(state.ledger.records, { width: 1 })
+  return overview === undefined ? 0 : overview.lanes.filter(span => span.ms > 0).length
 }
 
-/** Per-record row layout (turn headers included), consumed by rendering and metrics. */
-function rowLayout(state: TrajectoryState): { id: string; turnHeader: boolean }[] {
-  const layout: { id: string; turnHeader: boolean }[] = []
-  let previousTurn: number | null | undefined
-  for (const record of trajectoryVisibleRecords(state)) {
-    if (record.turn !== previousTurn) {
-      previousTurn = record.turn
-      layout.push({ id: `turn:${record.turn ?? 'between'}`, turnHeader: true })
-    }
-    layout.push({ id: record.id, turnHeader: false })
+/** List paging capacity in records for one body height (pure, shared with rendering). */
+export function trajectoryListMetrics(state: TrajectoryState, height: number, width = Number.POSITIVE_INFINITY): { pageSize: number } {
+  const body = Math.max(0, height - 4 - trajectoryOverviewHeight(state, width))
+  if (body <= 0) return { pageSize: 0 }
+  const rows = trajectoryRows(state)
+  if (rows.length === 0) return { pageSize: 1 }
+  const selected = rows.findIndex(row => row.kind === 'record' && row.id === state.selectedId)
+  const start = Math.max(0, Math.min(rows.length - 1, Math.max(0, selected) - Math.floor(body / 2)))
+  // Count record rows inside the window; turn and step headers only occupy space.
+  let count = 0
+  for (let index = start; index < rows.length && index - start < body; index += 1) {
+    if (rows[index]?.kind === 'record') count += 1
   }
-  return layout
+  return { pageSize: Math.max(1, count) }
 }
 
 /** Detail scroll step in wrapped lines for one body height (pure, shared with rendering). */
@@ -855,8 +1025,17 @@ export function trajectoryDetailMetrics(_state: TrajectoryState, height: number)
 
 function duration(record: TrajectoryRecord): string {
   if (record.durationMs === null) return record.status === 'running' ? 'live' : '—'
-  if (record.durationMs < 1_000) return `${Math.round(record.durationMs)}ms`
-  return `${(record.durationMs / 1_000).toFixed(record.durationMs < 10_000 ? 1 : 0)}s`
+  return formatDuration(record.durationMs)
+}
+
+/** `12.4K→812` for a model request, or '' for a record that reported no usage. */
+function tokenPair(record: TrajectoryRecord): string {
+  if (record.kind !== 'assistant') return ''
+  if (record.inputTokens === null && record.outputTokens === null) return ''
+  const side = (value: number | null): string => value === null ? '—' : formatTokens(value)
+  // The incoming side is padded so the arrow, and therefore the duration column
+  // beside it, stays on one column across every request in the ledger.
+  return `${side(record.inputTokens).padStart(6)}→${side(record.outputTokens)}`
 }
 
 function kindColor(kind: TrajectoryKind): 'accent' | 'warning' | 'success' | 'error' | 'dim' | 'text' {
@@ -894,14 +1073,29 @@ function recordLine(
   summaryOverride?: string,
 ): string {
   const marker = selected ? theme.fg('accent', '›') : ' '
-  const locationLabel = record.turn === null ? ' —   ' : `T${record.turn}${record.step === null ? '' : `·${record.step}`}`.padEnd(5)
-  const kind = theme.fg(kindColor(record.kind), record.label.padEnd(9).slice(0, 9))
-  const elapsed = duration(record).padStart(6)
+  /*
+   * No location column: the turn rule and the step header above already say
+   * where this row is, and `T1·1` on every line spent five cells restating it in
+   * a form nobody reads. The right edge instead carries what the row cost:
+   * tokens for a model request, duration for everything.
+   */
+  const prefix = `${marker} ${theme.fg('dim', `#${String(record.index).padStart(3)}`)}  ${theme.fg(kindColor(record.kind), record.label.padEnd(9).slice(0, 9))}  `
   const badge = matchCount === undefined ? '' : ` ${theme.fg('dim', `×${matchCount}`)}`
-  const prefix = `${marker} ${String(record.index).padStart(4)} ${locationLabel} ${kind} ${elapsed}  `
-  const bodyWidth = Math.max(0, width - visibleWidth(prefix) - visibleWidth(badge))
+  // A record with no recorded duration prints nothing rather than an em dash:
+  // a column of `—` where most rows have a time reads as missing data, when in
+  // fact a user message simply never had a duration.
+  const elapsed = record.durationMs === null && record.status !== 'running' ? '' : duration(record)
+  const tokens = tokenPair(record)
+  const right = (withTokens: boolean): string => withTokens ? `${tokens}  ${elapsed}` : elapsed
+  const fixed = visibleWidth(prefix) + visibleWidth(badge)
+  // Tokens are the first thing to go: the pane still has them, and the duration
+  // is the reason this view exists.
+  const columns = tokens === '' || width - fixed - visibleWidth(right(true)) - 12 < 0 ? right(false) : right(true)
   const body = summaryOverride ?? highlightSummary(record.summary, highlightSpans)
-  return prefix + truncateToWidth(body, bodyWidth) + badge
+  const bodyWidth = Math.max(0, width - fixed - visibleWidth(columns) - 2)
+  const text = truncateToWidth(body, bodyWidth)
+  const gap = Math.max(1, width - fixed - visibleWidth(text) - visibleWidth(columns))
+  return prefix + text + ' '.repeat(Math.max(0, gap)) + columns + badge
 }
 
 /** Snippet of one record field around its first hit (non-summary fields). */
@@ -950,12 +1144,12 @@ function timingText(record: TrajectoryRecord): string {
   ].join('\n')
 }
 
-function detailText(state: TrajectoryState, record: TrajectoryRecord | undefined): string {
+function detailText(tab: TrajectoryDetailTab, record: TrajectoryRecord | undefined): string {
   if (record === undefined) return 'No trajectory record selected.'
-  if (state.detailTab === 'payload') return record.payload || 'No payload recorded.'
-  if (state.detailTab === 'result') return record.result || 'No result recorded.'
-  if (state.detailTab === 'schema') return record.schema || 'No tool schema recorded.'
-  if (state.detailTab === 'timing') return timingText(record)
+  if (tab === 'payload') return record.payload || 'No payload recorded.'
+  if (tab === 'result') return record.result || 'No result recorded.'
+  if (tab === 'schema') return record.schema || 'No tool schema recorded.'
+  if (tab === 'timing') return timingText(record)
   return [
     `${record.label} · ${record.type}`,
     `Turn ${record.turn ?? 'between'} · Step ${record.step ?? '—'} · ${duration(record)}`,
@@ -965,8 +1159,10 @@ function detailText(state: TrajectoryState, record: TrajectoryRecord | undefined
 }
 
 function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height: number): string[] {
-  const visible = trajectoryVisibleRecords(state)
-  if (visible.length === 0) return [theme.fg('dim', state.query === '' ? '  No trajectory records.' : '  No matching trajectory records.')]
+  const rows = trajectoryRows(state)
+  if (!rows.some(row => row.kind === 'record')) {
+    return [theme.fg('dim', state.query === '' ? '  No trajectory records.' : '  No matching trajectory records.')]
+  }
   const { matches, counts } = trajectorySearch(state)
   const focused = state.searchFocus === null ? undefined : matches[state.searchFocus]
   const highlighted = new Map<string, SearchMatch[]>()
@@ -975,16 +1171,10 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
     list.push(match)
     highlighted.set(match.record.id, list)
   }
-  const lines: { id: string; text: string }[] = []
-  const layout = rowLayout(state)
-  let previousTurn: number | null | undefined
-  for (const record of visible) {
-    if (record.turn !== previousTurn) {
-      previousTurn = record.turn
-      const label = record.turn === null ? 'Between turns' : `Turn ${record.turn}`
-      const collapsed = record.turn !== null && state.collapsedTurns.has(record.turn) ? ' · collapsed' : ''
-      lines.push({ id: `turn:${record.turn ?? 'between'}`, text: theme.fg('accent', `── ${label}${collapsed} `) })
-    }
+  const lines = rows.map((row): string => {
+    if (row.kind === 'turn') return turnLine(row.stats, row.collapsed, theme, width)
+    if (row.kind === 'step') return stepLine(row.step, row.hiddenCalls, theme, width)
+    const record = row.record
     const recordMatches = highlighted.get(record.id) ?? []
     const focusedForRecord = focused?.record === record ? focused : undefined
     const headField = focusedForRecord !== undefined ? focusedForRecord.field : recordMatches[0]?.field
@@ -992,18 +1182,15 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
     const summary = headField === undefined || headField === 'summary'
       ? highlightSummary(record.summary, headSpans, theme)
       : fieldSnippet(record, headField, headSpans, Math.max(0, width - 24), theme, focusedForRecord)
-    lines.push({
-      id: record.id,
-      text: recordLine(record, record.id === state.selectedId, theme, width,
-        headField === 'summary' ? headSpans : [],
-        state.query === '' ? undefined : counts.get(record.id),
-        summary,
-      ),
-    })
-  }
-  const selectedIndex = Math.max(0, layout.findIndex(row => row.id === state.selectedId))
-  const start = Math.max(0, Math.min(layout.length - 1, selectedIndex - Math.floor(height / 2)))
-  return lines.slice(start, start + height).map(line => truncateToWidth(line.text, width))
+    return recordLine(record, record.id === state.selectedId, theme, width,
+      headField === 'summary' ? headSpans : [],
+      state.query === '' ? undefined : counts.get(record.id),
+      summary,
+    )
+  })
+  const selectedIndex = Math.max(0, rows.findIndex(row => row.kind === 'record' && row.id === state.selectedId))
+  const start = Math.max(0, Math.min(rows.length - 1, selectedIndex - Math.floor(height / 2)))
+  return lines.slice(start, start + height).map(line => truncateToWidth(line, width))
 }
 
 /**
@@ -1013,17 +1200,18 @@ function ledgerRows(state: TrajectoryState, theme: Theme, width: number, height:
  * and schema are already-structured text whose value is the field names, not
  * syntax colouring — highlighting those would add noise to a four-line table.
  */
-function detailLanguage(state: TrajectoryState, record: TrajectoryRecord | undefined): string | undefined {
+function detailLanguage(tab: TrajectoryDetailTab, record: TrajectoryRecord | undefined): string | undefined {
   if (record === undefined) return undefined
-  if (state.detailTab !== 'payload' && state.detailTab !== 'result') return undefined
+  if (tab !== 'payload' && tab !== 'result') return undefined
   return toolPayloadLanguage(record.type === 'tool/call' ? record.label.toLowerCase() : '')
 }
 
 function detailRows(state: TrajectoryState, theme: Theme, width: number, height: number): string[] {
-  const tabs = DETAIL_TABS.map(tab => tab === state.detailTab ? theme.fg('accent', `[${tab}]`) : theme.fg('dim', tab)).join(' ')
   const record = selectedRecord(state)
-  const raw = detailText(state, record)
-  const language = detailLanguage(state, record)
+  const tab = activeTab(state)
+  const tabs = detailTabsFor(record).map(candidate => candidate === tab ? theme.fg('accent', `[${candidate}]`) : theme.fg('dim', candidate)).join(' ')
+  const raw = detailText(tab, record)
+  const language = detailLanguage(tab, record)
   /*
    * Highlight before wrapping, then number the wrapped rows.
    *
@@ -1055,6 +1243,34 @@ function detailRows(state: TrajectoryState, theme: Theme, width: number, height:
   return [truncateToWidth(tabs, width), truncateToWidth(position, width), ...numbered]
 }
 
+/**
+ * A turn rule: the label on the left, the time it took against the right edge.
+ *
+ * The time is the whole reason this view exists, and "where did sixteen minutes
+ * go" is answered top-down: the turn states its span, the step headers break it
+ * into requests, and each record states its own duration.
+ */
+function turnLine(stats: TrajectoryTurnStats, collapsed: boolean, theme: Theme, width: number): string {
+  const notes: string[] = []
+  // Steps are only worth counting where they are not visible.
+  if (collapsed) notes.push(`${stats.steps} ${stats.steps === 1 ? 'step' : 'steps'}`, 'collapsed')
+  if (stats.errors > 0) notes.push(`${stats.errors} ${stats.errors === 1 ? 'error' : 'errors'}`)
+  if (stats.warnings > 0) notes.push(`${stats.warnings} ${stats.warnings === 1 ? 'warning' : 'warnings'}`)
+  const label = stats.turn === null ? 'Between turns' : `Turn ${stats.turn}`
+  const left = `── ${label}${notes.length === 0 ? '' : ` · ${notes.join(' · ')}`} `
+  const right = stats.spanMs === null ? '' : ` ${formatDuration(stats.spanMs)}`
+  const room = Math.max(0, width - visibleWidth(left) - visibleWidth(right))
+  return theme.fg('accent', left) + theme.fg('border', '─'.repeat(room)) + theme.fg('dim', right)
+}
+
+/** A step group: the request's boundary, and what the calls fold is hiding. */
+function stepLine(step: number, hiddenCalls: readonly (readonly [string, number])[], theme: Theme, width: number): string {
+  const tools = hiddenCalls.map(([name, count]) => count > 1 ? `${name}×${count}` : name).join(' ')
+  const left = `   Step ${step}${tools === '' ? '' : ` · ${tools}`} `
+  const room = Math.max(0, width - visibleWidth(left) - 1)
+  return theme.fg('dim', left + '·'.repeat(room))
+}
+
 /** `(3/10)`-style position while the search is active, or ''. */
 function searchPosition(state: TrajectoryState): string {
   const matches = trajectorySearch(state).matches
@@ -1082,7 +1298,9 @@ function timelineRows(state: TrajectoryState, theme: Theme, width: number): stri
   if (overview === undefined || width < 24) return undefined
   return renderTimelineOverview(overview, {
     width,
-    formatDuration: formatElapsed,
+    // The same precision the ledger rows use: a lane that took 0.4 s must not
+    // read `0s` beside a row that says `0.4s`.
+    formatDuration,
     paint: (lane, text) => theme.fg(LANE_TONE[lane], text),
     paintEmpty: text => theme.fg('borderMuted', text),
   }).map(row => truncateToWidth(' ' + row, width))
@@ -1096,25 +1314,45 @@ export function renderTrajectory(
 ): { lines: string[]; cursor: { row: number; column: number }; cursorVisible: boolean } {
   const safeWidth = Math.max(1, width)
   const safeHeight = Math.max(1, height)
-  const records = state.ledger.records
-  const errors = records.filter(record => record.status === 'error').length
-  const warnings = records.filter(record => record.status === 'warning').length
-  const requests = records.filter(record => record.kind === 'assistant').length
-  const tools = records.filter(record => record.kind === 'tool' || record.kind === 'subtool').length
-  const header = truncateToWidth(theme.bold(' Trajectory ') + theme.fg('dim', `${records.length} records · ${requests} requests · ${tools} calls · ${warnings} warnings · ${errors} errors`), safeWidth)
+  /*
+   * Human nouns, not internal ones. `12 records · 6 requests · 9 calls` counted
+   * events the reader never named; a turn and a step are what the ledger is made
+   * of, and the span is the question. Counts of problems appear only when there
+   * are problems.
+   */
+  const stats = [...trajectoryIndex(state.ledger).stats.values()]
+  const turns = stats.filter(entry => entry.turn !== null).length
+  const steps = stats.reduce((sum, entry) => sum + entry.steps, 0)
+  const spanMs = stats.reduce((sum, entry) => sum + (entry.spanMs ?? 0), 0)
+  const errors = stats.reduce((sum, entry) => sum + entry.errors, 0)
+  const warnings = stats.reduce((sum, entry) => sum + entry.warnings, 0)
+  const summary = [
+    turns === 0 ? '' : `${turns} ${turns === 1 ? 'turn' : 'turns'}`,
+    steps === 0 ? '' : `${steps} ${steps === 1 ? 'step' : 'steps'}`,
+    spanMs === 0 ? '' : formatDuration(spanMs),
+    errors === 0 ? '' : `${errors} ${errors === 1 ? 'error' : 'errors'}`,
+    warnings === 0 ? '' : `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`,
+  ].filter(part => part !== '').join(' · ')
+  const header = truncateToWidth(theme.bold(' Trajectory ') + theme.fg('dim', summary), safeWidth)
   const searchInfo = state.query === '' ? '' : ` · ${searchPosition(state)}`
   const followInfo = state.following ? '' : state.followNotice > 0 ? ` · End: follow · +${state.followNotice} new` : ''
   const toolbar = truncateToWidth(theme.fg('dim', state.details
     ? `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_PAGE, HOTKEY_SECTION, HOTKEY_CLOSE])}`
-    : `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_DETAILS, HOTKEY_SEARCH, HOTKEY_MATCH, HOTKEY_TURN, HOTKEY_CALLS, HOTKEY_EDGE])}${state.following ? ' ●' : ''}`), safeWidth)
+    : `${searchInfo.slice(2)}${followInfo} · ${formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_DETAILS, HOTKEY_SEARCH, HOTKEY_TURN, HOTKEY_CALLS])}${state.following ? ' ●' : ''}`), safeWidth)
   const divider = theme.fg('border', '─'.repeat(safeWidth))
   /*
    * The overview answers "where did the time go" before the reader has to open a
    * single record. It sits between the toolbar and the ledger, only in the list
    * view: the detail panel is already about one record's timing, and repeating
    * the project-wide bars beside it would split attention for no gain.
+   *
+   * It is also gated on there being more than one step. A single request drawn as
+   * `LLM 80% / Tools 20%` restates what the one row below it already says, and two
+   * rows of restatement on a six-row body is the kind of chrome this view was
+   * meant to replace. Searching hides it for the same reason: the reader is
+   * looking for text, not for time.
    */
-  const overview = state.details ? undefined : timelineRows(state, theme, safeWidth)
+  const overview = trajectoryOverviewHeight(state, safeWidth) === 0 ? undefined : timelineRows(state, theme, safeWidth)
   const bodyHeight = Math.max(0, safeHeight - 4 - (overview?.length ?? 0))
   const wideDetails = state.details && safeWidth >= 96
   let body: string[]

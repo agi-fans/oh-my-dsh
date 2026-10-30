@@ -2577,7 +2577,7 @@ export class LocalTui implements TuiService {
     }
     if (this.#handlePrompt(event)) return
     if (this.#trajectory !== null) {
-      const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height())
+      const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height(), this.#term.width())
       const { pageLines } = trajectoryDetailMetrics(this.#trajectory, this.#term.height())
       const command = applyTrajectoryEvent(this.#trajectory, event, { pageSize, detailPageLines: pageLines })
       if ('close' in command) this.#trajectory = null

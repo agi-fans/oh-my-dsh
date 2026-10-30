@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- `/trajectory` now reads as three levels — turn, step, record — the shape the desktop client settled on, instead of one flat list. A turn rule states how many steps it folded and how long it took, a step header marks one model request and lists the tools a folded `c` hid, and each record ends with what it cost: `12.4K→812` and `4.3s` for a model request, duration for everything else. The `T1·1` location column is gone, since the headers now say where a row is.
+
+- The ledger header states turns, steps and wall time instead of `12 records · 6 requests · 9 calls`, and counts errors and warnings only when there are some.
+
+- The timing overview appears once a run has more than one step, and hides while searching. Two rows restating the single request below them was the chrome this view exists to replace.
+
+- A record's detail section list is derived from the record: only sections with content are offered, so `Tab` no longer steps through `No tool schema recorded.` to reach the timing. The reader's last section is remembered and restored when returning to that record.
+
+- Record durations use the status line's precision, so the overview can no longer read `0s` beside a row that says `0.4s`.
+
+- `c` folds the tool calls inside every step, not only subtool calls.
+
 ### Removed
 
 - The Agent Hub is gone, and its one irreplaceable action moved into the subagent roster: `↓` on an empty composer selects a row, `↑`/`↓` moves, and `Enter` opens that child's transcript. The hub existed because it was the only trigger for `#openInspect` — a missing key binding, not a layout requirement — and paid for it with a full screen, its own nine-row key table, `Alt+A`, a `T` tree toggle and a wide/narrow two-pane layout. Everything it was the only view of now has a home: the roster is the list, an external child (which keeps no local transcript) prints its status and recent activity as a fold-able result, and recorded workflow runs appear as a line at the top of the roster.
