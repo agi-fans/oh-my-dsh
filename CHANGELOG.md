@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- A finished `/btw` answer folds into the transcript when its pane closes, as one `/btw <question>` line with the answer behind `Ctrl+O`. Closing the pane used to be the only way to reclaim the screen height, and it cost the text; now the reader never has to choose. A consultation left before it answers records nothing, and the block is local presentation — the session log is untouched, so a resumed session does not carry it, exactly like any other command output.
+
 - The Session Tree opens as a block above the composer instead of taking the whole screen. Double-Esc is a rewind gesture, and the conversation being rewound — the thing the reader needs to see while choosing a point in it — used to disappear behind the tree. It is bounded to a little over half the terminal, matching how pi mounts its tree selector. `Ctrl+↑`/`Ctrl+↓` now scroll the preview they always claimed to.
 
 ### Added

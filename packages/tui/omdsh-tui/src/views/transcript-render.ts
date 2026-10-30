@@ -896,6 +896,19 @@ export function blockLines(
       ...(expandedOutput ? {} : { expandKey: outputExpandKey }),
     })
   }
+  if (block.kind === 'aside') {
+    // One line when closed, the whole answer when opened — the same fold a long
+    // command result uses, so there is one expand gesture in the product.
+    const head = ' ' + theme.bold(theme.fg('accent', '/btw')) + ' ' + theme.fg('text', block.question)
+    if (expandedOutput) {
+      return [
+        truncateToWidth(head, width),
+        '',
+        ...renderMarkdown(block.text, theme, Math.max(1, width - 2)).map(line => '  ' + line),
+      ]
+    }
+    return [truncateToWidth(head + theme.fg('dim', ` · ${outputExpandKey}: Expand`), width)]
+  }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]

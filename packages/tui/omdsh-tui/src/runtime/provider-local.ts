@@ -1201,9 +1201,22 @@ export class LocalTui implements TuiService {
    * so the reader could neither read it nor stop paying for it.
    */
   #closeAside(): void {
+    const aside = this.#aside
     this.#asideAbort?.abort()
     this.#asideAbort = undefined
     this.#aside = undefined
+    /**
+     * A finished answer collapses into one line rather than disappearing.
+     *
+     * The pane is above the composer, so closing it was the only way to get the
+     * screen height back — and that cost the text. Keeping the exchange as a
+     * folded block means the reader can always close the pane. A consultation
+     * still running records nothing: the reader left before there was an answer.
+     */
+    if (aside !== undefined && aside.status !== 'running' && aside.text.trim() !== '') {
+      this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'aside', question: aside.question, text: aside.text }] }
+      this.#followTail()
+    }
     this.#render()
   }
 
@@ -4659,12 +4672,13 @@ export class LocalTui implements TuiService {
     }
     const anchor = this.#viewportBlock()
     /**
-     * A long command result folds like a tool card, and this is the key that
-     * opens it. It is answered before the run lookup because a command's output
-     * is not a run: the reader aimed at those rows, not at the run above them.
+     * A long command result and a collapsed side answer fold the same way, and
+     * this is the key that opens either. It is answered before the run lookup
+     * because neither is a run: the reader aimed at those rows, not at the run
+     * above them.
      */
     const anchored = anchor === undefined ? undefined : this.#state.blocks[anchor]
-    if (anchor !== undefined && anchored?.kind === 'commandOutput') {
+    if (anchor !== undefined && (anchored?.kind === 'commandOutput' || anchored?.kind === 'aside')) {
       if (this.#expandedOutputs.has(anchored)) this.#expandedOutputs.delete(anchored)
       else this.#expandedOutputs.add(anchored)
       this.#inspect(anchor)

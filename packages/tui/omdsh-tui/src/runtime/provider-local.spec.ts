@@ -2957,6 +2957,62 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('keeps a finished side answer as one line instead of losing it', async () => {
+    // Closing the pane was the only way to get the screen height back, and it cost
+    // the text. A folded block means the reader never has to choose.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    let release: (() => void) | undefined
+    const done = tui.asideQuestion?.({
+      question: 'why did the build fail?',
+      signal: new AbortController().signal,
+      run: async onUpdate => {
+        onUpdate('The lockfile changed between the two runs.')
+        await new Promise<void>(resolve => { release = resolve })
+        return { text: 'The lockfile changed between the two runs.' }
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 40))
+    release?.()
+    await done
+    term.captured = ''
+    press(term, '\x1b')
+    await new Promise(resolve => setTimeout(resolve, 150))
+    const folded = stripAnsi(term.captured)
+    expect(folded).toContain('/btw why did the build fail?')
+    expect(folded).toContain('Ctrl+O: Expand')
+    expect(folded).not.toContain('The lockfile changed')
+    // The same key that opens any other fold opens this one.
+    term.captured = ''
+    press(term, '\x0f')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('The lockfile changed between the two runs.')
+    tui.dispose()
+  })
+
+  it('records nothing when the reader leaves before there is an answer', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    let seen: AbortSignal | undefined
+    const done = tui.asideQuestion?.({
+      question: 'why?',
+      signal: new AbortController().signal,
+      run: async (_onUpdate, signal) => {
+        seen = signal
+        await new Promise<void>(resolve => { signal.addEventListener('abort', () => resolve(), { once: true }) })
+        return { text: 'late', failed: true }
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    term.captured = ''
+    press(term, '\x1b')
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await done
+    expect(seen?.aborted).toBe(true)
+    expect(stripAnsi(term.captured)).not.toContain('/btw why?')
+    tui.dispose()
+  })
+
   it('stops a side consultation when the reader closes the pane', async () => {
     // Closing used to hide the pane while the request kept running unseen.
     const term = new FakeTerminal()

@@ -84,6 +84,25 @@ export type Block =
   | { kind: 'commandOutput'; command: string; text: string; surface?: 'aside' }
   | {
     /**
+     * A finished side question, kept as one line.
+     *
+     * The answer arrived in the pane above the composer; leaving it there would
+     * mean the reader has to choose between the screen space and the text. Closing
+     * the pane collapses it into this block instead, so the exchange stays where
+     * the terminal keeps everything already read: one row, with the answer behind
+     * the same `Ctrl+O` that opens any other fold.
+     *
+     * A local presentation block, not a session event: the side conversation has
+     * its own durable log, and this session's log is left untouched — which is why
+     * the row does not come back after a resume, exactly like any other command
+     * output.
+     */
+    kind: 'aside'
+    question: string
+    text: string
+  }
+  | {
+    /**
      * A Shell line the reader ran themselves with a leading `!`.
      *
      * It is a transcript block rather than a full-screen reader because the
