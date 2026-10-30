@@ -43,6 +43,20 @@ describe('source document navigation', () => {
     expect(documentDestination(model.hunks, 3, -1)).toBe(9)
   })
 
+  it('keeps every diff row on one number column', () => {
+    const source = { diff: true, text: 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n@@ -100,2 +120,2 @@\n keep\n-last\n+final\n' }
+    const rows = documentLayout(source, createTheme(false), 60).rows.map(stripAnsi)
+    // The gutter used to carry the old and the new number side by side, so a
+    // removal printed its number in the left sub-column and the addition under it
+    // printed its own in the right one: reading down a hunk, the numbers stepped
+    // right and left while the text stayed put.
+    expect(rows.find(row => row.includes('-old'))?.indexOf('-')).toBe(rows.find(row => row.includes('+new'))?.indexOf('+'))
+    expect(rows.find(row => row.includes('-last'))?.indexOf('-')).toBe(rows.find(row => row.includes('+final'))?.indexOf('+'))
+    // A context line states the new-side number, which is the side navigation uses.
+    expect(rows.find(row => row.includes('keep'))?.trimStart()).toMatch(/^120 /u)
+    expect(documentLineRow(source, 120)).toBe(7)
+  })
+
   it('searches literal Unicode text by source line, including matches across a visual wrap', () => {
     const source = { text: 'const 中文 = "🐳 e\u0301"\n[A.*] Literal\nlast literal\n' }
     expect(documentMatches(source, '[a.*]')).toEqual([1])

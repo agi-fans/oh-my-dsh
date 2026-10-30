@@ -84,7 +84,22 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   if (cached !== undefined) return cached
   const model = documentModel(source)
   const digits = model.numbers.reduce((max, number) => Math.max(max, String(Math.max(number.old ?? 0, number.next ?? 0)).length), 1)
-  const gutterWidth = source.diff ? digits * 2 + 3 : digits + 2
+  /*
+   * One number column, not one per side.
+   *
+   * The gutter used to carry the old number and the new number side by side, so a
+   * removal printed its line number in the left sub-column and the addition under
+   * it printed its own in the right one: reading down a hunk, the numbers stepped
+   * right and left while the text stayed put, which looked like a rendering fault
+   * and spent `digits + 1` cells to repeat what the `-` and `+` already say. Each
+   * row now states the number that belongs to the side it is on.
+   *
+   * The new side wins where both exist, because that is the side `documentLineRow`
+   * navigates by: a gutter that printed the old number for a context line while
+   * jumping to the new one would name a row something other than what the reader
+   * asked for.
+   */
+  const gutterWidth = digits + 2
   const showNumbers = width > gutterWidth + 4
   const inner = Math.max(1, width - (showNumbers ? gutterWidth : 0))
   let paintCache = paints.get(source)
@@ -103,9 +118,7 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   for (const [at, line] of painted.entries()) {
     starts.push(rows.length)
     const number = model.numbers[at] ?? {}
-    const label = source.diff
-      ? `${number.old === undefined ? ''.padStart(digits) : String(number.old).padStart(digits)} ${number.next === undefined ? ''.padStart(digits) : String(number.next).padStart(digits)} `
-      : `${String(number.next ?? '').padStart(digits)} `
+    const label = `${String(number.next ?? number.old ?? '').padStart(digits)} `
     const segments = wordWrap ? wrapCode(line, inner) : [sliceCells(line, column, inner)]
     for (const [wrap, segment] of segments.entries()) {
       rows.push((showNumbers ? ' ' + theme.fg('dim', wrap === 0 ? label : ' '.repeat(gutterWidth - 1)) : '') + segment)
