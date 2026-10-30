@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/copy text|code|cmd|output` lost its kinds. `text` meant "the default", so it was a no-op parameter, and the other three named a row the picker already shows with its content, language and size: the reader had to recall a word to skip a keystroke. `/copy` opens the picker; `Alt+C` still copies a selection when there is one.
 - `/tree` is gone: double `Esc` already opened the same Session Tree controller, so the command was a second name for a gesture the shortcut list already documents. Reach it with `Esc` twice on an empty composer.
 
+### Fixed
+
+- A filterable card now draws the query it is filtering on, with what it kept (`⌕ build · 1/1`); a query that matches nothing says so and stops advertising `Enter`; a truncated preview ends with `… N more lines`; and `Esc` clears an active filter before it closes the list, which only the session tree used to do. All four were lost when lists stopped being full-screen pages — the page printed the query, the empty state and the paged preview, and the card did not.
+
 ### Changed
 
 - The `/copy` picker is the same composer card as every other list. It had been the last bespoke overlay with its own key model: nine hotkey rows of its own, and a filter that stayed inactive until `/` — so a typed letter did nothing and `Space` copied instead of typing a space. Typing filters now, `Enter` copies, and the selected row's payload is the preview.

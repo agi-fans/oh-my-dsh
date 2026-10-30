@@ -2847,6 +2847,36 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('clears an active filter on Escape before closing the list', async () => {
+    // Escape gives back one layer. Only the tree used to do this, so a filtered
+    // `/model` or `/copy` closed outright and had to be reopened for the full list.
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', true)
+    const pending = tui.prompt({
+      title: 'Pick',
+      question: 'Choose',
+      filterable: true,
+      allowCustom: false,
+      notify: false,
+      options: [{ label: 'alpha', value: 'a' }, { label: 'beta', value: 'b' }],
+    })
+    await flushAsyncPaste()
+    press(term, 'beta')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('1/1')
+    term.captured = ''
+    press(term, '\x1b')
+    await new Promise(resolve => setTimeout(resolve, 150))
+    // Still open, with the filter cleared rather than the list closed.
+    const cleared = stripAnsi(term.captured)
+    expect(cleared).toContain('Pick')
+    expect(cleared).toContain('type to filter')
+    expect(cleared).toContain('alpha')
+    press(term, '\x03')
+    expect(await pending).toBeNull()
+    tui.dispose()
+  })
+
   it('reports nothing to copy and refuses an argument', async () => {
     // There are no kinds any more: `/copy` asks which row, and an argument is a
     // mistake rather than a shortcut.

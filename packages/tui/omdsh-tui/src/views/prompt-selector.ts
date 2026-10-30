@@ -571,6 +571,14 @@ export function renderPlanReviewPage(
   }
 }
 
+/** Rows of the selected option's preview the card shows before it truncates. */
+const CARD_PREVIEW_LINES = 3
+
+/** The reader's query as it reads in a sentence, quoted so blanks are visible. */
+function quote(text: string): string {
+  return `“${text}”`
+}
+
 /** Render the prompt card and its answer editor as one bottom-of-screen overlay. */
 export function renderPromptSelector(
   state: PromptSelectorState,
@@ -581,6 +589,7 @@ export function renderPromptSelector(
   maxVisible: number = PROMPT_SELECTOR_MAX_VISIBLE,
 ): PromptSelectorFrame {
   const options = filteredPromptOptions(state.request, input, state.collapsed)
+  const filtering = input !== ''
   const contentWidth = Math.max(1, width - 4)
   const body = [state.request.question]
   if (state.request.wait !== undefined) {
@@ -602,22 +611,50 @@ export function renderPromptSelector(
     // content it was being browsed for.
     const preview = options[state.selected]?.preview
     if (preview !== undefined && preview !== '') {
-      const lines = wrapTextStable(preview, contentWidth).slice(0, 3)
-      body.push('', ...lines.map(line => theme.fg('dim', '  ' + line)))
+      const wrapped = wrapTextStable(preview, contentWidth)
+      body.push('', ...wrapped.slice(0, CARD_PREVIEW_LINES).map(line => theme.fg('dim', '  ' + line)))
+      if (wrapped.length > CARD_PREVIEW_LINES) {
+        body.push(theme.fg('dim', `  … ${wrapped.length - CARD_PREVIEW_LINES} more lines`))
+      }
     }
-  } else if (state.request.emptyText !== undefined) {
-    // The paged list says why it is empty and what to press instead; the card has
-    // to say the same thing, or demoting a list loses the sentence that explains it.
-    body.push('', theme.fg('dim', `  ${state.request.emptyText}`))
+  } else {
+    // A filter that matches nothing has to say so. An empty frame reads as a
+    // broken list, and the reader cannot tell a typo from an empty transcript.
+    body.push('', theme.fg('dim', `  ${state.request.emptyText
+      ?? (filtering ? `No match for ${quote(input)}.` : 'Nothing to choose.')}`))
   }
+  /**
+   * The query, drawn where the reader types it.
+   *
+   * Every filterable card filters on the composer text, and the paged list used
+   * to print it — so demoting a list to a card made the query invisible: the rows
+   * narrowed while the reader's own words appeared nowhere, and a card with no
+   * hits looked broken rather than empty.
+   */
+  const filterRow = state.request.filterable === true && state.request.presentation !== 'progress'
+    ? body.length
+    : undefined
+  if (filterRow !== undefined) {
+    // The query and what it kept belong on one line: the reader typed one thing
+    // and the list answered with a count.
+    const count = filtering ? theme.fg('dim', ` · ${options.length === 0 ? 'no match' : `${state.selected + 1}/${options.length}`}`) : ''
+    body.push('', input === ''
+      ? theme.fg('muted', '  ⌕ type to filter') + count
+      : theme.fg('text', '  ⌕ ') + input + count)
+  }
+  // A request that has options but no match has nothing to submit: advertising
+  // `enter select` there promises a key the handler swallows.
+  const exhausted = options.length === 0 && (state.request.options?.length ?? 0) > 0
   const submit = state.request.submitLabel?.trim()
     || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')
   // The request supplies the submit verb; the key itself comes from the catalog.
   const select = `${formatHotkeyKeys(HOTKEY_SELECT)} ${submit}`
   const navigation = state.request.presentation === 'progress'
     ? formatOverlayHint([HOTKEY_CANCEL, HOTKEY_CANCEL_CTRL], 'catalog')
-    : options.length === 0
-      ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+    : exhausted
+      ? formatOverlayHint([HOTKEY_CANCEL])
+      : options.length === 0
+        ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
       : state.request.multiSelect === true
         ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
         : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
@@ -638,12 +675,15 @@ export function renderPromptSelector(
     applyBg: false,
   }, theme)
   if (state.request.allowCustom === false || state.request.presentation === 'progress') {
+    // With a filter line the caret belongs at its end, where the next character
+    // will land; without one it stays on body padding, because the selector glyph
+    // owns focus while no text editor is present.
     return {
       lines: card,
-      // Keep the terminal caret on body padding; the visible selector glyph
-      // owns focus while no text editor is present.
-      cursor: { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 },
-      cursorVisible: false,
+      cursor: filterRow === undefined
+        ? { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 }
+        : { row: filterRow + 2, column: 4 + visibleWidth(input) },
+      cursorVisible: filterRow !== undefined,
     }
   }
   const secret = state.request.secret === true

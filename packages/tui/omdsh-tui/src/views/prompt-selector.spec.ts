@@ -327,3 +327,50 @@ it.each([[60, 24], [24, 9]])('paints filtered multi-select checkboxes by origina
   expect(selectedPromptAnswer({ ...state, checked: new Set(), request: { ...state.request, allowEmptySelection: true } })).toBe('')
   expect(selectedPromptAnswer({ ...state, checked: new Set() })).toBeNull()
 })
+
+describe('a filterable card', () => {
+  const options = [
+    { label: 'hello from the model', value: 'a', description: '1 line', preview: 'hello from the model' },
+    { label: 'the build failed', value: 'b', description: '2 lines' },
+  ]
+  const card = (input: string) => renderPromptSelector(
+    { request: { title: 'Copy', question: 'Choose what to copy', filterable: true, allowCustom: false, options }, selected: 0, checked: new Set() },
+    createTheme(false),
+    70,
+    input,
+    input.length,
+  )
+  const text = (input: string) => stripAnsi(card(input).lines.join('\n'))
+
+  it('draws the query and how much it kept', () => {
+    // The paged list printed the query; the card filtered on it without showing
+    // it, so the rows narrowed while the reader's own words appeared nowhere.
+    const shown = text('build')
+    expect(shown).toContain('⌕ build · 1/1')
+    expect(shown).toContain('the build failed')
+    expect(shown).not.toContain('hello from the model')
+  })
+
+  it('says the query matched nothing and stops advertising Enter', () => {
+    // An empty frame reads as a broken list; `enter select` there promises a key
+    // the handler swallows.
+    const shown = text('zzz')
+    expect(shown).toContain('No match for “zzz”')
+    expect(shown).toContain('no match')
+    expect(shown).not.toContain('enter select')
+    expect(shown).toContain('esc cancel')
+  })
+
+  it('says what to do before anything is typed', () => {
+    expect(text('')).toContain('type to filter')
+  })
+
+  it('marks a preview that was cut off', () => {
+    const long = renderPromptSelector(
+      { request: { title: 'Copy', question: 'q', filterable: true, allowCustom: false,
+        options: [{ label: 'x', value: 'x', preview: Array.from({ length: 9 }, (_, at) => `line ${at}`).join('\n') }] }, selected: 0, checked: new Set() },
+      createTheme(false), 60, '', 0,
+    )
+    expect(stripAnsi(long.lines.join('\n'))).toContain('… 6 more lines')
+  })
+})

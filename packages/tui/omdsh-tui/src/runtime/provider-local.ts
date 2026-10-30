@@ -2860,10 +2860,24 @@ export class LocalTui implements TuiService {
       return true
     }
     if (event.id === 'escape' || event.id === 'ctrl+c') {
-      if (event.id === 'escape' && prompt.request.presentation === 'fullscreen-tree' && this.#editor.text !== '') {
-        const selected = filtered[prompt.selected]?.value
+      /**
+       * Escape gives back one layer: an active filter clears before the card
+       * closes.
+       *
+       * Only the tree used to do this, so a filtered `/model` or `/copy` closed
+       * outright and a reader who wanted their list back had to reopen it.
+       */
+      if (event.id === 'escape' && prompt.request.filterable === true && this.#editor.text !== '') {
+        const selected = filtered[prompt.selected]?.value ?? filtered[prompt.selected]?.label
         this.#editor.setText('')
-        this.#prompt = { ...prompt, collapsed: new Set(), selected: Math.max(0, filteredPromptOptions(prompt.request, '').findIndex(option => option.value === selected)), previewScroll: 0 }
+        const restored = filteredPromptOptions(prompt.request, '', prompt.collapsed)
+        const at = restored.findIndex(option => (option.value ?? option.label) === selected)
+        this.#prompt = {
+          ...prompt,
+          ...(prompt.request.presentation === 'fullscreen-tree' ? { collapsed: new Set() } : {}),
+          selected: Math.max(0, at),
+          previewScroll: 0,
+        }
         this.#render()
         return true
       }
