@@ -188,7 +188,7 @@ import {
   type NotificationMode,
   type TuiSettings,
 } from '../session/tui-settings.ts'
-import { DEFAULT_STATUS_DENSITY, resolveStatusBarConfig, type ResolvedStatusBarConfig } from '../chrome/status-config.ts'
+import { DEFAULT_STATUS_DENSITY, resolveStatusBarConfig, statusBarDocument, type ResolvedStatusBarConfig } from '../chrome/status-config.ts'
 import { HistoryStore } from '../session/history-store.ts'
 import { PasteBurst, type PasteEmission } from '../input/paste-burst.ts'
 import { DEFAULT_KEYBINDINGS, loadKeybindings, saveKeybindings, TUI_ACTION_LABELS, TUI_ACTIONS, type TuiAction } from '../input/keybindings-config.ts'
@@ -1496,7 +1496,10 @@ export class LocalTui implements TuiService {
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
       notifications: this.#notificationPolicy,
-      statusBar: { density: this.#statusBar.density, hidden: [] },
+      // The whole document, not the density alone: a projection that dropped the
+      // narrowing made every later re-read of the preferences show the parts the
+      // reader had just hidden.
+      statusBar: statusBarDocument(this.#statusBar),
     }
   }
 

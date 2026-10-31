@@ -113,6 +113,14 @@ export const DEFAULT_STATUS_DENSITY: StatusDensity = 'standard'
  */
 export interface StatusBarConfig {
   density: StatusDensity
+  /**
+   * Whether the second line is drawn at all.
+   *
+   * Kept as its own field rather than expressed as "every group hidden": hiding
+   * all of them and calling that off would forget what to bring back when the
+   * reader turns telemetry on again.
+   */
+  enabled?: boolean
   /** Pieces the reader hid, on top of what the density shows. */
   hidden: StatusItemId[]
   /**
@@ -284,6 +292,30 @@ function expand(
     groups: visible(STATUS_GROUP_IDS, DENSITY_GROUPS[density]),
     meta: visible(STATUS_META_IDS, DENSITY_META[density]),
   }
+}
+
+/**
+ * The document a resolved config came from.
+ *
+ * Visibility cannot say which of two reasons a part is missing: the reader hid
+ * it, or the density never included it. Rebuilding the document from what the
+ * footer shows therefore has to keep them apart — a part the density omits must
+ * stay out of `hidden`, or raising the density would silently do nothing — and it
+ * is the only way a caller that holds the resolved form (the provider holds the
+ * footer it is drawing) can hand the document back without losing a choice.
+ */
+export function statusBarDocument(config: ResolvedStatusBarConfig): StatusBarConfig {
+  const densityHas = (id: StatusItemId): boolean =>
+    isStatusMetaId(id) ? DENSITY_META[config.density].includes(id) : DENSITY_GROUPS[config.density].includes(id)
+  const hidden: StatusItemId[] = []
+  const shown: StatusItemId[] = []
+  for (const id of STATUS_ITEM_IDS) {
+    const visible = statusItemVisible(config, id)
+    if (visible === densityHas(id)) continue
+    if (visible) shown.push(id)
+    else hidden.push(id)
+  }
+  return { density: config.density, hidden, shown, enabled: config.enabled }
 }
 
 /** True when the footer shows this part at the current narrowing. */

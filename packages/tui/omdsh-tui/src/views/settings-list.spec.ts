@@ -520,6 +520,17 @@ describe('renderSettings', () => {
     expect(tuiSettingItems(removedAgain).find(item => item.id === 'statusItem:counts')?.value).toBe('hidden')
   })
 
+  it('labels every footer row with its own name', () => {
+    // `Path` read `Workspace path on the first footer line.` — a description in
+    // the label column, which pushed its value halfway across the row.
+    const ids = ['context', 'cache', 'tokens', 'speed', 'durations', 'counts', 'model', 'effort', 'path', 'git', 'session']
+    const labels = tuiSettingItems(prefs)
+      .filter(item => ids.some(id => item.id === `statusItem:${id}`))
+      .map(item => item.label)
+    expect(labels).toEqual(['Model', 'Effort', 'Path', 'Git', 'Session', 'Context', 'Cache', 'Tokens', 'Latency', 'Time', 'Activity'])
+    for (const label of labels) expect(label.length).toBeLessThanOrEqual(8)
+  })
+
   it('marks the selected row with the cursor glyph', () => {
     const selected = renderSettings(createSettings(prefs, 'colors'), theme, 40).lines.join('\n')
     expect(selected).toContain('❯')

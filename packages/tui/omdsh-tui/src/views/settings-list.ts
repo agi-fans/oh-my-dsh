@@ -13,9 +13,8 @@ import {
   STATUS_ITEM_IDS,
   isStatusItemId,
   resolveStatusBarConfig,
-  statusAdditions,
+  statusBarDocument,
   statusItemVisible,
-  statusNarrowing,
   toggleStatusItem,
   type ResolvedStatusBarConfig,
   type StatusBarConfig,
@@ -157,7 +156,7 @@ const STATUS_ITEM_CONTROLS = 'Space shows or hides it.'
 const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: string; sample: string }> = {
   model: { label: 'Model', description: `Model name on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'deepseek' },
   effort: { label: 'Effort', description: `Reasoning effort on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'max' },
-  path: { label: 'Workspace path on the first footer line. ', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
+  path: { label: 'Path', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
   git: { label: 'Git', description: `Git branch on the first footer line. A dirty worktree stays warning. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
   session: { label: 'Session', description: `Folded session title on the first footer line. Off at Standard and Minimal; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
   context: { label: 'Context', description: `Context occupancy, on the left of the second line. Its representation follows the density. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
@@ -404,14 +403,8 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
  * to omit into an explicit hiding: pressing Space on one row then silently made
  * a different density show less, which is the drift this replaced.
  */
-function storedStatusBar(prefs: TuiPrefs): StatusBarConfig & { enabled?: boolean } {
-  const resolved = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
-  return {
-    density: resolved.density,
-    hidden: statusNarrowing(prefs.statusBar, resolved.density),
-    shown: statusAdditions(prefs.statusBar),
-    enabled: resolved.enabled,
-  }
+function storedStatusBar(prefs: TuiPrefs): StatusBarConfig {
+  return statusBarDocument(resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset))
 }
 
 function adjacentValue(current: string, values: readonly string[], direction: 1 | -1): string {

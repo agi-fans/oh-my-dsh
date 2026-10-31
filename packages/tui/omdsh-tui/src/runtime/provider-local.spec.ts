@@ -3536,7 +3536,12 @@ describe('LocalTui (tty)', () => {
       notifications: 'off',
       statusBar: {
         density: 'standard',
+        // The whole document goes out, not a density-only projection: dropping
+        // the deltas made every later re-read of the preferences show the parts
+        // the reader had just hidden.
         hidden: [],
+        shown: [],
+        enabled: true,
       },
     }])
     press(term, '\x03')
@@ -5517,5 +5522,58 @@ describe('review-changes (Alt+V)', () => {
       // The old behaviour called the command; this one must not.
       expect(painted).not.toContain('Current workspace changes')
     } finally { tui.dispose() }
+  })
+})
+
+describe('status line settings survive a refresh', () => {
+  /**
+   * The reported bounce: hide a footer part, and while the overlay is still open
+   * something re-reads the preferences and the row flips back to `shown`.
+   *
+   * `#syncSettingsActions` runs on every session projection refresh and reseeds
+   * the overlay from `prefs()`. That projection used to carry the density only,
+   * so the narrowing the reader had just written was gone by the time the rows
+   * were redrawn.
+   */
+  it('keeps a hidden footer part hidden when the settings overlay is reseeded', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      void tui.readline()
+      press(term, '/settings\r')
+      // Tab to the Status line section, then walk to Context. Searching would
+      // filter the rows; this asserts what a row says, not what a filter found.
+      for (let index = 0; index < 3; index += 1) press(term, '\t')
+      for (let index = 0; index < 7; index += 1) press(term, '\x1b[B')
+      press(term, ' ')
+      expect(tui.prefs().statusBar?.hidden).toContain('context')
+      // A session refresh reseeds the rows from the preferences. Before the fix
+      // this rewrote the document with the density only, so the row came back
+      // saying `shown` — the bounce the recording showed.
+      tui.setSession({ id: 's', recent: [] })
+      expect(tui.prefs().statusBar?.hidden).toContain('context')
+      const rows = tuiSettingItems(tui.prefs())
+      expect(rows.find(item => item.id === 'statusItem:context')?.value).toBe('hidden')
+    } finally {
+      tui.dispose()
+    }
+  })
+
+  it('keeps a part added beyond the density when the overlay is reseeded', () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    try {
+      void tui.readline()
+      press(term, '/settings\r')
+      for (let index = 0; index < 3; index += 1) press(term, '\t')
+      for (let index = 0; index < 12; index += 1) press(term, '\x1b[B')
+      press(term, ' ')
+      expect(tui.prefs().statusBar?.shown).toContain('counts')
+      tui.setSession({ id: 's', recent: [] })
+      expect(tui.prefs().statusBar?.shown).toContain('counts')
+      expect(tui.prefs().statusBar?.hidden).not.toContain('counts')
+    } finally {
+      tui.dispose()
+    }
   })
 })

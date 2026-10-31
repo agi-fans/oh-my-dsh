@@ -103,6 +103,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - `Space` on a footer part no longer changes a different part's behaviour. Toggling one took the rendered footer and stored everything it did not show as an explicit hiding, so afterwards `verbose` showed exactly what `standard` had — one switch silently freezing another. Hiding is now a delta from the density, and adding a part the density omits is its own delta, so `Space` on a part the density leaves out finally does something.
 
+- A footer switch no longer flips back on its own. The preferences handed to the settings rows carried the density alone, so any session refresh that reseeded the overlay — which happens on every projection update — redrew the parts the reader had just hidden as `shown`. The document now travels whole, deltas included.
+
+- The `Path` row in Settings is labelled `Path` again instead of printing its own description at full width across the row.
+
 ### Fixed
 
 - Diff line numbers no longer step sideways down a hunk. The gutter carried the old and the new number in two sub-columns, so a removal printed its number in the left one and the addition under it in the right one; with one digit each that read as a rendering fault. Each row now states one number on one column — the side it belongs to.
