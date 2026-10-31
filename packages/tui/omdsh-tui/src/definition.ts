@@ -32,13 +32,13 @@ export type TuiStatus = 'idle' | 'running'
 /** Why the controller is replacing the visible transcript. */
 export type TuiTranscriptReplacement = 'initial' | 'new' | 'open' | 'refresh'
 
-/** Command metadata contributed by the active agent's plugin scope. */
 /** One candidate a command offers for its own argument. */
 export interface TuiArgumentOption {
   value: string
   description?: string
 }
 
+/** Command metadata contributed by the active agent's plugin scope. */
 export interface TuiCommand {
   name: string
   description: string
@@ -347,7 +347,7 @@ export interface TuiInspectedSubagent {
   readonly writable: boolean
 }
 
-/** Lightweight durable session row used by the welcome card and resume UI. */
+/** Lightweight durable session row used by the resume UI. */
 export interface TuiRecentSession {
   id: string
   title: string

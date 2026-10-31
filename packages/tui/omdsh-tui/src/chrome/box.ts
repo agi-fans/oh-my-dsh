@@ -100,8 +100,6 @@ export interface WelcomeOptions {
   reasoningEffort?: string
   version: string
   appName: string
-  /** Kept for callers that already resolve it; the compact header has no session list. */
-  recentSessions?: readonly { id: string; title: string; createdAt: number; updatedAt?: number }[]
   /** Startup hints; defaults to every entry in the shipped catalog. */
   hints?: readonly WelcomeHint[]
 }

@@ -2,7 +2,7 @@
  * The one shape every interactive list in omdsh draws.
  *
  * Each surface once grew its own list renderer — autocomplete, prompt selectors,
- * settings, history search, the agent hub, the copy picker — and each arrived at a
+ * settings, history search, the plugin browser — and each arrived at a
  * slightly different cursor glyph, column layout, and scroll counter. A reader learns the list idiom once, so it should look the same
  * everywhere: a single-cell selection prefix, an optional primary column held to
  * one width so descriptions line up, a right-aligned value or counter, and the

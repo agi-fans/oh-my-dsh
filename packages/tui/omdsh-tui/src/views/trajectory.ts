@@ -1400,7 +1400,6 @@ function searchPosition(state: TrajectoryState): string {
   return `(${Math.min(focus + 1, matches.length)}/${matches.length})`
 }
 
-/** Render the full-screen ledger without touching the ordinary transcript viewport. */
 /** Lane ink, matching how the ledger paints the same kinds. */
 const LANE_TONE: Readonly<Record<TimelineLane, 'accent' | 'success' | 'dim'>> = {
   llm: 'accent',

@@ -627,7 +627,6 @@ export class LocalTui implements TuiService {
    * when the prompt settles.
    */
   #promptDisplaced: DisplacedSurface | null = null
-  #recentSessions: TuiRecentSession[] = []
   #sessionId: string | undefined
   #sessionTitle: string | undefined
   #writtenWindowTitle: string | undefined
@@ -1420,7 +1419,6 @@ export class LocalTui implements TuiService {
     this.#herdr.setSession(info.id)
     const title = info.title?.trim()
     this.#sessionTitle = title === undefined || title === '' ? undefined : title
-    this.#recentSessions = info.recent.map((session) => ({ ...session }))
     this.#sessionStats = info.stats === undefined ? undefined : { ...info.stats }
     this.#sessionControls = info.controls === undefined
       ? undefined
@@ -2044,7 +2042,6 @@ export class LocalTui implements TuiService {
         ...(this.#steerHandler === undefined ? {} : { steerKey: keysForAction(this.#keybindings, 'steer-turn') }),
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
-        recentSessions: this.#recentSessions,
         modelReady: this.#modelReady,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
@@ -4861,7 +4858,7 @@ export function apply(ctx: Context, config: Config): void {
   )
   ctx.provide(TUI_SERVICE, tui)
   ctx.effect(() => () => tui.dispose())
-  // A missing route must be visible without turning the welcome card into a
+  // A missing route must be visible without turning the startup header into a
   // credential check: the seams answer optimistically when they cannot tell.
   ctx.inject(['settings', 'credentials'], readyCtx => {
     const refreshModelReady = (): void => {

@@ -36,7 +36,6 @@ import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapT
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
-  TuiRecentSession,
   TuiSessionControls,
   TuiSessionStats,
   TuiSubagentPhase,
@@ -133,10 +132,8 @@ export interface ViewOptions {
   historySearch?: HistorySearchState
   /** `/settings` overlay; replaces the editor while open. */
   settings?: SettingsState
-  /** `/copy` picker overlay; replaces the editor while open. */
   /** `/trajectory` full-screen event ledger. */
   trajectory?: TrajectoryState
-  /** Keyboard-first full-screen descendant roster and inspector. */
   /** Terminal-owned graphics capability and measured cell geometry. */
   imageProtocol?: import('../chrome/terminal-images.ts').ImageProtocol
   imageCellSize?: { width: number; height: number }
@@ -144,9 +141,6 @@ export interface ViewOptions {
   promptSelector?: PromptSelectorState
   /** Effective local + agent-scoped slash command catalog. */
   commands?: readonly SlashCommand[]
-  /** Durable rows shown in the welcome card. */
-  recentSessions?: readonly TuiRecentSession[]
-  /** Startup-stable sample of hints shown in the welcome card. */
   /** False when no model route is visibly configured; the composer then points at /login. */
   modelReady?: boolean
   /** Whole-session figures rendered in the footer's telemetry row. */
@@ -157,7 +151,6 @@ export interface ViewOptions {
   loopStatus?: TuiLoopStatus
   /** Live descendant-subagent roster rendered above the composer. */
   subagents?: TuiSubagentRoster
-  /** Composer-boundary launcher focus entered with Down on an empty draft. */
   /** Roster row the reader is pointing at, when the bar owns the keyboard. */
   subagentSelection?: number
   /** Descendant whose transcript is currently filling the viewport. */
@@ -824,7 +817,6 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
   return { lines, offsets, spans }
 }
 
-/** A settled turn's length, the way a person would say it. */
 /** A completed turn's duration and any failures remain visible when folded. */
 function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string, expandKey = 'Ctrl+O'): string[] {
   const label = elapsed === undefined ? 'Worked' : `Worked for ${elapsed}`
@@ -2331,7 +2323,7 @@ export function renderQueuedSubmissions(
 }
 
 /**
- * Compose the welcome card, transcript, working row, and rounded editor into
+ * Compose the startup header, transcript, working row, and ruled editor into
  * one frame — the oh-my-pi surface.
  * @param state - transcript state.
  * @param options - terminal geometry and input state.
