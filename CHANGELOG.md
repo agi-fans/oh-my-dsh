@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog], and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
+
+## [0.22.0] - 2026-10-31
+
 ### Added
 
 - `previewFormat` on a prompt option, and `disabled` on a row. The first ends a real ambiguity: the same `preview` field was rendered as markdown by the tree page and as plain text by the composer card, so an option read differently depending on which surface opened it — markdown is now opt-in and plain is the only default. The second is for a row that groups others: focusable, dimmed, and carrying no answer, so Enter on it stays put instead of closing the surface with a value nobody chose.
@@ -73,6 +76,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- The `@agi-fans/oh-my-dsh/advisor` export, which pointed at a module the advisor removal had already deleted, and an unreferenced launcher file left beside it. A published export that resolves to nothing is a crash for anyone who imports it.
+
+### Removed
+
 - `TuiPrompt.presentation`'s `fullscreen-list` became `fullscreen-tree`'s sibling `card`. A list stopped taking the screen when the composer card learned to window its rows, filter by typing and preview the selected row, so the value described a behaviour it no longer had — in an API whose whole point is being readable at the call site.
 
 - `TuiPrompt.optionLayout` and the `choose` intent's `fullscreen` and `spacious` options are gone. `optionLayout` was written in eight places and read in none; `fullscreen` and `spacious` only ever existed to set it, so their two branches could not do anything either.
@@ -98,6 +105,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Fixed
 
 - `verbose` gives the session's totals a third footer line — Time on the left, Activity on the right — so the line above it no longer has to shed them on a narrow terminal. The line appears only once the line above is whole: priority is still global, so nothing below a dropped latency appears above it.
+
 - Turning Telemetry off now reclaims its rows instead of leaving them blank; a session without projected stats yet keeps the reserved line, so the composer does not step up when the first numbers arrive.
 
 - The status footer puts occupancy back on the left and cost on the right. `Ctx` and `Cache` hold the left edge; Tokens, Latency, Time and Activity answer from the right, so the same number sits in the same place from session to session instead of the whole row running from the left margin.
@@ -109,8 +117,6 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - A footer switch no longer flips back on its own. The preferences handed to the settings rows carried the density alone, so any session refresh that reseeded the overlay — which happens on every projection update — redrew the parts the reader had just hidden as `shown`. The document now travels whole, deltas included.
 
 - The `Path` row in Settings is labelled `Path` again instead of printing its own description at full width across the row.
-
-### Fixed
 
 - Diff line numbers no longer step sideways down a hunk. The gutter carried the old and the new number in two sub-columns, so a removal printed its number in the left one and the addition under it in the right one; with one digit each that read as a rendering fault. Each row now states one number on one column — the side it belongs to.
 
@@ -155,6 +161,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Every terminal mode omdsh enables — bracketed paste, focus and mouse reporting, and the keyboard protocol — is given back while `Ctrl+Z` or an external editor owns the terminal, and when the process exits without shutting down cleanly, so the shell and the editor receive their usual input.
 
 - Closing the terminal window shuts omdsh down cleanly — the session is saved and terminal handlers run — instead of the process being killed by SIGHUP.
+
 ## [0.21.0] - 2026-10-19
 
 ### Added
@@ -778,7 +785,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.18.0...v0.19.0

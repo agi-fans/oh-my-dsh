@@ -469,7 +469,7 @@ function foldEvent(
       // the model already knows the content, so a transcript that hides it
       // diverges from what the model can refer to. Resuming such a session would
       // show an answer whose cause is missing. Notices raised by a plugin —
-      // shared Shell output, a side question, an external advisor's opinion —
+      // shared Shell output, a side question, an external model's opinion —
       // therefore render as their own row rather than as a human prompt.
       const source = event.data.source
       if ('form' in source && source.form === 'notice') {

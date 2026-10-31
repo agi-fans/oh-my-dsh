@@ -28,10 +28,6 @@
     "omdsh": "lib/bin.js"
   },
   "exports": {
-    "./advisor": {
-      "types": "./lib/advisor.d.ts",
-      "default": "./lib/advisor.js"
-    },
     "./credential-migration": {
       "types": "./lib/credential-migration.d.ts",
       "default": "./lib/credential-migration.js"
