@@ -33,46 +33,41 @@ const logoRows = [
     <i class="td-dot td-dot-green"></i>
   </div>
   <div class="td-screen">
-    <section class="td-welcome">
-      <span class="td-welcome-title">omdsh v{version}</span>
-      <div class="td-identity">
-        <strong>Into the Unknown</strong>
-        <div class="td-logo">
-          {
-            logoRows.map((cells) => (
-              <span class="td-logo-row">
-                {cells.map((cell) => <i class="td-logo-cell" style={{ color: cell.color }}>{cell.character}</i>)}
-              </span>
-            ))
-          }
-        </div>
-        <div class="td-model">deepseek-flash</div>
-        <div class="td-reasoning">max</div>
+    <section class="td-header">
+      <div class="td-logo">
+        {
+          logoRows.map((cells) => (
+            <span class="td-logo-row">
+              {cells.map((cell) => <i class="td-logo-cell" style={{ color: cell.color }}>{cell.character}</i>)}
+            </span>
+          ))
+        }
       </div>
-      <div class="td-welcome-content">
-        <div class="td-section td-tips">
-          <strong>Tips</strong>
-          <div class="td-tip"><span>/</span><span>Browse available commands</span></div>
-          <div class="td-tip"><span>/resume</span><span>Continue a durable session</span></div>
-          <div class="td-tip"><span>Ctrl+R</span><span>Search and reuse prompt history</span></div>
-          <div class="td-tip"><span>↓ / Alt+A</span><span>Open the keyboard-driven Agent Hub</span></div>
-        </div>
-        <div class="td-section td-recent">
-          <strong>Recent sessions</strong>
-          <div>review the current changes <span>(just now)</span></div>
-          <div>improve terminal rendering <span>(8m ago)</span></div>
-          <div>prepare the next release <span>(1h ago)</span></div>
-        </div>
+      <div class="td-wordmark">
+        <span class="td-name">oh-my-dsh <em>v{version}</em></span>
+        <span class="td-slogan">Into the Unknown</span>
       </div>
     </section>
+    <p class="td-tips">
+      <b>Tips:</b>
+      <span><kbd>/</kbd> commands</span><i>·</i>
+      <span><kbd>@</kbd> files</span><i>·</i>
+      <span><kbd>!</kbd> shell</span><i>·</i>
+      <span><kbd>/help</kbd> all shortcuts</span>
+    </p>
     <div class="td-transcript">
       <div class="td-user-message" data-td-user hidden></div>
       <div class="td-response" data-td-response></div>
     </div>
-    <div class="td-composer">
-      <span class="td-composer-label">🐳</span>
-      <span class="td-access">full access</span>
-      <span data-td-prompt></span><i class="td-caret" data-td-caret></i>
+    <div class="td-editor">
+      <div class="td-rule">
+        <span class="td-editor-label">🐳</span>
+        <span class="td-access">full access</span>
+      </div>
+      <div class="td-input">
+        <span data-td-prompt></span><i class="td-caret" data-td-caret></i>
+      </div>
+      <div class="td-rule td-rule-foot"></div>
     </div>
     <footer class="td-footer">
       <div class="td-footer-row">
@@ -192,44 +187,22 @@ const logoRows = [
 
 .td-screen { padding: 12px 13px 10px; }
 
-.td-welcome {
-  position: relative;
-  display: grid;
-  grid-template-columns: 31% 69%;
-  min-height: 168px;
-  border: 1px solid #363843;
-  border-radius: 2px;
-}
-
-.td-welcome-title {
-  position: absolute;
-  top: 0;
-  left: 14px;
-  z-index: 1;
-  padding: 0 7px;
-  color: #696b77;
-  background: #101016;
-  transform: translateY(-55%);
-}
-
-.td-identity {
+/*
+ * The header is the lockup the TUI draws: the mark, then the wordmark and the
+ * slogan centred against it, then one hint line. It is deliberately not a card
+ * with a border, a tips table and a session list — that panel was thirteen rows
+ * of a reader's first screen, and it is gone from the product too.
+ * Mirror of `renderWelcome` in packages/tui/omdsh-tui/src/chrome/box.ts.
+ */
+.td-header {
   display: flex;
-  min-width: 0;
-  padding: 13px 10px 8px;
-  flex-direction: column;
+  gap: 3ch;
   align-items: center;
-  border-right: 1px solid #363843;
-}
-
-.td-identity strong {
-  align-self: center;
-  color: #d3d2d6;
-  text-align: center;
+  padding: 6px 0 0;
 }
 
 .td-logo {
   display: grid;
-  margin: 15px 0 8px;
   font-family: Menlo, Monaco, 'DejaVu Sans Mono', monospace;
   font-size: 9.5px;
   line-height: 1;
@@ -253,57 +226,47 @@ const logoRows = [
   transform-origin: center;
 }
 
-.td-model,
-.td-reasoning {
-  max-width: 100%;
-  overflow: hidden;
-  color: #6d6f79;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.td-reasoning { margin-top: 2px; }
-
-.td-welcome-content {
+.td-wordmark {
   display: grid;
+  gap: 1px;
   min-width: 0;
-  grid-template-rows: auto 1fr;
 }
 
-.td-section {
-  min-width: 0;
-  padding: 10px 9px;
-  overflow: hidden;
+.td-name {
+  color: #d3d2d6;
+  font-weight: 700;
 }
 
-.td-section strong {
-  display: block;
-  margin-bottom: 4px;
+.td-name em {
+  color: #6d6f79;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.td-slogan { color: #8a8c96; }
+
+.td-tips {
+  display: flex;
+  margin: 10px 0 0;
+  gap: 0.5ch;
+  flex-wrap: wrap;
+  color: #8a8c96;
+}
+
+.td-tips b {
+  margin-right: 0.5ch;
   color: #f0a818;
 }
 
-.td-tips { border-bottom: 1px solid #363843; }
-
-.td-tip {
-  display: grid;
-  grid-template-columns: 112px 1fr;
-  color: #646672;
-}
-
-.td-tip span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.td-recent div {
-  overflow: hidden;
+.td-tips kbd {
   color: #6d6f79;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font: inherit;
 }
 
-.td-recent span { color: #50525d; }
+.td-tips i {
+  color: #565863;
+  font-style: normal;
+}
 
 .td-transcript {
   min-height: 155px;
@@ -326,29 +289,50 @@ const logoRows = [
 .td-response :global(.td-muted) { color: #6b7280; }
 .td-response :global(.td-answer) { color: #d7d6d9; }
 
-.td-composer {
+/*
+ * The composer is ruled above and below, not boxed: the label sits inside the
+ * top rule and the Access badge closes it on the right. Mirror of
+ * `renderEditor` in the same file.
+ */
+.td-editor {
   position: relative;
-  min-height: 43px;
-  padding: 13px 11px 8px;
   color: #dedde0;
-  border: 1px solid #17627a;
-  border-radius: 2px;
 }
 
-.td-composer-label,
+.td-rule {
+  position: relative;
+  height: 0;
+  border-top: 1px solid #363843;
+}
+
+.td-rule-foot { border-top-color: #363843; }
+
+.td-editor-label,
 .td-access {
   position: absolute;
-  top: 0;
+  bottom: 0;
   padding: 0 7px;
   background: #101016;
-  transform: translateY(-55%);
+  line-height: 1;
+  transform: translateY(50%);
+  white-space: nowrap;
 }
 
-.td-composer-label { left: 8px; }
+/* The mark is a glyph in the rule, so it needs its own size: the terminal draws
+   it at text size, but 10px leaves an emoji with no room for its own detail. */
+.td-editor-label {
+  left: 12px;
+  font-size: 13px;
+}
 
 .td-access {
-  right: 8px;
+  right: 6px;
   color: #ff5364;
+}
+
+.td-input {
+  min-height: 24px;
+  padding: 5px 11px 6px;
 }
 
 .td-caret {
@@ -397,21 +381,18 @@ const logoRows = [
   }
 
   .td-screen { padding: 10px; }
-  .td-welcome { grid-template-columns: 38% 62%; }
-  .td-tip { grid-template-columns: 74px 1fr; }
+  .td-header { gap: 2ch; }
   .td-transcript { min-height: 132px; padding-bottom: 18px; }
   .td-footer-row span:last-child { overflow: hidden; text-overflow: ellipsis; }
 }
 
 @media (max-width: 430px) {
   .td-chrome { height: 24px; }
-  .td-welcome { min-height: 150px; }
-  .td-identity { padding-inline: 5px; }
-  .td-logo { margin-block: 13px 7px; font-size: 7px; }
-  .td-section { padding: 8px 7px; }
-  .td-tip { grid-template-columns: 60px 1fr; }
-  .td-tip:nth-of-type(4),
-  .td-recent div:nth-of-type(3) { display: none; }
+  .td-logo { font-size: 7px; }
+  /* The hint line keeps its lead and its first two hints; the rest is what a
+     narrow terminal drops too. */
+  .td-tips i:nth-of-type(n + 3),
+  .td-tips span:nth-of-type(n + 3) { display: none; }
   .td-transcript { min-height: 126px; padding: 14px 0 16px; }
   .td-response { gap: 7px; padding-inline: 8px; }
   .td-footer-row:first-child span:last-child,
