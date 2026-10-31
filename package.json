@@ -2,7 +2,7 @@
   "name": "oh-my-dsh",
   "private": true,
   "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "license": "MIT",
   "homepage": "https://omdsh.agi.fans/",
   "repository": {
@@ -27,6 +27,8 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "sync:package-readme": "node scripts/sync-package-readme.mjs",
     "omdsh": "pnpm -r build && pnpm --dir apps/omdsh omdsh",
+    "docs:dev": "pnpm --dir apps/site dev",
+    "docs:preview": "pnpm --dir apps/site build && pnpm --dir apps/site preview",
     "smoke": "node scripts/pty-smoke.mjs && node scripts/pty-modes-smoke.mjs && node scripts/pty-inspect-smoke.mjs",
     "smoke:interrupt": "node scripts/stream-interrupt-smoke.mjs",
     "smoke:happy": "node scripts/happy-smoke.mjs"
