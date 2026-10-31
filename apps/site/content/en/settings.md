@@ -109,13 +109,15 @@ Rows that back a command (`session-query` backs `/resume`, `workspace` backs `@`
 | Row | Values | Default | Effect |
 |---|---|---|---|
 | Telemetry | on / off | on | Show session metrics on the second footer line; model and workspace metadata remain visible. |
-| Density | minimal / standard / verbose | standard | How much the footer says. `minimal` keeps occupancy and cost with `Ctx` labels; `standard` shows every telemetry group with `Ctx`; `verbose` uses long labels (`Context`) and the detailed context form. |
+| Density | minimal / standard / verbose | standard | How much the second footer line says. `minimal` keeps occupancy — Context and Cache — with `Ctx` labels; `standard` adds Latency (`TTFT`); `verbose` adds Tokens, Time and Activity with long labels (`Context`) and the detailed context form. |
 
-`Space` on any footer part shows or hides it, and the choice keeps applying across densities. **Restore layout** confirms restoration of the inherited density and visibility.
+`Space` on any footer part shows or hides it: hiding is a statement about that number, so it survives a density change, while the parts the density itself decides are left alone. **Restore layout** confirms restoration of the inherited density and visibility.
 
-Every part has a fixed place, and there is nothing to drag: a row says only whether that part appears. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, because the terminal window title carries the session title regardless. The second line lists Context (`Ctx 1.6%`), Cache (`Cache 99%`), Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`), and Activity (`3 turns`), in that order at every density.
+Every part has a fixed place, and there is nothing to drag: a row says only whether that part appears. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, because the terminal window title carries the session title regardless.
 
-The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Ctx 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal complete groups are taken in catalog order, so a group that does not fit is skipped and a smaller later group can still appear; nothing moves to a second column or changes place as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
+The second line answers two questions from opposite edges. Occupancy holds the left: Context (`Ctx 1.6%`) and Cache (`Cache 99%`) say how full the window is and how much of it was already known. Cost holds the right: Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`) and Activity (`3 turns`) say what the session has spent getting here. The two sides do not swap, so the same number is in the same place from one session to the next.
+
+The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Context 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal the visible set is a prefix of the catalog: fitting drops the last group, so Activity goes before Time, Time before Latency, and nothing reappears out of order as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
 
 ## Persistence
 

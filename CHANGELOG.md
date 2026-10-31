@@ -97,6 +97,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- The status footer puts occupancy back on the left and cost on the right. `Ctx` and `Cache` hold the left edge; Tokens, Latency, Time and Activity answer from the right, so the same number sits in the same place from session to session instead of the whole row running from the left margin.
+
+- The densities are cumulative again. `minimal` is occupancy (Context and Cache), `standard` adds latency (`TTFT · tok/s`), and `verbose` adds Tokens, Time and Activity with long labels and the detailed context form. On a narrow terminal the visible set is now a prefix of that order: Activity goes before Time, and Time before Latency, rather than a wider group being skipped so a narrower one behind it could fit.
+
+- `Space` on a footer part no longer changes a different part's behaviour. Toggling one took the rendered footer and stored everything it did not show as an explicit hiding, so afterwards `verbose` showed exactly what `standard` had — one switch silently freezing another. Hiding is now a delta from the density, and adding a part the density omits is its own delta, so `Space` on a part the density leaves out finally does something.
+
+### Fixed
+
 - Diff line numbers no longer step sideways down a hunk. The gutter carried the old and the new number in two sub-columns, so a removal printed its number in the left one and the addition under it in the right one; with one digit each that read as a rendering fault. Each row now states one number on one column — the side it belongs to.
 
 - A step's duration stays on its own line. The padding was counted in string length, so a CJK step label — one character, two cells — pushed the duration onto the next row.

@@ -54,13 +54,28 @@ export type StatusContextStyle = (typeof STATUS_CONTEXT_STYLES)[number]
 export const STATUS_DENSITIES = ['minimal', 'standard', 'verbose'] as const
 export type StatusDensity = (typeof STATUS_DENSITIES)[number]
 
+/**
+ * Groups that belong on the left, because they read as one figure: how much of
+ * the window is used, and how much of what was sent was already known.
+ *
+ * The rest of the row is latency, duration and activity — what the session has
+ * spent and how far it has got — and they sit against the right edge, so the
+ * row states occupancy on one side and cost on the other.
+ */
+export const STATUS_LEFT_GROUPS: readonly StatusGroupId[] = ['context', 'cache']
+
+/** Which side of the second line a group is drawn on. */
+export function statusGroupSide(id: StatusGroupId): 'left' | 'right' {
+  return STATUS_LEFT_GROUPS.includes(id) ? 'left' : 'right'
+}
+
 /** Which groups each density shows, in footer order. */
 export const DENSITY_GROUPS: Readonly<Record<StatusDensity, readonly StatusGroupId[]>> = {
-  /** Occupancy and cost only: the two numbers that decide whether to keep going. */
-  minimal: ['context', 'tokens'],
-  /** Every telemetry group, with short labels. */
-  standard: [...STATUS_GROUP_IDS],
-  /** Every group with full labels and the detailed context form. */
+  /** Occupancy only: how full the window is and how much of it came from cache. */
+  minimal: ['context', 'cache'],
+  /** Adds latency — the first number that says a turn feels slow rather than long. */
+  standard: ['context', 'cache', 'speed'],
+  /** Every group, with full labels and the detailed context form. */
   verbose: [...STATUS_GROUP_IDS],
 }
 
@@ -98,8 +113,17 @@ export const DEFAULT_STATUS_DENSITY: StatusDensity = 'standard'
  */
 export interface StatusBarConfig {
   density: StatusDensity
-  /** Pieces hidden on top of what the density shows. */
+  /** Pieces the reader hid, on top of what the density shows. */
   hidden: StatusItemId[]
+  /**
+   * Pieces the reader added beyond what the density shows.
+   *
+   * Without this, a part the density omits could not be turned on at all: `Space`
+   * on it was a no-op, while the row still said `hidden` — a control that looked
+   * broken. Positive and negative narrowing are both deltas from the density, so
+   * changing the density still changes everything the reader has not overruled.
+   */
+  shown: StatusItemId[]
 }
 
 /** A status-line document, including every field earlier releases wrote. */
@@ -189,13 +213,30 @@ export function resolveStatusBarConfig(
    * field, so an old document arrives here already looking current, while the
    * layout arrays only exist on an old one.
    */
+  const enabled = typeof config.enabled === 'boolean' ? config.enabled : fallback.enabled
+  return expand(density, { enabled, hidden: statusNarrowing(config, density), shown: statusAdditions(config) })
+}
+
+/**
+ * What a stored document asks to hide, relative to its density.
+ *
+ * Exported because writing the document back needs the same reading: a caller
+ * that reconstructed the narrowing from the *rendered* footer instead would turn
+ * every part its density happens to omit into a permanent hiding, and changing
+ * the density afterwards would no longer restore them.
+ */
+export function statusNarrowing(config: StatusBarInput | undefined, density: StatusDensity): StatusItemId[] {
+  if (config === undefined) return []
   const legacyLayout = config.groups !== undefined || config.meta !== undefined
     || config.order !== undefined || config.metaOrder !== undefined
-  const hidden = legacyLayout
+  return legacyLayout
     ? legacyHidden(config, density)
     : [...new Set((config.hidden ?? []).filter(isStatusItemId))]
-  const enabled = typeof config.enabled === 'boolean' ? config.enabled : fallback.enabled
-  return expand(density, { enabled, hidden })
+}
+
+/** What a stored document adds beyond its density. */
+export function statusAdditions(config: StatusBarInput | undefined): StatusItemId[] {
+  return [...new Set((config?.shown ?? []).filter(isStatusItemId))]
 }
 
 /** What an earlier release's explicit lists hid, expressed as a narrowing. */
@@ -224,19 +265,24 @@ export function isResolvedStatusBarConfig(
     && typeof (config as ResolvedStatusBarConfig).enabled === 'boolean'
 }
 
-/** Expand one density plus its narrowings into the renderer's view. */
+/** Expand one density plus its deltas into the renderer's view. */
 function expand(
   density: StatusDensity,
-  options: { enabled: boolean; hidden: readonly StatusItemId[] },
+  options: { enabled: boolean; hidden: readonly StatusItemId[]; shown?: readonly StatusItemId[] },
 ): ResolvedStatusBarConfig {
   const hidden = new Set(options.hidden)
+  const shown = new Set(options.shown ?? [])
+  // Catalog order, so a part the reader added sits where its family sits rather
+  // than at the end of the row where it would move every time it is toggled.
+  const visible = <T extends StatusItemId>(catalog: readonly T[], base: readonly T[]): T[] =>
+    catalog.filter(id => (base.includes(id) || shown.has(id)) && !hidden.has(id))
   return {
     density,
     enabled: options.enabled,
     labels: DENSITY_LABELS[density],
     contextStyle: DENSITY_CONTEXT[density],
-    groups: DENSITY_GROUPS[density].filter(id => !hidden.has(id)),
-    meta: DENSITY_META[density].filter(id => !hidden.has(id)),
+    groups: visible(STATUS_GROUP_IDS, DENSITY_GROUPS[density]),
+    meta: visible(STATUS_META_IDS, DENSITY_META[density]),
   }
 }
 
@@ -245,16 +291,24 @@ export function statusItemVisible(config: ResolvedStatusBarConfig, id: StatusIte
   return isStatusMetaId(id) ? config.meta.includes(id) : config.groups.includes(id)
 }
 
-/** The same document with one part turned on or off. */
+/**
+ * The same document with one part turned on or off.
+ *
+ * Both directions are deltas from the density, so a part the density omits can
+ * be added and a part it includes can be removed, without either one rewriting
+ * the other's state.
+ */
 export function toggleStatusItem(config: StatusBarConfig, id: StatusItemId): StatusBarConfig {
-  const expansion = expand(isStatusDensity(config.density) ? config.density : DEFAULT_STATUS_DENSITY, {
-    enabled: true, hidden: (config.hidden ?? []).filter(isStatusItemId),
-  })
-  const visible = statusItemVisible(expansion, id)
+  const density = isStatusDensity(config.density) ? config.density : DEFAULT_STATUS_DENSITY
   const hidden = new Set((config.hidden ?? []).filter(isStatusItemId))
-  // Hiding it adds to the narrowing; showing it removes the narrowing, and the
-  // density decides again whether that part belongs at all.
-  if (visible) hidden.add(id)
-  else hidden.delete(id)
-  return { ...config, hidden: [...hidden] }
+  const shown = new Set((config.shown ?? []).filter(isStatusItemId))
+  const visible = statusItemVisible(expand(density, { enabled: true, hidden: [...hidden], shown: [...shown] }), id)
+  if (visible) {
+    hidden.add(id)
+    shown.delete(id)
+  } else {
+    shown.add(id)
+    hidden.delete(id)
+  }
+  return { ...config, hidden: [...hidden], shown: [...shown] }
 }

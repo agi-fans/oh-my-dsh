@@ -13,7 +13,9 @@ import {
   STATUS_ITEM_IDS,
   isStatusItemId,
   resolveStatusBarConfig,
+  statusAdditions,
   statusItemVisible,
+  statusNarrowing,
   toggleStatusItem,
   type ResolvedStatusBarConfig,
   type StatusBarConfig,
@@ -158,12 +160,12 @@ const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: strin
   path: { label: 'Workspace path on the first footer line. ', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
   git: { label: 'Git', description: `Git branch on the first footer line. A dirty worktree stays warning. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
   session: { label: 'Session', description: `Folded session title on the first footer line. Off at Standard and Minimal; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
-  context: { label: 'Context', description: `Context occupancy; choose its representation in Context style. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
-  cache: { label: 'Cache', description: `Prompt-cache hit rate. Cache-hit percentages stay on the success color. ${STATUS_ITEM_CONTROLS}`, sample: 'Cache 99%' },
-  tokens: { label: 'Tokens', description: `Input and output token counts. ${STATUS_ITEM_CONTROLS}`, sample: '5.9M in' },
-  speed: { label: 'Latency', description: `First-token latency and decode rate. ${STATUS_ITEM_CONTROLS}`, sample: 'TTFT 1.2s' },
-  durations: { label: 'Time', description: `LLM and tool duration. ${STATUS_ITEM_CONTROLS}`, sample: 'LLM 16m51s' },
-  counts: { label: 'Activity', description: `Turn and step counts. ${STATUS_ITEM_CONTROLS}`, sample: '3 turns' },
+  context: { label: 'Context', description: `Context occupancy, on the left of the second line. Its representation follows the density. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
+  cache: { label: 'Cache', description: `Prompt-cache hit rate, beside occupancy on the left. Cache-hit percentages stay on the success color. ${STATUS_ITEM_CONTROLS}`, sample: 'Cache 99%' },
+  tokens: { label: 'Tokens', description: `Input and output token counts, on the right with the other cost figures. ${STATUS_ITEM_CONTROLS}`, sample: '5.9M in' },
+  speed: { label: 'Latency', description: `First-token latency and decode rate, on the right. ${STATUS_ITEM_CONTROLS}`, sample: 'TTFT 1.2s' },
+  durations: { label: 'Time', description: `LLM and tool duration, on the right. ${STATUS_ITEM_CONTROLS}`, sample: 'LLM 16m51s' },
+  counts: { label: 'Activity', description: `Turn and step counts, on the right. ${STATUS_ITEM_CONTROLS}`, sample: '3 turns' },
 }
 
 
@@ -307,13 +309,13 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
     {
       id: 'statusDensity',
       label: 'Density',
-      description: 'Minimal shows occupancy and cost; Standard adds cache, latency, durations and activity; Verbose uses long labels and the detailed context form',
+      description: 'Minimal shows occupancy and cache; Standard adds latency; Verbose adds tokens, durations and activity, with long labels and the detailed context form',
       value: statusBar.density,
       values: STATUS_DENSITIES,
     },
 
-    // Everything is drawn in one fixed order, so the rows below are a list of
-    // what appears rather than a layout to assemble: Space shows or hides, and
+    // Each part has one fixed place, so the rows below are a list of what
+    // appears rather than a layout to assemble: Space shows or hides, and
     // nothing has to be dragged into a column.
     ...STATUS_ITEM_IDS.map(id => statusItemRow(statusBar, id)),
   ]
@@ -395,17 +397,19 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
 }
 
 /**
- * The stored document, with `enabled` folded in.
+ * The document as it stands, ready for one edit.
  *
- * `enabled` is not part of the persisted shape any more — hiding telemetry is
- * just another narrowing — but the row that toggles it still exists, so it is
- * read here as the `groups`-all-hidden case and written back the same way.
+ * The narrowing is read from the *stored* document, not reconstructed from what
+ * the footer is showing. Reconstructing it turned every part the density happens
+ * to omit into an explicit hiding: pressing Space on one row then silently made
+ * a different density show less, which is the drift this replaced.
  */
 function storedStatusBar(prefs: TuiPrefs): StatusBarConfig & { enabled?: boolean } {
   const resolved = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
   return {
     density: resolved.density,
-    hidden: STATUS_ITEM_IDS.filter(id => !statusItemVisible(resolved, id)),
+    hidden: statusNarrowing(prefs.statusBar, resolved.density),
+    shown: statusAdditions(prefs.statusBar),
     enabled: resolved.enabled,
   }
 }

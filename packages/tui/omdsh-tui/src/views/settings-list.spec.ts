@@ -12,7 +12,7 @@ import { createTheme } from '../chrome/theme.ts'
 import { defaultFeatureStates } from '../session/feature-toggles.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { visibleWidth } from '../chrome/width.ts'
-import { STATUS_ITEM_IDS } from '../chrome/status-config.ts'
+import { resolveStatusBarConfig, STATUS_ITEM_IDS } from '../chrome/status-config.ts'
 
 const theme = createTheme(false)
 const key = (id: string): KeyEvent => ({ type: 'key', id })
@@ -470,8 +470,10 @@ describe('renderSettings', () => {
     expect(status).toContain('~/project')
     const wide = renderSettings(createSettings(prefs, 'statusItem:git'), theme, 120, 20).lines.join('\n')
     expect(wide).toMatch(/deepseek · max\s+~\/project · main \*1/)
-    expect(wide).toContain('Tools 3m33s')
-    expect(wide).not.toMatch(/main \*1…|Tools…/u)
+    // The preview draws the density's own row, so `standard` shows latency and
+    // not the durations that arrive with `verbose`.
+    expect(wide).toContain('TTFT 1.2s')
+    expect(wide).not.toMatch(/main \*1…|TTFT…/u)
     const textPreview = renderSettings(createSettings(prefs, 'statusItem:context'), theme, 120, 14).lines.join('\n')
     expect(textPreview).toContain('Ctx 1.6%')
   })
@@ -495,6 +497,29 @@ describe('renderSettings', () => {
     expect(view).toContain('Activity')
     expect(view).toContain('Space show/hide')
   })
+  it('keeps one footer switch from rewriting what another one decides', () => {
+    // The reported drift: turning a part off stored the whole visible set as a
+    // narrowing, so a later density change showed nothing new — one switch had
+    // silently frozen another.
+    const hidden = applySettingValue(prefs, 'statusItem:cache', 'hidden')
+    expect(resolveStatusBarConfig(hidden.statusBar).groups).toEqual(['context', 'speed'])
+    const wider = applySettingValue(hidden, 'statusDensity', 'verbose')
+    expect(resolveStatusBarConfig(wider.statusBar).groups)
+      .toEqual(['context', 'tokens', 'speed', 'durations', 'counts'])
+    // The part the reader did hide stays hidden at the wider density.
+    expect(resolveStatusBarConfig(wider.statusBar).groups).not.toContain('cache')
+  })
+
+  it('lets a part its density omits be turned on', () => {
+    // `standard` leaves activity out, so the row read `hidden` while `Space` on
+    // it changed nothing. It is an addition now, and the row says so.
+    const added = applySettingValue(prefs, 'statusItem:counts', 'shown')
+    expect(tuiSettingItems(added).find(item => item.id === 'statusItem:counts')?.value).toBe('shown')
+    expect(resolveStatusBarConfig(added.statusBar).groups).toEqual(['context', 'cache', 'speed', 'counts'])
+    const removedAgain = applySettingValue(added, 'statusItem:counts', 'hidden')
+    expect(tuiSettingItems(removedAgain).find(item => item.id === 'statusItem:counts')?.value).toBe('hidden')
+  })
+
   it('marks the selected row with the cursor glyph', () => {
     const selected = renderSettings(createSettings(prefs, 'colors'), theme, 40).lines.join('\n')
     expect(selected).toContain('❯')

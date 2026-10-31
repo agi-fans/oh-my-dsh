@@ -120,6 +120,10 @@ export interface TuiSettings {
 const STATUS_BAR_SCHEMA: z<any, any, any> = z.object({
   density: z.union([...STATUS_DENSITIES]).default('standard'),
   hidden: z.array(z.union([...STATUS_ITEM_IDS])).default([]),
+  // Parts added beyond the density. Declared so the document survives validation:
+  // `z.object` drops keys it does not know, which would make the reader's choice
+  // look like it applied and then vanish on the next load.
+  shown: z.array(z.union([...STATUS_ITEM_IDS])).default([]),
   // Read once by the resolver, never written. A profile that still carries the
   // old layout keeps working and is reduced to a density on the next edit; the
   // fields stay declared because a schema that rejected them would fail the

@@ -13,6 +13,7 @@ import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
   isResolvedStatusBarConfig,
   resolveStatusBarConfig,
+  statusGroupSide,
   type ResolvedStatusBarConfig,
   type StatusBarInput,
   type StatusGroupId,
@@ -224,30 +225,34 @@ function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[])
 }
 
 /**
- * Select whole groups in user order, then place each on its configured column.
- * A group that does not fit both columns is skipped so a later, narrower group
- * can still use the free columns; configured order and column sides are never
- * rearranged, so only the visible set changes with width.
- */
-/**
- * Fit as many groups as the row holds, in catalog order.
+ * Fit the row, occupancy on the left and cost on the right.
  *
- * Groups are no longer assigned to a column: the second line is one row that
- * fills and then stops, so the reader sees the highest-priority numbers and
- * nothing rearranges when the terminal grows. A group that does not fit is
- * skipped rather than moving to the other column, so a smaller later group can
- * still appear — the degradation order stays the priority order.
+ * A group's side is fixed by what it says, not by the order it arrived in:
+ * context and cache describe how full the window is and read as one figure, and
+ * everything else is what the session has spent getting here. Placing them by
+ * side keeps the two halves comparable row to row, which is what the row is for.
+ *
+ * The list already arrives in priority order, so fitting drops from the end: the
+ * reader loses turn counts before durations, and durations before latency. That
+ * is the same priority `AGENTS.md` states, and it means the visible set is always
+ * a prefix — nothing reappears out of order as the terminal grows.
  */
 function selectFooterGroups(
   groups: readonly StatusGroup[],
-  width: number,
+  /** Cells available inside the footer's horizontal inset, not the row width. */
+  innerWidth: number,
 ): { left: StatusGroup[]; right: StatusGroup[] } {
-  const left: StatusGroup[] = []
-  for (const group of groups) {
-    if (splitWidth([...left, group], []) > width) continue
-    left.push(group)
+  const split = (visible: readonly StatusGroup[]): { left: StatusGroup[]; right: StatusGroup[] } => ({
+    left: visible.filter(group => statusGroupSide(group.id) === 'left'),
+    right: visible.filter(group => statusGroupSide(group.id) === 'right'),
+  })
+  let visible = [...groups]
+  while (visible.length > 0) {
+    const { left, right } = split(visible)
+    if (splitWidth(left, right) <= innerWidth) return { left, right }
+    visible = visible.slice(0, -1)
   }
-  return { left, right: [] }
+  return { left: [], right: [] }
 }
 
 function renderSplitRow(left: string, right: string, width: number): string {

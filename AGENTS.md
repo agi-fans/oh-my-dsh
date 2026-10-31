@@ -41,7 +41,9 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - The startup header uses the DeepSeek logo and the slogan `Into the Unknown`. Preserve the logo's source aspect ratio and distinctive top detail when converting it for terminal cells.
 - The composer uses `🐳` as its only label. Keep a fixed, unframed two-line status footer directly below it: model/reasoning and workspace/Git metadata on the first line, customizable session telemetry on the second.
 - Status information is English until language support exists. Design strings so they can later move behind a language layer instead of being scattered through rendering code.
-- Telemetry priority is: cache, input/output tokens, and TTFT first; LLM/tool duration second; turns/steps last. Degrade from the lowest-priority group when terminal width is limited.
+- The second line answers two questions from opposite edges: occupancy on the left (context usage, cache hit rate) and cost on the right (tokens, TTFT, duration, turns). The sides do not swap, so a number stays where the reader last found it.
+- Telemetry priority is: cache, input/output tokens, and TTFT first; LLM/tool duration second; turns/steps last. Degrade from the lowest-priority group when terminal width is limited, so the visible set is always a prefix of that order and nothing reappears out of order as the terminal grows.
+- Densities are cumulative: `minimal` is occupancy, `standard` adds latency, `verbose` adds the rest with long labels. A per-part toggle is a delta from the density — hiding one part must never freeze what the density decides for another.
 - Status values should be derived from Harness projections such as session stats and token metering, not duplicated counters invented by the TUI.
 - Ordinary notices such as session resume confirmation should not be wrapped in an unexplained box. Use borders only when they communicate a real component boundary or interaction state.
 - Assistant replies and tool output must have deliberate horizontal padding and must not touch transcript borders.

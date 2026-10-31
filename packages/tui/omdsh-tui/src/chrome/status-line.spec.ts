@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { TuiSessionStats } from '../definition.ts'
-import { DEFAULT_STATUS_DENSITY, resolveStatusBarConfig, STATUS_CONTEXT_STYLES, STATUS_ITEM_IDS, type ResolvedStatusBarConfig, type StatusBarConfig, type StatusContextStyle } from './status-config.ts'
+import {
+  DEFAULT_STATUS_DENSITY,
+  resolveStatusBarConfig,
+  statusItemVisible,
+  STATUS_CONTEXT_STYLES,
+  STATUS_ITEM_IDS,
+  toggleStatusItem,
+  type ResolvedStatusBarConfig,
+  type StatusBarConfig,
+  type StatusContextStyle,
+} from './status-config.ts'
 import {
   formatDuration,
   formatTokens,
@@ -65,7 +75,9 @@ function footerRows(width: number): string[] {
     pwd: '~/Workspace/dsh-tui',
     branch: 'main *3',
     stats,
-    config: statusBar(),
+    // Every group is only on the row at `verbose`; the narrower densities are
+    // about occupancy and latency, so a table of all five needs the widest one.
+    config: statusBar({ density: 'verbose' }),
     width,
   }, createTheme(false))
 }
@@ -90,6 +102,9 @@ const TELEMETRY_GROUPS = [
 /**
  * Degradation expected at each width, stated from the configured order and the
  * measured group sizes rather than read back from the selection code.
+ *
+ * The visible set is always a prefix of the catalog: fitting drops the last
+ * group, so a narrow footer shows occupancy and then as much cost as fits.
  */
 const FOOTER_WIDTH_CASES: ReadonlyArray<{
   width: number
@@ -103,15 +118,18 @@ const FOOTER_WIDTH_CASES: ReadonlyArray<{
   { width: 50, first: ['deepseek-v4-pro', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: false },
   { width: 60, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
   { width: 70, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
-  // durations fills 24 cells and does not fit the 76 inner columns, while the
-  // narrower counts group fills 17, so counts takes the free right column.
-  { width: 80, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 4], clipped: false },
-  // At 100 the wider durations group fits first and counts no longer does: the
-  // visible set is allowed to change with width.
+  // 78 cells of content need an inner width of 78, which 80 columns does not
+  // leave once the two-cell insets are taken.
+  { width: 80, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
   { width: 100, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3], clipped: false },
   { width: 120, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
   { width: 200, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
 ]
+
+/** The telemetry row with its column gap written as a separate marker. */
+function twoColumnShape(line: string): string {
+  return stripAnsi(line).trim().replace(/\s{2,}/gu, '\u0000').replace(/\s+/gu, ' ')
+}
 
 describe('session status line', () => {
   it('keeps initialization telemetry visible with zero context usage', () => {
@@ -130,8 +148,10 @@ describe('session status line', () => {
       cacheWriteTokens: 0,
       contextWindow: 1_000_000,
     }
-    expect(telemetryGroups(initial)).toEqual([
-      'Ctx 0%',
+    // `standard` states occupancy and latency; activity arrives at `verbose`.
+    expect(telemetryGroups(initial)).toEqual(['Ctx 0%'])
+    expect(telemetryGroups(initial, statusBar({ density: 'verbose' }))).toEqual([
+      'Context 0% · 0/1M',
       '0 turns · 0 steps',
     ])
     expect(telemetryGroups(initial, statusBar())).toContain('Ctx 0%')
@@ -214,7 +234,7 @@ describe('session status line', () => {
   })
 
   it('formats concise English metric groups', () => {
-    expect(telemetryGroups(stats)).toEqual([
+    expect(telemetryGroups(stats, statusBar({ density: 'verbose' }))).toEqual([
       'Cache 99%',
       '5.9M in · 73.8K out',
       'TTFT 1.2s · 80 tok/s',
@@ -254,20 +274,41 @@ describe('session status line', () => {
     expect([formatDuration(59_990), formatDuration(3_599_999)]).toEqual(['1m', '1h'])
   })
 
-  it('keeps complete high-priority groups on a narrow terminal', () => {
-    const line = telemetryRow(stats, statusBar(), createTheme(false), 80)
+  it('keeps the highest-priority groups on a narrow terminal', () => {
+    const line = telemetryRow(stats, statusBar({ density: 'verbose' }), createTheme(false), 80)
     expect(line).toContain('Cache 99%')
     expect(line).toContain('5.9M in · 73.8K out')
     expect(line).toContain('TTFT 1.2s · 80 tok/s')
+    // Fitting drops from the end of the priority list: durations and activity go
+    // first, and a narrower group that comes after them does not jump the queue.
     expect(line).not.toContain('LLM 16m51s')
-    // The wide durations group does not fit and is skipped; the narrower counts
-    // group after it still gets the space, because the scan continues.
-    expect(line).toContain('1 turn · 74 steps')
+    expect(line).not.toContain('1 turn · 74 steps')
     expect(stripAnsi(line)).not.toContain('…')
     expect(visibleWidth(line)).toBeLessThanOrEqual(80)
   })
 
-  it('skips a telemetry group that does not fit so a narrower one can use the columns', () => {
+  it('states occupancy on the left and cost on the right', () => {
+    // The two halves answer different questions — how full the window is, and
+    // what the session spent getting here — so each keeps its side at every
+    // density instead of running as one chain from the left margin.
+    for (const [density, left, right] of [
+      ['minimal', 'Ctx 1.6% • Cache 99%', ''],
+      ['standard', 'Ctx 1.6% • Cache 99%', 'TTFT 1.2s · 80 tok/s'],
+      ['verbose', 'Context 1.6% · 16.4K/1M • Cache 99%', '5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
+        + ' • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps'],
+    ] as const) {
+      const line = renderStatusFooter({
+        model: 'm',
+        stats: { ...stats, contextTokens: 16_400, contextWindow: 1_000_000 },
+        config: statusBar({ density }),
+        width: 200,
+      }, createTheme(false))[1] ?? ''
+      const shape = stripAnsi(line).trim().replace(/\s{2,}/gu, '\u0000')
+      expect(shape, density).toBe(right === '' ? left : `${left}\u0000${right}`)
+    }
+  })
+
+  it('fills the row and stops, keeping the groups that came first', () => {
     for (const testCase of FOOTER_WIDTH_CASES) {
       const label = `${testCase.width} columns`
       const lines = footerRows(testCase.width)
@@ -281,13 +322,11 @@ describe('session status line', () => {
         if (testCase.groups.includes(index)) expect(telemetry, label).toContain(group)
         else expect(telemetry, label).not.toContain(group)
       })
-      // The row is one line that fills and then stops, in catalog order, so a
-      // group that fits always sits where the catalog puts it — no second column
-      // to move into and no gap where a skipped group used to be.
-      const expected = testCase.groups
-        .map(index => TELEMETRY_GROUPS[index] ?? '')
-        .join(' • ')
-      expect(telemetry.trim().replace(/\s+/gu, ' '), label).toBe(expected)
+      // Occupancy on the left, cost on the right; within a side, catalog order.
+      const left = testCase.groups.filter(index => index === 0).map(index => TELEMETRY_GROUPS[index] ?? '')
+      const right = testCase.groups.filter(index => index !== 0).map(index => TELEMETRY_GROUPS[index] ?? '')
+      const expected = right.length === 0 ? left.join('') : `${left.join('')}\u0000${right.join(' • ')}`
+      expect(twoColumnShape(telemetry), label).toBe(expected)
       // A separator never precedes an ellipsis, and a clip only survives with a
       // readable prefix: a metadata item is shown whole, clipped, or not at all.
       expect(first, label).not.toMatch(/·\s*…/u)
@@ -317,16 +356,17 @@ describe('session status line', () => {
   })
 
   it('includes every group across the footer columns when space allows', () => {
-    const line = telemetryRow(stats, statusBar(), createTheme(false), 160)
-    // One row, every group, in order.
-    expect(stripAnsi(line)).toBe('Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
+    const line = telemetryRow(stats, statusBar({ density: 'verbose' }), createTheme(false), 160)
+    // One row: cache on the left, the four cost groups on the right.
+    expect(twoColumnShape(line)).toBe('Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
       + ' • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
     expect(line).not.toContain('轮')
     expect(line).not.toContain('缓存')
   })
 
   it('uses English singular labels', () => {
-    expect(telemetryGroups({ ...stats, turns: 1, steps: 1 })).toContain('1 turn · 1 step')
+    expect(telemetryGroups({ ...stats, turns: 1, steps: 1 }, statusBar({ density: 'verbose' })))
+      .toContain('1 turn · 1 step')
   })
 
   it('keeps minimal mode as an explicit telemetry opt-out', () => {
@@ -363,7 +403,7 @@ describe('session status line', () => {
     // Hiding is still a per-part decision; the order is not. A reader who keeps
     // three numbers sees them where they always are, so the footer cannot
     // reshuffle itself between one session and the next.
-    const custom = statusBar({ hidden: ['context', 'speed', 'durations'] })
+    const custom = statusBar({ density: 'verbose', hidden: ['context', 'speed', 'durations'] })
     expect(telemetryGroups(stats, custom)).toEqual([
       'Cache 99%',
       '5.9M in · 73.8K out',
@@ -382,17 +422,16 @@ describe('session status line', () => {
       pwd: '~/Workspace/dsh-tui',
       branch: 'main *6 ?4',
       stats,
-      config: statusBar(),
+      config: statusBar({ density: 'verbose' }),
       width: 140,
     }, createTheme(false))
 
     expect(lines).toHaveLength(2)
     expect(lines.every(line => visibleWidth(line) === 140)).toBe(true)
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek-v4-pro · max\s+~\/Workspace\/dsh-tui · main \*6 \?4  $/)
-    // Every group on one line: the second footer row no longer splits into
-    // columns, so the separator chain runs straight through.
-    expect(stripAnsi(lines[1] ?? '').trim()).toBe(
-      'Cache 99% • 5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
+    // Occupancy holds the left edge, cost the right.
+    expect(twoColumnShape(lines[1] ?? '')).toBe(
+      'Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
   })
 
   it('keeps collaboration and access controls visible in metadata', () => {
@@ -492,7 +531,7 @@ describe('session status line', () => {
       pwd: '~/Workspace/a-very-long-project-name',
       branch: 'main *6 ?4',
       stats,
-      config: statusBar(),
+      config: statusBar({ density: 'verbose' }),
       width: 76,
     }, createTheme(false))
     const telemetry = stripAnsi(narrow[1] ?? '')
@@ -550,7 +589,7 @@ describe('session status line', () => {
       pwd: '~/project',
       branch: 'main *1',
       stats,
-      config: statusBar(),
+      config: statusBar({ density: 'verbose' }),
       width: 120,
     }, createTheme(false))
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek · max\s+~\/project · main \*1  $/)
@@ -588,5 +627,48 @@ describe('session status line', () => {
       width: 80,
     }, createTheme(false))
     expect(stripAnsi(shown[0] ?? '')).toContain('Fix the parser')
+  })
+})
+
+describe('status densities', () => {
+  const withContext = { ...stats, contextTokens: 16_400, contextWindow: 1_000_000 }
+  const groupsAt = (density: 'minimal' | 'standard' | 'verbose'): string[] =>
+    telemetryGroups(withContext, statusBar({ density }))
+
+  it('states occupancy alone at minimal, adds latency at standard, and all at verbose', () => {
+    expect(groupsAt('minimal')).toEqual(['Ctx 1.6%', 'Cache 99%'])
+    expect(groupsAt('standard')).toEqual(['Ctx 1.6%', 'Cache 99%', 'TTFT 1.2s · 80 tok/s'])
+    expect(groupsAt('verbose')).toEqual([
+      'Context 1.6% · 16.4K/1M',
+      'Cache 99%',
+      '5.9M in · 73.8K out',
+      'TTFT 1.2s · 80 tok/s',
+      'LLM 16m51s · Tools 3m33s',
+      '1 turn · 74 steps',
+    ])
+  })
+
+  it('lets a reader add a part its density omits, and keeps both directions apart', () => {
+    // A part the density leaves out used to be untoggleable: `Space` removed a
+    // narrowing that was never there, so the row said `hidden` and stayed that
+    // way. It is an addition now, and the density keeps working underneath.
+    const added = toggleStatusItem({ density: 'standard', hidden: [], shown: [] }, 'counts')
+    expect(statusItemVisible(resolveStatusBarConfig(added), 'counts')).toBe(true)
+    const removed = toggleStatusItem(added, 'counts')
+    expect(statusItemVisible(resolveStatusBarConfig(removed), 'counts')).toBe(false)
+
+    // The added part sits where its family sits, not at the end of the row.
+    expect(resolveStatusBarConfig(added).groups).toEqual(['context', 'cache', 'speed', 'counts'])
+  })
+
+  it('keeps a choice about one part from rewriting what the density decides', () => {
+    // The reported drift: hiding one part stored the whole visible set as a
+    // narrowing, so afterwards `verbose` showed the same three groups as
+    // `standard` — one switch silently changed another.
+    const hidden = toggleStatusItem({ density: 'standard', hidden: [], shown: [] }, 'cache')
+    expect(resolveStatusBarConfig(hidden).groups).toEqual(['context', 'speed'])
+    const wider = resolveStatusBarConfig({ ...hidden, density: 'verbose' })
+    expect(wider.groups).toEqual(['context', 'tokens', 'speed', 'durations', 'counts'])
+    expect(wider.groups).not.toContain('cache')
   })
 })

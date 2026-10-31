@@ -109,13 +109,15 @@ Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows �
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
 | Telemetry | on / off | on | 显示页脚第二行的会话指标；模型和工作区信息仍然显示。 |
-| Density | minimal / standard / verbose | standard | 页脚显示多少内容。`minimal` 只保留占用与成本并使用 `Ctx` 标签；`standard` 显示全部分组并使用 `Ctx`；`verbose` 使用长标签（`Context`）与详细上下文形式。 |
+| Density | minimal / standard / verbose | standard | 页脚第二行显示多少内容。`minimal` 只保留占用——Context 与 Cache——并使用 `Ctx` 标签；`standard` 增加 Latency（`TTFT`）；`verbose` 再增加 Tokens、Time、Activity，并使用长标签（`Context`）与详细上下文形式。 |
 
-在任意页脚项上按 `Space` 可显示或隐藏该项，该选择在所有 Density 下持续生效。**Restore layout** 经确认后恢复继承的 Density 与可见性。
+在任意页脚项上按 `Space` 可显示或隐藏该项；隐藏是对该数字的判断，因此在切换 Density 后依然生效，而密度自己决定的分组不受影响。**Restore layout** 经确认后恢复继承的 Density 与可见性。
 
-每一项都有固定位置，没有可拖动的东西：一行只表明该项是否出现。第一行左侧是身份——Model（`deepseek`）、Effort（`max`）与 Session，右侧是位置——Path（`~/project`）与 Git（`main *1`）。Session 在 `verbose` 以下默认关闭，因为终端窗口标题无论如何都会显示会话标题。第二行在任何 Density 下都按同一顺序列出 Context（`Ctx 1.6%`）、Cache（`Cache 99%`）、Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）。
+每一项都有固定位置，没有可拖动的东西：一行只表明该项是否出现。第一行左侧是身份——Model（`deepseek`）、Effort（`max`）与 Session，右侧是位置——Path（`~/project`）与 Git（`main *1`）。Session 在 `verbose` 以下默认关闭，因为终端窗口标题无论如何都会显示会话标题。
 
-上下文表示形式跟随 Density：`standard` 与 `minimal` 显示百分比，`verbose` 显示 `Ctx 1.6% · 16.4K/1M`；所有形式都会在占用升高时使用警告和错误颜色。终端较窄时按固定顺序选取能完整放下的分组，放不下的分组被跳过，后续较小的分组仍有机会显示；不会有项目移到第二列，也不会因终端变宽而改变位置。需要引起注意的角色保留自己的颜色：脏工作区分支保持 `warning`，缓存命中率保持成功色。
+第二行从两端回答两个问题。左侧是占用：Context（`Ctx 1.6%`）与 Cache（`Cache 99%`）说明窗口有多满、其中多少是已知内容。右侧是成本：Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）、Time（`LLM 16m51s`）与 Activity（`3 turns`）说明这个会话为此花了多少。两侧不互换，因此同一个数字在每次会话里都在同一位置。
+
+上下文表示形式跟随 Density：`standard` 与 `minimal` 显示百分比，`verbose` 显示 `Context 1.6% · 16.4K/1M`；所有形式都会在占用升高时使用警告和错误颜色。终端较窄时可见集是目录顺序的前缀：放不下就从末尾丢弃，因此 Activity 先于 Time 消失，Time 先于 Latency，也不会因终端变宽而乱序重现。需要引起注意的角色保留自己的颜色：脏工作区分支保持 `warning`，缓存命中率保持成功色。
 
 ## 持久化
 

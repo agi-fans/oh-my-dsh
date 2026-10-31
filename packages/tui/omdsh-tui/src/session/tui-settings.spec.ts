@@ -41,6 +41,7 @@ describe('TUI row settings', () => {
       statusBar: {
         density: 'standard',
         hidden: [],
+        shown: [],
         // Declared so an older document still loads; nothing writes them.
         enabled: undefined,
         labels: undefined,
@@ -103,6 +104,12 @@ describe('TUI row settings', () => {
   it('stores a density and its narrowings, and drops the retired layout engine', () => {
     expect(resolve({ statusBar: { density: 'verbose', hidden: ['session'] } })).toMatchObject({
       statusBar: { density: 'verbose', hidden: ['session'] },
+    })
+    // A part added beyond the density survives the schema. `z.object` drops keys
+    // it does not declare, so a field missing here would look applied and then
+    // silently disappear on the next load.
+    expect(resolve({ statusBar: { density: 'standard', hidden: [], shown: ['counts'] } })).toMatchObject({
+      statusBar: { density: 'standard', shown: ['counts'] },
     })
     // A document written by the old engine still parses; the retired layout
     // fields it carries are simply not part of the stored shape any more.

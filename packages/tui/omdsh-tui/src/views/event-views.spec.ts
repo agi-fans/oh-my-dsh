@@ -1774,8 +1774,8 @@ describe('renderView', () => {
     const modelRow = frame.lines.length - 2
     expect(plain[modelRow]).toContain('deepseek-v4-pro · max')
     expect(plain[modelRow]).not.toContain('omdsh')
-    expect(plain.at(-1)).toContain('1 turn · 74 steps')
-    expect(plain.at(-1)).toContain('5.9M in · 73.8K out')
+    expect(plain.at(-1)).toContain('TTFT 1.2s')
+    expect(plain.at(-1)).toContain('Cache 99%')
     expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
     expect(frame.lines).toHaveLength(24)
   })
@@ -1824,7 +1824,6 @@ describe('renderView', () => {
     expect(frame.lines.at(-2)).toContain('deepseek-v4-flash')
     expect(frame.lines.at(-1)).toContain('Ctx 0%')
     expect(frame.lines.at(-1)).not.toContain('0/1M')
-    expect(frame.lines.at(-1)).toContain('0 turns · 0 steps')
   })
 
   it('replaces the editor with the history-search overlay', () => {
