@@ -10,7 +10,7 @@ description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflo
 
 [![omdsh 终端演示：一轮 DeepSeek 账户回合](/omdsh-demo-poster.png)](/omdsh-demo.mp4)
 
-真实的 Kaku 150×39 录屏：一轮 DeepSeek 账户回合读取文件、修正、运行并报告验证结果。
+真实的 Kaku 录屏：一轮 DeepSeek 账户回合——回复落地，运行折叠成 `Worked for 2s · Ctrl+O to expand`，页脚给出这一回合的上下文、缓存与延迟。
 
 ### 安装并启动
 

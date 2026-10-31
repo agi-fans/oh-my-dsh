@@ -12,9 +12,9 @@ omdsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) �
 
 </div>
 
-[![omdsh 终端演示 — 150×39 下的一轮真实 DeepSeek 账户回合](apps/site/public/omdsh-demo-poster.png)](apps/site/public/omdsh-demo.mp4)
+[![omdsh 终端演示 — 一轮真实的 DeepSeek 账户回合](apps/site/public/omdsh-demo-poster.png)](apps/site/public/omdsh-demo.mp4)
 
-真实的 Kaku 150×39 录屏：一轮 DeepSeek 账户回合读取文件、修正、运行并报告验证结果。
+真实的 Kaku 录屏：一轮 DeepSeek 账户回合——回复落地，运行折叠成 `Worked for 2s · Ctrl+O to expand`，页脚给出这一回合的上下文、缓存与延迟。
 
 ## 快速开始
 

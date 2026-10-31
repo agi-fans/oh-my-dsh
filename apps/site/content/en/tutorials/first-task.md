@@ -10,7 +10,7 @@ By the end of this walkthrough you will have omdsh installed, signed in, and one
 
 [![omdsh terminal demo: one DeepSeek account turn](/omdsh-demo-poster.png)](/omdsh-demo.mp4)
 
-A real 150×39 Kaku recording: one DeepSeek account turn reads a file, fixes it, runs it, and reports the verified result.
+A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency.
 
 ### Install and launch
 
