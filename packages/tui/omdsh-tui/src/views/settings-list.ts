@@ -301,14 +301,14 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
     {
       id: 'statusEnabled',
       label: 'Telemetry',
-      description: 'Show session metrics on the second footer line',
+      description: 'Show session metrics below the first footer line',
       value: statusBar.enabled ? 'on' : 'off',
       values: COLOR_VALUES,
     },
     {
       id: 'statusDensity',
       label: 'Density',
-      description: 'Minimal shows occupancy and cache; Standard adds latency; Verbose adds tokens, durations and activity, with long labels and the detailed context form',
+      description: 'Minimal shows occupancy and cache; Standard adds latency; Verbose adds tokens on the same line and gives durations and activity a third, with long labels and the detailed context form',
       value: statusBar.density,
       values: STATUS_DENSITIES,
     },

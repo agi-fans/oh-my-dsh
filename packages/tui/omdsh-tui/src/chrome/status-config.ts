@@ -55,16 +55,35 @@ export const STATUS_DENSITIES = ['minimal', 'standard', 'verbose'] as const
 export type StatusDensity = (typeof STATUS_DENSITIES)[number]
 
 /**
- * Groups that belong on the left, because they read as one figure: how much of
- * the window is used, and how much of what was sent was already known.
+ * Which telemetry row each group is drawn on.
  *
- * The rest of the row is latency, duration and activity — what the session has
- * spent and how far it has got — and they sit against the right edge, so the
- * row states occupancy on one side and cost on the other.
+ * Two rows exist so the widest density can state everything without dropping
+ * anything: the first row is the window and the turn in flight, the second is
+ * what the session has accumulated. `minimal` and `standard` only fill the first
+ * row, so their footer stays two lines; the row is a property of the group, not
+ * of the density, so nothing moves between rows when the density changes.
  */
-export const STATUS_LEFT_GROUPS: readonly StatusGroupId[] = ['context', 'cache']
+export const STATUS_ROWS: readonly (readonly StatusGroupId[])[] = [
+  ['context', 'cache', 'tokens', 'speed'],
+  ['durations', 'counts'],
+]
 
-/** Which side of the second line a group is drawn on. */
+/**
+ * Groups drawn against the left edge of their row.
+ *
+ * A row answers two questions from opposite edges, and each side keeps its
+ * meaning down the footer: occupancy and the time already spent read on the
+ * left, throughput and the count of work done on the right.
+ */
+export const STATUS_LEFT_GROUPS: readonly StatusGroupId[] = ['context', 'cache', 'durations']
+
+/** Which telemetry row a group is drawn on; 0 is the row under the composer. */
+export function statusGroupRow(id: StatusGroupId): number {
+  const row = STATUS_ROWS.findIndex(groups => groups.includes(id))
+  return row < 0 ? 0 : row
+}
+
+/** Which side of its row a group is drawn on. */
 export function statusGroupSide(id: StatusGroupId): 'left' | 'right' {
   return STATUS_LEFT_GROUPS.includes(id) ? 'left' : 'right'
 }

@@ -13,6 +13,8 @@ import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
   isResolvedStatusBarConfig,
   resolveStatusBarConfig,
+  STATUS_ROWS,
+  statusGroupRow,
   statusGroupSide,
   type ResolvedStatusBarConfig,
   type StatusBarInput,
@@ -225,7 +227,7 @@ function splitWidth(left: readonly StatusGroup[], right: readonly StatusGroup[])
 }
 
 /**
- * Fit the row, occupancy on the left and cost on the right.
+ * Fit one telemetry row, occupancy on the left and cost on the right.
  *
  * A group's side is fixed by what it says, not by the order it arrived in:
  * context and cache describe how full the window is and read as one figure, and
@@ -430,17 +432,53 @@ export function renderStatusFooter(options: StatusFooterOptions, theme: Theme): 
   if (width === 0) return []
   const innerWidth = Math.max(0, width - FOOTER_PADDING * 2)
   const metadata = metadataColumns({ ...options, config: normalized }, theme, innerWidth, normalized, options.focus)
-  const telemetryGroups = options.stats === undefined || !normalized.enabled
-    ? { left: [], right: [] }
-    : selectFooterGroups(buildStatusGroups(options.stats, normalized), innerWidth)
+  /*
+   * Three states, three row counts. Telemetry turned off reclaims its row, which
+   * is the point of turning it off. A session that has not projected stats yet —
+   * or a terminal too narrow for one complete group — keeps an empty row, so the
+   * footer is two lines from the first frame and the composer does not step up
+   * when the first numbers arrive.
+   */
+  const telemetryRows = !normalized.enabled
+    ? []
+    : options.stats === undefined
+      ? [{ left: [], right: [] }]
+      : selectFooterRows(buildStatusGroups(options.stats, normalized), innerWidth)
   return [
     renderSplitRow(metadata.left, metadata.right, width),
-    renderSplitRow(
-      paintColumn(telemetryGroups.left, theme, options.focus),
-      paintColumn(telemetryGroups.right, theme, options.focus),
+    // One row per telemetry row that has something to say. `standard` fills the
+    // first and stops, so its footer is two lines; `verbose` fills both.
+    ...(telemetryRows.length === 0 && normalized.enabled ? [{ left: [], right: [] }] : telemetryRows).map(row => renderSplitRow(
+      paintColumn(row.left, theme, options.focus),
+      paintColumn(row.right, theme, options.focus),
       width,
-    ),
+    )),
   ]
+}
+
+/**
+ * Which rows the telemetry needs, each fitted on its own width.
+ *
+ * A row only competes with the row it shares, which is what lets the widest
+ * density state everything instead of dropping from one long line. Priority is
+ * still global: once a group does not fit, every group after it is gone too, so a
+ * narrow terminal cannot show the session's duration while the turn's own latency
+ * is missing above it.
+ */
+function selectFooterRows(
+  groups: readonly StatusGroup[],
+  innerWidth: number,
+): { left: StatusGroup[]; right: StatusGroup[] }[] {
+  const bucket = STATUS_ROWS.map(() => [] as StatusGroup[])
+  for (const group of groups) bucket[statusGroupRow(group.id)]?.push(group)
+  const rows: { left: StatusGroup[]; right: StatusGroup[] }[] = []
+  for (const row of bucket) {
+    if (row.length === 0) continue
+    const fitted = selectFooterGroups(row, innerWidth)
+    if (fitted.left.length > 0 || fitted.right.length > 0) rows.push(fitted)
+    if (fitted.left.length + fitted.right.length < row.length) break
+  }
+  return rows
 }
 
 /**

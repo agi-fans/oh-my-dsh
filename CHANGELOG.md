@@ -97,6 +97,9 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- `verbose` gives the session's totals a third footer line — Time on the left, Activity on the right — so the line above it no longer has to shed them on a narrow terminal. The line appears only once the line above is whole: priority is still global, so nothing below a dropped latency appears above it.
+- Turning Telemetry off now reclaims its rows instead of leaving them blank; a session without projected stats yet keeps the reserved line, so the composer does not step up when the first numbers arrive.
+
 - The status footer puts occupancy back on the left and cost on the right. `Ctx` and `Cache` hold the left edge; Tokens, Latency, Time and Activity answer from the right, so the same number sits in the same place from session to session instead of the whole row running from the left margin.
 
 - The densities are cumulative again. `minimal` is occupancy (Context and Cache), `standard` adds latency (`TTFT · tok/s`), and `verbose` adds Tokens, Time and Activity with long labels and the detailed context form. On a narrow terminal the visible set is now a prefix of that order: Activity goes before Time, and Time before Latency, rather than a wider group being skipped so a narrower one behind it could fit.

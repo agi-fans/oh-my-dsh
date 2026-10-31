@@ -52,19 +52,29 @@ function contextOnly(style: StatusContextStyle): ResolvedStatusBarConfig {
   return { ...resolved, contextStyle: style }
 }
 
-/** Read the telemetry row through the same footer used by the live TUI. */
+/** Read the telemetry rows through the same footer used by the live TUI. */
+function telemetryRows(
+  sample: TuiSessionStats,
+  config = statusBar(),
+  theme = createTheme(false),
+  width = 200,
+): string[] {
+  return renderStatusFooter({ model: 'm', stats: sample, config, width }, theme).slice(1).map(row => row.trim())
+}
+
+/** The telemetry on one row; `verbose` can fill two. */
 function telemetryRow(
   sample: TuiSessionStats,
   config = statusBar(),
   theme = createTheme(false),
   width = 200,
 ): string {
-  return renderStatusFooter({ model: 'm', stats: sample, config, width }, theme)[1]?.trim() ?? ''
+  return telemetryRows(sample, config, theme, width)[0] ?? ''
 }
 
 /** Split the displayed groups at their separators and the footer column gap. */
 function telemetryGroups(sample: TuiSessionStats, config = statusBar()): string[] {
-  return stripAnsi(telemetryRow(sample, config)).split(/ • |\s{2,}/u)
+  return telemetryRows(sample, config).flatMap(row => stripAnsi(row).split(/ • |\s{2,}/u))
 }
 
 /** Painted footer rows for the standard metadata and telemetry sample. */
@@ -112,19 +122,23 @@ const FOOTER_WIDTH_CASES: ReadonlyArray<{
   dropped: readonly string[]
   groups: readonly number[]
   clipped: boolean
+  /** Telemetry rows drawn: the totals row only appears once the first is whole. */
+  rows: number
 }> = [
-  { width: 30, first: ['deepseek', '~/Workspace'], dropped: ['max', 'main *3'], groups: [0], clipped: true },
-  { width: 40, first: ['deepseek', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: true },
-  { width: 50, first: ['deepseek-v4-pro', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: false },
-  { width: 60, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
-  { width: 70, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
-  // 78 cells of content need an inner width of 78, which 80 columns does not
-  // leave once the two-cell insets are taken.
-  { width: 80, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2], clipped: false },
-  { width: 100, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3], clipped: false },
-  { width: 120, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
-  { width: 200, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false },
+  { width: 30, first: ['deepseek', '~/Workspace'], dropped: ['max', 'main *3'], groups: [0], clipped: true, rows: 1 },
+  { width: 40, first: ['deepseek', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: true, rows: 1 },
+  { width: 50, first: ['deepseek-v4-pro', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: false, rows: 1 },
+  // The first telemetry row is complete from here, so the totals row joins it.
+  { width: 60, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
+  { width: 70, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
+  { width: 80, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
+  { width: 100, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
+  { width: 120, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
+  { width: 200, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
 ]
+
+/** Groups drawn against the left edge of their row, by their index in the sample. */
+const TELEMETRY_LEFT = new Set([0, 3])
 
 /** The telemetry row with its column gap written as a separate marker. */
 function twoColumnShape(line: string): string {
@@ -154,6 +168,8 @@ describe('session status line', () => {
       'Context 0% · 0/1M',
       '0 turns · 0 steps',
     ])
+    // Activity is on the second telemetry row, so `verbose` is three lines.
+    expect(telemetryRows(initial, statusBar({ density: 'verbose' }))).toHaveLength(2)
     expect(telemetryGroups(initial, statusBar())).toContain('Ctx 0%')
     const compact = telemetryRow(initial, statusBar(), createTheme(false), 80)
     expect(compact).toContain('Ctx 0%')
@@ -294,17 +310,20 @@ describe('session status line', () => {
     for (const [density, left, right] of [
       ['minimal', 'Ctx 1.6% • Cache 99%', ''],
       ['standard', 'Ctx 1.6% • Cache 99%', 'TTFT 1.2s · 80 tok/s'],
-      ['verbose', 'Context 1.6% · 16.4K/1M • Cache 99%', '5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
-        + ' • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps'],
+      ['verbose', 'Context 1.6% · 16.4K/1M • Cache 99%', '5.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'],
     ] as const) {
-      const line = renderStatusFooter({
+      const rows = renderStatusFooter({
         model: 'm',
         stats: { ...stats, contextTokens: 16_400, contextWindow: 1_000_000 },
         config: statusBar({ density }),
         width: 200,
-      }, createTheme(false))[1] ?? ''
-      const shape = stripAnsi(line).trim().replace(/\s{2,}/gu, '\u0000')
-      expect(shape, density).toBe(right === '' ? left : `${left}\u0000${right}`)
+      }, createTheme(false)).slice(1).map(row => stripAnsi(row).trim().replace(/\s{2,}/gu, '\u0000'))
+      expect(rows[0], density).toBe(right === '' ? left : `${left}\u0000${right}`)
+      if (density === 'verbose' && rows.length > 1) {
+        // The session's totals get a row of their own: duration on the left,
+        // activity on the right, so the turn's row no longer has to shed them.
+        expect(rows[1], density).toBe('LLM 16m51s · Tools 3m33s\u00001 turn · 74 steps')
+      }
     }
   })
 
@@ -312,9 +331,9 @@ describe('session status line', () => {
     for (const testCase of FOOTER_WIDTH_CASES) {
       const label = `${testCase.width} columns`
       const lines = footerRows(testCase.width)
-      expect(lines, label).toHaveLength(2)
+      expect(lines, label).toHaveLength(1 + testCase.rows)
       const first = stripAnsi(lines[0] ?? '')
-      const telemetry = stripAnsi(lines[1] ?? '')
+      const telemetry = lines.slice(1).map(stripAnsi).join('\n')
       for (const line of lines) expect(oracleWidth(line), label).toBeLessThanOrEqual(testCase.width)
       for (const text of testCase.first) expect(first, label).toContain(text)
       for (const text of testCase.dropped) expect(first, label).not.toContain(text)
@@ -323,10 +342,16 @@ describe('session status line', () => {
         else expect(telemetry, label).not.toContain(group)
       })
       // Occupancy on the left, cost on the right; within a side, catalog order.
-      const left = testCase.groups.filter(index => index === 0).map(index => TELEMETRY_GROUPS[index] ?? '')
-      const right = testCase.groups.filter(index => index !== 0).map(index => TELEMETRY_GROUPS[index] ?? '')
-      const expected = right.length === 0 ? left.join('') : `${left.join('')}\u0000${right.join(' • ')}`
-      expect(twoColumnShape(telemetry), label).toBe(expected)
+      // The session's totals get a row of their own once the first row is whole.
+      const row = (indices: readonly number[]): string => {
+        const left = indices.filter(index => TELEMETRY_LEFT.has(index)).map(index => TELEMETRY_GROUPS[index] ?? '')
+        const right = indices.filter(index => !TELEMETRY_LEFT.has(index)).map(index => TELEMETRY_GROUPS[index] ?? '')
+        return right.length === 0 ? left.join('') : `${left.join('')}\u0000${right.join(' • ')}`
+      }
+      const expected = testCase.rows === 1
+        ? [row(testCase.groups)]
+        : [row(testCase.groups.filter(index => index < 3)), row(testCase.groups.filter(index => index >= 3))]
+      expect(lines.slice(1).map(twoColumnShape), label).toEqual(expected)
       // A separator never precedes an ellipsis, and a clip only survives with a
       // readable prefix: a metadata item is shown whole, clipped, or not at all.
       expect(first, label).not.toMatch(/·\s*…/u)
@@ -356,12 +381,17 @@ describe('session status line', () => {
   })
 
   it('includes every group across the footer columns when space allows', () => {
-    const line = telemetryRow(stats, statusBar({ density: 'verbose' }), createTheme(false), 160)
-    // One row: cache on the left, the four cost groups on the right.
-    expect(twoColumnShape(line)).toBe('Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s'
-      + ' • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
-    expect(line).not.toContain('轮')
-    expect(line).not.toContain('缓存')
+    const rows = telemetryRows(stats, statusBar({ density: 'verbose' }), createTheme(false), 160).map(twoColumnShape)
+    // Cache on the left of the first row, cost on its right; the session's totals
+    // underneath, in the same two-column shape.
+    expect(rows).toEqual([
+      'Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s',
+      'LLM 16m51s · Tools 3m33s\u00001 turn · 74 steps',
+    ])
+    for (const row of rows) {
+      expect(row).not.toContain('轮')
+      expect(row).not.toContain('缓存')
+    }
   })
 
   it('uses English singular labels', () => {
@@ -426,12 +456,14 @@ describe('session status line', () => {
       width: 140,
     }, createTheme(false))
 
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(3)
     expect(lines.every(line => visibleWidth(line) === 140)).toBe(true)
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek-v4-pro · max\s+~\/Workspace\/dsh-tui · main \*6 \?4  $/)
-    // Occupancy holds the left edge, cost the right.
+    // Occupancy holds the left edge, cost the right; the session's totals get
+    // their own row underneath.
     expect(twoColumnShape(lines[1] ?? '')).toBe(
-      'Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s • LLM 16m51s · Tools 3m33s • 1 turn · 74 steps')
+      'Cache 99%\u00005.9M in · 73.8K out • TTFT 1.2s · 80 tok/s')
+    expect(twoColumnShape(lines[2] ?? '')).toBe('LLM 16m51s · Tools 3m33s\u00001 turn · 74 steps')
   })
 
   it('keeps collaboration and access controls visible in metadata', () => {
@@ -535,11 +567,15 @@ describe('session status line', () => {
       width: 76,
     }, createTheme(false))
     const telemetry = stripAnsi(narrow[1] ?? '')
-    expect(narrow).toHaveLength(2)
+    // At this width the first row is complete, so the totals row is drawn too.
+    expect(narrow).toHaveLength(3)
     expect(narrow.every(line => visibleWidth(line) === 76)).toBe(true)
     expect(telemetry).toContain('Cache 99%')
     expect(telemetry).toContain('5.9M in · 73.8K out')
+    // The session's totals moved to their own row, so they are no longer on the
+    // turn's row at all — which is why this width no longer has to drop them.
     expect(telemetry).not.toContain('LLM 16m51s')
+    expect(stripAnsi(narrow[2] ?? '')).toContain('LLM 16m51s')
     const minimal = renderStatusFooter({
       model: 'm',
       controls: {
@@ -550,11 +586,12 @@ describe('session status line', () => {
       config: statusBar({ enabled: false }),
       width: 76,
     }, createTheme(false))
-    expect(minimal).toHaveLength(2)
+    // Turning telemetry off reclaims the row instead of leaving a blank line
+    // under the metadata.
+    expect(minimal).toHaveLength(1)
     expect(minimal[0]).toContain('m · standard · plan')
     expect(minimal[0]).not.toContain('native')
     expect(minimal[0]).not.toContain('Read only')
-    expect(stripAnsi(minimal[1] ?? '').trim()).toBe('')
   })
 
   it('keeps the semantic exceptions that a custom colour used to be needed for', () => {
@@ -594,7 +631,8 @@ describe('session status line', () => {
     }, createTheme(false))
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek · max\s+~\/project · main \*1  $/)
     expect(stripAnsi(lines[1] ?? '')).toContain('Cache 99%')
-    expect(stripAnsi(lines[1] ?? '')).toContain('Tools 3m33s')
+    // The totals are on the row below, and the preview draws every row it is given.
+    expect(stripAnsi(lines[2] ?? '')).toContain('Tools 3m33s')
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(120)
   })
 
@@ -646,6 +684,22 @@ describe('status densities', () => {
       'LLM 16m51s · Tools 3m33s',
       '1 turn · 74 steps',
     ])
+  })
+
+  it('gives the session totals their own row at verbose, and only then', () => {
+    const rows = (density: 'minimal' | 'standard' | 'verbose', width = 120): number =>
+      renderStatusFooter({
+        model: 'm', stats: { ...withContext, ...{ inputTokens: 5_900_000, outputTokens: 73_800 } }, config: statusBar({ density }), width,
+      }, createTheme(false)).length
+    // Two lines until the widest density, where the turn's row would otherwise
+    // have to shed the session's totals to fit.
+    expect(rows('minimal')).toBe(2)
+    expect(rows('standard')).toBe(2)
+    expect(rows('verbose')).toBe(3)
+    // Priority stays global across rows: below 84 columns the turn's row cannot
+    // hold its own latency, so the totals row underneath is gone too rather than
+    // showing what came after it.
+    expect(rows('verbose', 83)).toBe(2)
   })
 
   it('lets a reader add a part its density omits, and keeps both directions apart', () => {

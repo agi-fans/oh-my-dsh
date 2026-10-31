@@ -108,14 +108,16 @@ Rows that back a command (`session-query` backs `/resume`, `workspace` backs `@`
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
-| Telemetry | on / off | on | Show session metrics on the second footer line; model and workspace metadata remain visible. |
-| Density | minimal / standard / verbose | standard | How much the second footer line says. `minimal` keeps occupancy — Context and Cache — with `Ctx` labels; `standard` adds Latency (`TTFT`); `verbose` adds Tokens, Time and Activity with long labels (`Context`) and the detailed context form. |
+| Telemetry | on / off | on | Show session metrics below the first footer line; model and workspace metadata remain visible. Turning it off reclaims the rows it used. |
+| Density | minimal / standard / verbose | standard | How much the footer says. `minimal` keeps occupancy — Context and Cache — with `Ctx` labels; `standard` adds Latency (`TTFT`); `verbose` adds Tokens to the same line and gives Time and Activity a third, with long labels (`Context`) and the detailed context form. |
 
 `Space` on any footer part shows or hides it: hiding is a statement about that number, so it survives a density change, while the parts the density itself decides are left alone. **Restore layout** confirms restoration of the inherited density and visibility.
 
 Every part has a fixed place, and there is nothing to drag: a row says only whether that part appears. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, because the terminal window title carries the session title regardless.
 
-The second line answers two questions from opposite edges. Occupancy holds the left: Context (`Ctx 1.6%`) and Cache (`Cache 99%`) say how full the window is and how much of it was already known. Cost holds the right: Tokens (`5.9M in`), Latency (`TTFT 1.2s`), Time (`LLM 16m51s`) and Activity (`3 turns`) say what the session has spent getting here. The two sides do not swap, so the same number is in the same place from one session to the next.
+The lines below the first answer two questions from opposite edges. Occupancy and elapsed time hold the left: Context (`Ctx 1.6%`), Cache (`Cache 99%`), and Time (`LLM 16m51s`). Throughput and the amount of work hold the right: Tokens (`5.9M in`), Latency (`TTFT 1.2s`), and Activity (`3 turns`). The sides do not swap, so the same number is in the same place from one session to the next.
+
+`verbose` puts the session's totals on a third line — Time on the left, Activity on the right — so the line above it never has to shed them. That line appears only once the line above is whole; below that width nothing is added back out of order.
 
 The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Context 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal the visible set is a prefix of the catalog: fitting drops the last group, so Activity goes before Time, Time before Latency, and nothing reappears out of order as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
 

@@ -459,7 +459,7 @@ describe('renderSettings', () => {
     expect(terminalStatus).toContain('Auto reports the root Agent')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
-    expect(status).toContain('Show session metrics on the second footer')
+    expect(status).toContain('Show session metrics')
     expect(status).toContain('Context')
     expect(status).toContain('Latency')
     expect(status).toContain('deepseek')
