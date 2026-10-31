@@ -8,7 +8,7 @@ By the end of this walkthrough you will have omdsh installed, signed in, and one
 
 ### See the loop
 
-[![omdsh terminal demo: one DeepSeek account turn](/omdsh-demo-poster.png)](/omdsh-demo.mp4)
+<video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
 
 A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency.
 

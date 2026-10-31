@@ -12,9 +12,9 @@ omdsh is the terminal client for [DeepSeek Harness](https://github.com/deepseek-
 
 </div>
 
-[![omdsh terminal demo — one real DeepSeek account turn](apps/site/public/omdsh-demo-poster.png)](apps/site/public/omdsh-demo.mp4)
+[![omdsh terminal demo — one real DeepSeek account turn](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
 
-A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency.
+A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency. Click it for the full-resolution recording.
 
 ## Quick start
 
