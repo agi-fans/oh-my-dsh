@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionLogOffset, type SessionEvent, type CreateSessionOptions } from '@deepseek-ai/dsh-session'
@@ -14,6 +14,13 @@ import { LocalTui, type TerminalLike } from '../runtime/provider-local.ts'
 import { SessionRuntime } from './session-controller.ts'
 import { readSessionLibrary, setSessionLabel, updateSessionLibrary } from './session-library.ts'
 import { registerCommands } from '../commands/registration.ts'
+
+/** Agent-owned selection stand-in: the runtime reads it and records replacements. */
+function stubModel(initial: ModelSelection) {
+  let current: ModelSelection | undefined = initial
+  return { current: () => current, select: (next: ModelSelection) => { current = next } }
+}
+
 
 class ScrollingTerminal implements TerminalLike {
   captured = ''
@@ -65,6 +72,7 @@ async function fixture(tty = false, durableRoot?: string) {
   const contexts: Context[] = []
   const presets = {
     defaultId: 'standard',
+    presetForSession: () => 'standard',
     resolve: async () => ({ id: 'standard' }),
     mount: async () => ({ id: 'standard' }),
     recompose: async (_ctx: Context, id: string) => ({ id }),
@@ -91,7 +99,7 @@ async function fixture(tty = false, durableRoot?: string) {
     const session = ctx.sessions.get(id) ?? ctx.sessions.create(id, { seed: options.seed,
       ...(options.meta === undefined ? {} : { meta: options.meta }),
       ...(options.inheritedEventCount === undefined ? {} : { inheritedEventCount: options.inheritedEventCount }) })
-    const agent = { id, ctx: agentCtx, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+    const agent = { id, ctx: agentCtx, session, status: 'idle', model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }), inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
     agents.set(id, agent)
     await options.setup?.(agentCtx, agent)
     return { agent, dispose: async () => undefined } as unknown as AgentHandle

@@ -45,14 +45,15 @@ describe('scheduled reminder delivery', () => {
           meta: { cwd: process.cwd(), agentPreset: 'standard' },
           agentOptions: selection,
           setup: async (agentCtx, agent) => {
-            await configureAgentContext(agentCtx, agent, { current: selection, assembled: undefined })
+            await configureAgentContext(agentCtx, agent)
           },
         })
-        await ctx.get('schedule').create(handle.agent.session.id, {
+        await ctx.get('schedule').create({
           title: 'Delivery probe',
           prompt: 'SCHEDULE_DELIVERY_PROBE',
-          after_seconds: 1,
-        })
+          timing: { kind: 'after', after_seconds: 1 },
+          target: { kind: 'session', sessionId: handle.agent.session.id },
+        }, handle.agent.session.id)
         const deadline = Date.now() + 15000
         let delivered = false
         while (Date.now() < deadline) {
@@ -154,14 +155,15 @@ describe('scheduled reminder delivery to a cold Session', () => {
             meta: { cwd: process.cwd(), agentPreset: 'standard' },
             agentOptions: selection,
             setup: async (agentCtx, agent) => {
-              await configureAgentContext(agentCtx, agent, { current: selection, assembled: undefined })
+              await configureAgentContext(agentCtx, agent)
             },
           })
-          await ctx.get('schedule').create(handle.agent.session.id, {
+          await ctx.get('schedule').create({
             title: 'Cold delivery probe',
             prompt: 'COLD_DELIVERY_PROBE',
-            after_seconds: 5,
-          })
+            timing: { kind: 'after', after_seconds: 5 },
+            target: { kind: 'session', sessionId: handle.agent.session.id },
+          }, handle.agent.session.id)
           console.log('SCHEDULED')
         } finally {
           if (handle !== undefined) await handle.dispose().catch(() => {})

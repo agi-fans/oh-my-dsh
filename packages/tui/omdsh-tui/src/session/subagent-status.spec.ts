@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AssistantStreamFrame, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { TuiService } from '../definition.ts'
 import { SessionRuntime } from './session-controller.ts'
+
+/** Agent-owned selection stand-in: the runtime reads it and records replacements. */
+function stubModel(initial: ModelSelection) {
+  let current: ModelSelection | undefined = initial
+  return { current: () => current, select: (next: ModelSelection) => { current = next } }
+}
+
 
 /** Real session events and stream routing with external Agent execution replaced. */
 async function fixture() {
@@ -16,6 +23,7 @@ async function fixture() {
   const rootId = SessionId('status-root')
   const root = {
     id: rootId, session: ctx.sessions.create(rootId), status: 'idle',
+    model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }),
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   const children = Array.from({ length: 3 }, (_, index) => {
@@ -26,10 +34,10 @@ async function fixture() {
     session.append('subagent/descriptor', {
       version: 2, mode: 'continuable', provider: 'spawn', label: `Worker ${index}`,
     })
-    return { id, session, status: 'running' } as unknown as Agent
+    return { id, session, status: 'running', model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }) } as unknown as Agent
   })
   const presets = {
-    defaultId: 'standard', resolve: async () => ({ id: 'standard' }), mount: async () => ({ id: 'standard' }),
+    defaultId: 'standard', presetForSession: () => 'standard', resolve: async () => ({ id: 'standard' }), mount: async () => ({ id: 'standard' }),
   }
   ctx.provide('agentPresets', presets)
   agentCtx.provide('agentPresets', presets)

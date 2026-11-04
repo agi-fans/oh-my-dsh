@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { ScheduleDeliveryHistoryResult, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
+import type { ScheduleCatalogEntry, ScheduleDeliveryHistoryResult, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
 import { ScheduleId } from '@deepseek-ai/dsh-schedule'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { TuiService } from '../definition.ts'
@@ -43,14 +43,14 @@ async function fixture(tasks: ScheduleRecord[], prompts: (string | null)[]) {
     list: vi.fn(async () => tasks),
     // The command reads the catalog: it is the only read that reports whether a
     // reminder can still fire. The session is bound below, so this reads it late.
-    catalog: vi.fn(async () => tasks.map(task => ({ ...task, sessionId: currentSessionId, status: 'active' as const }))),
+    catalog: vi.fn(async () => tasks.map(task => ({
+      ...task,
+      involvedSessionIds: currentSessionId === undefined ? [] : [currentSessionId],
+      status: 'active' as const,
+    }))),
     history: vi.fn(async () => history()),
-    update: vi.fn(async (request: { title?: string; prompt?: string }) => ({
-      id: record.id,
-      updated: true,
-      record: { ...record, ...(request.title === undefined ? {} : { title: request.title }), ...(request.prompt === undefined ? {} : { prompt: request.prompt }) },
-    })),
-    delete: vi.fn(async () => ({ id: record.id, deleted: true })),
+    edit: vi.fn(async (request: { action: 'update' | 'delete'; patch?: { title?: string; prompt?: string } }) => (
+      request.action === 'delete' ? { id: record.id, deleted: true } : { ...record, ...request.patch, involvedSessionIds: [], status: 'active' as const })),
   }
   ctx.provide('schedule', schedule as never)
   await ctx.plugin(command)
@@ -80,7 +80,7 @@ describe('/schedule command', () => {
     try {
       const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
       expect(execution?.result).toMatchObject({ kind: 'success', text: 'Deleted reminder "Release check".' })
-      expect(f.schedule.delete).toHaveBeenCalledWith({ sessionId: f.agent.session.id, id: record.id })
+      expect(f.schedule.edit).toHaveBeenCalledWith(expect.objectContaining({ id: record.id, action: 'delete' }), f.agent.session.id)
     } finally {
       await f.ctx.fiber.dispose()
     }
@@ -91,11 +91,11 @@ describe('/schedule command', () => {
     try {
       const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
       expect(execution?.result).toMatchObject({ kind: 'success', text: 'Updated name for "Release verification".' })
-      expect(f.schedule.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(f.schedule.edit).toHaveBeenCalledWith(expect.objectContaining({
         id: record.id,
-        expected: record,
-        title: 'Release verification',
-      }))
+        action: 'update',
+        patch: { title: 'Release verification' },
+      }), f.agent.session.id)
     } finally {
       await f.ctx.fiber.dispose()
     }
@@ -106,7 +106,7 @@ describe('/schedule command', () => {
     try {
       const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
       expect(execution?.result).toMatchObject({ kind: 'success' })
-      expect(f.schedule.history).toHaveBeenCalledWith({ sessionId: f.agent.session.id, id: record.id, limit: 20 })
+      expect(f.schedule.history).toHaveBeenCalledWith({ id: record.id, limit: 20 })
       const historyPrompt = f.prompt.mock.calls[2]?.[0] as { detail?: string } | undefined
       expect(historyPrompt?.detail).toContain('Deliveries · newest first')
       expect(historyPrompt?.detail).toContain('Check the release')
@@ -134,7 +134,12 @@ describe('reminder timing as a reader asks it', () => {
   it('never describes a stopped reminder as pending', () => {
     // A reminder that can no longer fire is not "next"; its instant is the last
     // one it had.
-    expect(command.scheduleWhen(record, 'inactive', now)).toBe('ended · was 2026-10-27 13:00 UTC')
+    expect(command.scheduleWhen(record, 'ended', now)).toBe('ended · was 2026-10-27 13:00 UTC')
+  })
+
+  it('keeps a paused reminder readable as paused', () => {
+    // Pausing keeps the committed target; hiding it would read as "no reminder".
+    expect(command.scheduleWhen(record, 'paused', now)).toBe('paused · next in 12m · 2026-10-27 13:00 UTC')
   })
 
   it('calls an overdue active reminder due rather than showing a negative wait', () => {

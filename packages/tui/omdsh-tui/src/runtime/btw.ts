@@ -4,7 +4,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { randomUUID, createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Agent, AgentHandle, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, SessionLogOffset, buildForkSeed, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -116,9 +116,8 @@ export class BtwService extends Service {
     let topic: BtwTopic = existing === undefined ? { version: 1, sessionId: id, parentSessionId: parent.id, prefixEvents,
       question, createdAt: Date.now(), updatedAt: Date.now(), status: 'running' } : { ...existing, status: 'running', updatedAt: Date.now() }
     let handle: AgentHandle | undefined, text = '', attempt = ''
-    const ref: ModelSelectionRef = { current: { ...selection }, assembled: undefined }
     const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
-      const configured = await configureAgentContext(agentCtx, agent, ref)
+      const configured = await configureAgentContext(agentCtx, agent)
       if (configured.agentPreset !== BTW_PRESET) throw new Error('The saved consultation no longer uses its tool-free composition.')
     }
     let offStream: (() => void) | undefined

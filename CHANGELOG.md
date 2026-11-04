@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- The pinned DeepSeek Harness cohort moves from `0.2.1-rc.5` to `0.2.2-rc.1` across all 145 runtime packages, and the `examples/hello` fixture follows it. Cordis moves to `4.1.0`, the loader family to `1.1.0`, the timer to `1.2.0`, and Schemastery to `3.19.0`, because the new cohort declares those as peers and refuses to resolve against `4.0.5`.
+
+- Model selection now belongs to the Session. The Harness records a durable `modelSelection` projection and hands every Agent its own `model` reader, so omdsh no longer keeps a selection beside the Agent: `/model`, resume, forks, and side consultations read and record through that one source. A resumed session therefore keeps the model it recorded instead of adopting the model the TUI was showing, which is the Harness's documented resume behaviour.
+
+- Tool execution left the tool registry for explicit executor plugins. The deployment mounts the native executor, the `code` preset mounts the PTC executor in its own scope, and side consultations inherit native instead of declaring a presentation. Because a tool registers into the Agent scope its preset composes, the model-facing `workflow_run` tool now lives in the native presets rather than deployment-wide: the PTC preset simply never registers it, instead of denying a name its own scope could no longer see.
+
+- `/schedule` follows the reshaped reminder contract: an edit is one closed request (`patch` plus the `updatedAt` the editor read), listing is by recorded involvement rather than a single owning session, a paused reminder reads as paused with the instant it will fire, and recurrence can now be an RFC 5545 rule.
+
+- Subagent model discovery is its own opt-in, so the sampled delegation variant asks for `modelDiscovery` explicitly; the model-selectable child fields are requested by `modelSelection`.
+
+- `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
+
 ## [0.22.0] - 2026-10-31
 
 ### Added

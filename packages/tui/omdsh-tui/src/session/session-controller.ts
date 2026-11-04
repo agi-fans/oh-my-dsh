@@ -17,7 +17,6 @@ import {
   type Agent,
   type AgentHandle,
   type ModelSelection,
-  type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import {
@@ -85,7 +84,6 @@ import type { ContextDiagnostics } from './context-diagnostics.ts'
 
 interface ActiveSession {
   handle: AgentHandle
-  selection: ModelSelectionRef
   contextWindow: number | undefined
   reasoningEffort: string | undefined
   agentPreset: string
@@ -95,8 +93,8 @@ interface ConfiguredAgentContext {
   agentPreset: string
 }
 
-async function setupAgentContext(agentCtx: Context, agent: Agent, selection: ModelSelectionRef): Promise<ConfiguredAgentContext> {
-  const configured = await configureAgentContext(agentCtx, agent, selection)
+async function setupAgentContext(agentCtx: Context, agent: Agent): Promise<ConfiguredAgentContext> {
+  const configured = await configureAgentContext(agentCtx, agent)
   await agentCtx.plugin(commandPermission(agent))
   return configured
 }
@@ -774,10 +772,10 @@ export class SessionRuntime {
     return this.#recent
   }
 
-  /** Current model selection for the active Agent. */
+  /** Current model selection for the active Agent, read from its durable projection. */
   selection(agent: Agent = this.#requiredAgent()): ModelSelection {
     this.assertActive(agent)
-    const current = this.#requiredActive().selection.current
+    const current = agent.model.current()
     if (current === undefined) throw new Error('active agent has no model selection')
     return current
   }
@@ -791,7 +789,7 @@ export class SessionRuntime {
   ): Promise<void> {
     this.assertActive(agent)
     const active = this.#requiredActive()
-    active.selection.current = selection
+    agent.model.select(selection)
     const resolved = info ?? await this.#resolveModelInfo(selection)
     active.contextWindow = resolved?.context?.contextWindow
     const status = modelStatus(selection, resolved)
@@ -814,13 +812,12 @@ export class SessionRuntime {
   async resumeSession(agent: Agent, id: string, signal: AbortSignal): Promise<void> {
     this.assertActive(agent)
     const selection = this.selection(agent)
-    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
     let configured: ConfiguredAgentContext | undefined
     const handle = await this.#ctx.agents.resume({
       resumeSessionId: SessionId(id),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent) },
     })
     const configuration = configured
     if (configuration === undefined) {
@@ -829,7 +826,6 @@ export class SessionRuntime {
     }
     await this.#activate({
       handle,
-      selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
@@ -846,12 +842,11 @@ export class SessionRuntime {
       return
     }
     const selection = this.selection(agent)
-    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
     const handle = await this.#ctx.agents.resume({
       resumeSessionId: SessionId(id),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx, agent) => { await setupAgentContext(agentCtx, agent, ref) },
+      setup: async (agentCtx, agent) => { await setupAgentContext(agentCtx, agent) },
     })
     try {
       this.#ctx.sessionTitle.rename(handle.agent.session, title)
@@ -1014,7 +1009,6 @@ export class SessionRuntime {
     }))
     this.assertActive(agent)
     const selection = this.selection(agent)
-    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
     const active = this.#requiredActive()
     let configured: ConfiguredAgentContext | undefined
     const handle = await this.#ctx.agents.create({
@@ -1029,7 +1023,7 @@ export class SessionRuntime {
       inheritedEventCount: SessionLogOffset(selected.branchIndex),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent) },
     })
     try {
       this.assertActive(agent)
@@ -1044,7 +1038,6 @@ export class SessionRuntime {
     }
     await this.#activate({
       handle,
-      selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,
@@ -1305,14 +1298,13 @@ export class SessionRuntime {
   }
 
   async #create(selection: ModelSelection): Promise<ActiveSession> {
-    const ref: ModelSelectionRef = { current: selection, assembled: undefined }
     const preset = await this.#ctx.agentPresets.resolve()
     let configured: ConfiguredAgentContext | undefined
     const handle = await this.#ctx.agents.create({
       sessionId: SessionId('session-' + randomUUID()),
       meta: { cwd: process.cwd(), agentPreset: preset.id },
       agentOptions: { provider: selection.provider, model: selection.model },
-      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent, ref) },
+      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent) },
     })
     const configuration = configured
     if (configuration === undefined) {
@@ -1321,7 +1313,6 @@ export class SessionRuntime {
     }
     return {
       handle,
-      selection: ref,
       contextWindow: undefined,
       reasoningEffort: undefined,
       agentPreset: configuration.agentPreset,

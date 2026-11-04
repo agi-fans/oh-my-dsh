@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { configureAgentContext } from '@agi-fans/dsh-tui/agent-profile'
@@ -90,11 +90,10 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
   try {
     lifetime.throwIfAborted()
     const selectedModel = defaults.currentSelection()
-    const selection: ModelSelectionRef = { current: selectedModel, assembled: undefined }
     const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
       root = agent
       owned.add(agent)
-      await configureAgentContext(agentCtx, agent, selection)
+      await configureAgentContext(agentCtx, agent)
     }
     if (request.resume !== undefined) {
       const persistence = ctx.get('sessionPersistence')
@@ -110,7 +109,7 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
     }
     const agent = handle.agent
     root = agent
-    output.emit(request.resume === undefined ? 'session.created' : 'session.resumed', { sessionId: String(agent.id), model: selection.current,
+    output.emit(request.resume === undefined ? 'session.created' : 'session.resumed', { sessionId: String(agent.id), model: agent.model.current() ?? selectedModel,
       cwd: agent.session.header.cwd })
     lifetime.throwIfAborted()
     agent.followup(createUserMessage({ content: [{ type: 'text', text: request.prompt }], source: { kind: 'user' } }))

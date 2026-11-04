@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -28,6 +28,13 @@ import {
   sessionStats,
   userSkillCommands,
 } from './session-controller.ts'
+
+/** Agent-owned selection stand-in: the runtime reads it and records replacements. */
+function stubModel(initial: ModelSelection) {
+  let current: ModelSelection | undefined = initial
+  return { current: () => current, select: (next: ModelSelection) => { current = next } }
+}
+
 
 function stubTui(): TuiService {
   return {
@@ -511,6 +518,7 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     })
     ctx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })
@@ -518,6 +526,7 @@ describe('SessionRuntime inspected-subagent delivery', () => {
       id: rootId,
       session: rootSession,
       status: 'idle',
+      model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }),
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
@@ -525,6 +534,7 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     await agentCtx.plugin(CommandRuntime)
     agentCtx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })
@@ -623,6 +633,7 @@ describe('SessionRuntime subagent catalog restore', () => {
     await agentCtx.plugin(CommandRuntime)
     agentCtx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })
@@ -634,10 +645,12 @@ describe('SessionRuntime subagent catalog restore', () => {
       id: rootId,
       session: rootSession,
       status: 'idle',
+      model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }),
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
     ctx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })
@@ -694,6 +707,7 @@ describe('SessionRuntime workspace claim', () => {
     await agentCtx.plugin(CommandRuntime)
     agentCtx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })
@@ -704,10 +718,12 @@ describe('SessionRuntime workspace claim', () => {
       id: rootId,
       session: rootSession,
       status: 'idle',
+      model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }),
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
     ctx.provide('agentPresets', {
       defaultId: 'standard',
+      presetForSession: () => 'standard',
       resolve: async () => ({ id: 'standard' }),
       mount: async () => ({ id: 'standard' }),
     })

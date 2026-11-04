@@ -130,7 +130,7 @@ describe('process-isolated subagent transport', () => {
     expect(config.maxDepth).toBe('provider-managed')
     expect(config).not.toHaveProperty('backgroundMode')
     // Each of these is refused outright rather than silently dropped.
-    for (const unsupported of ['agentOptions', 'persona', 'toolFilter', 'modelSelectionSettings']) {
+    for (const unsupported of ['agentOptions', 'persona', 'toolFilter', 'modelSelection']) {
       expect(config, `isolated tool must not request ${unsupported}`).not.toHaveProperty(unsupported)
     }
   })
@@ -187,14 +187,6 @@ describe('workflow and Ralph tool box', () => {
     expect(shippedRows().filter(candidate => candidate.name === '@deepseek-ai/dsh-workflow')).toHaveLength(0)
   })
 
-  it('retains the explicit workflow execution tool name', () => {
-    const tool = row('tool-workflow')
-    expect(tool.name).toBe('@deepseek-ai/dsh-tool-workflow')
-    expect(tool.disabled).toBeUndefined()
-    // Existing sessions and preset tool policies retain this execution name.
-    expect(tool.config?.toolName).toBe('workflow_run')
-    expect(tool.config?.toolName).not.toBe('workflow')
-  })
 
   it('ships Ralph disabled against the continuable in-process provider', () => {
     const ralph = row('tool-ralph')

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as ToolExecutorNative from '@deepseek-ai/dsh-tool-executor-native'
 import ApprovalService, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
@@ -20,6 +21,7 @@ async function harness(directory?: string) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(ToolExecutorNative)
   await ctx.plugin(SessionProjections)
   await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: root })
   await ctx.plugin(ApprovalService, { policy: 'ask' })
@@ -42,8 +44,15 @@ async function harness(directory?: string) {
   ctx.tools.register({ name: 'probe', description: 'Probe', parameters: { type: 'object', properties: {} },
     output: { schema: { type: 'object' }, render: () => [] }, execute: body })
   let count = 0
-  const run = (target = agent, args = { command: 'echo hello' }, signal = new AbortController().signal) =>
-    ctx.tools.execute({ name: 'probe', callId: ToolCallId('call-' + count++), arguments: args, agent: target, signal })
+  // Execution is a complete batch now; these tests inspect one settled call.
+  const run = async (target = agent, args = { command: 'echo hello' }, signal = new AbortController().signal) => {
+    const batch = await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('call-' + count++), name: 'probe', arguments: JSON.stringify(args) }],
+      agent: target,
+      signal,
+    })
+    return batch.results[0]!.result
+  }
   onTestFinished(async () => { await ctx.fiber.dispose(); if (directory === undefined) rmSync(root, { recursive: true, force: true }) })
   return { ctx, root, agent, makeAgent, run, question, body, offQuestion }
 }

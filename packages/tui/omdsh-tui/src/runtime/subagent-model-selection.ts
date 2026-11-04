@@ -13,6 +13,7 @@ export function apply(ctx: Context): void {
   if (entry === undefined) throw new Error('Subagent model selection requires the product tool-subagent entry.')
   // The global tool stays available for deployment restrictions. The Harness
   // installs the sampled variant in each Agent's scope and owns its teardown.
+  // Discovery is its own opt-in since 0.2.2 and does not follow model selection.
   const inherited = Config(interpolate(ctx, entry.options.config))
-  applyDelegation(ctx, { ...inherited, modelSelectionSettings: true })
+  applyDelegation(ctx, { ...inherited, modelSelection: true, modelDiscovery: true })
 }

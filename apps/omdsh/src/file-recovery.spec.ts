@@ -30,7 +30,7 @@ async function probe(body: string, automatic = false, stalled = false, sequence?
     const ctx=await mountOmdsh({args:[],mode:'exec',exit:code=>{process.exitCode=code}});
     const selection=ctx.get('agentDefaultModel').currentSelection();
     const handle=await ctx.get('agents').create({sessionId:'recovery-owner',meta:{cwd:process.cwd(),agentPreset:'standard'},agentOptions:selection,
-      setup:async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent,{current:selection,assembled:undefined})}});
+      setup:async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent)}});
     const agent=handle.agent,recovery=ctx.get('omdshFileRecovery'),signal=new AbortController().signal;
     try {${body}} finally {await handle.dispose();await ctx.fiber.dispose();await server?.close()}`)
   const child = spawn(process.execPath, ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href, script], {
@@ -97,7 +97,7 @@ describe('confined file recovery provider', () => {
       ctx.on('approval/request',async request=>{ctx.get('omdshApprovalRules').remember(request,'session','allow');return 'allowed-once'});
       ctx.get('tools').register({name:'rule_portability_probe',description:'Probe',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:()=>[]},
         execute:async(_args,exec)=>({outcome:await ctx.get('approval').request({agent:exec.agent,callId:exec.callId,toolName:'rule_portability_probe',reason:'Portability proof',signal:exec.signal})})});
-      for(let index=0;index<2;index++)await ctx.get('tools').execute({name:'rule_portability_probe',callId:'rule-'+index,arguments:{},agent,signal});
+      for(let index=0;index<2;index++)await ctx.get('tools').execute({calls:[{type:'tool-call',id:'rule-'+index,name:'rule_portability_probe',arguments:'{}'}],agent,signal});
       agent.cancel({kind:'user'});await agent.whenIdle();await ctx.get('sessions').flush(agent.session);
       const log=await readColdSessionLog(ctx.get('sessionPersistence'),agent.id,signal);
       const records=log.events.filter(event=>pluginRecordOf(event)?.type==='plugin:omdsh/approval-rule-matched');

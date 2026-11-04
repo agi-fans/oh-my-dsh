@@ -19,6 +19,14 @@
               prefix: >-
                 You are a coding agent powered by the {{model}} model.
 
+          # Model-authored orchestration. The engine is mounted deployment-wide;
+          # the tool registers per Agent scope, so each preset decides whether its
+          # agents can author a workflow beside their own tools.
+          - id: tool-workflow
+            name: '@deepseek-ai/dsh-tool-workflow'
+            config:
+              toolName: workflow_run
+
           # Upstream Standard/Cordis/PTC presets carry a clock reading at least
           # every ten minutes; the TUI process zone is the fallback display zone.
           - id: time-context

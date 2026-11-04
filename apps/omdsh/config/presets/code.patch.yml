@@ -19,28 +19,19 @@
               prefix: >-
                 You are a coding agent powered by the {{model}} model. Prefer programmatic tool calling for multi-step operations when the generated tools SDK is available.
 
-          # PTC presents the tool registry as a generated SDK over `run_code`, so the
-          # general-purpose `workflow_run` tool would be a second model-authored
-          # orchestration surface beside it. The upstream `ptc` preset disables its own
-          # workflow rows for that reason; a preset cannot disable a host row, so the
-          # restriction does it here. `ralph` needs no entry: the deployment ships it
-          # disabled, and `tools.restrict()` rejects a name that no global tool owns — a
-          # home overlay that restores it accepts a second surface in this preset.
-          - id: profile
-            name: '@agi-fans/dsh-tui/agent-profile'
-            config:
-              tools:
-                deny:
-                  - workflow_run
+          # PTC presents the tool registry as a generated SDK over `run_code`, so a
+          # general-purpose `workflow_run` would be a second model-authored
+          # orchestration surface beside it. Nothing has to be denied here: the
+          # workflow tool is mounted by the native presets, and an Agent sees only
+          # the tools its own preset registers. `ralph` needs no entry either — the
+          # deployment ships it disabled.
 
           # PTC for this preset alone; `standard`, `minimal`, and `cordis` inherit the
-          # deployment default (`native`) from the host `tools` row. The row fails the
-          # mount when no PTC runtime is composed, which is the point: the session does
-          # not choose its presentation at runtime any more.
-          - id: tool-presentation
-            name: '@deepseek-ai/dsh-agent-tool-presentation'
-            config:
-              mode: ptc
+          # deployment's native executor. The row fails the mount when no PTC runtime is
+          # composed, which is the point: the session does not choose its executor at
+          # runtime any more.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
           # Upstream Standard/Cordis/PTC presets carry a clock reading at least
           # every ten minutes; the TUI process zone is the fallback display zone.

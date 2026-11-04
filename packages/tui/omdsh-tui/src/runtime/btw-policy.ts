@@ -10,7 +10,8 @@ export const inject = ['tools', 'systemPrompt']
 
 /** No scope-local tool or an earlier allow decision may bypass this guard. */
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.tools.presentAs('native'), 'side consultation tool presentation')
+  // Side consultations inherit the deployment's native executor; they declare no
+  // executor of their own, so a model here never receives the PTC transport.
   ctx.effect(() => ctx.tools.restrict({ allow: [] }), 'side consultation inherited tools')
   ctx.effect(() => ctx.tools.guard(() => 'Side consultations cannot use tools.'), 'side consultation execution guard')
   ctx.on('system-prompt/assemble', async (_assembly, _context, next) => ({ ...await next(), tools: [], contexts: [] }))

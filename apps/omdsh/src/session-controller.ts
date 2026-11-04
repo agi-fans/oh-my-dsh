@@ -10,7 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -50,12 +50,11 @@ export function apply(ctx: Context): void {
       return { error: new Error(`Session ${sessionId} requires migration before it can receive this reminder.`) }
     }
     const selected = ctx.agentDefaultModel.currentSelection()
-    const selection: ModelSelectionRef = { current: selected, assembled: undefined }
     try {
       const handle = await ctx.agents.resume({
         resumeSessionId: sessionId,
         agentOptions: selected,
-        setup: async (agentCtx, agent) => { await configureAgentContext(agentCtx, agent, selection) },
+        setup: async (agentCtx, agent) => { await configureAgentContext(agentCtx, agent) },
       })
       handles.set(String(sessionId), handle)
       return { agent: handle.agent }

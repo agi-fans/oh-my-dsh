@@ -26,7 +26,7 @@ describe('composed side consultation', () => {
       const ctx=await mountOmdsh({args:[],mode:'exec',exit:code=>{process.exitCode=code}});
       const selection=ctx.get('agentDefaultModel').currentSelection();
       const handle=await ctx.get('agents').create({sessionId:'parent-cancellation',meta:{cwd:process.cwd(),agentPreset:'standard'},agentOptions:selection,
-        setup:async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent,{current:selection,assembled:undefined})}});
+        setup:async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent)}});
       const parent=handle.agent, abort=new AbortController(), lines=createInterface({input:process.stdin});
       const nextLine=()=>new Promise(resolve=>lines.once('line',resolve));
       try {
@@ -72,7 +72,7 @@ describe('composed side consultation', () => {
       const {createUserMessage} = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
       const ctx = await mountOmdsh({args:[], mode:'exec', exit:code=>{process.exitCode=code}});
       const selection=ctx.get('agentDefaultModel').currentSelection();
-      const setup=async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent,{current:selection,assembled:undefined})};
+      const setup=async(agentCtx,agent)=>{await configureAgentContext(agentCtx,agent)};
       const handle=process.env.EXISTING_TOPIC ? await ctx.get('agents').resume({resumeSessionId:SessionId('parent-probe'),agentOptions:selection,setup}) : await ctx.get('agents').create({sessionId:SessionId('parent-probe'),meta:{cwd:process.cwd(),agentPreset:'standard'},agentOptions:selection,
         setup});
       const parent=handle.agent, ask=async text=>{parent.followup(createUserMessage({source:{kind:'user'},content:[{type:'text',text}]}));await parent.whenIdle()};
@@ -95,7 +95,7 @@ describe('composed side consultation', () => {
           side.ctx.get('tools').register({name:'scope_local_probe',description:'Probe',parameters:{type:'object',properties:{}},
             output:{schema:{type:'object'},render:()=>[]},execute:async()=>{called=true;return {}}});
           side.ctx.on('tools/pre-execute',async()=>({kind:'allow'}),true);
-          const blocked=await ctx.get('tools').execute({callId:'probe-call',name:'scope_local_probe',arguments:{},agent:side,signal:new AbortController().signal});
+          const blocked=await ctx.get('tools').execute({calls:[{type:'tool-call',id:'probe-call',name:'scope_local_probe',arguments:'{}'}],agent:side,signal:new AbortController().signal});
           inspectionResult={goal:ctx.get('goals').get(side)??null,plan:ctx.get('planMode').get(side),blocked,called};
         } finally {await inspection.dispose()}
         await ask('LATE_PARENT_MUST_NOT_LEAK');

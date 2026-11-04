@@ -5,6 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import type {} from '@deepseek-ai/dsh-working-directory'
 

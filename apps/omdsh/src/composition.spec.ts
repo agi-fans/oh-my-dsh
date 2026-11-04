@@ -445,7 +445,9 @@ describe('dsh spine expansion', () => {
   it('preserves the forwarded spine configuration on the owning rows', () => {
     const rows = productRows()
     const row = (id: string) => rows.find(entry => entry.id === id)
-    expect(row('tools')?.config).toEqual({ mode: 'native' })
+    // Execution configuration left the registry; the executor rows own it now.
+    expect(row('tools')?.config).toBeUndefined()
+    expect(row('tool-executor-native')?.name).toBe('@deepseek-ai/dsh-tool-executor-native')
     expect(row('agent-instructions')?.config).toEqual({ maxBytes: 65536 })
     expect(row('agent-loop')?.config).toEqual({ agents: [] })
     expect(row('skill-filesystem')?.config).toHaveProperty('dshHome')
@@ -641,22 +643,28 @@ describe('upstream capability adaptation rows', () => {
     expect(rows.some(entry => entry.id === 'message-feedback')).toBe(false)
   })
 
-  it('declares PTC presentation in the code preset and keeps the native default', () => {
+  it('mounts native execution deployment-wide and PTC only in the code preset', () => {
     const rows = productRows()
-    expect(rows.find(entry => entry.id === 'tools')?.config).toMatchObject({ mode: 'native' })
+    const tools = rows.find(entry => entry.id === 'tools')
+    expect(tools?.config).toBeUndefined()
+    expect(rows.find(entry => entry.id === 'tool-executor-native')?.disabled).toBeFalsy()
+    expect(rows.find(entry => entry.id === 'tool-executor-ptc')?.disabled).toBe(true)
     const code = presetPlugins('code')
-    const presentation = code.find(entry => entry.id === 'tool-presentation')
-    expect(presentation?.name).toBe('@deepseek-ai/dsh-agent-tool-presentation')
-    expect(presentation?.config).toEqual({ mode: 'ptc' })
-    // PTC presents the registry as an SDK over run_code; a second model-authored
-    // orchestration surface would sit beside it. Only registered global names
-    // may be denied, and `ralph` ships disabled deployment-wide.
-    const profile = code.find(entry => entry.id === 'profile')
-    expect(profile?.name).toBe('@agi-fans/dsh-tui/agent-profile')
-    expect(profile?.config).toEqual({ tools: { deny: ['workflow_run'] } })
+    const executor = code.find(entry => entry.id === 'tool-executor-ptc')
+    expect(executor?.name).toBe('@deepseek-ai/dsh-tool-executor-ptc')
+    expect(executor?.disabled).toBeFalsy()
+    // The workflow surface is a preset decision now: the native presets register
+    // it, the PTC preset does not, so no deny list has to name an Agent-scoped tool.
+    expect(pluginTree(presetPlugins('code')).map(entry => entry.name)).not.toContain('@deepseek-ai/dsh-tool-workflow')
+    for (const preset of ['standard', 'cordis']) {
+      const workflow = pluginTree(presetPlugins(preset)).find(entry => entry.id === 'tool-workflow')
+      expect(workflow?.name, preset).toBe('@deepseek-ai/dsh-tool-workflow')
+      // Existing sessions and preset tool policies retain this execution name.
+      expect(workflow?.config, preset).toEqual({ toolName: 'workflow_run' })
+    }
     for (const preset of ['standard', 'minimal', 'cordis']) {
       const names = pluginTree(presetPlugins(preset)).map(entry => entry.name)
-      expect(names, preset).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
+      expect(names, preset).not.toContain('@deepseek-ai/dsh-tool-executor-ptc')
     }
   })
 

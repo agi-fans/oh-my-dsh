@@ -342,8 +342,16 @@
 
   - id: tools
     name: '@deepseek-ai/dsh-tools'
-    config:
-      mode: native
+
+  # Execution moved out of the tool registry into executor plugins. Native is the
+  # deployment default; a preset that wants PTC mounts the PTC executor in its own
+  # scope, and the disabled row here keeps startup's required entry present.
+  - id: tool-executor-native
+    name: '@deepseek-ai/dsh-tool-executor-native'
+
+  - id: tool-executor-ptc
+    name: '@deepseek-ai/dsh-tool-executor-ptc'
+    disabled: true
 
   - id: skill
     name: '@deepseek-ai/dsh-skill'
@@ -635,11 +643,10 @@
         OMDSH_HOME: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
         DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY || undefined
 
+  # One row now registers send_message, interrupt_agent, and list_agents; the
+  # former `/list-agents` subpath is no longer an entry point.
   - id: subagent-control
     name: '@deepseek-ai/dsh-tool-subagent-control'
-
-  - id: subagent-list
-    name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
   - id: tool-subagent
     name: '@deepseek-ai/dsh-tool-subagent'
@@ -678,16 +685,13 @@
   # is the same isolation the ACP subagent transport buys for delegation.
   # Mounting `dsh-workflow` as well would double-register `workflowEngine`, so
   # it stays a dependency the engine resolves rather than a composition row.
+  # The model-facing `workflow_run` tool sits in the native presets instead of
+  # here: it registers into an Agent's scope, so only a preset can decide whether
+  # its agents see a second way to author orchestration.
   - id: workflow-ptc
     name: '@deepseek-ai/dsh-workflow-ptc'
     config:
       provider: spawn
-
-  # Keep the explicit execution name stable for existing sessions and tool policies.
-  - id: tool-workflow
-    name: '@deepseek-ai/dsh-tool-workflow'
-    config:
-      toolName: workflow_run
 
   # Ralph iterates fresh agents over a build-time-fixed script; it reuses the
   # continuable in-process `spawn` provider, so it depends on that transport
