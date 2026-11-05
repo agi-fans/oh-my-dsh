@@ -136,10 +136,10 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
         }
       }
     }
-    if (!cancelled.aborted) {
-      // EOF means "no more input", not "discard the accepted work". Let the
-      // active turn and every queued follow-up settle so pipe/CI mode observes
-      // the same transcript and errors as an interactive terminal.
+    if (!cancelled.aborted && !tui.interactive) {
+      // Pipe EOF means "no more input", not "discard the accepted work".
+      // Interactive quit instead hands shutdown to the host immediately,
+      // including when background children have not settled yet.
       const agent = controller.agent
       if (agent !== undefined) {
         const stopped = Promise.withResolvers<false>()
@@ -154,7 +154,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           }
         } finally { cancelled.removeEventListener('abort', stop) }
       }
-    } else {
+    } else if (cancelled.aborted) {
       // An unmount cancel aborts the in-flight command instead of waiting.
       operation?.abort(new Error('runner unloaded'))
     }

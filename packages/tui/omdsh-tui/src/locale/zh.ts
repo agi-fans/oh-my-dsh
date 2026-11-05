@@ -1,5 +1,16 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
+  "Workflow": "工作流",
+  "←→ fold": "←→ 折叠",
+  "type search": "输入筛选",
+  "Ctrl+↑↓ preview": "Ctrl+↑↓ 预览",
+  "Not available to open": "无法打开",
+  "Cancelled": "已取消",
+  "The workflow session is no longer active.": "工作流所属会话已不再处于当前视图。",
+  "This workflow is no longer available.": "此工作流已不可用。",
+  "Browse phases and members. Only running local members can be opened.": "浏览阶段与成员，仅可打开正在运行的本地成员。",
+  "No matching workflow members.": "没有匹配的工作流成员。",
+  "This workflow member is no longer available to open.": "此工作流成员已无法打开。",
   "This subagent is read-only.": "此子代理为只读。",
   "This subagent is not loaded locally. Send it a message to continue before managing its queue.": "此子代理尚未在本地加载。请先发送消息继续对话，再管理队列。",
   "The queue session is no longer active.": "队列所属会话已不再处于当前视图。",

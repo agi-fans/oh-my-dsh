@@ -1,5 +1,6 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
+import { uiText, type UiLanguage } from '../locale/index.ts'
 import { imageSize, type ImageProtocol } from '../chrome/terminal-images.ts'
 import type { TuiDocumentPosition, TuiPrompt } from '../definition.ts'
 import { documentLayout, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
@@ -137,9 +138,9 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
   return lines
 }
 
-function treePageLayout(request: TuiPrompt, width: number, height: number) {
+function treePageLayout(request: TuiPrompt, width: number, height: number, language: UiLanguage = 'en') {
   const actions = (request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
-  const hint = `↑↓ · ←→ fold${width >= 90 ? ' · type search' : ''}${actions === '' ? '' : ` · ${actions}`}${width >= 90 ? ' · Ctrl+↑↓ preview' : ''}`
+  const hint = [uiText(language, '↑↓ · ←→ fold'), ...(width >= 90 ? [uiText(language, 'type search')] : []), ...(actions === '' ? [] : [actions]), ...(width >= 90 ? [uiText(language, 'Ctrl+↑↓ preview')] : [])].join(' · ')
   const hints = wrapTextStable(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
   const middle = height - 6 - hints.length
   const listHeight = width >= 90 ? middle : Math.max(1, Math.floor((middle - 1) / 2))
@@ -148,8 +149,8 @@ function treePageLayout(request: TuiPrompt, width: number, height: number) {
 }
 
 /** Page movement follows the list space remaining after wrapped action hints. */
-export function promptTreePageSize(request: TuiPrompt, width: number, height: number): number {
-  return height < 10 || width < 20 ? Math.max(1, height - 8) : treePageLayout(request, width, height).listHeight
+export function promptTreePageSize(request: TuiPrompt, width: number, height: number, language: UiLanguage = 'en'): number {
+  return height < 10 || width < 20 ? Math.max(1, height - 8) : treePageLayout(request, width, height, language).listHeight
 }
 
 /** A hierarchical choice with an independently scrollable content preview. */
@@ -163,7 +164,7 @@ export function renderPromptTreePage(
   const option = rows[selected]?.option
   const split = width >= 90
   const inner = width - 4
-  const { hints, middle, listHeight, previewHeight } = treePageLayout(state.request, width, height)
+  const { hints, middle, listHeight, previewHeight } = treePageLayout(state.request, width, height, theme.language)
   const listWidth = split ? Math.floor((inner - 3) * 0.45) : inner
   const previewWidth = split ? inner - listWidth - 3 : inner
   const range = promptSelectorVisibleRange(rows.length, selected, listHeight)
@@ -213,7 +214,8 @@ export function renderPromptTreePage(
     for (let at = 0; at < previewHeight; at++) lines.push(pageRow(theme, preview[scroll + at] ?? '', width))
   }
   const action = option?.submitLabel ?? state.request.submitLabel ?? 'select'
-  lines.push(pageRow(theme, theme.fg('dim', `Enter ${action} · Esc back`), width),
+  const navigation = option === undefined || option.disabled === true ? theme.text('Esc back') : theme.text(`Enter ${action} · Esc back`)
+  lines.push(pageRow(theme, theme.fg('dim', navigation), width),
     ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageBottom(theme, width))
   return { lines, cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
     document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight }, cursorVisible: true }

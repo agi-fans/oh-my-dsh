@@ -4,6 +4,26 @@ import * as runner from './runner.ts'
 import type { TuiSubmission } from '../definition.ts'
 
 describe('runner managed children on EOF', () => {
+  it('exits an interactive terminal without waiting for active parent or background children', async () => {
+    const ctx = new Context()
+    const pending = Promise.withResolvers<void>()
+    const whenIdle = vi.fn(() => pending.promise)
+    const waitForChildren = vi.fn(() => pending.promise)
+    const exit = vi.fn()
+    const off = () => () => {}
+    ctx.provide('tui', { interactive: true, readInput: async () => null, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
+    ctx.provide('omdshSession', { start: async () => {}, agent: { whenIdle } } as never)
+    ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+    ctx.provide('subagents', { waitForChildren } as never)
+    ctx.provide('appExit', exit)
+    try {
+      await ctx.plugin(runner)
+      await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
+      expect(whenIdle).not.toHaveBeenCalled()
+      expect(waitForChildren).not.toHaveBeenCalled()
+    } finally { pending.resolve(); await ctx.fiber.dispose() }
+  })
+
   it('releases an unloaded runner while children are pending without exiting the surviving host', async () => {
     const ctx = new Context()
     const settlement = Promise.withResolvers<boolean>()

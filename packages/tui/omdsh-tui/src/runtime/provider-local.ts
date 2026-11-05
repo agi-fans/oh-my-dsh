@@ -11,6 +11,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { rosterItems } from '../views/workflow.ts'
 import { localizePrompt } from '../locale/prompt.ts'
 import { resolveUiLanguage, uiText, type UiLanguagePreference } from '../locale/index.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
@@ -148,7 +149,7 @@ import {
   renderedBlocks,
   type AsidePanel,
   formatAgentElapsed,
-  subagentPreviewStart,
+  rosterPreviewStart,
   initialTranscript,
   replayEvents,
   renderView,
@@ -487,6 +488,7 @@ export class LocalTui implements TuiService {
   #queuedInputSerial = 0
   #rewinds = new Set<() => void>()
   #inspects = new Set<(id: string) => void>()
+  #workflowInspects = new Set<(id: string) => void>()
   #inspectCloses = new Set<() => void>()
   #inspectSubmits = new Set<(submission: TuiSubmission) => void>()
   #disposed = false
@@ -991,15 +993,22 @@ export class LocalTui implements TuiService {
       return before === undefined || before.id !== agent.id || before.label !== agent.label
         || before.phase !== agent.phase || before.needsApproval !== agent.needsApproval || before.depth !== agent.depth || before.mode !== agent.mode
     })
-    const selectedId = this.#subagentSelection === undefined ? undefined : previous[this.#subagentSelection]?.id
+    const previousItems = rosterItems(this.#subagents)
+    const incomingItems = rosterItems(roster)
+    const workflowsChanged = (this.#subagents?.workflows?.length ?? 0) !== (roster?.workflows?.length ?? 0)
+      || (roster?.workflows ?? []).some((run, index) => {
+        const before = this.#subagents?.workflows?.[index]
+        return before?.id !== run.id || before.name !== run.name || before.status !== run.status || before.phase !== run.phase || before.members !== run.members
+      })
+    const selectedId = this.#subagentSelection === undefined ? undefined : previousItems[this.#subagentSelection]?.key
     this.#subagents = roster === undefined
       ? undefined
-      : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })) }
+      : { agents: roster.agents.map(agent => ({ ...agent, activity: [...agent.activity] })), ...(roster.workflows === undefined ? {} : { workflows: [...roster.workflows] }) }
     if (selectedId !== undefined) {
-      const index = incoming.findIndex(agent => agent.id === selectedId)
+      const index = incomingItems.findIndex(item => item.key === selectedId)
       this.#subagentSelection = index < 0 ? undefined : index
     }
-    if (incoming.length === 0) this.#subagentSelection = undefined
+    if (incomingItems.length === 0) this.#subagentSelection = undefined
     const inspected = this.#inspected
     if (inspected !== undefined) {
       const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
@@ -1014,7 +1023,7 @@ export class LocalTui implements TuiService {
         }
       }
     }
-    if (!statusChanged) return
+    if (!statusChanged && !workflowsChanged) return
     this.#syncTick()
     if (this.#tty) this.#scheduleStreamRender()
   }
@@ -1738,6 +1747,11 @@ export class LocalTui implements TuiService {
   onInspectSubagent(listener: (id: string) => void): () => void {
     this.#inspects.add(listener)
     return () => { this.#inspects.delete(listener) }
+  }
+
+  onInspectWorkflow(listener: (id: string) => void): () => void {
+    this.#workflowInspects.add(listener)
+    return () => { this.#workflowInspects.delete(listener) }
   }
 
   onInspectClose(listener: () => void): () => void {
@@ -2948,7 +2962,7 @@ export class LocalTui implements TuiService {
     // the other lists about what `tab` or `pageUp` means. `enter` stays below
     // because what it submits depends on the editor and on multi-select.
     const page = prompt.request.presentation === 'tree'
-      ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height()) : 10
+      ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height(), resolveUiLanguage(this.#uiLanguage)) : 10
     const navigation = listNavigation(event)
     if (navigation.kind === 'move' || navigation.kind === 'page') {
       // The tree clamps: its rows are a structure, and wrapping past the last
@@ -3239,13 +3253,15 @@ export class LocalTui implements TuiService {
   }
 
   #handleSubagentLauncher(event: KeyEvent): boolean {
-    const agents = this.#subagents?.agents ?? []
+    const agents = rosterItems(this.#subagents)
     if (this.#subagentSelection !== undefined) {
       if (agents.length === 0) { this.#subagentSelection = undefined; return false }
       const at = Math.min(this.#subagentSelection, agents.length - 1)
       if (event.type === 'key' && event.id === 'enter') {
         this.#subagentSelection = undefined
-        this.#openSelectedSubagent(agents[at]!)
+        const item = agents[at]!
+        if (item.kind === 'agent') this.#openSelectedSubagent(item.agent)
+        else for (const listener of this.#workflowInspects) listener(item.run.id)
         return true
       }
       if (event.type === 'key' && event.id === 'escape') {
@@ -3266,7 +3282,7 @@ export class LocalTui implements TuiService {
     if (agents.length === 0 || event.type !== 'key' || event.id !== 'down') return false
     if (this.#editor.text !== '' || this.#images.count > 0 || this.#historyIndex !== 0 || this.#ac !== null) return false
     if (this.#queuedSubmissions.length > 0 || this.#queueEditNewer !== null || this.#queueEditPending) return false
-    this.#subagentSelection = Math.min(agents.length - 1, Math.max(0, subagentPreviewStart(agents)))
+    this.#subagentSelection = Math.min(agents.length - 1, Math.max(0, rosterPreviewStart(this.#subagents)))
     this.#render()
     return true
   }

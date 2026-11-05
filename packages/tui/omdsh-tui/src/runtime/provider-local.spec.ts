@@ -5719,3 +5719,35 @@ it('routes child Ctrl+C past the parent Shell and leaves parent queued messages 
     await shell
   } finally { done.resolve({ output: '', code: 0 }); tui.dispose() }
 })
+
+it('retains workflows in the roster and selects them by identity across live updates', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const opened = vi.fn()
+  const a = { id: 'a', name: 'First workflow', status: 'open', members: [] }
+  const b = { ...a, id: 'b', name: 'Second workflow' }
+  try {
+    tui.onInspectWorkflow(opened)
+    tui.setSubagents({ agents: [], workflows: [a, b] })
+    press(term, '\x1b[B')
+    expect(stripAnsi(term.captured)).toContain('Workflow · First workflow · Running')
+    tui.setSubagents({ agents: [], workflows: [b, { ...a, status: 'completed' }] })
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(opened).toHaveBeenCalledWith('a')
+    await vi.waitFor(() => expect(stripAnsi(term.captured)).toContain('First workflow · Completed'))
+  } finally { tui.dispose() }
+})
+
+it('keeps the selected child when workflow rows are added or removed', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), opened = vi.fn()
+  const child = { id: 'same', label: 'Child', phase: 'running' as const, depth: 1, activity: [] }
+  try {
+    tui.onInspectSubagent(opened)
+    tui.setSubagents({ agents: [child] })
+    press(term, '\x1b[B')
+    tui.setSubagents({ agents: [child], workflows: [{ id: 'same', name: 'Workflow', status: 'open', members: [] }] })
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(opened).toHaveBeenCalledWith('same')
+  } finally { tui.dispose() }
+})

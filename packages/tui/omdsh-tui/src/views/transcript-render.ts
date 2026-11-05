@@ -5,6 +5,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { rosterItems, workflowStatus } from './workflow.ts'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-compaction'
@@ -2153,6 +2154,14 @@ function subagentRowText(agent: TuiSubagentView, theme: Theme): string {
   return `${indent}${agent.label} · ${theme.text(agent.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[agent.phase])}`
 }
 
+/** Choose one viewport for workflows and agents so neither can crowd out the composer. */
+export function rosterPreviewStart(roster: TuiSubagentRoster | undefined): number {
+  const items = rosterItems(roster)
+  const activeWorkflow = items.findIndex(item => item.kind === 'workflow' && item.run.status === 'open')
+  if (activeWorkflow >= 0) return Math.max(0, Math.min(activeWorkflow, items.length - SUBAGENT_PREVIEW))
+  return Math.max(0, Math.min((roster?.workflows?.length ?? 0) + subagentPreviewStart(roster?.agents ?? []), items.length - SUBAGENT_PREVIEW))
+}
+
 /** Compact, unframed descendant-subagent tree placed above Todos. */
 export function renderSubagents(
   roster: TuiSubagentRoster | undefined,
@@ -2163,7 +2172,8 @@ export function renderSubagents(
   selected?: number,
 ): string[] {
   const agents = roster?.agents ?? []
-  if (agents.length === 0 || width <= 0) return []
+  const items = rosterItems(roster)
+  if (items.length === 0 || width <= 0) return []
   const running = agents.filter(agent => agent.phase === 'running' || agent.phase === 'starting').length
   const failed = agents.filter(agent => agent.phase === 'error').length
   const waiting = agents.filter(agent => agent.phase === 'waiting').length
@@ -2184,23 +2194,24 @@ export function renderSubagents(
     // Short enough to survive a narrow bar: the counts already use the width.
     + theme.fg('dim', pointing ? ' · ' + theme.text('↑↓ · Enter open · Esc') : ' · ' + theme.text('↓ select'))
   const header = '  ' + (pointing ? theme.inverse(headerBody) : headerBody)
-  // A workflow run belongs to the same roster: it is the one place a reader learns
-  // that a workflow is still going, so it stays as the bar's first row rather than
-  // living in the screen this bar replaced.
-  const workflows = (roster?.workflows ?? []).map(run => '  ' + theme.fg(
-    run.status === 'completed' ? 'success' : run.status === 'open' ? 'accent' : 'warning',
-    `Workflow · ${run.name} · ${run.status}${run.phase === undefined ? '' : ` · ${run.phase}`}`,
-  ))
-  const start = selected === undefined ? subagentPreviewStart(agents) : Math.max(0, Math.min(selected, agents.length - SUBAGENT_PREVIEW))
-  const end = Math.min(agents.length, start + SUBAGENT_PREVIEW)
-  const rows: Array<TuiSubagentView | string> = [
+  const start = selected === undefined ? rosterPreviewStart(roster) : Math.max(0, Math.min(selected, items.length - SUBAGENT_PREVIEW))
+  const end = Math.min(items.length, start + SUBAGENT_PREVIEW)
+  const rows = [
     ...(start === 0 ? [] : [`… ${start} earlier`]),
-    ...agents.slice(start, end),
-    ...(end === agents.length ? [] : [`… ${agents.length - end} more`]),
+    ...items.slice(start, end),
+    ...(end === items.length ? [] : [`… ${items.length - end} more`]),
   ]
-  const lines = [header, ...workflows, ...rows.map((row, index) => {
+  const lines = [header, ...rows.map((item, index) => {
     const branch = '  ' + theme.fg('dim', index === rows.length - 1 ? '└─' : '├─') + ' '
-    if (typeof row === 'string') return branch + theme.fg('dim', row)
+    if (typeof item === 'string') return branch + theme.fg('dim', item)
+    const pointed = selected !== undefined && items[selected]?.key === item.key
+    if (item.kind === 'workflow') {
+      const run = item.run
+      const body = (pointed ? SYMBOL.cursor + ' ' : '') + theme.text('Workflow') + ` · ${run.name} · ` + theme.text(workflowStatus(run.status))
+        + (run.phase === undefined ? '' : ` · ${run.phase}`)
+      return branch + theme.fg(run.status === 'completed' ? 'success' : run.status === 'open' ? 'accent' : 'warning', pointed ? theme.bold(body) : body)
+    }
+    const row = item.agent
     const current = inspectedId === row.id
     const paint = row.phase === 'completed'
       ? (text: string) => theme.fg('dim', theme.strikethrough(text))
@@ -2209,7 +2220,6 @@ export function renderSubagents(
         : row.phase === 'waiting'
           ? (text: string) => theme.fg('dim', text)
           : (text: string) => text
-    const pointed = selected !== undefined && agents[selected]?.id === row.id
     const marker = current || pointed ? theme.fg('accent', SYMBOL.cursor) + ' ' : ''
     const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row, theme))
     return branch + (current || pointed ? theme.bold(body) : body)

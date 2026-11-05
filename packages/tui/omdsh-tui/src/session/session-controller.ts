@@ -7,6 +7,7 @@
  * @module @agi-fans/dsh-tui/session-controller
  */
 
+import { workflowMemberStatus, workflowOptions } from '../views/workflow.ts'
 import { randomUUID } from 'node:crypto'
 import { openMessageQueue } from './message-queue.ts'
 import { WorkflowProjection } from './workflow-projection.ts'
@@ -487,6 +488,7 @@ export class SessionRuntime {
   readonly #releasedHandles = new WeakSet<AgentHandle>()
   #disposed = false
   #queueAbort: AbortController | undefined
+  #workflowAbort: AbortController | undefined
   readonly #off: Array<() => void> = []
   readonly #tracker: SubagentTracker
   readonly #streamAttempts = new LiveAttemptTracker()
@@ -525,6 +527,10 @@ export class SessionRuntime {
     })
     this.#off.push(tui.setQueueHandler(signal => this.openQueue(signal)))
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
+    const offWorkflow = tui.onInspectWorkflow?.(id => {
+      void this.openWorkflow(id).catch(error => { this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) })
+    })
+    if (offWorkflow !== undefined) this.#off.push(offWorkflow)
     this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
     this.#off.push(tui.onInspectSubmit(submission => { void this.#steerInspected(submission) }))
     tui.setSessionSearch(async (query, signal) => {
@@ -786,6 +792,65 @@ export class SessionRuntime {
       off()
       signal.removeEventListener('abort', onAbort)
       if (this.#queueAbort === abort) this.#queueAbort = undefined
+    }
+  }
+
+  /** Inspect durable membership; only a currently running, owned local member can be opened. */
+  async openWorkflow(id: string): Promise<void> {
+    const root = this.#requiredAgent()
+    const inspectedId = this.#inspectedId
+    this.#workflowAbort?.abort()
+    const abort = new AbortController()
+    this.#workflowAbort = abort
+    const check = (): void => {
+      abort.signal.throwIfAborted()
+      this.assertActive(root)
+      if (this.#inspectedId !== inspectedId) throw new Error('The workflow session is no longer active.')
+    }
+    const canOpen = (run: NonNullable<ReturnType<WorkflowProjection['get']>>, member: typeof run.members[number]): boolean => {
+      const child = this.#ctx.get('agents')?.get(SessionId(member.childId))
+      return workflowMemberStatus(run, member) === 'open' && child?.status === 'running'
+        && child.session.header.parentSession === root.id && this.#isOwnedDescendant(child, root) && this.#tracker.owns(child.id)
+    }
+    try {
+      let lastRun: ReturnType<WorkflowProjection['get']>
+      let lastOpen = ''
+      let options: ReturnType<typeof workflowOptions> = []
+      const refresh = (): ReturnType<typeof workflowOptions> => {
+        check()
+        const run = this.#workflows.get(id)
+        if (run === undefined) throw new Error('This workflow is no longer available.')
+        const open = run.members.filter(member => canOpen(run, member)).map(member => member.seq).join(',')
+        if (run !== lastRun || open !== lastOpen) {
+          options = workflowOptions(run, member => canOpen(run, member))
+          lastRun = run; lastOpen = open
+        }
+        return options
+      }
+      let selected: string | undefined
+      while (!abort.signal.aborted) {
+        const answer = await this.#tui.prompt({ title: 'Workflow',
+          question: 'Browse phases and members. Only running local members can be opened.',
+          localize: ['title', 'question'], notify: false, options: refresh(), refreshOptions: refresh,
+          presentation: 'tree', filterable: true, allowCustom: false, submitLabel: 'open',
+          emptyText: 'No matching workflow members.', signal: abort.signal,
+          ...(selected === undefined ? {} : { initialValue: selected }) })
+        if (answer === null) return
+        check()
+        selected = answer
+        const run = this.#workflows.get(id)
+        const member = run?.members.find(member => `member:${member.seq}` === answer)
+        if (run === undefined || member === undefined || !canOpen(run, member)) {
+          this.#tui.notice('This workflow member is no longer available to open.')
+          continue
+        }
+        await this.#inspectSubagent(member.childId)
+        return
+      }
+    } catch (error) {
+      if (!abort.signal.aborted) throw error
+    } finally {
+      if (this.#workflowAbort === abort) this.#workflowAbort = undefined
     }
   }
 
@@ -1363,6 +1428,7 @@ export class SessionRuntime {
 
   async dispose(): Promise<void> {
     this.#queueAbort?.abort(new Error('session runtime disposed'))
+    this.#workflowAbort?.abort()
     for (const abort of this.#descendantApprovals.keys()) abort.abort()
     if (this.#disposed) return
     this.#disposed = true
@@ -1444,6 +1510,7 @@ export class SessionRuntime {
     const previous = this.#active
     const epoch = ++this.#activationEpoch
     this.#queueAbort?.abort(new Error('active session changed'))
+    this.#workflowAbort?.abort()
     this.#active = next
     void this.#claimWorkspace(next)
     try {
@@ -1671,6 +1738,7 @@ export class SessionRuntime {
     if (this.#inspectedId === undefined) return
     this.#inspectEpoch += 1
     this.#queueAbort?.abort(new Error('viewed session changed'))
+    this.#workflowAbort?.abort()
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
@@ -1714,6 +1782,7 @@ export class SessionRuntime {
     if (request !== this.#inspectEpoch) return
     if (this.#inspectedId !== id) {
       this.#queueAbort?.abort(new Error('viewed session changed'))
+      this.#workflowAbort?.abort()
       this.#cancelInspectDeliveries()
     }
     this.#inspectedId = id

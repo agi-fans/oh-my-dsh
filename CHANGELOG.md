@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Workflow runs are selectable in the shared agent roster. Browse live phases and members with filtering and folding, then open eligible running local children without losing the composer draft.
+
 - Subagent views support their own Message Queue through Alt+Q or `/queue`, including editing, withdrawal, reordering and Queue-to-Steer transfer. Alt+Up recalls a child’s latest next-turn message, retaining drafts and attachments across navigation.
 
 - Continuable subagents support the same Queue/Steer input preference and attachment delivery as the parent. Their accepted messages appear in the inspected transcript, and local approval requests identify the child that needs a decision.
@@ -46,6 +48,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Quitting the interactive terminal no longer waits indefinitely for background workflows or subagents. Piped input still waits for accepted work to finish.
+
+- Tree selectors translate navigation hints with the interface language and no longer offer Enter on headings or unavailable rows.
+
+- Workflow updates now reach the terminal roster, including runs with no local child rows. Runs abandoned at a crash or fork boundary display Interrupted; ordinary turn completion does not mark background runs as finished.
 
 - Free-text prompts, including queued-message edits, no longer show an unrelated empty-list or no-match warning.
 

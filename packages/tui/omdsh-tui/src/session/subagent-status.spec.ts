@@ -338,3 +338,87 @@ describe('inspected subagent queue ownership', () => {
     } finally { await f.dispose() }
   })
 })
+
+function startWorkflow(f: Awaited<ReturnType<typeof fixture>>) {
+  const runId = 'workflow-run' as never
+  f.root.session.append('tool-workflow/run-start', { runId, name: 'Review workflow' })
+  for (const [index, child] of f.children.entries()) {
+    f.root.session.append('tool-workflow/agent-start', { runId, seq: index + 1, childId: child.id, label: `Member ${index}`, phase: 'Check' })
+  }
+  return runId
+}
+
+describe('workflow member navigation', () => {
+  it('opens an exact live owned member through the existing child inspector', async () => {
+    const f = await fixture()
+    try {
+      const id = startWorkflow(f)
+      f.calls.prompt.mockResolvedValueOnce('member:2')
+      await f.runtime.openWorkflow(id)
+      expect(f.calls.setInspectedSubagent.mock.lastCall?.[0]).toMatchObject({ id: f.children[1]!.id, label: 'Worker 1', writable: true })
+      expect(f.calls.prompt.mock.calls[0]?.[0].options?.find(row => row.value === 'member:2')?.disabled).toBe(false)
+    } finally { await f.dispose() }
+  })
+
+  it.each(['settled', 'idle', 'unloaded', 'unowned'])('keeps %s members visible without offering navigation', async kind => {
+    const f = await fixture()
+    try {
+      const id = startWorkflow(f), child = f.children[0]!
+      if (kind === 'settled') f.root.session.append('tool-workflow/agent-end', { runId: id, seq: 1, outcome: 'completed' })
+      if (kind === 'idle') Object.assign(child, { status: 'idle' })
+      if (kind === 'unloaded') Object.assign(f.ctx.agents, { get: (id: string) => [f.root, ...f.children.slice(1)].find(agent => agent.id === id) })
+      if (kind === 'unowned') Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+      await f.runtime.openWorkflow(id)
+      const row = f.calls.prompt.mock.calls[0]?.[0].options?.find(row => row.value === 'member:1')
+      expect(row).toMatchObject({ label: 'Member 0', disabled: true })
+      expect(f.calls.setInspectedSubagent.mock.calls.some(([view]) => view?.id === child.id)).toBe(false)
+    } finally { await f.dispose() }
+  })
+
+  it('refreshes terminal status without removing or reordering members', async () => {
+    const f = await fixture()
+    try {
+      const id = startWorkflow(f)
+      f.calls.prompt.mockImplementationOnce(async request => {
+        const before = request.options!
+        f.root.session.append('tool-workflow/agent-end', { runId: id, seq: 2, outcome: 'failed' })
+        const after = request.refreshOptions!()
+        expect(after.map(row => row.value)).toEqual(before.map(row => row.value))
+        expect(after.find(row => row.value === 'member:2')).toMatchObject({ disabled: true, badge: { label: 'Failed' } })
+        expect(after.find(row => row.value === 'member:1')?.disabled).toBe(false)
+        return null
+      })
+      await f.runtime.openWorkflow(id)
+    } finally { await f.dispose() }
+  })
+
+  it('rechecks member liveness after Enter instead of cold-opening a settled child', async () => {
+    const f = await fixture()
+    try {
+      const id = startWorkflow(f)
+      f.calls.prompt.mockImplementationOnce(async () => {
+        Object.assign(f.children[0]!, { status: 'idle' })
+        return 'member:1'
+      })
+      await f.runtime.openWorkflow(id)
+      expect(f.calls.notice).toHaveBeenCalledWith('This workflow member is no longer available to open.')
+      expect(f.calls.prompt).toHaveBeenCalledTimes(2)
+      expect(f.calls.setInspectedSubagent.mock.calls.some(([view]) => view?.id === f.children[0]!.id)).toBe(false)
+    } finally { await f.dispose() }
+  })
+
+  it('closes the workflow prompt when the inspected session changes', async () => {
+    const f = await fixture()
+    try {
+      const id = startWorkflow(f)
+      f.inspect(f.children[0]!.id)
+      f.calls.prompt.mockImplementationOnce(async request => {
+        f.closeInspect()
+        expect(request.signal?.aborted).toBe(true)
+        return 'member:2'
+      })
+      await f.runtime.openWorkflow(id)
+      expect(f.calls.setInspectedSubagent.mock.lastCall?.[0]).toBeUndefined()
+    } finally { await f.dispose() }
+  })
+})

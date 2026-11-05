@@ -29,3 +29,33 @@ describe('workflow presentation', () => {
     expect(projection.roster(undefined)!.workflows).toHaveLength(100)
   })
 })
+
+it.each(['interrupted', 'forked'])('marks only unfinished runs in the abandoned turn as interrupted (%s)', kind => {
+  const events = [
+    event('turn/start', { turn: 1 }),
+    event('tool-workflow/run-start', { runId: 'background', name: 'Background' }),
+    event('turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    event('turn/start', { turn: 2 }),
+    event('tool-workflow/run-start', { runId: 'unfinished', name: 'Current' }),
+    event('tool-workflow/agent-start', { runId: 'unfinished', seq: 1, childId: 'child', label: 'Check' }),
+    event('tool-workflow/run-start', { runId: 'finished', name: 'Finished' }),
+    event('tool-workflow/run-end', { runId: 'finished', stopReason: 'completed' }),
+    event('turn/end', { turn: 2, reason: { kind } }),
+  ]
+  const live = new WorkflowProjection(), replay = new WorkflowProjection()
+  for (const item of events) live.apply(item)
+  replay.reset(events)
+  expect(replay.roster(undefined)).toEqual(live.roster(undefined))
+  expect(replay.get('unfinished')?.status).toBe('interrupted')
+  expect(replay.get('finished')?.status).toBe('completed')
+  expect(replay.get('background')?.status).toBe('open')
+  // A later durable end takes precedence over an inferred interrupted state.
+  replay.apply(event('tool-workflow/run-end', { runId: 'unfinished', stopReason: 'cancelled' }))
+  expect(replay.get('unfinished')?.status).toBe('cancelled')
+})
+
+it.each(['completed', 'aborted', 'error'])('does not infer workflow completion from an ordinary %s turn end', kind => {
+  const projection = new WorkflowProjection()
+  projection.reset([event('turn/start', { turn: 1 }), event('tool-workflow/run-start', { runId: 'run', name: 'Review' }), event('turn/end', { turn: 1, reason: { kind } })])
+  expect(projection.get('run')?.status).toBe('open')
+})

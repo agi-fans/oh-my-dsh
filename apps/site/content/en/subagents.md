@@ -32,7 +32,9 @@ In a continuable child, Enter follows the same Queue or Steer preference as the 
 
 With an empty composer, `Ctrl+C` stops the inspected child and preserves its accepted inbox; it does not stop the parent turn or the parent's Shell command. `Esc` clears a child draft first, then returns to the parent. A second `Ctrl+C` exits the application. Local child approval requests identify the requesting child and mark it as needing approval until the request settles. Harness rejects direct user questions from delegated children: unresolved questions must return in their result to the parent. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
 
-The roster also carries a line per recorded Workflow run with its status and latest phase, so a running workflow is visible without opening anything. The complete event history remains available through `/trajectory`.
+Recorded Workflow runs share the roster with agents, within the same bounded preview. Select a workflow with `↓` and `Enter` to browse its phases and members; `←`/`→` folds groups, and typing filters the list. Names and membership come from the session log, and status updates preserve the current selection. Enter opens a member only while both the member and its owned local child are running; completed, unavailable and external members remain visible without a cold-session opener. Esc closes the workflow list and restores the previous view and draft.
+
+A normal turn ending does not stop a background workflow. An unfinished run is shown as Interrupted only when its originating turn was closed after a crash or at a fork boundary. This changes the display, not the tool result. Only top-level `workflow_run` calls produce these records; the complete event history remains available through `/trajectory`.
 
 ## Orchestration tools
 

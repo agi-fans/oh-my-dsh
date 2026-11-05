@@ -601,6 +601,8 @@ export interface TuiService {
    * @returns disposer removing the listener.
    */
   onInspectSubagent(listener: (id: string) => void): () => void
+  /** Open one durable workflow from the shared roster. */
+  onInspectWorkflow?(listener: (id: string) => void): () => void
   /**
    * Subscribe to a request to return from a descendant transcript to the parent.
    * @returns disposer removing the listener.

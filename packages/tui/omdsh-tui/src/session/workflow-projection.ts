@@ -6,12 +6,34 @@ import type { TuiSubagentRoster, TuiWorkflowRun } from '../definition.ts'
 
 export class WorkflowProjection {
   #runs = new Map<string, TuiWorkflowRun>()
-  reset(events: readonly SessionEvent[]): void { this.#runs.clear(); for (const event of events) this.apply(event) }
+  #turn: number | undefined
+  #runTurns = new Map<string, number | undefined>()
+  get(id: string): TuiWorkflowRun | undefined { return this.#runs.get(id) }
+  reset(events: readonly SessionEvent[]): void {
+    this.#runs.clear(); this.#runTurns.clear(); this.#turn = undefined
+    for (const event of events) this.apply(event)
+  }
   apply(event: SessionEvent): boolean {
+    if (event.type === 'turn/start') { this.#turn = event.data.turn; return false }
+    if (event.type === 'turn/end') {
+      if (this.#turn === event.data.turn) this.#turn = undefined
+      if (event.data.reason.kind !== 'interrupted' && event.data.reason.kind !== 'forked') return false
+      let changed = false
+      for (const [id, run] of this.#runs) {
+        if (this.#runTurns.get(id) !== event.data.turn || run.status !== 'open') continue
+        this.#runs.set(id, { ...run, status: 'interrupted' })
+        changed = true
+      }
+      return changed
+    }
     if (event.type === 'tool-workflow/run-start') {
+      this.#runTurns.set(event.data.runId, this.#turn)
       this.#runs.set(event.data.runId, { id: event.data.runId, name: event.data.name, status: 'open', members: [] })
       // Keep bounded history; complete data remains in the session log.
-      if (this.#runs.size > 100) this.#runs.delete(this.#runs.keys().next().value as string)
+      if (this.#runs.size > 100) {
+        const oldest = this.#runs.keys().next().value as string
+        this.#runs.delete(oldest); this.#runTurns.delete(oldest)
+      }
       return true
     }
     if (event.type !== 'tool-workflow/run-end' && event.type !== 'tool-workflow/agent-start' && event.type !== 'tool-workflow/agent-end') return false
