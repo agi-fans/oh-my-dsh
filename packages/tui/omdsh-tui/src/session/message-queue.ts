@@ -47,11 +47,12 @@ export function editedQueuedMessage(message: UserMessage, text: string): UserMes
   return createUserMessage({ ...input, content: [...(text === '' ? [] : [{ type: 'text' as const, text }]), ...attachments] })
 }
 
-/** Text-only editing cannot retain the old text embedded in image-placement segments. */
+/** Replace text while preserving the relative order of the draft's attachments. */
 function editedSubmission(original: TuiSubmission, text: string): TuiSubmission {
   if (text === original.text) return original
-  const { segments: _segments, ...draft } = original
-  return { ...draft, text }
+  return { ...original, text, ...(original.segments === undefined ? {} : {
+    segments: [{ kind: 'text' as const, text }, ...original.segments.filter(segment => segment.kind !== 'text')],
+  }) }
 }
 
 function queueOptions(rows: readonly QueuedMessage[]): NonNullable<TuiPrompt['options']> {

@@ -1,124 +1,249 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { ScheduleCatalogEntry, ScheduleDeliveryHistoryResult, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
+import type { ScheduleCatalogEntry, ScheduleDeliveryHistoryResult, ScheduleEditRequest, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
 import { ScheduleId } from '@deepseek-ai/dsh-schedule'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { TuiService } from '../definition.ts'
+import type { TuiPrompt } from '../definition.ts'
 import * as command from './schedule.ts'
+import { scheduleCatalog } from './schedule-catalog.ts'
 
-const record: ScheduleRecord = {
-  id: ScheduleId('task-1'),
-  kind: 'at',
-  title: 'Release check',
-  prompt: 'Check the release',
-  scheduledAt: '2099-01-01T01:00:00Z',
+const sessionId = SessionId('schedule-test')
+const record: ScheduleCatalogEntry = {
+  id: ScheduleId('task-1'), kind: 'every', everySeconds: 3600, title: 'Release check', prompt: 'Current instruction',
+  scheduledAt: '2099-01-01T01:00:00Z', status: 'active', updatedAt: '2026-11-05T01:00:00Z',
+  target: { kind: 'session', sessionId }, involvedSessionIds: [sessionId],
 }
-
-function history(): ScheduleDeliveryHistoryResult {
-  return {
-    id: record.id,
-    records: [{
-      messageId: MessageId('msg-1'),
-      scheduledAt: '2099-01-01T01:00:00Z',
-      deliveredAt: '2099-01-01T01:00:02Z',
-      prompt: 'Check the release',
-    }],
-    earlierRecordsUnavailable: false,
-    earlierRecordsPruned: false,
-    retention: { days: 30, records: 200 },
-  }
+function history(id = 'msg-1', next?: string): ScheduleDeliveryHistoryResult {
+  return { id: record.id, records: [{ messageId: MessageId(id), targetSessionId: sessionId, scheduledAt: '2026-11-05T00:00:00Z', deliveredAt: '2026-11-05T00:00:02Z', prompt: `Saved ${id}` }],
+    earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 }, ...(next ? { nextBefore: MessageId(next) } : {}) }
 }
-
-async function fixture(tasks: ScheduleRecord[], prompts: (string | null)[]) {
-  const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(CommandRuntime)
-  const prompt = vi.fn(async () => prompts.shift() ?? null)
-  ctx.provide('tui', { prompt } as unknown as TuiService)
-  let currentSessionId: SessionId | undefined
+type Answer = string | null | ((request: TuiPrompt) => string | null | Promise<string | null>)
+const contexts: Context[] = []
+afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
+const flush = () => new Promise<void>(resolve => setImmediate(resolve))
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
+async function fixture(answers: Answer[], tasks: ScheduleCatalogEntry[] = [structuredClone(record)], language: 'en' | 'zh-CN' = 'en') {
+  const ctx = new Context(); contexts.push(ctx)
+  await ctx.plugin(SessionStore); await ctx.plugin(CommandRuntime)
+  let assertionFailure: unknown
+  const prompt = vi.fn(async (request: TuiPrompt) => {
+    const next = answers.shift()
+    try { return typeof next === 'function' ? await next(request) : next ?? null }
+    catch (error) { assertionFailure = error; throw error }
+  })
+  const notice = vi.fn(), abort = new AbortController()
+  ctx.provide('tui', { prompt, notice, prefs: () => ({ uiLanguage: language }) } as never)
+  let current = tasks
+  const update = (next: ScheduleCatalogEntry[]) => { current = next; ctx.emit('schedule/changed') }
   const schedule = {
-    list: vi.fn(async () => tasks),
-    // The command reads the catalog: it is the only read that reports whether a
-    // reminder can still fire. The session is bound below, so this reads it late.
-    catalog: vi.fn(async () => tasks.map(task => ({
-      ...task,
-      involvedSessionIds: currentSessionId === undefined ? [] : [currentSessionId],
-      status: 'active' as const,
-    }))),
-    history: vi.fn(async () => history()),
-    edit: vi.fn(async (request: { action: 'update' | 'delete'; patch?: { title?: string; prompt?: string } }) => (
-      request.action === 'delete' ? { id: record.id, deleted: true } : { ...record, ...request.patch, involvedSessionIds: [], status: 'active' as const })),
+    catalog: vi.fn(async () => structuredClone(current)), history: vi.fn(async (): Promise<ScheduleDeliveryHistoryResult> => history()),
+    run: vi.fn(async () => { update(current.map(task => ({ ...task, executionActive: true, deliveryFloorEndsAt: '2099-01-02T00:00:00Z' }))); return current[0]! }),
+    edit: vi.fn(async (request: ScheduleEditRequest) => {
+      const existing = current.find(task => task.id === request.id)
+      if (!existing) return { id: request.id, code: 'schedule_not_found' as const }
+      if (request.expectedUpdatedAt !== (existing.updatedAt ?? null)) return { id: request.id, code: 'schedule_conflict' as const }
+      if (request.action === 'delete') { update(current.filter(task => task.id !== request.id)); return { id: request.id, deleted: true as const } }
+      const next = { ...existing, ...request.patch, ...(request.patch.active === undefined ? {} : { status: request.patch.active ? 'active' as const : 'paused' as const }), updatedAt: new Date(Date.parse(existing.updatedAt!) + 1000).toISOString() }
+      update(current.map(task => task.id === next.id ? next : task)); return next
+    }),
   }
-  ctx.provide('schedule', schedule as never)
-  await ctx.plugin(command)
-  const session = ctx.sessions.create(SessionId(`schedule-${Math.random().toString(16).slice(2)}`))
-  currentSessionId = session.id
-  const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
-  return { ctx, agent, prompt, schedule }
+  ctx.provide('schedule', schedule as never); await ctx.plugin(command)
+  const session = ctx.sessions.create(sessionId), agent = { id: session.id, session, status: 'idle' } as unknown as Agent
+  return { ctx, agent, prompt, notice, schedule, update, current: () => current, abort,
+    run: () => ctx.commands.execute(agent, '/schedule', [], abort.signal).finally(() => { if (assertionFailure) throw assertionFailure }) }
 }
 
 describe('/schedule command', () => {
-  it('reports an empty task list without opening a picker', async () => {
-    const f = await fixture([], [])
-    try {
-      const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
-      expect(execution?.result).toMatchObject({
-        kind: 'success',
-        text: 'No scheduled tasks in this session. Ask the agent to create one with `schedule_create`.',
-      })
-      expect(f.prompt).not.toHaveBeenCalled()
-    } finally {
-      await f.ctx.fiber.dispose()
-    }
+  it('keeps an empty list refreshable and excludes tasks belonging to other sessions', async () => {
+    const f = await fixture([null], [{ ...record, involvedSessionIds: [SessionId('other')] }])
+    expect((await f.run())?.result.kind).toBe('success')
+    const request = f.prompt.mock.calls[0]![0]
+    expect(request.detail).toContain('No scheduled tasks in this session')
+    expect(request.options?.map(row => row.value)).toEqual(['@refresh'])
+    expect(f.schedule.run).not.toHaveBeenCalled()
   })
 
-  it('deletes a reminder after confirmation', async () => {
-    const f = await fixture([record], ['task-1', 'delete', 'delete'])
-    try {
-      const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
-      expect(execution?.result).toMatchObject({ kind: 'success', text: 'Deleted reminder "Release check".' })
-      expect(f.schedule.edit).toHaveBeenCalledWith(expect.objectContaining({ id: record.id, action: 'delete' }), f.agent.session.id)
-    } finally {
-      await f.ctx.fiber.dispose()
-    }
+  it('pauses and resumes through the service with the observed revision and invocation signal', async () => {
+    const f = await fixture(['task-1', 'pause', request => {
+      expect(request.detail).toContain('Reminder paused.')
+      expect(request.initialValue).toBe('resume'); return 'resume'
+    }, request => { expect(request.detail).toContain('Reminder resumed.'); return null }, null])
+    await f.run()
+    expect(f.schedule.edit).toHaveBeenNthCalledWith(1, { id: record.id, action: 'update', patch: { active: false }, expectedUpdatedAt: record.updatedAt }, sessionId, f.abort.signal)
+    expect(f.schedule.edit.mock.calls[1]?.[0]).toMatchObject({ patch: { active: true }, expectedUpdatedAt: '2026-11-05T01:00:01.000Z' })
   })
 
-  it('renames a reminder with its observed record', async () => {
-    const f = await fixture([record], ['task-1', 'title', 'Release verification'])
-    try {
-      const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
-      expect(execution?.result).toMatchObject({ kind: 'success', text: 'Updated name for "Release verification".' })
-      expect(f.schedule.edit).toHaveBeenCalledWith(expect.objectContaining({
-        id: record.id,
-        action: 'update',
-        patch: { title: 'Release verification' },
-      }), f.agent.session.id)
-    } finally {
-      await f.ctx.fiber.dispose()
-    }
+  it('reports manual delivery without claiming execution completed or changing timing', async () => {
+    const f = await fixture(['task-1', 'run', request => {
+      expect(request.detail?.match(/This task is queued or running/gu)).toHaveLength(1)
+      expect(request.detail).toContain('Instruction delivered.')
+      expect(request.options?.find(row => row.value === 'run')?.disabled).toBe(true)
+      expect(request.options?.find(row => row.value === 'delete')?.disabled).toBe(true)
+      return null
+    }, null])
+    await f.run()
+    expect(f.schedule.run).toHaveBeenCalledWith({ id: record.id }, f.abort.signal)
+    expect(f.schedule.edit).not.toHaveBeenCalled()
+    expect(f.current()[0]?.scheduledAt).toBe(record.scheduledAt)
   })
 
-  it('opens retained delivery records and returns to the action list', async () => {
-    const f = await fixture([record], ['task-1', 'history', 'back', null])
-    try {
-      const execution = await f.ctx.commands.execute(f.agent, '/schedule', [], new AbortController().signal)
-      expect(execution?.result).toMatchObject({ kind: 'success' })
-      expect(f.schedule.history).toHaveBeenCalledWith({ id: record.id, limit: 20 })
-      const historyPrompt = f.prompt.mock.calls[2]?.[0] as { detail?: string } | undefined
-      expect(historyPrompt?.detail).toContain('Deliveries · newest first')
-      expect(historyPrompt?.detail).toContain('Check the release')
-    } finally {
-      await f.ctx.fiber.dispose()
-    }
+  it('treats the service pending result as a status and retains the task', async () => {
+    const f = await fixture(['task-1', 'run', request => { expect(request.detail).toContain('already queued, running'); return null }, null])
+    f.schedule.run.mockResolvedValue({ id: record.id, code: 'schedule_execution_pending' } as never)
+    await f.run(); expect(f.current()).toHaveLength(1)
   })
 
-  it('renders rule and instant text deterministically', () => {
-    expect(command.scheduleRule(record)).toBe('once at 2099-01-01 01:00 UTC')
-    expect(command.formatInstant('2099-01-01T01:00:00Z')).toBe('2099-01-01 01:00 UTC')
-    expect(command.scheduleRule({ ...record, kind: 'every', everySeconds: 300 } as ScheduleRecord)).toBe('every 300s')
+  it.each(['run', 'pause', 'title', 'delete'])('rejects stale %s actions when a delivery starts while the menu is open', async action => {
+    const f = await fixture(['task-1', () => { f.update([{ ...record, executionActive: true }]); return action }, null, null])
+    await f.run(); expect(f.schedule.run).not.toHaveBeenCalled(); expect(f.schedule.edit).not.toHaveBeenCalled()
+  })
+
+  it('honors the minimum interval while allowing pause and deletion', async () => {
+    const task = { ...record, deliveryFloorEndsAt: '2099-01-02T00:00:00Z' }
+    const f = await fixture(['task-1', request => {
+      expect(request.detail).toContain('2099-01-02 00:00 UTC')
+      expect(request.options?.find(row => row.value === 'run')?.disabled).toBe(false)
+      expect(request.options?.find(row => row.value === 'pause')?.disabled).toBe(false)
+      return 'run'
+    }, 'pause', null, null], [task])
+    await f.run(); expect(f.schedule.run).not.toHaveBeenCalled(); expect(f.schedule.edit).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not run into an archived destination', async () => {
+    const f = await fixture(['task-1', 'run', null, null])
+    f.ctx.provide('workspaceRegistry', { archivedSessionIds: [sessionId] } as never)
+    await f.run(); expect(f.schedule.run).not.toHaveBeenCalled()
+  })
+
+  it('requires a separate delete confirmation with Keep selected', async () => {
+    const f = await fixture(['task-1', 'delete', request => { expect(request.initialValue).toBe('cancel'); return 'cancel' }, 'delete', 'accept', null])
+    await f.run()
+    expect(f.schedule.edit).toHaveBeenCalledTimes(1)
+    expect(f.schedule.edit).toHaveBeenCalledWith({ id: record.id, action: 'delete', expectedUpdatedAt: record.updatedAt }, sessionId, f.abort.signal)
+    expect(f.notice).toHaveBeenCalledWith('Deleted reminder “Release check”.', { transient: true })
+  })
+
+  it('retains the editor revision when a reminder changes elsewhere', async () => {
+    const f = await fixture(['task-1', 'title', () => { f.update([{ ...record, title: 'Remote', updatedAt: '2026-11-05T02:00:00Z' }]); return 'Local' }, request => {
+      expect(request.detail).toContain('changed elsewhere'); expect(request.detail).toContain('Remote'); return null
+    }, null])
+    await f.run(); expect(f.current()[0]?.title).toBe('Remote')
+    expect(f.schedule.edit.mock.calls[0]?.[0].expectedUpdatedAt).toBe(record.updatedAt)
+  })
+
+  it('discards cancellation before mutation', async () => {
+    const f = await fixture(['task-1', 'title', () => { f.abort.abort(); return 'Later' }])
+    await expect(f.run()).rejects.toMatchObject({ name: 'AbortError' }); expect(f.schedule.edit).not.toHaveBeenCalled()
+  })
+
+  it('refreshes an open list on events and keeps rows stable without changes', async () => {
+    const f = await fixture([async request => {
+      const first = request.refreshOptions!()
+      expect(request.refreshOptions!()).toBe(first)
+      f.update([{ ...record, status: 'paused' }]); request.refreshOptions!(); await flush()
+      expect(request.refreshOptions!().find(row => row.value === record.id)?.badge?.label).toBe('Paused')
+      return null
+    }])
+    await f.run(); const count = f.schedule.catalog.mock.calls.length
+    f.ctx.emit('schedule/changed'); await flush(); expect(f.schedule.catalog).toHaveBeenCalledTimes(count)
+  })
+
+  it('retains the prior catalog on failure and disables writes until refresh succeeds', async () => {
+    const f = await fixture(['task-1', async request => {
+      f.schedule.catalog.mockRejectedValueOnce(new Error('offline')); f.ctx.emit('schedule/changed')
+      request.refreshOptions!(); await flush()
+      expect(request.refreshDocument!()).toContain('last loaded state')
+      expect(request.refreshOptions!().find(row => row.value === 'pause')?.disabled).toBe(true)
+      return 'refresh'
+    }, request => { expect(request.refreshOptions!().find(row => row.value === 'pause')?.disabled).toBe(false); return null }, null])
+    await f.run()
+  })
+
+  it('keeps an acknowledged write successful if the subsequent refresh fails', async () => {
+    const f = await fixture(['task-1', 'pause', request => {
+      expect(request.detail).toContain('Reminder paused.'); expect(request.detail).toContain('last loaded state'); return null
+    }, null])
+    const edit = f.schedule.edit.getMockImplementation()!
+    f.schedule.edit.mockImplementation(async (...args) => { const result = await edit(...args); f.schedule.catalog.mockRejectedValueOnce(new Error('offline')); return result })
+    await f.run(); expect(f.schedule.edit).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['en', 'zh-CN'] as const)('localizes controls without translating task content (%s)', async language => {
+    const f = await fixture(['task-1', request => {
+      expect(request.detail).toContain('Current instruction')
+      expect(request.options?.find(row => row.value === 'pause')?.label).toBe(language === 'en' ? 'Pause reminder' : '暂停提醒'); return null
+    }, null], [structuredClone(record)], language)
+    await f.run()
+  })
+})
+
+describe('retained delivery browsing', () => {
+  it('loads older pages by cursor and shows immutable historical instructions', async () => {
+    const f = await fixture(['task-1', 'history', 'older', request => {
+      expect(request.options?.map(row => row.description)).toEqual(expect.arrayContaining(['Saved msg-1', 'Saved msg-2']))
+      return 'record:1'
+    }, request => { expect(request.documentSource?.text).toContain('Saved msg-2'); expect(request.documentSource?.text).not.toContain('Current instruction'); return null }, 'back', null, null])
+    f.schedule.history.mockResolvedValueOnce(history('msg-1', 'msg-1')).mockResolvedValueOnce(history('msg-2'))
+    await f.run()
+    expect(f.schedule.history).toHaveBeenNthCalledWith(2, { id: record.id, limit: 20, before: MessageId('msg-1') })
+  })
+
+  it('keeps loaded records and retries the same cursor after a page failure', async () => {
+    const f = await fixture(['task-1', 'history', 'older', request => {
+      expect(request.options?.[0]?.description).toBe('Saved msg-1')
+      expect(request.options?.find(row => row.value === 'older')?.label).toBe('Retry older records'); return 'older'
+    }, 'back', null, null])
+    f.schedule.history.mockResolvedValueOnce(history('msg-1', 'msg-1')).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(history('msg-2'))
+    await f.run(); expect(f.schedule.history.mock.calls[1]).toEqual(f.schedule.history.mock.calls[2])
+  })
+
+  it('announces pruning only after the last saved page and does not invent missing prompts', async () => {
+    const last = history('old'); if ('code' in last) throw new Error('fixture')
+    delete last.records[0]!.prompt
+    const first = history('new', 'new'); if ('code' in first) throw new Error('fixture')
+    const f = await fixture(['task-1', 'history', request => { expect(request.detail).not.toContain('removed by retention'); return 'older' }, request => {
+      expect(request.detail).toContain('removed by retention'); expect(request.options?.[1]?.description).toBe('Historical instruction unavailable'); return 'back'
+    }, null, null])
+    f.schedule.history.mockResolvedValueOnce({ ...first, earlierRecordsPruned: true }).mockResolvedValueOnce({ ...last, earlierRecordsPruned: true })
+    await f.run()
+  })
+
+  it('retains records after a missing cursor and offers Refresh rather than a doomed retry', async () => {
+    const f = await fixture(['task-1', 'history', 'older', request => {
+      expect(request.detail).toContain('Delivery history changed')
+      expect(request.options?.some(row => row.value === 'older')).toBe(false)
+      expect(request.options?.[0]?.description).toBe('Saved msg-1'); return 'back'
+    }, null, null])
+    f.schedule.history.mockResolvedValueOnce(history('msg-1', 'msg-1')).mockResolvedValueOnce({ id: record.id, code: 'delivery_cursor_not_found' })
+    await f.run()
+  })
+
+  it('does not reopen a page after an aborted history request returns', async () => {
+    const pending = deferred<ScheduleDeliveryHistoryResult>()
+    const f = await fixture(['task-1', 'history']); f.schedule.history.mockReturnValueOnce(pending.promise)
+    const run = f.run(); await flush(); expect(f.schedule.history).toHaveBeenCalledTimes(1)
+    f.abort.abort(); pending.resolve(history()); await expect(run).rejects.toMatchObject({ name: 'AbortError' }); expect(f.prompt).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('catalog request ordering', () => {
+  it('discards an invalidated response and reads the newer catalog before permitting actions', async () => {
+    const f = await fixture([]), pending = deferred<ScheduleCatalogEntry[]>()
+    f.schedule.catalog.mockReturnValueOnce(pending.promise)
+    const catalog = scheduleCatalog(f.ctx, sessionId, f.abort.signal)
+    const load = catalog.refresh(); f.update([{ ...record, status: 'paused' }]); pending.resolve([record]); await load
+    expect(catalog.snapshot().entries[0]?.status).toBe('paused'); catalog.dispose()
+  })
+
+  it('ignores late catalog results after disposal', async () => {
+    const f = await fixture([]), pending = deferred<ScheduleCatalogEntry[]>()
+    f.schedule.catalog.mockReturnValueOnce(pending.promise)
+    const catalog = scheduleCatalog(f.ctx, sessionId, f.abort.signal), load = catalog.refresh()
+    catalog.dispose(); pending.resolve([record]); await load
+    expect(catalog.snapshot().entries).toEqual([])
   })
 })
 

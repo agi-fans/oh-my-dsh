@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- `/schedule` supports pause, resume and immediate delivery without moving the next occurrence, live task state, and paginated delivery history. Busy tasks and minimum run intervals are explained; failed refreshes preserve loaded records and concurrent edits cannot silently overwrite newer changes. Task details use compact spacing, and card lists reduce visible choices to make room for details and the footer in short terminals.
+
+- DeepSeek account settings show profile and separate recharge/bonus balances, support refresh, browser sign-in cancellation and confirmed sign-out, and open account model selection directly. Account requests follow the UI language; live credential changes clear stale details and expiry notices are not replayed.
+
 - Web search and fetch settings share one staged editor with live provider choices, availability labels, result and request limits, and write-only legacy credentials. Apply saves provider settings before switching routes and retains unfinished changes for retry.
 
 - Model lists support individual add, delete and keyboard reordering, with editable names, token capacities and input types. Custom APIs expose schema-defined reasoning levels and API values; edits remain in the provider draft until Apply.
@@ -30,6 +34,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/agent creator` and the Plugins menu open Creator to author Harness plugins, preserving session drafts without sending a prompt or changing the default Agent preset.
 
 ### Changed
+
+- Typed slash commands now admit staged files as well as images, including during a running turn. Commands that reject attachments keep the complete draft instead of sending the slash text to the model; pasted literal text and explicit Steer remain messages. Mixed attachment order survives retries and queue recall; TUI submission segments now include file entries.
+
+- Plan mode gives the empty composer a planning hint and separates optional revision feedback from the approval decision.
+
+- Shell and tool parallelism settings now stage edits and inheritance resets until Apply, retain drafts after save failures, and reject stale writes. Shell keeps readable units and validates limits before they can fail a command.
 
 - Subagent settings combine delegation limits and model choices in one draft, with Apply, cancellation, inheritance resets, catalog refresh and retry, and independent recovery from partial save failures.
 
@@ -56,6 +66,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Harness plan reviews open the full scrolling reader, keep revision text such as `Approve` from approving a plan, and preserve feedback drafts when returning to review. Cancelling a pending mode change no longer displays the opposite Plan state.
+
+- Filterable lists show a plain placeholder that disappears when typing, without a persistent search glyph; the caret follows the insertion point when editing a query.
 
 - Provider sign-in badges and other list statuses align to the same right edge, including mixed-length labels and narrow terminals.
 

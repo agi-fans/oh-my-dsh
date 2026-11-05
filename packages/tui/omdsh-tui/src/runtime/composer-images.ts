@@ -140,7 +140,7 @@ export class ComposerImages {
   }
 
   /** Prepend a queued submission's drafts, rebasing the current markers. */
-  restore(submission: TuiSubmission): void {
+  restore(submission: TuiSubmission, fileMarkers?: string[]): void {
     this.#revision++
     const editor = this.#deps.editor
     const currentImages = this.#images
@@ -152,17 +152,17 @@ export class ComposerImages {
         imageMarker(index + submission.images.length, image),
       )
     }
-    const restored = submissionDraftText(submission)
+    const restored = submissionDraftText(submission, fileMarkers)
     const separator = restored !== '' && rebasedCurrent !== '' ? '\n' : ''
     this.#images = [...submission.images.map(image => ({ ...image })), ...currentImages]
     editor.replaceText(restored + separator + rebasedCurrent)
   }
 
   /** Replace drafts and text with a queued/edited submission. */
-  replace(submission: TuiSubmission): void {
+  replace(submission: TuiSubmission, fileMarkers?: string[]): void {
     this.#revision++
     this.#images = submission.images.map(image => ({ ...image }))
-    this.#deps.editor.setText(submissionDraftText(submission))
+    this.#deps.editor.setText(submissionDraftText(submission, fileMarkers))
   }
 
   clear(): void {

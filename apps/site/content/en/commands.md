@@ -50,10 +50,18 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/queue` | Review, edit, delete, and reorder pending human messages. |
 | `/btw <question>` | Ask a separate question from the current committed conversation snapshot, answered in a pane above the composer. |
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
-| `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images travel with the planning request. |
+| `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images and files travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
 | `/compact` | Compact older conversation history. |
 | `/jobs [<id>\|kill <id>]` | List background jobs, replay one run's narration, or stop one by id. A run's `log` channel is producer narration that only observers see, so replaying it takes nothing from the model's own read; `stdout` and `stderr` stay with the model. |
+
+## Plan mode
+
+`/plan` enters Plan mode; `/plan off` leaves it. Idle changes apply immediately, while changes during a turn take effect at the next step boundary. The English footer shows the active or pending Plan state, and the empty composer invites a planning task when Plan is the effective target. Plan guides the model to investigate and propose before implementation; it does not change Access or enforce a filesystem sandbox.
+
+When the model submits a plan, the review reader shows its original text. Use PgUp/PgDn to scroll, Tab/Shift+Tab to select **Approve** or **Keep planning**, and Enter to confirm. Approve leaves Plan mode and lets execution continue. Keep planning opens an optional feedback field; submit changes or choose **Continue without feedback** to continue planning. Esc from feedback returns to the review and retains the draft. Esc from the review ends the current turn without approval and keeps Plan mode for your next message. Interrupting or losing the review never counts as approval.
+
+Plans remain in the session’s tool history after review, resume, and a fork that includes the call. Use Ctrl+O to open the completed run and Alt+O to show full tool inputs and results. Composer images and files can accompany `/plan <message>` in their displayed order. `/plan off` rejects attachments and restores the complete draft for correction.
 
 ## Side questions
 
@@ -68,10 +76,16 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
 | `/diff [path\|turn [number]]` | Review current Git changes in an interactive file picker, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
 | `/trajectory` | Inspect the session's event ledger: turns, the steps inside them and the records inside each step, live following, search, folding, the wall time each turn took, per-record duration and token usage, and tool payloads. This is the Harness's event-sourced history made visible — the record every projection is derived from — so it shows the shape of a run rather than only its output. Requires an interactive terminal. |
-| `/schedule` | List this session's durable reminders in the composer card, edit a name or instruction, or browse and delete one. |
+| `/schedule` | Manage this session's durable reminders: pause, resume, run now, edit a name or instruction, delete, and browse delivery history. |
 | `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Installation can be cancelled before application. |
 | `/tools` | List the tools visible to the agent as a transcript result. |
 | `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
+
+### Scheduled reminders
+
+`/schedule` lists reminders involving the current session. The list and task details refresh as tasks change; use the arrow keys and Enter to choose an action, and Esc to go back. **Run now** delivers the instruction without moving the scheduled occurrence. Tasks that are queued or running cannot be edited, paused, resumed, deleted, or triggered again; the page explains minimum run intervals and unavailable archived destinations. Creating reminders and changing their timing or time zone still use the agent's `schedule_*` tools.
+
+**View delivery history** loads twenty saved receipts at a time; **Load older records** adds the next page. Open a receipt to read its saved instruction, scheduled and delivered times, and destination session. A receipt confirms inbox delivery, not completed model execution. Retention limits and unavailable historical instructions are reported explicitly. Failed refreshes keep the loaded records, and **Refresh** retries from the newest page. Deleting a reminder requires confirmation and leaves destination sessions and messages already delivered intact.
 
 ## Files and terminals
 
@@ -93,7 +107,7 @@ Code previews use Prism syntax highlighting with the selected terminal theme. La
 
 Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Terminal → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 
-A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. A draft containing files treats slash-prefixed text as a model message rather than executing a command. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
+A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. Deliberately typed slash commands carry their attachments through Harness command admission, including while a turn runs. Commands that do not accept attachments, unknown commands, and failed or cancelled submissions restore the text, images and files to the original session. Pasted literal text and explicit Steer submissions remain model messages. Mixed attachments retain their displayed order through retries and queue recall. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 
 The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or searching pause following and freeze the displayed snapshot; End refreshes the latest page and follows new output again. `L` or **Earlier output** prepends up to 300 older retained lines while keeping your reading position and search, with a reader limit of 10,000 lines or 4 MiB. `/` or `Ctrl+F` searches loaded text, `Ctrl+N`/`Ctrl+P` cycles matching lines, and `G` or `Ctrl+G` jumps to a displayed line number. Line numbers refer to the backend's retained output at the time of the snapshot, not a permanent log. A clipped or changed history is reported instead of joining mismatched pages; output already discarded by the backend cannot be recovered.
 

@@ -151,7 +151,7 @@ describe('local composer recovery', () => {
       text: 'describe',
       images: [image],
       files: [file],
-      segments: [{ kind: 'image', index: 0 }, { kind: 'text', text: 'describe' }],
+      segments: [{ kind: 'image', index: 0 }, { kind: 'file', index: 0 }, { kind: 'text', text: 'describe' }],
     })
   })
 

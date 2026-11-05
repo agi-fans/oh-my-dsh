@@ -107,17 +107,19 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           shellActive = false
           operation = undefined
         }
-      } else if (!submission.literal && !submission.files?.length && looksLikeSlashCommand(submission.text, submission.images)) {
+      } else if (!submission.literal && looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
+        const sessionId = controller.agent?.session?.id
+        const hasAttachments = submission.images.length > 0 || !!submission.files?.length
         try {
-          const handled = await controller.execute(submission.text, operation.signal, submission.images)
+          const handled = await controller.execute(submission, operation.signal)
           if (!handled) {
-            if (submission.images.length > 0) tui.restoreInput(submission)
+            if (hasAttachments) tui.restoreInput(submission, sessionId)
             const command = stripComposerImageMarkers(submission.text, submission.images).trim()
             tui.notice(`Unknown command: ${command.split(/\s/u, 1)[0] ?? command}`, { level: 'error' })
           }
         } catch (error: unknown) {
-          if (submission.images.length > 0) tui.restoreInput(submission)
+          if (hasAttachments) tui.restoreInput(submission, sessionId)
           if (!operation.signal.aborted) {
             tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
           }

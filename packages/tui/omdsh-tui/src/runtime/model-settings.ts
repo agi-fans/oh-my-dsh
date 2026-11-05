@@ -9,6 +9,7 @@ import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { askPrompt } from '../prompt-intents.ts'
 import { managedProviderCredentialRef, parseBaseURL, parseModelIds, parseProviderId } from '../commands/auth-input.ts'
 import { walkPath } from '../commands/auth-providers.ts'
+import { openAccountSettings } from './account-settings.ts'
 import { editModelCatalog, modelReasoningLevels } from './model-catalog-editor.ts'
 
 const NAMESPACES = ['llm-deepseek', 'llm-pi-ai']
@@ -90,7 +91,7 @@ async function providerRows(ctx: Context): Promise<NonNullable<TuiPrompt['option
   if (active.has('deepseek-account')) {
     try {
       const count = (await llm(ctx).listModels('deepseek-account')).length
-      if (count > 0) rows.unshift({ label: text(ctx, 'DeepSeek Account'), value: 'deepseek-account', description: 'deepseek-account', preview: text(ctx, 'Account models are managed by the account. Use /login or /logout to manage sign-in.'), badge: { label: text(ctx, '{count} models', { count }), tone: 'muted' } })
+      if (count > 0) rows.unshift({ label: text(ctx, 'DeepSeek Account'), value: 'deepseek-account', description: 'deepseek-account', preview: text(ctx, 'Manage account sign-in, profile and balances.'), badge: { label: text(ctx, '{count} models', { count }), tone: 'muted' } })
     } catch { /* The account owns its unavailable catalog and sign-in diagnostics. */ }
   }
   return rows
@@ -130,7 +131,7 @@ export async function openModelSettings(ctx: Context, signal: AbortSignal): Prom
       if (answer === null) return
       if (answer === '@refresh') continue
       if (answer === 'deepseek-account') {
-        await ctx.tui.prompt({ ...list, title: 'DeepSeek Account', question: 'Account models are managed by the account. Use /login or /logout to manage sign-in.', options: [{ label: 'Back', value: 'back' }], signal })
+        await openAccountSettings(ctx, signal)
         continue
       }
       if (answer === '@add') { await addProvider(ctx, signal); continue }

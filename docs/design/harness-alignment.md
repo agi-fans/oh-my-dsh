@@ -29,6 +29,18 @@ Stop 使用 `cancel({ kind: 'user' }, { keepInbox: true })`，保留两个 inbox
 
 当前发布包的 `AgentHandle.dispose()` 无保留 inbox 选项，正常退出及会话切换后的 handle 清理会写入取消消息的 splice。真实终端验证已确认，正常退出后 resume 不能恢复这些消息；重放未清空日志的单元测试不能证明退出恢复。此项需要上游提供保留 inbox 的释放接口，不能通过 TUI 私存已接收消息或覆写 Agent 方法绕过。[生命周期评估与上游报告](../integrations/harness-inbox-lifecycle.md)记录已发布版本、可运行复现和接口建议。
 
+## 账户交互契约
+
+Settings → Models → DeepSeek account、服务商列表的账户项和 `/login` 共用账户页。页面消费已发布 `deepseekAccount` 的安全快照、资料、钱包和状态订阅，不读取或缓存 token。资料和余额独立加载，刷新重试，充值与赠送钱包分开呈现；服务端金额字符串不变，格式化只发生在界面。状态切换和页面关闭使旧请求结果失效。账户模型选择复用 `/model` 的选择器与会话／默认范围，不只返回命令提示。
+
+浏览器授权与退出继续调用 Harness 服务；取消只针对本次 attempt，退出须确认。`deepseek-account/session-expired` 和模型要求登录的事件只触发一次临时提示，快照与会话回放不生成提示，新登录后可再次提醒。请求元数据使用当前界面语言和时区偏移。行为依据为[官方账户界面](../../refs/deepseek-harness/packages/client/ui-settings-account/README.md)及已发布账户服务；不引入桌面嵌入页面、充值支付或额外账户状态存储。
+
+## 定时任务交互契约
+
+`/schedule` 消费已发布 `schedule.catalog()`，按 `involvedSessionIds` 限定当前会话。列表与详情订阅 `schedule/changed` 后刷新；失败保留上次内容，刷新成功前禁止写操作，关闭或取消后忽略迟到结果。暂停、恢复、改名、改指令与删除调用 `schedule.edit()`，保留编辑开始时的 `expectedUpdatedAt`，确认或输入结束后重新检查任务是否正在执行；版本冲突提示重新查看，不覆盖新值。执行中的任务不开放这些操作，删除须确认。
+
+立即运行调用 `schedule.run()`，不修改计划时间；尊重 `executionActive`、`deliveryFloorEndsAt` 与目标会话归档状态。投递成功与模型完成分开表达，写入成功后的刷新失败不改写成功结果。历史使用公开游标每页读取二十条，追加更早记录并按消息身份去重；读取失败保留内容及可重试游标，游标失效后要求刷新。仅显示记录保存的历史指令，缺失时不以当前指令冒充；读到末页才说明更早记录的保留限制。行为依据为[官方定时任务界面](../../refs/deepseek-harness/packages/client/ui-schedule/README.md)及已发布服务；创建、改时间规则和改时区仍交给 `schedule_*` 工具，TUI 不接管计时、持久化或执行调度。
+
 ## 子代理交互契约
 
 子代理继续使用原地转录与名册，不增加独立面板。Enter 沿用运行中输入偏好，Alt+Enter 排队，Alt+S 插话，完整文本与附件分别经已发布的 `queueHostSubagentPrompt`／`steerHostSubagentPrompt` 交付给确切的直接父代理；冷恢复、接纳与执行归 Harness 管理。一次性子代理只读，外部执行无本地转录。子代理队列只展示自己的日志投影，不显示主会话尚未接收的输入。Alt+Q 与 `/queue` 复用同一列表，支持编辑、撤回、同组排序与 Queue → Steer；Alt+Up 取回该子代理最新的下一回合消息。操作绑定确切的存活后代与查看代次，切换后不修改新会话；附件恢复完成后才撤回，过期结果保留在原草稿。连续提交按顺序进入 Harness，不能因图片存储较慢而倒序。未在本地加载的子代理提示先继续对话，不因打开队列自动恢复。
@@ -66,6 +78,22 @@ Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek
 Plugins → Subagents 合并 `subagent` 的深度／容量和 `subagent-model-selection-settings` 的开关／允许路由，任一 namespace 可独立存在；额外字段留在 Advanced。字段修改与恢复继承均先暂存，Apply 才写入。开关与名单通过同一次 revision 校验写入；开启必须有模型，关闭保留名单。两个 namespace 独立保存，失败保留原草稿与版本，成功后清理对应草稿；取消只放弃未保存内容，不回滚已经成功的部分。
 
 模型目录消费已发布 `llm.listProviders/listModels`，分别处理各服务商结果，刷新响应带代次且关闭后失效。适配器／设置事件刷新目录，手动 Refresh models 可重试；已保存的缺失路由保持可选和可删除，同一次选择过程中已经显示的路由也不移除，避免刷新丢失勾选。界面明确深度从主代理 0 开始且工具自身的限制优先，并发数跨所有层级且排除主代理；降低限制不停止已有子代理。模型策略由 Harness 在新会话建立时冻结，已有会话与 fork 继承不被 TUI 改写。
+
+## Shell 与工具并行度设置契约
+
+Shell 和 Tool parallelism 共用单 namespace 的字段草稿表单；分别绑定已挂载的 `bash`／`pwsh` 和 `agent-loop`，不改变命名空间或执行器配置语义。编辑、空输入和 Ctrl+R 恢复继承均只修改草稿；Apply 以打开表单时的 revision 一次提交变更字段，unset 恢复继承。取消不写入，保存失败保留输入和版本供重试，并发修改拒绝覆盖。平台专有字段仍在 Advanced；其他即时设置保持原入口。
+
+单位解析与有效值格式化复用现有字段逻辑，产品说明区分内存尾部与 spill 文件上限、默认与最大超时、终止宽限时间和工具并行度。已发布 Shell schema 比运行时检查宽，表单补充正有限数及 `graceMs <= 2147483647` 的同等校验，不添加默认超时必须低于最大超时等执行器没有的限制。Shell 参数用于新命令，工具并行度由 Harness 在后续工具批次读取；TUI 不重配正在运行的进程或子代理。
+
+## Plan 行为契约
+
+状态与持久化沿用已发布 `planMode` 和会话投影。空闲切换立即生效，运行中切换由 Harness 在下一步边界提交；`pending` 是目标布尔值，只有它与 `active` 不同时，TUI 才呈现待切换状态。取消待退出后宿主仍可能保留 `pending: true`，不能据此反转显示。空白 composer 使用有效目标决定规划提示，切换会话后读取新会话状态；Access 独立展示且不被 Plan 改写。
+
+`plan-review` 意图进入现有完整阅读器，保留模型原文，只翻译审核问题与选项。决定只能来自明确选项；Keep planning 后单独收集可选反馈，`Approve`、数字或空反馈均不改变拒绝决定。意见页 Esc 返回原计划并保留草稿，审核页 Esc 以 `ASK_CANCELLED` 交回 Harness，结束当前回合并保持 Plan。Ctrl+C 沿用 `ASK_ABORTED`，过期／取消后的响应不能成为批准。TUI 不另存计划文档，已完成调用的完整输入通过现有工具详情查看，分支与冷恢复消费相同持久事件，包含 PTC 子调用。
+
+部署指令声明 Plan 是行为约束而非权限沙箱。首次进入时 Harness 注册 `exit_plan_mode`，之后保留工具目录项，但调用仍要求已提交的 Plan 为开启状态。批准后移除规划指令并继续执行；修改后继续规划；关闭审核后等待新消息，不将关闭或中断解释成批准。正文不得声称工具目录在首次进入前后始终相同。
+
+普通文件和图片统一通过命令准入。主动输入的斜杠命令在空闲和运行中都调用已发布 `commands.execute`，由 `input.attachments` 与命令自身语法判断是否接收；未知或拒绝的命令不会降级为模型消息。Session runtime 随 `commands` 服务生命周期注册唯一 `registerFileReceiptResolver`，只解析本次提交为确切 Agent 创建的临时文件回执，执行结束、异常或释放时清理；不重传已存储文件，也不绕过准入。失败草稿返回原会话，粘贴字面意图与显式 Steer 不变。图片和文件共用有序 submission segments，恢复、重试及队列取回保留相对位置；`/plan off` 拒绝附件。
 
 ## 有意保留的终端差异
 

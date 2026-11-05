@@ -75,6 +75,14 @@ describe('modelStatus', () => {
 })
 
 describe('sessionControls', () => {
+  it.each([
+    [false, undefined, false], [false, true, true], [false, false, false],
+    [true, undefined, false], [true, false, true], [true, true, false],
+  ] as const)('distinguishes a pending target from a pending change (%s → %s)', (active, pending, changing) => {
+    expect(sessionControls({ plan: { active: !active, pending: true }, permissions: { currentValue: 'read-only', options: [] } },
+      { active, ...(pending === undefined ? {} : { pending }) })).toEqual({ plan: { active, pending: changing }, permission: 'read-only' })
+  })
+
   it('projects Harness plan and permission state without inventing defaults', () => {
     expect(sessionControls()).toEqual({})
     expect(sessionControls({
@@ -267,16 +275,28 @@ describe('createSubmissionMessage', () => {
     })).resolves.toEqual({
       text: 'edit me',
       images: [{ data: PNG_1X1, mediaType: 'image/png', name: 'queued.png', width: 1, height: 1 }],
+      segments: [{ kind: 'text', text: 'edit me' }, { kind: 'image', index: 0 }],
     })
   })
 })
 
 describe('durable file submissions', () => {
+  it('retains mixed attachment placement through durable queue recall and resubmission', async () => {
+    const file = { attachmentId: AttachmentId('file:ordered'), name: 'task.txt', bytes: 5 }
+    const image = { attachmentId: AttachmentId('image:ordered'), mediaType: 'image/png' as const, name: 'plot.png', bytes: PNG_1X1.length, width: 1, height: 1 }
+    const message = createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'file', attachment: file }, { type: 'text', text: 'compare' }, { type: 'image', attachment: image },
+    ] })
+    const restored = await restoreSubmissionMessage(message, { readImage: async () => ({ data: PNG_1X1, ref: image }) })
+    expect((await createSubmissionMessage(restored, { saveImages: async () => [image] })).content).toEqual(message.content)
+  })
+
   it('submits and restores original file references without buffering or re-uploading bytes', async () => {
     const ref = { attachmentId: AttachmentId('file:test'), name: 'report.txt', bytes: 4096 }
     const message = await createSubmissionMessage({ text: 'Review this', images: [], files: [ref] })
     expect(message.content).toEqual([{ type: 'text', text: 'Review this' }, { type: 'file', attachment: ref }])
-    await expect(restoreSubmissionMessage(message)).resolves.toEqual({ text: 'Review this', images: [], files: [ref] })
+    await expect(restoreSubmissionMessage(message)).resolves.toEqual({ text: 'Review this', images: [], files: [ref],
+      segments: [{ kind: 'text', text: 'Review this' }, { kind: 'file', index: 0 }] })
     expect((await createSubmissionMessage({ text: '', images: [], files: [ref] })).content).toEqual([{ type: 'file', attachment: ref }])
   })
 })

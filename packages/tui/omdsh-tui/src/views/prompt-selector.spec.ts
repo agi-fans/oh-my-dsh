@@ -345,7 +345,9 @@ describe('a filterable card', () => {
     // The paged list printed the query; the card filtered on it without showing
     // it, so the rows narrowed while the reader's own words appeared nowhere.
     const shown = text('build')
-    expect(shown).toContain('⌕ build · 1/1')
+    expect(shown).toContain('build · 1/1')
+    expect(shown).not.toContain('⌕')
+    expect(shown).not.toContain('type to filter')
     expect(shown).toContain('the build failed')
     expect(shown).not.toContain('hello from the model')
   })
@@ -362,6 +364,21 @@ describe('a filterable card', () => {
 
   it('says what to do before anything is typed', () => {
     expect(text('')).toContain('type to filter')
+    expect(text('')).not.toContain('⌕')
+  })
+
+  it.each([false, true])('aligns the plain filter caret with typed text in both languages (colors=%s)', colors => {
+    for (const language of ['en', 'zh-CN'] as const) {
+      for (const [input, cursor] of [['', 0], ['build', 5], ['中文🐳é', 4], ['中文🐳é', 6]] as const) {
+        const frame = renderPromptSelector({ request: { title: 'Pick', question: '', filterable: true, allowCustom: false,
+          options: [{ label: input || 'build' }] }, selected: 0, checked: new Set() }, createTheme(colors, false, 'dark', undefined, language), 40, input, cursor)
+        const row = stripAnsi(frame.lines[frame.cursor.row]!)
+        const content = input || (language === 'en' ? 'type to filter' : '输入以筛选')
+        expect(row).toContain(content)
+        expect(row).not.toContain('⌕')
+        expect(frame.cursor.column).toBe(visibleWidth(row.slice(0, row.indexOf(content))) + visibleWidth(input.slice(0, cursor)))
+      }
+    }
   })
 
   it('marks a preview that was cut off', () => {

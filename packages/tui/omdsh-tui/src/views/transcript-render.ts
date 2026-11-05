@@ -2441,7 +2441,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       // one is the copy that costs every frame: the header's scrolls into history
       // once the conversation starts, this one does not. A bare prompt is enough
       // to say the composer is ready for words.
-      : theme.text('Ask anything')
+      : (options.sessionControls?.plan?.pending ? !options.sessionControls.plan.active : options.sessionControls?.plan?.active)
+        ? theme.text('Describe your task to generate a plan')
+        : theme.text('Ask anything')
     : null
   const inlineHint = options.transcriptSearch !== undefined
     ? transcriptSearchHint({
@@ -2528,7 +2530,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       options.inputCursor,
       appName,
     )
-  const promptSelector = treeRows ?? (options.promptSelector === undefined
+  let promptVisibleRows = Math.max(3, Math.min(10, height - working.length - 14))
+  let promptSelector = treeRows ?? (options.promptSelector === undefined
     ? undefined
     : renderPromptSelector(
       options.promptSelector,
@@ -2536,8 +2539,14 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       width,
       options.input,
       options.inputCursor,
-      Math.max(3, Math.min(10, height - working.length - 14)),
+      promptVisibleRows,
     ))
+  // Details and live notices consume rows too. Window choices before they push
+  // the navigation hints and fixed footer outside a short terminal.
+  while (treeRows === undefined && options.promptSelector?.request.allowCustom === false
+    && promptSelector !== undefined && promptSelector.lines.length > height - working.length - 3 && promptVisibleRows > 3) {
+    promptSelector = renderPromptSelector(options.promptSelector, theme, width, options.input, options.inputCursor, --promptVisibleRows)
+  }
   const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
     : renderSettings(options.settings, theme, width)

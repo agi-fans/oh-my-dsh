@@ -43,7 +43,7 @@ describe('plugin configuration', () => {
     ctx.provide('settings', { describe, writable: true, mutate } as never)
     ctx.provide('credentials', { set, unset } as never)
     const commandOutput = vi.fn()
-    ctx.provide('tui', { prompt, notice, commandOutput } as unknown as TuiService)
+    ctx.provide('tui', { prompt, notice, commandOutput, prefs: () => ({ uiLanguage: 'en' }) } as unknown as TuiService)
     return { ctx, prompt, notice, commandOutput, mutate, set, unset, section, describe }
   }
 
@@ -136,13 +136,13 @@ describe('plugin configuration', () => {
     ['timeoutMs', 30_000, '30s', '2m', 120_000],
     ['maxOutputBytes', 2_097_152, '2 MiB', '512 KiB', 524_288],
   ] as const)('prefills %s with readable units and validates the converted number', async (path, current, initialInput, answer, expected) => {
-    const h = await harness(['0', answer, null])
+    const h = await harness([path, answer, '@apply'])
     h.section.ns = 'bash'
     h.section.schema = z.object({ [path]: z.number().min(1).step(1) }).toJSON()
     Object.assign(h.section.value, { [path]: current })
     try {
       await config.editSettingsEntry(h.ctx, 'bash', new AbortController().signal)
-      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ initialInput, question: 'Enter a value' })
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ initialInput, question: path === 'timeoutMs' ? 'Default timeout' : 'Output limit' })
       expect(h.mutate).toHaveBeenCalledWith('bash', [{ op: 'set', path: [path], value: expected }], 7)
     } finally { await h.ctx.fiber.dispose() }
   })
@@ -270,7 +270,7 @@ describe('plugin configuration', () => {
   })
 
   it.each(['bash', 'pwsh'])('presents the mounted %s owner as Shell and preserves platform-specific fields', async ns => {
-    const h = await harness(['restore', '0', 'reset', null])
+    const h = await harness(['@restore', 'timeoutMs', '@apply'])
     h.section.ns = ns
     h.section.schema = z.object({ timeoutMs: z.number(), maxOutputBytes: z.number(), executable: z.string() }).toJSON()
     try {
@@ -280,7 +280,7 @@ describe('plugin configuration', () => {
       ])
       await config.editSettingsEntry(h.ctx, ns, new AbortController().signal)
       expect(h.mutate).toHaveBeenCalledWith(ns, [{ op: 'unset', path: ['timeoutMs'] }], 7)
-      expect(h.notice).toHaveBeenCalledWith('Default timeout: inherited value restored.')
+      expect(h.notice).toHaveBeenCalledWith('Shell: Settings saved.')
     } finally { await h.ctx.fiber.dispose() }
   })
 

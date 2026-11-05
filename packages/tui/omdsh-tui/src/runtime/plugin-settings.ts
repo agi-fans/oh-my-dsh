@@ -9,7 +9,9 @@ import type { BundleInfo } from '@deepseek-ai/dsh-plugin-manager'
 import z from '@deepseek-ai/schemastery'
 
 import type { PluginSettingsEntry } from '../views/settings-list.ts'
+import { editSettingsDraft } from './settings-draft.ts'
 import { BTW_PRESET } from './btw-policy.ts'
+import { accountSettingsEntry, openAccountSettings } from './account-settings.ts'
 import { modelSettingsEntry, openModelSettings } from './model-settings.ts'
 import { SUBAGENT_SETTINGS_FIELDS, openSubagentSettings, subagentSettingsEntry } from './subagent-settings.ts'
 import { WEB_SETTINGS_FIELDS, openWebSettings, webSettingsEntry } from './web-settings.ts'
@@ -27,15 +29,27 @@ interface ProductForm {
   fields: Record<string, string>
   inline?: string
   effect?: string
+  staged?: boolean
+  help?: Record<string, string>
 }
 
-const SHELL_FORM: ProductForm = { label: 'Shell', section: 'tools', fields: { timeoutMs: 'Default timeout', maxTimeoutMs: 'Maximum timeout', maxOutputBytes: 'Output limit', maxSpillBytes: 'Retained output limit', graceMs: 'Shutdown grace' } }
+const SHELL_FORM: ProductForm = { label: 'Shell', section: 'tools', staged: true,
+  fields: { timeoutMs: 'Default timeout', maxTimeoutMs: 'Maximum timeout', maxOutputBytes: 'Output limit', maxSpillBytes: 'Retained output limit', graceMs: 'Shutdown grace' },
+  help: {
+    timeoutMs: 'Used when a command has no explicit timeout, capped by Maximum timeout. Accepts ms, s, m or h. Applies to new commands.',
+    maxTimeoutMs: 'Caps both default and requested command timeouts. A larger default is clamped to this limit. Applies to new commands.',
+    maxOutputBytes: 'Default in-memory limit for each output stream; overflow spills to a temporary file. A command can override its stdout limit. Accepts B, KB, KiB, MB, MiB, GB or GiB.',
+    maxSpillBytes: 'Maximum bytes retained in each stream’s spill file. The in-memory tail has its own Output limit; a spill file may omit excess output. Applies to new commands.',
+    graceMs: 'Time allowed for a process to stop before forced termination. Applies to new commands; must not exceed 2147483647 ms.',
+  } }
+
 
 // Presentation only: values, validation, inheritance and writes belong to each live schema.
 const PRODUCT_FORMS: Record<string, ProductForm> = {
   permission: { label: 'Default access', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
   'agent-preset-registry': { label: 'Default Agent preset', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
-  'agent-loop': { label: 'Tool parallelism', section: 'tools', fields: { maxParallelToolCalls: 'Parallel tool calls' } },
+  'agent-loop': { label: 'Tool parallelism', section: 'tools', staged: true, fields: { maxParallelToolCalls: 'Parallel tool calls' },
+    help: { maxParallelToolCalls: 'Maximum parallel-safe tool calls in one step. Other calls remain serial. Applies to subsequent tool batches; does not change subagent capacity.' } },
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
   'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
@@ -207,6 +221,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     const owned = paths.filter(path => Object.hasOwn(form?.fields ?? {}, path))
     const advanced = section.autoGenerate === false && !webOwned && !subagentOwned ? [] : paths.filter(path => !claimed.includes(path))
     const writable = ctx.settings.writable ? 'Edits apply live to this profile.' : 'This profile is read-only.'
+    const formEffect = ctx.settings.writable && form?.staged ? 'Edit the draft, then Apply to save.' : writable
     const defaultPreset = ctx.get('agentPresets')?.defaultId
     const summary = (ns === 'agent-preset-registry' ? (defaultPreset === undefined ? undefined : formatAgentPreset(defaultPreset)) : ns === 'permission' ? ctx.get('permissionPresets')?.defaultPreset : undefined) ?? fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
       && configValue(section.value, field.path) !== undefined).slice(0, 2)
@@ -225,7 +240,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     return [
       ...(form === undefined || owned.length === 0 ? [] : [{ id: ns, namespace: ns, label: form.label, section: form.section, fields: owned,
         ...(inline === undefined ? {} : { inline }), summary, keywords: [...owned, ...Object.values(form.fields)],
-        description: `${form.effect === undefined ? '' : `${form.effect} `}${field === undefined ? '' : `${fieldDescription(section, field, fields)} · `}${writable}` }]),
+        description: `${form.effect === undefined ? '' : `${form.effect} `}${field === undefined ? '' : `${fieldDescription(section, field, fields)} · `}${formEffect}` }]),
       ...(advanced.length === 0 ? [] : [{ id: `advanced:${ns}`, namespace: ns,
         label: String(section.ns).replace(/[-_]+/gu, ' ').replace(/^./u, first => first.toUpperCase()), section: 'advanced' as const, fields: advanced,
         summary: `${advanced.length} fields`, keywords: advanced, description: `${ns} · ${advanced.length} fields · ${writable}` }]),
@@ -237,7 +252,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
       summary: bundles === undefined ? 'Details' : bundle === undefined || bundle.availability === 'missing' ? 'Unavailable' : bundle.error !== undefined ? 'Load error' : bundle.enabled ? 'Enabled' : 'Disabled',
       description: 'Provider model, permissions and profile enablement. Native login has not been checked; Installation status reports registration.' }
   }))
-  return [...entries, ...modelSettingsEntry(ctx), ...webEntries, ...subagentEntries]
+  return [...entries, ...accountSettingsEntry(ctx), ...modelSettingsEntry(ctx), ...webEntries, ...subagentEntries]
 }
 
 /** Write the displayed snapshot's revision; a concurrent change must never be silently overwritten. */
@@ -259,6 +274,7 @@ export async function setSettingsEntry(ctx: Context, entry: PluginSettingsEntry,
 export async function editSettingsEntry(ctx: Context, id: string, signal: AbortSignal, resetOnly = false): Promise<void> {
   if (id === 'subagents:settings') { await openSubagentSettings(ctx, signal, resetOnly); return }
   if (id === 'web:settings') { await openWebSettings(ctx, signal); return }
+  if (id === 'account:deepseek') { await openAccountSettings(ctx, signal); return }
   if (id === 'models:providers') { await openModelSettings(ctx, signal); return }
   const native = NATIVE_INTEGRATIONS.find(item => item.id === id)
   if (native !== undefined) {
@@ -286,7 +302,28 @@ export async function editSettingsEntry(ctx: Context, id: string, signal: AbortS
   }
   const entry = pluginSettingsEntries(ctx).find(entry => entry.id === id)
   if (entry?.namespace === undefined) return
-  await editPluginSettings(ctx, entry.namespace, signal, entry.fields, entry.section === 'advanced' ? undefined : PRODUCT_FORMS[entry.namespace], resetOnly)
+  const form = entry.section === 'advanced' ? undefined : PRODUCT_FORMS[entry.namespace]
+  if (form?.staged) {
+    const section = ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === entry.namespace)
+    if (section === undefined) return
+    const fields = configFields(new z(section.schema as Partial<z>)).filter(field => entry.fields?.includes(field.path.join('.')) && !field.secret && !field.protected)
+    await editSettingsDraft(ctx, section, form.label, fields.map(field => {
+      const key = field.path[0]!
+      return { key, label: form.fields[key]!, help: form.help?.[key] ?? '', defaultValue: field.schema.meta.default,
+        parse: (raw: string) => parseProductValue(field, raw), format: (value: unknown) => fieldDisplay(field, value),
+        validate: (value: unknown) => {
+          field.schema(value)
+          // The published Shell schema is broader than the executor's runtime
+          // checks. Reject unusable drafts before they can break the next command.
+          if (form === SHELL_FORM) {
+            if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new Error('Enter a positive finite number.')
+            if (key === 'graceMs' && value > 2_147_483_647) throw new Error('Shutdown grace must not exceed 2147483647 ms.')
+          }
+        } }
+    }), signal, resetOnly)
+    return
+  }
+  await editPluginSettings(ctx, entry.namespace, signal, entry.fields, form, resetOnly)
 }
 
 /** Restore only the chosen owner fields, fenced to the configuration shown by the confirmation. */

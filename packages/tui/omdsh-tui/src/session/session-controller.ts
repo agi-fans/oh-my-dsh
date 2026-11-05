@@ -26,7 +26,8 @@ import {
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
-import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
+import { CommandAttachments, encodeCommandAttachments } from './command-attachments.ts'
+export { encodeCommandAttachments } from './command-attachments.ts'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { PermissionSelection } from '@deepseek-ai/dsh-permission-presets/types'
@@ -121,10 +122,14 @@ export interface TuiStatsProjection {
 }
 
 /** Present only the session controls whose owning Harness plugins are composed. */
-export function sessionControls(projection?: TuiStatsProjection): TuiSessionControls {
+export function sessionControls(projection?: TuiStatsProjection, livePlan?: { active: boolean; pending?: boolean }): TuiSessionControls {
   const override = projection?.sandboxMode
+  // Host pending is a target value, while the UI projection says whether a
+  // change remains. Cancelling a pending change can retain the current target.
+  const plan = livePlan === undefined ? projection?.plan
+    : { active: livePlan.active, pending: livePlan.pending !== undefined && livePlan.pending !== livePlan.active }
   return {
-    ...(projection?.plan === undefined ? {} : { plan: { ...projection.plan } }),
+    ...(plan === undefined ? {} : { plan: { ...plan } }),
     // A logged sandbox override (for example an approved widening) is the mode
     // actually in force; the preset only describes the user's standing choice.
     ...(override == null
@@ -413,8 +418,13 @@ export async function createSubmissionMessage(
         if (segment.text !== '') content.push({ type: 'text', text: segment.text })
         continue
       }
-      const attachment = refs[segment.index]
-      if (attachment !== undefined) content.push({ type: 'image', attachment })
+      if (segment.kind === 'file') {
+        const attachment = submission.files?.[segment.index]
+        if (attachment !== undefined) content.push({ type: 'file', attachment })
+      } else {
+        const attachment = refs[segment.index]
+        if (attachment !== undefined) content.push({ type: 'image', attachment })
+      }
     }
     // An attachment the composer did not mark in the text still belongs to the
     // message: keep it rather than dropping it with the marker.
@@ -422,20 +432,13 @@ export async function createSubmissionMessage(
     for (const [index, attachment] of refs.entries()) {
       if (!placedImages.has(index)) content.push({ type: 'image', attachment })
     }
-    for (const attachment of submission.files ?? []) content.push({ type: 'file', attachment })
+    const placedFiles = new Set(submission.segments.flatMap(segment => segment.kind === 'file' ? [segment.index] : []))
+    for (const [index, attachment] of (submission.files ?? []).entries()) {
+      if (!placedFiles.has(index)) content.push({ type: 'file', attachment })
+    }
   }
   if (content.length === 0) throw new Error('Cannot submit an empty message.')
   return createUserMessage({ content, source: { kind: 'user' } })
-}
-
-/** Encode composer drafts for `ctx.commands.execute`. */
-export function encodeCommandAttachments(images: readonly TuiInputImage[]): CommandSubmitAttachment[] {
-  return images.map(image => ({
-    type: 'image',
-    mediaType: image.mediaType,
-    data: Buffer.from(image.data).toString('base64'),
-    ...(image.name === undefined ? {} : { name: image.name }),
-  }))
 }
 
 /** Rehydrate one durable human inbox message into an editable composer draft. */
@@ -462,11 +465,20 @@ export async function restoreSubmissionMessage(
     }
   }))
   const files = message.content.filter((block): block is Extract<(typeof message.content)[number], { type: 'file' }> => block.type === 'file').map(block => block.attachment)
-  return { text, images, ...(files.length === 0 ? {} : { files }) }
+  let imageIndex = 0, fileIndex = 0
+  const segments = message.content.flatMap<NonNullable<TuiSubmission['segments']>[number]>(block => {
+    if (block.type === 'text') return [{ kind: 'text' as const, text: block.text }]
+    if (block.type === 'image') return [{ kind: 'image' as const, index: imageIndex++ }]
+    if (block.type === 'file') return [{ kind: 'file' as const, index: fileIndex++ }]
+    return []
+  })
+  return { text, images, ...(files.length === 0 ? {} : { files }),
+    ...(images.length === 0 && files.length === 0 ? {} : { segments }) }
 }
 
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
+  readonly #commandAttachments: CommandAttachments | undefined
   readonly #workflows = new WorkflowProjection()
   readonly #ctx: Context
   readonly #tui: TuiService
@@ -508,6 +520,11 @@ export class SessionRuntime {
   constructor(ctx: Context, tui: TuiService, options: { stateDir?: string } = {}) {
     this.#ctx = ctx
     this.#tui = tui
+    const commands = ctx.get('commands')
+    if (commands !== undefined) {
+      this.#commandAttachments = new CommandAttachments(commands)
+      this.#off.push(() => this.#commandAttachments?.dispose())
+    }
     this.#libraryPath = sessionLibraryPath(options.stateDir)
     this.#recentRowsPath = options.stateDir === undefined ? undefined : join(options.stateDir, 'recent-sessions.json')
     this.#tracker = new SubagentTracker({
@@ -870,39 +887,45 @@ export class SessionRuntime {
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
   async execute(
-    line: string,
+    input: string | TuiSubmission,
     signal: AbortSignal,
     images: readonly TuiInputImage[] = [],
   ): Promise<boolean> {
+    const submission: TuiSubmission = typeof input === 'string' ? { text: input, images } : input
+    const { text: line } = submission
+    images = submission.images
     const commandLine = stripComposerImageMarkers(line, images)
     const parsed = parseControl(commandLine)
     if (parsed === undefined) return false
     const commands = this.#ctx.get('commands')
+    const agent = this.#requiredAgent()
+    const staged = this.#commandAttachments?.stage(agent, submission)
     const execution = await (async () => {
       try {
         return await commands?.execute(
-          this.#requiredAgent(),
+          agent,
           commandLine,
-          encodeCommandAttachments(images),
+          staged?.attachments ?? encodeCommandAttachments(images),
           signal,
         )
       } finally {
+        staged?.dispose()
         await this.#disposeRetired()
       }
     })()
     if (execution === undefined) {
       const skill = await this.#findUserSkill(skillNameFromCommand(parsed.name), signal)
       if (skill === undefined) return false
-      if (images.length > 0) {
-        this.#tui.restoreInput({ text: line, images })
-        this.#tui.notice(`/${parsed.name} does not accept image attachments`, { level: 'error' })
+      if (images.length > 0 || submission.files?.length) {
+        this.#tui.restoreInput(submission, agent.session.id)
+        this.#tui.notice(`/${parsed.name} does not accept attachments`, { level: 'error' })
         return true
       }
       await this.send('/' + skill.name + (parsed.input === '' ? '' : ' ' + parsed.input))
       return true
     }
     const result = execution.result
-    if (result.kind === 'error' && images.length > 0) this.#tui.restoreInput({ text: line, images })
+    if (result.kind === 'error' && (images.length > 0 || submission.files?.length)) this.#tui.restoreInput(submission, agent.session.id)
     if (result.text !== undefined) {
       if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error', focus: true })
       else this.#tui.commandOutput(parsed.name, result.text, { focus: true })
@@ -1863,14 +1886,10 @@ export class SessionRuntime {
   }
 
   #sessionControls(active: ActiveSession, projection: TuiStatsProjection | undefined): TuiSessionControls {
-    const controls = sessionControls(projection)
     const livePlan = this.#ctx.get('planMode')?.get(active.handle.agent)
     return {
-      ...controls,
+      ...sessionControls(projection, livePlan),
       agentPreset: active.agentPreset,
-      ...(livePlan === undefined
-        ? {}
-        : { plan: { active: livePlan.active, pending: livePlan.pending !== undefined } }),
     }
   }
 

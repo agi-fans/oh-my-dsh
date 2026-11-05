@@ -575,7 +575,7 @@ export function renderPlanReviewPage(
     const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
       : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL], 'lowercase', theme.language)
-        + (state.request.presentation === 'plan-review' ? ' · Ctrl+X editor' : '')
+        + (state.request.presentation === 'plan-review' && state.request.allowCustom !== false ? ' · Ctrl+X editor' : '')
     // A page long enough to need scrolling is a page someone will want to search.
     const pageHint = source === undefined && state.request.presentation === 'document'
       ? `[${shortcuts} · / find · Ctrl+N/P match]`
@@ -664,8 +664,8 @@ export function renderPromptSelector(
     // and the list answered with a count.
     const count = filtering ? theme.fg('dim', ` · ${options.length === 0 ? 'no match' : `${state.selected + 1}/${options.length}`}`) : ''
     body.push('', input === ''
-      ? theme.fg('muted', theme.text('  ⌕ type to filter')) + count
-      : theme.fg('text', '  ⌕ ') + input + count)
+      ? theme.fg('muted', '  ' + theme.text('type to filter'))
+      : '  ' + theme.fg('text', input) + count)
   }
   // A request that has options but no match has nothing to submit: advertising
   // `enter select` there promises a key the handler swallows.
@@ -700,14 +700,14 @@ export function renderPromptSelector(
     applyBg: false,
   }, theme)
   if (state.request.allowCustom === false || state.request.presentation === 'progress') {
-    // With a filter line the caret belongs at its end, where the next character
-    // will land; without one it stays on body padding, because the selector glyph
+    // With a filter line the caret follows the editor's insertion point;
+    // without one it stays on body padding, because the selector glyph
     // owns focus while no text editor is present.
     return {
       lines: card,
       cursor: filterRow === undefined
         ? { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 }
-        : { row: filterRow + 2, column: 4 + visibleWidth(input) },
+        : { row: filterRow + 2, column: 4 + visibleWidth(input.slice(0, inputCursor)) },
       cursorVisible: filterRow !== undefined,
     }
   }

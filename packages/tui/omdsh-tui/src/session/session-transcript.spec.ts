@@ -7,6 +7,8 @@ import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-j
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { TuiSubmission } from '../definition.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionLogOffset, type SessionEvent, type CreateSessionOptions } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '../chrome/width.ts'
@@ -65,9 +67,10 @@ class ScrollingTerminal implements TerminalLike {
 }
 
 /** Real controller and TUI, with only external agent execution replaced. */
-async function fixture(tty = false, durableRoot?: string) {
+async function fixture(tty = false, durableRoot?: string, commands = false) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  if (commands) await ctx.plugin(CommandRuntime)
   if (durableRoot !== undefined) await ctx.plugin(JsonlSessionPersistence, { root: durableRoot, compression: 'none' })
   const contexts: Context[] = []
   const presets = {
@@ -134,6 +137,38 @@ async function fixture(tty = false, durableRoot?: string) {
 }
 
 describe('session transcript boundaries', () => {
+  it.each(['success', 'reject', 'throw', 'cancel'] as const)('admits file commands and restores rejected drafts (%s)', async outcome => {
+    const f = await fixture(true, undefined, true)
+    const file = { attachmentId: AttachmentId('command-file'), name: 'task.txt', bytes: 10 }
+    const draft: TuiSubmission = { text: '/filetask off', images: [], files: [file],
+      segments: [{ kind: 'text', text: '/filetask off' }, { kind: 'file', index: 0 }] }
+    const abort = new AbortController(), restore = vi.spyOn(f.tui, 'restoreInput')
+    f.ctx.provide('attachments', {} as never)
+    const handler = vi.fn(invocation => {
+      expect(invocation.attachments).toEqual([{ type: 'file', attachment: file }])
+      if (outcome === 'throw') throw new Error('command failed')
+      if (outcome === 'cancel') { abort.abort(); return new Promise<never>(() => {}) }
+      return outcome === 'reject' ? { kind: 'error' as const, text: 'off rejects attachments' } : { kind: 'success' as const }
+    })
+    f.ctx.commands.register({ name: 'filetask', description: 'File task', input: { hint: 'Task', attachments: true }, handler })
+    const execute = vi.spyOn(f.ctx.commands, 'execute')
+    try {
+      await f.runtime.start()
+      if (outcome === 'throw' || outcome === 'cancel') await expect(f.runtime.execute(draft, abort.signal)).rejects.toThrow()
+      else expect(await f.runtime.execute(draft, abort.signal)).toBe(true)
+      expect(handler).toHaveBeenCalledOnce()
+      if (outcome === 'reject') {
+        expect(restore).toHaveBeenCalledWith(draft, f.runtime.agent!.session.id)
+        const input = f.tui.readInput(); f.input.write('\r')
+        expect(await input).toMatchObject(draft)
+      } else expect(restore).not.toHaveBeenCalled()
+      // Replaying a settled or aborted invocation's receipts cannot re-admit its files.
+      const submitted = execute.mock.calls[0]![2]
+      expect((await f.ctx.commands.execute(f.runtime.agent!, '/filetask', submitted, new AbortController().signal))?.result.kind).toBe('error')
+      expect(handler).toHaveBeenCalledOnce()
+    } finally { await f.dispose() }
+  })
+
   it('creates an explicitly requested preset without changing the default', async () => {
     const f = await fixture()
     try {

@@ -81,6 +81,8 @@ export interface TuiOutputOptions {
 
 /** Presentation intent for a direct, non-session notice. */
 export interface TuiNoticeOptions extends TuiOutputOptions {
+  /** Brief composer status; never added to the transcript or replayed. */
+  transient?: boolean
   level?: 'info' | 'error'
   /** Reserve a component frame for callers that explicitly own a panel. */
   framed?: boolean
@@ -410,13 +412,14 @@ export interface TuiInputImage {
 }
 
 /**
- * One ordered piece of a submission. `image` indexes into the submission's
- * images, so the composer's insertion point survives into the message content
+ * One ordered piece of a submission. Attachment indexes refer to the matching
+ * images or files array, so the composer's insertion point survives into the message content
  * instead of collapsing to "text, then attachments".
  */
 export type SubmissionSegment =
   | { kind: 'text'; text: string }
   | { kind: 'image'; index: number }
+  | { kind: 'file'; index: number }
 
 /** One scoped recall gesture; returning to the same session does not revive an aborted request. */
 export interface TuiQueueEditRequest {
@@ -424,17 +427,16 @@ export interface TuiQueueEditRequest {
   readonly signal: AbortSignal
 }
 
-/** Atomic composer submission: visible text plus its client-owned image drafts. */
+/** Atomic composer submission: visible text, image drafts and durable file references. */
 export interface TuiSubmission {
-  /** What the reader wrote, without the composer's image markers. */
+  /** What the reader wrote, without the composer's attachment markers. */
   text: string
   /** Frozen at submission; absent uses ordinary next-turn delivery. */
   delivery?: 'queue' | 'steer'
   images: readonly TuiInputImage[]
   files?: readonly FileAttachmentRef[]
   /**
-   * Where each image sat among the words; absent means text then attachments.
-   * When present it is the ordered form of `text` plus `images`.
+   * Where each attachment sat among the words; absent means text then images and files.
    */
   segments?: readonly SubmissionSegment[]
   /** Send pasted source as message text even when its first character is a slash. */

@@ -153,3 +153,34 @@ describe('runner pending-input safety', () => {
     } finally { await ctx.fiber.dispose() }
   })
 })
+
+describe('runner attachment command dispatch', () => {
+  it.each(['command', 'literal', 'unknown', 'throw', 'cancel'] as const)('keeps the complete draft and command intent (%s)', async mode => {
+    const ctx = new Context()
+    const submission: TuiSubmission = { text: '/plan task', images: [], files: [{ attachmentId: 'file:test' as never, name: 'task.txt', bytes: 5 }],
+      segments: [{ kind: 'file', index: 0 }, { kind: 'text', text: '/plan task' }], ...(mode === 'literal' ? { literal: true } : {}) }
+    const inputs = [submission], send = vi.fn(), restoreInput = vi.fn(), exit = vi.fn(), notice = vi.fn(), off = () => () => {}
+    let interrupt: (() => void) | undefined
+    const execute = vi.fn(async (_draft, signal: AbortSignal) => {
+      if (mode === 'cancel') { interrupt!(); signal.throwIfAborted() }
+      if (mode === 'throw') throw new Error('admission failed')
+      return mode !== 'unknown'
+    })
+    ctx.provide('tui', { interactive: true, readInput: async () => inputs.shift() ?? null, onInterrupt: listener => { interrupt = listener; return () => {} },
+      onQueueEdit: off, onRewind: off, restoreInput, notice } as never)
+    ctx.provide('omdshSession', { start: async () => {}, send, execute, interruptVisible: () => false,
+      agent: { session: { id: 'origin' }, cancel: vi.fn(), whenIdle: async () => {} } } as never)
+    ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+    ctx.provide('appExit', exit)
+    try {
+      await ctx.plugin(runner)
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+      if (mode === 'literal') { expect(send).toHaveBeenCalledWith(submission); expect(execute).not.toHaveBeenCalled() }
+      else { expect(execute).toHaveBeenCalledWith(submission, expect.any(AbortSignal)); expect(send).not.toHaveBeenCalled() }
+      if (['unknown', 'throw', 'cancel'].includes(mode)) {
+        expect(restoreInput).toHaveBeenCalledOnce()
+        expect(restoreInput).toHaveBeenCalledWith(submission, 'origin')
+      } else expect(restoreInput).not.toHaveBeenCalled()
+    } finally { await ctx.fiber.dispose() }
+  })
+})

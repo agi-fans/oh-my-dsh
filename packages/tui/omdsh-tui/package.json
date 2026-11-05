@@ -177,6 +177,7 @@
     "@deepseek-ai/dsh-commands": "0.2.2-rc.1",
     "@deepseek-ai/dsh-compaction": "0.2.2-rc.1",
     "@deepseek-ai/dsh-credentials": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-deepseek-account": "0.2.2-rc.1",
     "@deepseek-ai/dsh-experimental-worktree": "0.2.2-rc.1",
     "@deepseek-ai/dsh-file-reference": "0.2.2-rc.1",
     "@deepseek-ai/dsh-fs": "0.2.2-rc.1",

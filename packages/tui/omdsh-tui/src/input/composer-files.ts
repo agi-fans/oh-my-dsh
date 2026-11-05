@@ -15,10 +15,19 @@ export class ComposerFiles {
   add(file: FileAttachmentRef): void {
     this.reconcile()
     if (this.#files.some(item => item.file.attachmentId === file.attachmentId && item.file.name === file.name)) return
-    const marker = fileMarker(file, ++this.#next)
-    this.#files.push({ file, marker })
-    this.#revision++
+    const marker = this.adopt([file])[0]!
     this.input.append(marker)
+  }
+  /** Allocate markers before restoring text, retaining existing draft identities. */
+  adopt(files: readonly FileAttachmentRef[]): string[] {
+    return files.map(file => {
+      const existing = this.#files.find(item => item.file.attachmentId === file.attachmentId && item.file.name === file.name)
+      if (existing !== undefined) return existing.marker
+      const marker = fileMarker(file, ++this.#next)
+      this.#files.push({ file: { ...file }, marker })
+      this.#revision++
+      return marker
+    })
   }
   reconcile(): void {
     const files = this.#files.filter(item => this.input.text().includes(item.marker))

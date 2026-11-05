@@ -89,7 +89,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
-  const prompt = vi.fn<(request: TuiPrompt) => Promise<string | null>>()
+  const prompt = vi.fn<(request: TuiPrompt) => Promise<string | null>>().mockResolvedValue(null)
   const notice = vi.fn()
   for (const answer of options.answers ?? []) prompt.mockResolvedValueOnce(answer)
   const credentials = new Map<string, CredentialInfo>([
@@ -122,7 +122,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     }
     sections.set(String(namespace), current)
   })
-  ctx.provide('tui', { prompt, notice, interactive: true } as unknown as TuiService)
+  ctx.provide('tui', { prefs: () => ({ uiLanguage: 'en' }), prompt, notice, interactive: true } as unknown as TuiService)
   ctx.provide('webServer', { protocol: 'http:', host: '127.0.0.1', port: 43210 } as never)
   const records = new Map<string, { kind: 'grant' | 'api-key'; writable: boolean }>(
     [...(options.records ?? [])].map(([key, record]) => [key, { kind: record.kind, writable: record.writable !== false }]),
@@ -155,6 +155,9 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
   const accountState: { status?: string, attempt?: Record<string, unknown> | null } = { status: options.accountStatus, attempt: null }
   const account = {
     getState: vi.fn(async () => accountState),
+    getProfile: vi.fn(async () => ({ status: 'failed' })),
+    getBalance: vi.fn(async () => ({ status: 'failed' })),
+    watch: async function* () { yield { ...accountState } },
     startSignIn: vi.fn(async () => {
       accountState.attempt = { id: 'attempt-1', phase: 'waiting-browser', authorizeUrl: 'https://platform.test/authorize' }
       return accountState
@@ -842,7 +845,7 @@ describe('DeepSeek account reuse', () => {
     const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'use'] })
     const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
-    expect((execution?.result.text ?? '')).toContain('/model')
+    expect(harness.notice).toHaveBeenCalledWith('Account models are unavailable in this session.', { transient: true })
     expect(harness.account.startSignIn).not.toHaveBeenCalled()
     expect(harness.beginAuthorization).not.toHaveBeenCalled()
     await harness.ctx.fiber.dispose()
@@ -855,7 +858,7 @@ describe('DeepSeek account reuse', () => {
       : { status: 'credential-stored', attempt: { id: 'attempt-1', phase: 'succeeded' } })
     const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
-    expect((execution?.result.text ?? '')).toContain('deepseek-account')
+    expect(harness.notice).toHaveBeenCalledWith('Signed in to the DeepSeek account.', expect.objectContaining({ transient: true }))
     expect(harness.account.startSignIn).toHaveBeenCalledWith(
       expect.objectContaining({ version: expect.any(String), timezoneOffsetSeconds: expect.any(Number) }),
       'http://127.0.0.1:43210',
@@ -866,10 +869,10 @@ describe('DeepSeek account reuse', () => {
   })
 
   it('signs out the shared account grant', async () => {
-    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'out'] })
+    const harness = await authHarness({ accountStatus: 'credential-stored', answers: [commandAuth.DEEPSEEK_ACCOUNT_CHOICE, 'out', 'logout'] })
     const execution = await harness.ctx.commands.execute(harness.agent, '/login', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
-    expect((execution?.result.text ?? '')).toContain('Signed out')
+    expect(harness.notice).toHaveBeenCalledWith(expect.stringContaining('Signed out'), expect.objectContaining({ transient: true }))
     expect(harness.account.signOut).toHaveBeenCalled()
     await harness.ctx.fiber.dispose()
   })

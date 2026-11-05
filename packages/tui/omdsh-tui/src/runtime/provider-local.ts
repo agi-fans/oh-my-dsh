@@ -222,7 +222,7 @@ import { modelRouteReady } from '../session/model-readiness.ts'
 import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
 import {
   imagePathCandidates,
-  splitComposerImageMarkers,
+  splitComposerAttachmentMarkers,
   stripComposerImageMarkers,
   readImageFile,
   readImageFromClipboard,
@@ -1104,6 +1104,10 @@ export class LocalTui implements TuiService {
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
+    if (options.transient) {
+      if (this.#tty && !this.#disposed) this.#showTransientStatus(text)
+      return
+    }
     const merged = options.job === undefined ? undefined : mergeJobSettlement(this.#state, options.job)
     if (merged !== undefined && this.#tty) {
       const origin = merged.blocks.find((block, index) => block !== this.#state.blocks[index])
@@ -1421,7 +1425,10 @@ export class LocalTui implements TuiService {
     status: TuiStatus = 'idle',
     reason: TuiTranscriptReplacement = 'open',
   ): void {
-    if (reason !== 'refresh') this.#fileReviewAbort?.abort()
+    if (reason !== 'refresh') {
+      this.#fileReviewAbort?.abort()
+      this.#clearTransientStatus()
+    }
     this.#trajectory = null
     const state = replayEvents(events, presentations)
     // A notice does not turn a blank session into a document that /new needs
@@ -1629,8 +1636,7 @@ export class LocalTui implements TuiService {
         editor.restore(existing.editor)
         files.restoreSnapshot(existing.files)
       }
-      images.restore(submission)
-      for (const file of submission.files ?? []) files.add(file)
+      images.restore(submission, files.adopt(submission.files ?? []))
       const draft = { editor: editor.snapshot(), images: images.copies(), files: files.snapshot(editor.text), literal: existing?.literal === true || submission.literal === true }
       if (current && this.#prompt !== null) {
         const answer = this.#editor.snapshot()
@@ -1647,8 +1653,7 @@ export class LocalTui implements TuiService {
       return
     }
     this.#literalInput ||= submission.literal === true
-    this.#images.restore(submission)
-    for (const file of submission.files ?? []) this.#files.add(file)
+    this.#images.restore(submission, this.#files.adopt(submission.files ?? []))
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -1675,19 +1680,13 @@ export class LocalTui implements TuiService {
   }
 
   #currentSubmission(): TuiSubmission {
-    const files = this.#files.copies()
-    return {
-      text: this.#files.text(this.#editor.expandedText),
-      ...(this.#literalInput || this.#editor.startsWithPaste ? { literal: true } : {}),
-      images: this.#images.copies(),
-      ...(files.length === 0 ? {} : { files }),
-    }
+    return this.#buildSubmission(this.#editor.expandedText).submission
   }
 
   #replaceInput(submission: TuiSubmission): void {
     this.#literalInput = submission.literal === true
-    this.#images.replace(submission)
-    this.#files.restore(submission.files)
+    this.#files.clear()
+    this.#images.replace(submission, this.#files.adopt(submission.files ?? []))
     this.#historyIndex = 0
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
@@ -3017,7 +3016,7 @@ export class LocalTui implements TuiService {
       if (action !== undefined && !disarmed) { this.#finishPrompt(action.valuePrefix); this.#render() }
       return true
     }
-    if (!document && event.type === 'key' && (event.id === 'ctrl+x' || this.#boundAction(event.id) === 'external-editor')) {
+    if (!document && prompt.request.allowCustom !== false && event.type === 'key' && (event.id === 'ctrl+x' || this.#boundAction(event.id) === 'external-editor')) {
       this.#openPlanFeedbackEditor(prompt)
       return true
     }
@@ -3096,7 +3095,7 @@ export class LocalTui implements TuiService {
       if (answer === null) return true
       const approve = prompt.request.approveValue ?? prompt.request.options?.[0]?.value
         ?? prompt.request.options?.[0]?.label
-      if (document || answer === approve) {
+      if (document || answer === approve || prompt.request.allowCustom === false) {
         this.#finishPrompt(answer)
       } else {
         this.#editor.setText('')
@@ -3887,7 +3886,8 @@ export class LocalTui implements TuiService {
     const images = this.#images.copies()
     const files = this.#files.copies()
     const typedText = this.#files.text(images.length > 0 ? text.trim() : text)
-    const segments = images.length === 0 ? [] : splitComposerImageMarkers(typedText, images)
+    const segments = images.length === 0 && files.length === 0 ? []
+      : splitComposerAttachmentMarkers(text.trim(), images, this.#files.snapshot(text).entries.map(item => item.marker))
     // Stripping a marker that sat on its own line leaves that line break behind.
     const submittedText = images.length > 0 ? stripComposerImageMarkers(typedText, images).trim() : typedText
     const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
@@ -3922,7 +3922,7 @@ export class LocalTui implements TuiService {
     const queueEditNewer = this.#queueEditNewer
     // Commands keep their own routing; recalled follow-ups remain next-turn messages.
     if (delivery === 'steer') submission.literal = true
-    const command = !submission.literal && !files.length && (submittedText.trimStart().startsWith('/') || (images.length === 0 && submittedText.startsWith('!')))
+    const command = !submission.literal && (submittedText.trimStart().startsWith('/') || (images.length === 0 && files.length === 0 && submittedText.startsWith('!')))
     if (!command && this.#state.status === 'running') {
       submission.delivery = queueEditNewer !== null || this.#queueEditPending ? 'queue' : delivery ?? this.#busyEnter
     }

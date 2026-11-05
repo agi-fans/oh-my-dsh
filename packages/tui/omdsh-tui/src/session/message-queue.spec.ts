@@ -210,10 +210,11 @@ describe('Message Queue interaction', () => {
     const image = { data: new Uint8Array([1]), mediaType: 'image/png' as const }
     const file = { attachmentId: AttachmentId('file'), name: 'a.txt', bytes: 1 }
     const f = fixture([], [], [{ id: 'a', submission: { text: 'old', images: [image], files: [file],
-      segments: [{ kind: 'text', text: 'old' }, { kind: 'image', index: 0 }], literal: true } }])
+      segments: [{ kind: 'text', text: 'old' }, { kind: 'file', index: 0 }, { kind: 'image', index: 0 }], literal: true } }])
     f.tui.prompt.mockResolvedValueOnce('delivery:a').mockResolvedValueOnce('new').mockResolvedValueOnce(null)
     await f.open()
-    expect(f.pending.list()[0]?.submission).toEqual({ text: 'new', images: [image], files: [file], literal: true })
+    expect(f.pending.list()[0]?.submission).toEqual({ text: 'new', images: [image], files: [file], literal: true,
+      segments: [{ kind: 'text', text: 'new' }, { kind: 'file', index: 0 }, { kind: 'image', index: 0 }] })
   })
 
   it('rejects an empty waiting edit without silently dropping the original message', async () => {

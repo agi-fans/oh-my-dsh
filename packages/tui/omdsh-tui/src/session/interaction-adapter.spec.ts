@@ -130,6 +130,54 @@ describe('bindHumanInteraction', () => {
 const questionBatch = [{ id: 'scope', question: 'Choose the scope', options: [{ label: 'Project' }, { label: 'Global' }] }]
 const callId = ToolCallId('question-1')
 
+const reviewQuestion = { id: 'review', question: 'Approve this plan and leave plan mode?', detail: '# 原文 Plan\n\nComplete plan.',
+  options: [{ label: 'Approve' }, { label: 'Keep planning' }], intent: { kind: 'plan-review' as const, approve: 'Approve' } }
+
+describe('Harness plan review adapter', () => {
+  it('routes the complete plan to the dedicated reader and returns explicit approval', async () => {
+    const prompt = vi.fn(async (_request: TuiPrompt) => 'Approve')
+    const { ctx, agent } = await questionContext(prompt)
+    const answer = await ctx.userQuestions.ask({ agent, questions: [reviewQuestion] })
+    expect(prompt.mock.calls[0]?.[0]).toMatchObject({ presentation: 'plan-review', detail: reviewQuestion.detail, allowCustom: false,
+      approveValue: 'Approve', localize: ['question', 'options'] })
+    expect(answer.answers).toEqual([{ id: 'review', selected: ['Approve'] }])
+  })
+
+  it.each(['Approve', '1', 'Cover failure paths', ''])('keeps revision feedback %j separate from approval', async feedback => {
+    const prompt = vi.fn().mockResolvedValueOnce('Keep planning').mockResolvedValueOnce(feedback)
+    const { ctx, agent } = await questionContext(prompt)
+    const answer = await ctx.userQuestions.ask({ agent, questions: [reviewQuestion] })
+    expect(answer.answers).toEqual([{ id: 'review', selected: ['Keep planning'], ...(feedback === '' ? {} : { custom: feedback }) }])
+    expect(prompt.mock.calls[1]?.[0]).toMatchObject({ notify: false, allowCustom: true })
+  })
+
+  it('returns from feedback to the same plan and preserves its draft', async () => {
+    const prompt = vi.fn().mockResolvedValueOnce('Keep planning').mockImplementationOnce(async (request: TuiPrompt) => {
+      request.onCancelDraft?.('unfinished revision'); return null
+    }).mockResolvedValueOnce('Keep planning').mockResolvedValueOnce('finished revision')
+    const { ctx, agent } = await questionContext(prompt)
+    await ctx.userQuestions.ask({ agent, questions: [reviewQuestion] })
+    expect(prompt.mock.calls[2]?.[0]).toMatchObject({ presentation: 'plan-review', detail: reviewQuestion.detail, initialValue: 'Keep planning', notify: false })
+    expect(prompt.mock.calls[3]?.[0].initialInput).toBe('unfinished revision')
+  })
+
+  it('dismisses without approving and rejects a late answer after cancellation', async () => {
+    const prompt = vi.fn().mockResolvedValueOnce(null)
+    const { ctx, agent } = await questionContext(prompt)
+    await expect(ctx.userQuestions.ask({ agent, questions: [reviewQuestion] })).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+    const abort = new AbortController()
+    prompt.mockImplementationOnce(async () => { abort.abort(); return 'Approve' })
+    await expect(ctx.userQuestions.ask({ agent, questions: [reviewQuestion], signal: abort.signal })).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+  })
+
+  it.each([false, true])('preserves interruption during review or feedback (%s)', async feedback => {
+    const prompt = vi.fn(async (request: TuiPrompt) => { request.interrupt?.(); return 'Approve' })
+    if (feedback) prompt.mockImplementationOnce(async () => 'Keep planning')
+    const { ctx, agent } = await questionContext(prompt)
+    await expect(ctx.userQuestions.ask({ agent, questions: [reviewQuestion] })).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+  })
+})
+
 async function questionContext(prompt: (request: TuiPrompt) => Promise<string | null>) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)

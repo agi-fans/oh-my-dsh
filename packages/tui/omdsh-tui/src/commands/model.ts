@@ -204,9 +204,9 @@ function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'fa
 }
 
 /** Load the public model catalog (id/name/description only). */
-async function loadCatalog(ctx: Context): Promise<ModelCatalogEntry[]> {
+async function loadCatalog(ctx: Context, providerId?: string): Promise<ModelCatalogEntry[]> {
   const catalog: ModelCatalogEntry[] = []
-  for (const provider of ctx.llm.listProviders()) {
+  for (const provider of ctx.llm.listProviders().filter(item => providerId === undefined || item.id === providerId)) {
     const models = await ctx.llm.listModels(provider.id)
     for (const model of models) {
       catalog.push({
@@ -324,7 +324,12 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   if (action === 'reasoning') return cycleReasoning(ctx, invocation)
   if (action === 'favorite' || action === 'unfavorite' || action === 'favorites') return manageFavorite(ctx, invocation, action)
   if (body !== '') return resolveQuerySelect(ctx, invocation, body, false)
-  const catalog = await loadCatalog(ctx)
+  return openModelPicker(ctx, invocation, sessionOnly)
+}
+
+/** Shared picker retains favorites, reasoning defaults and session/default scope. */
+export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'signal'>, sessionOnly = false, providerId?: string): Promise<CommandResult> {
+  const catalog = await loadCatalog(ctx, providerId)
   if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
   /**
@@ -342,8 +347,8 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
     filterable: true,
     allowCustom: false,
     notify: false,
-    title: sessionOnly ? 'Model · this session' : 'Model',
-    question: 'Type to search every provider, then Enter to switch',
+    title: providerId === 'deepseek-account' ? 'Account models' : sessionOnly ? 'Model · this session' : 'Model',
+    question: providerId === undefined ? 'Type to search every provider, then Enter to switch' : 'Choose an account model',
     options: catalogOptions(catalog, current, favorites),
     ...(current.provider === '' || current.model === '' ? {} : { initialValue: `${current.provider}/${current.model}` }),
     // Enter applies the scope the reader already asked for. The action is the

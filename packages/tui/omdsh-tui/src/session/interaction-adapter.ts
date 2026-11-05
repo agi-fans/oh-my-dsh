@@ -26,6 +26,36 @@ import { approvalActionDetail } from '../views/approval-rule.ts'
 
 const QUESTION_BACK_VALUE = '__back__'
 
+/** Keep the review decision separate from free text, even feedback such as "Approve". */
+async function reviewPlan(tui: TuiService, question: AskUserQuestionItem, signal: AbortSignal, notify: boolean, interrupt: () => void): Promise<AskUserQuestionAnswer['answers'][number]> {
+  const intent = question.intent
+  if (intent?.kind !== 'plan-review') throw new Error('Expected a plan review')
+  const t = (source: string): string => uiText(resolveUiLanguage(tui.prefs?.().uiLanguage), source)
+  let draft = '', selected = intent.approve
+  while (true) {
+    signal.throwIfAborted()
+    const decision = await tui.prompt({ title: t('Plan review'), question: question.question,
+      ...(question.detail === undefined ? {} : { detail: question.detail }),
+      ...(question.options === undefined ? {} : { options: question.options }), presentation: 'plan-review', approveValue: intent.approve,
+      initialValue: selected, allowCustom: false, localize: ['question', 'options'], notify, signal, interrupt })
+    notify = false
+    signal.throwIfAborted()
+    if (decision === null) {
+      if (draft.trim() !== '') tui.insertText?.(draft)
+      throw new UserQuestionError('The user dismissed the plan review.', 'ASK_CANCELLED')
+    }
+    if (!question.options?.some(option => option.label === decision)) continue
+    if (decision === intent.approve) return { id: question.id, selected: [intent.approve] }
+    selected = decision
+    const feedback = await tui.prompt({ title: t('Revision feedback · optional'), question: t('What should the revised plan change?'),
+      options: [{ label: t('Continue without feedback'), value: '' }], initialInput: draft, allowCustom: true, notify: false, signal, interrupt,
+      onCancelDraft: value => { draft = value } })
+    signal.throwIfAborted()
+    if (feedback === null) continue
+    return { id: question.id, selected: [decision], ...(feedback.trim() === '' ? {} : { custom: feedback.trim() }) }
+  }
+}
+
 /** Resolve a label/number list while preserving unmatched input as custom text. */
 export function parsePromptAnswer(
   input: string,
@@ -88,6 +118,13 @@ async function askQuestions(
     while (index < request.questions.length) {
       const question = request.questions[index]!
       signal.throwIfAborted()
+      if (question.intent?.kind === 'plan-review') {
+        answers[index] = await reviewPlan(tui, question, signal, shouldNotify,
+          () => { lifetime.abort(new UserQuestionError('The user interrupted the question.', 'ASK_ABORTED')) })
+        shouldNotify = false
+        index += 1
+        continue
+      }
       const previousRaw = rawAnswers.get(index)
       const previousParsed = previousRaw === undefined ? undefined : parsePromptAnswer(previousRaw, question)
       const restoredAnswer = previousParsed === undefined
@@ -105,12 +142,11 @@ async function askQuestions(
       const promptNotify = shouldNotify
       shouldNotify = false
       const raw = await tui.prompt({
-        title: question.intent?.kind === 'plan-review' ? t('Plan review') : (question.header ?? t('Question')),
+        title: question.header ?? t('Question'),
         question: question.question,
         ...(question.detail === undefined ? {} : { detail: question.detail }),
         ...(question.options === undefined ? {} : { options: question.options }),
         ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
-        ...(question.intent?.kind === 'plan-review' ? { approveValue: question.intent.approve } : {}),
         ...(request.questions.length > 1 ? { title: `${question.header ?? t('Question')} · ${index + 1}/${request.questions.length}` } : {}),
         ...(index > 0 ? { actions: [{ key: 'alt+left', label: t('previous question'), valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
         ...restoredAnswer,

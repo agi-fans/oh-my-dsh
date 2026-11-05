@@ -7,6 +7,7 @@ import { basename, extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { SubmissionSegment, TuiInputImage, TuiSubmission } from '../definition.ts'
+import { fileMarker } from './composer-files.ts'
 
 const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
   '.png': 'image/png',
@@ -165,30 +166,24 @@ export function stripComposerImageMarkers(text: string, images: readonly TuiInpu
   return result
 }
 
-/**
- * Where each image sat in the composer, in text order.
- *
- * The marker is the only record of the insertion point: dropping it collapses
- * "看这个 [Image #1] 怎么样" into text-then-image, which is not what the reader
- * wrote. Each marker becomes an image segment, and the text around it stays in
- * place.
- */
-export function splitComposerImageMarkers(text: string, images: readonly TuiInputImage[]): SubmissionSegment[] {
-  const markers = images.map((image, index) => imageMarker(index, image))
-  const found: { at: number; index: number; length: number }[] = []
-  for (const [index, marker] of markers.entries()) {
-    const at = text.indexOf(marker)
-    if (at >= 0) found.push({ at, index, length: marker.length })
-  }
-  if (found.length === 0) return text === '' ? [] : [{ kind: 'text', text }]
-  found.sort((left, right) => left.at - right.at)
+/** Split only markers backed by this draft, in their visible order. */
+export function splitComposerAttachmentMarkers(text: string, images: readonly TuiInputImage[], files: readonly string[] = []): SubmissionSegment[] {
+  const markers = [...images.map((image, index) => ({ marker: imageMarker(index, image), kind: 'image' as const, index })),
+    ...files.map((marker, index) => ({ marker, kind: 'file' as const, index }))]
   const segments: SubmissionSegment[] = []
   let cursor = 0
-  for (const marker of found) {
-    const before = text.slice(cursor, marker.at).replace(/[ \t]+$/u, '')
+  while (markers.length > 0) {
+    // Search from the last complete marker so tokens inside a filename are literal.
+    const found = markers.flatMap((item, slot) => {
+      const at = text.indexOf(item.marker, cursor)
+      return at < 0 ? [] : [{ ...item, at, slot }]
+    }).sort((left, right) => left.at - right.at || right.marker.length - left.marker.length)[0]
+    if (found === undefined) break
+    const before = text.slice(cursor, found.at).replace(/[ \t]+$/u, '')
     if (before !== '') segments.push({ kind: 'text', text: before })
-    segments.push({ kind: 'image', index: marker.index })
-    cursor = marker.at + marker.length
+    segments.push({ kind: found.kind, index: found.index })
+    cursor = found.at + found.marker.length
+    markers.splice(found.slot, 1)
     while (text[cursor] === ' ' || text[cursor] === '\t') cursor += 1
   }
   const after = text.slice(cursor)
@@ -200,18 +195,25 @@ export function splitComposerImageMarkers(text: string, images: readonly TuiInpu
  * The composer text that brings a submission back as a draft.
  *
  * A submission carries what the reader wrote without the composer's markers;
- * putting it back in the composer has to restore a marker for every image, at
+ * putting it back in the composer has to restore a marker for each attachment, at
  * the position the segments recorded, so a recalled or restored draft still
- * shows its pictures and sends them in the same place.
+ * shows its attachments and sends them in the same order.
  */
-export function submissionDraftText(submission: Pick<TuiSubmission, 'text' | 'images' | 'segments'>): string {
+export function submissionDraftText(submission: Pick<TuiSubmission, 'text' | 'images' | 'files' | 'segments'>,
+  fileMarkers = (submission.files ?? []).map((file, index) => fileMarker(file, index + 1))): string {
   const { images, segments } = submission
-  if (images.length === 0) return submission.text
+  if (images.length === 0 && fileMarkers.length === 0) return submission.text
   const parts: string[] = []
   const placed = new Set<number>()
+  const placedFiles = new Set<number>()
   if (segments !== undefined && segments.length > 0) {
     for (const segment of segments) {
       if (segment.kind === 'text') { parts.push(segment.text); continue }
+      if (segment.kind === 'file') {
+        const marker = fileMarkers[segment.index]
+        if (marker !== undefined && !placedFiles.has(segment.index)) { parts.push(marker); placedFiles.add(segment.index) }
+        continue
+      }
       const image = images[segment.index]
       if (image === undefined || placed.has(segment.index)) continue
       placed.add(segment.index)
@@ -227,7 +229,8 @@ export function submissionDraftText(submission: Pick<TuiSubmission, 'text' | 'im
     const marker = imageMarker(index, image)
     return placed.has(index) || written.includes(marker) ? [] : [marker]
   })
-  return [...missing, ...parts].filter(part => part !== '').join(' ')
+  const missingFiles = fileMarkers.filter((marker, index) => !placedFiles.has(index) && !written.includes(marker))
+  return [...missing, ...parts, ...missingFiles].filter(part => part !== '').join(' ')
 }
 
 /** True when composer text is a slash command after dropping attached image markers. */

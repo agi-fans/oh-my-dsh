@@ -1,25 +1,16 @@
-/**
- * Human console over persisted scheduled reminders.
- * `/schedule` lists this Session's active tasks, edits a name or instruction,
- * opens retained delivery records, and deletes a task. Timing changes stay
- * with the model-facing `schedule_update` tool, whose selectors are richer
- * than a terminal form should collect.
- * @module @agi-fans/dsh-tui/command-schedule
- */
+/** Human controls over the Harness-owned schedule and its delivery records. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type {
-  ScheduleCatalogEntry,
-  ScheduleConflictResult,
-  ScheduleDeliveryHistoryResult,
-  ScheduleDeliveryRecord,
-  ScheduleNotFoundResult,
-  ScheduleRecord,
-} from '@deepseek-ai/dsh-schedule'
+import type { ScheduleCatalogEntry, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
+import type {} from '@deepseek-ai/dsh-workspace'
+import type { TuiPrompt } from '../definition.ts'
+import { resolveUiLanguage, uiText, type UiLanguage } from '../locale/index.ts'
+import { scheduleCatalog } from './schedule-catalog.ts'
+import { openScheduleHistory } from './schedule-history.ts'
 import { formatRelativeUntil } from '../chrome/relative-time.ts'
 import { registerCommands } from './registration.ts'
-import { askPrompt } from '../prompt-intents.ts'
+import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 
 export const name = 'omdsh-command-schedule'
 export const inject = ['commands', 'schedule', 'tui']
@@ -35,192 +26,193 @@ export function formatInstant(iso: string): string {
  *
  * `scheduledAt` is the committed next instant while the reminder can still fire
  * and the final one after it ends, so an ended reminder must not be described as
- * pending. A paused reminder keeps its target — resuming reuses it — so the
+ * pending. A paused reminder retains its stored instant until the Host resumes it, so the
  * reading states the pause instead of hiding the instant. The absolute instant
  * stays alongside the relative one: the relative reading answers "how soon", the
  * absolute one is what a reader checks against their own clock or another zone.
  */
-export function scheduleWhen(record: ScheduleRecord, status: 'active' | 'paused' | 'ended', now = Date.now()): string {
-  const at = formatInstant(record.scheduledAt)
-  if (status === 'ended') return `ended · was ${at}`
-  const parsed = Date.parse(record.scheduledAt)
-  const next = Number.isNaN(parsed) ? `next ${at}` : `next ${formatRelativeUntil(parsed, now)} · ${at}`
-  return status === 'paused' ? `paused · ${next}` : next
+export function scheduleWhen(record: ScheduleRecord & { deliveryFloorEndsAt?: string }, status: 'active' | 'paused' | 'ended', now = Date.now(), language: UiLanguage = 'en'): string {
+  const t = (source: string, values?: Record<string, string | number>) => uiText(language, source, values)
+  const instant = record.deliveryFloorEndsAt && Date.parse(record.deliveryFloorEndsAt) > Date.parse(record.scheduledAt) ? record.deliveryFloorEndsAt : record.scheduledAt
+  const at = formatInstant(status === 'ended' ? record.scheduledAt : instant)
+  if (status === 'ended') return t('ended · was {time}', { time: at })
+  const parsed = Date.parse(instant)
+  const relative = formatRelativeUntil(parsed, now)
+  const until = relative === 'due now' ? t('due now') : t('in {duration}', { duration: relative.slice(3) })
+  const next = Number.isNaN(parsed) ? t('next {time}', { time: at }) : t('next {relative} · {time}', { relative: until, time: at })
+  return status === 'paused' ? t('paused · {next}', { next }) : next
 }
 
 /** One-line rule summary; timing edits remain with `schedule_update`. */
-export function scheduleRule(record: ScheduleRecord): string {
+export function scheduleRule(record: ScheduleRecord, language: UiLanguage = 'en'): string {
+  const t = (source: string, values: Record<string, string | number>) => uiText(language, source, values)
   switch (record.kind) {
-    case 'after': return `once, ${record.afterSeconds}s after creation`
-    case 'at': return `once at ${formatInstant(record.scheduledAt)}`
-    case 'every': return `every ${record.everySeconds}s`
-    case 'daily': return `daily ${record.time} ${record.timeZone}`
-    case 'weekly': return `weekly ${record.weekdays.join(',')} ${record.time} ${record.timeZone}`
+    case 'after': return t('once, {seconds}s after creation', { seconds: record.afterSeconds })
+    case 'at': return t('once at {time}', { time: formatInstant(record.scheduledAt) })
+    case 'every': return t('every {seconds}s', { seconds: record.everySeconds })
+    case 'daily': return t('daily {time} {zone}', { time: record.time, zone: record.timeZone })
+    case 'weekly': return t('weekly {days} {time} {zone}', { days: record.weekdays.join(','), time: record.time, zone: record.timeZone })
     case 'cron': return `cron ${record.expression} ${record.timeZone}`
     case 'rrule': return `rrule ${record.rrule.replace(/\r?\n/gu, ' ')}`
   }
 }
 
-function historyText(result: ScheduleDeliveryHistoryResult): string {
-  if ('code' in result) {
-    return result.code === 'schedule_not_found'
-      ? 'This reminder no longer exists.'
-      : 'These delivery records are no longer addressable.'
+const text = (ctx: Context, source: string, values?: Record<string, string | number>): string => uiText(resolveUiLanguage(ctx.tui.prefs().uiLanguage), source, values)
+const list = { allowCustom: false, notify: false } as const
+const failure = (error: unknown): string => error instanceof Error ? error.message : String(error)
+type Catalog = ReturnType<typeof scheduleCatalog>
+
+function blocked(ctx: Context, record: ScheduleCatalogEntry, action: string): string | undefined {
+  if (record.executionActive) return 'This task is queued or running. Manage its execution in the destination conversation.'
+  if (action === 'run') {
+    if (record.target.kind === 'session' && ctx.get('workspaceRegistry')?.archivedSessionIds.includes(record.target.sessionId)) return 'The destination conversation is archived. Restore it before running this task.'
+    if (record.deliveryFloorEndsAt && Date.parse(record.deliveryFloorEndsAt) > Date.now()) return text(ctx, 'Run now is available after {time}.', { time: formatInstant(record.deliveryFloorEndsAt) })
   }
-  if (result.records.length === 0) {
-    return 'No deliveries have been recorded yet.\n\nA reminder is recorded after its message reaches this Session\'s durable log.'
-  }
-  const rows = result.records.map((record: ScheduleDeliveryRecord) =>
-    `| ${formatInstant(record.deliveredAt)} | ${formatInstant(record.scheduledAt)} | ${(record.prompt ?? '—').replace(/\|/gu, '\\|')} |`)
-  return [
-    `Deliveries · newest first · retention ${result.retention.days} days / ${result.retention.records} records`,
-    '',
-    '| Delivered | Scheduled | Prompt |',
-    '|---|---|---|',
-    ...rows,
-    '',
-    ...(result.earlierRecordsUnavailable || result.earlierRecordsPruned
-      ? ['Earlier records are unavailable; they are never reconstructed from the Session log.']
-      : []),
-  ].join('\n')
+  return undefined
 }
 
-/** A refused edit never mutates: the stored task vanished or changed under the reader. */
-function refusalText(result: ScheduleNotFoundResult | ScheduleConflictResult): string {
-  return result.code === 'schedule_not_found'
-    ? 'This reminder no longer exists.'
-    : 'The reminder changed elsewhere; reopen /schedule and try again.'
-}
-
-async function edit(ctx: Context, invocation: CommandInvocation, record: ScheduleCatalogEntry, field: 'title' | 'prompt'): Promise<CommandResult> {
-  const value = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-    title: field === 'title' ? 'Reminder name' : 'Reminder instruction',
-    question: field === 'title' ? 'Rename this reminder' : 'What should the reminder say?',
-    detail: field === 'title'
-      ? 'The name appears in the task list and reminder catalog.'
-      : 'The instruction is delivered to this Session when the reminder fires.',
-    initialInput: field === 'title' ? record.title : record.prompt,
-    signal: invocation.signal,
-  }))
-  invocation.signal.throwIfAborted()
-  if (value === null) return { kind: 'success' }
-  const result = await ctx.schedule.edit({
-    id: record.id,
-    action: 'update',
-    patch: field === 'title' ? { title: value } : { prompt: value },
-    ...(record.updatedAt === undefined ? {} : { expectedUpdatedAt: record.updatedAt }),
-  }, invocation.agent.session.id)
-  if ('code' in result) return { kind: 'error', text: refusalText(result) }
-  if ('deleted' in result) return { kind: 'error', text: 'The reminder was not updated.' }
-  return {
-    kind: 'success',
-    text: `Updated ${field === 'title' ? 'name' : 'instruction'} for "${result.title}".`,
+async function manage(ctx: Context, invocation: CommandInvocation, catalog: Catalog, id: string): Promise<void> {
+  const { signal } = invocation
+  const t = (source: string, values?: Record<string, string | number>): string => text(ctx, source, values)
+  let diagnostic = '', initialValue = 'history', rows: NonNullable<TuiPrompt['options']> = [], rowsKey = ''
+  const current = () => catalog.snapshot().entries.find(entry => entry.id === id)
+  const detail = (): string => {
+    const snapshot = catalog.snapshot(), record = current(), language = resolveUiLanguage(ctx.tui.prefs().uiLanguage)
+    return [
+      ...(record ? [record.title, scheduleRule(record, language), scheduleWhen(record, record.status, Date.now(), language), record.prompt,
+        ...(record.executionActive ? [t(blocked(ctx, record, 'edit')!)] : []),
+        ...(!record.executionActive && record.deliveryFloorEndsAt && Date.parse(record.deliveryFloorEndsAt) > Date.now() ? [t(blocked(ctx, record, 'run')!)] : []),
+      ] : [t('This reminder no longer exists.')]),
+      ...(snapshot.error ? [t('Could not refresh scheduled tasks. Showing the last loaded state; refresh before making changes.')] : []), diagnostic,
+    ].filter(Boolean).join('\n')
   }
-}
-
-async function manage(ctx: Context, invocation: CommandInvocation, record: ScheduleCatalogEntry, status: 'active' | 'paused' | 'ended'): Promise<CommandResult> {
-  for (;;) {
-    invocation.signal.throwIfAborted()
-    const action = await ctx.tui.prompt({
-      title: `Scheduled · ${record.title}`,
-      question: `${scheduleRule(record)} · ${scheduleWhen(record, status)}`,
-      detail: record.prompt,
-      options: [
-        { label: 'View delivery history', value: 'history', description: 'Open the retained delivery records for this reminder.' },
-        { label: 'Edit name', value: 'title', description: 'Rename the reminder without changing its timing.' },
-        { label: 'Edit instruction', value: 'prompt', description: 'Change what is delivered when it fires.' },
-        { label: 'Delete reminder', value: 'delete', description: 'Stop future delivery and remove saved records.' },
-      ],
-      allowCustom: false,
-      notify: false,
-      signal: invocation.signal,
-    })
-    invocation.signal.throwIfAborted()
-    if (action === null) return { kind: 'success' }
-    if (action === 'history') {
-      const history = await ctx.schedule.history({ id: record.id, limit: 20 })
-      await ctx.tui.prompt({
-        title: `Deliveries · ${record.title}`,
-        question: scheduleRule(record),
-        detail: historyText(history),
-        options: [{ label: 'Back', value: 'back' }],
-        allowCustom: false,
-        notify: false,
-        signal: invocation.signal,
-      })
-      continue
+  const options = (): NonNullable<TuiPrompt['options']> => {
+    const record = current(), unavailable = catalog.snapshot().error || record === undefined
+    const busy = unavailable || record.executionActive === true
+    const runReason = record && blocked(ctx, record, 'run')
+    // Retain row identity when only the countdown changes.
+    const key = JSON.stringify([unavailable, busy, record?.status, runReason, resolveUiLanguage(ctx.tui.prefs().uiLanguage)])
+    if (key === rowsKey) return rows
+    rowsKey = key
+    rows = [
+      { label: t('View delivery history'), value: 'history', disabled: !record },
+      { label: t(record?.status === 'active' ? 'Pause reminder' : 'Resume reminder'), value: record?.status === 'active' ? 'pause' : 'resume', disabled: busy || record?.status === 'ended' },
+      { label: t('Run now'), value: 'run', disabled: busy || Boolean(record?.target.kind === 'session' && ctx.get('workspaceRegistry')?.archivedSessionIds.includes(record.target.sessionId)),
+        description: runReason ? t(runReason) : t('Deliver the instruction now without moving the scheduled occurrence.') },
+      { label: t('Edit name'), value: 'title', disabled: busy },
+      { label: t('Edit instruction'), value: 'prompt', disabled: busy },
+      { label: t('Delete reminder'), value: 'delete', disabled: busy },
+      { label: t('Refresh'), value: 'refresh' }, { label: t('Back'), value: 'back' },
+    ]
+    return rows
+  }
+  while (!signal.aborted) {
+    const action = await ctx.tui.prompt({ ...list, title: t('Scheduled task'), question: t('Manage this reminder'), detail: detail(), refreshDocument: detail,
+      options: options(), refreshOptions: options, initialValue, signal })
+    if (signal.aborted || action == null || action === 'back') return
+    initialValue = action
+    if (action === 'refresh') { diagnostic = ''; await catalog.refresh(); continue }
+    await catalog.refresh()
+    if (signal.aborted) return
+    if (catalog.snapshot().error) continue
+    const record = current()
+    if (!record) continue
+    if (action === 'history') { await openScheduleHistory(ctx, record, signal); continue }
+    const reason = blocked(ctx, record, action)
+    if (reason) { diagnostic = t(reason); continue }
+    if (!['run', 'pause', 'resume', 'title', 'prompt', 'delete'].includes(action)) continue
+    try {
+      if (action === 'run') {
+        const result = await ctx.schedule.run({ id: record.id }, signal)
+        if (signal.aborted) return
+        diagnostic = 'code' in result ? t(result.code === 'schedule_not_found' ? 'This reminder no longer exists.' : 'The task is already queued, running, or waiting for its minimum run interval.')
+          : t('Instruction delivered. This does not mean model execution has completed.')
+      } else {
+        let patch: { active?: boolean; title?: string; prompt?: string } = {}
+        if (action === 'pause' || action === 'resume') {
+          if ((action === 'pause' && record.status !== 'active') || (action === 'resume' && record.status !== 'paused')) continue
+          patch = { active: action === 'resume' }
+        } else if (action === 'delete') {
+          const confirm = await confirmPrompt(request => ctx.tui.prompt(request), { title: t('Delete reminder'), question: t('Delete “{title}” and its saved delivery records?', { title: record.title }),
+            detail: t('Sessions and messages already delivered are retained.'), acceptLabel: t('Delete reminder'), cancelLabel: t('Keep reminder'), signal })
+          if (!confirm || signal.aborted) continue
+        } else {
+          const value = await ctx.tui.prompt(askPrompt({ title: t(action === 'title' ? 'Reminder name' : 'Reminder instruction'), question: t(action === 'title' ? 'Rename this reminder' : 'What should the reminder say?'),
+            initialInput: action === 'title' ? record.title : record.prompt, signal }))
+          if (value === null || signal.aborted) continue
+          patch = action === 'title' ? { title: value } : { prompt: value }
+        }
+        // A confirmation or editor can outlive the displayed state. Preserve its CAS baseline.
+        await catalog.refresh()
+        if (signal.aborted) return
+        const latest = current()
+        if (catalog.snapshot().error || !latest) continue
+        if (latest.executionActive) { diagnostic = t(blocked(ctx, latest, action)!); continue }
+        const result = await ctx.schedule.edit({ id: record.id, expectedUpdatedAt: record.updatedAt ?? null,
+          ...(action === 'delete' ? { action: 'delete' as const } : { action: 'update' as const, patch }) }, invocation.agent.session.id, signal)
+        if (signal.aborted) return
+        if ('code' in result) diagnostic = t(result.code === 'schedule_not_found' ? 'This reminder no longer exists.' : 'The reminder changed elsewhere. Review its current state and retry.')
+        else if ('deleted' in result) {
+          ctx.tui.notice(t('Deleted reminder “{title}”.', { title: record.title }), { transient: true })
+          await catalog.refresh()
+          return
+        } else {
+          diagnostic = t(action === 'pause' ? 'Reminder paused.' : action === 'resume' ? 'Reminder resumed.' : 'Reminder updated.')
+          if (action === 'pause') initialValue = 'resume'
+          if (action === 'resume') initialValue = 'pause'
+        }
+      }
+    } catch (error) {
+      if (signal.aborted) return
+      diagnostic = t('Could not complete the task action: {error}', { error: failure(error) })
     }
-    if (action === 'delete') {
-      const confirm = await ctx.tui.prompt({
-        title: 'Delete reminder',
-        question: `Stop "${record.title}" and remove its saved delivery records?`,
-        options: [{ label: 'Keep reminder', value: 'keep' }, { label: 'Delete reminder', value: 'delete' }],
-        allowCustom: false,
-        notify: false,
-        signal: invocation.signal,
-      })
-      invocation.signal.throwIfAborted()
-      if (confirm !== 'delete') continue
-      const result = await ctx.schedule.edit({
-        id: record.id,
-        action: 'delete',
-        ...(record.updatedAt === undefined ? {} : { expectedUpdatedAt: record.updatedAt }),
-      }, invocation.agent.session.id)
-      if ('code' in result) return { kind: 'error', text: refusalText(result) }
-      return { kind: 'success', text: `Deleted reminder "${record.title}".` }
-    }
-    return edit(ctx, invocation, record, action === 'title' ? 'title' : 'prompt')
+    // An acknowledged write stays successful even if this read fails.
+    await catalog.refresh()
   }
 }
 
 export async function scheduleCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /schedule' }
-  const sessionId = invocation.agent.session.id
-  // The catalog is the only read that reports whether a reminder can still fire;
-  // `list()` returns the records alone, so a stopped one would read as pending.
-  // Ownership is the recorded involvement: a task this Session created, or one
-  // whose delivery lands here, is this console's to manage.
-  const tasks = (await ctx.schedule.catalog()).filter(entry => entry.involvedSessionIds.includes(sessionId))
-  if (tasks.length === 0) {
-    return {
-      kind: 'success',
-      text: 'No scheduled tasks in this session. Ask the agent to create one with `schedule_create`.',
-    }
+  const { signal } = invocation, catalog = scheduleCatalog(ctx, invocation.agent.session.id, signal)
+  const t = (source: string): string => text(ctx, source)
+  let rows: NonNullable<TuiPrompt['options']> = [], key = '', selected = ''
+  const options = (): NonNullable<TuiPrompt['options']> => {
+    const { entries, error } = catalog.snapshot(), language = resolveUiLanguage(ctx.tui.prefs().uiLanguage)
+    const next = [
+      ...entries.map(record => ({ label: record.title, value: record.id, description: scheduleWhen(record, record.status, Date.now(), language),
+        badge: { label: t(record.executionActive ? 'Queued or running' : record.status === 'active' ? 'Active' : record.status === 'paused' ? 'Paused' : 'Ended'), tone: 'muted' as const } })),
+      ...(error ? [{ label: t('Could not load scheduled tasks. Refresh to retry.'), value: '@error', disabled: true }] : []),
+      { label: t('Refresh'), value: '@refresh' },
+    ]
+    const nextKey = JSON.stringify(next)
+    if (nextKey !== key) { key = nextKey; rows = next }
+    return rows
   }
-  const selected = await ctx.tui.prompt({
-    title: 'Scheduled tasks',
-    question: tasks.length === 1 ? 'Choose the reminder' : `Choose one of ${tasks.length} reminders`,
-    filterable: true,
-    allowCustom: false,
-    notify: false,
-    emptyText: 'No scheduled tasks in this session. Ask the agent to create one with `schedule_create`.',
-    signal: invocation.signal,
-    options: tasks.map(entry => ({
-      label: entry.title,
-      value: String(entry.id),
-      description: `${scheduleRule(entry)} · ${scheduleWhen(entry, entry.status)}`,
-    })),
-  })
-  invocation.signal.throwIfAborted()
-  if (selected === null) return { kind: 'success' }
-  const record = tasks.find(entry => String(entry.id) === selected)
-  if (record === undefined) return { kind: 'error', text: 'That reminder is no longer available.' }
-  return manage(ctx, invocation, record, record.status)
+  const listDetail = (): string => {
+    const snapshot = catalog.snapshot()
+    return snapshot.error ? t('Could not refresh scheduled tasks. Showing the last loaded state; refresh before making changes.')
+      : snapshot.entries.length ? '' : t('No scheduled tasks in this session. Ask the agent to create one with `schedule_create`.')
+  }
+  try {
+    await catalog.refresh()
+    while (!signal.aborted) {
+      const answer = await ctx.tui.prompt({ ...list, title: t('Scheduled tasks'), question: t('Reminders involving this session'), filterable: true,
+        detail: listDetail(), refreshDocument: listDetail,
+        options: options(), refreshOptions: options, ...(selected ? { initialValue: selected } : {}), signal })
+      if (signal.aborted || answer == null) break
+      if (answer === '@refresh') { await catalog.refresh(); continue }
+      if (answer === '@error') continue
+      selected = answer
+      await catalog.refresh()
+      if (!signal.aborted && !catalog.snapshot().error && catalog.snapshot().entries.some(record => record.id === answer)) await manage(ctx, invocation, catalog, answer)
+    }
+    return { kind: 'success' }
+  } finally { catalog.dispose() }
 }
 
 export function apply(ctx: Context): void {
-  registerCommands(ctx, [
-    {
-      name: 'schedule',
-      description: 'Inspect, edit, or delete scheduled reminders',
-      handler: async invocation => {
-        try {
-          return await scheduleCommand(ctx, invocation)
-        } catch (error) {
-          if (invocation.signal.aborted) return { kind: 'error', text: 'Scheduled task action cancelled.' }
-          return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
-        }
-      },
-    },
-  ], 'omdsh schedule command')
+  registerCommands(ctx, [{ name: 'schedule', description: 'Manage scheduled reminders and delivery history', handler: async invocation => {
+    try { return await scheduleCommand(ctx, invocation) }
+    catch (error) { return { kind: 'error', text: invocation.signal.aborted ? text(ctx, 'Scheduled task action cancelled.') : failure(error) } }
+  } }], 'omdsh schedule command')
 }

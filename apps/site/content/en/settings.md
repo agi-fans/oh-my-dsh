@@ -31,6 +31,14 @@ Secret inputs are masked and are never shown in notices. Setting an `apiKey` bes
 
 Settings are saved to the active Profile. Appearance applies immediately; response language applies from the next turn, child-model selection applies to new sessions. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
 
+### Shell and tool parallelism
+
+**Plugins → Shell** and **Plugins → Tool parallelism** each use a draft. Edits, empty-input resets and **Restore inherited setting…** remain unsaved until **Apply**. `Ctrl+R` on either settings entry opens a reset chooser that also stages the change. **Cancel** or `Esc` discards the draft. Each row distinguishes **Draft**, **Profile override** and **Inherited**; Apply writes all changed fields in that form with one revision check. Save failures retain the draft for retry. A concurrent configuration change requires cancelling and reopening instead of overwriting newer values.
+
+Shell keeps readable units such as `30s`, `2m`, `512 KiB` and `2 MiB`. **Default timeout** is used when a command does not specify one; **Maximum timeout** caps both defaults and explicit requests. A larger default is clamped by the executor. **Output limit** bounds the in-memory tail of each stream by default, while **Retained output limit** bounds each spill file; a command may override its stdout memory limit. **Shutdown grace** is the wait before forced termination. Shell values must be positive and finite, and shutdown grace must not exceed 2147483647 ms. These settings apply to new commands. The same editor follows the mounted Bash or PowerShell executor; platform-specific fields stay in Advanced.
+
+**Parallel tool calls** is a positive whole number limiting parallel-safe tool calls within one step. Other calls remain serial. It applies to subsequent tool batches and does not change subagent capacity.
+
 ### Subagents
 
 **Plugins → Subagents** combines delegation depth, concurrent subagents and model selection in one draft. Field edits and **Restore inherited setting…** remain staged until **Apply**; leaving the form discards unsaved changes. The model-selection switch and allowed routes save together. Enabling requires at least one route; disabling retains the list. The default is disabled.
@@ -49,9 +57,17 @@ In **Plugins**, choose **Command hooks**. Set **Configuration file** first, then
 
 The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
 
+## DeepSeek account
+
+Open **Models → DeepSeek account** for sign-in, profile and wallet balances. `/login` → **DeepSeek account** uses the same page and starts browser authorization when signed out. The browser completes sign-in through the local callback host; authorization can be cancelled, and successful sign-in returns to the account page automatically. Signing out requires confirmation, removes the shared local grant and revokes it in the background; API keys and the browser session are retained.
+
+Profile and balances load independently. **Refresh** retries failed queries; a balance failure is shown as unavailable, never as zero. Recharge and bonus wallets stay separate, retain their currency, and display two decimal places; positive balances below one cent show `<0.01`. External grant changes clear old details, and live sign-in expiry produces one brief notice without replaying it on resume. Account requests use the active UI language and current time-zone offset.
+
+**Use account route** opens the existing model picker restricted to `deepseek-account`. Enter saves the selected default, while **This session only** changes only the current session. Browsing the account page does not change the selected model.
+
 ## Model providers
 
-Open **Models → Model providers** to browse configured providers, credential status, model counts and catalog diagnostics. Provider names remain literal in every UI language. The list refreshes on Harness configuration, credential and adapter events; **Refresh** also reloads it. DeepSeek Account appears when it has available models and directs sign-in management to `/login` and `/logout`.
+Open **Models → Model providers** to browse configured providers, credential status, model counts and catalog diagnostics. Provider names remain literal in every UI language. The list refreshes on Harness configuration, credential and adapter events; **Refresh** also reloads it. DeepSeek Account appears when it has available models and opens the shared account page.
 
 Choose a provider to edit its API key, base URL and model list. Custom APIs also expose their display name and protocol; their provider ID remains fixed. Changes stay in a draft until **Apply**. **Cancel** or Esc discards unapplied edits and returns through the provider list to the selected Settings row. Stored keys are never read into the input; a blank key keeps existing authentication. Saving, adding or removing a provider does not change the selected model: use `/model` to select an available route.
 

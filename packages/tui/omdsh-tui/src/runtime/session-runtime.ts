@@ -9,7 +9,7 @@ import type { TuiService } from '../definition.ts'
 import { SessionRuntime } from '../session/session-controller.ts'
 
 export const name = 'omdsh-session-runtime'
-export const inject = ['tui', 'agentDefaultModel', 'agents', 'agentPresets', 'tools', 'workingDirectory']
+export const inject = ['tui', 'agentDefaultModel', 'agents', 'agentPresets', 'tools', 'workingDirectory', 'commands']
 
 /** Plugin config: the product state directory this runtime owns. */
 export interface Config {

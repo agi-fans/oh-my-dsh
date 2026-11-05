@@ -1140,6 +1140,51 @@ describe('LocalTui folds against a scrolling terminal', () => {
 })
 
 describe('LocalTui (tty)', () => {
+  it.each(['en', 'zh-CN'] as const)('shows the effective Plan target before typing and clears it on session changes (%s)', language => {
+    const term = new ScrollingTerminal(90, 24), tui = new LocalTui(term, 'm', language === 'zh-CN')
+    tui.applyStoredPrefs({ uiLanguage: language })
+    try {
+      for (const [active, pending, planning] of [[false, false, false], [false, true, true], [true, false, true], [true, true, false]] as const) {
+        tui.setSession({ id: 'plan', recent: [], controls: { plan: { active, pending } } })
+        const screen = term.visible().join('\n')
+        expect(screen.includes(language === 'en' ? 'Describe your task to generate a plan' : '描述任务以生成计划')).toBe(planning)
+        if (active || pending) expect(screen).toContain(active && pending ? 'plan off…' : 'plan')
+      }
+      tui.setSession({ id: 'other', recent: [], controls: {} })
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Ask anything' : '输入你的问题')
+    } finally { tui.dispose() }
+  })
+
+  it.each(['en', 'zh-CN'] as const)('reviews a real Harness question with bounded scrolling and unambiguous revision feedback (%s)', async language => {
+    const { default: AgentRegistry } = await import('@deepseek-ai/dsh-agent')
+    const { default: Projections } = await import('@deepseek-ai/dsh-session-projection')
+    const { default: UserQuestions } = await import('@deepseek-ai/dsh-user-questions')
+    const { Session } = await import('@deepseek-ai/dsh-session')
+    const { bindHumanInteraction } = await import('../session/interaction-adapter.ts')
+    const ctx = new Context(), term = new ScrollingTerminal(72, 24), tui = new LocalTui(term, 'm', language === 'zh-CN')
+    tui.applyStoredPrefs({ uiLanguage: language })
+    await ctx.plugin(AgentRegistry); await ctx.plugin(Projections); await ctx.plugin(UserQuestions)
+    const session = Session.create(SessionId('plan-review-keys'))
+    const agent = { id: session.id, session } as never
+    ctx.agents.enter(agent, undefined)
+    const off = bindHumanInteraction(ctx, tui, () => agent), abort = new AbortController()
+    const request = ctx.userQuestions.ask({ agent, signal: abort.signal, questions: [{ id: 'plan', question: 'Approve this plan and leave plan mode?',
+      detail: '# Original plan\n\n' + Array.from({ length: 60 }, (_, index) => `- Task ${index + 1}`).join('\n'),
+      options: [{ label: 'Approve' }, { label: 'Keep planning' }], intent: { kind: 'plan-review', approve: 'Approve' } }] })
+    try {
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Approve this plan' : '批准此计划')
+      expect(term.visible().join('\n')).toContain('Original plan')
+      press(term, '\x1b[F')
+      expect(term.visible().join('\n')).toContain('Task 60')
+      press(term, '\t\r'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'What should the revised plan change?' : '计划需要修改哪些内容？')
+      press(term, 'Approve\r')
+      await expect(request).resolves.toEqual({ answers: [{ id: 'plan', selected: ['Keep planning'], custom: 'Approve' }] })
+      expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
+    } finally { abort.abort(); await request.catch(() => {}); await off(); tui.dispose(); await ctx.fiber.dispose() }
+  })
+
   it('repaints the footer when the live Agent control changes', () => {
     const term = new FakeTerminal()
     term.columns = 100
@@ -2845,11 +2890,11 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('clears an active filter on Escape before closing the list', async () => {
+  it.each([false, true])('clears a plain filter on Escape without leaving its placeholder or glyph behind (colors=%s)', async colors => {
     // Escape gives back one layer. Only the tree used to do this, so a filtered
     // `/model` or `/copy` closed outright and had to be reopened for the full list.
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', true)
+    const term = new ScrollingTerminal(70, 24)
+    const tui = new LocalTui(term, 'm', colors)
     const pending = tui.prompt({
       title: 'Pick',
       question: 'Choose',
@@ -2859,17 +2904,22 @@ describe('LocalTui (tty)', () => {
       options: [{ label: 'alpha', value: 'a' }, { label: 'beta', value: 'b' }],
     })
     await flushAsyncPaste()
+    expect(term.visible().join('\n')).toContain('type to filter')
+    expect(term.visible().join('\n')).not.toContain('⌕')
     press(term, 'beta')
     await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toContain('1/1')
-    term.captured = ''
+    expect(term.visible().join('\n')).toContain('beta · 1/1')
+    expect(term.visible().join('\n')).not.toContain('type to filter')
+    expect(term.visible().join('\n')).not.toContain('⌕')
     press(term, '\x1b')
     await new Promise(resolve => setTimeout(resolve, 150))
     // Still open, with the filter cleared rather than the list closed.
-    const cleared = stripAnsi(term.captured)
+    const cleared = term.visible().join('\n')
     expect(cleared).toContain('Pick')
     expect(cleared).toContain('type to filter')
     expect(cleared).toContain('alpha')
+    expect(cleared).not.toContain('beta · 1/1')
+    expect(cleared).not.toContain('⌕')
     press(term, '\x03')
     expect(await pending).toBeNull()
     tui.dispose()
@@ -3185,6 +3235,30 @@ describe('LocalTui (tty)', () => {
     } finally { await unbind(); tui.dispose() }
   })
 
+  it.each(['en', 'zh-CN'] as const)('stages Shell fields and restores inheritance without writing on cancellation (%s)', async language => {
+    const z = (await import('@deepseek-ai/schemastery')).default
+    const term = new ScrollingTerminal(72, 28), tui = new LocalTui(term, 'm', false), ctx = new Context(), mutate = vi.fn()
+    const ns = process.platform === 'win32' ? 'pwsh' : 'bash'
+    tui.applyStoredPrefs({ uiLanguage: language, colors: language === 'zh-CN' })
+    ctx.provide('tui', tui)
+    ctx.provide('settings', { writable: true, describe: () => [{ ns, revision: 1,
+      schema: z.object({ timeoutMs: z.number().default(120000), maxOutputBytes: z.number().default(64000) }).toJSON(),
+      value: { timeoutMs: 120000, maxOutputBytes: 64000 }, base: { timeoutMs: 120000 }, user: {} }], mutate } as never)
+    try {
+      const task = editSettingsEntry(ctx, ns, new AbortController().signal)
+      await flushAsyncPaste()
+      press(term, '\r'); await flushAsyncPaste()
+      press(term, '\x1530s\r'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? '30s · Draft' : '30s · 草稿')
+      press(term, '\x1b[B\x1b[B\r'); await flushAsyncPaste()
+      press(term, '\r'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? '2m · Draft' : '2m · 草稿')
+      expect(mutate).not.toHaveBeenCalled()
+      press(term, '\x1b[27u'); await task
+      expect(mutate).not.toHaveBeenCalled()
+    } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
   it.each(['en', 'zh-CN'] as const)('stages subagent limits and model choices with real keyboard input (%s)', async language => {
     const { openSubagentSettings } = await import('./subagent-settings.ts')
     const z = (await import('@deepseek-ai/schemastery')).default
@@ -3248,6 +3322,81 @@ describe('LocalTui (tty)', () => {
       await task
       expect(mutate).not.toHaveBeenCalled()
     } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it.each([['en', false], ['zh-CN', true]] as const)('shows account details and keyboard actions in the real card (%s, colors=%s)', async (language, colors) => {
+    const { openAccountSettings } = await import('./account-settings.ts')
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', colors), ctx = new Context()
+    tui.applyStoredPrefs({ theme: 'dark', colors, uiLanguage: language })
+    ctx.provide('tui', tui)
+    const state = { status: 'credential-stored', attempt: null }
+    const getBalance = vi.fn(async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '1234.567' }], bonusWallets: [] }))
+    ctx.provide('deepseekAccount', {
+      getState: async () => state,
+      watch: async function* () { yield state },
+      getProfile: async () => ({ status: 'ready', value: { name: '账户 Test 🐳', contact: 'a***@test.example' } }),
+      getBalance,
+    } as never)
+    try {
+      const task = openAccountSettings(ctx, new AbortController().signal)
+      await flushAsyncPaste()
+      // Dynamic details settle through the same refresh timer as a mounted account provider.
+      await vi.waitFor(() => expect(term.visible().join('\n')).toContain('1,234.56'))
+      expect(term.visible().join('\n')).toContain('a***@test.example')
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Recharge balance' : '充值余额')
+      press(term, '\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      expect(getBalance).toHaveBeenCalledTimes(2)
+      press(term, '\x1b[27u')
+      await task
+    } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it.each(['en', 'zh-CN'] as const)('manages reminders through keyboard cards and refreshes live execution state (%s)', async language => {
+    const { scheduleCommand } = await import('../commands/schedule.ts')
+    const term = new ScrollingTerminal(72, 22), tui = new LocalTui(term, 'm', language === 'zh-CN'), ctx = new Context()
+    tui.applyStoredPrefs({ colors: language === 'zh-CN', uiLanguage: language })
+    tui.setSession({ id: 'demo', recent: [], stats: { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0,
+      decodeMs: 0, decodeTokens: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: 0, contextWindow: 1000, elapsedMs: 0 } })
+    ctx.provide('tui', tui)
+    let entry = { id: 'task', title: '定时 Test 🐳', prompt: 'Check the local demo', kind: 'every', everySeconds: 3600,
+      scheduledAt: '2099-01-01T00:00:00Z', status: 'active', updatedAt: '2026-11-05T00:00:00Z', target: { kind: 'session', sessionId: 'demo' }, involvedSessionIds: ['demo'], executionActive: false }
+    const edit = vi.fn(async (request: { patch: { active: boolean } }) => {
+      entry = { ...entry, status: request.patch.active ? 'active' : 'paused' }
+      ctx.emit('schedule/changed'); return entry
+    })
+    ctx.provide('schedule', { catalog: async () => [entry], edit } as never)
+    const abort = new AbortController()
+    const task = scheduleCommand(ctx, { agent: { session: { id: 'demo' } }, rawInput: '', signal: abort.signal } as never)
+    try {
+      await flushAsyncPaste(); press(term, '\r'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Check the local demo')
+      press(term, '\x1b[B\r'); await flushAsyncPaste()
+      expect(entry.status).toBe('paused')
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Resume reminder' : '恢复提醒')
+      expect(term.visible().join('\n')).toContain('Ctx 0%')
+      press(term, '\r'); await flushAsyncPaste(); expect(entry.status).toBe('active')
+      entry = { ...entry, executionActive: true }; ctx.emit('schedule/changed')
+      await vi.waitFor(() => expect(term.visible().join('\n')).toContain(language === 'en' ? 'queued or running' : '已排队或正在执行'))
+      expect(term.visible().join('\n')).toContain('Ctx 0%')
+      expect(edit).toHaveBeenCalledTimes(2)
+      press(term, '\x1b[27u'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Scheduled tasks' : '定时任务')
+      press(term, '\x1b[27u'); await task
+      expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
+    } finally { abort.abort(); await task; tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it('keeps transient service notifications out of transcript and clears them across sessions', () => {
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.notice('Account expired', { transient: true })
+      expect(term.visible().join('\n')).toContain('Account expired')
+      tui.replaceSession([], undefined, 'idle', 'open')
+      expect(term.visible().join('\n')).not.toContain('Account expired')
+      tui.replaceSession([], undefined, 'idle', 'refresh')
+      expect(term.visible().join('\n')).not.toContain('Account expired')
+    } finally { tui.dispose() }
   })
 
   it('reorders model drafts with the advertised keyboard actions and keeps the moved row selected', async () => {
@@ -3375,9 +3524,13 @@ describe('LocalTui (tty)', () => {
       press(term, '/settings\r\t\r')
       await flushAsyncPaste()
       press(term, '\r'); await flushAsyncPaste()
-      if (kind === 'field') { press(term, '\x1542\r'); await flushAsyncPaste() }
+      if (kind === 'field') {
+        press(term, '\x1542\r'); await flushAsyncPaste()
+        expect(term.visible().join('\n')).not.toContain('Save failed')
+        press(term, '\x1b[B\x1b[B\r'); await flushAsyncPaste()
+      }
       expect(term.visible().join('\n')).toContain('Save failed')
-      press(term, '\x1b[27u'); await flushAsyncPaste()
+      if (kind === 'integration') { press(term, '\x1b[27u'); await flushAsyncPaste() }
       expect(term.visible().join('\n')).toContain(kind === 'field' ? 'Default timeout' : 'Enable integration')
     } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
   })
@@ -4909,7 +5062,8 @@ describe('document and file interaction', () => {
       expect(await answer).toBeNull()
       const submission = tui.readInput()
       press(term, 'Review this\r')
-      expect(await submission).toEqual({ text: 'Review this', images: [], files: [ref] })
+      expect(await submission).toEqual({ text: 'Review this', images: [], files: [ref],
+        segments: [{ kind: 'file', index: 0 }, { kind: 'text', text: 'Review this' }] })
     } finally { tui.dispose() }
   })
 })
@@ -5887,5 +6041,27 @@ it('keeps the selected child when workflow rows are added or removed', async () 
     press(term, '\r')
     await flushAsyncPaste()
     expect(opened).toHaveBeenCalledWith('same')
+  } finally { tui.dispose() }
+})
+
+it.each(['idle', 'running', 'steer'] as const)('preserves mixed file command order through retry (%s)', async mode => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const first = { attachmentId: AttachmentId('first'), name: '任务.txt', bytes: 5 }
+  const second = { attachmentId: AttachmentId('second'), name: 'other.txt', bytes: 8 }
+  const draft = { text: '/plan inspect', images: [{ data: PNG_1X1, mediaType: 'image/png' as const }], files: [first, second],
+    segments: [{ kind: 'text' as const, text: '/plan inspect' }, { kind: 'file' as const, index: 1 },
+      { kind: 'image' as const, index: 0 }, { kind: 'file' as const, index: 0 }] }
+  try {
+    if (mode !== 'idle') tui.setStatus('running')
+    tui.restoreInput(draft)
+    const pending = tui.readInput()
+    press(term, mode === 'steer' ? '\x1bs' : '\r')
+    const submission = await pending
+    expect(submission).toMatchObject(draft)
+    if (mode === 'steer') expect(submission).toMatchObject({ delivery: 'steer', literal: true })
+    else expect(submission?.delivery).toBeUndefined()
+    tui.restoreInput(submission!)
+    const retry = tui.readInput(); press(term, '\r')
+    expect(await retry).toMatchObject(draft)
   } finally { tui.dispose() }
 })
