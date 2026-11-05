@@ -6,6 +6,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { openMessageQueue } from '../session/message-queue.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { TuiQueueEditRequest } from '../definition.ts'
 import { stripAnsi } from '../chrome/width.ts'
 
 class Terminal implements TerminalLike {
@@ -23,6 +24,7 @@ function fixture() {
   const term = new Terminal()
   const tui = new LocalTui(term, 'm', false)
   instances.push(tui)
+  tui.setCommands([{ name: 'queue', description: 'Manage pending messages' }])
   const agent = { inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
   tui.setQueueHandler(signal => openMessageQueue({ agent, tui, signal, assertActive: () => {}, restore: async () => ({ text: '', images: [] }) }))
   return { tui, term }
@@ -101,15 +103,91 @@ describe('local Message Queue controls', () => {
     expect(tui.pendingInputs.update(row.id, { kind: 'remove' })).toBe(false)
   })
 
-  it('does not open Queue in inspected child sessions or during legacy queue navigation', async () => {
+  it.each(['\x1bq', '/queue\r'])('opens the child queue without parent pending deliveries (%s)', async key => {
     const { tui, term } = fixture()
-    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'idle', writable: true })
-    term.press('\x1bq')
-    expect(stripAnsi(term.captured)).toContain('Return to the parent session')
+    tui.setSession({ id: 'root', recent: [] })
+    term.press('parent pending\r')
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'waiting', writable: true })
+    term.press(key)
+    await flush()
+    expect(stripAnsi(term.captured)).toContain('Message Queue')
+    expect(tui.pendingInputs.list()).toEqual([])
+    term.press('\x1b[27u')
+    await flush()
     tui.setInspectedSubagent(undefined)
+    expect(tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['parent pending'])
+  })
+
+  it('rejects nested management during legacy queue navigation', async () => {
+    const { tui, term } = fixture()
     term.press('queued\r\x1b[A\x1bq')
     await flush()
     expect(stripAnsi(term.captured)).toContain('Finish editing the queued follow-up')
+  })
+
+  it('recalls only child messages and keeps newer drafts across navigation, always resubmitting as Queue', () => {
+    const { tui, term } = fixture()
+    tui.setSession({ id: 'root', recent: [] })
+    term.press('parent pending\r')
+    const child = { id: 'child', label: 'Child', phase: 'running' as const, writable: true }
+    tui.setInspectedSubagent(child)
+    tui.event({ type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0, inserted: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'accepted' }] })] } } as SessionEvent)
+    const requests: TuiQueueEditRequest[] = []
+    tui.onQueueEdit(request => { requests.push(request!) })
+    const send = vi.fn()
+    tui.onInspectSubmit(send)
+    term.press('newer draft\x1b[1;3A')
+    expect(requests[0]?.sessionId).toBe('child')
+    tui.resolveQueueEdit({ text: 'accepted', images: [], literal: true }, requests[0])
+    tui.setInspectedSubagent(undefined)
+    expect(tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['parent pending'])
+    tui.setInspectedSubagent(child)
+    tui.setStatus('running')
+    tui.applyStoredPrefs({ busyEnter: 'steer' })
+    term.press(' revised\r')
+    expect(send.mock.calls.map(([submission]) => [submission.text, submission.delivery])).toEqual([['accepted revised', 'queue'], ['newer draft', 'queue']])
+  })
+
+  it('cancels a recall on navigation and rescues late results without clearing a newer request', () => {
+    const { tui, term } = fixture()
+    tui.setSession({ id: 'root', recent: [] })
+    const child = { id: 'child', label: 'Child', phase: 'running' as const, writable: true }
+    tui.setInspectedSubagent(child)
+    tui.event({ type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0, inserted: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'accepted' }] })] } } as SessionEvent)
+    const requests: TuiQueueEditRequest[] = []
+    tui.onQueueEdit(request => { requests.push(request!) })
+    term.press('\x1b[1;3A')
+    tui.setInspectedSubagent(undefined)
+    expect(requests[0]?.signal.aborted).toBe(true)
+    tui.setInspectedSubagent(child)
+    term.press('\x1b[1;3A')
+    tui.resolveQueueEdit({ text: 'late withdrawn', images: [], literal: true }, requests[0])
+    expect(requests[1]?.signal.aborted).toBe(false)
+    tui.resolveQueueEdit({ text: 'latest recall', images: [], literal: true }, requests[1])
+    const send = vi.fn()
+    tui.onInspectSubmit(send)
+    term.press('\r')
+    expect(send.mock.calls.map(([submission]) => submission.text)).toEqual(['latest recall', 'late withdrawn'])
+    tui.setInspectedSubagent(undefined)
+    expect(tui.pendingInputs.list()).toEqual([])
+  })
+
+  it('releases queue shortcuts when navigation cancels a slow previous menu', async () => {
+    const { tui, term } = fixture()
+    tui.setSession({ id: 'root', recent: [] })
+    const signals: AbortSignal[] = []
+    let finish: () => void = () => {}
+    tui.setQueueHandler(signal => {
+      signals.push(signal)
+      return signals.length === 1 ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve()
+    })
+    term.press('\x1bq')
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'waiting', writable: true })
+    expect(signals[0]?.aborted).toBe(true)
+    term.press('\x1bq')
+    expect(signals).toHaveLength(2)
+    finish()
+    await flush()
   })
 
   it('does not steer queue-edit text or open nested queue management from a prompt', async () => {

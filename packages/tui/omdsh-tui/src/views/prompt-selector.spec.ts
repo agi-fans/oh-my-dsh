@@ -469,3 +469,14 @@ describe('a disabled row', () => {
     expect(row).not.toContain(createTheme(true).fg('accent', '').slice(0, 5) + 'workflow group')
   })
 })
+
+
+it.each(['', 'edited message'])('renders free-text edits without list-empty warnings (input=%s)', input => {
+  const frame = renderPromptSelector({ request: { title: 'Edit Queued Message', question: 'Enter saves', detail: 'Worker', allowCustom: true }, selected: 0, checked: new Set() }, createTheme(false), 80, input, input.length)
+  const text = stripAnsi(frame.lines.join('\n'))
+  expect(text).toContain('Worker')
+  expect(text).not.toContain('No match')
+  expect(text).not.toContain('Nothing to choose')
+  expect(text).toContain(input)
+  expect(frame.cursorVisible).toBe(true)
+})

@@ -10,5 +10,5 @@ export const name = 'omdsh-human-interaction'
 export const inject = ['tui', 'omdshSession', 'commands', 'userQuestions']
 
 export function apply(ctx: Context): void {
-  ctx.effect(() => bindHumanInteraction(ctx, ctx.tui, () => ctx.omdshSession.agent), 'omdsh human interaction')
+  ctx.effect(() => bindHumanInteraction(ctx, ctx.tui, () => ctx.omdshSession.agent, agent => ctx.omdshSession.beginSubagentApproval(agent)), 'omdsh human interaction')
 }

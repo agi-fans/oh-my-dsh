@@ -347,3 +347,26 @@ describe('/questions', () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 })
+
+it('labels descendant approval and reads the child tool call instead of the visible parent', async () => {
+  const ctx = new Context()
+  const session = Session.create(SessionId('approval-child'))
+  const child = { id: session.id, session } as Agent
+  session.append('tool/call', { turn: 1, step: 1, callId: ToolCallId('shared-id'), name: 'bash', arguments: '{"command":"child command"}' })
+  const prompt = vi.fn(async () => 'Allow once'), finish = vi.fn()
+  let handler: ((request: ApprovalRequest, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+  ;(ctx as unknown as { get: (name: string) => unknown }).get = name => name === 'approval' ? {} : undefined
+  ;(ctx as unknown as { on: (name: string, fn: NonNullable<typeof handler>) => () => void }).on = (name, fn) => {
+    if (name === 'approval/request') handler = fn
+    return () => {}
+  }
+  const dispose = bindHumanInteraction(ctx, { prompt, toolCallContext: () => 'wrong parent command' } as unknown as TuiService, () => undefined,
+    agent => agent === child ? { label: 'Research', signal: new AbortController().signal, finish } : undefined)
+  try {
+    expect(await handler!({ agent: child, toolName: 'bash', callId: ToolCallId('shared-id') }, async () => 'unavailable')).toBe('allowed-once')
+    expect(prompt.mock.calls[0]?.[0]).toMatchObject({ title: 'Research · Approval required', detail: 'bash {"command":"child command"}' })
+    expect(finish).toHaveBeenCalledOnce()
+    expect(await handler!({ agent: {} as Agent, toolName: 'bash' }, async () => 'unavailable')).toBe('unavailable')
+    expect(prompt).toHaveBeenCalledOnce()
+  } finally { await dispose(); await ctx.fiber.dispose() }
+})

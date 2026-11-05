@@ -42,24 +42,21 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   const onCancelled = (): void => { operation?.abort(new Error('runner unloaded')) }
   cancelled.addEventListener('abort', onCancelled, { once: true })
   const offInterrupt = tui.onInterrupt(() => {
+    if (controller.interruptVisible()) return
     if (shellActive) {
       operation?.abort(new Error('Shell interrupted by user'))
       return
     }
-    if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
     controller.agent?.cancel({ kind: 'user' }, { keepInbox: true })
   })
-  let queueEditInFlight = false
-  const offQueueEdit = tui.onQueueEdit(() => {
-    if (queueEditInFlight) return
-    queueEditInFlight = true
-    void controller.editLatestFollowup().then((submission) => {
-      tui.resolveQueueEdit(submission ?? null)
+  const offQueueEdit = tui.onQueueEdit(request => {
+    void controller.editLatestFollowup(request).then(submission => {
+      tui.resolveQueueEdit(submission ?? null, request)
     }).catch((error: unknown) => {
-      tui.resolveQueueEdit(null)
-      tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-    }).finally(() => { queueEditInFlight = false })
+      tui.resolveQueueEdit(null, request)
+      if (!request?.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    })
   })
   const offRewind = tui.onRewind(() => {
     if (operation !== undefined || controller.agent?.status !== 'idle') return

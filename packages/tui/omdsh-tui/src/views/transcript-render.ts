@@ -2129,12 +2129,13 @@ function subagentPhaseGlyph(phase: TuiSubagentPhase, theme: Theme, spinnerFrame:
     if (spinnerFrame < 0) return theme.fg('accent', SYMBOL.running)
     return theme.fg('accent', SPINNER[spinnerFrame % SPINNER.length] ?? SYMBOL.running)
   }
+  if (phase === 'stopped') return theme.fg('warning', '■')
   if (phase === 'error') return theme.fg('error', SYMBOL.error)
   return theme.fg('success', SYMBOL.success)
 }
 
 const SUBAGENT_PHASE_LABELS: Record<TuiSubagentPhase, string> = {
-  starting: 'Starting', running: 'Running', waiting: 'Waiting', completed: 'Done', error: 'Failed',
+  starting: 'Starting', running: 'Running', waiting: 'Ready', completed: 'Done', stopped: 'Stopped', error: 'Failed',
 }
 
 /** How long a child has been (or was) running, as one label. */
@@ -2147,9 +2148,9 @@ export function formatAgentElapsed(agent: TuiSubagentView, now = Date.now()): st
   return `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1_000)).padStart(2, '0')}s`
 }
 
-function subagentRowText(agent: TuiSubagentView): string {
+function subagentRowText(agent: TuiSubagentView, theme: Theme): string {
   const indent = agent.depth > 1 ? '  '.repeat(agent.depth - 1) : ''
-  return `${indent}${agent.label} · ${SUBAGENT_PHASE_LABELS[agent.phase]}`
+  return `${indent}${agent.label} · ${theme.text(agent.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[agent.phase])}`
 }
 
 /** Compact, unframed descendant-subagent tree placed above Todos. */
@@ -2167,17 +2168,21 @@ export function renderSubagents(
   const failed = agents.filter(agent => agent.phase === 'error').length
   const waiting = agents.filter(agent => agent.phase === 'waiting').length
   const done = agents.filter(agent => agent.phase === 'completed').length
+  const stopped = agents.filter(agent => agent.phase === 'stopped').length
+  const attention = agents.filter(agent => agent.needsApproval).length
   const counts = [
-    running === 0 ? undefined : `${running} running`,
-    waiting === 0 ? undefined : `${waiting} waiting`,
-    done === 0 ? undefined : `${done} done`,
-    failed === 0 ? undefined : `${failed} failed`,
+    attention === 0 ? undefined : theme.text('{count} need approval', { count: attention }),
+    stopped === 0 ? undefined : theme.text('{count} stopped', { count: stopped }),
+    running === 0 ? undefined : theme.text('{count} running', { count: running }),
+    waiting === 0 ? undefined : theme.text('{count} ready', { count: waiting }),
+    done === 0 ? undefined : theme.text('{count} done', { count: done }),
+    failed === 0 ? undefined : theme.text('{count} failed', { count: failed }),
   ].filter((part): part is string => part !== undefined)
   const pointing = selected !== undefined
-  const headerBody = theme.bold(theme.fg('accent', 'Agents'))
+  const headerBody = theme.bold(theme.fg('accent', theme.text('Agents')))
     + (counts.length === 0 ? '' : theme.fg('dim', ` · ${counts.join(' · ')}`))
     // Short enough to survive a narrow bar: the counts already use the width.
-    + theme.fg('dim', pointing ? ' · ↑↓ · Enter open · Esc' : ' · ↓ select')
+    + theme.fg('dim', pointing ? ' · ' + theme.text('↑↓ · Enter open · Esc') : ' · ' + theme.text('↓ select'))
   const header = '  ' + (pointing ? theme.inverse(headerBody) : headerBody)
   // A workflow run belongs to the same roster: it is the one place a reader learns
   // that a workflow is still going, so it stays as the bar's first row rather than
@@ -2186,7 +2191,7 @@ export function renderSubagents(
     run.status === 'completed' ? 'success' : run.status === 'open' ? 'accent' : 'warning',
     `Workflow · ${run.name} · ${run.status}${run.phase === undefined ? '' : ` · ${run.phase}`}`,
   ))
-  const start = subagentPreviewStart(agents)
+  const start = selected === undefined ? subagentPreviewStart(agents) : Math.max(0, Math.min(selected, agents.length - SUBAGENT_PREVIEW))
   const end = Math.min(agents.length, start + SUBAGENT_PREVIEW)
   const rows: Array<TuiSubagentView | string> = [
     ...(start === 0 ? [] : [`… ${start} earlier`]),
@@ -2204,9 +2209,9 @@ export function renderSubagents(
         : row.phase === 'waiting'
           ? (text: string) => theme.fg('dim', text)
           : (text: string) => text
-    const pointed = index === selected
+    const pointed = selected !== undefined && agents[selected]?.id === row.id
     const marker = current || pointed ? theme.fg('accent', SYMBOL.cursor) + ' ' : ''
-    const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row))
+    const body = marker + subagentPhaseGlyph(row.phase, theme, spinnerFrame) + ' ' + paint(subagentRowText(row, theme))
     return branch + (current || pointed ? theme.bold(body) : body)
   })]
   return lines.map(line => truncateToWidth(line, width))
@@ -2220,9 +2225,12 @@ export function renderInspectBanner(
   spinnerFrame = 0,
 ): string[] {
   if (inspected === undefined || width <= 0) return []
-  const guidance = inspected.writable ? 'Enter to steer · Esc to return' : 'read-only · Esc to return'
+  const guidance = inspected.phase === 'running' || inspected.phase === 'starting'
+    ? theme.text('Ctrl+C stops this agent · Esc to return')
+    : inspected.writable ? theme.text('Esc to return') : theme.text('Read-only · Esc to return')
   const line = '  ' + theme.fg('accent', '←') + ' ' + subagentPhaseGlyph(inspected.phase, theme, spinnerFrame)
     + ' ' + theme.bold(inspected.label)
+    + theme.fg('dim', ' · ' + theme.text(inspected.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[inspected.phase]))
     + theme.fg('dim', ` · ${guidance}`)
   return [truncateToWidth(line, width)]
 }
@@ -2286,6 +2294,7 @@ export function renderQueuedSubmissions(
   theme: Theme,
   width: number,
   inbox: readonly UserMessage[] = [],
+  editable = true,
 ): string[] {
   const labels = [
     ...inbox.filter(message => message.source.kind === 'user').map(queuedMessageLabel),
@@ -2308,8 +2317,8 @@ export function renderQueuedSubmissions(
     const paintedLeft = truncateToWidth(left, width - actionWidth - 2)
     return paintedLeft + '  ' + action
   }
-  const editSingleHint = width >= 72 ? theme.text('↑/Alt+Up recall · Alt+Q manage') : theme.text('Alt+Q manage')
-  const editMultiHint = width >= 72 ? theme.text('↑ recall latest · Alt+Q manage') : theme.text('Alt+Q manage')
+  const editSingleHint = !editable ? '' : width >= 72 ? theme.text('↑/Alt+Up recall · Alt+Q manage') : theme.text('Alt+Q manage')
+  const editMultiHint = !editable ? '' : width >= 72 ? theme.text('↑ recall latest · Alt+Q manage') : theme.text('Alt+Q manage')
   if (labels.length === 1) {
     return [alignAction(
       rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', timing + ' · ') + theme.fg('text', accepted ? labels[0] ?? '' : queuedSubmissionLabel(submissions[0]!)),
@@ -2438,8 +2447,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
             ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
             : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey })) : null)
       : options.inspected.writable
-        ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
-        : 'Read-only · Esc to return'
+        ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? (state.status === 'running'
+          ? options.busyEnter === 'steer'
+            ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
+            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey ?? 'Alt+S' })
+          : theme.text('Enter to send'))
+        : theme.text('Read-only · Esc to return')
   const statusFooter = renderStatusFooter({
     model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
@@ -2463,7 +2476,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // says so the moment the character is typed — before the reader commits to
     // running anything. Green is the one ink that means "this runs on your
     // machine", which is also what a successful tool card uses.
-    border: options.input.trimStart().startsWith('!')
+    border: options.inspected === undefined && options.input.trimStart().startsWith('!')
       ? 'shellMode'
       : options.inspected !== undefined && options.inspected.writable !== true
         || state.status === 'idle'
@@ -2529,11 +2542,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const editor = promptSelector === undefined && settings === undefined && search === undefined
     ? renderEditor(editorOpts, theme)
     : undefined
-  const queuedSubmissions = editor === undefined || options.inspected !== undefined
+  const queuedSubmissions = editor === undefined
     ? []
     : [
       ...renderSteering(state.nextStepInbox, theme, width),
-      ...renderQueuedSubmissions(options.queuedSubmissions ?? [], theme, width, state.nextTurnInbox),
+      ...renderQueuedSubmissions(options.inspected === undefined ? options.queuedSubmissions ?? [] : [], theme, width, state.nextTurnInbox, options.inspected === undefined || options.inspected.writable === true),
     ]
   // Above the composer and below the queue: the failure explains why the queue
   // is not moving, and the row survives until the next submission.

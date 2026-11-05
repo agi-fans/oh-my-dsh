@@ -180,7 +180,8 @@ export function applySubagentEvent(view: TuiSubagentView, event: SessionEvent): 
     }
     case 'turn/end': {
       const reason = event.data.reason
-      if (reason.kind === 'error' || reason.kind === 'aborted' || reason.kind === 'interrupted') {
+      if (reason.kind === 'aborted' || reason.kind === 'interrupted') return { ...view, phase: 'stopped' }
+      if (reason.kind === 'error') {
         return view.phase === 'error' ? view : { ...view, phase: 'error' }
       }
       if (view.mode === 'one-shot') {
@@ -213,6 +214,7 @@ function emptyView(input: {
 }
 
 function compareAgents(left: TuiSubagentView, right: TuiSubagentView): number {
+  if (Boolean(left.needsApproval) !== Boolean(right.needsApproval)) return left.needsApproval ? -1 : 1
   const leftLive = left.phase === 'running' || left.phase === 'starting' ? 0 : left.phase === 'waiting' ? 1 : 2
   const rightLive = right.phase === 'running' || right.phase === 'starting' ? 0 : right.phase === 'waiting' ? 1 : 2
   if (leftLive !== rightLive) return leftLive - rightLive
@@ -313,7 +315,7 @@ export class SubagentRoster {
         depth: 1,
         ...(child.label === undefined ? {} : { label: child.label }),
         ...(child.mode === undefined ? {} : { mode: child.mode }),
-        phase: 'completed',
+        phase: child.mode === 'continuable' ? 'waiting' : 'completed',
       })
       added = true
     }
@@ -345,7 +347,7 @@ export class SubagentRoster {
         ...(updatedAt === undefined ? {} : { updatedAt }),
       }
     }
-    if (agentStatus === 'running' && view.phase !== 'error') view = { ...view, phase: 'running' }
+    if (agentStatus === 'running' && view.phase !== 'error' && view.phase !== 'stopped') view = { ...view, phase: 'running' }
     else if (agentStatus === 'idle' && view.phase === 'starting') view = { ...view, phase: 'waiting' }
     this.#positions.set(session, Number(events.at(-1)?.seq ?? Number(session.inheritedEventCount) - 1))
     this.#snapshot = undefined
@@ -370,13 +372,20 @@ export class SubagentRoster {
     return next
   }
 
+  setNeedsInput(id: string, needsApproval: boolean): void {
+    const view = this.#agents.get(id)
+    if (view === undefined || Boolean(view.needsApproval) === needsApproval) return
+    this.#agents.set(id, { ...view, needsApproval })
+    this.#snapshot = undefined
+  }
+
   setAgentStatus(id: string, status: 'idle' | 'running' | 'gone', stopError = false): TuiSubagentView | undefined {
     const existing = this.#agents.get(id)
     if (existing === undefined) return undefined
     let phase: TuiSubagentPhase
     if (status === 'running') phase = 'running'
     else if (stopError) phase = 'error'
-    else if (existing.phase === 'error') phase = 'error'
+    else if (existing.phase === 'error' || existing.phase === 'stopped') phase = existing.phase
     else if (existing.mode === 'one-shot' || existing.mode === 'external') phase = 'completed'
     else phase = 'waiting'
     const settled = status === 'gone' && existing.activity.at(-1)?.status === 'running'

@@ -75,6 +75,7 @@ export async function openMessageQueue(options: {
   agent: Agent
   tui: Pick<TuiService, 'prompt' | 'notice' | 'restoreInput' | 'pendingInputs'>
   signal: AbortSignal
+  ownerLabel?: string
   assertActive(): void
   restore(message: UserMessage): Promise<TuiSubmission>
 }): Promise<void> {
@@ -94,7 +95,8 @@ export async function openMessageQueue(options: {
       }
       return choices
     }
-    const answer = await tui.prompt({ title: 'Message Queue', question: 'Steer: next step · Queue: next turn · Sending: not yet accepted.',
+    const answer = await tui.prompt({ title: 'Message Queue',
+      ...(options.ownerLabel === undefined ? {} : { detail: options.ownerLabel }), question: 'Steer: next step · Queue: next turn · Sending: not yet accepted.',
       localize: ['title', 'question', 'actions'],
       notify: false, onSuperseded: () => { superseded = true }, options: refresh(), refreshOptions: refresh, presentation: 'card', filterable: true, allowCustom: false,
       ...(selected === undefined ? {} : { initialValue: selected }), emptyText: 'No pending messages.', submitLabel: 'edit', signal,
@@ -130,6 +132,7 @@ export async function openMessageQueue(options: {
         const offset = agent.session.snapshotEvents().length
         try {
           if (!agent.inbox.remove(message.id)) { tui.notice('That message is no longer pending.'); continue }
+          check()
           if (agent.status !== 'running') throw new Error('Steering needs an active turn. The message stays queued.')
           agent.steer(message)
         } catch (error) {
@@ -171,7 +174,8 @@ export async function openMessageQueue(options: {
       const original = row.target === 'delivery' ? row.value as TuiSubmission : { ...await restore(row.value as UserMessage), literal: true }
       check()
       if (!queuedMessages(agent, tui.pendingInputs).some(item => item.key === row.key && item.value === row.value)) { tui.notice('That message is no longer pending.'); continue }
-      const text = await tui.prompt({ title: 'Edit Queued Message', localize: true, question: 'Enter saves · Alt+Enter inserts a line · Esc cancels. Images and files are kept.',
+      const text = await tui.prompt({ title: 'Edit Queued Message', localize: ['title', 'question'],
+        ...(options.ownerLabel === undefined ? {} : { detail: options.ownerLabel }), question: 'Enter saves · Alt+Enter inserts a line · Esc cancels. Images and files are kept.',
         notify: false, initialInput: row.text, preserveWhitespace: true, allowCustom: true, signal,
         onCancelDraft: input => {
           // Session replacement aborts before changing draft scope. Rescue into the old session only.
@@ -185,9 +189,9 @@ export async function openMessageQueue(options: {
           }
         } })
       if (text === null) { if (superseded) return; continue }
-      check()
       const draft = editedSubmission(original, text)
       editDraft = draft
+      check()
       let replaced: boolean
       if (row.target === 'delivery') {
         if (text.trim() === '' && draft.images.length === 0 && !draft.files?.length) throw new Error('Enter a message, or delete the queue entry.')
@@ -203,13 +207,13 @@ export async function openMessageQueue(options: {
         return
       }
     } catch (error) {
-      if (signal.aborted) throw error
-      assertActive()
       if (editDraft !== undefined) {
         tui.restoreInput(editDraft)
-        tui.notice(`Could not save the queue edit; it is restored as an unsent draft. ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
+        if (!signal.aborted) tui.notice(`Could not save the queue edit; it is restored as an unsent draft. ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
         return
       }
+      if (signal.aborted) throw error
+      assertActive()
       tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     }
   }

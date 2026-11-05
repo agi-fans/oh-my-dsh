@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, AssistantStreamFrame, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { createUserMessage, type UserMessage, LlmAttemptId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { TuiService } from '../definition.ts'
+import type { TuiPrompt, TuiService } from '../definition.ts'
 import { SessionRuntime } from './session-controller.ts'
 
 /** Agent-owned selection stand-in: the runtime reads it and records replacements. */
@@ -50,6 +51,7 @@ async function fixture() {
       return { agent: root, dispose: async () => undefined } as unknown as AgentHandle
     },
     get: (id: string) => [root, ...children].find(agent => agent.id === id),
+    isOwnedBy: (id: string, owner: Agent) => owner === root && children.some(agent => agent.id === id),
   })
   ctx.provide('agentDefaultModel', {
     currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
@@ -57,7 +59,7 @@ async function fixture() {
   ctx.provide('subagents', { listChildren: async () => [] })
   let inspect: (id: string) => void = () => {}
   let closeInspect: () => void = () => {}
-  const calls = { setSubagents: vi.fn(), streamDelta: vi.fn(), replaceSession: vi.fn(), setInspectedSubagent: vi.fn(), event: vi.fn() }
+  const calls = { prompt: vi.fn<(request: TuiPrompt) => Promise<string | null>>().mockResolvedValue(null), restoreInput: vi.fn(), notice: vi.fn(), pendingInputs: { list: vi.fn(() => []), update: vi.fn(() => false) }, setSubagents: vi.fn(), streamDelta: vi.fn(), replaceSession: vi.fn(), setInspectedSubagent: vi.fn(), event: vi.fn() }
   const tui = new Proxy({
     ...calls,
     onInspectSubagent: (handler: typeof inspect) => { inspect = handler; return () => {} },
@@ -69,7 +71,7 @@ async function fixture() {
   await runtime.start()
   await Promise.resolve()
   return {
-    ctx, children, calls,
+    ctx, children, calls, runtime, root,
     inspect: (id: string) => inspect(id), closeInspect: () => closeInspect(),
     emit: (agent: Agent, frame: AssistantStreamFrame) => ctx.emit('agent/assistant-stream', { agent, frame }),
     async dispose() { await runtime.dispose(); await ctx.fiber.dispose(); await agentCtx.fiber.dispose() },
@@ -117,7 +119,7 @@ describe('background subagent status routing', () => {
     } finally { await f.dispose() }
   })
 
-  it('publishes waiting, failure and resumed running states without replaying history', async () => {
+  it('publishes ready, stopped and resumed running states without replaying history', async () => {
     const f = await fixture()
     try {
       const child = f.children[0]!
@@ -128,12 +130,211 @@ describe('background subagent status routing', () => {
       child.session.append('step/start', { turn: 2, step: 1 })
       expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('running')
       child.session.append('turn/end', { turn: 2, reason: { kind: 'aborted' } })
-      expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('error')
+      expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('stopped')
       f.ctx.emit('agent/status', { agent: child, status: 'idle' })
-      expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('error')
+      expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('stopped')
       child.session.append('step/start', { turn: 3, step: 1 })
       expect(f.calls.setSubagents.mock.lastCall?.[0].agents.find((row: { id: string }) => row.id === child.id)?.phase).toBe('running')
       expect(history).not.toHaveBeenCalled()
+    } finally { await f.dispose() }
+  })
+})
+
+it('projects concurrent approval requests only for exact live descendants and clears on completion', async () => {
+  const f = await fixture()
+  try {
+    const child = f.children[0]!
+    expect(f.runtime.beginSubagentApproval(f.root)).toBeUndefined()
+    expect(f.runtime.beginSubagentApproval({ ...child } as Agent)).toBeUndefined()
+    const first = f.runtime.beginSubagentApproval(child)!
+    const second = f.runtime.beginSubagentApproval(child)!
+    const row = () => f.calls.setSubagents.mock.lastCall?.[0]?.agents.find((item: { id: string }) => item.id === child.id)
+    expect(first.label).toBe('Worker 0')
+    expect(row()?.needsApproval).toBe(true)
+    first.finish()
+    expect(row()?.needsApproval).toBe(true)
+    second.finish()
+    expect(row()?.needsApproval).toBe(false)
+    const third = f.runtime.beginSubagentApproval(child)!
+    f.ctx.emit('agent/disposed', { agent: child })
+    expect(third.signal.aborted).toBe(true)
+    third.finish()
+    Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+    expect(f.runtime.beginSubagentApproval(child)).toBeUndefined()
+  } finally { await f.dispose() }
+})
+
+it('interrupts the inspected child through Harness without cancelling the parent', async () => {
+  const f = await fixture()
+  const interrupt = vi.fn()
+  Object.assign(f.ctx.subagents, { interrupt })
+  try {
+    expect(f.runtime.interruptVisible()).toBe(false)
+    f.inspect(f.children[0]!.id)
+    expect(f.runtime.interruptVisible()).toBe(true)
+    expect(interrupt).toHaveBeenCalledWith(f.children[0]!.id, { kind: 'ancestor', agent: f.root })
+    f.closeInspect()
+    expect(f.runtime.interruptVisible()).toBe(false)
+  } finally { await f.dispose() }
+})
+
+
+function queueInbox(agent: Agent, messages: UserMessage[]) {
+  const nextTurn = [...messages], nextStep: UserMessage[] = []
+  const inbox = {
+    nextTurn, nextStep,
+    remove: vi.fn((id: string) => {
+      for (const list of [nextTurn, nextStep]) {
+        const index = list.findIndex(message => message.id === id)
+        if (index >= 0) { list.splice(index, 1); return true }
+      }
+      return false
+    }),
+    replace: vi.fn((id: string, replacement: UserMessage) => {
+      const index = nextTurn.findIndex(message => message.id === id)
+      if (index < 0) return false
+      nextTurn[index] = replacement
+      return true
+    }),
+    splice: vi.fn((target: string, start: number, count: number, inserted: UserMessage[]) =>
+      (target === 'next-turn' ? nextTurn : nextStep).splice(start, count, ...inserted)),
+  }
+  const steer = vi.fn((message: UserMessage) => { nextStep.push(message) })
+  Object.assign(agent, { inbox, steer })
+  return { ...inbox, steer }
+}
+const queued = (text: string) => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
+
+describe('inspected subagent queue ownership', () => {
+  it('edits, reorders, steers and withdraws only the selected child inbox', async () => {
+    const f = await fixture()
+    try {
+      const child = f.children[0]!, first = queued('first'), second = queued('second')
+      const parentMessage = queued('parent')
+      const parent = queueInbox(f.root, [parentMessage])
+      const inbox = queueInbox(child, [first, second])
+      f.inspect(child.id)
+      f.calls.prompt.mockResolvedValueOnce(`up:next-turn:${second.id}`)
+        .mockResolvedValueOnce(`steer:next-turn:${first.id}`)
+        .mockResolvedValueOnce(`next-turn:${second.id}`).mockResolvedValueOnce('edited')
+        .mockResolvedValueOnce(`delete:next-step:${first.id}`)
+      await f.runtime.openQueue(new AbortController().signal)
+      expect(inbox.splice).toHaveBeenCalledWith('next-turn', 0, 2, [second, first])
+      expect(inbox.steer).toHaveBeenCalledWith(first)
+      expect(inbox.nextStep).toEqual([])
+      expect(inbox.nextTurn[0]?.content).toEqual([{ type: 'text', text: 'edited' }])
+      expect(parent.nextTurn).toEqual([parentMessage])
+      expect(parent.remove).not.toHaveBeenCalled()
+      expect(f.calls.prompt.mock.calls.every(([request]) => request.detail === 'Worker 0')).toBe(true)
+    } finally { await f.dispose() }
+  })
+
+  it('allows a stopped child queue to be edited but refuses steering without an active turn', async () => {
+    const f = await fixture()
+    try {
+      const child = f.children[0]!, message = queued('queued')
+      const inbox = queueInbox(child, [message])
+      Object.assign(child, { status: 'idle' })
+      child.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+      f.inspect(child.id)
+      f.calls.prompt.mockResolvedValueOnce(`steer:next-turn:${message.id}`)
+        .mockResolvedValueOnce(`next-turn:${message.id}`).mockResolvedValueOnce('revised')
+      await f.runtime.openQueue(new AbortController().signal)
+      expect(inbox.steer).not.toHaveBeenCalled()
+      expect(inbox.nextTurn[0]?.content).toEqual([{ type: 'text', text: 'revised' }])
+      expect(f.calls.notice).toHaveBeenCalledWith('Steering needs an active turn. The message stays queued.', undefined)
+    } finally { await f.dispose() }
+  })
+
+  it.each(['cold', 'unowned', 'readonly'])('rejects %s children without changing an inbox or resuming a session', async kind => {
+    const f = await fixture()
+    try {
+      const child = f.children[0]!, inbox = queueInbox(child, [queued('keep')])
+      if (kind === 'readonly') child.session.append('subagent/descriptor', { version: 2, mode: 'one-shot', provider: 'spawn', label: 'Read only' })
+      f.inspect(child.id)
+      if (kind === 'cold') Object.assign(f.ctx.agents, { get: (id: string) => id === f.root.id ? f.root : undefined })
+      if (kind === 'unowned') Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+      await expect(f.runtime.openQueue(new AbortController().signal)).rejects.toThrow(kind === 'cold' ? 'not loaded locally' : kind === 'readonly' ? 'read-only' : 'no longer active')
+      expect(inbox.remove).not.toHaveBeenCalled()
+      expect(f.calls.prompt).not.toHaveBeenCalled()
+    } finally { await f.dispose() }
+  })
+
+  it.each(['navigate', 'consume', 'cancel'])('keeps attachment recall safe when %s races the image read', async action => {
+    const f = await fixture()
+    try {
+      const ref = { attachmentId: AttachmentId('queued-image'), mediaType: 'image/png' as const, width: 1, height: 1, bytes: 3 }
+      const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'image' }, { type: 'image', attachment: ref }] })
+      const child = f.children[0]!, inbox = queueInbox(child, [message])
+      let finish: () => void = () => {}
+      f.ctx.provide('attachments', { readImage: () => new Promise(resolve => { finish = () => resolve({ ref, data: new Uint8Array([1, 2, 3]) }) }) })
+      f.inspect(child.id)
+      const abort = new AbortController()
+      const recall = f.runtime.editLatestFollowup({ sessionId: child.id, signal: abort.signal })
+      expect(inbox.nextTurn).toEqual([message])
+      if (action === 'navigate') f.closeInspect()
+      if (action === 'consume') inbox.nextTurn.splice(0)
+      if (action === 'cancel') abort.abort()
+      finish()
+      if (action === 'consume') await expect(recall).resolves.toBeUndefined()
+      else {
+        await expect(recall).rejects.toThrow()
+        expect(inbox.remove).not.toHaveBeenCalled()
+        expect(inbox.nextTurn).toEqual([message])
+      }
+    } finally { await f.dispose() }
+  })
+
+  it('rescues an edit submitted just before navigation into its original child draft', async () => {
+    const f = await fixture()
+    try {
+      const child = f.children[0]!, message = queued('original'), inbox = queueInbox(child, [message])
+      f.inspect(child.id)
+      f.calls.prompt.mockResolvedValueOnce(`next-turn:${message.id}`).mockImplementationOnce(async () => {
+        f.closeInspect()
+        return 'edited before navigation'
+      })
+      await f.runtime.openQueue(new AbortController().signal)
+      expect(inbox.nextTurn).toEqual([message])
+      expect(f.calls.restoreInput).toHaveBeenCalledWith(expect.objectContaining({ text: 'edited before navigation' }), child.id)
+    } finally { await f.dispose() }
+  })
+
+  it('opens the new queue while an aborted child image restoration is still settling', async () => {
+    const f = await fixture()
+    try {
+      const ref = { attachmentId: AttachmentId('slow-image'), mediaType: 'image/png' as const, width: 1, height: 1, bytes: 1 }
+      const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'image', attachment: ref }] })
+      const child = f.children[0]!, inbox = queueInbox(child, [message])
+      let finish: () => void = () => {}
+      const readImage = vi.fn(() => new Promise(resolve => { finish = () => resolve({ ref, data: new Uint8Array([1]) }) }))
+      f.ctx.provide('attachments', { readImage })
+      f.inspect(child.id)
+      f.calls.prompt.mockResolvedValueOnce(`next-turn:${message.id}`)
+      const old = f.runtime.openQueue(new AbortController().signal)
+      await vi.waitFor(() => expect(readImage).toHaveBeenCalledOnce())
+      f.closeInspect()
+      await f.runtime.openQueue(new AbortController().signal)
+      finish()
+      await old
+      expect(inbox.nextTurn).toEqual([message])
+      expect(f.calls.prompt).toHaveBeenCalledTimes(2)
+    } finally { await f.dispose() }
+  })
+
+  it('refreshes the child inbox and closes its queue on disposal', async () => {
+    const f = await fixture()
+    try {
+      const child = f.children[0]!, inbox = queueInbox(child, [queued('old')])
+      f.inspect(child.id)
+      f.calls.prompt.mockImplementationOnce(async request => {
+        inbox.nextTurn.splice(0, 1, queued('new'))
+        expect(request.refreshOptions?.()?.[0]?.label).toContain('new')
+        f.ctx.emit('agent/disposed', { agent: child })
+        expect(request.signal?.aborted).toBe(true)
+        return null
+      })
+      await f.runtime.openQueue(new AbortController().signal)
     } finally { await f.dispose() }
   })
 })

@@ -220,7 +220,7 @@ describe('local composer recovery', () => {
     const f = fixture()
     const { tui, term } = f.open('parent')
     term.press('parent draft')
-    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'idle', writable: true })
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'waiting', writable: true })
     term.press('child draft')
     switchTo(tui, 'parent')
     tui.setInspectedSubagent(undefined)
@@ -268,4 +268,49 @@ describe('local composer recovery', () => {
     tui.dispose()
     expect(existsSync(f.store.path('a'))).toBe(false)
   })
+})
+
+it.each([true, false])('restores failed child attachments without changing parent input (disk=%s)', async disk => {
+  const f = fixture()
+  const term = new Terminal()
+  const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, disk ? { draftsPath: f.directory } : {})
+  instances.push(tui)
+  switchTo(tui, 'parent')
+  term.press('parent draft')
+  const child = { id: 'child', label: 'Child', phase: 'waiting' as const, writable: true }
+  tui.setInspectedSubagent(child)
+  term.press('newer child draft')
+  tui.setInspectedSubagent(undefined)
+  const file = { attachmentId: AttachmentId('child-file'), name: 'notes.txt', bytes: 12 }
+  const image = { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' }
+  tui.restoreInput({ text: 'failed message', images: [image], files: [file] }, 'child')
+  const parent = tui.readInput()
+  term.press('\r')
+  expect(await parent).toEqual({ text: 'parent draft', images: [] })
+  const submitted = vi.fn()
+  tui.onInspectSubmit(submitted)
+  tui.setInspectedSubagent(child)
+  term.press('\r')
+  expect(submitted).toHaveBeenCalledWith(expect.objectContaining({
+    text: expect.stringContaining('failed message'), images: [image], files: [file], delivery: 'queue',
+  }))
+  expect(submitted.mock.calls[0]?.[0].text).toContain('newer child draft')
+  tui.setInspectedSubagent(undefined)
+  tui.setInspectedSubagent(child)
+  term.press('\r')
+  expect(submitted).toHaveBeenCalledTimes(1)
+})
+
+it('restores a failed delivery behind a human prompt without replacing its answer', async () => {
+  const { tui, term } = fixture().open('child')
+  term.press('new draft')
+  const question = tui.prompt({ title: 'Question', question: 'Answer?', allowCustom: true })
+  term.press('my answer')
+  tui.restoreInput({ text: 'failed delivery', images: [] }, 'child')
+  term.press('\r')
+  expect(await question).toBe('my answer')
+  const submitted = tui.readInput()
+  term.press('\r')
+  expect((await submitted)?.text).toContain('failed delivery')
+  expect((await submitted)?.text).toContain('new draft')
 })

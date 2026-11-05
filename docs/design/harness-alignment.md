@@ -29,6 +29,14 @@ Stop 使用 `cancel({ kind: 'user' }, { keepInbox: true })`，保留两个 inbox
 
 当前发布包的 `AgentHandle.dispose()` 无保留 inbox 选项，正常退出及会话切换后的 handle 清理会写入取消消息的 splice。真实终端验证已确认，正常退出后 resume 不能恢复这些消息；重放未清空日志的单元测试不能证明退出恢复。此项需要上游提供保留 inbox 的释放接口，不能通过 TUI 私存已接收消息或覆写 Agent 方法绕过。[生命周期评估与上游报告](../integrations/harness-inbox-lifecycle.md)记录已发布版本、可运行复现和接口建议。
 
+## 子代理交互契约
+
+子代理继续使用原地转录与名册，不增加独立面板。Enter 沿用运行中输入偏好，Alt+Enter 排队，Alt+S 插话，完整文本与附件分别经已发布的 `queueHostSubagentPrompt`／`steerHostSubagentPrompt` 交付给确切的直接父代理；冷恢复、接纳与执行归 Harness 管理。一次性子代理只读，外部执行无本地转录。子代理队列只展示自己的日志投影，不显示主会话尚未接收的输入。Alt+Q 与 `/queue` 复用同一列表，支持编辑、撤回、同组排序与 Queue → Steer；Alt+Up 取回该子代理最新的下一回合消息。操作绑定确切的存活后代与查看代次，切换后不修改新会话；附件恢复完成后才撤回，过期结果保留在原草稿。连续提交按顺序进入 Harness，不能因图片存储较慢而倒序。未在本地加载的子代理提示先继续对话，不因打开队列自动恢复。
+
+切换查看对象会取消尚未接收的投递，失败草稿恢复到原子代理并保留较新的草稿。父子草稿隔离在没有磁盘草稿存储的嵌入环境也成立。Ctrl-C 优先中断查看中的子代理，不能落到父会话的 Shell 或 Agent；Esc 负责清空草稿和返回。停止投影为 Stopped，失败为 Failed，可继续的空闲子代理为 Ready；恢复名册不会把可继续对话的孩子显示为已完成。
+
+审批适配器仅接收活动根代理及其确切存活后代的请求；子代理审批显示请求者与其自身工具参数。Needs approval 只反映实时请求的生命周期，完成、取消、会话释放或切换根会话后移除。`dsh-user-questions` 的公开 `ask` 在派发事件前拒绝受委派调用者（`DELEGATED_CALLER`），因此不绕过服务给子代理新增用户问题入口。
+
 ## 有意保留的终端差异
 
 - Settings 中明确标注的 Current session 操作是便捷入口；默认设置与当前状态分别呈现。
@@ -39,7 +47,7 @@ Stop 使用 `cancel({ kind: 'user' }, { keepInbox: true })`，保留两个 inbox
 
 ## 后续对齐范围
 
-正常退出／切换后的队列恢复、子代理与工作流状态的直接操作、Models 中完整 provider 编辑、官方设置的其余页面仍需单独设计与验收。不得仅凭底层包已挂载就宣称交互已经对齐。每次升级同时复核 composition、persona 和 Plan 指令的覆盖内容；语言偏好仅调整独立的 agent-behavior 提示段。
+正常退出／切换后的队列恢复、工作流状态的直接操作、Models 中完整 provider 编辑、官方设置的其余页面仍需单独设计与验收。不得仅凭底层包已挂载就宣称交互已经对齐。每次升级同时复核 composition、persona 和 Plan 指令的覆盖内容；语言偏好仅调整独立的 agent-behavior 提示段。
 
 ## 验收
 

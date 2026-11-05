@@ -640,7 +640,7 @@ export function renderPromptSelector(
         body.push(theme.fg('dim', `  … ${wrapped.length - CARD_PREVIEW_LINES} more lines`))
       }
     }
-  } else {
+  } else if (state.request.options !== undefined) {
     // A filter that matches nothing has to say so. An empty frame reads as a
     // broken list, and the reader cannot tell a typo from an empty transcript.
     body.push('', theme.fg('dim', `  ${state.request.emptyText

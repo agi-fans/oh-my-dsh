@@ -1543,7 +1543,7 @@ describe('renderView', () => {
     }, createTheme(false), 48)
 
     const text = painted.map(stripAnsi)
-    expect(text[0]).toContain('Agents · 2 running · 2 waiting · 2 done')
+    expect(text[0]).toContain('Agents · 2 running · 2 ready · 2 done')
     expect(text.some(line => line.includes(`${SPINNER[0]} Explore auth · Running`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} waiting child`))).toBe(true)
     expect(text.some(line => line.includes(`${SYMBOL.success} done review`))).toBe(true)
@@ -1561,7 +1561,7 @@ describe('renderView', () => {
       { id: 'e', depth: 1, label: '失败', phase: 'error' as const, activity: [] },
     ]
     const text = renderSubagents({ agents }, createTheme(colors), 100).map(stripAnsi).join('\n')
-    for (const label of ['Starting', 'Running', 'Waiting', 'Done', 'Failed']) expect(text).toContain(label)
+    for (const label of ['Starting', 'Running', 'Ready', 'Done', 'Failed']) expect(text).toContain(label)
     expect(text).not.toContain('thinking')
     expect(text).not.toContain('secret-path')
     for (const width of [1, 12, 24]) {
@@ -1590,13 +1590,13 @@ describe('renderView', () => {
       inspected: { id: 'child-1', label: 'Explore auth', phase: 'running', writable: true },
     })
     const text = frame.lines.map(stripAnsi).join('\n')
-    expect(text).toContain(`← ${SPINNER[0]} Explore auth · Enter to steer · Esc to return`)
-    expect(text).toContain('Enter to steer · Esc to return')
+    expect(text).toContain(`← ${SPINNER[0]} Explore auth · Running`)
+    expect(text).toContain('Enter to send')
     expect(text).toContain('Explore auth')
     expect(frame.cursorVisible).not.toBe(false)
     expect(renderInspectBanner({
       id: 'child-1', label: 'Explore auth', phase: 'completed', writable: false,
-    }, createTheme(false), 60)[0]).toContain('read-only')
+    }, createTheme(false), 60)[0]).toContain('Read-only')
     const readonlyFrame = renderView(initialTranscript(), {
       width: 60,
       height: 24,
@@ -2412,4 +2412,36 @@ describe('user text in the transcript', () => {
     ).lines.map(stripAnsi).join('\n')
     expect(rows).toContain('explain the sk-learn pipeline')
   })
+})
+
+it.each([false, true])('keeps a selected child visible beyond the preview and labels attention (colors=%s)', colors => {
+  const agents = Array.from({ length: 14 }, (_, i) => ({ id: String(i), label: `Worker ${i}🐳`, phase: 'waiting' as const, depth: 1, activity: [] }))
+  const rows = renderSubagents({ agents }, createTheme(colors), 70, 0, undefined, 12)
+  expect(rows.map(stripAnsi).join('\n')).toContain('❯ ✔ Worker 12🐳 · Ready')
+  for (const width of [8, 24, 70]) {
+    const lines = renderSubagents({ agents: [{ ...agents[0]!, needsApproval: true, phase: 'stopped' }] }, createTheme(colors), width)
+    expect(lines.every(line => visibleWidth(line) <= width)).toBe(true)
+    if (width === 70) expect(lines.map(stripAnsi).join('\n')).toContain('Needs approval')
+  }
+})
+
+it.each([false, true])('shows only the child inbox with actions when writable=%s', writable => {
+  const state = replayEvents([
+    ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [
+      { id: 'child-q', source: { kind: 'user' }, content: [{ type: 'text', text: 'child next turn' }] },
+    ], deleted: [] }, 1),
+    ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [
+      { id: 'child-s', source: { kind: 'user' }, content: [{ type: 'text', text: 'child next step' }] },
+    ], deleted: [] }, 2),
+  ])
+  const frame = renderView(state, { width: 100, height: 30, model: 'm', input: '', inputCursor: 0,
+    inspected: { id: 'child', label: 'Child', phase: 'running', writable },
+    queuedSubmissions: [{ text: 'parent unsent message', images: [] }],
+  })
+  const text = frame.lines.map(stripAnsi).join('\n')
+  expect(text).toContain('child next turn')
+  expect(text).toContain('child next step')
+  expect(text).not.toContain('parent unsent message')
+  expect(text.includes('Alt+Q manage')).toBe(writable)
+  expect(text.includes('Alt+Up recall')).toBe(writable)
 })

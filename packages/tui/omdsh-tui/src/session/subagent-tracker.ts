@@ -32,6 +32,7 @@ export class SubagentTracker {
   readonly #roster = new SubagentRoster()
   #published: TuiSubagentRoster | undefined
   #epoch = 0
+  readonly #approvalRequests = new Map<string, Set<symbol>>()
   readonly #externalRuns = new Map<string, SubagentRunInfo | SubagentRunEndInfo>()
   readonly #externalActivities = new Map<string, TuiSubagentActivity[]>()
 
@@ -49,10 +50,25 @@ export class SubagentTracker {
     return this.#roster.snapshot()
   }
 
+  /** Project the lifetime of a live approval, including queued prompts. */
+  beginApprovalRequest(id: string): () => void {
+    const requests = this.#approvalRequests.get(id) ?? new Set<symbol>()
+    const token = Symbol()
+    requests.add(token)
+    this.#approvalRequests.set(id, requests)
+    this.#publish()
+    return () => {
+      if (this.#approvalRequests.get(id) !== requests) return
+      requests.delete(token)
+      this.#publish()
+    }
+  }
+
   /** Drop all tracked children and invalidate any in-flight catalog listing. */
   reset(): void {
     this.#epoch += 1
     this.#roster.reset()
+    this.#approvalRequests.clear()
     this.#externalRuns.clear()
     this.#externalActivities.clear()
   }
@@ -182,6 +198,7 @@ export class SubagentTracker {
 
   /** Push the roster when its snapshot identity changed since the last push. */
   #publish(): void {
+    for (const [id, requests] of this.#approvalRequests) this.#roster.setNeedsInput(id, requests.size > 0)
     const roster = this.#roster.snapshot()
     if (roster === this.#published) return
     this.#published = roster

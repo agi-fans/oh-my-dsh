@@ -1,5 +1,26 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
+  "This subagent is read-only.": "此子代理为只读。",
+  "This subagent is not loaded locally. Send it a message to continue before managing its queue.": "此子代理尚未在本地加载。请先发送消息继续对话，再管理队列。",
+  "The queue session is no longer active.": "队列所属会话已不再处于当前视图。",
+
+  "Steering needs an active turn. Use Enter to send the next message.": "插话需要有正在运行的回合。按 Enter 发送下一条消息。",
+  "Agents": "子代理",
+  "Ready": "可继续",
+  "Needs approval": "需要审批",
+  "Ctrl+C stops this agent · Esc to return": "Ctrl+C 停止此代理 · Esc 返回",
+  "Esc to return": "Esc 返回",
+  "Read-only · Esc to return": "只读 · Esc 返回",
+  "Enter to send": "Enter 发送",
+  "↑↓ · Enter open · Esc": "↑↓ · Enter 查看 · Esc",
+  "↓ select": "↓ 选择",
+  "{count} ready": "{count} 个可继续",
+  "{count} running": "{count} 个运行中",
+  "{count} done": "{count} 个已完成",
+  "{count} failed": "{count} 个失败",
+  "{count} stopped": "{count} 个已停止",
+  "{count} need approval": "{count} 个需要审批",
+
   "Enter while running": "运行时 Enter 行为",
   "Queue waits for the next turn; Steer guides the next model step. Explicit Queue and Steer shortcuts keep their meaning.": "排队会等待下一回合；插话会指导下一次模型步骤。排队和插话快捷键的含义保持固定。",
   "Enter: Steer · {key}: Queue": "Enter：插话 · {key}：排队",

@@ -291,7 +291,7 @@ export interface TuiLoopStatus {
 }
 
 /** Lifecycle shown for one descendant subagent in the live roster. */
-export type TuiSubagentPhase = 'starting' | 'running' | 'waiting' | 'completed' | 'error'
+export type TuiSubagentPhase = 'starting' | 'running' | 'waiting' | 'completed' | 'stopped' | 'error'
 
 /** Latest child work folded from that child's own session log. */
 export interface TuiSubagentActivity {
@@ -316,6 +316,7 @@ export interface TuiSubagentView {
   readonly depth: number
   readonly label: string
   readonly mode?: 'one-shot' | 'continuable' | 'external'
+  readonly needsApproval?: boolean
   readonly phase: TuiSubagentPhase
   readonly activity: readonly TuiSubagentActivity[]
   /** First durable event and latest hydrated or changed activity/state timestamps. */
@@ -343,6 +344,7 @@ export interface TuiSubagentRoster {
 export interface TuiInspectedSubagent {
   readonly id: string
   readonly label: string
+  readonly needsApproval?: boolean
   readonly phase: TuiSubagentPhase
   readonly mode?: 'one-shot' | 'continuable' | 'external'
   /** Continuable children accept composer follow-ups; one-shot runs stay read-only. */
@@ -404,6 +406,12 @@ export interface TuiInputImage {
 export type SubmissionSegment =
   | { kind: 'text'; text: string }
   | { kind: 'image'; index: number }
+
+/** One scoped recall gesture; returning to the same session does not revive an aborted request. */
+export interface TuiQueueEditRequest {
+  readonly sessionId?: string
+  readonly signal: AbortSignal
+}
 
 /** Atomic composer submission: visible text plus its client-owned image drafts. */
 export interface TuiSubmission {
@@ -563,10 +571,10 @@ export interface TuiService {
    * in-flight call at a time.
    */
   readInput(signal?: AbortSignal): Promise<TuiSubmission | null>
-  /** Restore an accepted draft when persistence or dispatch fails. */
-  restoreInput(submission: TuiSubmission): void
+  /** Restore an unaccepted submission to its original session draft, or the current draft when omitted. */
+  restoreInput(submission: TuiSubmission, sessionId?: string): void
   /** Resolve one queued-message back-navigation request into the composer. */
-  resolveQueueEdit(submission: TuiSubmission | null): void
+  resolveQueueEdit(submission: TuiSubmission | null, request?: TuiQueueEditRequest): void
   /**
    * Subscribe to Ctrl-C. The listener fires when the user presses Ctrl-C
    * while a turn is running; an idle Ctrl-C clears the input line instead.
@@ -579,7 +587,7 @@ export interface TuiService {
    * request through {@link resolveQueueEdit}.
    * @returns disposer removing the listener.
    */
-  onQueueEdit(listener: () => void): () => void
+  onQueueEdit(listener: (request?: TuiQueueEditRequest) => void): () => void
   readonly pendingInputs: TuiPendingInputs
   /** Open message management through the session owner without submitting the composer. */
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void

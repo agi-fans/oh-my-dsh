@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Subagent views support their own Message Queue through Alt+Q or `/queue`, including editing, withdrawal, reordering and Queue-to-Steer transfer. Alt+Up recalls a child’s latest next-turn message, retaining drafts and attachments across navigation.
+
+- Continuable subagents support the same Queue/Steer input preference and attachment delivery as the parent. Their accepted messages appear in the inspected transcript, and local approval requests identify the child that needs a decision.
+
 - Enter while running can default to Queue or Steer, with a matching composer hint. Explicit shortcuts keep their meaning, and direct steering accepts images and files with failed submissions restored as unsent drafts.
 
 - Message Queue can promote an accepted next-turn message to next-step steering with Alt+S while a turn runs, retaining its identity, text, images and files. Failed transfers return to the queue, or to an unsent draft if the queue cannot be restored.
@@ -42,6 +46,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Free-text prompts, including queued-message edits, no longer show an unrelated empty-list or no-match warning.
+
+- Subagent shortcuts target the inspected child, Ctrl-C leaves parent turns and Shell commands running, and failed or cancelled submissions return to the original child draft. Stopped children no longer appear as failed, continuable idle children show Ready, and roster selection stays with the same child when rows reorder.
 
 - Interrupting a turn preserves all accepted Queue and Steer messages and attachments instead of clearing the inbox. Interrupted queue edits return to the original session draft; editing a waiting image message sends the revised text instead of stale image-placement text.
 

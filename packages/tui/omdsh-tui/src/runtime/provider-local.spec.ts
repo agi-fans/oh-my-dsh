@@ -4307,7 +4307,7 @@ describe('LocalTui (tty)', () => {
       expect(width.mock.calls.length).toBe(0)
       vi.advanceTimersByTime(8)
       expect(width.mock.calls.length).toBe(1)
-      expect(term.captured).toContain('Worker · Waiting')
+      expect(term.captured).toContain('Worker · Ready')
       tui.setSubagents({ agents: [{ ...agent, phase: 'completed' }] })
       press(term, 'input')
       expect(term.captured).toContain('input')
@@ -4959,7 +4959,7 @@ describe('composer paste and steering', () => {
     try {
       tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: 'steer' })
       press(term, 'keep my text\x1bs')
-      expect(stripAnsi(term.captured)).toContain('active parent turn')
+      expect(stripAnsi(term.captured)).toContain('active turn')
       press(term, '\r')
       expect(await tui.readInput()).toEqual({ text: 'keep my text', images: [] })
     } finally { tui.dispose() }
@@ -5657,4 +5657,65 @@ describe('status line settings survive a refresh', () => {
       tui.dispose()
     }
   })
+})
+
+it.each(['queue', 'steer'] as const)('targets all child submission keys with %s Enter preference', async busyEnter => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const submitted = vi.fn()
+  tui.setSession({ id: 'parent', recent: [] })
+  tui.onInspectSubmit(submitted)
+  const parent = tui.readInput()
+  try {
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter })
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: true })
+    tui.setStatus('running')
+    press(term, 'default\r')
+    press(term, '/literal guidance\x1bs')
+    press(term, 'next task\x1b\r')
+    expect(submitted.mock.calls.map(([message]) => [message.text, message.delivery])).toEqual([
+      ['default', busyEnter], ['/literal guidance', 'steer'], ['next task', 'queue'],
+    ])
+    tui.setInspectedSubagent({ id: 'readonly', label: 'Read only', phase: 'running', writable: false })
+    tui.restoreInput({ text: 'keep this', images: [] })
+    press(term, '\x1b\r\x1bs\r')
+    expect(submitted).toHaveBeenCalledTimes(3)
+  } finally { tui.dispose() }
+  expect(await parent).toBeNull()
+})
+
+it('keeps a selected child by identity when the roster changes order', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const opened = vi.fn()
+  const a = { id: 'a', label: 'A', phase: 'running' as const, depth: 1, activity: [] }
+  const b = { ...a, id: 'b', label: 'B' }
+  try {
+    tui.onInspectSubagent(opened)
+    tui.setSubagents({ agents: [a, b] })
+    press(term, '\x1b[B')
+    tui.setSubagents({ agents: [b, a] })
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(opened).toHaveBeenCalledWith('a')
+  } finally { tui.dispose() }
+})
+
+it('routes child Ctrl+C past the parent Shell and leaves parent queued messages alone', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const abort = vi.fn(), interrupted = vi.fn()
+  const done = Promise.withResolvers<{ output: string; code: number }>()
+  try {
+    tui.setSession({ id: 'parent', recent: [] })
+    press(term, 'parent queue\r')
+    const shell = tui.shellCommand({ command: 'parent command', abort, signal: new AbortController().signal, run: () => done.promise })
+    tui.onInterrupt(interrupted)
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: true })
+    tui.setStatus('running')
+    press(term, '\x03')
+    expect(interrupted).toHaveBeenCalledOnce()
+    expect(abort).not.toHaveBeenCalled()
+    press(term, '\x1b[A')
+    expect((await tui.readInput())?.text).toBe('parent queue')
+    done.resolve({ output: '', code: 0 })
+    await shell
+  } finally { done.resolve({ output: '', code: 0 }); tui.dispose() }
 })

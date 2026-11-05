@@ -145,7 +145,7 @@ describe('SubagentRoster', () => {
     })
   })
 
-  it('marks startup failure and interrupted completion as error instead of running', () => {
+  it('distinguishes startup failure from an interrupted turn', () => {
     const failed = applySubagentEvent(view({ phase: 'starting' }), ev('turn/end', {
       turn: 1, reason: { kind: 'error', error: { code: 'START', message: 'spawn failed' } },
     }))
@@ -153,7 +153,7 @@ describe('SubagentRoster', () => {
     const interrupted = applySubagentEvent(view({ phase: 'running', mode: 'continuable' }), ev('turn/end', {
       turn: 1, reason: { kind: 'aborted' },
     }))
-    expect(interrupted.phase).toBe('error')
+    expect(interrupted.phase).toBe('stopped')
   })
 
   it('completes one-shot children and returns continuable children to waiting', () => {
@@ -239,7 +239,7 @@ describe('SubagentRoster', () => {
     events.push(ev('step/end', {}, 2), ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
     roster.apply(session, 1, events[2]!)
     expect(ownEvents).toHaveBeenCalledTimes(2)
-    expect(roster.snapshot()?.agents[0]?.phase).toBe('error')
+    expect(roster.snapshot()?.agents[0]?.phase).toBe('stopped')
     const reopened = { ...session, ownEvents: () => [ev('step/start', { turn: 2, step: 1 }, 4)] } as unknown as Session
     roster.apply(reopened, 1, ev('step/start', { turn: 2, step: 1 }, 4), 'running')
     expect(roster.snapshot()?.agents[0]?.phase).toBe('running')
@@ -280,7 +280,7 @@ describe('SubagentRoster.observeCatalog', () => {
       ev('subagent/catalog', { version: 0, childId: 'child-2', childCreatedAt: 2, mode: 'one-shot' }, 2),
     ])).toBe(true)
     expect(roster.snapshot()?.agents).toMatchObject([
-      { id: 'child-1', parentId: 'root', depth: 1, label: 'Worker', mode: 'continuable', phase: 'completed' },
+      { id: 'child-1', parentId: 'root', depth: 1, label: 'Worker', mode: 'continuable', phase: 'waiting' },
       { id: 'child-2', parentId: 'root', depth: 1, mode: 'one-shot', phase: 'completed' },
     ])
   })

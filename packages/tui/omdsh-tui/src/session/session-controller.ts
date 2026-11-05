@@ -45,7 +45,7 @@ import type {} from '@deepseek-ai/dsh-goal'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import type { UserQuestionProjectionView } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
+import { queueHostSubagentPrompt, steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
@@ -63,6 +63,7 @@ import type {
   TuiSessionControls,
   TuiSessionStats,
   TuiSubmission,
+  TuiQueueEditRequest,
   TuiInputImage,
   TuiTranscriptReplacement,
 } from '../definition.ts'
@@ -496,6 +497,9 @@ export class SessionRuntime {
   #refreshInFlight: Promise<void> | null = null
   #refreshDirty = false
   #inspectEpoch = 0
+  #inspectDeliveryTail: Promise<void> = Promise.resolve()
+  readonly #inspectDeliveries = new Set<AbortController>()
+  readonly #descendantApprovals = new Map<AbortController, Agent>()
   #activationEpoch = 0
   #inspectedId: string | undefined
 
@@ -664,9 +668,41 @@ export class SessionRuntime {
     if (this.#inspectedId === undefined) return false
     const root = this.#active?.handle.agent
     if (root !== undefined) {
-      this.#ctx.get('subagents')?.interrupt(SessionId(this.#inspectedId), { kind: 'ancestor', agent: root })
+      try { this.#ctx.get('subagents')?.interrupt(SessionId(this.#inspectedId), { kind: 'ancestor', agent: root }) }
+      catch (error) { this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
     }
     return true
+  }
+
+  #isOwnedDescendant(agent: Agent, root: Agent): boolean {
+    const agents = this.#ctx.get('agents')
+    if (agents?.get(agent.id) !== agent
+      || descendantDepth(agent.session, root.id, this.#lookupSession) === undefined) return false
+    // Durable lineage alone also matches an independently resumed runtime root.
+    let child = agent
+    while (child !== root) {
+      const parentId = child.session.header.parentSession
+      const parent = parentId === undefined ? undefined : agents.get(parentId)
+      if (parent === undefined || !agents.isOwnedBy(child.id, parent)) return false
+      child = parent
+    }
+    return true
+  }
+
+  /** Accept only live descendants of the active root for shared approval prompts. */
+  beginSubagentApproval(agent: Agent): { label: string; signal: AbortSignal; finish(): void } | undefined {
+    const root = this.agent
+    if (root === undefined || !this.#isOwnedDescendant(agent, root)) return undefined
+    this.#tracker.noteSession(agent.session)
+    const abort = new AbortController()
+    this.#descendantApprovals.set(abort, root)
+    const finish = this.#tracker.beginApprovalRequest(agent.id)
+    const off = this.#ctx.on('agent/disposed', event => { if (event.agent === agent) abort.abort() })
+    return { label: this.#inspectView(agent.id).label, signal: abort.signal, finish: () => {
+      off()
+      this.#descendantApprovals.delete(abort)
+      finish()
+    } }
   }
 
   async start(): Promise<void> {
@@ -705,32 +741,66 @@ export class SessionRuntime {
     }
   }
 
-  async openQueue(signal: AbortSignal, agent: Agent = this.#requiredAgent()): Promise<void> {
-    this.assertActive(agent)
-    if (this.#inspectedId !== undefined) throw new Error('Return to the parent session to manage queued messages.')
-    if (this.#queueAbort !== undefined) throw new Error('Message Queue is already open.')
+  /** Resolve one visible live inbox, retaining its identity across asynchronous UI work. */
+  #queueTarget(): { agent: Agent; label?: string; check(): void } {
+    const root = this.#requiredAgent()
+    const inspectedId = this.#inspectedId
+    if (inspectedId !== undefined && !this.#inspectView(inspectedId).writable) throw new Error('This subagent is read-only.')
+    const agent = inspectedId === undefined ? root : this.#ctx.get('agents')?.get(SessionId(inspectedId))
+    if (agent === undefined) throw new Error('This subagent is not loaded locally. Send it a message to continue before managing its queue.')
+    const check = (): void => {
+      this.assertActive(root)
+      if (this.#inspectedId !== inspectedId || inspectedId !== undefined && !this.#isOwnedDescendant(agent, root)) {
+        throw new Error('The queue session is no longer active.')
+      }
+    }
+    check()
+    return { agent, check, ...(inspectedId === undefined ? {} : { label: this.#inspectView(inspectedId).label }) }
+  }
+
+  async openQueue(signal: AbortSignal, requestingAgent?: Agent): Promise<void> {
+    if (requestingAgent !== undefined) this.assertActive(requestingAgent)
+    const target = this.#queueTarget()
+    const { agent } = target
+    if (this.#queueAbort !== undefined && !this.#queueAbort.signal.aborted) throw new Error('Message Queue is already open.')
+    // Validate recall state before opening; child views must never list parent delivery entries.
+    this.#tui.pendingInputs.list()
     const abort = new AbortController()
     this.#queueAbort = abort
     const onAbort = (): void => { abort.abort(signal.reason) }
     signal.addEventListener('abort', onAbort, { once: true })
     if (signal.aborted) onAbort()
+    const off = this.#ctx.on('agent/disposed', event => { if (event.agent === agent) abort.abort() })
     try {
-      await openMessageQueue({ agent, tui: this.#tui, signal: abort.signal, assertActive: () => { this.assertActive(agent) },
+      await openMessageQueue({ agent, signal: abort.signal, assertActive: target.check,
+        ...(target.label === undefined ? {} : { ownerLabel: target.label }),
+        tui: {
+          prompt: request => this.#tui.prompt(request), notice: (text, options) => this.#tui.notice(text, options),
+          restoreInput: submission => this.#tui.restoreInput(submission, agent.id),
+          pendingInputs: target.label === undefined ? this.#tui.pendingInputs : { list: () => [], update: () => false },
+        },
         restore: message => restoreSubmissionMessage(message, this.#ctx.get('attachments')) })
+    } catch (error) {
+      if (!abort.signal.aborted) throw error
     } finally {
+      off()
       signal.removeEventListener('abort', onAbort)
       if (this.#queueAbort === abort) this.#queueAbort = undefined
     }
   }
 
-  /** Remove and rehydrate the newest durable human follow-up for queue browsing. */
-  async editLatestFollowup(agent: Agent = this.#requiredAgent()): Promise<TuiSubmission | undefined> {
-    this.assertActive(agent)
+  /** Rehydrate before withdrawing so navigation or missing attachments leave the inbox intact. */
+  async editLatestFollowup(request?: TuiQueueEditRequest): Promise<TuiSubmission | undefined> {
+    request?.signal.throwIfAborted()
+    const target = this.#queueTarget()
+    const { agent } = target
+    if (request?.sessionId !== undefined && request.sessionId !== agent.id) throw new Error('The queue session is no longer active.')
     const message = agent.inbox.nextTurn.findLast(candidate => candidate.source.kind === 'user')
     if (message === undefined) return undefined
     const submission = await restoreSubmissionMessage(message, this.#ctx.get('attachments'))
-    this.assertActive(agent)
-    return agent.inbox.remove(message.id) ? { ...submission, literal: true } : undefined
+    request?.signal.throwIfAborted()
+    target.check()
+    return agent.inbox.remove(message.id) ? { ...submission, literal: true, delivery: 'queue' } : undefined
   }
 
   /** Execute a plugin-owned slash command, falling back to user-invocable skills. */
@@ -1293,9 +1363,11 @@ export class SessionRuntime {
 
   async dispose(): Promise<void> {
     this.#queueAbort?.abort(new Error('session runtime disposed'))
+    for (const abort of this.#descendantApprovals.keys()) abort.abort()
     if (this.#disposed) return
     this.#disposed = true
     this.#activationEpoch += 1
+    this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#tracker.reset()
     this.#tui.setInspectedSubagent(undefined)
@@ -1429,8 +1501,10 @@ export class SessionRuntime {
 
   /** Show one active session on the terminal: transcript, tools, controls, model. */
   #presentAgent(active: ActiveSession, reason: TuiTranscriptReplacement = 'open'): void {
+    for (const [abort, root] of this.#descendantApprovals) if (root !== active.handle.agent) abort.abort()
     this.#workflows.reset(active.handle.agent.session.snapshotEvents())
     const agent = active.handle.agent
+    this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setStatus(agent.status)
@@ -1547,6 +1621,7 @@ export class SessionRuntime {
       id,
       label: view?.label ?? id,
       phase: view?.phase ?? fallbackPhase,
+      needsApproval: view?.needsApproval === true,
       ...(mode === undefined ? {} : { mode }),
       writable: isSteerableSubagent(mode),
     }
@@ -1587,9 +1662,16 @@ export class SessionRuntime {
     if (agent !== undefined) this.#replaceTranscript(agent)
   }
 
+  #cancelInspectDeliveries(): void {
+    for (const delivery of this.#inspectDeliveries) delivery.abort()
+    this.#inspectDeliveries.clear()
+  }
+
   #closeInspect(): void {
     if (this.#inspectedId === undefined) return
     this.#inspectEpoch += 1
+    this.#queueAbort?.abort(new Error('viewed session changed'))
+    this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#tui.setInspectedSubagent(undefined)
     const agent = this.#active?.handle.agent
@@ -1630,6 +1712,10 @@ export class SessionRuntime {
       }
     }
     if (request !== this.#inspectEpoch) return
+    if (this.#inspectedId !== id) {
+      this.#queueAbort?.abort(new Error('viewed session changed'))
+      this.#cancelInspectDeliveries()
+    }
     this.#inspectedId = id
     if (cwd !== undefined) this.#tui.setWorkingDirectory?.(cwd)
     const child = this.#ctx.get('agents')?.get(SessionId(id))
@@ -1651,12 +1737,12 @@ export class SessionRuntime {
     const childId = this.#inspectedId
     const root = this.#active?.handle.agent
     if (childId === undefined || root === undefined) {
-      this.#tui.restoreInput(submission)
+      this.#tui.restoreInput(submission, childId)
       return
     }
     const view = this.#inspectView(childId)
     if (!view.writable) {
-      this.#tui.restoreInput(submission)
+      this.#tui.restoreInput(submission, childId)
       this.#tui.notice('This subagent is a completed run and cannot take more messages.')
       return
     }
@@ -1668,23 +1754,42 @@ export class SessionRuntime {
       : this.#ctx.get('agents')?.get(SessionId(parentId))
     const subagents = this.#ctx.get('subagents')
     if (parent === undefined || subagents === undefined) {
-      this.#tui.restoreInput(submission)
+      this.#tui.restoreInput(submission, childId)
       this.#tui.notice(parent === undefined
         ? 'The parent of this subagent is not live, so it cannot take a follow-up.'
         : 'Subagent follow-up is unavailable in this composition.')
       return
     }
+    const previous = this.#inspectDeliveryTail
+    let release: () => void = () => {}
+    this.#inspectDeliveryTail = new Promise<void>(resolve => { release = resolve })
+    const delivery = new AbortController()
+    this.#inspectDeliveries.add(delivery)
+    let cancelUpload: () => void = () => {}
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      cancelUpload = () => { reject(delivery.signal.reason) }
+      delivery.signal.addEventListener('abort', cancelUpload, { once: true })
+    })
     try {
-      const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
-      if (this.#inspectedId !== childId || this.#active?.handle.agent !== root) {
-        this.#tui.restoreInput(submission)
-        return
-      }
-      await queueHostSubagentPrompt(subagents, parent, SessionId(childId), message.content,
-        { kind: 'user' }, new AbortController().signal)
+      // Recalled messages can include attachments; admission must retain submission order.
+      await Promise.race([previous, cancelled])
+      delivery.signal.throwIfAborted()
+      // Attachment storage need not support cancellation; release the draft now
+      // and ignore a later upload result before crossing Harness admission.
+      const message = await Promise.race([createSubmissionMessage(submission, this.#ctx.get('attachments')), cancelled])
+      delivery.signal.removeEventListener('abort', cancelUpload)
+      delivery.signal.throwIfAborted()
+      if (this.#inspectedId !== childId || this.#active?.handle.agent !== root) throw new Error('The viewed session changed before delivery.')
+      const send = submission.delivery === 'steer' ? steerHostSubagentPrompt : queueHostSubagentPrompt
+      await send(subagents, parent, SessionId(childId), message.content,
+        { kind: 'user' }, delivery.signal)
     } catch (error: unknown) {
-      this.#tui.restoreInput(submission)
-      this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      this.#tui.restoreInput(submission, childId)
+      if (!delivery.signal.aborted) this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    } finally {
+      delivery.signal.removeEventListener('abort', cancelUpload)
+      this.#inspectDeliveries.delete(delivery)
+      release()
     }
   }
 

@@ -189,25 +189,28 @@ async function answerPendingQuestions(
 }
 
 /** Preserve the full action and reason for the scrollable approval reader. */
-export function approvalDetail(tui: TuiService, request: ApprovalRequest): { detail?: string } {
-  const context = request.callId === undefined ? undefined : tui.toolCallContext(request.callId)
+export function approvalDetail(tui: TuiService, request: ApprovalRequest, descendant = false): { detail?: string } {
+  const call = descendant && request.callId !== undefined ? request.agent.session.ownEvents().findLast(event => event.type === 'tool/call' && event.data.callId === request.callId) : undefined
+  const context = descendant
+    ? call?.type === 'tool/call' ? `${call.data.name} ${call.data.arguments}` : undefined
+    : request.callId === undefined ? undefined : tui.toolCallContext(request.callId)
   const parts = [context, request.reason].filter(
     (part): part is string => part !== undefined && part !== '',
   )
   return parts.length === 0 ? {} : { detail: parts.join('\n\n') }
 }
 
-async function askApproval(ctx: Context, tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
+async function askApproval(ctx: Context, tui: TuiService, request: ApprovalRequest, agentLabel?: string): Promise<ApprovalOutcome> {
   const t = (source: string, values?: Record<string, string>) => uiText(resolveUiLanguage(tui.prefs?.().uiLanguage), source, values)
   const rules = ctx.get('omdshApprovalRules')
   const action = rules?.describe(request)
   // The action and its reason are the detail of a decision, so they belong on
   // the card that carries the decision rather than on a page of their own.
   const raw = await tui.prompt({
-    localize: true, title: 'Approval required',
+    localize: true, title: agentLabel === undefined ? 'Approval required' : `${agentLabel} · ${t('Approval required')}`,
     question: t('Allow {tool} once?', { tool: request.toolName }),
     armMs: 500,
-    detail: approvalDetail(tui, request).detail ?? request.toolName,
+    detail: approvalDetail(tui, request, agentLabel !== undefined).detail ?? request.toolName,
     options: [
       { label: 'Allow once', description: 'Run only this requested action.' },
       { label: 'Reject', description: 'Deny this action.' },
@@ -222,7 +225,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   if (raw === null) return 'cancelled'
   if (raw === 'reject-note') {
     const note = await tui.prompt({
-      localize: true, title: 'Reject with note',
+      localize: true, title: agentLabel === undefined ? 'Reject with note' : `${agentLabel} · ${t('Reject with note')}`,
       question: t('Why reject {tool}, or what should the agent do instead?', { tool: request.toolName }),
       allowCustom: true,
       notify: false,
@@ -241,7 +244,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   }
   if ((raw === 'remember-allow' || raw === 'remember-reject') && action !== undefined && rules !== undefined) {
     const decision = raw === 'remember-allow' ? 'allow' : 'reject'
-    const scope = await tui.prompt({ localize: true, title: 'Remember approval decision', question: decision === 'allow' ? 'Where should this exact invocation be allowed?' : 'Where should this exact invocation be rejected?',
+    const scope = await tui.prompt({ localize: true, title: agentLabel === undefined ? 'Remember approval decision' : `${agentLabel} · ${t('Remember approval decision')}`, question: decision === 'allow' ? 'Where should this exact invocation be allowed?' : 'Where should this exact invocation be rejected?',
       detail: approvalActionDetail(action)
         + '\n\n' + t('Matches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.'),
       options: [{ label: 'This session', value: 'session', description: 'Retained on resume; not inherited by forks or children.' },
@@ -259,11 +262,12 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
     : 'rejected'
 }
 
-/** Bind the global question provider and route approvals to the active root agent only. */
+/** Bind the global question provider and route approvals to the active root and authorized live descendants. */
 export function bindHumanInteraction(
   ctx: Context,
   tui: TuiService,
   activeAgent: () => Agent | undefined,
+  beginDescendantApproval?: (agent: Agent) => { label: string; signal: AbortSignal; finish(): void } | undefined,
 ): () => Promise<void> {
   const disposers: Array<() => void> = []
   const lifetime = new AbortController()
@@ -315,9 +319,11 @@ export function bindHumanInteraction(
   }
   if (ctx.get('approval') !== undefined) {
     disposers.push(ctx.on('approval/request', async (request, next) => {
-      if (request.agent !== activeAgent()) return next()
+      const child = request.agent === activeAgent() ? undefined : beginDescendantApproval?.(request.agent)
+      if (request.agent !== activeAgent() && child === undefined) return next()
       const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
-      return enqueue(signal, () => askApproval(ctx, tui, { ...request, signal }))
+      const scopedSignal = child === undefined ? signal : AbortSignal.any([signal, child.signal])
+      return enqueue(scopedSignal, () => askApproval(ctx, tui, { ...request, signal: scopedSignal }, child?.label)).finally(() => child?.finish())
     }))
   }
   return async () => {
