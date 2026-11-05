@@ -537,6 +537,9 @@ export class LocalTui implements TuiService {
   #follow = true
   #focusBlock: number | undefined
   #focusBlockEdge: 'start' | 'end' | undefined
+  #focusBlockOffset: number | undefined
+  /** Reading positions last only for this inspection and this detail layout. */
+  #toolReadingPositions = new Map<string, { offset: number; width: number; raw: boolean }>()
   #motion: MotionMode = 'full'
   #externalEditor: EditorId = 'auto'
   #terminalTitle: TerminalTitleMode = 'status'
@@ -2197,10 +2200,10 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
-        ...(this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · Esc return') }
+        ...(this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · Home title · Esc return') }
           : this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
-        ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
+        ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start', ...(this.#focusBlockOffset === undefined ? {} : { focusBlockOffset: this.#focusBlockOffset }) }),
         ...(this.#transcriptSearch === null ? {} : {
           transcriptSearch: {
             query: this.#transcriptSearch.query,
@@ -2241,6 +2244,7 @@ export class LocalTui implements TuiService {
       : { lines: [] }
     this.#focusBlock = undefined
     this.#focusBlockEdge = undefined
+    this.#focusBlockOffset = undefined
     this.#promptDocument = frame.promptDocument
     if (this.#prompt !== null && this.#prompt.documentScroll !== Number.POSITIVE_INFINITY && frame.promptDocument?.position !== undefined) {
       this.#prompt = { ...this.#prompt, documentAnchor: frame.promptDocument.position }
@@ -2330,6 +2334,7 @@ export class LocalTui implements TuiService {
     this.#detailedTurns.clear()
     this.#expandedOutputs.clear()
     this.#expandedToolRows.clear()
+    this.#toolReadingPositions.clear()
     this.#expandedReasoning.clear()
     this.#closedReasoning.clear()
     this.#processSelection = undefined
@@ -4982,6 +4987,15 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
+    if (event.id === 'home') {
+      const current = this.#fileActionFrame?.transcript?.disclosures?.findLast(target =>
+        target.detailEnd !== undefined && this.#scrollStart > target.row && this.#scrollStart < target.detailEnd)
+      this.#processSelection = current?.block ?? selected
+      this.#focusBlock = this.#processSelection
+      this.#focusBlockEdge = 'start'
+      this.#render()
+      return true
+    }
     if (event.id === 'up' || event.id === 'down') {
       const rows = this.#processRows()
       const at = Math.max(0, rows.indexOf(selected))
@@ -5006,7 +5020,22 @@ export class LocalTui implements TuiService {
     const block = this.#state.blocks[selected]
     if (block?.kind === 'tool') {
       const visible = this.#detailedToolIds()
-      const open = direction === 'right' || direction !== 'left' && !visible.has(block.callId)
+      const wasOpen = visible.has(block.callId)
+      const open = direction === 'right' || direction !== 'left' && !wasOpen
+      const raw = this.#detailedToolIds(false).has(block.callId)
+      if (wasOpen && !open) {
+        const target = this.#fileActionFrame?.transcript?.disclosures?.find(item => item.block === selected)
+        const offset = target?.detailEnd !== undefined && this.#scrollStart >= target.row && this.#scrollStart < target.detailEnd
+          ? this.#scrollStart - target.row : 0
+        this.#toolReadingPositions.set(block.callId, { offset, width: this.#term.width(), raw })
+      }
+      if (open !== wasOpen) {
+        const saved = open ? this.#toolReadingPositions.get(block.callId) : undefined
+        this.#focusBlock = selected
+        this.#focusBlockEdge = 'start'
+        // Width changes and raw/readable switches change the row layout.
+        this.#focusBlockOffset = saved?.width === this.#term.width() && saved.raw === raw ? saved.offset : 0
+      }
       // Once a reader edits one disclosure, preserve the other visible calls as
       // individual choices instead of letting the turn-wide override reopen it.
       this.#expandedToolRows = new Set(visible)

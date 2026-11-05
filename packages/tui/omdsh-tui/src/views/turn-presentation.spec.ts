@@ -251,6 +251,29 @@ describe('opened turns use the live presentation', () => {
 
 
 describe('transcript navigation chrome', () => {
+  it.each([false, true])('pins only the painted tool detail span and bounds restored positions (colors=%s)', colors => {
+    const state = finish(answer(result(call(start(), 'long', 'read', { path: '中文🐳source.ts' }), 'long', Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n'))))
+    const index = state.blocks.findIndex(block => block.kind === 'tool')
+    for (const width of [20, 80]) {
+      const options = { width, height: 24, colors, model: 'm', input: '', inputCursor: 0, scrollStart: 0 }
+      const folded = renderView(state, options)
+      expect(folded.transcript!.disclosures!.every(target => target.detailEnd === undefined)).toBe(true)
+      const opened = renderView(state, { ...options, expandedTools: new Set(['long']) })
+      const target = opened.transcript!.disclosures!.find(target => target.block === index)!
+      expect(target.detailEnd).toBeGreaterThan(target.row + 80)
+      const header = opened.stickyHeaders!.at(-1)!
+      expect(header.start).toBe(target.row + 1)
+      expect(header.end).toBe(target.detailEnd)
+      expect(visibleWidth(header.text)).toBe(width)
+      expect(stripAnsi(header.text)).toContain('Read')
+      const restored = renderView(state, { ...options, expandedTools: new Set(['long']), focusBlock: index, focusBlockOffset: 30 })
+      expect(restored.transcript!.start).toBe(target.row + 30)
+      const clamped = renderView(state, { ...options, expandedTools: new Set(['long']), focusBlock: index, focusBlockOffset: 10_000 })
+      expect(clamped.transcript!.start).toBeLessThan(target.detailEnd!)
+      expect(renderView(state, { ...options, expandedTools: new Set(['long']), height: 4 }).stickyHeaders).toEqual([])
+    }
+  })
+
   const state: TranscriptState = { ...initialTranscript(), blocks: [
     { kind: 'user', text: '检查 🐳 é '.repeat(40) },
     { kind: 'assistant', text: 'First answer.\n\n'.repeat(30), reasoning: '', streaming: false },

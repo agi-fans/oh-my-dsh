@@ -175,6 +175,8 @@ export interface ViewOptions {
   focusBlock?: number
   /** Which edge of the focused block to show; searches default to its start. */
   focusBlockEdge?: 'start' | 'end'
+  /** Restore a tool position within its currently painted detail span. */
+  focusBlockOffset?: number
   /**
    * Active transcript search. Matching block rows containing the query paint
    * inverse; `matches` are block indexes in render order and `focus` selects
@@ -1611,16 +1613,21 @@ function renderTranscriptBody(
   const lines: string[] = []
   const fileRegions: TranscriptFileRegion[] = []
   const disclosures: TranscriptDisclosure[] = []
+  const disclosureByBlock = new Map<number, TranscriptDisclosure>()
   const disclosureAt = (index: number, row: number): void => {
     const block = state.blocks[index]!
     if (block.kind !== 'tool' && !(block.kind === 'assistant' && block.reasoning.trim() !== '')) return
     const column = block.kind === 'tool' && block.parentCallId !== undefined ? 4 : 2
     if (options.width < column + 4) return
-    disclosures.push({ block: index, row, column: 0, width: column + 2,
-      key: block.kind === 'tool' ? `call:${block.callId}` : `thought:${reasoningKey(block)}` })
+    const target = { block: index, row, column: 0, width: column + 2,
+      key: block.kind === 'tool' ? `call:${block.callId}` : `thought:${reasoningKey(block)}` }
+    disclosures.push(target)
+    disclosureByBlock.set(index, target)
   }
-  const filesAt = (index: number, start: number, length: number, expanded = false): void => {
+  const regionsAt = (index: number, start: number, length: number, expanded = false): void => {
     const block = state.blocks[index]!
+    const target = disclosureByBlock.get(index)
+    if (block.kind === 'tool' && target !== undefined && length > 1) target.detailEnd = start + length
     if (length === 0 || blockFileAction(block) === undefined) return
     if (block.kind === 'workspace') {
       fileRegions.push({ block: index, start, end: start + 1 })
@@ -1734,7 +1741,7 @@ function renderTranscriptBody(
         for (const line of body.lines) lines.push(line)
         offsets = body.offsets
         for (const [index, offset] of offsets) disclosureAt(index, bodyRow + offset)
-        for (const span of body.spans) filesAt(span.index, bodyRow + span.start, span.end - span.start)
+        for (const span of body.spans) regionsAt(span.index, bodyRow + span.start, span.end - span.start)
       } else {
         for (let at = group.start; at < (group.answer ?? group.until); at += 1) {
           const member = state.blocks[at]!
@@ -1746,7 +1753,7 @@ function renderTranscriptBody(
           const rows = member.kind === 'tool' ? toolRowLine(member, theme, options.width, spinnerFrame)
             : reply ? cachedBlockLines(member, options, theme, themeName, depth, toolsExpanded, true) : groupMemberLines(at, context)
           if (member.kind === 'tool') disclosureAt(at, lines.length)
-          filesAt(at, lines.length, rows.length)
+          regionsAt(at, lines.length, rows.length)
           lines.push(...rows)
         }
       }
@@ -1806,7 +1813,7 @@ function renderTranscriptBody(
             ? toolRowLine(trailing, theme, options.width, spinnerFrame)
             : groupMemberLines(at, context)
           disclosureAt(at, lines.length)
-          filesAt(at, lines.length, rows.length)
+          regionsAt(at, lines.length, rows.length)
           for (const line of rows) lines.push(line)
         }
       }
@@ -1868,7 +1875,7 @@ function renderTranscriptBody(
       block, context.options, theme, themeName, depth, expanded,
       absorbed.has(index),
     )
-    filesAt(index, lines.length, rendered.length, expanded)
+    regionsAt(index, lines.length, rendered.length, expanded)
     lines.push(...paintSearch(rendered, index, occurrences, theme))
     blockDrawStarts[index] = blockStarts[index]!
     previous = block
@@ -2676,9 +2683,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // share its header's row, so the offset list can be shorter than the block
     // list, and clamping to it would aim the reader at a different block.
     : Math.max(0, Math.min(options.focusBlock, state.blocks.length - 1))
+  const focusRow = focusIndex === undefined ? undefined : transcript.blockStarts[focusIndex]
+  const detailEnd = focusIndex === undefined ? undefined : transcript.disclosures.find(target => target.block === focusIndex)?.detailEnd
+  const focusOffset = Math.max(0, Math.min(options.focusBlockOffset ?? 0, (detailEnd ?? 0) - (focusRow ?? 0) - 1))
   const focusStart = focusIndex === undefined ? undefined : options.focusBlockEdge === 'end'
     ? Math.max(0, (transcript.blockStarts[focusIndex + 1] ?? transcript.lines.length) - Math.max(1, budget - 2))
-    : transcript.blockStarts[focusIndex]
+    : focusRow === undefined ? undefined : focusRow + focusOffset
   const requestedStart = focusStart === undefined
     ? (options.scrollStart ?? Number.POSITIVE_INFINITY)
     : transcriptStart + focusStart
@@ -2794,6 +2804,20 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       })
     }
   }
+  // Tool context takes precedence in the existing single pinned row. Only
+  // painted detail spans participate; folded calls and following replies do not.
+  if (!hasOverlay && budget >= 3) for (const target of transcript.disclosures) {
+    if (target.detailEnd === undefined) continue
+    const block = state.blocks[target.block]
+    if (block?.kind !== 'tool') continue
+    const title = transcript.lines[target.row]!
+    const label = sliceCells(title, block.parentCallId === undefined ? 4 : 6, width)
+    stickyHeaders.push({
+      start: transcriptStart + topPad + target.row + 1,
+      end: transcriptStart + topPad + target.detailEnd,
+      text: paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth('  ' + label, width), width)),
+    })
+  }
   return {
     lines: trimmed,
     stickyHeaders,
@@ -2825,7 +2849,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         hiddenBelow: 0,
       }),
       blockStarts: transcript.blockStarts,
-      disclosures: transcript.disclosures.map(target => ({ ...target, row: transcriptStart + topPad + target.row })),
+      disclosures: transcript.disclosures.map(target => ({ ...target, row: transcriptStart + topPad + target.row,
+        ...(target.detailEnd === undefined ? {} : { detailEnd: transcriptStart + topPad + target.detailEnd }) })),
       fileRegions: transcript.fileRegions.map(region => ({ ...region, start: transcriptStart + topPad + region.start, end: transcriptStart + topPad + region.end })),
       blockDrawStarts: transcript.blockDrawStarts,
       foldShape: transcript.foldShape,

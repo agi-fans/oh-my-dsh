@@ -1,6 +1,6 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
-  "Process · ↑↓ select · Enter toggle · Esc return": "过程 · ↑↓ 选择 · Enter 展开/收起 · Esc 返回",
+  "Process · ↑↓ select · Enter toggle · Home title · Esc return": "过程 · ↑↓ 选择 · Enter 展开/收起 · Home 标题 · Esc 返回",
   "Skill": "技能",
   "User only": "仅用户调用",
   "Type `/` and a skill name to find and invoke it. User only skills require an explicit request.": "输入 `/` 和技能名可查找并调用技能。标为“仅用户调用”的技能需要你主动请求。",

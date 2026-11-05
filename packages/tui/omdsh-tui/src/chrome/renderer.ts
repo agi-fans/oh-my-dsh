@@ -59,6 +59,8 @@ export interface TranscriptScroll {
 }
 
 export interface TranscriptDisclosure {
+  /** End of the painted detail span, only for expanded tools. */
+  detailEnd?: number
   row: number
   column: number
   width: number
@@ -101,7 +103,7 @@ export interface DocumentRows {
 export interface Frame {
   /** Trusted graphics resource placed separately from text. */
   image?: import('./terminal-images.ts').ImagePlacement
-  /** Viewport-only prompt labels, active within half-open document row ranges. */
+  /** Viewport-only context labels, active within half-open document row ranges. */
   stickyHeaders?: readonly { start: number; end: number; text: string }[]
   /** Click target for returning from transcript browsing, in zero-based frame cells. */
   jumpToLatest?: { row: number; column: number; width: number }

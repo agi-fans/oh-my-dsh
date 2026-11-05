@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Long tool details keep their title in the viewport’s existing context row. Home returns to the current tool title, and closing then reopening a tool restores its reading position within the same inspection and layout.
+
 - Expanded tools show readable commands, file contents, diffs and search results on quiet detail surfaces; Alt+O retains complete parameters and results. Process indentation is consistent, Thinking previews follow the latest stable paragraph, and the return-to-latest control is less prominent.
 
 - Thinking and tool calls start as compact, individually expandable rows. Ctrl+O browses live or completed work with arrow keys and Enter; Esc returns to the composer. Completed turns retain every assistant reply and failure fact, and items under inspection stay open through completion. Existing explicit thinking preferences are retained.

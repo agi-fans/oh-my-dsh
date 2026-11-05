@@ -5993,6 +5993,20 @@ describe('a protection scroll and a rewritten document row', () => {
 
 
 describe('viewport prompt labels', () => {
+  it('replaces the prompt with tool context only within its detail range', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
+    const rows = Array.from({ length: 40 }, (_, index) => `document-${index}`)
+    const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }, { start: 10, end: 26, text: 'Current tool' }]
+    renderer.render({ ...frame(rows.slice(0, 30), 30), stickyHeaders })
+    expect(emu.normalScreen()[0]).toBe('Current tool')
+    expect(renderer.documentRowAt(0)).toBeUndefined()
+    renderer.render({ ...frame(rows, 40), stickyHeaders })
+    expect(emu.normalScreen()[0]).toBe('Pinned prompt')
+    expect(emu.scrollback).not.toContain('Current tool')
+    expect(emu.scrollback).not.toContain('Pinned prompt')
+  })
+
   it('retains covered document rows when a pinned viewport shrinks', () => {
     const emu = new Emulator(8)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })

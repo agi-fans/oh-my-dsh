@@ -190,11 +190,20 @@ class ScrollingTerminal implements TerminalLike {
   #col = 0
   output = { isTTY: true, write: (chunk: string): void => this.#write(chunk) }
   input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: (): void => {}, destroy: (): void => {} })
-  constructor(readonly columns: number, readonly rows: number) {
+  constructor(public columns: number, readonly rows: number) {
     this.screen = Array.from({ length: rows }, () => '')
   }
   width(): number { return this.columns }
   height(): number { return this.rows }
+  resizeListener: (() => void) | undefined
+  onResize(listener: () => void): () => void {
+    this.resizeListener = listener
+    return () => { this.resizeListener = undefined }
+  }
+  resize(columns: number): void {
+    this.columns = columns
+    this.resizeListener?.()
+  }
   visible(): string[] { return this.screen.map(row => stripAnsi(row)) }
   scrollback(): string[] { return this.history.map(row => stripAnsi(row)) }
   #write(chunk: string): void {
@@ -6125,6 +6134,44 @@ it('opens goal controls from Alt+G without submitting or losing a multiline draf
 })
 
 describe('process disclosure navigation', () => {
+
+  it.each([false, true])('keeps long tool context and restores a folded reading position (colors=%s)', colors => {
+    const term = new ScrollingTerminal(100, 28), tui = new LocalTui(term, 'm', colors)
+    try {
+      tui.setStatus('running')
+      tui.event(ev('turn/start', { turn: 1 }, 1))
+      tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'long', name: 'bash', arguments: JSON.stringify({ command: 'print-output', description: 'Long result' }) }, 2))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'long', content: [{ type: 'text', text: Array.from({ length: 120 }, (_, i) => `OUTPUT_${String(i).padStart(3, '0')}`).join('\n') }] } }, 3))
+      press(term, 'keep draft')
+      press(term, '\x0f\r\x1b[6~\x1b[6~')
+      const rows = () => term.visible().filter(row => /OUTPUT_\d+/.test(row))
+      const position = rows()
+      expect(position.length).toBeGreaterThan(3)
+      expect(position.join('\n')).not.toContain('OUTPUT_000')
+      expect(term.visible()[0]).toContain('Long result')
+      const history = term.scrollback()
+      press(term, '\x1b[D')
+      expect(rows()).toHaveLength(0)
+      expect(term.visible().join('\n')).toContain('Long result')
+      press(term, '\x1b[C')
+      expect(rows()).toEqual(position)
+      expect(term.visible().join('\n')).toContain('keep draft')
+      press(term, '\x1b[H')
+      expect(rows().join('\n')).toContain('OUTPUT_000')
+      expect(term.visible().join('\n')).toContain('$ print-output')
+      expect(term.scrollback()).toEqual(history)
+      // A changed width invalidates visual-row offsets instead of restoring the wrong text.
+      press(term, '\x1b[6~\x1b[D')
+      term.resize(80)
+      press(term, '\x1b[C')
+      expect(rows().join('\n')).toContain('OUTPUT_000')
+      // Leaving inspection clears its saved positions, including on the same call.
+      press(term, '\x1b[6~\x1b[D\x1b[F\x0f\r')
+      expect(rows().join('\n')).toContain('OUTPUT_000')
+      expect(term.visible().join('\n')).toContain('keep draft')
+    } finally { tui.dispose() }
+  })
+
   it.each([false, true])('keeps item choices and the draft through completion (colors=%s)', colors => {
     const term = new ScrollingTerminal(100, 45)
     const tui = new LocalTui(term, 'm', colors)
