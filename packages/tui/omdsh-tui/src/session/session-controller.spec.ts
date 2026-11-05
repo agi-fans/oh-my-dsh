@@ -478,15 +478,15 @@ describe('capability catalogs', () => {
       { name: 'mcp__github__pulls', description: 'List pulls' },
       { name: 'mcp__memory__search', description: '' },
     ])).toBe([
-      'MCP Tools · 2 servers represented · 3 tools',
+      'MCP tools · Servers: 2 · Tools: 3',
       '',
-      '**github · 2 tools**',
+      '**github · Tools: 2**',
       '| Tool | Description |',
       '|---|---|',
       '| `issues` | List issues |',
       '| `pulls` | List pulls |',
       '',
-      '**memory · 1 tool**',
+      '**memory · Tools: 1**',
       '| Tool | Description |',
       '|---|---|',
       '| `search` | No description provided. |',
@@ -791,12 +791,12 @@ describe('SessionRuntime workspace claim', () => {
     ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
     if (registry !== undefined) ctx.provide('workspaceRegistry', registry)
     const calls: string[] = []
-    const tui = new Proxy({ ...stubTui(), setModel: () => { calls.push('model') }, replaceSession: () => { calls.push('transcript') } } as unknown as Record<string, unknown>, {
+    const tui = new Proxy({ ...stubTui(), setModel: () => { calls.push('model') }, replaceSession: vi.fn(() => { calls.push('transcript') }) } as unknown as Record<string, unknown>, {
       get(target, prop) {
         return prop in target ? target[prop] : () => () => {}
       },
     }) as unknown as TuiService
-    return { ctx, agentCtx, calls, runtime: new SessionRuntime(ctx, tui) }
+    return { ctx, agentCtx, calls, tui, runtime: new SessionRuntime(ctx, tui) }
   }
 
   it('adopts the cwd workspace and attaches the activated session', async () => {
@@ -816,6 +816,35 @@ describe('SessionRuntime workspace claim', () => {
       await runtime.dispose()
       await ctx.fiber.dispose()
       await agentCtx.fiber.dispose()
+    }
+  })
+
+  it('cancels interaction scopes on replacement, failed activation and disposal', async () => {
+    const h = await harness(undefined)
+    try {
+      await h.runtime.start()
+      const first = h.runtime.interactionSignal
+      await h.runtime.newSession(h.runtime.agent!)
+      expect(first.aborted).toBe(true)
+      const second = h.runtime.interactionSignal
+      expect(second.aborted).toBe(false)
+      let failed: AbortSignal | undefined
+      vi.mocked(h.tui.replaceSession).mockImplementationOnce(() => {
+        failed = h.runtime.interactionSignal
+        throw new Error('presentation failed')
+      })
+      await expect(h.runtime.newSession(h.runtime.agent!)).rejects.toThrow('presentation failed')
+      expect(second.aborted).toBe(true)
+      expect(failed?.aborted).toBe(true)
+      const restored = h.runtime.interactionSignal
+      expect(restored.aborted).toBe(false)
+      expect(restored).not.toBe(second)
+      await h.runtime.dispose()
+      expect(restored.aborted).toBe(true)
+    } finally {
+      await h.runtime.dispose()
+      await h.ctx.fiber.dispose()
+      await h.agentCtx.fiber.dispose()
     }
   })
 

@@ -53,7 +53,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images and files travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
-| `/compact` | Compact older conversation history. |
+| `/compact` | Compact older conversation history; keep typing and queue input during compaction, then read the saved summary with Ctrl+O. |
 | `/jobs [<id>\|kill <id>]` | List background jobs, replay one run's narration, or stop one by id. A run's `log` channel is producer narration that only observers see, so replaying it takes nothing from the model's own read; `stdout` and `stderr` stay with the model. |
 
 ## Plan mode
@@ -80,7 +80,7 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/schedule` | Manage this session's durable reminders: pause, resume, run now, edit a name or instruction, delete, and browse delivery history. |
 | `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Installation can be cancelled before application. |
 | `/tools` | List the tools visible to the agent as a transcript result. |
-| `/mcp` | Print MCP plugin registration and available tools grouped by server inline in the transcript; transport health and authentication are not verified. |
+| `/mcp` | Browse MCP registration diagnostics, available tools and the session’s latest ten calls; refresh the snapshot. Live connection and authentication status are unavailable. |
 
 ### Scheduled reminders
 

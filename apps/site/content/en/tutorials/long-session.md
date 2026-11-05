@@ -31,7 +31,9 @@ Two neighboring commands cover other session workflows:
 
 ### Compact and export
 
-Run `/compact` while the agent is idle to replace a useful older history span with a summary. The compacting state remains visible until the durable checkpoint finishes; wait for completion before starting another session operation. If there is not enough history, the command reports that nothing is compactable.
+Run `/compact` while the agent is idle to replace a useful older history span with a summary. The compacting state remains visible until the durable checkpoint finishes. You can keep typing and queue the next message with Enter while compaction runs; it is admitted after compaction ends. Ctrl+C interrupts compaction. If summary generation fails or is cancelled before the checkpoint is written, the original model history remains available. If there is not enough history, the command reports that nothing is compactable.
+
+The completion notice folds the saved summary behind `Ctrl+O`. Press it again to return to the live tail. Saved summaries remain readable after resuming the session; opening them never rewrites terminal scrollback.
 
 Run `/export` to write the complete transcript as `omdsh-transcript-<session-id>.md` in the current directory, or supply a destination:
 

@@ -908,6 +908,12 @@ export function blockLines(
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
   if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]
+  if (block.detail !== undefined) {
+    const head = '  ' + theme.fg('dim', block.text)
+    return expandedOutput
+      ? [truncateToWidth(head, width), '', ...renderMarkdown(block.detail, theme, Math.max(1, width - 4)).map(line => '  ' + line)]
+      : [truncateToWidth(head + theme.fg('dim', ' · ' + outputExpandKey + ': ' + theme.text('Expand')), width)]
+  }
   if (block.framed !== true) {
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
@@ -1051,6 +1057,7 @@ export function blockSearchText(block: Block): string {
     return block.summary?.files.map(file => file.display).join('\n') ?? `turn ${block.turn}`
   }
   if (block.kind === 'shell') return `${block.command}\n${block.output}`
+  if (block.kind === 'notice' && block.detail !== undefined) return `${block.text}\n${block.detail}`
   return block.text
 }
 
@@ -1180,7 +1187,7 @@ function cachedBlockLines(
         mermaidMode: options.mermaidMode ?? 'auto',
         hideThinking: options.hideThinking === true,
         thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
-        expandedOutput: options.expandedOutputs?.has(block) === true,
+        expandedOutput: options.expandedOutputs?.has(block) === true || (block.kind === 'notice' && expanded),
         outputExpandKey: options.turnDetailsKey ?? 'Ctrl+O',
       },
     )
@@ -1495,7 +1502,7 @@ function renderTranscriptBody(
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   // A command output the reader opened paints different rows, so the body cache
   // has to see it; without this the frame is reused and the key looks dead.
-  const expandedOutputs = [...(options.expandedOutputs ?? [])].join('\u0000')
+  const expandedOutputs = state.blocks.flatMap((block, index) => options.expandedOutputs?.has(block) ? [index] : []).join(',')
   const themeName = options.themeName ?? 'dark'
   const depth = colorDepthOf(options)
   const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
@@ -2737,8 +2744,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       row: editorStart + caret.row + topPad,
       column: Math.min(caret.column, width),
     },
-    cursorVisible: state.status === 'compacting'
-      || (options.inspected !== undefined && options.inspected.writable !== true)
+    cursorVisible: (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
       : promptSelector?.cursorVisible ?? (settings === undefined),
     liveStart,

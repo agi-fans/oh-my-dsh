@@ -142,7 +142,7 @@ describe('applyEvent', () => {
     ])
   })
 
-  it('renders compact as a visible non-editable activity until the command settles', () => {
+  it('renders compact as a visible activity with an editable composer until the command settles', () => {
     let state = initialTranscript()
     state = applyEvent(state, ev('command/run', {
       commandId: 'cmd-compact-1',
@@ -153,7 +153,7 @@ describe('applyEvent', () => {
     expect(state.status).toBe('compacting')
     const active = view(state)
     expect(active.lines.join('\n')).toContain('Compacting')
-    expect(active.cursorVisible).toBe(false)
+    expect(active.cursorVisible).toBe(true)
 
     state = applyEvent(state, ev('command/done', {
       commandId: 'cmd-compact-1',
@@ -2466,4 +2466,28 @@ it.each([24, 48, 80])('labels recovered input without overflowing %s cells', wid
   ], createTheme(false), width)
   expect(lines.join('\n')).toContain('Recovered')
   expect(lines.every(line => visibleWidth(line) <= width)).toBe(true)
+})
+
+describe('readable compaction checkpoints', () => {
+  const events = (id: string, text: string) => [
+    ev('compaction/start', { compactionId: id, turn: null }, 1),
+    ev('compaction/summary', { compactionId: id, summary: [{ type: 'text', text }], shadowedSeqs: [1, 2], shadowedTokenCount: 100 }, 2),
+    ev('compaction/end', { compactionId: id, turn: null }, 3),
+  ]
+  it('retains separate summaries across cycles and reconstructs them on resume', () => {
+    const log = [...events('a', 'first 中文 🐳'), ...events('b', 'second')]
+    const state = replayEvents(log)
+    expect(state.blocks.filter(block => block.kind === 'notice').map(block => block.detail)).toEqual(['first 中文 🐳', 'second'])
+    expect(log.reduce((state, event) => applyEvent(state, event), initialTranscript()).blocks).toEqual(state.blocks)
+  })
+  it.each([false, true])('folds details with the shared gesture and keeps padding (colors=%s)', colors => {
+    const block = replayEvents(events('a', '## Kept context\n\n中文 🐳 é ' + 'x'.repeat(90))).blocks[0]!
+    const theme = createTheme(colors)
+    const folded = blockLines(block, theme, 44).map(stripAnsi)
+    expect(folded.join('\n')).not.toContain('Kept context')
+    const expanded = blockLines(block, theme, 44, { expandedOutput: true }).map(stripAnsi)
+    expect(expanded.join('\n')).toContain('Kept context')
+    expect(expanded.every(line => visibleWidth(line) <= 44)).toBe(true)
+    expect(expanded.filter(line => line.includes('中文')).every(line => line.startsWith('  '))).toBe(true)
+  })
 })

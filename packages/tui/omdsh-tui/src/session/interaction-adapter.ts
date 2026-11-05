@@ -258,7 +258,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
     ],
     ...(request.signal === undefined ? {} : { signal: request.signal }),
   })
-  if (raw === null) return 'cancelled'
+  if (request.signal?.aborted || raw === null) return 'cancelled'
   if (raw === 'reject-note') {
     const note = await tui.prompt({
       localize: true, title: agentLabel === undefined ? 'Reject with note' : `${agentLabel} · ${t('Reject with note')}`,
@@ -267,7 +267,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
       notify: false,
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     })
-    if (note === null) return 'cancelled'
+    if (request.signal?.aborted || note === null) return 'cancelled'
     const trimmed = note.trim()
     if (trimmed !== '') {
       if (typeof request.agent?.steer === 'function') {
@@ -287,7 +287,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
         { label: 'This workspace', value: 'workspace', description: 'Applies to sessions with this same workspace boundary.' },
         { label: 'Cancel', value: 'cancel', description: 'Save nothing and cancel this request.' }],
       initialValue: 'cancel', allowCustom: false, notify: false, ...(request.signal === undefined ? {} : { signal: request.signal }) })
-    if (scope !== 'session' && scope !== 'workspace') return 'cancelled'
+    if (request.signal?.aborted || scope !== 'session' && scope !== 'workspace') return 'cancelled'
     rules.remember(request, scope, decision)
     return decision === 'allow' ? 'allowed-once' : 'rejected'
   }
@@ -304,9 +304,12 @@ export function bindHumanInteraction(
   tui: TuiService,
   activeAgent: () => Agent | undefined,
   beginDescendantApproval?: (agent: Agent) => { label: string; signal: AbortSignal; finish(): void } | undefined,
+  activeSignal?: () => AbortSignal,
 ): () => Promise<void> {
   const disposers: Array<() => void> = []
   const lifetime = new AbortController()
+  const scopeSignal = (signal?: AbortSignal): AbortSignal => AbortSignal.any([lifetime.signal,
+    ...(activeSignal === undefined ? [] : [activeSignal()]), ...(signal === undefined ? [] : [signal])])
   let queue: Promise<unknown> = Promise.resolve()
   const enqueue = <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {
     const pending = queue.then(() => { signal.throwIfAborted(); return operation() })
@@ -324,8 +327,11 @@ export function bindHumanInteraction(
   if (questions !== undefined) {
     disposers.push(ctx.on('user-questions/request', (request, next) => {
       if (request.agent !== undefined && request.agent !== activeAgent()) return next()
-      const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
-      return enqueue(signal, () => askQuestions(tui, { ...request, signal }, questions))
+      const signal = scopeSignal(request.signal)
+      return enqueue(signal, () => {
+        if (request.agent !== undefined && request.agent !== activeAgent()) throw new UserQuestionError('The question belongs to a previous session.', 'ASK_ABORTED')
+        return askQuestions(tui, { ...request, signal }, questions)
+      })
     }))
   }
   const commands = ctx.get('commands')
@@ -333,33 +339,40 @@ export function bindHumanInteraction(
     disposers.push(commands.register({
       name: 'questions',
       description: 'Answer questions left pending in this session',
-      handler: invocation => enqueue(AbortSignal.any([invocation.signal, lifetime.signal]), async () => {
-        if (invocation.rawInput.trim() !== '') return { kind: 'error' as const, text: 'Usage: /questions' }
-        if (invocation.agent !== activeAgent()) return { kind: 'error' as const, text: 'Questions belong to the active session.' }
-        const operation = new AbortController()
-        const off = ctx.on('session/disposed', (session) => {
-          if (session === invocation.agent.session) operation.abort()
+      handler: invocation => {
+        const ownedSignal = scopeSignal(invocation.signal)
+        return enqueue(ownedSignal, async () => {
+          if (invocation.rawInput.trim() !== '') return { kind: 'error' as const, text: 'Usage: /questions' }
+          if (invocation.agent !== activeAgent()) return { kind: 'error' as const, text: 'Questions belong to the active session.' }
+          const operation = new AbortController()
+          const off = ctx.on('session/disposed', (session) => {
+            if (session === invocation.agent.session) operation.abort()
+          })
+          try {
+            const signal = AbortSignal.any([ownedSignal, operation.signal])
+            const text = await answerPendingQuestions(ctx, tui, invocation.agent, signal)
+            return { kind: 'success' as const, ...(text === undefined ? {} : { text }) }
+          } catch (error) {
+            if (operation.signal.aborted || ownedSignal.aborted) return { kind: 'success' as const }
+            return { kind: 'error' as const, text: error instanceof Error ? error.message : String(error) }
+          } finally {
+            off()
+          }
         })
-        try {
-          const signal = AbortSignal.any([invocation.signal, lifetime.signal, operation.signal])
-          const text = await answerPendingQuestions(ctx, tui, invocation.agent, signal)
-          return { kind: 'success' as const, ...(text === undefined ? {} : { text }) }
-        } catch (error) {
-          if (operation.signal.aborted || invocation.signal.aborted || lifetime.signal.aborted) return { kind: 'success' as const }
-          return { kind: 'error' as const, text: error instanceof Error ? error.message : String(error) }
-        } finally {
-          off()
-        }
-      }),
+      },
     }))
   }
   if (ctx.get('approval') !== undefined) {
     disposers.push(ctx.on('approval/request', async (request, next) => {
-      const child = request.agent === activeAgent() ? undefined : beginDescendantApproval?.(request.agent)
+      const root = activeAgent()
+      const child = request.agent === root ? undefined : beginDescendantApproval?.(request.agent)
       if (request.agent !== activeAgent() && child === undefined) return next()
-      const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
+      const signal = scopeSignal(request.signal)
       const scopedSignal = child === undefined ? signal : AbortSignal.any([signal, child.signal])
-      return enqueue(scopedSignal, () => askApproval(ctx, tui, { ...request, signal: scopedSignal }, child?.label)).finally(() => child?.finish())
+      return enqueue(scopedSignal, () => root !== activeAgent() ? Promise.resolve('cancelled' as const)
+        : askApproval(ctx, tui, { ...request, signal: scopedSignal }, child?.label))
+        .catch(error => { if (scopedSignal.aborted) return 'cancelled' as const; throw error })
+        .finally(() => child?.finish())
     }))
   }
   return async () => {

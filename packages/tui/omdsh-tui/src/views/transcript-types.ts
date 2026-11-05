@@ -122,6 +122,8 @@ export type Block =
   | WorkspaceBlock
   | {
     kind: 'notice'
+    /** Durable detail, opened through the shared transcript fold gesture. */
+    detail?: string
     level: 'info' | 'warning' | 'error'
     text: string
     framed?: boolean
@@ -165,7 +167,7 @@ export interface TranscriptState {
    * reported, and the status to restore when it settles. Automatic compaction
    * runs inside an open turn, so the restored status is usually `running`.
    */
-  compaction: { id: string; events: number; tokens: number; resume: SessionStatus } | undefined
+  compaction: { id: string; events: number; tokens: number; summary?: string; resume: SessionStatus } | undefined
   /** Durable follow-up turns waiting in the Harness-owned agent inbox. */
   nextTurnInbox: UserMessage[]
   /** Durable steering/context waiting for the next model step. */

@@ -2298,6 +2298,7 @@ export class LocalTui implements TuiService {
     this.#toolsExpanded = false
     this.#openedGroups.clear()
     this.#detailedTurns.clear()
+    this.#expandedOutputs.clear()
   }
 
   /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
@@ -2378,7 +2379,7 @@ export class LocalTui implements TuiService {
   }
 
   #routeInputBatch(events: readonly KeyEvent[]): void {
-    if (this.#pasteProtection && this.#state.status !== 'compacting' && !this.#paste && this.#pasteInFlight === 0
+    if (this.#pasteProtection && !this.#paste && this.#pasteInFlight === 0
       && this.#prompt === null && this.#settings === null
       && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
       && events.every(event => event.type === 'text' || (event.type === 'key' && ['enter', 'ctrl+j', 'tab'].includes(event.id)))) {
@@ -2397,7 +2398,7 @@ export class LocalTui implements TuiService {
 
   #routeInput(event: KeyEvent): void {
     if (event.type === 'focus' || event.type === 'cell-size') { this.#dispatch(event); return }
-    const composer = this.#state.status !== 'compacting' && this.#prompt === null && this.#settings === null
+    const composer = this.#prompt === null && this.#settings === null
       && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
     if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
       || event.type === 'paste-start' || event.type === 'paste-end') {
@@ -2669,22 +2670,6 @@ export class LocalTui implements TuiService {
         if (step.lines !== 0) this.#scrollBy(step.lines)
       }
       return
-    }
-    if (this.#state.status === 'compacting') {
-      if (event.type === 'key' && event.id === 'end' && this.#jumpToLatest !== undefined) {
-        this.#followTail()
-        this.#render()
-        return
-      }
-      if (event.type === 'key' && event.id === 'pageUp') {
-        this.#scrollBy(-this.#pageSize())
-        return
-      }
-      if (event.type === 'key' && event.id === 'pageDown') {
-        this.#scrollBy(this.#pageSize())
-        return
-      }
-      if (event.type !== 'key' || event.id !== 'ctrl+c') return
     }
     // Clipboard image inspection is asynchronous. Preserve the exact key
     // order so a fast Ctrl+V, Enter submits the finished image draft rather
@@ -4841,7 +4826,7 @@ export class LocalTui implements TuiService {
      * above them.
      */
     const anchored = anchor === undefined ? undefined : this.#state.blocks[anchor]
-    if (anchor !== undefined && (anchored?.kind === 'commandOutput' || anchored?.kind === 'aside')) {
+    if (anchor !== undefined && (anchored?.kind === 'commandOutput' || anchored?.kind === 'aside' || (anchored?.kind === 'notice' && anchored.detail !== undefined))) {
       if (this.#expandedOutputs.has(anchored)) this.#expandedOutputs.delete(anchored)
       else this.#expandedOutputs.add(anchored)
       this.#inspect(anchor)

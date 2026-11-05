@@ -418,3 +418,74 @@ it('labels descendant approval and reads the child tool call instead of the visi
     expect(prompt).toHaveBeenCalledOnce()
   } finally { await dispose(); await ctx.fiber.dispose() }
 })
+
+describe('interaction ownership across session replacement', () => {
+  it('cancels the visible and queued questions without presenting them in the next session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(UserQuestionService)
+    const first = { id: SessionId('first'), session: Session.create(SessionId('first')) } as Agent
+    const next = { id: SessionId('next'), session: Session.create(SessionId('next')) } as Agent
+    ctx.agents.enter(first, undefined); ctx.agents.enter(next, undefined)
+    let active = first, scope = new AbortController()
+    const prompt = vi.fn(awaitingPrompt)
+    const off = bindHumanInteraction(ctx, { prompt } as unknown as TuiService, () => active, undefined, () => scope.signal)
+    try {
+      const requests = [1, 2].map(id => ctx.userQuestions.ask({ agent: first, questions: [{ id: String(id), question: 'Old question' }] }))
+      const results = Promise.allSettled(requests)
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce())
+      active = next; scope.abort(); scope = new AbortController()
+      expect((await results).every(result => result.status === 'rejected')).toBe(true)
+      expect(prompt).toHaveBeenCalledOnce()
+      prompt.mockImplementationOnce(async () => 'New answer' as never)
+      const answer = await ctx.userQuestions.ask({ agent: next, questions: [{ id: 'new', question: 'New question' }] })
+      expect(answer.answers[0]?.custom).toBe('New answer')
+    } finally { await off(); await ctx.fiber.dispose() }
+  })
+
+  it.each(['Allow once', 'reject-note', 'remember-allow'])('ignores a late %s answer after the presentation scope ends', async action => {
+    const { default: ApprovalService } = await import('@deepseek-ai/dsh-user-approval')
+    const ctx = new Context(); await ctx.plugin(SessionProjectionRegistry); await ctx.plugin(ApprovalService, { policy: 'ask' })
+    const agent = { id: SessionId('approval-root'), session: Session.create(SessionId('approval-root')), steer: vi.fn() } as unknown as Agent
+    agent.session.append('turn/start', { turn: 1 })
+    const scope = new AbortController(), remember = vi.fn()
+    ctx.provide('omdshApprovalRules', { describe: () => ({ tool: 'probe', arguments: '{}', cwd: '/', workspace: '/', sandbox: 'workspace-write', reason: '' }), remember } as never)
+    let release!: (value: string) => void
+    const prompt = vi.fn(async (_request: TuiPrompt): Promise<string | null> => new Promise(resolve => { release = resolve }))
+    const off = bindHumanInteraction(ctx, { prompt } as unknown as TuiService, () => agent, undefined, () => scope.signal)
+    try {
+      const request = ctx.approval.request({ agent, toolName: 'probe' })
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce())
+      if (action !== 'Allow once') { release(action); await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2)) }
+      scope.abort(); release(action === 'remember-allow' ? 'session' : action === 'reject-note' ? 'late guidance' : action)
+      expect(await request).toBe('cancelled')
+      expect(remember).not.toHaveBeenCalled(); expect(agent.steer).not.toHaveBeenCalled()
+    } finally { await off(); await ctx.fiber.dispose() }
+  })
+
+  it('serializes child approvals, cancels a waiting child, and retains the next child identity', async () => {
+    const { default: ApprovalService } = await import('@deepseek-ai/dsh-user-approval')
+    const ctx = new Context(); await ctx.plugin(SessionProjectionRegistry); await ctx.plugin(ApprovalService, { policy: 'ask' })
+    const make = (id: string) => ({ id: SessionId(id), session: Session.create(SessionId(id)) }) as Agent
+    const root = make('root'), children = [make('one'), make('two'), make('three')]
+    for (const agent of children) agent.session.append('turn/start', { turn: 1 })
+    const signals = children.map(() => new AbortController()), finished = vi.fn()
+    const replies: Array<(value: string) => void> = []
+    const prompt = vi.fn(async (_request: TuiPrompt): Promise<string | null> => new Promise(resolve => { replies.push(resolve) }))
+    const off = bindHumanInteraction(ctx, { prompt } as unknown as TuiService, () => root, agent => {
+      const index = children.indexOf(agent)
+      return index < 0 ? undefined : { label: String(agent.id), signal: signals[index]!.signal, finish: () => finished(agent.id) }
+    })
+    try {
+      const requests = children.map(agent => ctx.approval.request({ agent, toolName: 'probe' }))
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce())
+      signals[1]!.abort(); expect(await requests[1]).toBe('cancelled')
+      replies[0]!('Allow once'); expect(await requests[0]).toBe('allowed-once')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+      expect(prompt.mock.calls[1]![0].title).toBe('three · Approval required')
+      replies[1]!('Reject'); expect(await requests[2]).toBe('rejected')
+      expect(finished).toHaveBeenCalledTimes(3)
+    } finally { await off(); await ctx.fiber.dispose() }
+  })
+})

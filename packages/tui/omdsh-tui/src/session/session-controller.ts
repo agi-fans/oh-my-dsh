@@ -513,6 +513,7 @@ export class SessionRuntime {
   #refreshDirty = false
   #inspectEpoch = 0
   #inspectDeliveryTail: Promise<void> = Promise.resolve()
+  #activeInteraction = new AbortController()
   readonly #pendingSends = new Map<Agent, number>()
   readonly #inspectDeliveries = new Set<AbortController>()
   readonly #descendantApprovals = new Map<AbortController, Agent>()
@@ -687,6 +688,9 @@ export class SessionRuntime {
       }))
     }
   }
+
+  /** Presentation requests from a replaced root must not survive into its successor. */
+  get interactionSignal(): AbortSignal { return this.#activeInteraction.signal }
 
   get agent(): Agent | undefined {
     return this.#active?.handle.agent
@@ -987,7 +991,9 @@ export class SessionRuntime {
     }
     const result = execution.result
     if (result.kind === 'error' && (images.length > 0 || submission.files?.length)) this.#tui.restoreInput(submission, agent.session.id)
-    if (result.text !== undefined) {
+    const presented = result.kind === 'success' && result.sourceEventSeq !== undefined
+      && agent.session.snapshotEvents().some(event => event.seq === result.sourceEventSeq && event.type === 'compaction/summary')
+    if (result.text !== undefined && !presented) {
       if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error', focus: true })
       else this.#tui.commandOutput(parsed.name, result.text, { focus: true })
     }
@@ -1516,6 +1522,7 @@ export class SessionRuntime {
     for (const abort of this.#descendantApprovals.keys()) abort.abort()
     if (this.#disposed) return
     this.#disposed = true
+    this.#activeInteraction.abort()
     this.#activationEpoch += 1
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
@@ -1595,6 +1602,8 @@ export class SessionRuntime {
     const epoch = ++this.#activationEpoch
     this.#queueAbort?.abort(new Error('active session changed'))
     this.#workflowAbort?.abort()
+    this.#activeInteraction.abort()
+    this.#activeInteraction = new AbortController()
     this.#active = next
     void this.#claimWorkspace(next)
     try {
@@ -1625,6 +1634,8 @@ export class SessionRuntime {
       // and the activation failure remains the actionable error.
       try {
         if (this.#activationEpoch === epoch) {
+          this.#activeInteraction.abort()
+          this.#activeInteraction = new AbortController()
           this.#active = previous
           if (previous !== undefined) {
             try {

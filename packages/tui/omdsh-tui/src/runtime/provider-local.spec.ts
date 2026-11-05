@@ -1892,7 +1892,7 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('blocks composer input while compacting instead of queueing it', async () => {
+  it('queues composer input during compaction and keeps interruption available', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     let interrupted = 0
@@ -1903,7 +1903,7 @@ describe('LocalTui (tty)', () => {
       source: { kind: 'user' },
     }, 1))
 
-    press(term, 'must not queue\r')
+    press(term, 'queued during compact\r')
     expect(stripAnsi(term.captured)).toContain('Compacting')
     press(term, '\x03')
     expect(interrupted).toBe(1)
@@ -1912,6 +1912,7 @@ describe('LocalTui (tty)', () => {
       commandId: 'cmd-compact-1',
       kind: 'success',
     }, 2))
+    expect(await tui.readline()).toBe('queued during compact')
     const pending = tui.readline()
     press(term, 'after compact\r')
     expect(await pending).toBe('after compact')
@@ -6064,4 +6065,27 @@ it.each(['idle', 'running', 'steer'] as const)('preserves mixed file command ord
     const retry = tui.readInput(); press(term, '\r')
     expect(await retry).toMatchObject(draft)
   } finally { tui.dispose() }
+})
+
+it('opens a durable compaction summary with Ctrl+O while preserving the draft and native history', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  tui.event(ev('compaction/start', { compactionId: 'readable', turn: null }, 1))
+  tui.event(ev('compaction/summary', { compactionId: 'readable', summary: [{ type: 'text', text: 'SUMMARY_BODY 中文 🐳' }], shadowedSeqs: [1], shadowedTokenCount: 900 }, 2))
+  tui.event(ev('compaction/end', { compactionId: 'readable', turn: null }, 3))
+  expect(stripAnsi(term.captured)).not.toContain('SUMMARY_BODY')
+  press(term, 'keep draft')
+  term.captured = ''
+  press(term, '\x0f')
+  expect(stripAnsi(term.captured)).toContain('SUMMARY_BODY')
+  expect(term.captured).not.toContain('\x1b[3J')
+  term.captured = ''
+  press(term, '\x0f')
+  expect(stripAnsi(term.captured)).not.toContain('SUMMARY_BODY')
+  term.captured = ''
+  press(term, '\x0f')
+  expect(stripAnsi(term.captured)).toContain('SUMMARY_BODY')
+  press(term, '\x0f')
+  const pending = tui.readline(); press(term, '\r')
+  expect(await pending).toBe('keep draft')
+  tui.dispose()
 })

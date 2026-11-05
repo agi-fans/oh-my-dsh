@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- `/mcp` offers selectable registration diagnostics, startup errors, available tools, and the session’s latest ten MCP calls, including programmatic sub-calls. Refresh preserves the previous snapshot on failure; live connection and authentication status remain unavailable in the published Harness API.
+
 - `/schedule` supports pause, resume and immediate delivery without moving the next occurrence, live task state, and paginated delivery history. Busy tasks and minimum run intervals are explained; failed refreshes preserve loaded records and concurrent edits cannot silently overwrite newer changes. Task details use compact spacing, and card lists reduce visible choices to make room for details and the footer in short terminals.
 
 - DeepSeek account settings show profile and separate recharge/bonus balances, support refresh, browser sign-in cancellation and confirmed sign-out, and open account model selection directly. Account requests follow the UI language; live credential changes clear stale details and expiry notices are not replayed.
@@ -34,6 +36,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/agent creator` and the Plugins menu open Creator to author Harness plugins, preserving session drafts without sending a prompt or changing the default Agent preset.
 
 ### Changed
+
+- Compaction keeps the composer editable and queues new messages until it finishes. Saved summaries expand with Ctrl+O, remain readable after resume, and appear once without a duplicate command result. Closing inspection folds expanded outputs again.
 
 - `Alt+R` and `/continue` continue eligible failed model generations without duplicating the original prompt. The shortcut requires an empty composer and preserves drafts; `/retry` explicitly resends the latest human prompt with its ordered images and files. Resume preserves continuation eligibility without automatic replay.
 
@@ -68,6 +72,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Replacing a session cancels its visible and queued questions and approvals, including local child approvals. Late answers cannot approve actions, send rejection notes, or save rules after cancellation.
 
 - Local pending input stays with its original session and survives restart with attachments and delivery intent. Recovered entries wait for confirmation in Message Queue; recorded Harness message identities prevent accepted input from returning. Failed sends restore to the originating session, and recalling a queue entry retains newer input across navigation and exit.
 

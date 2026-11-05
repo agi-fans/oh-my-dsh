@@ -74,6 +74,6 @@ omdsh 按以下顺序读取 MCP 配置：
 
 可选字段包括 `enabled`、`timeout`（或 `toolCallTimeoutMs`）、`failOnStartupError` 以及 Harness `reconnect` 对象。stdio 配置还接受 `cwd`，HTTP 配置则接受 `headers`。字符串值支持 `${NAME}` 和 `${NAME:-default}` 环境变量展开，因此凭据不必直接写入 JSON 文件。没有默认值且无法解析的占位符会保持原样。
 
-发现的工具使用 `mcp__<server>__<tool>` 名称，进入普通 Harness 工具注册表。`/mcp` 在可滚动阅读页中展示插件注册状态，并按 server 分组可用工具；`/tools` 将它们与原生工具一起展示。注册状态和工具可用性不代表连接健康或认证已通过。MCP 重连后的工具列表变化会自动更新目录。
+发现的工具使用 `mcp__<server>__<tool>` 名称，进入普通 Harness 工具注册表。`/mcp` 打开支持键盘选择的诊断页，展示插件注册和启动错误、按服务器分组的可用工具，以及当前会话最近十次 MCP 工具调用，包括程序化子调用。恢复会话后仍可阅读历史错误，但不能据此判定当前连接故障。刷新会重新读取快照，不会重启服务器；刷新失败时保留上次加载的状态，并标明它可能已过时。当前发布版 Harness 无法提供实时连接和认证状态。`/tools` 将 MCP 工具与原生工具一起展示，重连后的工具列表变化会自动更新目录。
 
 只要配置了至少一个 Server，模型还可以通过共享的 `list_mcp_resources`、`list_mcp_resource_templates` 与 `read_mcp_resource` 工具列出并读取该 Server 的资源，每次调用都要点名它查询的 Server。资源文本会进入对话历史；二进制载荷仍只对程序化调用方可用。MCP Prompt 模板仍不受支持。

@@ -20,6 +20,8 @@ Workspace write is the default. The preset applies to both the filesystem seam a
 
 When an action needs approval, the prompt shows the tool card the session already streamed — the command, path, or diff summary for the pending call — followed by the asker's own reason. A human prompt displaces any open overlay (such as `/trajectory` or settings) and restores it when settled, so a confirmation cannot be accepted behind a stale screen.
 
+Questions and approvals belong to the session that requested them. Replacing the active session cancels its visible and queued prompts, including approvals from its local children. Cancelled prompts cannot subsequently approve an action, send a rejection note, or save a remembered rule. Concurrent child approvals are shown one at a time with the requesting child’s label.
+
 ### Remembered decisions
 
 For a request linked to a live tool execution, **Remember allow** and **Remember reject** open an exact invocation preview. Choose **This session** or **This workspace**, or Cancel to save nothing and withdraw the request. Session rules survive resume but do not pass to forks or children. Workspace rules apply to sessions with the same original workspace boundary, including a child using that boundary. Open `/permission` → **Approval rules** to inspect and revoke a decision. Revocation applies to future requests; it does not stop an action already approved.

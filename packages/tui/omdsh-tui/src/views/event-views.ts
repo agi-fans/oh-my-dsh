@@ -95,10 +95,11 @@ function compactionNoticeText(action: 'compacted' | 'trimmed', events: number, t
 
 function isCompactionNotice(block: Block | undefined): boolean {
   return block?.kind === 'notice'
-    && (block.text.startsWith(COMPACTED_NOTICE_PREFIX) || block.text.startsWith(TRIMMED_NOTICE_PREFIX))
+    && block.detail === undefined
+    && block.text.startsWith(TRIMMED_NOTICE_PREFIX)
 }
 
-/** Replace the previous cycle's condensation notice instead of stacking them. */
+/** A summary supersedes a preceding trim notice; earlier checkpoints stay readable. */
 function dropCompactionNotice(blocks: Block[]): void {
   if (isCompactionNotice(blocks[blocks.length - 1])) blocks.pop()
 }
@@ -603,6 +604,7 @@ function foldEvent(
           id: state.compaction.id,
           events: event.data.shadowedSeqs.length,
           tokens: event.data.shadowedTokenCount,
+          summary: contentToText(event.data.summary),
           resume: state.compaction.resume,
         },
       }
@@ -620,7 +622,8 @@ function foldEvent(
       }
       const blocks = editableBlocks(state, mutable)
       dropCompactionNotice(blocks)
-      blocks.push({ kind: 'notice', level: error === undefined ? 'info' : 'error', text: notice })
+      blocks.push({ kind: 'notice', level: error === undefined ? 'info' : 'error', text: notice,
+        ...(error === undefined && state.compaction.summary?.trim() ? { detail: state.compaction.summary } : {}) })
       return { ...state, blocks, compaction: undefined, status: state.compaction.resume }
     }
     // The model-free prune pass runs before a summarizing compaction, so its
