@@ -559,7 +559,7 @@ describe('upstream capability adaptation rows', () => {
   it('mounts anonymous web fetch and the DeepSeek search provider', () => {
     const rows = productRows()
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
-    expect(rows[index('web')]?.name).toBe('@deepseek-ai/dsh-web')
+    expect(rows[index('web')]?.name).toBe('@agi-fans/oh-my-dsh/web-runtime')
     expect(rows[index('web-search-deepseek')]?.name).toBe('@deepseek-ai/dsh-web-search-deepseek')
     expect(rows[index('web-fetch-http')]?.name).toBe('@deepseek-ai/dsh-web-fetch-http')
     expect(rows[index('tool-web')]?.name).toBe('@deepseek-ai/dsh-tool-web')

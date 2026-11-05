@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTheme } from '../chrome/theme.ts'
-import { visibleWidth } from '../chrome/width.ts'
+import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import {
   LIST_CURSOR_CELLS,
   listPrimaryColumnWidth,
@@ -44,6 +44,32 @@ describe('renderListRow', () => {
     // The label starts in the same column either way, so selection never shifts
     // the text sideways.
     expect(selected.indexOf('read')).toBe(plain.indexOf('read'))
+  })
+
+  it.each([false, true])('keeps different status widths on the same right edge (colors=%s)', colors => {
+    const current = createTheme(colors)
+    const entries = [
+      { label: 'DeepSeek account', description: 'signed in · shared with DSH', value: 'signed in' },
+      { label: 'magpie', description: 'Magpie API key', value: 'stored locally' },
+      { label: '模型 🐳 é', description: '自定义模型服务商', value: '已登录' },
+    ]
+    for (const width of [40, 80, 240]) {
+      for (const selected of [false, true]) {
+        for (const entry of entries) {
+          const row = renderListRow({ ...entry, value: current.fg('success', entry.value) }, current, width, { selected })
+          expect(visibleWidth(row)).toBe(width)
+          expect(stripAnsi(row).endsWith(entry.value)).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('reserves a status beside a long label and stays inside narrow rows', () => {
+    for (const width of [1, 2, 4, 8, 20, 40]) {
+      const row = renderListRow({ label: '很长的模型服务商🐳'.repeat(8), description: 'A long description'.repeat(8), value: 'signed in' }, color, width, { selected: true })
+      expect(visibleWidth(row)).toBeLessThanOrEqual(width)
+      if (width >= 20) expect(stripAnsi(row).endsWith('signed in')).toBe(true)
+    }
   })
 
   it('paints a heading with the cursor cells but no cursor', () => {

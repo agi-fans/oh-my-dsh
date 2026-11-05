@@ -13,7 +13,7 @@ Built-in capabilities appear in the product category that owns the task. Command
 | Category | Configuration |
 |---|---|
 | General | UI and response languages, Default access for new sessions, and an explicitly labelled Current session access action. |
-| Models | Current model and reasoning, provider credentials, and sign-out. Model selection also saves the default unless the session-only action is used. |
+| Models | Current model and reasoning, Model providers, provider sign-in, and sign-out. Model selection also saves the default unless the session-only action is used. |
 | Agent presets | Default Agent preset for new sessions and Current session preset for a blank session. |
 | Plugins | Plugin management, Shell limits, tool parallelism, subagents, web providers, command hooks, native integrations and optional feature toggles. |
 | Terminal | Appearance, input, notifications, startup preferences and the Status line group. |
@@ -21,7 +21,7 @@ Built-in capabilities appear in the product category that owns the task. Command
 
 In Plugins, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
 
-**Web providers** selects the search and fetch backend; the shipped default is `deepseek-search-api`/`deepseek-fetch-api`, which make one direct DeepSeek API request without an auxiliary model turn. **Web search · API** configures that provider’s API key reference, endpoint, result count, and whether the triggering question is sent; on a `deepseek-account` session the shared account token takes precedence over the API key; `/login` stores the official key under the upstream `DEEPSEEK_API_KEY` reference, so an official API login is enough. **Web search · Messages** keeps the fallback Messages provider’s limits, key reference, endpoint, model, and API version; select `deepseek-official` under Web providers to use it, or `http` for the local fetch fallback.
+**Web search and fetch** in Plugins combines provider selection, Search API result counts and legacy Messages settings in one draft. Other web plugin options remain in Advanced.
 
 Advanced honors each plugin's automatic-form policy and omits fields already represented in product controls, including TUI appearance, language, and the structured status-line editor. Hidden, disabled and deprecated fields are omitted. New unclaimed fields remain available without duplicating their owner's product form.
 
@@ -40,6 +40,32 @@ Product forms and save notices use task and field labels; Advanced retains techn
 In **Plugins**, choose **Command hooks**. Set **Configuration file** first, then **Hook compatibility** to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
 
 The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
+
+## Model providers
+
+Open **Models → Model providers** to browse configured providers, credential status, model counts and catalog diagnostics. Provider names remain literal in every UI language. The list refreshes on Harness configuration, credential and adapter events; **Refresh** also reloads it. DeepSeek Account appears when it has available models and directs sign-in management to `/login` and `/logout`.
+
+Choose a provider to edit its API key, base URL and model list. Custom APIs also expose their display name and protocol; their provider ID remains fixed. Changes stay in a draft until **Apply**. **Cancel** or Esc discards unapplied edits and returns through the provider list to the selected Settings row. Stored keys are never read into the input; a blank key keeps existing authentication. Saving, adding or removing a provider does not change the selected model: use `/model` to select an available route.
+
+**Model list** opens individual models for editing their ID, display name, context window, maximum output tokens and text/image input types. IDs must be unique, capacities must be positive whole numbers, and input selections need at least one type. Empty optional text or capacity fields restore inheritance; input types have a separate reset action. Add models from the list, confirm deletion from a model’s details, and use Alt+Up/Down to reorder the selected model. **Keep model** and **Keep list** retain edits in the provider draft; only **Apply** saves them. Cancel or Esc discards edits made in the current model or list editor. Merely viewing an inherited catalog does not create an override, and unedited model fields are preserved.
+
+Custom API models also expose **Reasoning levels**, with choices read from the installed Harness schema. Select levels, then edit each thinking level’s API value; an empty value uses the level name. Off disables reasoning and has no editable API value. Enabled reasoning requires at least one thinking level. Unknown stored levels survive edits, and the editor offers explicit disable and inheritance reset actions. Built-in catalog and DeepSeek models retain adapter-owned reasoning capabilities.
+
+**Fetch available models** uses the installed catalog when the adapter supports it, or asks the configured endpoint. Its searchable selection updates only the draft, preserves existing model options, and keeps configured models absent from the response. **Restore default models** removes the catalog override for built-in providers; Apply that reset before editing the restored list. Editing an inherited pi-ai catalog carries existing per-model overrides into the replacement list. Selecting text-only input for a DeepSeek model, or restoring its text-only default, also removes its image limits.
+
+**Add model provider** offers dormant catalog providers and custom APIs when the corresponding adapter settings are available. A custom API requires a unique ID, an HTTP(S) endpoint, a supported protocol and at least one model. **Delete provider** is available only for a provider supplied solely by the user layer and names the provider before confirmation. It removes only an omdsh-managed local key belonging to that route; shared references and external credentials remain in place.
+
+Writes check the displayed configuration revision. A conflict retains the draft and asks you to cancel and reopen with current settings. Other save failures retain the editor for retry. If configuration succeeds but storing the key fails, Apply retries the key stage; cancelling at that point leaves the already-saved configuration in place. Credential status reports the detected source, not a successful connection test.
+
+## Web search and fetch
+
+Open **Plugins → Web search and fetch** to select search and fetch providers from their live registrations. Official providers appear first, followed by plugin provider IDs. A saved provider that is not registered remains visible as **Not loaded**; an unusable registered provider shows **Unavailable**. The picker refreshes on registration changes. A failed directory read retains the last list and offers **Refresh**. Provider descriptions explain authentication and execution; availability does not prove a successful network connection.
+
+The shipped defaults remain `deepseek-search-api` and `deepseek-fetch-api`. They call DeepSeek directly without an auxiliary model turn; hosted fetch avoids local fake-IP DNS failures. This intentionally differs from Harness Web’s Direct fetch default. Choose **Direct fetch** (`http`) for retrieval from this computer, or **DeepSeek (legacy)** (`deepseek-official`) for search through an auxiliary Messages model turn. Account sessions use the conversation’s DeepSeek account where supported; other requests use the configured key reference. `/login` supplies the default `DEEPSEEK_API_KEY` reference.
+
+**Results per search** accepts integers from 1 to 50. Legacy search exposes its key, separate Messages base URL and positive integer **Maximum searches per request**. Empty numeric or endpoint inputs restore inheritance, and selecting the deployment’s provider removes the local selection override. **Automatic** is offered only when deployment configuration leaves that provider unspecified; environment selection may still apply, and multiple usable providers without a selection are ambiguous. Unedited settings stay unchanged.
+
+Only **Apply** writes the draft. Parameter changes save before credentials and provider selection, so a failed parameter or key write leaves the selection unsaved. Successful sections remain saved; retry writes only outstanding changes, and Cancel cannot undo successful writes. A revision conflict preserves the draft for inspection and requires cancelling and reopening. Switching away from legacy search discards its unsaved key but preserves endpoint and limit drafts. Stored keys are never displayed; a replacement writes the existing credential reference, which may be shared by other consumers. If that reference changes externally, its key draft is discarded. Externally managed credentials cannot be replaced here, and an inherited literal key that still takes precedence must be changed at its source.
 
 ## Terminal
 

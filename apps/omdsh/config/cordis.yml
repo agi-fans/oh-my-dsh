@@ -494,17 +494,12 @@
   - id: tool-present
     name: '@deepseek-ai/dsh-tool-present'
 
-  # Web tools: the model can fetch public pages for free, and search the web
-  # through DeepSeek's hosted search. Search is on by default because the
-  # official provider ships with the base and speaks the same Messages protocol
-  # as the conversation route, so it needs no extra credential setup: the key
-  # resolves through the credentials service at each search. A search is a full
-  # auxiliary model request, so its cost is bounded by `maxUses` (and the
-  # provider's own settings section tunes model, token cap, and endpoint); a
-  # deployment that wants no search disables `tool-web`'s `search` in its own
-  # overlay.
+  # Hosted search and fetch avoid local fake-IP resolution and auxiliary model
+  # turns. Direct HTTP and Messages search remain selectable alternatives.
+  # The adapter projects public provider registrations for the settings list;
+  # execution and provider selection remain in the published web service.
   - id: web
-    name: '@deepseek-ai/dsh-web'
+    name: '@agi-fans/oh-my-dsh/web-runtime'
     config:
       # The DeepSeek API providers retrieve directly, so a local fake-IP resolver
       # or an auxiliary Messages turn cannot block search and fetch. The older

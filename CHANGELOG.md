@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Web search and fetch settings share one staged editor with live provider choices, availability labels, result and request limits, and write-only legacy credentials. Apply saves provider settings before switching routes and retains unfinished changes for retry.
+
+- Model lists support individual add, delete and keyboard reordering, with editable names, token capacities and input types. Custom APIs expose schema-defined reasoning levels and API values; edits remain in the provider draft until Apply.
+
+- Settings → Models manages provider credentials, endpoints and model lists, with catalog adoption, custom APIs and scoped deletion. Drafts survive save failures, existing model options are retained, and provider edits keep the selected model.
+
 - Workflow runs are selectable in the shared agent roster. Browse live phases and members with filtering and folding, then open eligible running local children without losing the composer draft.
 
 - Subagent views support their own Message Queue through Alt+Q or `/queue`, including editing, withdrawal, reordering and Queue-to-Steer transfer. Alt+Up recalls a child’s latest next-turn message, retaining drafts and attachments across navigation.
@@ -48,6 +54,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Provider sign-in badges and other list statuses align to the same right edge, including mixed-length labels and narrow terminals.
+
+- Selector scroll hints follow the interface language.
 
 - Quitting the interactive terminal no longer waits indefinitely for background workflows or subagents. Piped input still waits for accepted work to finish.
 

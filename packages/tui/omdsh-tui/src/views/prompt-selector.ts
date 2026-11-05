@@ -627,7 +627,7 @@ export function renderPromptSelector(
     body.push('', ...options.slice(start, end).map((option, offset) =>
       optionRow(option, start + offset, state, theme, contentWidth, (state.request.options ?? []).indexOf(option))))
     if (options.length > maxVisible) {
-      body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · scroll for more`))
+      body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · ${theme.text('scroll for more')}`))
     }
     // The paged list draws the selected row's preview beside the rows; the card
     // gives it three lines underneath, so demoting a previewed list keeps the

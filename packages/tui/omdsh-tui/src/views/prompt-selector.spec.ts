@@ -480,3 +480,27 @@ it.each(['', 'edited message'])('renders free-text edits without list-empty warn
   expect(text).toContain(input)
   expect(frame.cursorVisible).toBe(true)
 })
+
+it('translates the scroll hint without translating option content', () => {
+  const frame = renderPromptSelector({ request: { title: 'Models', question: '', options: [{ label: 'Settings' }, { label: 'General' }, { label: 'Running' }] }, selected: 0, checked: new Set() },
+    createTheme(false, 'truecolor', 'dark', undefined, 'zh-CN'), 60, '', 0, 2)
+  const output = frame.lines.map(stripAnsi).join('\n')
+  expect(output).toContain('1/3 · 滚动查看更多')
+  expect(output).toContain('Settings')
+  expect(output).toContain('General')
+})
+
+it.each([false, true])('aligns Provider badges within the prompt border (colors=%s)', colors => {
+  const options = [
+    { label: 'DeepSeek account', description: 'signed in · shared with DSH', badge: { label: 'signed in', tone: 'success' as const } },
+    { label: 'magpie', description: 'Magpie API key', badge: { label: 'stored locally', tone: 'success' as const } },
+  ]
+  for (const width of [60, 120, 240]) {
+    const frame = renderPromptSelector({ request: { title: 'Provider', question: 'Choose a provider', options }, selected: 1, checked: new Set() }, createTheme(colors), width, '', 0)
+    const rows = options.map(option => stripAnsi(frame.lines.find(line => stripAnsi(line).includes(option.label))!))
+    const suffixes = rows.map((row, index) => row.slice(row.lastIndexOf(options[index]!.badge.label) + options[index]!.badge.label.length))
+    expect(suffixes[0]).toBe(suffixes[1])
+    expect(suffixes[0]).toMatch(/^ +│$/u)
+    expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+  }
+})

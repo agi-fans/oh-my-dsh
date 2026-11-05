@@ -194,8 +194,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● General'), 
   term.kill()
   process.exit(1)
 }
-// Advanced is empty in the shipped profile: Web search now carries its own
-// provider credentials inside the Plugins section.
+// Common Web settings share a staged form; extra provider fields remain in Advanced.
 mark = out.length
 term.write('Web search')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web search'), 'web search settings result', deadline))) {
@@ -204,7 +203,19 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web sea
 }
 mark = out.length
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Results per search') && cleanOutput(out.slice(mark)).includes('API key reference'), 'web search provider form', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Results per search') && cleanOutput(out.slice(mark)).includes('Fetch provider') && cleanOutput(out.slice(mark)).includes('Apply'), 'web search provider form', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[B\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Direct fetch') && cleanOutput(out.slice(mark)).includes('Deployment default'), 'live fetch provider choices', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Edit the draft, then Apply to save'), 'cancel provider choice into Web draft', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -471,13 +482,17 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Tools'), 'compo
   term.kill()
   process.exit(1)
 }
-// The reader owns Ctrl+C while it is open: the first closes it, the next two
-// follow the shipped exit rule.
-term.write('\x03')
-await sleep(100)
-term.write('\x03')
-await sleep(100)
-term.write('\x03')
+// Close a reader if it still owns input, then request the usual double-Ctrl-C
+// exit. Once omdsh restores the terminal, another Ctrl-C would signal the pnpm
+// launcher instead of the application and turn a successful exit into 130.
+const exitMark = out.length
+for (let gesture = 0; gesture < 3 && exitCode === null; gesture++) {
+  const exitOutput = out.slice(exitMark)
+  if (exitOutput.includes('\x1b[?1004l') || exitOutput.includes('\x1b]2;\x07')
+    || cleanOutput(exitOutput).includes('Resume this session with omdsh --resume')) break
+  term.write('\x03')
+  await sleep(100)
+}
 if (!(await waitFor(() => exitCode !== null, 'clean exit', deadline))) {
   const clean = cleanOutput(out)
   console.error('--- pty output at failure ---')

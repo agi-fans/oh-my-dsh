@@ -126,17 +126,21 @@ export function renderListRow(row: ListRow, theme: Theme, width: number, options
   const value = row.value === undefined || row.value === ''
     ? ''
     : theme.fg(options.selected ? 'accent' : 'muted', row.value)
-  const fixed = LIST_CURSOR_CELLS + visibleWidth(row.value ?? '') + (value === '' ? 0 : 0)
-  const descriptionRoom = room - fixed - (row.value === undefined || row.value === '' ? 0 : visibleWidth(row.value))
-  const description = row.description === undefined || row.description === '' || descriptionRoom <= MIN_DESCRIPTION_WIDTH
-    ? ''
-    : '  ' + (options.dimDescription === false ? row.description : theme.fg('muted', row.description))
-  if (value === '') {
-    const body = cursor + label + truncateToWidth(description, Math.max(0, room - fixed - visibleWidth(row.label)))
-    return truncateToWidth(row.description === undefined ? body.replace(/\s+$/u, '') : body, room)
-  }
-  const gap = Math.max(2, descriptionRoom - visibleWidth(description) - visibleWidth(row.label))
-  return truncateToWidth(cursor + label + truncateToWidth(description, Math.max(0, descriptionRoom - visibleWidth(row.label))) + ' '.repeat(gap) + value, room)
+  // Reserve the status once, then fit the label and description into the
+  // remaining cells. Measuring the finished left side keeps every status on
+  // the same right edge, including when either side is truncated.
+  const fittedValue = truncateToWidth(value, Math.max(0, room - LIST_CURSOR_CELLS - COLUMN_GAP - 1))
+  const valueCells = visibleWidth(fittedValue)
+  const leftRoom = Math.max(0, room - LIST_CURSOR_CELLS - valueCells - (valueCells === 0 ? 0 : COLUMN_GAP))
+  const fittedLabel = truncateToWidth(label, leftRoom)
+  const descriptionRoom = leftRoom - visibleWidth(fittedLabel)
+  const descriptionText = row.description === undefined || row.description === '' || leftRoom <= MIN_DESCRIPTION_WIDTH
+    ? '' : truncateToWidth('  ' + row.description, descriptionRoom)
+  const description = options.dimDescription === false ? descriptionText : theme.fg('muted', descriptionText)
+  const body = cursor + fittedLabel + description
+  if (valueCells === 0) return truncateToWidth(body, room)
+  const fill = Math.max(0, room - visibleWidth(body) - valueCells)
+  return truncateToWidth(body + ' '.repeat(fill) + fittedValue, room)
 }
 
 /** The `(n/total)` line a windowed list prints below itself. */

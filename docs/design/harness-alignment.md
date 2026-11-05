@@ -45,6 +45,22 @@ Stop 使用 `cancel({ kind: 'user' }, { keepInbox: true })`，保留两个 inbox
 
 普通 step/turn 结束不能证明后台工作流停止。只有 run-start 所在回合以 `interrupted` 或 `forked` 关闭且缺少 run-end 时，投影才显示 Interrupted；已有成员结算与后到的 run-end 保持优先。该推导不写回日志，也不改变工具结果。后台工作流的停止与运行日志沿用 `/jobs` 的已发布接口；不新增没有 Harness 支持的暂停、重试或独立调度状态。
 
+## Models 服务商管理契约
+
+Settings → Models 的模型服务商入口由现有 settings consumer 提供，复用键盘列表和受保护输入。读取 Harness 的 configurable-provider directory、脱敏 settings descriptor 和 credentials 描述，显示凭据来源、模型数量和目录错误；所有权事件刷新列表，编辑中的草稿与 revision 不随后台更新替换。已发布 `llm` 服务通过可选服务查询访问，服务商入口不会让其他设置依赖模型服务的生命周期。
+
+字段修改先进入草稿，Apply 只提交变化的路径，沿用显示时的 revision。已有模型参数和未编辑字段保留，恢复默认模型使用 unset。设置写入成功后更新基线再保存密钥；密钥失败保留输入，重试不会重复提交配置。Cancel 只放弃尚未保存的修改。服务商变更不修改模型选择，凭据只写入 credentials 服务。删除仅开放给 user 层独有的路由，只清理精确匹配 omdsh 派生引用的可写本地密钥。
+
+添加支持目录服务商和自定义 API，协议选项读取已挂载 schema。自定义路由 ID 固定；目录发现采用已发布 `discoverModels`，返回值先进入可搜索选择列表，既有参数和未返回的已配置模型不丢失。模型列表支持新增、确认删除、Alt+Up/Down 排序及逐项编辑 ID、名称、容量和输入类型。模型与列表各自的取消只丢弃本层编辑，保留后进入服务商草稿，Apply 才写入。只查看继承目录不产生覆盖；首次编辑将已有 modelOverrides 合入替换数组，并移除互斥的 modelOverrides 路径。DeepSeek 使用 inputModalities，移除图片输入时清理 imagePixelBudget 和 imageMaxBytes；pi-ai 使用 input。自定义 API 的 reasoningEfforts 等级从已挂载 schema 读取，保留未知键和 off 值，开启时必须包含思考等级；目录模型不开放此编辑。
+
+## Web 搜索与抓取契约
+
+Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek-api.count` 和旧版 `web-search-deepseek` 的密钥、地址、`maxUses`。其他字段进入 Advanced。列表区分未加载与注册但不可用的服务商，保留已保存的未知 ID，注册变化刷新，读取失败保留上次目录并允许重试。默认仍为 DeepSeek Search API／Fetch API，托管抓取规避本地 fake-IP DNS；Direct fetch 保持可选，这一默认值差异是产品选择。
+
+参考源码已提供 `web.listProviders()`，但当前已发布 `0.2.2-rc.1` 没有此 API。宿主的 `web-runtime` 适配插件继承已发布 WebRuntime，仅通过公开注册方法投影 ID、可用状态和卸载事件，向 TUI 提供只读目录；请求执行、认证、选择和重复 ID 拒绝仍由上游实现。服务商卸载清理投影，事件观察者失败不影响注册；不读取私有注册表，不修改参考仓库。未来采用含目录接口的发布版本时应移除此适配层。当前包未公开服务商标题和说明，官方说明由 TUI 拥有，第三方显示原始 ID 并引导其插件设置。
+
+草稿按 namespace 保留 revision，Apply 先校验所有待写部分，再按参数、凭据、选择的顺序写入。部分成功后只保留剩余草稿供重试；取消不回滚成功写入。切换服务商保留隐藏参数草稿，但切离旧版搜索丢弃密钥；凭据引用变更也丢弃密钥草稿。已有明文密钥先尝试移除本地覆盖，仍由部署提供时拒绝声称引用密钥已生效。选择部署默认服务商使用 unset，部署未指定时才提供 Automatic。
+
 ## 有意保留的终端差异
 
 - Settings 中明确标注的 Current session 操作是便捷入口；默认设置与当前状态分别呈现。
@@ -55,7 +71,7 @@ Stop 使用 `cancel({ kind: 'user' }, { keepInbox: true })`，保留两个 inbox
 
 ## 后续对齐范围
 
-正常退出／切换后的队列恢复、Models 中完整 provider 编辑、官方设置的其余页面仍需单独设计与验收。不得仅凭底层包已挂载就宣称交互已经对齐。每次升级同时复核 composition、persona 和 Plan 指令的覆盖内容；语言偏好仅调整独立的 agent-behavior 提示段。
+正常退出／切换后的队列恢复、官方设置的其余页面仍需单独设计与验收。不得仅凭底层包已挂载就宣称交互已经对齐。每次升级同时复核 composition、persona 和 Plan 指令的覆盖内容；语言偏好仅调整独立的 agent-behavior 提示段。
 
 ## 验收
 

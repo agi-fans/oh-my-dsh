@@ -3185,6 +3185,111 @@ describe('LocalTui (tty)', () => {
     } finally { await unbind(); tui.dispose() }
   })
 
+  it.each(['en', 'zh-CN'] as const)('edits Web settings through keyboard selectors without writing a cancelled draft (%s)', async language => {
+    const { openWebSettings } = await import('./web-settings.ts')
+    const z = (await import('@deepseek-ai/schemastery')).default
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false), ctx = new Context(), mutate = vi.fn()
+    tui.applyStoredPrefs({ uiLanguage: language })
+    ctx.provide('tui', tui)
+    ctx.provide('settings', { writable: true, describe: () => [
+      { ns: 'web', schema: z.object({ searchProvider: z.string(), fetchProvider: z.string() }).toJSON(), value: { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' }, base: {}, user: {}, revision: 1 },
+      { ns: 'web-deepseek-api', schema: z.object({ count: z.number().min(1).max(50) }).toJSON(), value: { count: 10 }, base: { count: 10 }, user: {}, revision: 1 },
+    ], mutate } as never)
+    ctx.provide('omdshWebProviders', { list: () => ({ search: [{ id: 'deepseek-search-api', available: true }], fetch: [{ id: 'http', available: true }, { id: 'deepseek-fetch-api', available: true }] }) })
+    try {
+      const task = openWebSettings(ctx, new AbortController().signal)
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Web search and fetch' : '网页搜索与抓取')
+      press(term, '\x1b[B\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Direct fetch' : '直接抓取')
+      press(term, '\x1b[A\r')
+      await flushAsyncPaste()
+      press(term, '\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      press(term, '\x1520\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('20')
+      expect(mutate).not.toHaveBeenCalled()
+      press(term, '\x1b[27u')
+      await task
+      expect(mutate).not.toHaveBeenCalled()
+    } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it('reorders model drafts with the advertised keyboard actions and keeps the moved row selected', async () => {
+    const { editModelCatalog } = await import('./model-catalog-editor.ts')
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false), ctx = new Context()
+    ctx.provide('tui', tui)
+    try {
+      const task = editModelCatalog(ctx, { models: [{ id: 'one' }, { id: 'two' }], inputField: 'input', reasoningLevels: [] }, new AbortController().signal)
+      await flushAsyncPaste()
+      press(term, '\x1b[B\x1b[1;3A')
+      await flushAsyncPaste()
+      const rows = term.visible().join('\n')
+      expect(rows).toContain('❯ two')
+      expect(rows.indexOf('❯ two')).toBeLessThan(rows.indexOf(' one'))
+      press(term, '\x1b[B\x1b[B\x1b[B\r')
+      expect(await task).toEqual([{ id: 'two' }, { id: 'one' }])
+    } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
+  it.each(['en', 'zh-CN'] as const)('opens Models configuration, masks keys and returns to its settings row (%s)', async language => {
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false), ctx = new Context()
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, uiLanguage: language })
+    const mutate = vi.fn(), set = vi.fn()
+    ctx.provide('settings', { writable: true, describe: () => [{ ns: 'llm-pi-ai', schema: { type: 'object', dict: {} }, revision: 1, autoGenerate: false, user: { providers: { relay: {} } }, base: {},
+      value: { providers: { relay: { apiKeyEnv: 'RELAY_KEY', baseURL: 'https://relay.example/v1', models: [{ id: 'model' }] } } } }], mutate } as never)
+    ctx.provide('credentials', { describe: async () => ({ configured: true, writable: true, source: 'file' }), set } as never)
+    ctx.provide('llm', { listConfigurableProviders: () => [{ provider: 'relay', displayName: 'Settings', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'relay'], declared: true }],
+      listProviders: () => [{ id: 'relay' }], listModels: async () => [{ id: 'model' }] } as never)
+    ctx.provide('tui', tui)
+    const unbind = tui.bindPluginSettings({ entries: () => pluginSettingsEntries(ctx), edit: (id, signal) => editSettingsEntry(ctx, id, signal) })
+    const providerLabel = language === 'en' ? 'Model providers' : '模型服务商'
+    try {
+      const input = tui.readInput()
+      press(term, '/settings\r\t\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(providerLabel)
+      expect(term.visible().join('\n')).toContain('Settings')
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Edit the draft' : '编辑草稿')
+      press(term, '\r')
+      await flushAsyncPaste()
+      press(term, 'sk-never-print')
+      expect(term.visible().join('\n')).not.toContain('sk-never-print')
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      press(term, '\x1b[B\x1b[B\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Keep list' : '保留列表')
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Context window' : '上下文容量')
+      press(term, '\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      press(term, '64000\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('64000')
+      press(term, '\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      press(term, '\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      expect(mutate).not.toHaveBeenCalled()
+
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('❯ ' + providerLabel)
+      expect(mutate).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled()
+      press(term, '\x1b[27u')
+      press(term, 'next prompt\r')
+      expect(await input).toEqual({ text: 'next prompt', images: [] })
+    } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
+  })
+
   it.each([
     ['Codex', 'codex', false], ['Codex', 'codex', true],
     ['Claude Code', 'claude', false], ['Claude Code', 'claude', true],

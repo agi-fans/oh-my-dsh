@@ -71,7 +71,7 @@ export interface PluginSettingsEntry {
   id: string
   label: string
   description: string
-  section?: 'general' | 'presets' | 'agent' | 'tools' | 'integrations' | 'advanced'
+  section?: 'general' | 'models' | 'presets' | 'agent' | 'tools' | 'integrations' | 'advanced'
   namespace?: string
   fields?: readonly string[]
   summary?: string
@@ -479,7 +479,7 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
     .map(({ group: _category, ...item }) => group === 'Input' ? { ...item, group } : item)
   return [
     { id: 'general' as const, label: 'General', items: [{ id: 'uiLanguage', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true }, ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('general'), ...actions('General')] },
-    { id: 'models' as const, label: 'Models', items: [...actions('Models'), ...(state.actions ?? []).filter(item => item.group === undefined)] },
+    { id: 'models' as const, label: 'Models', items: [...actions('Models'), ...owned('models'), ...(state.actions ?? []).filter(item => item.group === undefined)] },
     { id: 'presets' as const, label: 'Agent presets', items: [...owned('presets'), ...actions('Agent presets')] },
     { id: 'plugins' as const, label: 'Plugins', items: [...actions('Plugins'), ...owned('tools'), ...owned('agent'), ...owned('integrations'), ...(state.features === undefined ? [] : featureSettingItems(state.features))] },
     { id: 'terminal' as const, label: 'Terminal', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,

@@ -10,6 +10,8 @@ import z from '@deepseek-ai/schemastery'
 
 import type { PluginSettingsEntry } from '../views/settings-list.ts'
 import { BTW_PRESET } from './btw-policy.ts'
+import { modelSettingsEntry, openModelSettings } from './model-settings.ts'
+import { WEB_SETTINGS_FIELDS, openWebSettings, webSettingsEntry } from './web-settings.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-permission-presets'
@@ -194,13 +196,15 @@ function parseProductValue(field: ConfigField, text: string): unknown {
 }
 
 export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInfo[]): PluginSettingsEntry[] {
+  const webEntries = webSettingsEntry(ctx)
   const entries: PluginSettingsEntry[] = ctx.settings.describe({ redactSecrets: true }).flatMap(section => {
     const fields = configFields(new z(section.schema as Partial<z>))
-    const ns = String(section.ns), form = Object.hasOwn(PRODUCT_FORMS, ns) ? PRODUCT_FORMS[ns] : undefined
+    const ns = String(section.ns), webOwned = webEntries.length > 0 && Object.hasOwn(WEB_SETTINGS_FIELDS, ns)
+    const form = !webOwned && Object.hasOwn(PRODUCT_FORMS, ns) ? PRODUCT_FORMS[ns] : undefined
     const paths = fields.map(field => field.path.join('.'))
-    const claimed = [...(Object.hasOwn(DEDICATED_FIELDS, ns) ? DEDICATED_FIELDS[ns] ?? [] : []), ...Object.keys(form?.fields ?? {})]
+    const claimed = [...(Object.hasOwn(DEDICATED_FIELDS, ns) ? DEDICATED_FIELDS[ns] ?? [] : []), ...Object.keys(form?.fields ?? {}), ...(webOwned ? WEB_SETTINGS_FIELDS[ns] ?? [] : [])]
     const owned = paths.filter(path => Object.hasOwn(form?.fields ?? {}, path))
-    const advanced = section.autoGenerate === false ? [] : paths.filter(path => !claimed.includes(path))
+    const advanced = section.autoGenerate === false && !webOwned ? [] : paths.filter(path => !claimed.includes(path))
     const writable = ctx.settings.writable ? 'Edits apply live to this profile.' : 'This profile is read-only.'
     const defaultPreset = ctx.get('agentPresets')?.defaultId
     const summary = (ns === 'agent-preset-registry' ? (defaultPreset === undefined ? undefined : formatAgentPreset(defaultPreset)) : ns === 'permission' ? ctx.get('permissionPresets')?.defaultPreset : undefined) ?? fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
@@ -232,7 +236,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
       summary: bundles === undefined ? 'Details' : bundle === undefined || bundle.availability === 'missing' ? 'Unavailable' : bundle.error !== undefined ? 'Load error' : bundle.enabled ? 'Enabled' : 'Disabled',
       description: 'Provider model, permissions and profile enablement. Native login has not been checked; Installation status reports registration.' }
   }))
-  return entries
+  return [...entries, ...modelSettingsEntry(ctx), ...webEntries]
 }
 
 /** Write the displayed snapshot's revision; a concurrent change must never be silently overwritten. */
@@ -252,6 +256,8 @@ export async function setSettingsEntry(ctx: Context, entry: PluginSettingsEntry,
 
 /** Route a product row to its original owner; installation remains in /plugins. */
 export async function editSettingsEntry(ctx: Context, id: string, signal: AbortSignal, resetOnly = false): Promise<void> {
+  if (id === 'web:settings') { await openWebSettings(ctx, signal); return }
+  if (id === 'models:providers') { await openModelSettings(ctx, signal); return }
   const native = NATIVE_INTEGRATIONS.find(item => item.id === id)
   if (native !== undefined) {
     const manager = ctx.get('pluginManager')

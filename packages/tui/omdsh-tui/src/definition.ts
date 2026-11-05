@@ -20,8 +20,19 @@ import type { TuiToolPresentation } from './chrome/tool-renderers.ts'
 /** Context service name providers publish under. */
 export const TUI_SERVICE = 'tui'
 
+/** Read-only registration projection supplied by the host's published-web adapter. */
+export interface WebSettingsDirectory {
+  list(): { search: readonly WebSettingsProvider[]; fetch: readonly WebSettingsProvider[] }
+}
+
+export interface WebSettingsProvider {
+  id: string
+  available: boolean
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
+    'omdsh/web-providers-changed'(): void
     'subagent/external-activity'(info: { id: string; activity: TuiSubagentActivity }): void
   }
 }
@@ -632,6 +643,7 @@ export interface TuiService {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
+    omdshWebProviders: WebSettingsDirectory
     /** The omdsh terminal presentation service. */
     tui: TuiService
   }
