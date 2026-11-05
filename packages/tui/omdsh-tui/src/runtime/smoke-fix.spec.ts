@@ -63,14 +63,14 @@ const ok = (id: string, seq: number): SessionEvent =>
 const screen = (t: ScrollingTerminal): string => t.visible().join('\n')
 
 describe('the repaired defects, on a real terminal', () => {
-  it('paints queued tool output before folding the completed turn without replaying native history', () => {
+  it('paints queued tool failure facts before folding the completed turn without replaying native history', () => {
     const term = new ScrollingTerminal(100, 30)
     term.history.push('existing shell output')
     const tui = new LocalTui(term, 'model', false, 'dark', undefined, { streamRenderMs: 60_000 })
     tui.event(ev('turn/start', { turn: 1 }, 1000))
     tui.setStatus('running')
     tui.event(ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"cat README.md"}' }, 2000))
-    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'LAST_TOOL_OUTPUT' }] } }, 3000))
+    tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'c1', isError: true, content: [{ type: 'text', text: 'LAST_TOOL_OUTPUT' }] } }, 3000))
     tui.event(ev('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'FINAL_ANSWER' }] } }, 4000))
     expect(term.captured).not.toContain('LAST_TOOL_OUTPUT')
     tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 17000))
@@ -79,7 +79,7 @@ describe('the repaired defects, on a real terminal', () => {
     expect(painted.indexOf('Worked for 16s')).toBeGreaterThan(painted.indexOf('LAST_TOOL_OUTPUT'))
     expect(screen(term)).toContain('Worked for 16s')
     expect(screen(term)).toContain('FINAL_ANSWER')
-    expect(screen(term)).not.toContain('LAST_TOOL_OUTPUT')
+    expect(screen(term)).toContain('LAST_TOOL_OUTPUT')
     expect(term.scrollback()[0]).toBe('existing shell output')
     expect(term.captured).not.toContain('\x1b[3J')
     const rows = term.visible()

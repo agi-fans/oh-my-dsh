@@ -1,4 +1,4 @@
-// Inspection e2e: Ctrl+O opens the browsing frame only on a settled turn group,
+// Inspection e2e: Ctrl+O browses a turn and Enter opens one process item,
 // so this boots omdsh against the published mock LLM and makes it call a tool.
 // The transcript then has a real run to inspect, and the terminal contracts that
 // belong to the frame — jump label, End returns to the tail, reopening, and every
@@ -62,12 +62,10 @@ if (!(await waitFor(() => cleanOutput(out).includes('Into the Unknown'), 'welcom
 
 let mark = out.length
 term.write('call a tool\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('omdsh-inspect'), 'tool card', deadline))) {
-  await fail('the turn never produced a tool card')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Say hello for the smoke'), 'compact tool row', deadline))) {
+  await fail('the turn never produced a compact tool row')
 }
-// The turn must settle before its run can be inspected: a live run has its own
-// presentation and refuses the frame. The folded run header is the reader-visible
-// signal that it has.
+// Wait for completion to exercise the outer fold before opening one item.
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Ctrl+O to expand'), 'settled run', deadline))) {
   await fail('the run never settled')
 }
@@ -75,22 +73,43 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Ctrl+O to expan
 // Ctrl+O opens the browsing frame on the settled run.
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'inspection jump label', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End'), 'inspection jump label', deadline))) {
   await fail('Ctrl+O did not open the browsing frame')
 }
-if (!out.slice(mark).includes(MOUSE_ON)) await fail('the browsing frame did not enable mouse reporting')
+if (out.lastIndexOf(MOUSE_ON) < 0 || out.lastIndexOf(MOUSE_ON) < out.lastIndexOf(MOUSE_OFF)) {
+  await fail('process disclosures do not have mouse reporting enabled')
+}
+
+// Compact inspection keeps payloads hidden until the selected item opens.
+if (cleanOutput(out.slice(mark)).includes('omdsh-inspect')) await fail('inspection expanded a tool without selecting it')
+mark = out.length
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('omdsh-inspect'), 'individual tool payload', deadline))) {
+  await fail('Enter did not reveal the selected tool output')
+}
+if (cleanOutput(out.slice(mark)).includes('"command"')) await fail('readable expansion showed raw arguments')
+mark = out.length
+term.write('\x1bo')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('"command"'), 'raw tool parameters', deadline))) {
+  await fail('Alt+O did not reveal raw parameters')
+}
+mark = out.length
+term.write('\x1b[D')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Say hello for the smoke') && !cleanOutput(out.slice(mark)).includes('omdsh-inspect'), 'close individual tool', deadline))) {
+  await fail('Left did not collapse the selected tool')
+}
 
 // End returns to the live tail and leaves the frame.
 mark = out.length
 term.write('\x1b[F')
-if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'End returns to the tail', deadline))) {
+if (!(await waitFor(() => out.length > mark && !cleanOutput(out.slice(mark)).includes('Latest · End'), 'End returns to the tail', deadline))) {
   await fail('End did not return to the live tail')
 }
 
 // And it can be reopened, which is the part the reader actually repeats.
 mark = out.length
 term.write('\x0f')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Jump to latest message'), 'reopen after End', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End'), 'reopen after End', deadline))) {
   await fail('Ctrl+O did not reopen the frame after End')
 }
 
@@ -113,4 +132,4 @@ if (!ok) await fail('terminal modes were not restored on exit')
 
 await server.close()
 term.kill()
-console.log('PTY_INSPECT_SMOKE_PASS exit=0 inspection=open-end-reopen modes=restored')
+console.log('PTY_INSPECT_SMOKE_PASS exit=0 inspection=browse-open-close-end-reopen modes=restored')

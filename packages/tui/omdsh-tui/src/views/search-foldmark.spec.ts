@@ -97,8 +97,8 @@ describe('a search that opens a thought the run took', () => {
     // A query only inside the thought: the thought has to lay out in full.
     const thoughtQuery = view(state, { query: 'lockfile shared 9', matches: match('x'), focus: 3 })
 
-    // The body query and no query agree, because neither opens the thought.
-    expect(answerQuery.foldShape).toBe(before.foldShape)
+    // Searching opens the whole matched step so offsets include its thought header.
+    expect(answerQuery.foldShape).not.toBe(before.foldShape)
     // The thought query differs: its rows are now on screen.
     expect(thoughtQuery.foldShape).not.toBe(before.foldShape)
   })
@@ -142,7 +142,7 @@ describe('a search that opens a thought the run took', () => {
     // The mark reports the thought's own row — the `∴ Thought` label the run
     // paints above the opened text — not the reply below it, which is where a
     // query matching both would navigate to.
-    const label = both.lines.findIndex(line => line.includes('lockfile shared 0'))
+    const label = both.lines.findIndex(line => line.includes('▾ Thinking'))
     expect(label).toBeGreaterThan(-1)
     expect(both.markRows.thought).toBe(label - both.documentTop - both.bodyRow)
   })
@@ -172,7 +172,7 @@ describe('a search that opens a thought the run took', () => {
     // anchor is independent of why the thought is open.
     const state = transcript()
     const rendered = view(state, undefined, { expandedReasoning: new Set(['1:2']) })
-    const label = rendered.lines.findIndex(line => line.includes('lockfile shared 0'))
+    const label = rendered.lines.findIndex(line => line.includes('▾ Thinking'))
 
     expect(label).toBeGreaterThan(-1)
     expect(rendered.markRows.thought).toBe(label - rendered.documentTop - rendered.bodyRow)

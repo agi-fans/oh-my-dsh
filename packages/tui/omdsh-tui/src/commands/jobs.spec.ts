@@ -38,7 +38,7 @@ async function jobsHarness(jobs: readonly JobView[]): Promise<JobsHarness> {
   const list = vi.fn(() => [...jobs])
   const readAt = vi.fn(() => ({ chunks: [], next: 0, lossy: false }))
   ctx.provide('tui', {} as unknown as TuiService)
-  ctx.provide('jobs', { list, kill, readAt } as never)
+  ctx.provide('jobs', { list, kill, readAt, events: { subscribe: () => () => {} } } as never)
   const session = ctx.sessions.create(SessionId('jobs-command-test'))
   const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
   let scope!: Scope
@@ -160,4 +160,22 @@ describe('jobsText', () => {
     const text = jobsText([snapshot({ label: 'grep a|b' })], 1_000)
     expect(text).toContain('grep a\\|b')
   })
+})
+
+
+it('unloading the command cancels a visible browser before draining its handler', async () => {
+  const h = await jobsHarness([snapshot()])
+  let entered!: () => void
+  const visible = new Promise<void>(resolve => { entered = resolve })
+  const prompt = vi.fn((request: import('../definition.ts').TuiPrompt) => new Promise<string | null>(resolve => {
+    request.signal!.addEventListener('abort', () => resolve(null), { once: true })
+    entered()
+  }))
+  Object.assign(h.ctx.tui, { interactive: true, prompt })
+  const execution = run(h.ctx, h.agent, '/jobs')
+  await visible
+  await h.scope.ctx.fiber.dispose()
+  await expect(execution).resolves.toMatchObject({ kind: 'success' })
+  expect(prompt.mock.calls[0]![0].signal?.aborted).toBe(true)
+  await h.ctx.fiber.dispose()
 })

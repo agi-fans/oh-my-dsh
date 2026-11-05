@@ -795,7 +795,7 @@ describe('applyEvent', () => {
     const running = renderView({ ...state, status: 'running' }, {
       width: 60, height: 24, model: 'm', input: '', inputCursor: 0, colors: false,
     })
-    expect(running.lines.join('\n')).toContain('read')
+    expect(running.lines.join('\n')).toContain('Read file')
     // The activity lives in the composer's top border, so the row that carries
     // it is the composer frame rather than a separate line above it.
     const activity = running.lines.find(line => line.includes('Deep Driving')) ?? ''
@@ -841,7 +841,7 @@ describe('applyEvent', () => {
     const collapsedText = collapsed.lines.join('\n')
     // A settled call keeps no frame and no body: the row is the whole record
     // until the reader asks for it.
-    expect(collapsedText).toContain('$')
+    expect(collapsedText).toContain('Run command')
     expect(collapsedText).not.toContain('out-0')
     const row = collapsed.lines.find(line => stripAnsi(line).includes('Run command')) ?? ''
     expect(stripAnsi(row).trimStart().startsWith('╭')).toBe(false)
@@ -1184,11 +1184,7 @@ describe('blockLines', () => {
       streaming: true,
     }, theme, 12)
 
-    // The reasoning row owns the gutter's first column, beside the work rows.
-    // Indenting it put a marked aside on a different axis from the marks around
-    // it, which is what made a turn read as one undifferentiated column.
-    // The marks share column zero and the reply stays inset behind them, so the
-    // two registers read as marked asides and prose rather than as one column.
+    // Plain printer output has no disclosure gutter.
     expect(reasoning).toEqual(['  thought   ', '', '  answer    '])
     expect(streaming).toEqual(['  …         '])
   })
@@ -2157,7 +2153,8 @@ describe('focused transcript edges', () => {
     }
     const start = renderView(state, options).lines.map(stripAnsi).join('\n')
     const end = renderView(state, { ...options, focusBlockEdge: 'end' }).lines.map(stripAnsi).join('\n')
-    expect(start).toContain('Input')
+    expect(start).toContain('▾ Run command')
+    expect(start).not.toContain('Input')
     expect(start).not.toContain('输出 🐳 25')
     expect(end).toContain('输出 🐳 29')
     expect(end).not.toContain('输出 🐳 0')

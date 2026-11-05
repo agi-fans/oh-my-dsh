@@ -37,6 +37,11 @@ describe('renderGoalBar', () => {
     expect(blocked).toContain('waiting on the API key')
   })
 
+  it('distinguishes a saved active goal from live continuation authority', () => {
+    expect(renderGoalBar({ ...active, activation: 'disarmed' }, theme, 80)[0]).toContain('Goal waiting')
+    expect(renderGoalBar({ ...active, activation: 'armed' }, theme, 80)[0]).not.toContain('waiting')
+  })
+
   it('right-aligns the admitted-round counter at the terminal edge', () => {
     const capped = stripAnsi(renderGoalBar({ ...active, roundsStarted: 3, maxGoalRounds: 12 }, theme, 60)[0] ?? '')
     expect(capped).toHaveLength(60)

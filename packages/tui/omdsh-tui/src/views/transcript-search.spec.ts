@@ -141,3 +141,24 @@ describe('inline highlight', () => {
     expect(row).toBe('')
   })
 })
+
+describe('searching compact process rows', () => {
+  it('finds and highlights hidden thoughts, replies, and tool output using their rendered cells', async () => {
+    const { initialTranscript, renderView } = await import('./event-views.ts')
+    const { renderedBlocks } = await import('./transcript-render.ts')
+    const state = { ...initialTranscript(), turn: 1, blocks: [
+      { kind: 'tool' as const, turn: 1, callId: 'a', name: 'read', args: '{"path":"a.ts"}', status: 'ok' as const, output: '中文 needle output' },
+      { kind: 'assistant' as const, turn: 1, step: 2, text: 'Reply needle.', reasoning: 'Summary.\n\nHidden needle.', streaming: false },
+    ] }
+    const options = { width: 80, height: 80, model: 'm', input: '', inputCursor: 0, colors: true }
+    const occurrences = searchMatches(renderedBlocks(state, options), 'needle')
+    expect(occurrences).toHaveLength(3)
+    const frame = renderView(state, { ...options, transcriptSearch: { query: 'needle', focus: 0, editing: false } })
+    const rows = frame.lines.filter(line => stripAnsi(line).includes('needle') && !stripAnsi(line).includes('Search'))
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row).toContain('\x1b[7m')
+      expect(stripAnsi(row.slice(row.indexOf('\x1b[7m') + 4, row.indexOf('\x1b[27m')))).toBe('needle')
+    }
+  })
+})

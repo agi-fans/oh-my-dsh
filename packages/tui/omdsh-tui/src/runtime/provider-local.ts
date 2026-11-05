@@ -1,3 +1,4 @@
+import { reasoningKey } from '../views/transcript-types.ts'
 /**
  * TUI capability seam — local terminal provider.
 
@@ -177,7 +178,7 @@ import {
   streamingAssistantUnits,
 } from '../views/streaming-reveal.ts'
 import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
-import { sanitizeDisplayLine, type Frame, type FoldMark, type RenderSink } from '../chrome/renderer.ts'
+import { sanitizeDisplayLine, type Frame, type FoldMark, type TranscriptDisclosure, type RenderSink } from '../chrome/renderer.ts'
 import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
 import { stripAnsi } from '../chrome/width.ts'
@@ -487,6 +488,8 @@ export class LocalTui implements TuiService {
   #queueEdits = new Set<(request?: TuiQueueEditRequest) => void>()
   #continueHandler: ((request: { sessionId: string; failureSeq: number }) => Promise<void>) | undefined
   #continuing = false
+  #goalHandler: ((signal: AbortSignal) => Promise<void>) | undefined
+  #goalAbort: AbortController | undefined
   #queueHandler: ((signal: AbortSignal) => Promise<void>) | undefined
   #queueHotkeyAbort: AbortController | undefined
   #rewinds = new Set<() => void>()
@@ -600,9 +603,10 @@ export class LocalTui implements TuiService {
   #mathMode: import('../chrome/math.ts').MathMode = 'auto'
   #mermaidMode: import('../chrome/mermaid.ts').MermaidMode = 'auto'
   /** Transcript collapses every thought to one line; Ctrl+T flips it. */
-  #hideThinking = false
+  #hideThinking = true
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
+  #disclosurePress: { target: TranscriptDisclosure; row: number } | undefined
   #jumpPress: { row: number; column: number; width: number } | undefined
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
@@ -612,6 +616,9 @@ export class LocalTui implements TuiService {
   #asideAbort: AbortController | undefined
   /** Thoughts a reader opened individually, addressed by reasoning identity. */
   #expandedReasoning = new Set<string>()
+  #expandedToolRows = new Set<string>()
+  #processSelection: number | undefined
+  #closedReasoning = new Set<string>()
   /**
    * The last action's confirmation, drawn on the composer's bottom border.
    *
@@ -818,6 +825,7 @@ export class LocalTui implements TuiService {
         // live window so it stays anchored at the bottom.
         this.#selection.clear()
         this.#jumpPress = undefined
+        this.#disclosurePress = undefined
         const repaint = (): void => {
           this.#resizeTimer = null
           this.#renderer.resize(this.#term.width(), this.#term.height())
@@ -1053,11 +1061,7 @@ export class LocalTui implements TuiService {
   }
 
   setCommands(commands: readonly TuiCommand[]): void {
-    this.#runtimeCommands = commands.map((command) => ({
-      name: command.name,
-      description: command.description,
-      ...(command.inputHint === undefined ? {} : { inputHint: command.inputHint }),
-    }))
+    this.#runtimeCommands = commands.map(command => ({ ...command }))
     this.#syncSettingsActions()
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
@@ -1790,6 +1794,23 @@ export class LocalTui implements TuiService {
       && this.#state.nextTurnInbox.length === 0 && !this.#state.nextStepInbox.some(message => message.source.kind === 'user')
   }
 
+  setGoalHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
+    this.#goalHandler = handler
+    this.#syncSettingsActions()
+    return () => { if (this.#goalHandler === handler) { this.#goalAbort?.abort(); this.#goalHandler = undefined; this.#syncSettingsActions() } }
+  }
+
+  #openGoal(): void {
+    if (this.#inspected !== undefined) return
+    if (this.#goalHandler === undefined) { this.notice('Goal controls are unavailable in this profile.'); return }
+    if (this.#goalAbort !== undefined) return
+    const abort = new AbortController()
+    this.#goalAbort = abort
+    void this.#goalHandler(abort.signal).catch(error => {
+      if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    }).finally(() => { if (this.#goalAbort === abort) this.#goalAbort = undefined })
+  }
+
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
     this.#queueHandler = handler
     return () => { if (this.#queueHandler === handler) { this.#queueHotkeyAbort?.abort(); this.#queueHandler = undefined } }
@@ -1848,6 +1869,9 @@ export class LocalTui implements TuiService {
     this.#asideAbort?.abort()
     for (const directory of this.#imageTemporary) { try { rmSync(directory, { recursive: true, force: true }) } catch { /* OS may still hold the opened file. */ } }
     this.#imageTemporary.clear()
+    this.#goalAbort?.abort()
+    this.#goalAbort = undefined
+    this.#goalHandler = undefined
     this.#queueHotkeyAbort?.abort()
     this.#queueHandler = undefined
     this.#continueHandler = undefined
@@ -2093,6 +2117,8 @@ export class LocalTui implements TuiService {
 
   #switchDraft(id: string | undefined): void {
     if (id === this.#draftScope) return
+    this.#goalAbort?.abort()
+    this.#goalAbort = undefined
     this.#queueHotkeyAbort?.abort()
     this.#queueHotkeyAbort = undefined
     this.#cancelQueueRecall()
@@ -2146,7 +2172,7 @@ export class LocalTui implements TuiService {
         imageCellSize: this.#imageCellSize,
         mathMode: this.#mathMode,
         mermaidMode: this.#mermaidMode,
-        hideThinking: this.#hideThinking,
+        hideThinking: true,
         height: this.#term.height(),
         model: this.#model,
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
@@ -2171,7 +2197,8 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
-        ...(this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
+        ...(this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · Esc return') }
+          : this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -2184,6 +2211,9 @@ export class LocalTui implements TuiService {
         toolsExpanded: this.#toolsExpanded,
         expandedOutputs: this.#expandedOutputs,
         expandedTools: this.#detailedToolIds(),
+        rawTools: this.#detailedToolIds(false),
+        expandedReasoning: this.#visibleReasoning(),
+        ...(this.#processSelection === undefined ? {} : { selectedProcess: this.#processSelection }),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
         busyEnter: this.#queueEditNewer !== null || this.#queueEditPending ? 'queue' : this.#busyEnter,
@@ -2219,7 +2249,7 @@ export class LocalTui implements TuiService {
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
     this.#setMouseTracking(frame.transcript !== undefined && frame.transientSurface !== 'overlay'
-      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0))
+      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
     // blanks the screen and a large one replays the transcript into history.
@@ -2299,13 +2329,17 @@ export class LocalTui implements TuiService {
     this.#openedGroups.clear()
     this.#detailedTurns.clear()
     this.#expandedOutputs.clear()
+    this.#expandedToolRows.clear()
+    this.#expandedReasoning.clear()
+    this.#closedReasoning.clear()
+    this.#processSelection = undefined
   }
 
   /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
   #setMouseTracking(enabled: boolean): void {
     enabled = enabled && this.#mouseInteraction !== 'native'
       && (this.#mouseInteraction === 'tui' || this.#tmuxMouseEnabled !== false)
-    if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined }
+    if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
     this.#session.setMode('mouse', MOUSE_TRACKING, enabled)
@@ -2544,11 +2578,52 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
+  /** Resolve only current painted rows, never reinterpret a frozen native-history snapshot. */
+  #disclosureAt(row: number, column: number): TranscriptDisclosure | undefined {
+    const frame = this.#fileActionFrame
+    const document = this.#renderer.documentRowAt(row)
+    const source = frame?.documentRows
+    if (document === undefined || source == null || document < source.documentStart || document >= source.documentEnd) return
+    const target = frame?.transcript?.disclosures?.find(item => item.row === document && column >= item.column && column < item.column + item.width)
+    const expected = frame?.lines[source.frameStart + document - source.documentStart]
+    const actual = this.#renderer.viewport()[row]
+    if (target === undefined || expected === undefined || actual === undefined
+      || stripAnsi(sanitizeDisplayLine(expected)).trimEnd() !== stripAnsi(actual).trimEnd()) return
+    return target
+  }
+
+  /** Preview text and spinner frames may change while a click stays on the same item. */
+  #pressedDisclosureAt(row: number, column: number): TranscriptDisclosure | undefined {
+    const pressed = this.#disclosurePress
+    if (pressed === undefined || pressed.row !== row) return
+    const target = this.#disclosureAt(row, column)
+    if (target?.key === pressed.target.key && target.row === pressed.target.row
+      && target.column === pressed.target.column && target.width === pressed.target.width) return target
+  }
+
+  #activateDisclosure(target: TranscriptDisclosure): void {
+    const groups = turnGroups(this.#state)
+    const group = groups.find(item => target.group === undefined
+      ? target.block >= item.start && target.block < item.until : item.key === target.group)
+    if (group === undefined) return
+    const block = this.#state.blocks[target.block]
+    if (target.group === undefined && target.key !== (block?.kind === 'tool' ? `call:${block.callId}`
+      : block?.kind === 'assistant' ? `thought:${reasoningKey(block)}` : undefined)) return
+    const scope = this.#detailScope(group)
+    for (const member of groups) if (this.#detailScope(member) === scope) this.#openedGroups.add(member.key)
+    this.#processSelection = this.#processRows().includes(target.block) ? target.block : this.#processRows()[0]
+    this.#ac = null
+    this.#inspect(target.block)
+    if (target.group === undefined) this.#toggleProcessItem(target.block, 'enter')
+    else { this.#focusBlock = target.block; this.#focusBlockEdge = 'start'; this.#render() }
+  }
+
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
     const inside = (target: { row: number; column: number; width: number }): boolean =>
       event.row === target.row && event.column >= target.column && event.column < target.column + target.width
     if (event.button === 'right') {
+      this.#disclosurePress = undefined
       if (event.action === 'press') {
         if (this.#selection.active) void this.#copySelection()
         else {
@@ -2571,6 +2646,8 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.action === 'press') {
+      const disclosure = event.shift ? undefined : this.#disclosureAt(event.row, event.column)
+      this.#disclosurePress = disclosure === undefined ? undefined : { target: disclosure, row: event.row }
       const target = this.#jumpToLatest
       this.#jumpPress = target !== undefined && inside(target) ? target : undefined
       if (this.#jumpPress !== undefined) this.#selection.clear()
@@ -2583,8 +2660,21 @@ export class LocalTui implements TuiService {
         this.#jumpPress = undefined
         if (inside(target)) this.#followTail()
       }
-    } else if (event.action === 'drag') this.#selection.move(event)
-    else {
+    } else if (event.action === 'drag') {
+      // Motion confined to the empty gutter is click jitter. Once it leaves,
+      // selection owns the gesture even if the pointer returns to the arrow.
+      if (event.shift || this.#pressedDisclosureAt(event.row, event.column) === undefined) {
+        this.#disclosurePress = undefined
+        this.#selection.move(event)
+      }
+    } else {
+      const target = this.#pressedDisclosureAt(event.row, event.column)
+      this.#disclosurePress = undefined
+      if (!event.shift && target !== undefined) {
+        this.#selection.clear()
+        this.#activateDisclosure(target)
+        return
+      }
       const text = this.#selection.release(event)
       if (text !== undefined && this.#copyOnSelect) void this.#copySelection()
     }
@@ -2650,6 +2740,7 @@ export class LocalTui implements TuiService {
       return
     }
     this.#jumpPress = undefined
+    this.#disclosurePress = undefined
     if (this.#selection.active) {
       if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
         void this.#copySelection()
@@ -2693,6 +2784,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'paste-start') {
+      if (this.#prompt === null && this.#settings === null && this.#trajectory === null) this.#processSelection = undefined
       this.#paste = true
       this.#pasteBuf = ''
       return
@@ -2738,6 +2830,7 @@ export class LocalTui implements TuiService {
       this.#applySettings(event)
       return
     }
+    if (this.#search === null && this.#handleProcessNavigation(event)) return
     /**
      * The side pane is a companion, not a mode: it answers where the reader is
      * already working, so it must not take keys the composer is using. It reads
@@ -3391,7 +3484,7 @@ export class LocalTui implements TuiService {
     this.#copyOnSelect = prefs.copyOnSelect ?? true
     this.#mathMode = prefs.mathMode ?? 'auto'
     this.#mermaidMode = prefs.mermaidMode ?? 'auto'
-    this.#hideThinking = prefs.hideThinking === true
+    this.#hideThinking = prefs.hideThinking !== false
     this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -3480,6 +3573,7 @@ export class LocalTui implements TuiService {
     const command = applySettingsEvent(this.#settings, event)
     if (command.kind === 'open-command') {
       if (this.#prefsSaveTask !== undefined) return
+      if (command.name === 'manage-goal') { this.#openGoal(); return }
       if (command.name === 'keybindings') {
         void this.#editKeybindings()
         return
@@ -3823,7 +3917,8 @@ export class LocalTui implements TuiService {
   #toggleThinking(): void {
     const next = !this.#hideThinking
     this.#hideThinking = next
-    if (!next) this.#expandedReasoning.clear()
+    this.#expandedReasoning.clear()
+    this.#closedReasoning.clear()
     const persist = this.#persistPrefs
     if (persist !== null) void persist(this.prefs(), [{ op: 'set', path: ['hideThinking'], value: next }])
     this.#showTransientStatus(next ? 'Thinking: hidden' : 'Thinking: shown')
@@ -4144,12 +4239,6 @@ export class LocalTui implements TuiService {
     const localNames = new Set(BUILTIN_SLASH_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]))
     const runtime: SlashCommand[] = this.#runtimeCommands
       .filter((command) => !localNames.has(command.name))
-      .map((command) => ({
-        name: command.name,
-        description: command.description,
-        ...(command.inputHint === undefined ? {} : { inputHint: command.inputHint }),
-        ...(command.complete === undefined ? {} : { complete: command.complete }),
-      }))
     return [...BUILTIN_SLASH_COMMANDS, ...runtime]
   }
 
@@ -4288,6 +4377,7 @@ export class LocalTui implements TuiService {
     const customBindings = Object.entries(this.#keybindings).filter(([key, action]) => DEFAULT_KEYBINDINGS[key] !== action).length
     return [
       ...runtimeActions,
+      ...(this.#goalHandler === undefined ? [] : [{ id: 'action:goal', group: 'General' as const, label: 'Current goal', description: 'Edit, pause, resume or clear this session’s goal.', value: 'Open', values: [], action: 'manage-goal' }]),
       ...(this.#keybindingsPath === undefined ? [] : [{
         id: 'action:keybindings',
         label: 'Keybindings',
@@ -4474,6 +4564,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
+    if (action === 'manage-goal') { this.#openGoal(); return true }
     if (action === 'manage-queue') {
       if (this.#queueHandler === undefined) this.notice('Queue management is unavailable in this profile.')
       else if (this.#queueHotkeyAbort === undefined) {
@@ -4833,7 +4924,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    const groups = turnGroups(this.#state).filter(item => !item.live)
+    const groups = turnGroups(this.#state)
     // The answer, changed-file record, and following notices still address
     // their turn when the reader is following the tail.
     const reach = (group: ProcessGroup): number => {
@@ -4856,20 +4947,101 @@ export class LocalTui implements TuiService {
         return anchor >= first && anchor <= reach(item)
       })
     if (group !== undefined) {
-      this.#toggleSet(this.#openedGroups, group.key)
-      this.#inspect((group.answer ?? group.until) - 1)
+      const scope = this.#detailScope(group)
+      for (const member of groups) if (this.#detailScope(member) === scope) this.#openedGroups.add(member.key)
+      const rows = this.#processRows()
+      this.#processSelection = rows.includes(anchor!) ? anchor : rows[0]
+      this.#ac = null
+      this.#inspect(this.#processSelection ?? group.start)
+      this.#focusBlock = this.#processSelection ?? group.start
+      this.#focusBlockEdge = 'start'
       this.#render()
       return
     }
-    // A live turn already has the process presentation; Alt+O owns tool details.
+
+  }
+
+  /** The process list follows durable block order and grows without moving selection. */
+  #processRows(): number[] {
+    return turnGroups(this.#state).filter(group => this.#openedGroups.has(group.key)).flatMap(group =>
+      this.#state.blocks.slice(group.start, group.until).flatMap((block, offset) =>
+        block.kind === 'tool' || block.kind === 'assistant' && block.reasoning.trim() !== ''
+          ? [group.start + offset] : []))
+  }
+
+  #handleProcessNavigation(event: KeyEvent): boolean {
+    const selected = this.#processSelection
+    if (selected === undefined) return false
+    if (event.type === 'text' || event.type === 'paste-start') {
+      this.#processSelection = undefined
+      return false
+    }
+    if (event.type !== 'key') return false
+    if (event.id === 'escape' || event.id === 'end') {
+      this.#followTail()
+      this.#render()
+      return true
+    }
+    if (event.id === 'up' || event.id === 'down') {
+      const rows = this.#processRows()
+      const at = Math.max(0, rows.indexOf(selected))
+      const next = rows[Math.max(0, Math.min(rows.length - 1, at + (event.id === 'up' ? -1 : 1)))]
+      if (next !== undefined) {
+        this.#processSelection = next
+        const row = this.#blockStarts[next]
+        if (row === undefined || row < this.#scrollStart || row >= this.#scrollStart + this.#scrollBudget - 1) {
+          this.#focusBlock = next
+          this.#focusBlockEdge = 'start'
+        }
+      }
+      this.#render()
+      return true
+    }
+    if (!['enter', 'left', 'right'].includes(event.id)) return false
+    this.#toggleProcessItem(selected, event.id)
+    return true
+  }
+
+  #toggleProcessItem(selected: number, direction: string): void {
+    const block = this.#state.blocks[selected]
+    if (block?.kind === 'tool') {
+      const visible = this.#detailedToolIds()
+      const open = direction === 'right' || direction !== 'left' && !visible.has(block.callId)
+      // Once a reader edits one disclosure, preserve the other visible calls as
+      // individual choices instead of letting the turn-wide override reopen it.
+      this.#expandedToolRows = new Set(visible)
+      this.#detailedTurns.clear()
+      if (open) this.#expandedToolRows.add(block.callId)
+      else this.#expandedToolRows.delete(block.callId)
+    } else if (block?.kind === 'assistant') {
+      const key = reasoningKey(block)
+      const open = direction === 'right' || direction !== 'left' && !this.#visibleReasoning().has(key)
+      if (open) { this.#expandedReasoning.add(key); this.#closedReasoning.delete(key) }
+      else { this.#expandedReasoning.delete(key); this.#closedReasoning.add(key) }
+    }
+    const row = this.#blockStarts[selected]
+    if (row === undefined || row < this.#scrollStart || row > this.#scrollStart + Math.floor(this.#scrollBudget / 2)) {
+      this.#focusBlock = selected
+      this.#focusBlockEdge = 'start'
+    }
+    this.#render()
+  }
+
+  #visibleReasoning(): ReadonlySet<string> {
+    const open = new Set(this.#expandedReasoning)
+    if (!this.#hideThinking) for (const block of this.#state.blocks) {
+      if (block.kind === 'assistant') open.add(reasoningKey(block))
+    }
+    for (const key of this.#closedReasoning) open.delete(key)
+    return open
   }
 
   #detailScope(group: ProcessGroup): string {
     return group.turn === undefined ? group.key : `turn:${group.turn}`
   }
 
-  #detailedToolIds(): ReadonlySet<string> {
-    const calls = new Set<string>()
+  #detailedToolIds(includeReadable = true): ReadonlySet<string> {
+    const calls = new Set<string>(includeReadable ? this.#expandedToolRows : [])
     if (this.#detailedTurns.size === 0) return calls
     for (const group of turnGroups(this.#state)) {
       if (!this.#detailedTurns.has(this.#detailScope(group))) continue
@@ -4906,6 +5078,10 @@ export class LocalTui implements TuiService {
     for (const member of members) this.#openedGroups.add(member.key)
     const tools = members.flatMap(member => this.#state.blocks.slice(member.start, member.until)
       .flatMap((block, offset) => block.kind === 'tool' ? [member.start + offset] : []))
+    for (const at of tools) {
+      const block = this.#state.blocks[at]
+      if (block?.kind === 'tool') this.#expandedToolRows.delete(block.callId)
+    }
     const target = tools.includes(anchor) ? anchor : tools[0]
     this.#inspect(target)
     this.#focusBlock = target
@@ -4935,10 +5111,12 @@ export class LocalTui implements TuiService {
       themeName: this.#themeName,
       ...(this.#colorDepth === undefined ? {} : { colorDepth: this.#colorDepth }),
       mathMode: this.#mathMode,
+      mermaidMode: this.#mermaidMode,
       toolsExpanded: this.#toolsExpanded,
       expandedOutputs: this.#expandedOutputs,
-      hideThinking: this.#hideThinking,
+      hideThinking: true,
       expandedTools: this.#detailedToolIds(),
+      expandedReasoning: this.#visibleReasoning(),
       ...(this.#openedGroups === undefined ? {} : { openedGroups: this.#openedGroups }),
     }
     return searchMatches(renderedBlocks(this.#state, options as never), search.query)

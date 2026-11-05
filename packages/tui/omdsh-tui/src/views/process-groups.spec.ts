@@ -79,10 +79,10 @@ describe('processGroups', () => {
     expect(groups[0]?.tookThought).toBe(true)
   })
 
-  it('keeps a mid-turn reply out of sight once the run folds', () => {
+  it('keeps every assistant reply visible once the process folds', () => {
     const text = body(fold(oneTurn()))
 
-    expect(text).not.toContain('Reading them.')
+    expect(text).toContain('Reading them.')
     expect(text).toContain('The cohort is current.')
   })
 

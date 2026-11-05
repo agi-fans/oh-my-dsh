@@ -20,6 +20,7 @@ import {
   slashSuggestions,
 } from './autocomplete.ts'
 import { createTheme } from '../chrome/theme.ts'
+import { visibleWidth, stripAnsi } from '../chrome/width.ts'
 
 const theme = createTheme(false)
 
@@ -38,7 +39,6 @@ describe('leadingSlashCommandNameRange', () => {
     expect(leadingSlashCommandNameRange('/help')).toEqual({ start: 0, end: 5 })
     expect(leadingSlashCommandNameRange('  /copy text')).toEqual({ start: 2, end: 7 })
     expect(leadingSlashCommandNameRange('/foo:bar')).toEqual({ start: 0, end: 4 })
-    expect(leadingSlashCommandNameRange('/skill:code-review focus')).toEqual({ start: 0, end: 18 })
   })
 
   it('rejects prose, multiline buffers, and absolute-path lookalikes', () => {
@@ -95,17 +95,15 @@ describe('slashSuggestions', () => {
     expect(slashSuggestions('/settings ', 10)).toBe(null)
   })
 
-  it('filters namespaced skills as one flat command catalog', () => {
+  it('discovers skills only by their names', () => {
     const commands = [
       ...BUILTIN_SLASH_COMMANDS,
-      { name: 'skill:code-review', description: 'Review a change for correctness' },
-      { name: 'skill:research', description: 'Investigate primary sources' },
+      { name: 'code-review', description: 'Review a change for correctness', skill: { userOnly: false } },
+      { name: 'research', description: 'Investigate primary sources', skill: { userOnly: true } },
     ]
-    const result = slashSuggestions('/skill:', 7, commands)
-    expect(result?.items).toEqual([
-      expect.objectContaining({ value: 'skill:code-review', description: 'Review a change for correctness' }),
-      expect.objectContaining({ value: 'skill:research', description: 'Investigate primary sources' }),
-    ])
+    expect(slashSuggestions('/code', 5, commands)?.items[0]).toMatchObject({ value: 'code-review', label: 'code-review' })
+    expect(resolveSlashCommand('skill:research', commands)).toBeUndefined()
+    expect(slashSuggestions('/skill:', 7, commands)).toBeNull()
   })
 })
 
@@ -161,11 +159,6 @@ describe('parseSlashInput / resolveSlashCommand', () => {
     expect(parseSlashInput('/help')).toEqual({ name: 'help', args: '' })
     expect(parseSlashInput('  /clear now  ')).toEqual({ name: 'clear', args: 'now' })
     expect(parseSlashInput('/foo:bar')).toEqual({ name: 'foo', args: 'bar' })
-    expect(parseSlashInput('/skill:code-review')).toEqual({ name: 'skill:code-review', args: '' })
-    expect(parseSlashInput('/skill:code-review focus on auth')).toEqual({
-      name: 'skill:code-review',
-      args: 'focus on auth',
-    })
     expect(parseSlashInput('/')).toEqual({ name: '', args: '' })
     expect(parseSlashInput('hello')).toBe(null)
     expect(resolveSlashCommand('dirs')).toBeUndefined()
@@ -203,10 +196,10 @@ describe('formatHelpText / renderAutocomplete', () => {
       ...BUILTIN_SLASH_COMMANDS,
       { name: 'resume', description: 'Resume a durable session', inputHint: '[session-id]' },
       {
-        name: 'skill:code-review',
+        name: 'code-review', skill: { userOnly: false },
         description: 'Review changes against repository standards and the originating specification',
       },
-      { name: 'skill:research', description: 'Investigate a question against high-trust primary sources' },
+      { name: 'research', skill: { userOnly: true }, description: 'Investigate a question against high-trust primary sources' },
     ])
     const lines = text.split('\n')
     expect(lines[0]).toBe('Commands · 7 core · 2 skills')
@@ -215,7 +208,7 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(text).not.toContain('| Command | Description |')
     expect(text).toContain('/resume [session-id]')
     expect(text).toContain('**Skills · 2**')
-    expect(text).toContain('Type `/skill:` to browse and filter skills')
+    expect(text).toContain('Type `/` and a skill name')
     expect(text).not.toContain('/skill:code-review')
     expect(lines.filter(line => line.startsWith('- `/'))).toHaveLength(7)
   })
@@ -231,6 +224,20 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('/c6'))).toBe(true)
     expect(lines.some((line) => line.includes('7/8'))).toBe(true)
     expect(lines.every((line) => !line.includes('/c0'))).toBe(true)
+  })
+
+  it.each([false, true])('localizes skill markers without translating provider descriptions (colors=%s)', colors => {
+    const items = buildSlashCommandCompletions([
+      { name: 'manual', description: 'Settings', skill: { userOnly: true } },
+      { name: 'review', description: '检查 🐳 é', skill: { userOnly: false } },
+    ], '')
+    const localized = createTheme(colors, 'truecolor', 'dark', undefined, 'zh-CN')
+    const rows = renderAutocomplete(items, 0, localized, 70)
+    expect(stripAnsi(rows.join('\n'))).toContain('仅用户调用 · Settings')
+    expect(stripAnsi(rows.join('\n'))).toContain('技能 · 检查 🐳 é')
+    for (const width of [18, 35, 70]) {
+      expect(renderAutocomplete(items, 0, localized, width).every(row => visibleWidth(row) <= width)).toBe(true)
+    }
   })
 
   it('paints unselected command names in the accent color', () => {

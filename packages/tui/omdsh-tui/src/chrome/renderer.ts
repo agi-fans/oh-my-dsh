@@ -9,6 +9,8 @@
 
 /** Transcript viewport after the height clip (OMP ScrollView equivalent). */
 export interface TranscriptScroll {
+  /** The left disclosure gutter is clickable; titles remain selectable text. */
+  disclosures?: readonly TranscriptDisclosure[]
   /** Actual painted file-bearing spans, in document rows; folded-away calls are absent. */
   fileRegions?: readonly TranscriptFileRegion[]
   /** First body row shown (0 = top of the welcome/transcript). */
@@ -54,6 +56,16 @@ export interface TranscriptScroll {
    * block's own drawn start, which does not move for a search.
    */
   blockDrawStarts?: readonly number[]
+}
+
+export interface TranscriptDisclosure {
+  row: number
+  column: number
+  width: number
+  block: number
+  key: string
+  /** Present only on the folded whole-turn header. */
+  group?: string
 }
 
 export interface TranscriptFileRegion {

@@ -27,7 +27,7 @@ Pi's ecosystem is rich because one extension can register tools, commands, provi
 | `~/.pi/agent/extensions/*.ts` and the `pi` package manifest | Auto-loaded source and a second installer | Never. Install is `omdsh plugin add` of a `dsh.bundle` package |
 | Pi packages + `/reload` + project trust | What actually makes an ecosystem large | `omdsh plugin` plus restart. Hot reload of `node_modules` is out of scope. Project trust stays on the existing MCP review path |
 | Session and message lifecycle hooks | Reactive plugins that rewrite input, watch turns, or act on tool results | Cordis plugins that inject Harness session and agent services and observe durable `SessionEvent`s. The TUI does not grow a second hook bus |
-| Custom agents and roles | Alternate prompts, tools, and personas | Harness Agent presets and Skills. The TUI only lists and switches them through `/agent` and `/skill:` |
+| Custom agents and roles | Alternate prompts, tools, and personas | Harness Agent presets and Skills. The TUI only lists and switches them through `/agent` and `/<skill-name>` |
 
 Most Pi plugins are reactive, not presentational. They belong on the Harness event and service tree: observe `turn/start`, `turn/end`, and tool results, or contribute an Agent preset. The TUI does not grow parallel lifecycle hooks or a role registry.
 

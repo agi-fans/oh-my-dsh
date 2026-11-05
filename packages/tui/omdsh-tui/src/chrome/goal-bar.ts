@@ -27,7 +27,7 @@ const PHASE_TONE: Record<TuiGoalStatus['phase'], ThemeColor> = {
 /** Render the goal bar, or nothing when there is no row to show. */
 export function renderGoalBar(goal: TuiGoalStatus, theme: Theme, width: number): string[] {
   if (width <= 0) return []
-  const label = theme.bold(theme.fg(PHASE_TONE[goal.phase], PHASE_LABEL[goal.phase]))
+  const label = theme.bold(theme.fg(PHASE_TONE[goal.phase], goal.phase === 'active' && goal.activation === 'disarmed' ? 'Goal waiting' : PHASE_LABEL[goal.phase]))
   const objective = theme.fg('text', goal.objective)
   const reason = goal.blockedReason === undefined
     ? ''

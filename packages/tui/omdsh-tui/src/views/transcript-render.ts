@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import type { FileDiff } from '@deepseek-ai/dsh-tools'
+import type { FileDiff, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
@@ -33,7 +33,7 @@ import { renderPermissionBadge, renderStatusFooter } from '../chrome/status-line
 import { createTheme, paintSurface, SPINNER, SYMBOL, BOX, type Theme, type ThemeColor, type ThemeName } from '../chrome/theme.ts'
 import { highlightToolText, toolPayloadLanguage } from '../chrome/code-highlight.ts'
 import { renderGoalBar } from '../chrome/goal-bar.ts'
-import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
+import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapTextStable } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
   TuiLoopStatus,
@@ -50,7 +50,7 @@ import {
 } from '../chrome/diff-render.ts'
 import { workspaceBlockLines, WORKSPACE_COLLAPSED_LINES } from './workspace-changes.ts'
 import { blockFileAction } from './file-actions.ts'
-import type { TranscriptFileRegion } from '../chrome/renderer.ts'
+import type { TranscriptDisclosure, TranscriptFileRegion } from '../chrome/renderer.ts'
 import { renderTool, toolArgSubject, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
 import { toolArgsObject } from '../chrome/tool-args.ts'
 import { renderCommandOutput, renderCommandSeparator, renderShell } from '../chrome/command-output.ts'
@@ -61,7 +61,7 @@ import { formatElapsed } from '../chrome/relative-time.ts'
 import { maskSecrets } from '../chrome/secret-mask.ts'
 import { formatOverlayHint } from './hotkey-format.ts'
 import {
-  blockMatchesQuery, matchedRows, searchMatches, transcriptSearchHint,
+  matchedRows, searchMatches, transcriptSearchHint,
   type SearchableBlock, type TranscriptSearchMatch,
 } from './transcript-search.ts'
 export { formatElapsed }
@@ -193,14 +193,18 @@ export interface ViewOptions {
   toolsExpanded?: boolean
   /** Command outputs the reader expanded; the rest fold after the preview. */
   expandedOutputs?: ReadonlySet<Block>
-  /** Tool calls whose complete inputs and results are visible. */
+  /** Tool calls whose readable content is expanded. */
   expandedTools?: ReadonlySet<string>
+  /** Expanded calls whose raw parameters and results are also visible. */
+  rawTools?: ReadonlySet<string>
   /** Effective application binding used in preview hints. */
   toolDetailsKey?: string
   /** Effective application binding used in completed-turn expansion hints. */
   turnDetailsKey?: string
-  /** Legacy reasoning anchors retained for search and scroll mapping. */
+  /** Thoughts opened individually, keyed by their Harness turn and step. */
   expandedReasoning?: ReadonlySet<string>
+  /** Process row receiving keyboard navigation, independent of composer focus. */
+  selectedProcess?: number
   /**
    * Collapse every thought to one line.
    *
@@ -246,15 +250,7 @@ function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly
   return undefined
 }
 
-/**
- * The transcript's one content column.
- *
- * Every block starts its words in the same column: a reply, a prompt after its
- * `›`, a run's header after its `▸`, a notice. The marks own the two cells to
- * the left of it. A reply used to sit one cell in while the marked rows put
- * their words at three, so a screen had four left edges and read as clutter
- * however tidy each block was on its own.
- */
+/** Replies and user text have a two-cell margin; process details align after the disclosure glyph. */
 const ASSISTANT_PADDING_X = 2
 
 /** Process summaries keep a readable measure even on wide terminals. */
@@ -390,6 +386,7 @@ function toolRowLine(
   theme: Theme,
   width: number,
   spinnerFrame: number,
+  open = false,
 ): string[] {
   const presentation = renderTool({
     name: block.name,
@@ -409,9 +406,9 @@ function toolRowLine(
   // two that remain are the states a reader has to act on: motion while the
   // call is in flight, and the error mark.
   const mark = block.status === 'ok' ? '' : toolStatusMark(block.status, theme, spinnerFrame) + ' '
-  const head = nest + mark
+  const head = '  ' + nest + (open ? SYMBOL.unfolded : SYMBOL.folded) + ' ' + mark
   const room = processRoom(width, head)
-  const label = processLabel(block.name)
+  const label = theme.text(processLabel(block.name))
   const subject = toolRowSubject(block, presentation, label)
   const args = toolArgsObject(block.args)
   const call = block.presentation?.call
@@ -497,6 +494,34 @@ function toolRowSubject(
   return firstLineOf(verb !== '' && title.startsWith(verb + ' ') ? title.slice(verb.length + 1) : title)
 }
 
+/** Keep file line numbers outside tokenization and wrapping, including continuation rows. */
+function readContentLines(view: Extract<ToolResultView, { card: 'read' }>, theme: Theme, width: number, error: boolean): string[] {
+  const language = toolPayloadLanguage('read', view.path)
+  const source = view.lines.map(line => line.text)
+  const painted = language === undefined
+    ? source.map(line => theme.fg(error ? 'error' : 'toolOutput', line))
+    : highlightedLines(source, language, theme, error ? 'error' : undefined)
+  const digits = view.lines.reduce((max, line) => Math.max(max, String(line.number).length), 1)
+  // Extremely narrow windows retain the file text rather than spending their
+  // final cell on a gutter. Ordinary widths reserve the same column on every row.
+  const gutter = width > digits + 2 ? digits + 2 : 0
+  return view.lines.flatMap((line, index) => wrapCode(painted[index] ?? '', Math.max(1, width - gutter)).map((row, part) => {
+    const number = part === 0 ? String(line.number).padStart(digits) + '  ' : ' '.repeat(gutter)
+    return (gutter === 0 ? '' : theme.fg('dim', number)) + row
+  }))
+}
+
+/** Results are plain output unless a read explicitly identifies source code. */
+function toolOutputLines(block: Extract<Block, { kind: 'tool' }>, output: readonly string[], subject: string, theme: Theme, width: number): string[] {
+  const result = block.presentation?.result
+  if (result?.card === 'read') return readContentLines(result, theme, width, block.status === 'error')
+  const language = block.name === 'read' && result === undefined ? toolPayloadLanguage('read', subject) : undefined
+  const painted = language === undefined
+    ? output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
+    : highlightedLines(output, language, theme, block.status === 'error' ? 'error' : undefined)
+  return painted.flatMap(line => wrapTextStable(line, width))
+}
+
 /** Tool content shared by a running turn and a completed turn opened for reading. */
 function toolBlockLines(
   block: Extract<Block, { kind: 'tool' }>,
@@ -505,6 +530,7 @@ function toolBlockLines(
   mode: 'preview' | 'full' | 'details' = 'preview',
   detailsKey = 'Alt+O',
   surface: 'toolSuccessBg' | 'toolAltBg' = 'toolSuccessBg',
+  showTitle = true,
 ): string[] {
   const full = mode !== 'preview'
   const presentation = renderTool({
@@ -519,9 +545,9 @@ function toolBlockLines(
   const shell = COMMAND_TOOL.test(block.name) || call?.card === 'terminal'
   const read = block.name === 'read' || result?.card === 'read'
   const diffs = exclusiveDiffs(block.presentation)
-  const padding = width > 4 ? 2 : 0
+  const padding = width > 8 && !showTitle ? 4 : width > 4 ? 2 : 0
   const nest = block.parentCallId === undefined || width < 10 ? 0 : 2
-  const room = Math.max(1, width - padding * 2 - nest)
+  const room = Math.max(1, width - padding - (width > 4 ? 2 : 0) - nest)
   const subject = toolArgSubject(block.args, block.partial === true)
     || (result?.card === 'read' ? result.path : '')
     || (args === undefined ? '' : Object.values(args).find(value => typeof value === 'string') as string | undefined) || ''
@@ -531,27 +557,21 @@ function toolBlockLines(
     : call?.card === 'generic' || call?.card === 'diff' ? call.title
     : !read && presentation.title !== undefined && presentation.title !== block.name ? presentation.title
     : `${block.name}${subject === '' ? '' : ` ${subject}`}`
-  // The command line is one ink, not a highlighted program.
-  //
-  // A command is the reader's own intent, and it has to be recognisable at a
-  // glance; syntax colouring it competes with the output below, which is the
-  // part that actually has to be read. Pi splits the two the same way: a flat
-  // bold `toolTitle` line for the call, and language highlighting for whatever
-  // the call returned.
+  // Commands and their output use plain ink; only identified file content is tokenized.
   const titleInk = block.status === 'error' ? 'error' : 'toolTitle'
-  const rows = wrapTextStable(theme.bold(theme.fg(titleInk, title)), room)
+  const rows = showTitle || mode !== 'details' && shell && command !== ''
+    ? wrapTextStable(theme.bold(theme.fg(titleInk, title)), room) : []
+  if (!showTitle && mode !== 'details' && result?.card === 'read' && result.lines.length > 0) {
+    rows.push(...wrapTextStable(theme.dim(`${result.path} · ${result.lines[0]!.number}–${result.lines.at(-1)!.number} / ${result.totalLines}`), room))
+  }
   let body: string[] = []
   if (mode === 'details') {
     let input = block.args
     try { input = JSON.stringify(JSON.parse(input), undefined, 2) } catch { /* Partial arguments retain their received text. */ }
     const output = presentation.output.length > 0 ? presentation.output : block.output.split('\n')
-    const detailLanguage = shell ? 'bash' : toolPayloadLanguage(block.name, subject)
     const outputRows = diffs !== undefined
       ? wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
-      : (detailLanguage === undefined
-        ? output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
-        : highlightedLines(output, detailLanguage, theme, block.status === 'error' ? 'error' : undefined))
-        .flatMap(line => wrapTextStable(line, room))
+      : toolOutputLines(block, output, subject, theme, room)
     body = [
       ...wrapTextStable(theme.fg('dim', theme.text('Input')), room),
       // The arguments are JSON here (they were re-serialized above), so they are
@@ -569,19 +589,13 @@ function toolBlockLines(
     }
   } else if (diffs !== undefined) {
     body = wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
+    if (block.status === 'error' && block.output !== '') body.push(...wrapTextStable(theme.fg('error', block.output), room))
   } else if (full || !read || block.status === 'error') {
-    // One highlight pass over the whole payload. Painting line by line handed
-    // the tokenizer a fragment with no opening construct, so a second and third
-    // command row came back bare — the "only the first line is highlighted"
-    // report. A file payload uses the subject's own language.
-    const language = shell ? 'bash' : toolPayloadLanguage(block.name, subject)
-    const output = language === undefined
-      ? presentation.output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
-      : highlightedLines(presentation.output, language, theme, block.status === 'error' ? 'error' : undefined)
-    const input = !shell && !read && (call?.card === 'generic' || (call === undefined && presentation.title !== block.name))
-      ? highlightedLines(presentation.input, language ?? 'text', theme, undefined, room)
+    const output = toolOutputLines(block, presentation.output, subject, theme, room)
+    const input = presentation.input.length > 0 && !shell && !read && (call?.card === 'generic' || (call === undefined && !/^(grep|glob|find|ls|search|write|edit)$/.test(block.name)))
+      ? presentation.input.flatMap(line => wrapCode(theme.fg('toolOutput', line), room))
       : []
-    body = [...input, ...output.flatMap(line => wrapTextStable(line, room))]
+    body = [...input, ...output]
     // Writes carry their content in arguments before the result arrives.
     if (body.length === 0 && block.name === 'write' && typeof args?.['content'] === 'string') {
       body = highlightedLines(args['content'].split('\n'), toolPayloadLanguage('write', subject) ?? 'text', theme, undefined, room)
@@ -601,10 +615,13 @@ function toolBlockLines(
   if (!full && read && block.status !== 'error' && block.output !== '' && detailsKey !== 'Disabled') {
     body.push(...wrapTextStable(theme.fg('dim', `${detailsKey}: Expand result`), room))
   }
-  if (full && block.status === 'error' && call?.card === 'diff') rows.push('', ...wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
+  if (full && diffs === undefined && block.status === 'error' && call?.card === 'diff') rows.push('', ...wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
   if (body.length > 0) {
-    rows.push('')
+    if (rows.length > 0) rows.push('')
     for (const row of body) rows.push(row)
+  }
+  if (!showTitle && mode !== 'details' && presentation.summary && (result?.card === 'terminal' || result?.card === 'search')) {
+    rows.push(...wrapTextStable(theme.dim(presentation.summary), room))
   }
   if (block.status === 'error') rows.push(...wrapTextStable(theme.fg('error', 'Tool failed'), room))
   if (block.job !== undefined) {
@@ -616,7 +633,7 @@ function toolBlockLines(
       `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
     ), room))
   }
-  const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : surface
+  const bg = !showTitle ? 'toolAltBg' : block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : surface
   return ['', ...rows, ''].map(row => paintSurface(theme, bg, 'toolOutput', padToWidth(' '.repeat(padding + nest) + row, width)))
 }
 
@@ -628,17 +645,38 @@ function firstLineOf(text: string): string {
   return ''
 }
 
-/**
- * One row standing in for a thought the reader has not opened.
- *
- * The first line is kept so a collapsed thought still says what it was about —
- * a labelled placeholder would make every thought look the same.
- */
-function reasoningSummaryRow(reasoning: string, theme: Theme, width: number): string {
+/** Latest stable paragraph heading; streaming fragments never flicker into the preview. */
+function reasoningPreview(block: Extract<Block, { kind: 'assistant' }>): string {
+  const paragraphs = block.reasoning.replace(/\r\n/g, '\n').split(/\n[ \t]*\n/)
+  for (let index = paragraphs.length - 1; index >= 0; index--) {
+    const paragraph = paragraphs[index]!
+    if (block.streaming && index === paragraphs.length - 1 && !paragraph.includes('\n')) continue
+    const first = firstLineOf(paragraph)
+    if (first !== '') return first
+  }
+  return ''
+}
+
+function reasoningSummaryRow(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number): string {
   const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
-  const label = `${theme.text('Thinking')}: ${firstLineOf(reasoning)}`
+  const preview = reasoningPreview(block)
+  const label = `${SYMBOL.folded} ${theme.text('Thinking')}${preview === '' ? '' : ROW_JOIN + preview}`
   return assistantContentLines([theme.fg('dim', truncateToWidth(label, Math.max(1, width - paddingX * 2)))], width, paddingX)[0]
     ?? ''
+}
+
+/** A disclosure header stays small; complete tool payloads are laid out only on demand. */
+function toolDisclosureLines(block: Extract<Block, { kind: 'tool' }>, theme: Theme, width: number, open: boolean, detailsKey = 'Alt+O', spinnerFrame = 0, raw = false): string[] {
+  const rows = toolRowLine(block, theme, width, spinnerFrame, open)
+  if (open) rows.push(...toolBlockLines(block, theme, width, raw ? 'details' : 'full', detailsKey, 'toolAltBg', false))
+  return rows
+}
+
+function reasoningDisclosureLines(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number, open: boolean, mathMode: import('../chrome/math.ts').MathMode = 'auto'): string[] {
+  if (!open) return [reasoningSummaryRow(block, theme, width)]
+  const indent = width > 8 ? 2 : 0
+  return [padToWidth(truncateToWidth(`  ${SYMBOL.unfolded} ${theme.text('Thinking')}`, Math.max(1, width - 2)), width),
+    ...openReasoningLines(block, theme, width - indent, mathMode).map(line => ' '.repeat(indent) + line)]
 }
 
 /** Thinking uses the same quiet Markdown style throughout the turn. */
@@ -659,11 +697,9 @@ interface GroupRenderContext {
   /** Thoughts the reader has opened past the transcript's folded default. */
   openedThoughts: ReadonlySet<string>
   /**
-   * Tool cards painted so far in this transcript pass. Alternation follows the
-   * cards actually drawn, so neither a run boundary nor a block that paints
-   * nothing can hand two consecutive cards the same surface.
+   * Only running tool rows use the current animation frame.
    */
-  toolCards: { count: number }
+  spinnerFrame: number
 }
 
 /** The block indexes a run shows as rows, in order: its members, then the thought it took from its answer. */
@@ -685,37 +721,37 @@ function groupMemberLines(
   index: number,
   context: GroupRenderContext,
   thoughtOnly = false,
-  toolOrdinal = 0,
-  /** The reader opened this run, so its thoughts are laid out in full. */
-  openRun = false,
 ): string[] {
   const { blocks, options, theme, width } = context
   const block = blocks[index]!
   // Search must reveal a match even when it falls outside a tool's normal preview.
-  const full = block.kind === 'tool' && (context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
-  const surface = toolOrdinal % 2 === 0 ? 'toolSuccessBg' : 'toolAltBg'
-  const thinkingOpen = openRun
-    || (block.kind === 'assistant' && context.openedThoughts.has(reasoningKey(block)))
-  const signature = [width, options.colors, context.depth, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, options.toolDetailsKey, surface, thinkingOpen].join('\0')
+  const full = block.kind === 'tool' && (options.toolsExpanded === true || context.matches.has(index) || options.expandedTools?.has(block.callId) === true)
+  const raw = block.kind === 'tool' && (options.toolsExpanded === true || options.rawTools?.has(block.callId) === true || context.matches.has(index))
+  const thinkingOpen = options.hideThinking === false
+    || (block.kind === 'assistant' && (context.openedThoughts.has(reasoningKey(block)) || context.matches.has(index)))
+  const signature = [width, options.colors, context.depth, context.themeName, terminalKey(options), options.mathMode, options.mermaidMode, thoughtOnly, full, raw, options.toolDetailsKey, block.kind === 'tool' && block.status === 'running' ? context.spinnerFrame : 0, thinkingOpen, options.hideThinking !== false].join('\0')
   const cached = groupMemberCache.get(block)
   let lines: readonly string[]
   if (cached?.signature === signature) lines = cached.lines
   else {
-    lines = block.kind === 'tool' ? toolBlockLines(block, theme, width, full ? 'details' : 'preview', options.toolDetailsKey, surface)
+    lines = block.kind === 'tool' ? toolDisclosureLines(block, theme, width, full, options.toolDetailsKey, context.spinnerFrame, raw)
       : block.kind === 'assistant' ? thoughtOnly
-        ? (options.hideThinking !== true || thinkingOpen
-          ? openReasoningLines(block, theme, width, options.mathMode)
-          : [reasoningSummaryRow(block.reasoning, theme, width)])
+        ? reasoningDisclosureLines(block, theme, width, thinkingOpen, options.mathMode)
         : blockLines(block, theme, width, {
           mathMode: options.mathMode ?? 'auto',
           mermaidMode: options.mermaidMode ?? 'auto',
-          hideThinking: options.hideThinking === true,
+          hideThinking: options.hideThinking !== false,
           thinkingOpen,
+          processDisclosure: true,
         })
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
-  return [...paintSearch(lines, index, context.occurrences, theme)]
+  const painted = [...paintSearch(lines, index, context.occurrences, theme)]
+  if (options.selectedProcess === index && painted.length > 0) {
+    painted[0] = theme.fg('accent', '❯') + sliceCells(painted[0]!, 1, Math.max(0, width - 1))
+  }
+  return painted
 }
 
 /**
@@ -813,10 +849,14 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
   const offsets = new Map<number, number>()
   const spans: { index: number; start: number; end: number }[] = []
   for (const index of groupMembers(group)) {
-    const isTool = context.blocks[index]?.kind === 'tool'
-    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought, context.toolCards.count, true)
-    if (isTool && rows.length > 0) context.toolCards.count += 1
-    if (rows.length > 0 && lines.length > 0) lines.push('')
+    const block = context.blocks[index]!
+    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought)
+    const previous = context.blocks[index - 1]
+    const opened = (item: Block | undefined, at: number): boolean => item?.kind === 'tool'
+      ? context.options.toolsExpanded === true || context.options.expandedTools?.has(item.callId) === true || context.matches.has(at)
+      : item?.kind === 'assistant' && item.reasoning !== '' && (context.options.hideThinking === false || context.openedThoughts.has(reasoningKey(item)))
+    const reply = block.kind === 'assistant' && block.text !== '' && index !== group.answer
+    if (rows.length > 0 && lines.length > 0 && (opened(block, index) || opened(previous, index - 1) || reply || previous?.kind === 'assistant' && previous.text !== '')) lines.push('')
     offsets.set(index, lines.length)
     if (context.blocks[index]?.kind === 'tool') spans.push({ index, start: lines.length, end: lines.length + rows.length })
     for (const row of rows) lines.push(row)
@@ -828,8 +868,8 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
 function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string, expandKey = 'Ctrl+O'): string[] {
   const label = elapsed === undefined ? 'Worked' : `Worked for ${elapsed}`
   const failure = group.failures === 0 ? '' : theme.fg('error', ` · ${group.failures} failed`)
-  const labelRoom = Math.max(1, width - 4 - visibleWidth(failure))
-  const summary = `${SYMBOL.folded} ${theme.fg('dim', truncateToWidth(label, labelRoom))}${failure}`
+  const labelRoom = Math.max(1, width - 6 - visibleWidth(failure))
+  const summary = `  ${SYMBOL.folded} ${theme.fg('dim', truncateToWidth(label, labelRoom))}${failure}`
   const hint = ` · ${expandKey} to expand`
   const suffix = expandKey !== 'Disabled' && visibleWidth(summary) + visibleWidth(hint) <= width - 2
     ? theme.fg('dim', hint) : ''
@@ -846,7 +886,7 @@ export function blockLines(
   theme: Theme,
   width: number,
   { toolsExpanded = false, omitReasoning = false, toolDetailsKey = 'Alt+O', mathMode = 'auto', mermaidMode = 'auto',
-    hideThinking = false, thinkingOpen = false, expandedOutput = false, outputExpandKey = 'Ctrl+O' }: {
+    hideThinking = false, thinkingOpen = false, processDisclosure = false, rawTool = false, expandedOutput = false, outputExpandKey = 'Ctrl+O' }: {
     expandedOutput?: boolean
     /** Key that opens a folded command result; it is not the per-call detail key. */
     outputExpandKey?: string
@@ -857,6 +897,8 @@ export function blockLines(
     mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
     hideThinking?: boolean
     thinkingOpen?: boolean
+    processDisclosure?: boolean
+    rawTool?: boolean
   } = {},
 ): string[] {
   if (block.kind === 'user') return userBubble(block.text, theme, width)
@@ -864,8 +906,8 @@ export function blockLines(
     const lines: string[] = []
     if (block.reasoning !== '' && !omitReasoning) {
       const collapsed = hideThinking && !thinkingOpen
-      lines.push(...(collapsed
-        ? [reasoningSummaryRow(block.reasoning, theme, width)]
+      lines.push(...(processDisclosure ? reasoningDisclosureLines(block, theme, width, !collapsed, mathMode) : collapsed
+        ? [reasoningSummaryRow(block, theme, width)]
         : openReasoningLines(block, theme, width, mathMode)))
       if (block.text !== '') lines.push('')
     }
@@ -882,7 +924,8 @@ export function blockLines(
     return lines
   }
   if (block.kind === 'tool') {
-    return toolBlockLines(block, theme, width, toolsExpanded ? 'full' : 'preview', toolDetailsKey)
+    return processDisclosure ? toolDisclosureLines(block, theme, width, toolsExpanded, toolDetailsKey, 0, rawTool)
+      : toolBlockLines(block, theme, width, toolsExpanded ? 'full' : 'preview', toolDetailsKey)
   }
   if (block.kind === 'workspace') return workspaceBlockLines(block, theme, width, toolsExpanded)
   if (block.kind === 'commandOutput') {
@@ -997,9 +1040,12 @@ export function renderedBlocks(state: TranscriptState, options: {
   terminal?: TerminalColors
   colorDepth?: ColorDepth
   mathMode?: import('../chrome/math.ts').MathMode
+  mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
   toolsExpanded?: boolean
   hideThinking?: boolean
   expandedTools?: ReadonlySet<string>
+  /** Expanded calls whose raw parameters and results are also visible. */
+  rawTools?: ReadonlySet<string>
   expandedReasoning?: ReadonlySet<string>
   openedGroups?: ReadonlySet<string>
 }): readonly SearchableBlock[] {
@@ -1010,14 +1056,8 @@ export function renderedBlocks(state: TranscriptState, options: {
     options.terminal,
     options.language,
   )
-  const key = [
-    options.width,
-    options.toolsExpanded === true,
-    options.hideThinking === true,
-    [...(options.expandedTools ?? [])].sort().join(','),
-    [...(options.expandedReasoning ?? [])].sort().join(','),
-    [...(options.openedGroups ?? [])].sort().join(','),
-  ].join('\u0000')
+  const key = [options.width, options.colors, options.colorDepth, options.themeName,
+    options.language, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode].join('\0')
   const cached = renderedBlockCache.get(state.blocks)?.get(key)
   if (cached !== undefined) return cached
   const blocks: SearchableBlock[] = state.blocks.map((block, index) => ({
@@ -1033,16 +1073,11 @@ export function renderedBlocks(state: TranscriptState, options: {
 }
 
 /** Plain rows one block contributes, without the search highlighting applied. */
-function renderedRows(block: Block, theme: Theme, options: { width: number; mathMode?: import('../chrome/math.ts').MathMode; hideThinking?: boolean; expandedReasoning?: ReadonlySet<string> }): string[] {
-  if (block.kind === 'assistant') {
-    const thinkingOpen = options.hideThinking !== true || options.expandedReasoning?.has(reasoningKey(block)) === true
-    return thinkingOpen && block.reasoning !== ''
-      ? openReasoningLines(block, theme, options.width, options.mathMode)
-      : assistantMarkdown(block.text, theme, options.width, {
-        ...(options.mathMode === undefined ? {} : { mathMode: options.mathMode }),
-      })
-  }
-  return blockSearchText(block).split('\n')
+function renderedRows(block: Block, theme: Theme, options: { width: number; mathMode?: import('../chrome/math.ts').MathMode; mermaidMode?: import('../chrome/mermaid.ts').MermaidMode }): string[] {
+  return blockLines(block, theme, options.width, {
+    processDisclosure: true, toolsExpanded: true, rawTool: true, thinkingOpen: true,
+    expandedOutput: true, mathMode: options.mathMode ?? 'auto', mermaidMode: options.mermaidMode ?? 'auto',
+  })
 }
 
 /** Plain text of one block, used by transcript search and match painting. */
@@ -1074,6 +1109,7 @@ function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
 }
 
 interface TranscriptBodyCache {
+  disclosures: readonly TranscriptDisclosure[]
   fileRegions: readonly TranscriptFileRegion[]
   mathMode: import('../chrome/math.ts').MathMode | undefined
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
@@ -1089,6 +1125,7 @@ interface TranscriptBodyCache {
   spinnerFrame: number
   toolsExpanded: boolean
   expandedTools: string
+  rawTools: string
   expandedReasoning: string
   hideThinking: boolean
   openedGroups: string
@@ -1110,6 +1147,7 @@ interface TranscriptBodyCache {
    * positions the viewport. It lives outside the block array too.
    */
   focusBlock: number | undefined
+  selectedProcess: number | undefined
   /** Open/closed signature of every foldable surface; see {@link TranscriptScroll.foldShape}. */
   foldShape: string
   foldMarks: readonly FoldMark[]
@@ -1132,6 +1170,7 @@ interface BlockLinesCache {
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
   toolDetails: boolean
+  rawTool: boolean
   /** A command output the reader opened, so its own rows must be recomputed. */
   expandedOutput: boolean
   width: number
@@ -1159,6 +1198,7 @@ function cachedBlockLines(
   expanded: boolean,
   omitReasoning = false,
 ): readonly string[] {
+  const rawTool = block.kind === 'tool' && (options.toolsExpanded === true || options.rawTools?.has(block.callId) === true || options.transcriptSearch !== undefined && options.transcriptSearch.query.trim() !== '')
   const cached = blockLinesCache.get(block)
   if (cached !== undefined
     && cached.width === options.width
@@ -1168,24 +1208,27 @@ function cachedBlockLines(
     && cached.terminalKey === terminalKey(options)
     && cached.expanded === expanded
     && cached.omitReasoning === omitReasoning
-    && cached.hideThinking === (options.hideThinking === true)
+    && cached.hideThinking === (options.hideThinking !== false)
     && cached.thinkingOpen === (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true)
     && cached.mathMode === options.mathMode
     && cached.mermaidMode === options.mermaidMode
     && cached.toolDetailsKey === options.toolDetailsKey
+    && cached.rawTool === rawTool
     && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     && cached.expandedOutput === (options.expandedOutputs?.has(block) === true)) return cached.lines
   const toolDetails = block.kind === 'tool' && options.expandedTools?.has(block.callId) === true
   const lines = block.kind === 'tool' && toolDetails
-    ? toolBlockLines(block, theme, options.width, 'details', options.toolDetailsKey)
+    ? toolDisclosureLines(block, theme, options.width, true, options.toolDetailsKey, 0, rawTool)
     : blockLines(
       block, theme, options.width, {
         toolsExpanded: expanded,
+        rawTool,
+        processDisclosure: true,
         omitReasoning,
         toolDetailsKey: options.toolDetailsKey ?? 'Alt+O',
         mathMode: options.mathMode ?? 'auto',
         mermaidMode: options.mermaidMode ?? 'auto',
-        hideThinking: options.hideThinking === true,
+        hideThinking: options.hideThinking !== false,
         thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
         expandedOutput: options.expandedOutputs?.has(block) === true || (block.kind === 'notice' && expanded),
         outputExpandKey: options.turnDetailsKey ?? 'Ctrl+O',
@@ -1196,6 +1239,7 @@ function cachedBlockLines(
     mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
     toolDetails,
+    rawTool,
     expandedOutput: options.expandedOutputs?.has(block) === true,
     width: options.width,
     colors: options.colors,
@@ -1204,7 +1248,7 @@ function cachedBlockLines(
     terminalKey: terminalKey(options),
     expanded,
     omitReasoning,
-    hideThinking: options.hideThinking === true,
+    hideThinking: options.hideThinking !== false,
     thinkingOpen: block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true,
     lines,
   })
@@ -1448,6 +1492,7 @@ export function processGroups(blocks: readonly Block[]): ProcessGroup[] {
 
 /** A rendered transcript body and what the host needs to aim at and freeze it. */
 interface TranscriptBody {
+  disclosures: readonly TranscriptDisclosure[]
   fileRegions: readonly TranscriptFileRegion[]
   lines: readonly string[]
   blockStarts: readonly number[]
@@ -1497,8 +1542,9 @@ function renderTranscriptBody(
 ): TranscriptBody {
   const toolsExpanded = options.toolsExpanded === true
   const expandedTools = [...(options.expandedTools ?? [])].sort().join('\0')
+  const rawTools = [...(options.rawTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
-  const hideThinking = options.hideThinking === true
+  const hideThinking = options.hideThinking !== false
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   // A command output the reader opened paints different rows, so the body cache
   // has to see it; without this the frame is reused and the key looks dead.
@@ -1534,6 +1580,7 @@ function renderTranscriptBody(
     && cached.mermaidMode === options.mermaidMode
     && cached.toolsExpanded === toolsExpanded
     && cached.expandedTools === expandedTools
+    && cached.rawTools === rawTools
     && cached.expandedReasoning === expandedReasoning
     && cached.hideThinking === hideThinking
     && cached.openedGroups === openedGroups
@@ -1543,9 +1590,11 @@ function renderTranscriptBody(
     && cached.turnDetailsKey === options.turnDetailsKey
     && cached.searchKey === searchKey
     && cached.status === state.status
-    && cached.focusBlock === options.focusBlock) {
+    && cached.focusBlock === options.focusBlock
+    && cached.selectedProcess === options.selectedProcess) {
     return {
       lines: cached.lines,
+      disclosures: cached.disclosures,
       fileRegions: cached.fileRegions,
       blockStarts: cached.blockStarts,
       blockDrawStarts: cached.blockDrawStarts,
@@ -1561,6 +1610,15 @@ function renderTranscriptBody(
   const matches = new Set(occurrences.map(match => match.block))
   const lines: string[] = []
   const fileRegions: TranscriptFileRegion[] = []
+  const disclosures: TranscriptDisclosure[] = []
+  const disclosureAt = (index: number, row: number): void => {
+    const block = state.blocks[index]!
+    if (block.kind !== 'tool' && !(block.kind === 'assistant' && block.reasoning.trim() !== '')) return
+    const column = block.kind === 'tool' && block.parentCallId !== undefined ? 4 : 2
+    if (options.width < column + 4) return
+    disclosures.push({ block: index, row, column: 0, width: column + 2,
+      key: block.kind === 'tool' ? `call:${block.callId}` : `thought:${reasoningKey(block)}` })
+  }
   const filesAt = (index: number, start: number, length: number, expanded = false): void => {
     const block = state.blocks[index]!
     if (length === 0 || blockFileAction(block) === undefined) return
@@ -1587,6 +1645,10 @@ function renderTranscriptBody(
   const absorbed = new Set<number>()
   // Thoughts a search hit has to show in full, beyond what the reader opened.
   const openedThoughts = new Set<string>(options.expandedReasoning ?? [])
+  for (const index of matches) {
+    const block = state.blocks[index]
+    if (block?.kind === 'assistant' && block.reasoning !== '') openedThoughts.add(reasoningKey(block))
+  }
   // Where each answer's thought is actually drawn, for its fold mark. The
   // navigation offset below may point elsewhere; the mark must not follow it.
   const drawnThoughts = new Map<number, number | undefined>()
@@ -1599,21 +1661,9 @@ function renderTranscriptBody(
     if (group.answer !== undefined && group.answer !== group.start) groupOf[group.answer] = -1
     if (group.tookThought && group.answer !== undefined) absorbed.add(group.answer)
     if (group.turn !== undefined) lastOfTurn.set(group.turn, index)
-    const reasoningHit = group.tookThought && group.answer !== undefined
-      && search !== undefined && matches.has(group.answer)
-      && blockMatchesQuery((state.blocks[group.answer] as Extract<Block, { kind: 'assistant' }>).reasoning, search.query)
-    // A hit inside the thought the run took needs that thought laid out in
-    // full. Opening only the run shows a one-line preview, so the matched text
-    // stays out of sight while the transcript reports the hit. This is a render
-    // decision, not the reader's own state, so it goes in a local set rather
-    // than into the options the host owns.
-    if (reasoningHit && group.answer !== undefined) {
-      openedThoughts.add(reasoningKey(state.blocks[group.answer] as Extract<Block, { kind: 'assistant' }>))
-    }
     const asked = toolsExpanded
       || options.openedGroups?.has(group.key) === true
       || state.blocks.slice(group.start, group.until).some(block => block.kind === 'tool' && options.expandedTools?.has(block.callId))
-      || reasoningHit
       || [...matches].some(index => index >= group.start && index < group.until)
       || options.focusBlock !== undefined
         && options.focusBlock >= group.start && options.focusBlock < group.until
@@ -1631,7 +1681,7 @@ function renderTranscriptBody(
     blocks: state.blocks, theme, themeName, depth, width: options.width,
     matches, occurrences, options: { ...options, expandedReasoning: openedThoughts },
     openedThoughts,
-    toolCards: { count: 0 },
+    spinnerFrame,
   }
   const compactProcessRow = (block: Block | undefined): boolean => {
     if (block?.kind === 'notice') return block.process !== undefined && block.framed !== true
@@ -1674,6 +1724,7 @@ function renderTranscriptBody(
       if (group.live) liveFrom ??= headerRow
       // A live run has no header: it becomes a group when its turn ends.
       if (!group.live && !shown) {
+        if (options.width >= 6) disclosures.push({ row: headerRow, column: 0, width: 4, block: group.start, key: `run:${group.key}`, group: group.key })
         lines.push(...processGroupHeader(group, theme, options.width, elapsedOf(groupIndex), options.turnDetailsKey))
       }
       const bodyRow = lines.length
@@ -1682,14 +1733,19 @@ function renderTranscriptBody(
         const body = processGroupBody(group, context)
         for (const line of body.lines) lines.push(line)
         offsets = body.offsets
+        for (const [index, offset] of offsets) disclosureAt(index, bodyRow + offset)
         for (const span of body.spans) filesAt(span.index, bodyRow + span.start, span.end - span.start)
       } else {
         for (let at = group.start; at < (group.answer ?? group.until); at += 1) {
           const member = state.blocks[at]!
-          if (!(member.kind === 'tool' && member.status === 'error')
+          const reply = member.kind === 'assistant' && member.text !== ''
+          if (!reply && !(member.kind === 'tool' && member.status === 'error')
             && !(member.kind === 'notice' && member.level === 'error')) continue
+          if (reply && lines.length > 0) lines.push('')
           offsets.set(at, lines.length - bodyRow)
-          const rows = member.kind === 'tool' ? toolRowLine(member, theme, options.width, spinnerFrame) : groupMemberLines(at, context)
+          const rows = member.kind === 'tool' ? toolRowLine(member, theme, options.width, spinnerFrame)
+            : reply ? cachedBlockLines(member, options, theme, themeName, depth, toolsExpanded, true) : groupMemberLines(at, context)
+          if (member.kind === 'tool') disclosureAt(at, lines.length)
           filesAt(at, lines.length, rows.length)
           lines.push(...rows)
         }
@@ -1709,7 +1765,6 @@ function renderTranscriptBody(
         // rather than being overwritten by it.
         const thoughtHit = group.tookThought
           && search !== undefined && matches.has(group.answer)
-          && !blockMatchesQuery((state.blocks[group.answer]! as Extract<Block, { kind: 'assistant' }>).text, search.query)
         const thoughtRow = offsets.get(group.answer)
         drawnThoughts.set(group.answer, thoughtRow)
         // The answer's own drawn start is its words, never the thought above
@@ -1723,9 +1778,12 @@ function renderTranscriptBody(
           answer, options, theme, themeName, depth, toolsExpanded,
           absorbed.has(group.answer),
         )
-        for (const line of paintSearch(rendered, group.answer, occurrences, theme)) lines.push(line)
+        const thoughtLines = thoughtHit
+          ? groupMemberLines(group.answer, context, true).length + 1 : 0
+        const answerHits = thoughtLines === 0 ? occurrences : occurrences.map(hit => hit.block === group.answer ? { ...hit, row: hit.row - thoughtLines } : hit)
+        for (const line of paintSearch(rendered, group.answer, answerHits, theme)) lines.push(line)
         if (thoughtHit && thoughtRow !== undefined) blockStarts[group.answer] = bodyRow + thoughtRow
-        if (thoughtHit && thoughtRow !== undefined) offsets.set(group.answer, thoughtRow)
+        if ((thoughtHit || options.selectedProcess === group.answer) && thoughtRow !== undefined) offsets.set(group.answer, thoughtRow)
         // One block, two rows: the run painted its thought above, this painted
         // its words below. A search hit can be in either, and the offset has to
         // lead to the one that matched — aiming at the reply left a long
@@ -1746,7 +1804,8 @@ function renderTranscriptBody(
           offsets.set(at, lines.length - bodyRow)
           const rows = !group.live && !opened && trailing?.kind === 'tool'
             ? toolRowLine(trailing, theme, options.width, spinnerFrame)
-            : groupMemberLines(at, context, false, 0, group.live || opened)
+            : groupMemberLines(at, context)
+          disclosureAt(at, lines.length)
           filesAt(at, lines.length, rows.length)
           for (const line of rows) lines.push(line)
         }
@@ -1768,7 +1827,7 @@ function renderTranscriptBody(
           blockDrawStarts[at] = drawn === undefined ? headerRow : bodyRow + drawn
         }
         if (member.kind === 'tool' && options.expandedTools?.has(member.callId) === true) {
-          foldMarks.push({ key: `call:${member.callId}`, row })
+          foldMarks.push({ key: `call:${member.callId}${options.rawTools?.has(member.callId) ? ':raw' : ''}`, row })
         }
         // The effective set, not the host's: a search can open a thought the
         // reader never asked for, and the rows that adds still reshaped. The
@@ -1792,10 +1851,11 @@ function renderTranscriptBody(
       }
     }
     blockStarts[index] = lines.length
+    disclosureAt(index, lines.length)
     if (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true) {
-      foldMarks.push({ key: `call:${block.callId}`, row: lines.length })
+      foldMarks.push({ key: `call:${block.callId}${options.rawTools?.has(block.callId) ? ':raw' : ''}`, row: lines.length })
     }
-    if (block.kind === 'assistant' && options.expandedReasoning?.has(reasoningKey(block)) === true) {
+    if (block.kind === 'assistant' && openedThoughts.has(reasoningKey(block))) {
       foldMarks.push({ key: `thought:${reasoningKey(block)}`, row: lines.length })
     }
     const liveBlock = state.status !== 'idle' && isProcessBlock(block)
@@ -1805,7 +1865,7 @@ function renderTranscriptBody(
     const expanded = (block.kind === 'workspace' && groups.some((group, at) => group.turn === block.turn && openGroups.has(at))) || matches.has(index) || toolsExpanded
       || (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     const rendered = cachedBlockLines(
-      block, options, theme, themeName, depth, expanded,
+      block, context.options, theme, themeName, depth, expanded,
       absorbed.has(index),
     )
     filesAt(index, lines.length, rendered.length, expanded)
@@ -1818,6 +1878,7 @@ function renderTranscriptBody(
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
     fileRegions,
+    disclosures,
     mathMode: options.mathMode,
     mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
@@ -1831,6 +1892,7 @@ function renderTranscriptBody(
     spinnerFrame: animatedSpinnerFrame,
     toolsExpanded,
     expandedTools,
+    rawTools,
     expandedReasoning,
     hideThinking,
     openedGroups,
@@ -1839,13 +1901,14 @@ function renderTranscriptBody(
     turnSpans: state.turnSpans,
     status: state.status,
     focusBlock: options.focusBlock,
+    selectedProcess: options.selectedProcess,
     foldShape,
     foldMarks,
     liveFrom,
     lines,
     blockStarts,
   })
-  return { lines, blockStarts, blockDrawStarts, fileRegions, foldShape, foldMarks, liveFrom, occurrences }
+  return { lines, blockStarts, blockDrawStarts, fileRegions, disclosures, foldShape, foldMarks, liveFrom, occurrences }
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -2634,11 +2697,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const lines: string[] = [...visible]
   const showJump = !hasOverlay && windowed !== undefined && budget >= 3
     && (windowed.hiddenBelow > 0 || (options.openedGroups?.size ?? 0) > 0 || options.toolsExpanded === true)
-  const jumpText = truncateToWidth(width >= 38 ? ' ↓ Jump to latest message · End ' : ' ↓ Latest · End ', width)
+  const jumpText = truncateToWidth('↓ Latest · End', width)
   const jumpColumn = Math.max(0, Math.floor((width - visibleWidth(jumpText)) / 2))
   const jumpToLatest = showJump ? { row: lines.length, column: jumpColumn, width: visibleWidth(jumpText) } : undefined
   if (visible.length > 0) lines.push(showJump
-    ? ' '.repeat(jumpColumn) + theme.inverse(jumpText) : '')
+    ? ' '.repeat(jumpColumn) + theme.fg('muted', jumpText) : '')
   const bottomRows = aside.length + working.length + goal.length + questions.length + inspect.length + subagents.length + todos.length + queuedSubmissions.length + turnError.length + inputLines.length + autocomplete.length + statusFooter.length
   const fill = Math.max(0, height - lines.length - bottomRows)
   /**
@@ -2744,7 +2807,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       row: editorStart + caret.row + topPad,
       column: Math.min(caret.column, width),
     },
-    cursorVisible: (options.inspected !== undefined && options.inspected.writable !== true)
+    cursorVisible: (options.selectedProcess !== undefined && !hasOverlay) || (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
       : promptSelector?.cursorVisible ?? (settings === undefined),
     liveStart,
@@ -2762,6 +2825,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         hiddenBelow: 0,
       }),
       blockStarts: transcript.blockStarts,
+      disclosures: transcript.disclosures.map(target => ({ ...target, row: transcriptStart + topPad + target.row })),
       fileRegions: transcript.fileRegions.map(region => ({ ...region, start: transcriptStart + topPad + region.start, end: transcriptStart + topPad + region.end })),
       blockDrawStarts: transcript.blockDrawStarts,
       foldShape: transcript.foldShape,

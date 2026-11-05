@@ -23,7 +23,7 @@ The TUI does not keep a second command, tool, or model registry. After a plugin 
 | Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key, run a registered authorization flow, or add a custom profile |
 | Credentials and settings | `ctx.credentials` and `ctx.settings` | Shared with the Profile patch the rest of the tree already reads |
 | Human prompt | `ctx.tui.prompt`, approval, and questions | Terminal selectors own the answer |
-| Skill | Harness skill registry | Appears under `/skill:` |
+| Skill | Harness skill registry | Appears as `/<skill-name>` |
 | MCP server | One `dsh-mcp-client` row per server | Appears in `/mcp` and `/tools` |
 
 A plugin that only needs those seams does not require a TUI presentation adapter.

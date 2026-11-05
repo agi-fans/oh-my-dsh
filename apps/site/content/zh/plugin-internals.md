@@ -27,7 +27,7 @@ Pi 的生态之所以丰富，是因为一个 extension 就能从同一个 TypeS
 | `~/.pi/agent/extensions/*.ts` 和 `pi` 包清单 | 自动加载源文件和第二套安装器 | 永不采用。安装方式是 `omdsh plugin add` 一个 `dsh.bundle` 包 |
 | Pi packages + `/reload` + 项目信任门 | 真正让生态变大的引擎 | `omdsh plugin` 加重启。不对 `node_modules` 做热替换。项目信任继续走现有的 MCP 审阅路径 |
 | 会话/消息生命周期 hook | 改写输入、观察 turn、响应工具结果的反应型插件 | 注入 Harness session / agent 服务、并观察持久化 `SessionEvent` 的 Cordis 插件。TUI 不另起一套 hook 总线 |
-| 自定义 agent / 角色 | 另一套 prompt、工具和人格 | Harness Agent preset 和 Skills。TUI 只通过 `/agent` 和 `/skill:` 列出并切换 |
+| 自定义 agent / 角色 | 另一套 prompt、工具和人格 | Harness Agent preset 和 Skills。TUI 只通过 `/agent` 和 `/<skill-name>` 列出并切换 |
 
 Pi 的大多数插件是反应型，不是呈现型。它们属于 Harness 的事件和服务树：观察 `turn/start`、`turn/end` 和工具结果，或贡献一个 Agent preset。TUI 不另起平行的生命周期 hook，也不另建角色注册表。
 

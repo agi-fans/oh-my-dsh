@@ -1,20 +1,16 @@
 # DSH 能力覆盖表
 
-omdsh 是 DeepSeek Harness 的 TUI。能力归属因此是单向的：DSH 有什么，omdsh 就有；omdsh 只决定形态。
+omdsh 以已发布 Harness 的能力与语义为基线，并按 [设计哲学](philosophy.md) 决定终端入口。覆盖表记录已实现、受上游限制和有意不提供的能力；底层服务已挂载不等于交互已经对齐。
 
-这条规则是本文的判据，也是它存在的理由。此前删除命令时用的是临场判断——「有没有别的路径能到」——那个标准会误杀：`/trajectory` 被当成调试器删掉，而它是 DSH 官方 Web 与桌面客户端的 `ui-trajectory`，是这套事件溯源历史本身的呈现。**存在替代路径不等于存在同等的表达能力。**
-
-所以规则改写为：
-
-> DSH 每个承载能力的客户端 UI 包，omdsh 必须有一个 TUI 表面，形态按 pi 对齐（输出进转录、选择进贴底卡片、输入留 composer）。只属于 Web 外壳的包不需要。
+官方客户端用于研究用户意图和生命周期，终端形态由 omdsh 的输入、空间和原生历史契约决定，不整套复制 Web 或 Pi 界面。判断替代入口是否足够，要核对它能否表达相同操作与失败状态。
 
 ## 一、形态规则
 
 | 内容 | 形态 |
 |---|---|
-| 命令产出、报告、诊断、状态 | 转录结果；超过十二行折叠成一行，`Ctrl+O` 展开 |
+| 静态命令结果与报告 | 转录结果；超过十二行折叠成一行，`Ctrl+O` 展开 |
 | 需要人在若干项里选一个 | 贴底卡片；行在卡片内滚动，打字过滤，选中项预览 |
-| 需要逐行读的长文与 diff | 阅读器（唯一占屏的形态，需要行号、查找与阅读位置） |
+| 需要逐行读的长文与 diff | 阅读器，提供行号、查找与阅读位置；复杂树与浏览列表也可按实际空间需要占屏 |
 | 参数可枚举的命令 | 输入即补全，Enter 执行已写的那一行 |
 | 高频动作 | 键，不必敲命令 |
 
@@ -33,13 +29,13 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | DSH | omdsh 表面 |
 |---|---|
 | `ui-chat` `ui-conversation` | 转录与 composer |
-| `ui-tool` | 工具卡；`Ctrl+O` 展开、`Alt+O` 单次调用详情 |
+| `ui-tool` | 工具卡；`Ctrl+O` 展开回合、`Alt+O` 查看该回合完整工具详情 |
 | `ui-approval` | 审批卡片（动作、原因与精确匹配规则都在卡片上） |
 | `ui-user-questions` | 问题卡片；`/questions` 补答 |
 | `ui-plan` | `/plan` 与 plan review 卡片 |
-| `ui-goal` | `/goal` 与底部目标条 |
-| `ui-jobs` | `/jobs` 与 `/jobs <id>`（回放一次运行的观察者叙述） |
-| `ui-workflow-run` | `/jobs <id>` 的 `log` 通道回放 |
+| `ui-goal` | `/goal`、区分 activation 的目标条、`Alt+G` 与 General → Current goal 管理页 |
+| `ui-jobs` | `/jobs` 实时选择器、非消费式输出阅读器与停止确认；行模式保留运行叙述 |
+| `ui-workflow-run` | 名册中的 Workflow 树、成员导航与 `/jobs <id>` 的输出观察 |
 | `ui-subagent` | 转录里的子 Agent 行与检查 |
 | `ui-model-selection` | `/model`（列表与参数补全） |
 | `ui-permission-presets` | `/permission` |
@@ -47,28 +43,28 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-trajectory` | `/trajectory` |
 | `ui-deliverables` | Changed files 卡与 `/diff` |
 | `ui-attachment` | `/attach` 与消息图片 |
-| `ui-reference` `ui-input-trigger` `ui-skill` | `@` 补全、内联提示、`/skill:` |
+| `ui-reference` `ui-input-trigger` `ui-skill` | `@` 补全、内联提示、`/<skill-name>` |
 | `ui-commands` | 斜杠补全与参数补全 |
 | `ui-shortcuts` | `/help full` |
 | `ui-sidebar-documentpreview` | 文档阅读器 |
 | `ui-sidebar-files` | `@` 补全与 `/diff` 文件列表 |
-| `ui-sidebar-terminal` | `!cmd`、`!!cmd` 与终端控制台 |
+| `ui-sidebar-terminal` | `!cmd`、`!!cmd` 原地 Shell 卡片；不提供独立终端控制台 |
 | `ui-workspace` | `/resume`（含搜索、pin、archive、fork） |
 | `ui-schedule` | `/schedule` |
 | `ui-secret-mask` | 转录里绘制的用户消息；凭证尾部打码 |
-| `ui-theme` | `/settings → Theme` |
+| `ui-theme` | `/settings → Terminal → Theme` |
 | `ui-open-in-app` | 阅读器的 Open 与 Editor |
 | `ui-settings` | `/settings` |
-| `ui-settings-general` | `/settings → Interface` |
-| `ui-settings-models` | `/login` 与 `/settings → Model` |
-| `ui-settings-account` | `/login` 与 `/settings → Integrations` |
-| `ui-settings-shell` | `/settings → Tools` |
-| `ui-settings-web-search` | `/settings → Tools` |
-| `ui-settings-agent-loop` | `/settings → Agent` |
-| `ui-settings-subagent` | `/settings → Tools` |
+| `ui-settings-general` | `/settings → General` |
+| `ui-settings-models` | `/login` 与 `/settings → Models` |
+| `ui-settings-account` | `/login` 与 `/settings → Models → DeepSeek account` |
+| `ui-settings-shell` | `/settings → Plugins` |
+| `ui-settings-web-search` | `/settings → Plugins` |
+| `ui-settings-agent-loop` | `/settings → Plugins → Tool parallelism` |
+| `ui-settings-subagent` | `/settings → Plugins` |
 | `ui-plugin-manager` | `/plugins` |
 | `ui-plugin-market` | `/plugins → Discover`（`dsh-plugin-market` Host 服务只做呈现） |
-| `ui-settings-plugins` `ui-settings-plugin-inventory` | `/plugins` 与 `/settings → Integrations` |
+| `ui-settings-plugins` `ui-settings-plugin-inventory` | `/plugins` 与 `/settings → Plugins` |
 
 ## 四、缺口
 

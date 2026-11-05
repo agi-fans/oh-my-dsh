@@ -30,7 +30,7 @@ description: Review a change for correctness and maintainability.
 Review the current diff, run focused tests, and report findings by severity.
 ```
 
-Skills share the normal slash-command catalog, following pi/OMP's flat model. Type `/skill:` to browse and filter them with concise descriptions inline, then press Enter to invoke one. The older `/code-review` form is still accepted for compatibility but is no longer advertised. The model receives the same catalog through the Harness `skill` tool and can load a matching skill on demand.
+Type `/` and a skill name, such as `/code-review`, to find it alongside commands. The list shows its description and marks skills that require an explicit user request as **User only**. Invoking a skill sends the request and any staged images or files together; Harness loads its instructions before the model responds. Skills that allow model invocation also remain available through the `skill` tool. When a skill shares a name with a command, the command takes precedence in the list. Invoke that skill within a sentence instead, such as “Please use `/review` to check these changes.”
 
 ## MCP
 

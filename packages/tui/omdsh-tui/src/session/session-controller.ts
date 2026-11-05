@@ -7,6 +7,7 @@
  * @module @agi-fans/dsh-tui/session-controller
  */
 
+import { openGoalControls } from './goal-controls.ts'
 import { continuableFailure } from './generation-continuation.ts'
 import { workflowMemberStatus, workflowOptions } from '../views/workflow.ts'
 import { randomUUID } from 'node:crypto'
@@ -34,7 +35,8 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type { PermissionSelection } from '@deepseek-ai/dsh-permission-presets/types'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
-import { isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import { isModelInvocable, isUserInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import { BUILTIN_SLASH_COMMANDS } from '../views/autocomplete.ts'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats/types'
@@ -368,15 +370,12 @@ function recentSessionStatus(events: readonly SessionEvent[]): TuiRecentSession[
 }
 
 /** Convert the human-visible part of a skill catalog into slash commands. */
-export function userSkillCommands(skills: readonly SkillSummary[]): TuiCommand[] {
-  return skills.filter(isUserInvocable).map(skill => ({
-    name: `skill:${skill.name}`,
+export function userSkillCommands(skills: readonly SkillSummary[], reserved: ReadonlySet<string> = new Set()): TuiCommand[] {
+  return skills.filter(skill => isUserInvocable(skill) && !reserved.has(skill.name)).map(skill => ({
+    name: skill.name,
     description: compactDescription(skill.description),
+    skill: { userOnly: !isModelInvocable(skill) },
   }))
-}
-
-function skillNameFromCommand(name: string): string {
-  return name.startsWith('skill:') ? name.slice('skill:'.length) : name
 }
 
 function compactDescription(value: string, maxLength: number = 140): string {
@@ -486,7 +485,7 @@ export class SessionRuntime {
   #active: ActiveSession | undefined
   #recent: TuiRecentSession[] = []
   #archivedSessions = new Set<string>()
-  #skillCommands: TuiCommand[] = []
+  #skills: readonly SkillSummary[] = []
   /**
    * Live argument vocabularies, keyed by command.
    *
@@ -545,6 +544,8 @@ export class SessionRuntime {
         this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
       },
     })
+    const offGoal = tui.setGoalHandler?.(signal => openGoalControls(ctx, tui, this.#requiredAgent(), AbortSignal.any([signal, this.interactionSignal])))
+    if (offGoal !== undefined) this.#off.push(offGoal)
     this.#off.push(tui.setQueueHandler(signal => this.openQueue(signal)))
     const offContinue = tui.setContinueHandler?.(async request => {
       const agent = this.#requiredAgent()
@@ -666,6 +667,9 @@ export class SessionRuntime {
       const delta = this.#streamAttempts.chunk(key, frame)
       if (delta !== undefined) this.#forwardLiveDelta(payload.agent, delta)
     }, { global: true }))
+    this.#off.push(ctx.on('goal/activation-changed', payload => {
+      if (payload.sessionId === this.#active?.handle.agent.session.id) this.#pushSessionInfo()
+    }))
     if (ctx.get('commands') !== undefined) {
       this.#off.push(ctx.on('commands/change', () => { this.#pushCommands() }))
     }
@@ -752,9 +756,13 @@ export class SessionRuntime {
 
   /** Admit a complete composer value through the selected Harness inbox entry. */
   async send(input: string | TuiSubmission, agent: Agent = this.#requiredAgent()): Promise<void> {
-    this.assertActive(agent)
     const submission = typeof input === 'string' ? { text: input, images: [] } : input
+    await this.#sendSubmission(submission, agent)
+  }
+
+  async #sendSubmission(submission: TuiSubmission, agent: Agent, signal?: AbortSignal): Promise<void> {
     const assertDelivery = (): void => {
+      signal?.throwIfAborted()
       this.assertActive(agent)
       if (submission.delivery === 'steer' && agent.status !== 'running') {
         throw new Error('Steering needs an active turn. Use Enter to send the next message.')
@@ -979,14 +987,11 @@ export class SessionRuntime {
       }
     })()
     if (execution === undefined) {
-      const skill = await this.#findUserSkill(skillNameFromCommand(parsed.name), signal)
+      const skill = await this.#findUserSkill(parsed.name, signal)
+      signal.throwIfAborted()
+      this.assertActive(agent)
       if (skill === undefined) return false
-      if (images.length > 0 || submission.files?.length) {
-        this.#tui.restoreInput(submission, agent.session.id)
-        this.#tui.notice(`/${parsed.name} does not accept attachments`, { level: 'error' })
-        return true
-      }
-      await this.send('/' + skill.name + (parsed.input === '' ? '' : ' ' + parsed.input))
+      await this.#sendSubmission(submission, agent, signal)
       return true
     }
     const result = execution.result
@@ -1706,8 +1711,9 @@ export class SessionRuntime {
         ...(options === undefined ? {} : { complete: (prefix: string) => matchArgumentOptions(options, prefix) }),
       }
     })
-    const names = new Set(commands.map(command => command.name))
-    for (const skill of this.#skillCommands) {
+    const names = new Set([...commands.map(command => command.name),
+      ...BUILTIN_SLASH_COMMANDS.flatMap(command => [command.name, ...(command.aliases ?? [])])])
+    for (const skill of userSkillCommands(this.#skills, names)) {
       if (names.has(skill.name)) continue
       commands.push(skill)
       names.add(skill.name)
@@ -1730,12 +1736,12 @@ export class SessionRuntime {
     const agent = this.agent
     const skills = this.#ctx.get('skills')
     if (agent === undefined || skills === undefined) {
-      this.#skillCommands = []
+      this.#skills = []
     } else {
       const cwd = currentWorkingDirectory(this.#ctx, agent.session)
       const list = await skills.list({ cwd, scope: agent, signal })
       if (this.#disposed || this.agent !== agent || currentWorkingDirectory(this.#ctx, agent.session) !== cwd) return
-      this.#skillCommands = userSkillCommands(list)
+      this.#skills = list
     }
     this.#pushCommands()
   }
@@ -1964,10 +1970,14 @@ export class SessionRuntime {
   }
 
   #sessionControls(active: ActiveSession, projection: TuiStatsProjection | undefined): TuiSessionControls {
-    const livePlan = this.#ctx.get('planMode')?.get(active.handle.agent)
+    const liveGoal = this.#ctx.get('goals')?.get(active.handle.agent)
+    const controls = sessionControls(projection, this.#ctx.get('planMode')?.get(active.handle.agent))
+    if (controls.goal !== undefined && liveGoal !== undefined && liveGoal.id === projection?.goal?.goal.id && liveGoal.revision === projection?.goal?.goal.revision) {
+      controls.goal.activation = liveGoal.activation
+    }
     const failure = active.handle.agent.status === 'idle' ? continuableFailure(active.handle.agent.session.snapshotEvents()) : undefined
     return {
-      ...sessionControls(projection, livePlan),
+      ...controls,
       ...(failure === undefined ? {} : { continuation: failure }),
       agentPreset: active.agentPreset,
     }

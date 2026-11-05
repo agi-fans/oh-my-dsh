@@ -23,7 +23,7 @@ description: Review a change for correctness and maintainability.
 Review the current diff, run focused tests, and report findings by severity.
 ```
 
-Type `/skill:` in the composer to browse and filter the new Skill alongside other commands, then press `Enter` to invoke it.
+Type `/` and the new Skill’s name in the composer to find it alongside commands, then press `Enter` to invoke it. You can stage images or files before submitting the request.
 
 ### Add an MCP server
 

@@ -6,13 +6,15 @@ description: "omdsh 的全部设置：外观、动效、通知、界面与回复
 
 `/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Models、Agent presets、Plugins 和 Terminal 之间切换；仅当 Profile 中存在未收编的插件字段时才显示 Advanced；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
+**Thinking in turns** 默认折叠。Shown 在运行时展开思考，已有的显式偏好继续生效。`Ctrl+T` 切换默认展示，`Ctrl+O` 可独立展开或收起思考和工具调用，不改变偏好。详见[转录导航](keyboard.md)。
+
 ## 产品配置
 
 自带能力按用户任务归入产品设置。Command hooks 兼容模式直接显示当前值，可用 `←`/`→` 或 `Space` 修改。选中配置行后按 `Enter` 打开设置，`Esc` 返回原来的选中行；启用集成导致可用设置变化时，也保持原行。没有内容的分类不显示。
 
 | 分类 | 配置 |
 |---|---|
-| General | 界面与回复语言、新会话的 Default access，以及明确标注的 Current session access 操作。 |
+| General | 界面与回复语言、新会话的 Default access，以及明确标注的 Current session access 和 Current goal 操作。 |
 | Models | 当前模型与推理强度、模型服务商管理、服务商登录和登出。模型选择同时保存默认值，除非选择仅当前会话。 |
 | Agent presets | 新会话的 Default Agent preset，以及空白会话的 Current session preset。 |
 | Plugins | 插件管理、Shell 限制、工具并行度、子代理、网页服务、命令 Hooks、原生集成及可选功能。 |
@@ -106,7 +108,7 @@ Apply 按各部分最初读取的版本保存。限制和模型策略分别写�
 | Terminal status | auto / on / off | auto | 向支持的终端报告根 Agent 生命周期；Auto 等待能力响应，On 强制报告，Off 关闭。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
-| Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
+| Mouse interaction | auto / tui / native | auto | 需要时接管滚动、点击展开与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
 | 运行时 Enter 行为 | 排队 / 插话 | 排队 | 选择 Enter 是等待下一回合还是指导下一次模型步骤。排队与插话快捷键含义固定；空闲发送和命令不受影响。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |

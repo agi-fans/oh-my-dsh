@@ -28,13 +28,13 @@ describe('completed turn summary', () => {
     expect(screen).toContain('Ctrl+O to expand')
     expect(screen).toContain('Answer one.')
     expect(screen).toContain('Answer two.')
-    expect(screen).not.toContain('Progress')
+    for (let i = 0; i < 50; i++) expect(screen).toContain(`Progress ${i}`)
     expect(screen).not.toContain('Thought')
     expect(screen).not.toContain('Final reasoning')
   })
   it('opens all process content in order, with the final answer exactly once', () => {
     const screen = view(transcript(2), true).map(stripAnsi).join('\n')
-    const parts = ['Thought 0', 'Progress 0', '$ pwd', 'Thought 1', 'Progress 1', 'Final reasoning', 'Answer one.', 'Answer two.']
+    const parts = ['Thought 0', 'Progress 0', 'Run command · pwd', 'Thought 1', 'Progress 1', 'Final reasoning', 'Answer one.', 'Answer two.']
     let at = -1
     for (const part of parts) {
       const next = screen.indexOf(part, at + 1)

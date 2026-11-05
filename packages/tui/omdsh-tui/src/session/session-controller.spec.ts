@@ -467,8 +467,13 @@ describe('capability catalogs', () => {
     } as const
     expect(userSkillCommands([
       { ...base, name: 'code-review' },
+      { ...base, name: 'reserved' },
+      { ...base, name: 'manual', invocation: { modelInvocable: false, userInvocable: true } },
       { ...base, name: 'hidden', invocation: { modelInvocable: true, userInvocable: false } },
-    ])).toEqual([{ name: 'skill:code-review', description: 'Review code' }])
+    ], new Set(['reserved']))).toEqual([
+      { name: 'code-review', description: 'Review code', skill: { userOnly: false } },
+      { name: 'manual', description: 'Review code', skill: { userOnly: true } },
+    ])
   })
 
   it('groups MCP tools by server', () => {

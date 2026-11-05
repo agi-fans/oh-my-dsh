@@ -23,7 +23,7 @@ description: Review a change for correctness and maintainability.
 Review the current diff, run focused tests, and report findings by severity.
 ```
 
-在 Composer 中输入 `/skill:`，即可像浏览普通命令一样查看并筛选新的 Skill，按 `Enter` 调用它。
+在 Composer 中输入 `/` 和新 Skill 的名称，即可在命令列表中找到它，按 `Enter` 调用。提交请求前也可以暂存图片或文件。
 
 ### 添加 MCP Server
 

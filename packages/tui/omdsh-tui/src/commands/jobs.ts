@@ -1,26 +1,16 @@
-/**
- * Human-facing background-job surface over the Harness job registry.
- * `/jobs` lists this session's jobs, `/jobs <id>` replays one run's observer-only
- * narration, and `/jobs kill <id>` requests cancellation.
- *
- * Reading `stdout` and `stderr` stays with the model: those channels feed the
- * registry's consuming cursor, so a human read would steal the model's next
- * `job_output`. The `log` channel is the opposite — the Harness marks it as
- * producer narration that only observers see, which is why a workflow's phase
- * lines can be replayed here without taking anything from the model.
- *
- * @module @agi-fans/dsh-tui/command-jobs
- */
+/** Background jobs: interactive observation and line-mode narration over Harness ownership. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { JobId, type JobOutputRead, type JobView } from '@deepseek-ai/dsh-jobs'
 import { formatDuration } from '../chrome/status-line.ts'
 import { JOB_STATUS_WORD } from '../session/job-notice.ts'
+import { browseJobs } from './jobs-browser.ts'
+import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-jobs'
-export const inject = ['commands', 'jobs']
+export const inject = ['commands', 'jobs', 'tui']
 
 function elapsed(snapshot: JobView, now: number): string {
   const end = snapshot.finishedAt ?? now
@@ -71,7 +61,8 @@ function killJob(ctx: Context, invocation: CommandInvocation): CommandResult {
  *
  * `readAt` from zero reads retained bytes at absolute offsets without moving the
  * model's cursor; only `log` chunks are printed, because `stdout` and `stderr`
- * belong to the model's own read. A lossy read says so rather than pretending the
+ * are omitted from this line-mode narration. The interactive browser observes all
+ * channels with the same non-consuming API. A lossy read says so rather than pretending the
  * run started where retention begins.
  */
 export function runText(snapshot: JobView, read: JobOutputRead, now: number): string {
@@ -101,28 +92,38 @@ function showRun(ctx: Context, invocation: CommandInvocation, id: string): Comma
   }
 }
 
-function showJobs(ctx: Context, invocation: CommandInvocation): CommandResult {
+async function showJobs(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const raw = invocation.rawInput.trim()
   if (raw === '') {
+    if (ctx.tui.interactive === true) { await browseJobs(ctx, invocation); return { kind: 'success' } }
     return { kind: 'success', text: jobsText(ctx.jobs.list(invocation.agent.session.id), Date.now()) }
   }
   const [verb, ...rest] = raw.split(/\s+/u)
   if (verb === 'kill') {
     const id = rest[0]
     if (id === undefined || rest.length > 1) return { kind: 'error', text: 'Usage: /jobs kill <id>' }
+    if (ctx.tui.interactive === true) { await browseJobs(ctx, invocation, id, true); return { kind: 'success' } }
     return killJob(ctx, { ...invocation, rawInput: id })
   }
-  if (rest.length === 0) return showRun(ctx, invocation, verb!)
+  if (rest.length === 0) {
+    if (ctx.tui.interactive === true) { await browseJobs(ctx, invocation, verb!); return { kind: 'success' } }
+    return showRun(ctx, invocation, verb!)
+  }
   return { kind: 'error', text: 'Usage: /jobs [<id>|kill <id>]' }
 }
 
 export function apply(ctx: Context): void {
+  const closing = new AbortController()
   registerCommands(ctx, [
     {
       name: 'jobs',
       description: 'List background jobs, replay one run, or stop one',
       input: { hint: '[<id>|kill <id>]' },
-      handler: invocation => showJobs(ctx, invocation),
+      handler: invocation => {
+        const active = ctx.get('omdshSession')?.interactionSignal
+        return showJobs(ctx, { ...invocation, signal: AbortSignal.any([invocation.signal, closing.signal, ...(active ? [active] : [])]) })
+      },
     },
   ], 'omdsh jobs command')
+  ctx.effect(() => () => { closing.abort() })
 }

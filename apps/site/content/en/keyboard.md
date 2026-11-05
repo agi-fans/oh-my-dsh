@@ -36,6 +36,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Alt+M` | Preview composer images without sending them; with no draft image, open the newest image in the conversation. |
 | `Alt+I` | Expand a folded pasted block for editing. |
 | `Alt+Up` | Withdraw the latest queued message into the empty composer for editing; Enter submits it again. |
+| `Alt+G` | Manage the current goal without submitting the draft. |
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
 | `Ctrl+S` | Stash or restore the current composer draft; a stashed draft returns automatically after you send a message. |
 | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
@@ -50,15 +51,15 @@ Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 line
 
 ## Transcript
 
-While a turn runs, thinking appears as quiet italic text, replies use ordinary Markdown, and tools show padded result previews in the active theme. A tool card carries its own surface: pending, successful, and failed cards are drawn on different fills. Its command line stays one bold ink, while its output is syntax highlighted. The composer's top border carries the activity — a spinner and `Deep Driving`, `Retrying in 4s`, or `Compacting 12s` — so waiting costs no transcript row; the top-right corner keeps the access level. A confirmation of the last action, such as `Thinking: hidden` or `Copied code`, is printed on the composer's bottom border and clears on the next keystroke instead of entering history. Shell output keeps its last five visual lines; successful file reads show the call without the file body. Completed steps stay visible until the turn ends. The process then folds to a duration summary such as `Worked for 16s`, followed by the complete final answer; failures remain visible. Opening the turn, or a search hit inside it, still shows every thought in full.
+While a turn runs, thinking and tool calls start as compact disclosure rows. Replies use ordinary Markdown; failed calls retain their reason. Opening a thought shows quiet italic text; opening a tool shows readable content with horizontal and vertical padding on a neutral surface. Terminal output stays plain; recognized source files retain syntax colors, with Read line numbers aligned separately from wrapped code. Alt+O exposes complete Input and Output sections. The composer carries activity such as `Deep Driving`, retries and compaction in its top border, and temporary confirmations in its bottom border. When the turn finishes, the process folds to a summary such as `Worked for 16s`; all assistant replies and failure facts remain visible. Items being inspected stay open through completion until the reader returns to the live tail.
 
-Narrow tables show labelled records when their columns would become unreadable. Complete supported Mermaid diagrams draw with terminal characters when they fit; unsupported, incomplete or oversized diagrams stay visible as code. **Mermaid in replies** in [Settings](settings.md) switches between Auto and Source. Reply formulas follow the **Math in replies** preference in [Settings](settings.md). **Thinking in turns** in [Settings](settings.md) decides whether reasoning starts visible or collapsed to a one-line `Thinking: …` summary; `Ctrl+T` flips it for the session either way.
+Narrow tables show labelled records when their columns would become unreadable. Complete supported Mermaid diagrams draw with terminal characters when they fit; unsupported, incomplete or oversized diagrams stay visible as code. **Mermaid in replies** in [Settings](settings.md) switches between Auto and Source. Reply formulas follow the **Math in replies** preference in [Settings](settings.md). **Thinking in turns** in [Settings](settings.md) defaults to collapsed, with a one-line `Thinking · …` preview of the latest paragraph. During streaming, a paragraph enters the preview only when its first line is complete; subsequent words in that paragraph do not change the preview. Existing explicit Shown preferences remain effective; `Ctrl+T` switches this preference and individual items can still be opened or closed.
 
-`Ctrl+O` restores that process view for a completed turn. `Alt+O` opens complete tool Input and Output sections for the turn being read, including PTC sub-calls; pressing it again restores previews while leaving the process view open. It also works during a running turn, and new calls in that turn inherit the detailed view. On a folded turn it opens the process and tool details together. `Ctrl+O`, `End`, or scrolling past the end closes inspection and resets tool details. Opening details never rewrites native terminal history. `Ctrl+O` also opens a saved compaction summary when its notice is under the viewport; pressing it again closes the summary.
+`Ctrl+O` enters process browsing for the running or completed turn under the viewport. Use `↑`/`↓` to select an item, `Enter` to toggle its readable content, and `←`/`→` to close/open it. Commands show the command and output; files show their content, edits show diffs, and searches show locations and matches. `Esc`, `Ctrl+O`, or `End` returns to the live tail and resets disclosures; typing or pasting returns focus to the composer while leaving the process open. The draft is retained. `Alt+O` opens complete parameters and results for all tools in the current turn, including PTC sub-calls and new calls that arrive while running; pressing it again restores compact rows. Scrolling past the end also closes inspection. Opening details never rewrites native terminal history. When a compaction notice is under the viewport, `Ctrl+O` opens its saved summary instead.
 
 Details show all text received by the TUI; they cannot recover content already truncated or spilled to a file by a tool. `/trajectory` provides event-level inspection, and `Ctrl+Shift+F` searches content outside the previews and reveals matches; `Ctrl+F` still does when the composer is empty, and keeps moving the caret when it is not.
 
-When earlier messages are in view, a `Jump to latest message · End` label appears above the composer area. Once a user prompt scrolls out of view, a one-line summary stays at the top while its reply is visible. The pinned prompt follows the turn being read. These labels are viewport controls, not conversation content.
+When earlier messages are in view, a `↓ Latest · End` label appears above the composer area. Once a user prompt scrolls out of view, a one-line summary stays at the top while its reply is visible. The pinned prompt follows the turn being read. These labels are viewport controls, not conversation content.
 
 | Shortcut | Action |
 |---|---|
@@ -66,13 +67,15 @@ When earlier messages are in view, a `Jump to latest message · End` label appea
 | `Shift+Up` / `Shift+Down` | Scroll quickly. |
 | Mouse wheel | Scroll the transcript from the live tail or while inspecting a turn; expanding a turn is not required. |
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
-| `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
+| `Ctrl+O` | Browse the running or completed turn: ↑/↓ select, Enter toggles, ←/→ close/open, Esc returns. Press again to return to the live tail. On the tool catalog, toggle descriptions. |
 | `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
 | `Alt+V` | Preview the files the tool under the reading position declared. With no tool there it says so and points at `/diff`, which reviews this turn’s changes. |
 | `Ctrl+Shift+F` | Search the current transcript; `n`/`N` step across matches. `Ctrl+F` does the same when the composer is empty, and moves the caret otherwise. |
 | `Ctrl+T` | Show or hide thinking across the transcript. |
 
-When the transcript can scroll or contains actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
+When the transcript can scroll or contains disclosure arrows or actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. Scrolling, resizing, typing, or changed selected rows clears the selection.
+
+Click a process row’s left-hand arrow to open or close its content; click a completed turn’s arrow to browse its process. The left gutter, including the arrow and surrounding blank cells before the title, is clickable. Small movements within that gutter and preview updates do not cancel a click. Titles and paths remain selectable; dragging out of the gutter selects text without toggling, even if the pointer returns. Shift-click keeps extending the selection. Keyboard navigation continues from the clicked item.
 
 Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` opens the same files for the tool under the reading position, and a completed Turn summary does not make hidden tool cards clickable. Reviewing a turn’s changes is `/diff`. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
 
@@ -82,7 +85,7 @@ Full-screen pages temporarily suspend application mouse handling. Reading views 
 
 File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text, `Q` quotes `@path:line` into the composer, and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
 
-Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. The terminal console uses the same reading keys.
+Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. Background-job output uses the same reading keys.
 
 ## Session
 
@@ -136,6 +139,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 |---|---|---|
 | `preview-images` | `Alt+M` | Preview draft images, or the newest conversation image. |
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
+| `manage-goal` | `Alt+G` | Edit, pause, resume or clear the current goal. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
 | `steer-turn` | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
 | `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
@@ -148,7 +152,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `cycle-model-backward` | `Ctrl+Shift+P` | Cycle to the previous favorite model (`Alt+P` is equivalent). |
 | `cycle-thinking` | `Shift+Tab` | Cycle the current model's reasoning effort. |
 | `toggle-thinking` | `Ctrl+T` | Show or hide thinking across the transcript. |
-| `toggle-tools` | `Ctrl+O` | Restore the completed turn under the viewport to its running presentation; press again to return to the folded live tail. Running turns are unchanged. On the tool catalog, toggle descriptions. |
+| `toggle-tools` | `Ctrl+O` | Browse the running or completed turn: ↑/↓ select, Enter toggles, ←/→ close/open, Esc returns. Press again to return to the live tail. On the tool catalog, toggle descriptions. |
 | `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
 | `review-changes` | `Alt+V` | Preview the files the tool under the viewport declared. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |

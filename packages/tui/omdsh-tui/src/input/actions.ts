@@ -29,7 +29,7 @@ export type TuiAction =
   | 'reset-display'
   // Composer
   | 'external-editor' | 'stash-draft' | 'paste-clipboard' | 'expand-paste' | 'preview-images'
-  | 'copy-prompt' | 'copy-line' | 'follow-up' | 'dequeue' | 'steer-turn' | 'manage-queue' | 'retry'
+  | 'copy-prompt' | 'copy-line' | 'follow-up' | 'dequeue' | 'steer-turn' | 'manage-queue' | 'manage-goal' | 'retry'
   // Model and thinking
   | 'select-model' | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-thinking' | 'toggle-thinking'
   // Transcript
@@ -68,6 +68,7 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   },
   { id: 'dequeue', primary: ['alt+up'], label: 'Recall the latest queued message', scope: 'composer' },
   { id: 'steer-turn', primary: ['alt+s'], label: 'Send the draft to the active turn’s next step', scope: 'composer' },
+  { id: 'manage-goal', primary: ['alt+g'], label: 'Manage the current goal', scope: 'composer' },
   { id: 'manage-queue', primary: ['alt+q'], label: 'Manage queued messages', scope: 'composer' },
   { id: 'retry', primary: ['alt+r'], label: 'Continue a failed generation with an empty composer', scope: 'composer' },
 
@@ -83,7 +84,7 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'cycle-thinking', primary: ['shift+tab'], aliases: ['ctrl+shift+t'], label: 'Cycle the reasoning effort', scope: 'session' },
   { id: 'toggle-thinking', primary: ['ctrl+t'], label: 'Show or hide thinking in the transcript', scope: 'transcript' },
 
-  { id: 'toggle-tools', primary: ['ctrl+o'], label: 'Toggle completed turn details', scope: 'transcript' },
+  { id: 'toggle-tools', primary: ['ctrl+o'], label: 'Browse thinking and tool calls', scope: 'transcript' },
   { id: 'toggle-tool-details', primary: ['alt+o'], label: 'Toggle full tool inputs and results', scope: 'transcript' },
   { id: 'review-changes', primary: ['alt+v'], label: 'Preview the files the tool under the viewport declared', scope: 'transcript' },
   { id: 'search-history', primary: ['ctrl+r'], label: 'Search prompt history', scope: 'composer' },

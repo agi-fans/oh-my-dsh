@@ -53,6 +53,8 @@ export interface TuiArgumentOption {
 export interface TuiCommand {
   name: string
   description: string
+  /** Skill provenance for discovery; invocation policy remains owned by Harness. */
+  skill?: { userOnly: boolean }
   inputHint?: string
   /**
    * Candidates for this command's argument, read as the reader types.
@@ -283,6 +285,8 @@ export interface TuiSessionControls {
  */
 export interface TuiGoalStatus {
   phase: 'active' | 'paused' | 'blocked'
+  /** Live continuation authority; absent when the host cannot report it. */
+  activation?: 'armed' | 'disarmed'
   objective: string
   /** Present exactly while `phase` is `blocked`. */
   blockedReason?: string
@@ -613,6 +617,9 @@ export interface TuiService {
    */
   onQueueEdit(listener: (request?: TuiQueueEditRequest) => void): () => void
   readonly pendingInputs: TuiPendingInputs
+  /** Open the current root goal without submitting the composer draft. */
+  setGoalHandler?(handler: (signal: AbortSignal) => Promise<void>): () => void
+
   /** Open message management through the session owner without submitting the composer. */
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void
   /**

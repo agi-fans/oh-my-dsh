@@ -1,4 +1,5 @@
 import { uiText, type UiLanguage } from '../locale/index.ts'
+import type { TuiCommand } from '../definition.ts'
 /**
  * Slash-command autocomplete: OMP-style leading-`/` matching, ranking, and
  * completion apply. Pure — the provider owns popup selection and execution.
@@ -25,10 +26,8 @@ export interface SlashArgument {
 }
 
 /** One slash command the editor can complete and the TUI can run. */
-export interface SlashCommand {
-  name: string
+export interface SlashCommand extends TuiCommand {
   aliases?: readonly string[]
-  description: string
   arguments?: readonly SlashArgument[]
   /** Free-form argument usage contributed by a runtime command plugin. */
   inputHint?: string
@@ -47,6 +46,7 @@ export interface AutocompleteItem {
   value: string
   label: string
   description?: string
+  skill?: TuiCommand['skill']
   /** Argument, path, and session rows paint without a leading `/`. */
   kind?: 'command' | 'argument' | 'path' | 'session' | 'heading'
 }
@@ -98,15 +98,11 @@ export function leadingSlashCommandNameRange(text: string): { start: number; end
   const token = text.slice(start)
   if (token.slice(1).includes('/')) return null
   const body = token.slice(1)
-  if (body.startsWith('skill:')) {
-    const space = body.search(/\s/u)
-    return { start, end: start + 1 + (space === -1 ? body.length : space) }
-  }
   const sep = body.search(/[\s:]/u)
   return { start, end: start + 1 + (sep === -1 ? body.length : sep) }
 }
 
-/** Subsequence match (`wig` hits `skill:wig`). */
+/** Subsequence match (`cr` hits `code-review`). */
 export function fuzzyMatch(query: string, target: string): boolean {
   return subsequencePenalty(query, target) !== undefined
 }
@@ -142,6 +138,7 @@ interface NamedMatch {
   value: string
   aliases?: readonly string[]
   description: string
+  skill?: TuiCommand['skill']
 }
 
 function buildNamedCompletions(
@@ -169,7 +166,7 @@ function buildNamedCompletions(
       if (kind === 'command' && lowerPrefix.length >= 3 && best === undefined && entry.description.toLowerCase().includes(lowerPrefix)) {
         best = { value: entry.value, label: entry.value, kind, score: 50, description: entry.description }
       }
-      return best === undefined ? [] : [best]
+      return best === undefined ? [] : [{ ...best, ...(entry.skill === undefined ? {} : { skill: entry.skill }) }]
     })
     .sort((a, b) => b.score - a.score)
     .map(({ score: _score, ...rest }) => rest)
@@ -188,6 +185,7 @@ export function buildSlashCommandCompletions(
       value: command.name,
       ...(command.aliases === undefined ? {} : { aliases: command.aliases }),
       description: command.description,
+      ...(command.skill === undefined ? {} : { skill: command.skill }),
     })),
     lowerPrefix,
     'command',
@@ -310,11 +308,6 @@ export function parseSlashInput(text: string): { name: string; args: string } | 
   if (!trimmed.startsWith('/')) return null
   const body = trimmed.slice(1)
   if (body === '') return { name: '', args: '' }
-  if (body.startsWith('skill:')) {
-    const space = body.search(/\s/u)
-    if (space === -1) return { name: body, args: '' }
-    return { name: body.slice(0, space), args: body.slice(space + 1).trim() }
-  }
   const sep = body.search(/[\s:]/)
   if (sep === -1) return { name: body, args: '' }
   return { name: body.slice(0, sep), args: body.slice(sep + 1).trim() }
@@ -348,8 +341,9 @@ export function formatHelpText(
   commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
   language: UiLanguage = 'en',
 ): string {
-  const skills = commands.filter(command => command.name.startsWith('skill:'))
-  const core = commands.filter(command => !command.name.startsWith('skill:'))
+  const isSkill = (command: SlashCommand): boolean => command.skill !== undefined
+  const skills = commands.filter(isSkill)
+  const core = commands.filter(command => !isSkill(command))
   const lines = [`Commands · ${core.length} core${skills.length === 0 ? '' : ` · ${skills.length} skills`}`]
   const assigned = new Set(COMMAND_GROUPS.flatMap(group => group.names))
   const groups = [...COMMAND_GROUPS.map(group => ({ label: group.label, commands: core.filter(command => group.names.includes(command.name)) })),
@@ -360,9 +354,9 @@ export function formatHelpText(
   if (skills.length > 0) {
     lines.push(
       '',
-      `**Skills · ${skills.length}**`,
+      `**${uiText(language, 'Skills')} · ${skills.length}**`,
       '',
-      'Type `/skill:` to browse and filter skills with descriptions.',
+      uiText(language, 'Type `/` and a skill name to find and invoke it. User only skills require an explicit request.'),
     )
   }
   return lines.join('\n')
@@ -407,7 +401,9 @@ export function renderAutocomplete(
     const row: ListRow = {
       label: autocompleteLabel(item),
       ...(bare ? {} : { tone: 'accent' as const }),
-      ...(item.description === undefined || item.description === '' ? {} : { description: bare ? item.description : theme.text(item.description) }),
+      ...(item.skill !== undefined
+        ? { description: theme.text(item.skill.userOnly ? 'User only' : 'Skill') + (item.description ? ' · ' + item.description : '') }
+        : item.description === undefined || item.description === '' ? {} : { description: bare ? item.description : theme.text(item.description) }),
     }
     lines.push(renderListRowWithValue(row, theme, width, primaryWidth, { selected: at === index }))
   }

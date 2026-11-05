@@ -137,6 +137,79 @@ async function fixture(tty = false, durableRoot?: string, commands = false) {
 }
 
 describe('session transcript boundaries', () => {
+  it('submits a skill with ordered attachments and the original recovery receipt', async () => {
+    const name = 'review'
+    const f = await fixture(false, undefined, true)
+    const file = { attachmentId: AttachmentId('skill-file'), name: '任务.txt', bytes: 10 }
+    const image = { attachmentId: AttachmentId('skill-image'), mediaType: 'image/png' as const, width: 1, height: 1, bytes: 3 }
+    const saveImages = vi.fn(async () => [image])
+    f.ctx.provide('attachments', { saveImages } as never)
+    f.ctx.provide('skills', { list: async () => [{ name: 'review', description: 'Review', invocation: { userInvocable: true, modelInvocable: false } }] } as never)
+    const draft: TuiSubmission = { text: `  /${name}  检查 原文`, images: [{ data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' }], files: [file],
+      segments: [{ kind: 'file', index: 0 }, { kind: 'text', text: `  /${name}  检查 ` }, { kind: 'image', index: 0 }, { kind: 'text', text: '原文' }] }
+    const prepare = vi.spyOn(f.tui.pendingInputs, 'prepare')
+    try {
+      await f.runtime.start()
+      const admit = vi.fn()
+      Object.assign(f.runtime.agent!, { followup: admit })
+      expect(await f.runtime.execute(draft, new AbortController().signal)).toBe(true)
+      expect(admit).toHaveBeenCalledOnce()
+      const message = admit.mock.calls[0]![0]
+      expect(message.content).toEqual([
+        { type: 'file', attachment: file }, { type: 'text', text: '  /review  检查 ' },
+        { type: 'image', attachment: image }, { type: 'text', text: '原文' },
+      ])
+      expect(prepare.mock.calls[0]?.[0]).toBe(draft)
+      expect(prepare).toHaveBeenCalledWith(draft, message.id)
+      expect(draft.segments?.[1]).toEqual({ kind: 'text', text: `  /${name}  检查 ` })
+      expect(saveImages).toHaveBeenCalledOnce()
+    } finally { await f.dispose() }
+  })
+
+  it.each(['lookup', 'upload', 'switch', 'failure'])('does not admit skill input after %s cancellation or failure', async stage => {
+    const f = await fixture(false, undefined, true), abort = new AbortController()
+    const list = vi.fn(async () => [{ name: 'review', description: 'Review', invocation: { userInvocable: true, modelInvocable: true } }])
+    f.ctx.provide('skills', { list } as never)
+    const saveImages = vi.fn(async () => {
+      if (stage === 'failure') throw new Error('upload failed')
+      if (stage === 'switch') await f.runtime.newSession(f.runtime.agent!)
+      else abort.abort()
+      return []
+    })
+    f.ctx.provide('attachments', { saveImages } as never)
+    try {
+      await f.runtime.start()
+      const admit = vi.fn()
+      Object.assign(f.runtime.agent!, { followup: admit })
+      if (stage === 'lookup') list.mockImplementationOnce(async () => { abort.abort(); return [{ name: 'review', description: 'Review', invocation: { userInvocable: true, modelInvocable: true } }] })
+      await expect(f.runtime.execute({ text: '/review', images: [{ data: new Uint8Array([1]), mediaType: 'image/png' }] }, abort.signal)).rejects.toThrow()
+      expect(admit).not.toHaveBeenCalled()
+      if (stage === 'lookup') expect(saveImages).not.toHaveBeenCalled()
+    } finally { await f.dispose() }
+  })
+
+  it('keeps same-named commands authoritative without inventing skill aliases', async () => {
+    const f = await fixture(false, undefined, true)
+    f.ctx.provide('skills', { list: async () => [{ name: 'review', description: 'Skill review', invocation: { userInvocable: true, modelInvocable: true } }, { name: 'help', description: 'Skill help', invocation: { userInvocable: true, modelInvocable: true } }] } as never)
+    const handler = vi.fn(() => ({ kind: 'error' as const, text: 'Command refused' }))
+    f.ctx.commands.register({ name: 'review', description: 'Command review', handler })
+    const catalog = vi.spyOn(f.tui, 'setCommands')
+    try {
+      await f.runtime.start()
+      const admit = vi.fn()
+      Object.assign(f.runtime.agent!, { followup: admit })
+      expect(catalog.mock.lastCall?.[0]).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'review', description: 'Command review' }),
+      ]))
+      expect(await f.runtime.execute('/review', new AbortController().signal)).toBe(true)
+      expect(handler).toHaveBeenCalledOnce()
+      expect(admit).not.toHaveBeenCalled()
+      expect(catalog.mock.lastCall?.[0].some(entry => entry.skill !== undefined)).toBe(false)
+      expect(await f.runtime.execute('/skill:review', new AbortController().signal)).toBe(false)
+      expect(admit).not.toHaveBeenCalled()
+    } finally { await f.dispose() }
+  })
+
   it.each(['success', 'reject', 'throw', 'cancel'] as const)('admits file commands and restores rejected drafts (%s)', async outcome => {
     const f = await fixture(true, undefined, true)
     const file = { attachmentId: AttachmentId('command-file'), name: 'task.txt', bytes: 10 }

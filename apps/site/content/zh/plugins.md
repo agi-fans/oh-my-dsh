@@ -23,7 +23,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 | 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥、运行已注册的授权流程，或添加自定义 profile |
 | 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 与树中其余部分已经读取的 Profile 补丁共用 |
 | 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
-| Skill | Harness Skill Registry | 出现在 `/skill:` 下 |
+| Skill | Harness Skill Registry | 以 `/<skill-name>` 展示 |
 | MCP Server | 每个 Server 对应一行 `dsh-mcp-client` | 出现在 `/mcp` 和 `/tools` 中 |
 
 只需要这些缝的插件，不必再写 TUI 展示适配器。

@@ -30,7 +30,7 @@ description: Review a change for correctness and maintainability.
 Review the current diff, run focused tests, and report findings by severity.
 ```
 
-Skills 与普通 Slash Command 共用同一份目录，采用与 pi/OMP 相同的平铺模型。输入 `/skill:` 可以浏览和筛选 Skills，并在列表中查看简短说明；按 Enter 即可调用。旧的 `/code-review` 形式仍可兼容 Harness 的用户调用语义，但不会继续展示。模型也会通过 Harness `skill` 工具收到相同目录，并可以按需加载匹配的 Skill。
+输入 `/` 和技能名，例如 `/code-review`，即可在命令列表中查找技能。列表展示技能说明，并将需要用户主动请求的技能标为“仅用户调用”。调用时，请求会与暂存的图片、文件一起提交，由 Harness 在模型回复前加载技能指令。允许模型调用的技能仍可通过 `skill` 工具按需加载。技能与命令同名时，列表保留命令；仍可在正文中引用该技能，例如“请用 `/review` 检查这些改动”。
 
 ## MCP
 

@@ -122,10 +122,9 @@ describe('tool content', () => {
 describe('tool card surfaces and payload ink', () => {
   const color = createTheme(true, true, 'dark', { trueColor: true } as never)
 
-  it('paints the whole command line in one ink and highlights only the output', () => {
-    // A command is the reader's own intent and has to be recognisable at a
-    // glance, so it stays one bold colour across every wrapped row. Syntax
-    // colouring belongs to the output, which is what actually has to be read.
+  it('paints commands and terminal results without adding syntax colors', () => {
+    // Command emphasis and output ink remain distinct without guessing the
+    // language of a terminal result.
     const block = tool({
       name: 'bash',
       args: JSON.stringify({ command: 'git status --short\nls -la | head -2' }),
@@ -181,5 +180,67 @@ describe('wrapped tool command rows', () => {
         .filter(ink => ink !== color.getFgAnsi('toolOutput')))
       expect([...inks], stripAnsi(row)).toEqual([color.getFgAnsi('toolTitle')])
     }
+  })
+})
+
+describe('readable tool detail spacing and source columns', () => {
+  const theme = createTheme(true, true, 'dark')
+  const details = (block: Tool, width = 60, raw = false, colors = true) => blockLines(block, colors ? theme : createTheme(false), width, {
+    processDisclosure: true, toolsExpanded: true, rawTool: raw,
+  })
+
+  it.each([false, true])('pads the top and bottom of expanded content (raw=%s)', raw => {
+    const rows = details(tool({ args: '{"command":"pwd"}', output: 'workspace' }), 60, raw)
+    const blank = paintSurface(theme, 'toolAltBg', 'toolOutput', ' '.repeat(60))
+    expect(rows[1]).toBe(blank)
+    expect(rows.at(-1)).toBe(blank)
+    expect(rows.every(row => visibleWidth(row) === 60)).toBe(true)
+  })
+
+  it.each([false, true])('does not syntax-color terminal output as shell source (raw=%s)', raw => {
+    for (const name of ['bash', 'pwsh', 'exec', 'custom']) {
+      const block = tool({ name, args: '{"command":"ls"}', output: 'history\ntotal 344\nconst value = 12',
+        ...(name === 'custom' ? { presentation: { call: { card: 'terminal' as const, title: 'ls' } } } : {}),
+      })
+      const rows = details(block, 60, raw).filter(row => /history|total 344|const value/.test(stripAnsi(row)))
+      expect(rows).toHaveLength(3)
+      for (const row of rows) {
+        expect([...new Set([...row.matchAll(/\x1b\[38;2;[0-9;]+m/g)].map(match => match[0]))]).toEqual([theme.getFgAnsi('toolOutput')])
+      }
+    }
+  })
+
+  it.each([false, true])('keeps line numbers in their own column across long and short lines (raw=%s)', raw => {
+    const block = tool({ name: 'read', args: '{"path":"README.md"}', output: 'durable result', presentation: { result: {
+      card: 'read', path: 'README.md', totalLines: 1000, lines: [
+        { number: 9, text: '    START ' + '中文🐳é '.repeat(16) + 'END' },
+        { number: 10, text: '' },
+        { number: 100, text: '  SHORT' },
+        { number: 1000, text: '\tTAB' },
+      ],
+    } } })
+    for (const colors of [false, true]) for (const width of [20, 40, 80]) {
+      const rows = details(block, width, raw, colors).map(stripAnsi)
+      expect(rows.every(row => visibleWidth(row) <= width)).toBe(true)
+      const first = rows.findIndex(row => /^       9  /.test(row))
+      expect(first).toBeGreaterThan(0)
+      expect(rows[first]).toMatch(/^       9      STAR/)
+      if (width > 20) expect(rows[first]).toContain('START')
+      const empty = rows.findIndex(row => /^      10 +$/.test(row))
+      expect(empty).toBeGreaterThan(first + 1)
+      for (const row of rows.slice(first + 1, empty)) expect(row.startsWith(' '.repeat(10))).toBe(true)
+      expect(rows.find(row => row.includes('SHORT'))).toMatch(/^     100    SHORT/)
+      const source = rows.slice(first, empty).map(row => row.slice(10)).join('').replaceAll(/\s/gu, '')
+      expect(source).toBe(('START ' + '中文🐳é '.repeat(16) + 'END').replaceAll(/\s/gu, ''))
+    }
+  })
+
+  it('highlights recognized file code without coloring the line-number gutter', () => {
+    const rows = details(tool({ name: 'read', args: '{"path":"source.ts"}', presentation: { result: {
+      card: 'read', path: 'source.ts', totalLines: 1, lines: [{ number: 1, text: 'const value = 12' }],
+    } } }))
+    const line = rows.find(row => stripAnsi(row).includes('const value'))!
+    expect(line).toContain(theme.getFgAnsi('syntaxNumber'))
+    expect(stripAnsi(line)).toMatch(/^    1  const value/)
   })
 })

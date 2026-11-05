@@ -54,7 +54,17 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images and files travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
 | `/compact` | Compact older conversation history; keep typing and queue input during compaction, then read the saved summary with Ctrl+O. |
-| `/jobs [<id>\|kill <id>]` | List background jobs, replay one run's narration, or stop one by id. A run's `log` channel is producer narration that only observers see, so replaying it takes nothing from the model's own read; `stdout` and `stderr` stay with the model. |
+| `/jobs [<id>\|kill <id>]` | Browse live jobs, inspect retained output, or confirm stopping a job. Line mode prints a snapshot and observer narration. |
+
+## Goal controls
+
+`/goal` keeps the Harness command syntax. Press `Alt+G`, or open **Settings → General → Current goal**, to edit, pause, resume or clear the current goal without submitting the composer draft. Clearing requires confirmation. Edits keep their draft after a rejected concurrent change; reopening Edit uses that draft until saved or the manager closes. The goal bar distinguishes durable active state from live continuation authority: **Goal waiting** means the goal is saved but this process is not armed to continue. Cold resume does not itself authorize another round; choose Resume goal. A used-up round limit disables Resume; ask the agent to raise the limit first.
+
+## Background jobs
+
+`/jobs` opens a searchable list with running jobs first, progress, elapsed time and terminal reasons. Select a job for **View output** or **Stop job**; stopping defaults to **Keep running** and rechecks the task after confirmation. Lists update while open, retain the last state after refresh failure, and offer Refresh to retry. A failed read disables task actions until a successful refresh.
+
+The output reader observes stdout, stderr and narration through the non-consuming Harness API, so viewing output never advances the model’s read cursor. It follows new output at the bottom; scrolling up or searching freezes the displayed snapshot, and End resumes following. Each snapshot shows at most the latest roughly 256K characters and 10,000 lines, with a notice for clipped or discarded output. Output retention belongs to Harness and does not promise persistence after process exit. Closing the reader releases its subscription without stopping the job; session replacement, plugin unload and cancellation close the browser. Approval prompts take precedence. In line mode, `/jobs <id>` retains its narration-only output and `/jobs kill <id>` requests a stop directly.
 
 ## Plan mode
 
@@ -110,10 +120,6 @@ Use Tab or Left/Right to select a document action, then Enter to activate it; `�
 
 A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. Deliberately typed slash commands carry their attachments through Harness command admission, including while a turn runs. Commands that do not accept attachments, unknown commands, and failed or cancelled submissions restore the text, images and files to the original session. Pasted literal text and explicit Steer submissions remain model messages. Mixed attachments retain their displayed order through retries and queue recall. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 
-The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or searching pause following and freeze the displayed snapshot; End refreshes the latest page and follows new output again. `L` or **Earlier output** prepends up to 300 older retained lines while keeping your reading position and search, with a reader limit of 10,000 lines or 4 MiB. `/` or `Ctrl+F` searches loaded text, `Ctrl+N`/`Ctrl+P` cycles matching lines, and `G` or `Ctrl+G` jumps to a displayed line number. Line numbers refer to the backend's retained output at the time of the snapshot, not a permanent log. A clipped or changed history is reported instead of joining mismatched pages; output already discarded by the backend cannot be recovered.
-
-`I` sends a line and `C` interrupts. Cancelling input or returning from a console action preserves the reading position, search, and follow mode. Esc detaches without killing the shell; **Close terminal** requires confirmation. Busy terminals retain exclusive input ownership. Browsing stays quiet and yields to tool questions. This is a line-input console, not raw PTY attachment for fullscreen programs.
-
 ## Clipboard and output
 
 | Command | What it does |
@@ -124,7 +130,7 @@ The terminal console opens at the newest 300 retained lines. Up/PageUp, Home, or
 
 ## Skills
 
-Every user-invocable Skill appears as `/skill:<name>`, with the description from its `SKILL.md`. Type `/skill:` to filter the list and press Enter to invoke one. The older `/code-review` form of a Skill command is still accepted for compatibility but is no longer advertised. See [Skills and MCP](skills-and-mcp.md).
+User-invocable Skills appear as `/<name>`, with descriptions and a **User only** marker when model invocation is disabled. Type `/` and the name to find a skill, then submit it with optional images and files. Commands take precedence over same-named skills; invoke those skills within a sentence, such as “Please use `/review` to check these changes.” See [Skills and MCP](skills-and-mcp.md).
 
 ## Application
 

@@ -229,8 +229,8 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
     {
       id: 'hideThinking',
       label: 'Thinking in turns',
-      description: 'Shown keeps reasoning visible while a turn runs; Hidden collapses it to one line. Ctrl+T flips this for the session.',
-      value: prefs.hideThinking === true ? 'hidden' : 'shown',
+      description: 'Hidden (default) folds thinking to one line; Shown opens it. Ctrl+O browses individual items; Ctrl+T changes the default.',
+      value: prefs.hideThinking !== false ? 'hidden' : 'shown',
       values: ['shown', 'hidden'],
     },
     {

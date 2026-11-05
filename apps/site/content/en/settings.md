@@ -6,13 +6,15 @@ description: "Every omdsh setting: appearance, motion, notifications, UI and res
 
 `/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Models, Agent presets, Plugins, and Terminal; Advanced appears only when the profile has unclaimed plugin fields; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
 
+**Thinking in turns** starts collapsed by default. Shown keeps thoughts expanded while work runs; an existing explicit preference is retained. `Ctrl+T` changes the preference, and `Ctrl+O` lets you open or close individual thoughts and tool calls without changing it. See [Transcript navigation](keyboard.md).
+
 ## Product configuration
 
 Built-in capabilities appear in the product category that owns the task. Command hooks compatibility shows its current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
 
 | Category | Configuration |
 |---|---|
-| General | UI and response languages, Default access for new sessions, and an explicitly labelled Current session access action. |
+| General | UI and response languages, Default access for new sessions, and explicitly labelled Current session access and Current goal actions. |
 | Models | Current model and reasoning, Model providers, provider sign-in, and sign-out. Model selection also saves the default unless the session-only action is used. |
 | Agent presets | Default Agent preset for new sessions and Current session preset for a blank session. |
 | Plugins | Plugin management, Shell limits, tool parallelism, subagents, web providers, command hooks, native integrations and optional feature toggles. |
@@ -106,7 +108,7 @@ Rows are grouped under Appearance, Input, Notifications and Startup.
 | Terminal status | auto / on / off | auto | Report root Agent lifecycle to supporting terminals; Auto waits for a capability reply, On forces reporting, and Off disables it. |
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Keybindings | Default / custom count | Default | Open the shortcut remapping picker, save to `keybindings.json`, and apply immediately. |
-| Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
+| Mouse interaction | auto / tui / native | auto | Handle scrolling, disclosure clicks and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
 | Enter while running | Queue / Steer | Queue | Choose whether Enter waits for the next turn or guides the next model step. Explicit Queue and Steer shortcuts stay fixed; idle sends and commands are unchanged. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Process arrows support mouse expansion alongside keyboard navigation. Titles and paths remain selectable, and dragging from an arrow into text selects without toggling.
+
+- Alt+G and Settings → General → Current goal open live goal controls for editing, pausing, resuming and confirmed clearing. The goal bar distinguishes saved active goals awaiting authorization from armed continuation; stale edits retain their draft and exhausted goals explain the round limit.
+
 - `/mcp` offers selectable registration diagnostics, startup errors, available tools, and the session’s latest ten MCP calls, including programmatic sub-calls. Refresh preserves the previous snapshot on failure; live connection and authentication status remain unavailable in the published Harness API.
 
 - `/schedule` supports pause, resume and immediate delivery without moving the next occurrence, live task state, and paginated delivery history. Busy tasks and minimum run intervals are explained; failed refreshes preserve loaded records and concurrent edits cannot silently overwrite newer changes. Task details use compact spacing, and card lists reduce visible choices to make room for details and the footer in short terminals.
@@ -36,6 +40,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/agent creator` and the Plugins menu open Creator to author Harness plugins, preserving session drafts without sending a prompt or changing the default Agent preset.
 
 ### Changed
+
+- Expanded tools show readable commands, file contents, diffs and search results on quiet detail surfaces; Alt+O retains complete parameters and results. Process indentation is consistent, Thinking previews follow the latest stable paragraph, and the return-to-latest control is less prominent.
+
+- Thinking and tool calls start as compact, individually expandable rows. Ctrl+O browses live or completed work with arrow keys and Enter; Esc returns to the composer. Completed turns retain every assistant reply and failure fact, and items under inspection stay open through completion. Existing explicit thinking preferences are retained.
+
+- Skills appear as `/<name>` with localized markers for user-only invocation. Requests can carry ordered images and files. Commands take precedence over same-named skills, which remain invocable within a sentence. The `/skill:<name>` spelling is no longer supported.
+
+- `/jobs` offers a live searchable list, progress and terminal reasons, confirmed stopping, and a following output reader. Observing stdout, stderr and narration leaves the model’s output cursor untouched; retention gaps and view clipping are explicit, and browsing yields to approvals.
 
 - Compaction keeps the composer editable and queues new messages until it finishes. Saved summaries expand with Ctrl+O, remain readable after resume, and appear once without a duplicate command result. Closing inspection folds expanded outputs again.
 
@@ -72,6 +84,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Expanded tool details have top and bottom breathing room. Terminal results no longer receive inferred shell syntax colors, and Read keeps line numbers aligned independently of wrapped source text.
+
+- Process disclosures accept clicks across the left gutter and tolerate small pointer movements and streaming preview updates, while text selection and stale-layout protection remain intact.
 
 - Replacing a session cancels its visible and queued questions and approvals, including local child approvals. Late answers cannot approve actions, send rejection notes, or save rules after cancellation.
 

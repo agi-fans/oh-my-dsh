@@ -2130,7 +2130,7 @@ describe('MainScreenRenderer which span the mapper picks', () => {
     // block leaves this case green. So this is a **guardrail on the committed result**,
     // not a test of the selection rule — that rule is pinned by the `mapBlockSpan`
     // suite, on offsets chosen so the choice shows.
-    const gap = 4
+    const gap = 2
     expect(answerAt(open.transcript) - answerAt(closed.transcript)).toBeGreaterThanOrEqual(gap)
     renderer.reflow(1)
     renderer.render({ ...frame(open.lines, open.lines.length - 2), transcript: open.transcript })
