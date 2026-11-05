@@ -162,3 +162,23 @@ describe('searching compact process rows', () => {
     }
   })
 })
+
+it('uses the displayed link layout for search and invalidates it when hyperlink support changes', async () => {
+  const { initialTranscript, renderView } = await import('./event-views.ts')
+  const { renderedBlocks } = await import('./transcript-render.ts')
+  const state = { ...initialTranscript(), turn: 1, blocks: [
+    { kind: 'assistant' as const, turn: 1, step: 1, reasoning: '', streaming: false,
+      text: '[docs](https://example.com/documentation/very/long/path?view=reference) needle' },
+  ] }
+  const options = { width: 50, height: 30, model: 'm', input: '', inputCursor: 0, colors: true }
+  const full = renderedBlocks(state, options)
+  const compact = renderedBlocks(state, { ...options, compactLinks: true })
+  expect(compact).not.toEqual(full)
+  expect(compact.flatMap(block => block.lines).join('\n')).toContain('example.com/…')
+  expect(searchMatches(compact, 'needle')).toHaveLength(1)
+  const frame = renderView(state, { ...options, compactLinks: true,
+    transcriptSearch: { query: 'needle', focus: 0, editing: false } })
+  const row = frame.lines.find(line => stripAnsi(line).includes('needle') && line.includes('\x1b[7m'))!
+  expect(row).toBeDefined()
+  expect(stripAnsi(row.slice(row.indexOf('\x1b[7m') + 4, row.indexOf('\x1b[27m')))).toBe('needle')
+})

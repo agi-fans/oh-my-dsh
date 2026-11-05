@@ -178,7 +178,8 @@ describe('file inspection', () => {
         const rows = renderMarkdown(preview, theme, width)
         expect(rows.every(row => visibleWidth(row) <= width)).toBe(true)
         expect(rows.every(row => stripAnsi(row).startsWith('  │ '))).toBe(true)
-        expect(rows.map(stripAnsi).map(row => row.slice(4)).join('')).toBe(content.replace(/\n/gu, ''))
+        expect(stripAnsi(rows[0]!)).toBe('  │ ts')
+        expect(rows.slice(1).map(stripAnsi).map(row => row.slice(4)).join('')).toBe(content.replace(/\n/gu, ''))
         if (colors) expect(rows.find(row => stripAnsi(row).includes('const hidden'))).not.toContain(theme.getFgAnsi('mdKeyword'))
       }
     }

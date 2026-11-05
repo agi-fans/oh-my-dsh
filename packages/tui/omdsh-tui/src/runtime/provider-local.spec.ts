@@ -825,17 +825,18 @@ describe('LocalTui folds against a scrolling terminal', () => {
           ...(surface === 'plan-review' ? { approveValue: 'Approve' } : {}),
         })
         expect(term.visible()).not.toEqual(screen)
-        expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+        if (surface !== 'trajectory') expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
         const restore = term.captured.length
         press(term, '\x1b[27u')
         if (answer !== undefined) expect(await answer).toBeNull()
         expect(term.visible()).toEqual(screen)
         expect(term.scrollback()).toEqual(history)
-        expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
+        if (surface !== 'trajectory') expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
         // The restored frame must still accept wheel input, not only look right.
         press(term, '\x1b[<64;5;5M')
         expect(term.visible()).not.toEqual(screen)
         press(term, '\x0f')
+        tui.dispose()
         expect(term.captured).toContain('\x1b[?1000l')
       } finally { tui.dispose() }
     },
@@ -3951,7 +3952,7 @@ describe('LocalTui (tty)', () => {
       const tui = new LocalTui(term, 'm', undefined)
       tui.notice('probe', { level: 'error' })
 
-      expect(term.captured).toContain('\x1b[38;2;255;138;138mprobe')
+      expect(term.captured).toContain('\x1b[38;2;243;139;168mprobe')
       tui.dispose()
     } finally {
       vi.unstubAllEnvs()
@@ -3986,11 +3987,11 @@ describe('LocalTui (tty)', () => {
       press(term, '/settings\r\t')
       press(term, '\x1b[B')
       // Dark accent is brand blue #7c93ff; a colorless session emits no SGR at all.
-      expect(term.captured).not.toContain('\x1b[38;2;124;147;255m')
+      expect(term.captured).not.toContain('\x1b[38;2;137;180;250m')
 
       // Row 1 is `Colors`; toggling it applies immediately, without a restart.
       press(term, '\r')
-      expect(term.captured).toContain('\x1b[38;2;124;147;255m')
+      expect(term.captured).toContain('\x1b[38;2;137;180;250m')
       expect(term.captured).not.toContain('\x1b[33m')
       tui.dispose()
     } finally {
@@ -4008,14 +4009,14 @@ describe('LocalTui (tty)', () => {
       const term = new FakeTerminal()
       const tui = new LocalTui(term, 'm', false)
       tui.notice('colorless', { level: 'error' })
-      expect(term.captured).not.toContain('\x1b[38;2;255;138;138m')
+      expect(term.captured).not.toContain('\x1b[38;2;243;139;168m')
       expect(term.captured).not.toContain('\x1b[31m')
 
       tui.applyStoredPrefs({ theme: 'dark', colors: true, expandTools: false })
       tui.notice('colorful', { level: 'error' })
 
       // Dark error ink is #fc4353; the 16-color fallback emits `31`.
-      expect(term.captured).toContain('\x1b[38;2;255;138;138mcolorful')
+      expect(term.captured).toContain('\x1b[38;2;243;139;168mcolorful')
       expect(term.captured).not.toContain('\x1b[31m')
       tui.dispose()
     } finally {
@@ -6665,5 +6666,48 @@ describe('terminal key tester', () => {
         expect(term.visible().join('\n')).not.toContain('Test keys')
       }
     } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
+  })
+})
+
+
+describe('Trajectory pointer ownership', () => {
+  it.each([false, true])('clicks records, scrolls details, copies selections and restores native history (color=%s)', async color => {
+    const term = new ScrollingTerminal(120, 24)
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', color, 'dark', copy)
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'tui', copyOnSelect: false })
+      const before = term.visible()
+      const history = term.scrollback()
+      const output = Array.from({ length: 70 }, (_, index) => `result-line-${index}`).join('\n')
+      tui.openTrajectory([
+        ev('tool/call', { turn: 1, step: 1, callId: 'read-1', name: 'read', arguments: '{"file_path":"README.md"}' }, 1),
+        ev('tool/result', { turn: 1, step: 1, message: { toolCallId: 'read-1', content: [{ type: 'text', text: output }] } }, 2),
+      ])
+      const click = (row: number, col: number): void => press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      const row = term.visible().findIndex(line => line.includes('README.md'))
+      expect(row).toBeGreaterThan(2)
+      // Far from the small disclosure marker: the entire row is a target.
+      click(row, 75)
+      expect(term.visible().join('\n')).toContain('Overview')
+      click(4, term.visible()[4]!.indexOf('Result'))
+      expect(term.visible().join('\n')).toContain('result-line-0')
+      press(term, '\x1b[<65;100;14M')
+      expect(term.visible().join('\n')).not.toContain('result-line-0')
+      press(term, '\x1b[F\x1b[A')
+      expect(term.visible().join('\n')).toContain('result-line-68')
+      press(term, '\x1b[H')
+      const selectedRow = term.visible().findIndex(line => line.includes('result-line-0'))
+      const col = term.visible()[selectedRow]!.indexOf('result-line-0')
+      press(term, `\x1b[<0;${col + 1};${selectedRow + 1}M\x1b[<32;${col + 13};${selectedRow + 1}M\x1b[<0;${col + 13};${selectedRow + 1}m`)
+      expect(copy).not.toHaveBeenCalled()
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('result-line-0')
+      // One escape clears selection, one closes details, one closes Trajectory.
+      press(term, '\x1b[27u\x1b[27u\x1b[27u')
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
   })
 })

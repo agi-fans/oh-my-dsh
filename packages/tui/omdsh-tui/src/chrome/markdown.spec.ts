@@ -264,7 +264,7 @@ describe('renderMarkdown', () => {
       expect(line).toMatch(/\x1b\[1m/u)
     }
     // Each level keeps its own marker, so the outline survives without underline.
-    const text = painted.join('\n')
+    const text = stripAnsi(painted.join('\n'))
     expect(text).toContain('# one')
     expect(text).toContain('## two')
     expect(text).toContain('### three')
@@ -360,6 +360,103 @@ describe('tab expansion in block content', () => {
         expect(oracleWidth(line), `width ${width}: ${JSON.stringify(stripAnsi(line))}`).toBeLessThanOrEqual(width)
         expect(stripAnsi(line)).not.toContain('\t')
       }
+    }
+  })
+})
+
+/** Read active SGR attributes at visible text, independently of paint helpers. */
+function attributesAt(output: string, text: string) {
+  const offset = output.indexOf(text)
+  expect(offset, text).toBeGreaterThanOrEqual(0)
+  let fg = '', bold = false, italic = false, underline = false, strike = false
+  for (const match of output.slice(0, offset).matchAll(/\x1b\[([\d;]*)m/gu)) {
+    const codes = match[1]!.split(';').map(Number)
+    for (let at = 0; at < codes.length; at += 1) {
+      const code = codes[at]
+      if (code === 0) { fg = ''; bold = italic = underline = strike = false }
+      else if (code === 1 || code === 22) bold = code === 1
+      else if (code === 3 || code === 23) italic = code === 3
+      else if (code === 4 || code === 24) underline = code === 4
+      else if (code === 9 || code === 29) strike = code === 9
+      else if (code === 39) fg = ''
+      else if (code === 38) {
+        const length = codes[at + 1] === 2 ? 5 : 3
+        fg = '\x1b[' + codes.slice(at, at + length).join(';') + 'm'
+        at += length - 1
+      }
+    }
+  }
+  return { fg, bold, italic, underline, strike }
+}
+
+describe('Markdown reading hierarchy', () => {
+  it.each(['dark', 'light'] as const)('%s restores headings and quotes after nested spans', name => {
+    const theme = createTheme(true, true, name)
+    const heading = renderMarkdown('## before `code` **bold** [link](https://example.com) after', theme, 200).join('\n')
+    expect(attributesAt(heading, 'after')).toMatchObject({ fg: theme.getFgAnsi('mdHeading'), bold: true, underline: false })
+    expect(attributesAt(heading, 'code')).toMatchObject({ fg: theme.getFgAnsi('mdCode'), bold: true })
+    expect(attributesAt(heading, 'link')).toMatchObject({ fg: theme.getFgAnsi('mdLink'), bold: true, underline: true })
+    const quote = renderMarkdown('> before `code` **bold** [link](https://example.com) after', theme, 200).join('\n')
+    expect(attributesAt(quote, 'after')).toMatchObject({ fg: theme.getFgAnsi('mdQuote'), bold: false, italic: false, underline: false })
+  })
+
+  it('restores nested emphasis without leaking it into following prose', () => {
+    const output = renderInline('**before *inside* `code` after** outside', color)
+    expect(attributesAt(output, 'inside')).toMatchObject({ bold: true, italic: true })
+    expect(attributesAt(output, 'code')).toMatchObject({ bold: true, italic: false })
+    expect(attributesAt(output, 'after')).toMatchObject({ bold: true, italic: false })
+    expect(attributesAt(output, 'outside')).toMatchObject({ bold: false, italic: false, underline: false, strike: false, fg: '' })
+    const strike = renderInline('~~before **inside** after~~ outside', color)
+    expect(attributesAt(strike, 'after')).toMatchObject({ bold: false, strike: true })
+    expect(attributesAt(strike, 'outside')).toMatchObject({ strike: false })
+  })
+
+  it('labels fenced code without changing source rows or overflowing narrow widths', () => {
+    expect(renderMarkdown('```typescript\nconst whale = "中文 🐳 é"\n```', theme, 50)).toEqual([
+      '  │ ts', '  │ const whale = "中文 🐳 é"',
+    ])
+    for (let width = 1; width <= 50; width += 1) {
+      for (const colors of [true, false]) {
+        const rows = renderMarkdown('```typescript\nconst whale = "中文 🐳 é"\n```', createTheme(colors, true), width)
+        expect(rows.every(row => oracleWidth(row) <= width), String(width)).toBe(true)
+      }
+    }
+  })
+
+  it('uses only the header divider for single-line records and separates wrapped records', () => {
+    const source = '| Key | Value |\n| --- | --- |\n| A | one |\n| B | two |'
+    expect(plain(source, 40).split('\n').filter(row => row.includes('┼'))).toHaveLength(1)
+    const wrapped = source.replace('one', 'a much longer phrase that needs several rows')
+    expect(plain(wrapped, 25).split('\n').filter(row => row.includes('┼'))).toHaveLength(2)
+  })
+})
+
+describe('compact links', () => {
+  const href = 'https://example.com/documentation/very/long/path?view=reference&section=authentication'
+  const compact = createTheme(true, true, 'dark', undefined, 'en', true)
+
+  it('retains the full hyperlink target while showing the label and destination host', () => {
+    const output = renderInline(`[**docs**](${href})`, compact)
+    expect(stripAnsi(output)).toBe('docs (example.com/…)')
+    expect(output).toContain(`\x1b]8;;${href}\x07`)
+    expect(compact.key).not.toBe(color.key)
+  })
+
+  it('retains visible addresses for unknown terminals, no-color, bare URLs, and non-web targets', () => {
+    for (const theme of [color, createTheme(false, true, 'dark', undefined, 'en', true)]) {
+      expect(stripAnsi(renderInline(`[docs](${href})`, theme))).toBe(`docs (${href})`)
+    }
+    expect(stripAnsi(renderInline(href, compact))).toBe(href)
+    for (const target of ['../' + 'path/'.repeat(12), 'mailto:' + 'a'.repeat(60) + '@example.com']) {
+      expect(stripAnsi(renderInline(`[docs](${target})`, compact))).toContain(target)
+    }
+  })
+
+  it('wraps compact links safely with CJK and emoji labels', () => {
+    for (const width of [4, 8, 12, 30]) {
+      const rows = renderMarkdown(`[中文 🐳 é](${href}) after`, compact, width)
+      expect(rows.every(row => oracleWidth(row) <= width)).toBe(true)
+      expect(rows.join('\n')).toContain(href)
     }
   })
 })

@@ -94,6 +94,8 @@ export type ThemeColor =
   | 'syntaxNumber'
   | 'syntaxFunction'
   | 'syntaxType'
+  | 'syntaxComment'
+  | 'syntaxPunctuation'
   | 'mdQuote'
   | 'mdQuoteBorder'
   | 'mdHr'
@@ -105,126 +107,43 @@ export type ThemeColor =
 /** Resolved palette entry: hex, empty (default fg/bg), or a 256-color index. */
 type Swatch = string | number
 
-/** Dark palette with paired card ink and backgrounds. */
+/**
+ * Adapted from Catppuccin Mocha/Latte (MIT; see the package LICENSE).
+ * Blue identifies interaction. Neutral headings and readable secondary ink keep
+ * prose calm; syntax colors are reserved for code. The terminal owns body ink.
+ */
 const DARK_PALETTE: Record<ThemeColor, Swatch> = {
-  accent: '#7c93ff',
-  border: '#3556b8',
-  borderAccent: '#4d6bfe',
-  borderMuted: '#3d424a',
-  // Every content colour sits near 67% lightness, which is what lets one ink
-  // stay readable across all three card fills. A 55% red reached 4.5:1 on a
-  // near-black card and only 3.4:1 once that card became a real grey.
-  success: '#89d281',
-  error: '#ff8a8a',
-  warning: '#e4c00f',
-  muted: '#a3a8b2',
-  dim: '#858c99',
-  text: '',
-  userMessageText: '#e4e9f7',
-  userMessageBg: '#141b30',
-  // The three states differ by hue and saturation at one lightness, the way pi's
-  // do. Three near-black fills a few units apart could only ever read as "dark";
-  // at 24% lightness a neutral pending, a green success, and a red failure name
-  // themselves without any status glyph.
-  toolPendingBg: '#34383a',
-  toolSuccessBg: '#254131',
-  toolAltBg: '#2b2f31',
-  toolErrorBg: '#5b282a',
-  toolTitle: '#e0e0e0',
-  toolOutput: '#a3a8b2',
-  toolDiffAdded: '#89d281',
-  toolDiffRemoved: '#ff8a8a',
-  toolDiffContext: '#a8aeb8',
-  // Content inks share one lightness and differ only in hue, the way pi's dark
-  // palette does. Two rules follow from that and neither held before:
-  //
-  // - A hue names a role, so no single hue may carry several. `mdHeading`,
-  //   `mdLink` and `mdListBullet` were all the accent blue, which made every
-  //   document look like one long link.
-  // - Nothing that is prose may be achromatic. Inline code was `#8a9099`
-  //   (chroma 0.015) and a prose-shaped codespan was `muted` — two greys the
-  //   reader cannot tell apart, for the one role that has to read as "this is
-  //   code".
-  //
-  // The syntax set used to be VSCode Dark+ values, which are drawn for a #1e1e1e
-  // editor and span 29 points of lightness here. These sit at 78% with chroma
-  // under 0.12, so a highlighted block varies in hue and not in weight.
-  mdHeading: '#ceb75b',
-  mdLink: '#83bdf8',
-  mdLinkUrl: '#7e95ad',
-  mdCode: '#d3a1ea',
-  mdCodeBlock: '#82cb9b',
-  mdCodeBlockBorder: '#3d424a',
-  mdKeyword: '#83bdf8',
-  syntaxString: '#e7a875',
-  syntaxNumber: '#82cb9b',
-  syntaxFunction: '#cdb760',
-  syntaxType: '#d1a3e6',
-  mdQuote: '#777d88',
-  mdQuoteBorder: '#3d424a',
-  mdHr: '#3d424a',
-  mdListBullet: '#a595c4',
-  // The composer's border while a `!` line is being typed. Green because that
-  // is the one signal that says "this leaves the model and runs on your machine".
-  shellMode: '#89d281',
-  thinkingText: '#6b7280',
-  customMessageLabel: '#b281d6',
+  accent: '#89b4fa', border: '#454e70', borderAccent: '#4d6bfe', borderMuted: '#45475a',
+  success: '#a6e3a1', error: '#f38ba8', warning: '#f9e2af',
+  muted: '#bac2de', dim: '#9399b2', text: '',
+  userMessageText: '#cdd6f4', userMessageBg: '#20283f',
+  toolPendingBg: '#313244', toolSuccessBg: '#293b35', toolAltBg: '#272938', toolErrorBg: '#462d39',
+  toolTitle: '#cdd6f4', toolOutput: '#bac2de',
+  toolDiffAdded: '#a6e3a1', toolDiffRemoved: '#f38ba8', toolDiffContext: '#bac2de',
+  mdHeading: '#cdd6f4', mdLink: '#89b4fa', mdLinkUrl: '#9399b2', mdCode: '#cba6f7',
+  mdCodeBlock: '#cdd6f4', mdCodeBlockBorder: '#585b70', mdKeyword: '#cba6f7',
+  syntaxString: '#a6e3a1', syntaxNumber: '#fab387', syntaxFunction: '#89dceb', syntaxType: '#f9e2af',
+  syntaxComment: '#a6adc8', syntaxPunctuation: '#bac2de',
+  mdQuote: '#bac2de', mdQuoteBorder: '#585b70', mdHr: '#45475a', mdListBullet: '#9399b2',
+  shellMode: '#a6e3a1', thinkingText: '#a6adc8', customMessageLabel: '#cba6f7',
 }
 
-/** Light palette with paired card ink and backgrounds. */
+/** Latte neutrals with darker semantic inks for small terminal text. */
 const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
-  accent: '#3b57e0',
-  border: '#8aa0dd',
-  borderAccent: '#4d6bfe',
-  borderMuted: '#b0b0b0',
-  success: '#588458',
-  error: '#8f3a3a',
-  warning: '#9a7326',
-  muted: '#666666',
-  dim: '#767676',
-  text: '',
-  userMessageText: '#1c2438',
-  userMessageBg: '#e7ecf9',
-  // The same three states on paper: one lightness, three hues.
-  toolPendingBg: '#e7e8ea',
-  toolSuccessBg: '#dee9e1',
-  toolAltBg: '#eff0f2',
-  toolErrorBg: '#eee2e1',
-  toolTitle: '#242424',
-  toolOutput: '#666666',
-  toolDiffAdded: '#4a6f4a',
-  toolDiffRemoved: '#93403f',
-  toolDiffContext: '#666666',
-  // The same hue-per-role map as the dark palette, darkened for paper. Both
-  // palettes have to name a role with a hue, or switching themes would teach a
-  // reader a second visual language.
-  mdHeading: '#6d5900',
-  mdLink: '#1c62b3',
-  mdLinkUrl: '#465f7f',
-  mdCode: '#804797',
-  mdCodeBlock: '#247448',
-  mdCodeBlockBorder: '#6c6c6c',
-  mdKeyword: '#1d5da7',
-  syntaxString: '#a24e10',
-  syntaxNumber: '#247448',
-  syntaxFunction: '#6d5900',
-  syntaxType: '#7e4a93',
-  mdQuote: '#6c6c6c',
-  mdQuoteBorder: '#b8b8b8',
-  mdHr: '#b8b8b8',
-  mdListBullet: '#66508b',
-  shellMode: '#2f8f4e',
-  thinkingText: '#6c6c6c',
-  customMessageLabel: '#7e57c2',
+  accent: '#245ac7', border: '#a0adca', borderAccent: '#4d6bfe', borderMuted: '#9ca0b0',
+  success: '#386b35', error: '#b52e4d', warning: '#805d16',
+  muted: '#5c5f77', dim: '#6c6f85', text: '',
+  userMessageText: '#4c4f69', userMessageBg: '#e6ecfb',
+  toolPendingBg: '#e6e9ef', toolSuccessBg: '#e0eadf', toolAltBg: '#eff1f5', toolErrorBg: '#f2e2e7',
+  toolTitle: '#4c4f69', toolOutput: '#5c5f77',
+  toolDiffAdded: '#386b35', toolDiffRemoved: '#b52e4d', toolDiffContext: '#5c5f77',
+  mdHeading: '#4c4f69', mdLink: '#245ac7', mdLinkUrl: '#6c6f85', mdCode: '#783ab0',
+  mdCodeBlock: '#4c4f69', mdCodeBlockBorder: '#9ca0b0', mdKeyword: '#783ab0',
+  syntaxString: '#386b35', syntaxNumber: '#975020', syntaxFunction: '#216778', syntaxType: '#805d16',
+  syntaxComment: '#63677c', syntaxPunctuation: '#5c5f77',
+  mdQuote: '#5c5f77', mdQuoteBorder: '#9ca0b0', mdHr: '#9ca0b0', mdListBullet: '#6c6f85',
+  shellMode: '#386b35', thinkingText: '#63677c', customMessageLabel: '#783ab0',
 }
-
-
-
-
-
-
-
-
 
 const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
   dark: DARK_PALETTE,
@@ -240,6 +159,7 @@ const PALETTES: Record<ThemeName, Record<ThemeColor, Swatch>> = {
  * shift in {@link ANSI16_BG} yields the intended background SGR.
  */
 const DARK_ANSI16: Record<ThemeColor, string> = {
+  syntaxComment: '37', syntaxPunctuation: '37',
   syntaxString: '32',
   syntaxNumber: '35',
   syntaxFunction: '33',
@@ -266,23 +186,24 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   toolDiffAdded: '32',
   toolDiffRemoved: '31',
   toolDiffContext: '90',
-  mdHeading: '94',
+  mdHeading: '37',
   mdLink: '94',
   mdLinkUrl: '90',
   mdCode: '90',
-  mdCodeBlock: '36',
+  mdCodeBlock: '37',
   mdCodeBlockBorder: '90',
   mdKeyword: '36',
   mdQuote: '37',
   mdQuoteBorder: '90',
   mdHr: '90',
-  mdListBullet: '94',
+  mdListBullet: '90',
   shellMode: '92',
-  thinkingText: '90',
+  thinkingText: '37',
   customMessageLabel: '35',
 }
 
 const LIGHT_ANSI16: Record<ThemeColor, string> = {
+  syntaxComment: '30', syntaxPunctuation: '30',
   syntaxString: '31',
   syntaxNumber: '30',
   syntaxFunction: '30',
@@ -311,17 +232,17 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   toolDiffAdded: '30',
   toolDiffRemoved: '31',
   toolDiffContext: '90',
-  mdHeading: '34',
+  mdHeading: '30',
   mdLink: '34',
   mdLinkUrl: '90',
   mdCode: '30',
-  mdCodeBlock: '34',
+  mdCodeBlock: '30',
   mdCodeBlockBorder: '90',
   mdKeyword: '34',
   mdQuote: '30',
   mdQuoteBorder: '90',
   mdHr: '90',
-  mdListBullet: '34',
+  mdListBullet: '90',
   shellMode: '32',
   thinkingText: '90',
   customMessageLabel: '35',
@@ -475,7 +396,7 @@ function pickDistinctPaletteEntries(
 /** Ink drawn on a tool card, by theme token and ANSI-16 fallback code. */
 const CARD_INK_COLORS: readonly ThemeColor[] = [
   'toolTitle', 'toolOutput', 'toolDiffAdded', 'toolDiffRemoved', 'toolDiffContext',
-  'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType',
+  'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType', 'syntaxComment', 'syntaxPunctuation',
   'mdCodeBlock', 'mdLink', 'mdHeading', 'mdQuote', 'dim', 'muted', 'accent',
   'success', 'error', 'warning', 'thinkingText', 'mdListBullet', 'mdHr',
   'mdQuoteBorder', 'mdCodeBlockBorder', 'mdCode', 'mdLinkUrl',
@@ -539,7 +460,6 @@ const UNDERLINE_RESET = '\x1b[24m'
 const STRIKE_RESET = '\x1b[29m'
 const INVERSE_RESET = '\x1b[27m'
 
-/** Built-in palettes, including a few well-known oh-my-pi coding themes. */
 /**
  * Shipped palettes: one dark, one light, and the one that follows the terminal.
  *
@@ -572,6 +492,8 @@ export interface Theme {
   readonly name: ThemeName
   /** Whether SGR is emitted. */
   readonly colors: boolean
+  /** Known OSC 8 support permits compact labels without losing the target. */
+  readonly compactLinks: boolean
   /** Whether hex colors become 24-bit SGR. */
   readonly trueColor: boolean
   /** How swatches are encoded; meaningful only when {@link Theme.colors} is true. */
@@ -675,22 +597,6 @@ const SYSTEM_SUCCESS_GREEN: Rgb = { r: 0x4a, g: 0xc8, b: 0x7a }
 const SYSTEM_NOTICE_BLUE: Rgb = { r: 0x6f, g: 0xa8, b: 0xff }
 
 /**
- * Relative luminance each card state is held to on a `system` palette.
- *
- * These are the shipped dark palette's own fills measured as luminance, so a
- * `system` card sits where a `dark` one does no matter what green the terminal
- * reports. They are the one part of the card that must not follow the terminal:
- * a terminal's green is chosen for *ink* on its background, and spending that
- * green on a large fill is what pushed the shipped value from 4.4% to 11.7%
- * luminance and flattened dimmed text on a successful card to 3.3:1.
- */
-const SYSTEM_CARD_LUMINANCE: Readonly<Record<'pending' | 'success' | 'error', number>> = {
-  pending: 0.0386,
-  success: 0.0440,
-  error: 0.0391,
-}
-
-/**
  * How far a card may move from the terminal background toward a state hue.
  *
  * A card is a step off the reader's own background, not a swatch of the terminal
@@ -701,15 +607,6 @@ const SYSTEM_CARD_LUMINANCE: Readonly<Record<'pending' | 'success' | 'error', nu
  * contain, so the fill stays a surface whatever the terminal reports.
  */
 const SYSTEM_CARD_TINT = 0.34
-
-/**
- * Where the alternate successful surface sits relative to the primary one.
- *
- * A slight step, not a second state: the pair exists so two adjacent successful
- * calls do not merge into one block. Anything larger starts naming a difference
- * that is not there.
- */
-const SYSTEM_ALT_STEP = 1.065
 
 /**
  * The background-to-hue step that lands closest to a target relative luminance.
@@ -851,9 +748,8 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   }
   // A light terminal wants the same three states as tinted paper, so its cards
   // are held at the light palette's own lightness rather than inverted.
-  const target = (state: 'pending' | 'success' | 'error'): number => light
-    ? swatchLuminance(`tool${state[0]!.toUpperCase()}${state.slice(1)}Bg` as ThemeColor)
-    : SYSTEM_CARD_LUMINANCE[state]
+  const target = (state: 'pending' | 'success' | 'error'): number =>
+    swatchLuminance(`tool${state[0]!.toUpperCase()}${state.slice(1)}Bg` as ThemeColor)
   // Pending is neutral, so it keeps the background's own hue and is only lifted in
   // lightness: it must stay quieter than a settled card, and it must still read as
   // belonging to this terminal rather than as a generic grey. Lifting the
@@ -862,15 +758,8 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   const pending = toHex(liftedToLuminance(background, target('pending')))
   const successRgb = tintAtLuminance(background, successInk, target('success'))
   const success = toHex(successRgb)
-  /**
-   * The alternating pair is a plain lightness step, and it has to stay one: two
-   * successive successful cards must be told apart, not two different states. It
-   * is derived from the success fill rather than from the background, because a
-   * success fill held at a fixed luminance no longer sits where the old background
-   * step assumed — measuring against the background made the pair collide and
-   * pushed the alternate surface to a brightness no card should reach.
-   */
-  const alt = toHex(tintAtLuminance(background, successInk, target('success') * SYSTEM_ALT_STEP))
+  // Expanded detail uses a neutral surface with the terminal's own hue.
+  const alt = toHex(liftedToLuminance(background, swatchLuminance('toolAltBg')))
   const errorCard = stateCard(error, target('error'))
   const cardFills: readonly Rgb[] = [pending, success, alt, errorCard].map(hexToRgb).map(([r, g, b]) => ({ r, g, b }))
   /**
@@ -964,6 +853,7 @@ export function createTheme(
   name: ThemeName = 'dark',
   terminal?: TerminalColors,
   language: UiLanguage = 'en',
+  compactLinks = false,
 ): Theme {
   const resolvedDepth: ColorDepth = depth === true ? 'truecolor' : depth === false ? 'ansi16' : depth
   const tc = colors && resolvedDepth === 'truecolor'
@@ -1022,9 +912,10 @@ export function createTheme(
     text: (source, values) => uiText(language, source, values),
     name,
     colors,
+    compactLinks: colors && compactLinks,
     trueColor: tc,
     depth: resolvedDepth,
-    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal), language].join('|'),
+    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal), language, compactLinks && colors ? 1 : 0].join('|'),
     getFgAnsi,
     getBgAnsi,
     fg: (color, text) => paint(getFgAnsi(color), text, FG_RESET),

@@ -16,19 +16,25 @@ import type { Theme, ThemeColor } from './theme.ts'
 export interface MarkdownStyle {
   color?: ThemeColor
   italic?: boolean
+  bold?: boolean
+  strike?: boolean
+  underline?: boolean
   /** Source mode preserves formula delimiters and commands. */
   mathMode?: import('./math.ts').MathMode
   mermaidMode?: import('./mermaid.ts').MermaidMode
 }
 
-/** Reopen the surrounding style after a nested span closes foreground or italic. */
+/** Reopen the surrounding style after a nested span closes its color or emphasis. */
 export function openBase(theme: Theme, style: MarkdownStyle | undefined): string {
   if (!theme.colors || style === undefined) return ''
-  return (style.italic === true ? '\x1b[3m' : '')
+  return (style.bold === true ? '\x1b[1m' : '')
+    + (style.strike === true ? '\x1b[9m' : '')
+    + (style.underline === true ? '\x1b[4m' : '')
+    + (style.italic === true ? '\x1b[3m' : '')
     + (style.color === undefined ? '' : theme.getFgAnsi(style.color))
 }
 
-/** Keep thinking traces on one dark ink so headings, code, and links do not light up. */
+/** Keep thinking traces on one quiet ink so headings, code, and links do not light up. */
 export function ink(style: MarkdownStyle | undefined, color: ThemeColor): ThemeColor {
   return style?.color === 'thinkingText' ? 'thinkingText' : color
 }
@@ -37,6 +43,9 @@ export function ink(style: MarkdownStyle | undefined, color: ThemeColor): ThemeC
 export function paintBase(theme: Theme, text: string, style?: MarkdownStyle): string {
   if (text === '' || style === undefined || !theme.colors) return text
   let out = text
+  if (style.bold === true) out = theme.bold(out)
+  if (style.strike === true) out = theme.strikethrough(out)
+  if (style.underline === true) out = theme.underline(out)
   if (style.color !== undefined) out = theme.fg(style.color, out)
   if (style.italic === true) out = theme.italic(out)
   return out
@@ -45,7 +54,7 @@ export function paintBase(theme: Theme, text: string, style?: MarkdownStyle): st
 /** Paint a foreground run and restore the surrounding style after its 39m. */
 export function paintFg(theme: Theme, color: ThemeColor, text: string, style?: MarkdownStyle): string {
   if (!theme.colors) return text
-  return theme.getFgAnsi(color) + text + '\x1b[39m' + openBase(theme, style)
+  return openBase(theme, style) + theme.getFgAnsi(color) + text + '\x1b[39m' + openBase(theme, style)
 }
 
 /** Paint a bold run and restore the surrounding style after its 22m. */

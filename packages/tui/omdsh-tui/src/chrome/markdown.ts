@@ -6,7 +6,7 @@
 
 import { Lexer, Marked, type Token, type Tokens, type TokenizerAndRendererExtension } from 'marked'
 import { BOX, SYMBOL, type Theme } from './theme.ts'
-import { highlightCodeLines } from './code-highlight.ts'
+import { highlightCodeLines, normalizeLanguage } from './code-highlight.ts'
 import { mathLayout } from './math.ts'
 import { mermaidLines } from './mermaid.ts'
 import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
@@ -215,10 +215,19 @@ function hyperlink(label: string, href: string, theme: Theme): string {
 
 function paintLink(label: string, href: string, theme: Theme, style?: MarkdownStyle): string {
   const target = href.startsWith('www.') ? 'https://' + href : href
-  const styled = theme.fg(ink(style, 'mdLink'), theme.underline(label))
+  const styled = paintBase(theme, label, { ...style, color: ink(style, 'mdLink'), underline: true })
   const clickable = hyperlink(styled, target, theme)
-  if (label === href || label === target) return clickable
-  const url = hyperlink(theme.fg(ink(style, 'mdLinkUrl'), '(' + href + ')'), target, theme)
+  if (stripAnsi(label) === href || stripAnsi(label) === target) return clickable
+  let address = href
+  if (theme.compactLinks && href.length > 48) {
+    try {
+      const parsed = new URL(target)
+      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.username === '' && parsed.password === '') {
+        address = parsed.host + (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '' ? '/…' : '')
+      }
+    } catch { /* Relative and non-URL targets keep their full address. */ }
+  }
+  const url = hyperlink(paintBase(theme, '(' + address + ')', { ...style, color: ink(style, 'mdLinkUrl') }), target, theme)
   return clickable + ' ' + url
 }
 
@@ -270,13 +279,13 @@ function renderInlineTokens(
           : renderInlineTokens(token.tokens, theme, style, depth + 1)
         break
       case 'strong':
-        out += paintBold(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
+        out += paintBold(theme, renderInlineTokens(token.tokens, theme, { ...style, bold: true }, depth + 1), style)
         break
       case 'em':
-        out += paintItalic(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
+        out += paintItalic(theme, renderInlineTokens(token.tokens, theme, { ...style, italic: true }, depth + 1), style)
         break
       case 'del':
-        out += paintStrike(theme, renderInlineTokens(token.tokens, theme, style, depth + 1), style)
+        out += paintStrike(theme, renderInlineTokens(token.tokens, theme, { ...style, strike: true }, depth + 1), style)
         break
       case 'codespan':
         // Every codespan is one thing — "this is code" — so it gets one ink. The
@@ -287,10 +296,10 @@ function renderInlineTokens(
         out += paintFg(theme, ink(style, 'mdCode'), token.text, style)
         break
       case 'link':
-        out += paintLink(renderInlineTokens(token.tokens, theme, style, depth + 1) || token.text, token.href, theme, style) + openBase(theme, style)
+        out += paintLink(renderInlineTokens(token.tokens, theme, { ...style, color: ink(style, 'mdLink'), underline: true }, depth + 1) || token.text, token.href, theme, style) + openBase(theme, style)
         break
       case 'image':
-        out += paintLink(renderInlineTokens(token.tokens, theme, style, depth + 1) || token.text || 'image', token.href, theme, style) + openBase(theme, style)
+        out += paintLink(renderInlineTokens(token.tokens, theme, { ...style, color: ink(style, 'mdLink'), underline: true }, depth + 1) || token.text || 'image', token.href, theme, style) + openBase(theme, style)
         break
       case 'br':
         out += '\n'
@@ -333,8 +342,8 @@ function flowLines(token: Token, theme: Theme, width: number, style?: MarkdownSt
 
 const tableSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
-function renderTable(token: Tokens.Table, theme: Theme, width: number): string[] {
-  const renderCell = (cell: Tokens.TableCell): string => expandTabs(renderInlineTokens(cell.tokens, theme), 8, 0)
+function renderTable(token: Tokens.Table, theme: Theme, width: number, style?: MarkdownStyle): string[] {
+  const renderCell = (cell: Tokens.TableCell): string => expandTabs(renderInlineTokens(cell.tokens, theme, style), 8, 0)
   const header = token.header.map(renderCell)
   const rows = token.rows.map(row => row.map(renderCell))
   const cols = header.length
@@ -436,10 +445,11 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number): string[]
     ...paintRow(header.map((cell, i) => wrapCell(cell, i)), true),
     join(BOX.teeRight, fills, BOX.cross, BOX.teeLeft),
   ]
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex] ?? []
-    lines.push(...paintRow(row.map((cell, i) => wrapCell(cell, i)), false))
-    if (rowIndex < rows.length - 1) {
+  const paintedRows = rows.map(row => paintRow(row.map((cell, i) => wrapCell(cell, i)), false))
+  for (let rowIndex = 0; rowIndex < paintedRows.length; rowIndex += 1) {
+    const row = paintedRows[rowIndex]!
+    lines.push(...row)
+    if (rowIndex < paintedRows.length - 1 && (row.length > 1 || paintedRows[rowIndex + 1]!.length > 1)) {
       lines.push(join(BOX.teeRight, fills, BOX.cross, BOX.teeLeft))
     }
   }
@@ -467,7 +477,9 @@ function renderCode(token: Tokens.Code, theme: Theme, width: number, style?: Mar
     if (diagram !== undefined) return diagram.map(row => rail + row)
   }
   const highlighted = highlightCodeLines(rows, lang, theme, style)
-  const lines: string[] = []
+  const label = normalizeLanguage(lang).replace(/[^a-z0-9#+.-]/gu, '')
+  const lines: string[] = label !== '' && visibleWidth(label) <= inner
+    ? [rail + paintFg(theme, ink(style, 'dim'), label, style)] : []
   for (let i = 0; i < rows.length; i += 1) {
     const body = highlighted[i] ?? ''
     // Tabs resolve against the column the rail already occupies.
@@ -544,9 +556,8 @@ function renderListItem(
 }
 
 function renderBlockquote(token: Tokens.Blockquote, theme: Theme, width: number, style?: MarkdownStyle, depth = 0): string[] {
-  // Quoted prose is set apart by ink and slant as well as by its rail, so a
-  // long quotation reads as a different voice rather than as indented text.
-  const quote = style?.color === 'thinkingText' ? style : { ...style, italic: true }
+  // A rail carries the quotation; its readable ink also survives inline resets.
+  const quote = { ...style, color: ink(style, 'mdQuote') }
   const inner = renderTokens(token.tokens, theme, Math.max(1, width - 2), 0, quote, depth)
   const railInk = ink(style, 'mdQuoteBorder')
   return inner.map(line => theme.fg(railInk, '│ ') + (theme.colors ? theme.fg(ink(style, 'mdQuote'), line) : line))
@@ -565,18 +576,11 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
       // than the border ink used for component frames.
       return [theme.fg('mdHr', '─'.repeat(Math.max(1, width)))]
     case 'heading': {
-      /**
-       * A heading is bold, coloured, and carries its level as markers.
-       *
-       * H1 and H2 used to be underlined instead, which sits on the text baseline
-       * and crowds a line of prose; it also made the rule uneven, since the
-       * deeper levels could only say their level with `###`. One shape for every
-       * level keeps the outline readable and the line calm.
-       */
       const depthLevel = (token as Tokens.Heading).depth
-      const headingInk = style?.color === 'thinkingText' ? 'thinkingText' : 'mdHeading'
-      const body = renderInlineTokens(token.tokens, theme, style, depth + 1)
-      const painted = theme.bold(theme.fg(headingInk, '#'.repeat(Math.max(0, depthLevel)) + ' ' + body))
+      const headingStyle = { ...style, color: ink(style, 'mdHeading'), bold: true }
+      const body = renderInlineTokens(token.tokens, theme, headingStyle, depth + 1)
+      const marker = paintFg(theme, ink(style, 'dim'), '#'.repeat(depthLevel) + ' ', style)
+      const painted = marker + theme.bold(theme.fg(headingStyle.color, body))
       return wrapStyled(painted, width)
     }
     case 'paragraph':
@@ -589,7 +593,7 @@ function renderBlock(token: Token, theme: Theme, width: number, listLevel: numbe
     case 'code':
       return renderCode(token as Tokens.Code, theme, width, style)
     case 'table':
-      return renderTable(token as Tokens.Table, theme, width)
+      return renderTable(token as Tokens.Table, theme, width, style)
     case 'html':
       {
         const stripped = normalizeHtml(token.text).trim()

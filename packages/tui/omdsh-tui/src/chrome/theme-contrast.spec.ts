@@ -25,7 +25,7 @@ function contrast(fg: string, bg: string): number {
 // Fixed surfaces must stay readable independently of the host's default ink.
 const CARD_BACKGROUNDS: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg']
 const CARD_INK: readonly ThemeColor[] = ['toolTitle', 'toolOutput', 'toolDiffContext', 'toolDiffAdded', 'toolDiffRemoved', 'error', 'muted']
-const CODE_INK: readonly ThemeColor[] = ['mdCode', 'mdCodeBlock', 'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType', 'mdLink']
+const CODE_INK: readonly ThemeColor[] = ['mdCode', 'mdCodeBlock', 'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType', 'syntaxComment', 'syntaxPunctuation', 'mdQuote', 'thinkingText', 'mdLink']
 
 describe('paired surface styles', () => {
   const theme = createTheme(true, true)
@@ -75,7 +75,7 @@ describe('theme contrast contracts', () => {
 
   it.each(THEME_NAMES)('%s keeps code and reading hints visible on representative terminal backgrounds', name => {
     const theme = createTheme(true, true, name)
-    for (const bg of new Set([HOST_BACKGROUNDS[name] ?? '#15141a', name === 'light' ? '#ffffff' : '#15141a'])) {
+    for (const bg of new Set(name === 'light' ? ['#ffffff', '#eff1f5'] : Object.entries(HOST_BACKGROUNDS).filter(([name]) => name !== 'light').map(([, bg]) => bg))) {
       for (const fg of CODE_INK) {
         expect(contrast(theme.getFgAnsi(fg), bg), `${name} ${fg}/${bg}`).toBeGreaterThanOrEqual(4.5)
       }

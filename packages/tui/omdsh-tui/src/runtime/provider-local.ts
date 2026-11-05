@@ -144,6 +144,8 @@ import {
   applyTrajectoryEvent,
   createTrajectory,
   trajectoryDetailMetrics,
+  trajectoryDetailScrollLimit,
+  trajectoryClick,
   trajectoryListMetrics,
   type TrajectoryState,
 } from '../views/trajectory.ts'
@@ -185,6 +187,7 @@ import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
+import { supportsHyperlinks } from './terminal-probe.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
 import { formatToolsText, type ToolInfo } from '../chrome/tools-list.ts'
 import { renderTool, type TuiToolPresentation } from '../chrome/tool-renderers.ts'
@@ -476,6 +479,7 @@ export class LocalTui implements TuiService {
   /** Profile patch the Tools feature controls write; absent hides those controls. */
   #featurePatch: string | undefined
   #trajectory: TrajectoryState | null = null
+  #trajectoryPress: { row: number; column: number; text: string; dragged: boolean } | undefined
   #pending: PendingRead | null = null
   readonly #pendingInputs: PendingInputs
   #pendingScope(): string { return this.#draftScope ?? '__default__' }
@@ -677,6 +681,7 @@ export class LocalTui implements TuiService {
    * hexadecimal palettes without a restart.
    */
   #colorDepth: ColorDepth = 'ansi16'
+  readonly #compactLinks = supportsHyperlinks(process.env)
   /** Hold the first frame until the capability probe settles; scrollback rows are immutable, so the first real paint must use the reported colors. */
   #probeGate = false
   readonly #copy: ClipboardWriter
@@ -1081,6 +1086,8 @@ export class LocalTui implements TuiService {
   openTrajectory(events: readonly SessionEvent[]): boolean {
     if (!this.#tty) return false
     this.#finishPrompt(null)
+    this.#selection.clear()
+    this.#trajectoryPress = undefined
     this.#trajectory = createTrajectory(events)
     this.#settings = null
     this.#search = null
@@ -2204,6 +2211,7 @@ export class LocalTui implements TuiService {
         spinnerFrame: this.#spinner,
         motion: this.#motion,
         colorDepth: this.#colorDepth,
+        compactLinks: this.#compactLinks,
         language: resolveUiLanguage(this.#uiLanguage),
         themeName: this.#themeName,
         terminal: this.#terminalColors,
@@ -2261,8 +2269,8 @@ export class LocalTui implements TuiService {
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
-    this.#setMouseTracking(frame.transcript !== undefined && frame.transientSurface !== 'overlay'
-      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0))
+    this.#setMouseTracking(this.#trajectory !== null || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
     // blanks the screen and a large one replays the transcript into history.
@@ -2652,6 +2660,7 @@ export class LocalTui implements TuiService {
 
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
+    if (this.#trajectory !== null) { this.#handleTrajectoryMouse(event); return }
     const pressedAction = this.#mouseActionPress
     if (pressedAction !== undefined) {
       const target = this.#mouseActionAt(event.row, event.column)
@@ -2733,6 +2742,52 @@ export class LocalTui implements TuiService {
       const text = this.#selection.release(event)
       if (text !== undefined && this.#copyOnSelect) void this.#copySelection()
     }
+    this.#render()
+  }
+
+  #handleTrajectoryMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
+    if (event.button === 'right') {
+      if (event.action === 'press' && this.#selection.active) void this.#copySelection(true)
+      return
+    }
+    if (event.action === 'press') {
+      this.#trajectoryPress = { row: event.row, column: event.column,
+        text: stripAnsi(this.#renderer.viewport()[event.row] ?? ''), dragged: event.shift }
+      this.#selection.begin(this.#renderer.viewport(), event, Date.now(), event.shift)
+    } else if (event.action === 'drag') {
+      if (this.#trajectoryPress !== undefined) this.#trajectoryPress.dragged = true
+      this.#selection.move(event)
+    } else {
+      const press = this.#trajectoryPress
+      this.#trajectoryPress = undefined
+      const text = this.#selection.release(event)
+      if (text !== undefined) {
+        if (this.#copyOnSelect) void this.#copySelection()
+      } else if (press !== undefined && !press.dragged && !event.shift && press.row === event.row
+        && Math.abs(press.column - event.column) <= 1
+        && stripAnsi(this.#renderer.viewport()[event.row] ?? '') === press.text && this.#trajectory !== null) {
+        this.#trajectory = trajectoryClick(this.#trajectory, this.#term.width(), this.#term.height(), event.row, event.column)
+      }
+    }
+    this.#render()
+  }
+
+  #applyTrajectoryInput(event: KeyEvent): void {
+    const state = this.#trajectory
+    if (state === null) return
+    const { pageSize } = trajectoryListMetrics(state, this.#term.height(), this.#term.width())
+    const { pageLines } = trajectoryDetailMetrics(state, this.#term.height())
+    const theme = createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks)
+    const maxDetailScroll = trajectoryDetailScrollLimit(state, theme, this.#term.width(), this.#term.height())
+    const command = applyTrajectoryEvent(state, event, { pageSize, detailPageLines: pageLines, width: this.#term.width(), maxDetailScroll })
+    if ('close' in command) { this.#trajectory = null; this.#trajectoryPress = undefined }
+    else if ('copy' in command) {
+      void this.#deliverCopy(command.copy).then(delivery => {
+        if (this.#trajectory === state) { this.#trajectory = { ...state, notice: delivery === 'requested' ? 'Sent to terminal clipboard' : `Copied ${command.label}` }; this.#render() }
+      }, () => {
+        if (this.#trajectory === state) { this.#trajectory = { ...state, notice: 'Copy failed' }; this.#render() }
+      })
+    } else this.#trajectory = command.state
     this.#render()
   }
 
@@ -2888,6 +2943,7 @@ export class LocalTui implements TuiService {
       }
     }
     if (event.type === 'wheel') {
+      if (this.#trajectory !== null) { this.#applyTrajectoryInput(event); return }
       this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
         const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1, !this.#wheelAccelerates)
@@ -2934,12 +2990,7 @@ export class LocalTui implements TuiService {
     }
     if (this.#handlePrompt(event)) return
     if (this.#trajectory !== null) {
-      const { pageSize } = trajectoryListMetrics(this.#trajectory, this.#term.height(), this.#term.width())
-      const { pageLines } = trajectoryDetailMetrics(this.#trajectory, this.#term.height())
-      const command = applyTrajectoryEvent(this.#trajectory, event, { pageSize, detailPageLines: pageLines })
-      if ('close' in command) this.#trajectory = null
-      else this.#trajectory = command.state
-      this.#render()
+      this.#applyTrajectoryInput(event)
       return
     }
     if (this.#transcriptSearch !== null) {
@@ -3391,7 +3442,7 @@ export class LocalTui implements TuiService {
    * something up in it.
    */
   #handleRenderedDocument(event: KeyEvent, prompt: PendingPrompt): boolean {
-    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage)), Math.max(1, this.#term.width() - 6))
+    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks), Math.max(1, this.#term.width() - 6))
     // Always build on the newest state: typing updates the query while the find
     // is open, and jumping from a stale copy would drop it again.
     const jumpTo = (row: number): void => {
@@ -3451,7 +3502,7 @@ export class LocalTui implements TuiService {
 
   #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
     const source = prompt.request.documentSource!
-    const layout = documentLayout(source, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage)), Math.max(1, this.#term.width() - 6), {
+    const layout = documentLayout(source, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks), Math.max(1, this.#term.width() - 6), {
       wordWrap: prompt.documentWordWrap ?? true, column: prompt.documentColumn ?? 0,
     })
     const start = this.#promptDocument?.start ?? 0
@@ -5295,6 +5346,8 @@ export class LocalTui implements TuiService {
       language: resolveUiLanguage(this.#uiLanguage),
       colors: this.#colors,
       themeName: this.#themeName,
+      terminal: this.#terminalColors,
+      compactLinks: this.#compactLinks,
       ...(this.#colorDepth === undefined ? {} : { colorDepth: this.#colorDepth }),
       mathMode: this.#mathMode,
       mermaidMode: this.#mermaidMode,

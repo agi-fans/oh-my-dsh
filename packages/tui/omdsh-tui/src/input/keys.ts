@@ -21,7 +21,7 @@ export type KeyEvent =
   | { type: 'cell-size'; width: number; height: number }
   | { type: 'paste-start' }
   | { type: 'paste-end' }
-  | { type: 'wheel'; direction: 'up' | 'down' }
+  | { type: 'wheel'; direction: 'up' | 'down'; row?: number; column?: number }
   | { type: 'mouse'; action: 'press' | 'drag' | 'release'; button: 'left' | 'right'; row: number; column: number; shift: boolean }
 
 const CTRL: Record<number, string> = {
@@ -126,7 +126,7 @@ function parseSgr(body: string): { used: number; event?: KeyEvent } | 'partial' 
     const button = code & ~28
     let event: KeyEvent | undefined
     if (match[4] === 'M' && (button === 64 || button === 65)) {
-      event = { type: 'wheel', direction: button === 64 ? 'up' : 'down' }
+      event = { type: 'wheel', direction: button === 64 ? 'up' : 'down', row: Number(match[3]) - 1, column: Number(match[2]) - 1 }
     } else if ([0, 2, 32, 34].includes(button) && (code & 24) === 0) {
       event = { type: 'mouse', action: match[4] === 'm' ? 'release' : (button & 32) ? 'drag' : 'press',
         button: (button & 3) === 0 ? 'left' : 'right', row: Number(match[3]) - 1,

@@ -48,10 +48,9 @@ describe('createTheme', () => {
 
   it('emits 24-bit SGR for hex colors', () => {
     const theme = createTheme(true, true)
-    expect(theme.getFgAnsi('accent')).toBe('\x1b[38;2;124;147;255m')
-    // A hue names a role, so the link no longer borrows the accent: `accent` is
-    // chrome (borders, badges) and `mdLink` is prose.
-    expect(theme.getFgAnsi('mdLink')).not.toBe(theme.getFgAnsi('accent'))
+    expect(theme.getFgAnsi('accent')).toBe('\x1b[38;2;137;180;250m')
+    // Navigation and links share blue; syntax keeps a separate role.
+    expect(theme.getFgAnsi('mdLink')).toBe(theme.getFgAnsi('accent'))
     expect(theme.underline('x')).toBe('\x1b[4mx\x1b[24m')
     expect(theme.strikethrough('x')).toBe('\x1b[9mx\x1b[29m')
     expect(theme.inverse('x')).toBe('\x1b[7mx\x1b[27m')
@@ -199,7 +198,7 @@ describe('createTheme', () => {
     const light = createTheme(true, true, 'light')
     expect(dark.name).toBe('dark')
     expect(light.name).toBe('light')
-    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;59;87;224m')
+    expect(light.getFgAnsi('accent')).toBe('\x1b[38;2;36;90;199m')
     expect(light.getFgAnsi('accent')).not.toBe(dark.getFgAnsi('accent'))
   })
 
@@ -224,7 +223,7 @@ describe('createTheme', () => {
 
   it('keeps thinking text quieter than muted chrome', () => {
     const dark = createTheme(true, true, 'dark')
-    expect(dark.getFgAnsi('thinkingText')).toBe('\x1b[38;2;107;114;128m')
+    expect(dark.getFgAnsi('thinkingText')).toBe('\x1b[38;2;166;173;200m')
     expect(dark.getFgAnsi('thinkingText')).not.toBe(dark.getFgAnsi('text'))
     expect(dark.getFgAnsi('thinkingText')).not.toBe(dark.getFgAnsi('muted'))
     expect(dark.getFgAnsi('thinkingText')).not.toBe(dark.getFgAnsi('dim'))

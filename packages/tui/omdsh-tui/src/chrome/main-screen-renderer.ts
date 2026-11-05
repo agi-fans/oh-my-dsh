@@ -675,7 +675,7 @@ export class MainScreenRenderer {
     const targetRow = Math.max(0, this.#height - 1)
     let out = this.#image?.protocol === 'kitty' ? deleteImage(this.#imageId) : ''
     this.#image = undefined
-    out += this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#screen, this.#decoratedRows)
+    out += this.#decoratedRows === undefined ? '' : this.#paintDiff(this.#altActive ? this.#altScreen : this.#screen, this.#decoratedRows)
     this.#decoratedRows = undefined
     if (this.#altActive) {
       out += this.#exitAltScreen() + this.#drainMainScreenDeferred()
@@ -701,12 +701,13 @@ export class MainScreenRenderer {
 
   /** Render canonical content, then decorate the viewport without changing history. */
   render(frame: Frame, decorate?: (rows: readonly string[]) => readonly string[]): void {
-    // Remove the previous selection before any canonical rows can cross into history.
+    // Remove the previous selection in its owning buffer before switching buffers
+    // or allowing canonical rows to cross into history.
     // A resize invalidates its physical coordinates; repaint the new viewport instead.
     const hadDecoration = this.#decoratedRows !== undefined
     const resizedDecoration = hadDecoration && this.#resize !== undefined
     const undecorate = hadDecoration && !resizedDecoration
-      ? this.#paintDiff(this.#screen, this.#decoratedRows!) : ''
+      ? this.#paintDiff(this.#altActive ? this.#altScreen : this.#screen, this.#decoratedRows!) : ''
     this.#decoratedRows = undefined
     // The event slot is per-frame. A frame that prepares no move must not inherit the last
     // one's record: the confirmation steps are written against "the move this frame made",

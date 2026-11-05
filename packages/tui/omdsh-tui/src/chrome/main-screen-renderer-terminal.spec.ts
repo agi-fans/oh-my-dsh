@@ -4,6 +4,41 @@ import { MainScreenRenderer } from './main-screen-renderer.ts'
 import type { Frame } from './renderer.ts'
 
 describe('MainScreenRenderer with terminal buffers', () => {
+  it('keeps selection repaints in the owning buffer and restores the untouched transcript', async () => {
+    const terminal = new Terminal({ cols: 40, rows: 12, scrollback: 100, allowProposedApi: true })
+    let pending = Promise.resolve()
+    const renderer = new MainScreenRenderer({ write: chunk => {
+      pending = pending.then(() => new Promise<void>(resolve => { terminal.write(chunk, resolve) }))
+    } }, { width: 40, height: 12, alternateScreenOverlays: true })
+    const visible = async (): Promise<string[]> => {
+      await pending
+      const buffer = terminal.buffer.active
+      return Array.from({ length: terminal.rows }, (_, row) => buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? '')
+    }
+    const main: Frame = { lines: Array.from({ length: 20 }, (_, i) => `transcript-${i}`), liveStart: 18 }
+    const overlay: Frame = { lines: Array.from({ length: 12 }, (_, i) => `detail-${i}`), liveStart: 0, transientSurface: 'overlay' }
+    const selected = (rows: readonly string[]): string[] => rows.map((row, i) => i === 4 ? '\x1b[7m' + row + '\x1b[27m' : row)
+    try {
+      renderer.render(main)
+      const original = await visible()
+      const history = terminal.buffer.normal.baseY
+      renderer.render(overlay, selected)
+      const inspected = await visible()
+      renderer.render(overlay, selected)
+      expect(await visible()).toEqual(inspected)
+      renderer.render(overlay)
+      expect(await visible()).toEqual(inspected)
+      renderer.render(overlay, selected)
+      renderer.render(main)
+      expect(await visible()).toEqual(original)
+      expect(terminal.buffer.normal.baseY).toBe(history)
+      renderer.render(overlay, selected)
+      renderer.finish()
+      expect(await visible()).toEqual(original)
+      expect(terminal.buffer.active.type).toBe('normal')
+    } finally { terminal.dispose() }
+  })
+
   it.each(['none', 'width', 'height', 'both'] as const)(
     'restores the transcript and anchored composer after preview (%s resize)', async resize => {
       const terminal = new Terminal({ cols: 60, rows: 24, scrollback: 2000, allowProposedApi: true })

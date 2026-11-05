@@ -130,7 +130,9 @@ export interface ViewOptions {
   motion?: MotionMode
   mathMode?: import('../chrome/math.ts').MathMode
   mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
-  /** Color depth; defaults to 16 colors so tests stay deterministic. */
+  /** Known terminal hyperlink support permits compact named web links. */
+  compactLinks?: boolean
+  /** Color depth; defaults to truecolor. */
   colorDepth?: ColorDepth
   /** Shipped palette; defaults to dark. */
   themeName?: ThemeName
@@ -1042,6 +1044,7 @@ export function renderedBlocks(state: TranscriptState, options: {
   colors?: boolean
   themeName?: ThemeName
   terminal?: TerminalColors
+  compactLinks?: boolean
   colorDepth?: ColorDepth
   mathMode?: import('../chrome/math.ts').MathMode
   mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
@@ -1059,9 +1062,10 @@ export function renderedBlocks(state: TranscriptState, options: {
     options.themeName ?? 'dark',
     options.terminal,
     options.language,
+    options.compactLinks,
   )
   const key = [options.width, options.colors, options.colorDepth, options.themeName,
-    options.language, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode].join('\0')
+    options.language, options.compactLinks, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode].join('\0')
   const cached = renderedBlockCache.get(state.blocks)?.get(key)
   if (cached !== undefined) return cached
   const blocks: SearchableBlock[] = state.blocks.map((block, index) => ({
@@ -2452,6 +2456,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     options.themeName ?? 'dark',
     options.terminal,
     options.language,
+    options.compactLinks,
   )
   const width = options.width
   const height = options.height

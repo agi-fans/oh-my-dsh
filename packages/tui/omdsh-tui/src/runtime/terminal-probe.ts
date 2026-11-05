@@ -47,3 +47,12 @@ export function negotiateKeyboard(protocol: KeyboardProtocol | undefined, event:
   if (event.type === 'device-attributes') return { settled: true }
   return { settled: false }
 }
+
+/** Conservative OSC 8 detection; unknown hosts keep full visible link targets. */
+export function supportsHyperlinks(env: NodeJS.ProcessEnv): boolean {
+  if (env.TMUX || env.STY || env.ZELLIJ || /^(?:tmux|screen)/u.test(env.TERM ?? '')) return false
+  const program = (env.TERM_PROGRAM ?? '').toLowerCase()
+  return ['wezterm', 'kaku', 'kitty', 'ghostty', 'iterm.app', 'vscode'].includes(program)
+    || Boolean(env.WT_SESSION || env.KITTY_WINDOW_ID || env.WEZTERM_PANE)
+    || Number(env.VTE_VERSION ?? 0) >= 5000
+}

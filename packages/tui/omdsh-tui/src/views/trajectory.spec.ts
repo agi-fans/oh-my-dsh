@@ -138,6 +138,7 @@ describe('trajectory ledger', () => {
     state = { ...state, query: '' }
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'enter' }) as { state: typeof state }).state
     expect(state.details).toBe(true)
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'tab' }) as { state: typeof state }).state
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'end' }) as { state: typeof state }).state
     state = appendTrajectoryEvent(state, event(8, 'llm/retry', { turn: 1, step: 2, attempt: 2 }))
     expect(state.selectedId).toBe(state.ledger.records.at(-1)?.id)
@@ -148,7 +149,8 @@ describe('trajectory ledger', () => {
     const selected = state.ledger.records.find(record => record.id === state.selectedId)
     if (selected === undefined) throw new Error('expected a selected trajectory record')
     selected.payload = Array.from({ length: 30 }, (_, index) => `payload-line-${index}`).join('\n')
-    state = { ...state, details: true, detailTab: 'payload' }
+    selected.rawResult = ''
+    state = { ...state, details: true, focus: 'detail', detailTab: 'payload' }
 
     const firstPage = renderTrajectory(state, createTheme(false), 120, 14).lines.join('\n')
     expect(firstPage).toContain('payload-line-0')
@@ -160,7 +162,7 @@ describe('trajectory ledger', () => {
     expect(secondPage).toContain('payload-line-10')
     expect(secondPage).toContain('11-17 / 30')
 
-    state = (applyTrajectoryEvent(state, { type: 'key', id: 'tab' }) as { state: typeof state }).state
+    state = (applyTrajectoryEvent(state, { type: 'key', id: 'right' }) as { state: typeof state }).state
     expect(state.detailScroll).toBe(0)
   })
 
@@ -184,7 +186,7 @@ describe('trajectory ledger', () => {
       .filter(line => line.includes('│'))
       .map(line => visibleWidth(line.slice(0, line.indexOf('│'))))
 
-    expect(new Set(dividerColumns)).toEqual(new Set([69]))
+    expect(new Set(dividerColumns)).toEqual(new Set([45]))
   })
 })
 
@@ -247,12 +249,12 @@ describe('trajectory search navigation', () => {
 
   it('matching scans the full ledger while collapse only affects display', () => {
     let state = searching(createTrajectory(searchEvents), 'readme')
-    // User (summary+payload) and tool (summary+payload) records both match.
-    expect(trajectorySearch(state).matches).toHaveLength(4)
+    // The user text and decoded tool input are searchable beside their raw envelopes.
+    expect(trajectorySearch(state).matches).toHaveLength(6)
     expect(trajectorySearch(state).counts.size).toBe(2)
     // Collapse turn 1: both hidden records still count as matches.
     state = { ...state, collapsedTurns: new Set([1]) }
-    expect(trajectoryVisibleRecords(state)).toHaveLength(1)
+    expect(trajectoryVisibleRecords(state)).toHaveLength(2)
     expect(trajectorySearch(state).counts.size).toBe(2)
   })
 
@@ -409,7 +411,7 @@ describe('trajectory detail reading', () => {
     event(4, 'tool/result', { turn: 1, step: 1, callId: 'a', message: { callId: 'a', content: [{ type: 'text', text: 'x' }] } }, 30),
   ] as unknown as readonly SessionEvent[]
 
-  const openDetail = () => ({ ...createTrajectory(toolEvents), details: true })
+  const openDetail = () => ({ ...createTrajectory(toolEvents), details: true, focus: 'detail' as const })
 
   it('numbers source lines only once the content wraps', () => {
     // Short enough to fit: the block reads as the JSON it is, with no gutter.
@@ -422,6 +424,7 @@ describe('trajectory detail reading', () => {
     const state = openDetail()
     const selected = state.ledger.records.find(record => record.id === state.selectedId)
     if (selected === undefined) throw new Error('expected a selected record')
+    selected.rawResult = ''
     selected.payload = `{"command": "${'x'.repeat(120)}"}`
     const wrapped = renderTrajectory({ ...state, detailTab: 'payload' }, createTheme(false), 60, 20).lines.map(stripAnsi)
     const numbered = wrapped.filter(row => /^\s*\d+ /u.test(row))
@@ -472,7 +475,7 @@ describe('trajectory detail reading', () => {
 
   it('still switches tabs and closes the pane while it is open', () => {
     const open = { ...openDetail(), detailTab: 'summary' as const }
-    const tabbed = applyTrajectoryEvent(open, { type: 'key', id: 'tab' } as never).state
+    const tabbed = applyTrajectoryEvent(open, { type: 'key', id: 'right' } as never).state
     expect(tabbed.detailTab).not.toBe('summary')
     const closed = applyTrajectoryEvent(open, { type: 'key', id: 'escape' } as never).state
     expect(closed.details).toBe(false)
@@ -514,7 +517,7 @@ describe('trajectory ledger shape', () => {
     expect(rendered).toMatch(/── Turn 1 .* 9s/u)
     expect(rendered).toContain('Step 1')
     expect(rendered).toContain('Step 2')
-    expect(rendered.indexOf('Step 1')).toBeLessThan(rendered.indexOf('ASSISTANT'))
+    expect(rendered.indexOf('Step 1')).toBeLessThan(rendered.indexOf('Model'))
     expect(rendered.indexOf('Step 2')).toBeGreaterThan(rendered.indexOf('grep'))
     // The location column and the internal nouns are gone: the headers say where
     // a record is, and `12 records · 6 requests · 9 calls` counted what the reader
@@ -526,7 +529,7 @@ describe('trajectory ledger shape', () => {
 
   it('states a request what it cost, without an em dash for a record that cost nothing', () => {
     const rows = text(createTrajectory(shaped)).split('\n')
-    const assistant = rows.find(row => row.includes('ASSISTANT'))
+    const assistant = rows.find(row => row.includes('Model'))
     expect(assistant).toContain('12.4K→812')
     expect(assistant).toMatch(/4\.3s/u)
     // A user message never had a duration; a column of em dashes would read as
@@ -568,14 +571,14 @@ describe('trajectory ledger shape', () => {
     const rendered = renderTrajectory(state, createTheme(false), 110, 20).lines.map(stripAnsi).join('\n')
     // An assistant record has a request payload and a result, and no tool schema,
     // so the section row is exactly what it can fill.
-    expect(rendered).toMatch(/summary +payload +result/u)
-    expect(rendered).not.toMatch(/summary +payload +result +schema/u)
-    // `Tab` steps through the sections it does have, so it never lands on one
+    expect(rendered).toMatch(/Overview +Result +Raw/u)
+    expect(rendered).not.toMatch(/Overview +Result +Raw +Schema/u)
+    // `←→` steps through the sections it does have, so it never lands on one
     // that would print "No tool schema recorded."
     let cycled = state
     const seen = new Set<string>()
     for (let index = 0; index < 8; index += 1) {
-      cycled = applyTrajectoryEvent(cycled, { type: 'key', id: 'tab' } as never).state
+      cycled = applyTrajectoryEvent(cycled, { type: 'key', id: 'right' } as never).state
       seen.add(cycled.detailTab)
     }
     expect(seen.has('schema')).toBe(false)

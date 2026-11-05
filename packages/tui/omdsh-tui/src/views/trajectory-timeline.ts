@@ -22,10 +22,10 @@ import type { TrajectoryKind, TrajectoryRecord } from './trajectory.ts'
 export const TIMELINE_LANES = ['llm', 'tools', 'other'] as const
 export type TimelineLane = (typeof TIMELINE_LANES)[number]
 
-/** One lane's share of the wall clock. */
+/** One lane's share of accumulated recorded duration. */
 export interface TimelineLaneSpan {
   lane: TimelineLane
-  /** Total milliseconds this lane occupied. */
+  /** Accumulated recorded duration, excluding enclosed PTC calls. */
   ms: number
   /** Cells drawn for this lane, when it filled a whole bar. */
   cells: number
@@ -33,7 +33,7 @@ export interface TimelineLaneSpan {
 
 /** The overview a renderer draws, or `undefined` when there is nothing to time. */
 export interface TimelineOverview {
-  /** Wall-clock span covered, from the earliest start to the latest end. */
+  /** Sum of recorded durations; parallel calls overlap and this is not elapsed time. */
   totalMs: number
   lanes: readonly TimelineLaneSpan[]
   /** Bars wide enough for one cell per lane. */
@@ -65,9 +65,8 @@ function durationOf(record: TrajectoryRecord): number | undefined {
  * Build the overview from the records that carry a duration.
  *
  * Records without one are skipped rather than guessed at: an event with no
- * recorded duration did not take zero time, and drawing it as zero would make
- * the bar lie about where the time went. Their absence is visible as a total
- * that is smaller than the wall clock, which is honest.
+ * recorded duration did not take zero time. Independent parallel calls contribute
+ * their full durations; enclosed PTC children are counted by their parent.
  */
 export function trajectoryTimeline(
   records: readonly TrajectoryRecord[],
@@ -75,27 +74,33 @@ export function trajectoryTimeline(
 ): TimelineOverview | undefined {
   const lanes = options.lanes ?? TIMELINE_LANES
   const totals = new Map<TimelineLane, number>()
-  let earliest = Number.POSITIVE_INFINITY
-  let latest = Number.NEGATIVE_INFINITY
+  const byId = new Map(records.map(record => [record.id, record]))
 
   for (const record of records) {
     const ms = durationOf(record)
     if (ms === undefined) continue
+    // A program's duration already encloses its PTC children. Count a child
+    // only when no measured ancestor exists in the loaded history.
+    let parent = record.parentCallId
+    const seen = new Set<string>()
+    let enclosed = false
+    while (parent !== null && !seen.has(parent)) {
+      seen.add(parent)
+      const ancestor = byId.get(`tool:${parent}`)
+      if (ancestor === undefined) break
+      if (durationOf(ancestor) !== undefined) { enclosed = true; break }
+      parent = ancestor.parentCallId
+    }
+    if (enclosed) continue
     const lane = laneOf(record.kind)
     totals.set(lane, (totals.get(lane) ?? 0) + ms)
-    const start = record.startedAt
-    if (start !== null) {
-      earliest = Math.min(earliest, start)
-      latest = Math.max(latest, start + ms)
-    }
   }
 
   const totalMs = [...totals.values()].reduce((sum, ms) => sum + ms, 0)
   if (totalMs <= 0) return undefined
   const width = Math.max(0, Math.floor(options.width))
   return {
-    // The measured span, not the wall clock: a session idles between turns, and
-    // counting idle time would make every lane look short.
+    // Sum only recorded work; idle gaps do not contribute.
     totalMs,
     lanes: lanes.map(lane => {
       const ms = totals.get(lane) ?? 0
@@ -122,9 +127,9 @@ export function wallClockMs(records: readonly TrajectoryRecord[]): number | unde
 
 /** Lane labels, short enough to leave the bar most of the row. */
 const LANE_LABEL: Readonly<Record<TimelineLane, string>> = {
-  llm: 'LLM',
-  tools: 'Tools',
-  other: 'Other',
+  llm: 'LLM Σ',
+  tools: 'Tools Σ',
+  other: 'Other Σ',
 }
 
 /**

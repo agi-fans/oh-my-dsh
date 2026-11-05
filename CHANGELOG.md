@@ -51,6 +51,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Trajectory uses readable summaries, folded context and nested calls, a wider detail pane, and Overview/Input/Result/Raw sections. Click and wheel navigation preserve text selection; keyboard focus, full-screen details, copying, problem filtering and slow-call navigation make long runs easier to inspect. Timing bars explicitly show accumulated durations without counting enclosed PTC calls twice.
+
+- Refined dark and light palettes based on Catppuccin Mocha and Latte, with blue interaction accents, readable comments and thinking text, and neutral tool details. Theme choices remain dark, light and system.
+
+- Markdown uses quieter heading markers, code-language labels and fewer table dividers. Known hyperlink-capable terminals compact long named web links while preserving full targets and original copied Markdown; other terminals keep visible addresses.
+
 - Long tool details keep their title in the viewport’s existing context row. Home returns to the current tool title, and closing then reopening a tool restores its reading position within the same inspection and layout.
 
 - Expanded tools show readable commands, file contents, diffs and search results on quiet detail surfaces; Alt+O retains complete parameters and results. Process indentation is consistent, Thinking previews follow the latest stable paragraph, and the return-to-latest control is less prominent.
@@ -96,6 +102,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Trajectory correctly associates native and PTC tool results, including failures and empty outputs, and loads tool schemas from request headers. Finished calls no longer remain live; interrupted calls and partial history do not invent successful results or durations. Detail scrolling stops at its bounds and can move back immediately after End. Selecting text in a full-screen view no longer paints chat content over the selection.
+
+- Markdown headings, quotes and nested emphasis retain their styles after inline code and links.
 
 - Copy and quote feedback temporarily overrides process-navigation hints; tool action menus identify the command or file.
 

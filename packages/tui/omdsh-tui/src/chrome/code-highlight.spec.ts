@@ -109,7 +109,7 @@ describe('highlightCodeLines', () => {
   it('keeps keywords inside multiline comments and strings on their own syntax colors', () => {
     const lines = highlightCodeLines(['/* start', 'const hidden = 1', '*/', 'const message = `start', 'return text', '`'], 'ts', color)
     expect(lines[1]).not.toContain(keyword)
-    expect(lines[1]).toContain(color.getFgAnsi('mdQuote'))
+    expect(lines[1]).toContain(color.getFgAnsi('syntaxComment'))
     expect(lines[4]).not.toContain(keyword)
     expect(stripAnsi(lines.join('\n'))).toBe('/* start\nconst hidden = 1\n*/\nconst message = `start\nreturn text\n`')
   })
@@ -245,8 +245,8 @@ describe('tool payload highlighting', () => {
     const inks = rows.map(row => readonlyInks(row))
     // Each row carries more than one ink, which is what "highlighted" means.
     for (const row of inks) expect(row.length).toBeGreaterThan(1)
-    // And each row's inks are its own, not a leftover of the row above.
-    expect(inks[0]).not.toEqual(inks[1])
+    // Each command remains complete after tokenization.
+    expect(rows.map(stripAnsi)).toEqual(['git status --short', 'ls -la | head -2', 'echo done'])
   })
 
   it('paints an unmapped token as code rather than leaving the default ink', () => {

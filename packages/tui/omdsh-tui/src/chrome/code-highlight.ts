@@ -108,17 +108,17 @@ export function languageFromPath(path: string): LanguageId | undefined {
  */
 const TOKEN_COLORS: Readonly<Record<string, ThemeColor>> = {
   keyword: 'mdKeyword', boolean: 'mdKeyword', builtin: 'syntaxType',
-  comment: 'mdQuote', prolog: 'mdQuote', doctype: 'mdQuote', cdata: 'mdQuote',
+  comment: 'syntaxComment', prolog: 'syntaxComment', doctype: 'syntaxComment', cdata: 'syntaxComment',
   string: 'syntaxString', char: 'syntaxString', regex: 'syntaxString', 'attr-value': 'syntaxString',
   'template-string': 'syntaxString', 'triple-quoted-string': 'syntaxString',
-  interpolation: 'mdCode', 'interpolation-punctuation': 'mdQuote',
+  interpolation: 'mdCode', 'interpolation-punctuation': 'syntaxPunctuation',
   number: 'syntaxNumber', function: 'syntaxFunction', 'function-variable': 'syntaxFunction',
   tag: 'mdKeyword', 'attr-name': 'syntaxType', property: 'mdCodeBlock', symbol: 'syntaxType',
   // Structure the reader scans for: names being declared, and the operators and
   // punctuation that shape the statement around them.
   'class-name': 'syntaxType', 'literal-property': 'mdCodeBlock', parameter: 'toolOutput',
   variable: 'toolOutput', constant: 'syntaxNumber', selector: 'syntaxType',
-  operator: 'mdQuote', punctuation: 'mdQuote',
+  operator: 'syntaxPunctuation', punctuation: 'syntaxPunctuation',
   namespace: 'syntaxType', 'builtin-string': 'syntaxString',
   deleted: 'toolDiffRemoved', inserted: 'toolDiffAdded', coord: 'mdLink', unchanged: 'toolDiffContext',
 }
@@ -201,7 +201,7 @@ function themeFingerprint(theme: Theme): string {
 }
 
 function styleKey(style: MarkdownStyle | undefined): string {
-  return style === undefined ? '-' : `${style.color ?? ''}|${style.italic ? 'i' : ''}`
+  return style === undefined ? '-' : `${style.color ?? ''}|${style.italic ? 'i' : ''}${style.bold ? 'b' : ''}${style.strike ? 's' : ''}${style.underline ? 'u' : ''}`
 }
 
 function cacheKey(theme: Theme, style: MarkdownStyle | undefined, lang: string, source: string): string {

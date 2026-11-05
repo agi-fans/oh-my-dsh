@@ -41,3 +41,15 @@ describe('keyboard protocol negotiation', () => {
     expect(KITTY_PROTOCOL_OFF).toBe('\x1b[<u')
   })
 })
+
+describe('hyperlink support', () => {
+  it('keeps full addresses when support is unknown or the outer terminal is hidden by a multiplexer', async () => {
+    const { supportsHyperlinks } = await import('./terminal-probe.ts')
+    expect(supportsHyperlinks({})).toBe(false)
+    expect(supportsHyperlinks({ TERM_PROGRAM: 'Apple_Terminal' })).toBe(false)
+    expect(supportsHyperlinks({ TERM_PROGRAM: 'Kaku' })).toBe(true)
+    expect(supportsHyperlinks({ WT_SESSION: 'session' })).toBe(true)
+    expect(supportsHyperlinks({ TERM_PROGRAM: 'WezTerm', TMUX: '/tmp/socket' })).toBe(false)
+    expect(supportsHyperlinks({ TERM_PROGRAM: 'WezTerm', TERM: 'screen-256color' })).toBe(false)
+  })
+})

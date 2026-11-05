@@ -54,10 +54,10 @@ describe('parseKeys', () => {
   })
 
   it('decodes SGR wheel reports, ignores other mouse reports and holds partial reports', () => {
-    expect(parseKeys('\x1b[<64;10;5M').events).toEqual([{ type: 'wheel', direction: 'up' }])
-    expect(parseKeys('\x1b[<65;1;1M').events).toEqual([{ type: 'wheel', direction: 'down' }])
-    expect(parseKeys('\x1b[<68;10;5M').events).toEqual([{ type: 'wheel', direction: 'up' }])
-    expect(parseKeys('\x1b[<81;10;5M').events).toEqual([{ type: 'wheel', direction: 'down' }])
+    expect(parseKeys('\x1b[<64;10;5M').events).toEqual([{ type: 'wheel', direction: 'up', row: 4, column: 9 }])
+    expect(parseKeys('\x1b[<65;1;1M').events).toEqual([{ type: 'wheel', direction: 'down', row: 0, column: 0 }])
+    expect(parseKeys('\x1b[<68;10;5M').events).toEqual([{ type: 'wheel', direction: 'up', row: 4, column: 9 }])
+    expect(parseKeys('\x1b[<81;10;5M').events).toEqual([{ type: 'wheel', direction: 'down', row: 4, column: 9 }])
     expect(parseKeys('\x1b[<64;10;5m').events).toEqual([])
     expect(parseKeys('\x1b[<66;10;5M').events).toEqual([])
     expect(parseKeys('\x1b[<0;4;8M').events).toEqual([{ type: 'mouse', action: 'press', button: 'left', row: 7, column: 3, shift: false }])
@@ -66,7 +66,7 @@ describe('parseKeys', () => {
     expect(parseKeys('\x1b[<35;4;8M').events).toEqual([])
     expect(parseKeys('\x1b[<64;10')).toEqual({ events: [], rest: '\x1b[<64;10' })
     expect(parseKeys('\x1b[<64;10' + ';5Mok').events).toEqual([
-      { type: 'wheel', direction: 'up' }, { type: 'text', value: 'ok' },
+      { type: 'wheel', direction: 'up', row: 4, column: 9 }, { type: 'text', value: 'ok' },
     ])
     expect(parseKeys('before\x1b[<0;4;8Mafter').events).toEqual([
       { type: 'text', value: 'before' },
