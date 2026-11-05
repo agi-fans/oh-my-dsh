@@ -89,30 +89,40 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       if (submission === null) break
       // Re-check after the read: an unmount may have aborted while it awaited.
       if (cancelled.aborted) break
-      if (submission.text.trim() === '' && submission.images.length === 0 && !submission.files?.length) continue
+      const agent = controller.agent
+      const receipt = tui.pendingInputs?.receipt?.(submission)
+      const sessionId = receipt?.sessionId ?? agent?.session?.id
+      if (receipt !== undefined && receipt.sessionId !== agent?.id) {
+        tui.restoreInput(submission, receipt.sessionId)
+        continue
+      }
+      if (submission.text.trim() === '' && submission.images.length === 0 && !submission.files?.length) {
+        tui.pendingInputs?.acknowledge?.(submission)
+        continue
+      }
       const shellCommand = composerShellCommand(submission)
       if (shellCommand !== undefined) {
         operation = new AbortController()
         shellActive = true
         try {
-          const agent = controller.agent
           if (agent === undefined) throw new Error('Start a session before running a Shell command.')
           await runComposerShell(ctx, agent, shellCommand, operation.signal, { share: composerShellShare(submission) })
+          tui.pendingInputs?.acknowledge?.(submission)
         } catch (error: unknown) {
           if (!operation.signal.aborted) {
-            tui.restoreInput(submission)
+            tui.restoreInput(submission, sessionId)
             tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-          }
+          } else tui.pendingInputs?.acknowledge?.(submission)
         } finally {
           shellActive = false
           operation = undefined
         }
       } else if (!submission.literal && looksLikeSlashCommand(submission.text, submission.images)) {
         operation = new AbortController()
-        const sessionId = controller.agent?.session?.id
         const hasAttachments = submission.images.length > 0 || !!submission.files?.length
         try {
           const handled = await controller.execute(submission, operation.signal)
+          if (handled || !hasAttachments) tui.pendingInputs?.acknowledge?.(submission)
           if (!handled) {
             if (hasAttachments) tui.restoreInput(submission, sessionId)
             const command = stripComposerImageMarkers(submission.text, submission.images).trim()
@@ -120,6 +130,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           }
         } catch (error: unknown) {
           if (hasAttachments) tui.restoreInput(submission, sessionId)
+          else tui.pendingInputs?.acknowledge?.(submission)
           if (!operation.signal.aborted) {
             tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
           }
@@ -131,9 +142,10 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           // `/loop` used to intercept submissions here. The command is gone: a
           // repeated prompt is what the agent's own turns are for, and a
           // process-local resender could run unattended through a token budget.
-          await controller.send(submission)
+          await controller.send(submission, agent)
+          tui.pendingInputs?.acknowledge?.(submission)
         } catch (error: unknown) {
-          tui.restoreInput(submission)
+          tui.restoreInput(submission, sessionId)
           tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
         }
       }

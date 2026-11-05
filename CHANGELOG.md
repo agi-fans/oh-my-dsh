@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- `Alt+R` and `/continue` continue eligible failed model generations without duplicating the original prompt. The shortcut requires an empty composer and preserves drafts; `/retry` explicitly resends the latest human prompt with its ordered images and files. Resume preserves continuation eligibility without automatic replay.
+
 - Typed slash commands now admit staged files as well as images, including during a running turn. Commands that reject attachments keep the complete draft instead of sending the slash text to the model; pasted literal text and explicit Steer remain messages. Mixed attachment order survives retries and queue recall; TUI submission segments now include file entries.
 
 - Plan mode gives the empty composer a planning hint and separates optional revision feedback from the approval decision.
@@ -66,6 +68,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Local pending input stays with its original session and survives restart with attachments and delivery intent. Recovered entries wait for confirmation in Message Queue; recorded Harness message identities prevent accepted input from returning. Failed sends restore to the originating session, and recalling a queue entry retains newer input across navigation and exit.
 
 - Harness plan reviews open the full scrolling reader, keep revision text such as `Approve` from approving a plan, and preserve feedback drafts when returning to review. Cancelling a pending mode change no longer displays the opposite Plan state.
 

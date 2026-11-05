@@ -188,7 +188,7 @@ describe('local composer recovery', () => {
     expect(await next).toBe(source)
   })
 
-  it('does not resurrect queued or successfully steered messages', async () => {
+  it('keeps pending recovery separate from the composer draft', async () => {
     const f = fixture()
     const { tui, term } = f.open('a')
     term.press('queued\r')
@@ -313,4 +313,210 @@ it('restores a failed delivery behind a human prompt without replacing its answe
   term.press('\r')
   expect((await submitted)?.text).toContain('failed delivery')
   expect((await submitted)?.text).toContain('new draft')
+})
+
+it('keeps local waiting input in its original root session', async () => {
+  const { tui, term } = fixture().open('a')
+  term.press('for A\r')
+  switchTo(tui, 'b')
+  expect(tui.pendingInputs.list()).toEqual([])
+  const reading = tui.readInput()
+  term.press('for B\r')
+  const b = (await reading)!
+  expect(b.text).toBe('for B')
+  expect(tui.pendingInputs.receipt?.(b)?.sessionId).toBe('b')
+  switchTo(tui, 'a')
+  expect(tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['for A'])
+  expect((await tui.readInput())?.text).toBe('for A')
+})
+
+it('recovers waiting input and in-flight attachment delivery without sending automatically', async () => {
+  const f = fixture()
+  const image = { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png', name: 'draft.png' }
+  const file = { attachmentId: AttachmentId('recover-file'), name: 'notes.txt', bytes: 3 }
+  const { tui, term } = f.open('a', { readClipboardImage: async () => image })
+  tui.setStatus('running')
+  term.press('first ')
+  term.press('\x16')
+  await new Promise<void>(resolve => setImmediate(resolve))
+  tui.stageFileAttachment(file)
+  term.press(' last'); term.press('\x1bs')
+  const sending = (await tui.readInput())!
+  term.press('second\r'); term.press('composer')
+  tui.dispose()
+  const next = f.open('a')
+  const entries = next.tui.pendingInputs.list()
+  expect(entries.map(row => row.recovered)).toEqual([true, true])
+  expect(entries[0]?.submission).toEqual(sending)
+  expect(entries[0]?.submission).toMatchObject({ delivery: 'steer', literal: true, images: [image], files: [file],
+    segments: [{ kind: 'text', text: 'first' }, { kind: 'image', index: 0 }, { kind: 'file', index: 0 }, { kind: 'text', text: 'last' }] })
+  expect(stripAnsi(next.term.captured)).toContain('Recovered')
+  const pending = next.tui.readInput()
+  const resolved = vi.fn()
+  void pending.then(resolved)
+  await new Promise<void>(resolve => setImmediate(resolve))
+  expect(resolved).not.toHaveBeenCalled()
+  next.tui.pendingInputs.update(entries[0]!.id, { kind: 'release' })
+  expect(await pending).toEqual(sending)
+  next.tui.pendingInputs.acknowledge?.((await pending)!)
+  next.tui.dispose()
+  const again = f.open('a')
+  expect(again.tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['second'])
+  expect(f.store.load('a')?.editor.text).toBe('composer')
+})
+
+it('reconciles accepted message identities after exit between admission and acknowledgment', async () => {
+  const f = fixture()
+  const { tui, term } = f.open('a')
+  term.press('accepted\r')
+  const submission = (await tui.readInput())!
+  tui.pendingInputs.prepare?.(submission, 'message:accepted')
+  term.press('still local\r')
+  tui.dispose()
+  const next = f.open('a')
+  next.tui.pendingInputs.reconcile?.('a', new Set(['message:accepted']))
+  expect(next.tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['still local'])
+  next.tui.dispose()
+  expect(f.open('a').tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['still local'])
+})
+
+it('keeps recalled newer entries across restart without duplicating the composer', () => {
+  const f = fixture()
+  const { tui, term } = f.open('a')
+  term.press('one\r'); term.press('two\r'); term.press('three\r')
+  term.press('\x1b[A'); term.press('\x1b[A')
+  tui.dispose()
+  const next = f.open('a')
+  expect(next.tui.pendingInputs.list().map(row => row.submission.text)).toEqual(['one', 'three'])
+  expect(f.store.load('a')?.editor.text).toBe('two')
+})
+
+it('recovers child input in the child and never sends it to the root reader', async () => {
+  const f = fixture()
+  const { tui, term } = f.open('parent')
+  const child = { id: 'child', label: 'Child', phase: 'waiting' as const, writable: true }
+  tui.setInspectedSubagent(child)
+  term.press('child message\r')
+  tui.dispose()
+  const next = f.open('parent')
+  expect(next.tui.pendingInputs.list()).toEqual([])
+  const submit = vi.fn()
+  next.tui.onInspectSubmit(submit)
+  next.tui.setInspectedSubagent(child)
+  const row = next.tui.pendingInputs.list()[0]!
+  expect(row.submission.text).toBe('child message')
+  expect(stripAnsi(next.term.captured)).toContain('Recovered')
+  const abort = new AbortController()
+  const rootRead = next.tui.readInput(abort.signal)
+  next.tui.pendingInputs.update(row.id, { kind: 'release' })
+  expect(submit).toHaveBeenCalledWith(row.submission)
+  abort.abort()
+  expect(await rootRead).toBeNull()
+})
+
+it('drains only the returned root queue into an already waiting reader', async () => {
+  const { tui, term } = fixture().open('a')
+  term.press('A waiting\r')
+  switchTo(tui, 'b')
+  const reading = tui.readInput()
+  switchTo(tui, 'a')
+  const submission = (await reading)!
+  expect(submission.text).toBe('A waiting')
+  expect(tui.pendingInputs.receipt?.(submission)?.sessionId).toBe('a')
+})
+
+it('binds input typed during startup to the first session', async () => {
+  const term = new Terminal(), tui = new LocalTui(term, 'm', false)
+  instances.push(tui)
+  term.press('early input\r')
+  switchTo(tui, 'first')
+  const submission = (await tui.readInput())!
+  expect(submission.text).toBe('early input')
+  expect(tui.pendingInputs.receipt?.(submission)?.sessionId).toBe('first')
+})
+
+it('sends recovered input only after the queue confirmation key', async () => {
+  const f = fixture()
+  const { tui, term } = f.open('a')
+  term.press('recovered input\r'); tui.dispose()
+  const next = f.open('a')
+  const agent = { inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+  next.tui.setQueueHandler(signal => openMessageQueue({ agent, tui: next.tui, signal, assertActive: () => {},
+    restore: async () => ({ text: '', images: [] }) }))
+  const reading = next.tui.readInput()
+  const resolved = vi.fn()
+  void reading.then(resolved)
+  next.term.press('\x1bq')
+  expect(stripAnsi(next.term.captured)).toContain('Recovered')
+  await new Promise<void>(resolve => setImmediate(resolve))
+  expect(resolved).not.toHaveBeenCalled()
+  next.term.press('\x1br')
+  expect((await reading)?.text).toBe('recovered input')
+})
+
+it.each(['/new', '!echo recovered'])('never replays recovered command %s without confirmation', async text => {
+  const f = fixture()
+  const { tui, term } = f.open('a')
+  tui.setCommands([{ name: 'new', description: 'New session' }])
+  term.press(text + '\r'); tui.dispose()
+  const next = f.open('a')
+  const abort = new AbortController(), resolved = vi.fn()
+  const reading = next.tui.readInput(abort.signal)
+  void reading.then(resolved)
+  await new Promise<void>(resolve => setImmediate(resolve))
+  expect(resolved).not.toHaveBeenCalled()
+  expect(next.tui.pendingInputs.list()[0]).toMatchObject({ recovered: true, submission: { text } })
+  abort.abort()
+  expect(await reading).toBeNull()
+})
+
+it('restores a failed in-flight root submission to its receipt scope without duplicating recovery', async () => {
+  const f = fixture()
+  const { tui, term } = f.open('a')
+  term.press('failed A\r')
+  const submission = (await tui.readInput())!
+  switchTo(tui, 'b')
+  term.press('B draft')
+  tui.restoreInput(submission)
+  expect(f.store.load('a')?.editor.text).toBe('failed A')
+  tui.dispose()
+  expect(f.open('a').tui.pendingInputs.list()).toEqual([])
+  expect(f.store.load('b')?.editor.text).toBe('B draft')
+})
+
+describe('empty-composer continuation gesture', () => {
+  it('captures the current failure identity and coalesces repeated keys', async () => {
+    const { tui, term } = fixture().open('a')
+    tui.setSession({ id: 'a', recent: [], controls: { continuation: 42 } })
+    let release!: () => void
+    const handler = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
+    tui.setContinueHandler(handler)
+    term.press('\x1br'); term.press('\x1br')
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler).toHaveBeenCalledWith({ sessionId: 'a', failureSeq: 42 })
+    tui.setSession({ id: 'b', recent: [] })
+    release(); await new Promise<void>(resolve => setImmediate(resolve))
+    term.press('\x1br')
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it.each(['text', 'file', 'image', 'running', 'no-failure'])('leaves %s untouched without admitting a continuation', async kind => {
+    const f = fixture()
+    const image = { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' as const }
+    const { tui, term } = f.open('a', { readClipboardImage: async () => image })
+    tui.setSession({ id: 'a', recent: [], controls: kind === 'no-failure' ? {} : { continuation: 42 } })
+    const handler = vi.fn(async () => {})
+    tui.setContinueHandler(handler)
+    if (kind === 'text') term.press('my draft')
+    if (kind === 'file') tui.stageFileAttachment({ attachmentId: AttachmentId('f'), name: 'n.txt', bytes: 1 })
+    if (kind === 'image') { term.press('\x16'); await new Promise<void>(resolve => setImmediate(resolve)) }
+    if (kind === 'running') tui.setStatus('running')
+    term.press('\x1br')
+    expect(handler).not.toHaveBeenCalled()
+    switchTo(tui, 'b')
+    const draft = f.store.load('a')
+    if (kind === 'text') expect(draft?.editor.text).toBe('my draft')
+    if (kind === 'file') expect(draft?.files.entries).toHaveLength(1)
+    if (kind === 'image') expect(draft?.images).toEqual([image])
+  })
 })

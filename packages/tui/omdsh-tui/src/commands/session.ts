@@ -2,7 +2,6 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TuiRecentSession } from '../definition.ts'
 import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
@@ -16,19 +15,12 @@ import { formatPermission, formatTokens } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import { readSessionLibrary, sortSessionRows, togglePinnedSession, updateSessionLibrary } from '../session/session-library.ts'
 import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
-import { blocksText } from '../session/content-text.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
 
 /** Cross-session search page size shown in one Session Library prompt. */
 const SESSION_SEARCH_LIMIT = 20
-
-function humanText(event: SessionEvent): string | undefined {
-  if (event.type !== 'user/message' || event.data.source.kind !== 'user') return undefined
-  const text = blocksText(event.data.content)
-  return text === '' ? undefined : text
-}
 
 async function newSession(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /new' }
@@ -244,14 +236,8 @@ function showSession(ctx: Context, invocation: CommandInvocation): CommandResult
 
 async function retry(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /retry' }
-  const log = invocation.agent.session.snapshotEvents()
-  for (let i = log.length - 1; i >= 0; i -= 1) {
-    const text = humanText(log[i] as SessionEvent)
-    if (text === undefined) continue
-    await ctx.omdshSession.send(text, invocation.agent)
-    return { kind: 'success', text: 'Re-running the most recent human prompt as a new turn.' }
-  }
-  return { kind: 'success', text: 'No human prompt is available to retry.' }
+  const resent = await ctx.omdshSession.retryLastPrompt(invocation.agent, invocation.signal)
+  return { kind: 'success', text: resent ? 'Re-sent the last human prompt with its attachments as a new turn.' : 'No human prompt is available to retry.' }
 }
 
 function showContext(ctx: Context, invocation: CommandInvocation): CommandResult {
@@ -280,6 +266,11 @@ export function apply(ctx: Context): void {
       handler: invocation => resumeSession(ctx, invocation),
     },
     { name: 'session', description: 'Show current session details', handler: invocation => showSession(ctx, invocation) },
-    { name: 'retry', description: 'Run the most recent human prompt again', handler: invocation => retry(ctx, invocation) },
+    { name: 'continue', description: 'Continue an eligible failed generation without resending the prompt', handler: async invocation => {
+      if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /continue' }
+      await ctx.omdshSession.continueGeneration(invocation.agent, undefined, invocation.signal)
+      return { kind: 'success' }
+    } },
+    { name: 'retry', description: 'Resend the last human prompt with its attachments', handler: invocation => retry(ctx, invocation) },
   ], 'omdsh session commands')
 }

@@ -10,6 +10,7 @@ export interface QueuedMessage {
   id: string
   target: InboxTarget | 'delivery'
   text: string
+  recovered?: boolean
   value: UserMessage | TuiSubmission
 }
 
@@ -19,7 +20,7 @@ export function queuedMessages(agent: Agent, pending: TuiPendingInputs): QueuedM
       (target === 'next-step' ? agent.inbox.nextStep : agent.inbox.nextTurn)
         .filter(message => message.source.kind === 'user')
         .map(message => ({ key: `${target}:${message.id}`, id: message.id, target, text: blocksText(message.content), value: message }))),
-    ...pending.list().map(({ id, submission }) => ({ key: `delivery:${id}`, id, target: 'delivery' as const, text: submission.text, value: submission })),
+    ...pending.list().map(({ id, submission, recovered }) => ({ ...(recovered ? { recovered: true } : {}), key: `delivery:${id}`, id, target: 'delivery' as const, text: submission.text, value: submission })),
   ]
 }
 
@@ -60,7 +61,7 @@ function queueOptions(rows: readonly QueuedMessage[]): NonNullable<TuiPrompt['op
   return rows.map(row => {
     const ordinal = (ordinals.get(row.target) ?? 0) + 1
     ordinals.set(row.target, ordinal)
-    const label = row.target === 'next-step' ? 'Steer · next step' : row.target === 'next-turn' ? 'Queue · next turn' : 'Sending · not yet accepted'
+    const label = row.target === 'next-step' ? 'Steer · next step' : row.target === 'next-turn' ? 'Queue · next turn' : row.recovered ? 'Recovered · review before sending' : 'Sending · not yet accepted'
     const submission = row.target === 'delivery' ? row.value as TuiSubmission : undefined
     const message = row.target === 'delivery' ? undefined : row.value as UserMessage
     const images = submission?.images.length ?? message?.content.filter(block => block.type === 'image').length ?? 0
@@ -96,21 +97,29 @@ export async function openMessageQueue(options: {
       }
       return choices
     }
+    const initialOptions = refresh()
+    const recovered = rows.some(row => row.recovered)
     const answer = await tui.prompt({ title: 'Message Queue',
-      ...(options.ownerLabel === undefined ? {} : { detail: options.ownerLabel }), question: 'Steer: next step · Queue: next turn · Sending: not yet accepted.',
+      ...(options.ownerLabel === undefined ? {} : { detail: options.ownerLabel }),
+      question: recovered ? 'Steer: next step · Queue: next turn · Recovered: Alt+R sends the selected input.' : 'Steer: next step · Queue: next turn · Sending: not yet accepted.',
       localize: ['title', 'question', 'actions'],
-      notify: false, onSuperseded: () => { superseded = true }, options: refresh(), refreshOptions: refresh, presentation: 'card', filterable: true, allowCustom: false,
+      notify: false, onSuperseded: () => { superseded = true }, options: initialOptions, refreshOptions: refresh, presentation: 'card', filterable: true, allowCustom: false,
       ...(selected === undefined ? {} : { initialValue: selected }), emptyText: 'No pending messages.', submitLabel: 'edit', signal,
-      actions: [{ key: 'Alt+S', label: 'steer next step', valuePrefix: 'steer:' }, { key: 'Alt+D', label: 'withdraw', valuePrefix: 'delete:' }, { key: 'Alt+Up', label: 'move earlier', valuePrefix: 'up:' }, { key: 'Alt+Down', label: 'move later', valuePrefix: 'down:' }] })
+      actions: [...(recovered ? [{ key: 'Alt+R', label: 'send recovered', valuePrefix: 'release:' }] : []), { key: 'Alt+S', label: 'steer next step', valuePrefix: 'steer:' }, { key: 'Alt+D', label: 'withdraw', valuePrefix: 'delete:' }, { key: 'Alt+Up', label: 'move earlier', valuePrefix: 'up:' }, { key: 'Alt+Down', label: 'move later', valuePrefix: 'down:' }] })
     if (answer === null) return
     check()
-    const action = /^(steer|delete|up|down):/u.exec(answer)?.[1]
+    const action = /^(release|steer|delete|up|down):/u.exec(answer)?.[1]
     const key = action === undefined ? answer : answer.slice(action.length + 1)
     const row = queuedMessages(agent, tui.pendingInputs).find(item => item.key === key)
     if (row === undefined) { tui.notice('That message is no longer pending.'); continue }
     selected = key
     let editDraft: TuiSubmission | undefined
     try {
+      if (action === 'release') {
+        if (row.target !== 'delivery' || !row.recovered) { tui.notice('Select a recovered input to send.'); continue }
+        tui.pendingInputs.update(row.id, { kind: 'release' })
+        return
+      }
       if (action === 'steer') {
         if (row.target !== 'next-turn') {
           tui.notice('Select an accepted Queue message to steer.')

@@ -7,6 +7,7 @@
  * @module @agi-fans/dsh-tui/session-controller
  */
 
+import { continuableFailure } from './generation-continuation.ts'
 import { workflowMemberStatus, workflowOptions } from '../views/workflow.ts'
 import { randomUUID } from 'node:crypto'
 import { openMessageQueue } from './message-queue.ts'
@@ -512,6 +513,7 @@ export class SessionRuntime {
   #refreshDirty = false
   #inspectEpoch = 0
   #inspectDeliveryTail: Promise<void> = Promise.resolve()
+  readonly #pendingSends = new Map<Agent, number>()
   readonly #inspectDeliveries = new Set<AbortController>()
   readonly #descendantApprovals = new Map<AbortController, Agent>()
   #activationEpoch = 0
@@ -543,6 +545,12 @@ export class SessionRuntime {
       },
     })
     this.#off.push(tui.setQueueHandler(signal => this.openQueue(signal)))
+    const offContinue = tui.setContinueHandler?.(async request => {
+      const agent = this.#requiredAgent()
+      if (agent.id !== request.sessionId) throw new Error('The continuation belongs to another session.')
+      await this.continueGeneration(agent, request.failureSeq)
+    })
+    if (offContinue !== undefined) this.#off.push(offContinue)
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
     const offWorkflow = tui.onInspectWorkflow?.(id => {
       void this.openWorkflow(id).catch(error => { this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) })
@@ -595,6 +603,7 @@ export class SessionRuntime {
     this.#off.push(ctx.on('agent/status', (payload) => {
       if (payload.agent === this.#active?.handle.agent) {
         tui.setStatus(payload.status, { root: true })
+        this.#pushSessionInfo()
         return
       }
       if (payload.agent.id === this.#inspectedId) tui.setStatus(payload.status)
@@ -748,11 +757,23 @@ export class SessionRuntime {
       }
     }
     assertDelivery()
-    const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
-    assertDelivery()
+    this.#pendingSends.set(agent, (this.#pendingSends.get(agent) ?? 0) + 1)
+    try {
+      const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
+      assertDelivery()
+      this.#tui.pendingInputs?.prepare?.(submission, message.id)
+      this.#admit(agent, message, submission.delivery)
+    } finally {
+      const remaining = (this.#pendingSends.get(agent) ?? 1) - 1
+      if (remaining === 0) this.#pendingSends.delete(agent)
+      else this.#pendingSends.set(agent, remaining)
+    }
+  }
+
+  #admit(agent: Agent, message: UserMessage, delivery?: 'queue' | 'steer'): void {
     const offset = agent.session.snapshotEvents().length
     try {
-      if (submission.delivery === 'steer') agent.steer(message)
+      if (delivery === 'steer') agent.steer(message)
       else agent.followup(message)
     } catch (error) {
       // An event subscriber may throw after admission, even after the message was claimed.
@@ -762,6 +783,46 @@ export class SessionRuntime {
       if (!accepted) throw error
       this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     }
+  }
+
+  #assertCanRepeat(agent: Agent, signal?: AbortSignal): void {
+    signal?.throwIfAborted()
+    this.assertActive(agent)
+    if (this.#inspectedId !== undefined) throw new Error('Return to the parent session to continue or resend a prompt.')
+    if (agent.status !== 'idle' || this.#pendingSends.has(agent)) throw new Error('Wait for the current work to finish before continuing or resending.')
+    if (agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.some(message => message.source.kind === 'user')
+      || (this.#tui.pendingInputs?.list().length ?? 0) > 0) throw new Error('Resolve pending input in /queue before continuing or resending.')
+    if (this.#descendantApprovals.size > 0 || this.#ctx.get('sessionProjections')?.snapshot(agent.session).values.userQuestions?.active.some(question => question.state !== 'continued')) {
+      throw new Error('Answer the pending question or approval before continuing or resending.')
+    }
+  }
+
+  /** Wake an eligible failed generation with empty retry input; never duplicate the original prompt. */
+  async continueGeneration(agent: Agent = this.#requiredAgent(), expectedFailure?: number, signal?: AbortSignal): Promise<void> {
+    this.#assertCanRepeat(agent, signal)
+    await agent.runMaintenance(async maintenance => {
+      maintenance.throwIfAborted()
+      this.#assertCanRepeat(agent, signal)
+      const failure = continuableFailure(agent.session.snapshotEvents())
+      if (failure === undefined || expectedFailure !== undefined && expectedFailure !== failure) {
+        throw new Error('No recoverable model failure is available to continue. Use /retry to resend the last prompt.')
+      }
+      this.#admit(agent, createUserMessage({ content: [], source: { kind: 'retry' } }))
+    })
+  }
+
+  /** Explicitly resend the complete latest human message with a fresh Harness identity. */
+  async retryLastPrompt(agent: Agent = this.#requiredAgent(), signal?: AbortSignal): Promise<boolean> {
+    this.#assertCanRepeat(agent, signal)
+    return agent.runMaintenance(async maintenance => {
+      maintenance.throwIfAborted()
+      this.#assertCanRepeat(agent, signal)
+      const previous = agent.session.snapshotEvents().findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'user' && event.data.content.length > 0)
+      if (previous?.type !== 'user/message') return false
+      this.#admit(agent, createUserMessage({ content: previous.data.content, source: { kind: 'user' } }))
+      return true
+    })
   }
 
   /** Resolve one visible live inbox, retaining its identity across asynchronous UI work. */
@@ -1738,6 +1799,8 @@ export class SessionRuntime {
   #replaceTranscript(agent: Agent, reason: TuiTranscriptReplacement = 'refresh'): void {
     this.#tui.setWorkingDirectory?.(currentWorkingDirectory(this.#ctx, agent.session))
     const events = agent.session.snapshotEvents()
+    this.#tui.pendingInputs?.reconcile?.(agent.id, new Set(events.flatMap(event =>
+      event.type === 'agent/inbox/spliced' ? event.data.inserted.map(message => message.id) : [])))
     this.#tracker.observeCatalog(agent.session, events)
     this.#tui.replaceSession(events, this.#ctx.get('tuiToolPresentation')?.session(agent, events), agent.status, reason)
     this.#replayLivePrefix(agent.session.id)
@@ -1808,6 +1871,8 @@ export class SessionRuntime {
       this.#workflowAbort?.abort()
       this.#cancelInspectDeliveries()
     }
+    this.#tui.pendingInputs?.reconcile?.(id, new Set(events.flatMap(event =>
+      event.type === 'agent/inbox/spliced' ? event.data.inserted.map(message => message.id) : [])))
     this.#inspectedId = id
     if (cwd !== undefined) this.#tui.setWorkingDirectory?.(cwd)
     const child = this.#ctx.get('agents')?.get(SessionId(id))
@@ -1873,8 +1938,10 @@ export class SessionRuntime {
       delivery.signal.throwIfAborted()
       if (this.#inspectedId !== childId || this.#active?.handle.agent !== root) throw new Error('The viewed session changed before delivery.')
       const send = submission.delivery === 'steer' ? steerHostSubagentPrompt : queueHostSubagentPrompt
-      await send(subagents, parent, SessionId(childId), message.content,
+      const messageId = await send(subagents, parent, SessionId(childId), message.content,
         { kind: 'user' }, delivery.signal)
+      this.#tui.pendingInputs?.prepare?.(submission, messageId)
+      this.#tui.pendingInputs?.acknowledge?.(submission)
     } catch (error: unknown) {
       this.#tui.restoreInput(submission, childId)
       if (!delivery.signal.aborted) this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
@@ -1887,8 +1954,10 @@ export class SessionRuntime {
 
   #sessionControls(active: ActiveSession, projection: TuiStatsProjection | undefined): TuiSessionControls {
     const livePlan = this.#ctx.get('planMode')?.get(active.handle.agent)
+    const failure = active.handle.agent.status === 'idle' ? continuableFailure(active.handle.agent.session.snapshotEvents()) : undefined
     return {
       ...sessionControls(projection, livePlan),
+      ...(failure === undefined ? {} : { continuation: failure }),
       agentPreset: active.agentPreset,
     }
   }

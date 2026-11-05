@@ -33,6 +33,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { previewImages } from './image-preview.ts'
 import { rmSync } from 'node:fs'
 import { ComposerImages } from './composer-images.ts'
+import { PendingInputs } from '../session/pending-inputs.ts'
 import { ComposerDraftStore, type ComposerDraft } from '../session/composer-drafts.ts'
 import { mergeJobSettlement } from '../session/job-notice.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
@@ -469,12 +470,14 @@ export class LocalTui implements TuiService {
   #featurePatch: string | undefined
   #trajectory: TrajectoryState | null = null
   #pending: PendingRead | null = null
-  #queuedSubmissions: TuiSubmission[] = []
+  readonly #pendingInputs: PendingInputs
+  #pendingScope(): string { return this.#draftScope ?? '__default__' }
+  get #queuedSubmissions(): TuiSubmission[] { return this.#pendingInputs.session(this.#pendingScope()).queued }
   /** Newer queue entries temporarily detached while Up browses backward. */
-  #queueEditNewer: TuiSubmission[] | null = null
+  get #queueEditNewer(): TuiSubmission[] | null { return this.#pendingInputs.session(this.#pendingScope()).newer }
+  set #queueEditNewer(value: TuiSubmission[] | null) { this.#pendingInputs.session(this.#pendingScope()).newer = value }
   #queueEditPending = false
   #queueRecall: { request: TuiQueueEditRequest; abort: AbortController } | undefined
-  readonly #queueDrafts = new Map<string, TuiSubmission[]>()
   #quitRequested = false
   #resumeHintRequested = false
   #lastSigintTime = 0
@@ -482,10 +485,10 @@ export class LocalTui implements TuiService {
   #inspectEscapeFenceUntil = 0
   #interrupts = new Set<() => void>()
   #queueEdits = new Set<(request?: TuiQueueEditRequest) => void>()
+  #continueHandler: ((request: { sessionId: string; failureSeq: number }) => Promise<void>) | undefined
+  #continuing = false
   #queueHandler: ((signal: AbortSignal) => Promise<void>) | undefined
   #queueHotkeyAbort: AbortController | undefined
-  readonly #queuedInputIds = new WeakMap<TuiSubmission, string>()
-  #queuedInputSerial = 0
   #rewinds = new Set<() => void>()
   #inspects = new Set<(id: string) => void>()
   #workflowInspects = new Set<(id: string) => void>()
@@ -782,6 +785,8 @@ export class LocalTui implements TuiService {
     this.#syncColorDepth()
     this.#tty = term.input.isTTY === true && term.output.isTTY === true
     this.#draftStore = this.#tty && paths.draftsPath !== undefined ? new ComposerDraftStore(paths.draftsPath) : undefined
+    this.#pendingInputs = new PendingInputs(this.#tty && paths.draftsPath !== undefined ? join(paths.draftsPath, 'pending') : undefined,
+      (action, error) => this.notice(`Could not ${action} pending input: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' }))
     this.#plain = new PlainTui({
       term,
       blocks: () => this.#state.blocks,
@@ -1034,6 +1039,7 @@ export class LocalTui implements TuiService {
       && this.#inspected?.writable === inspected?.writable) return
     this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
+    this.#drainPendingInput()
     if (inspected !== undefined) {
       this.#inspectEscapeFenceUntil = 0
       this.#subagentSelection = undefined
@@ -1455,6 +1461,7 @@ export class LocalTui implements TuiService {
     if (info.id !== this.#sessionId) this.#fileReviewAbort?.abort()
     this.#switchDraft(this.#inspected?.id ?? info.id)
     this.#sessionId = info.id
+    this.#drainPendingInput()
     this.#herdr.setSession(info.id)
     const title = info.title?.trim()
     this.#sessionTitle = title === undefined || title === '' ? undefined : title
@@ -1584,6 +1591,25 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #takeQueuedInput(): TuiSubmission | undefined {
+    const scope = this.#sessionId ?? '__default__'
+    const inputs = this.#pendingInputs.session(scope).queued
+    const index = inputs.findIndex(item => !this.#pendingInputs.receipt(item)?.recovered)
+    const queued = index < 0 ? undefined : inputs.splice(index, 1)[0]
+    if (queued !== undefined) this.#pendingInputs.take(queued, scope)
+    return queued
+  }
+
+  #drainPendingInput(): void {
+    if (this.#pending === null || this.#disposed) return
+    const queued = this.#takeQueuedInput()
+    if (queued === undefined) return
+    const pending = this.#pending
+    this.#pending = null
+    pending.offAbort?.()
+    pending.resolve(queued)
+  }
+
   readInput(signal?: AbortSignal): Promise<TuiSubmission | null> {
     if (this.#pending !== null) return Promise.reject(new Error('omdsh-tui: input read already in flight'))
     if (this.#disposed || signal?.aborted === true) return Promise.resolve(null)
@@ -1596,7 +1622,7 @@ export class LocalTui implements TuiService {
     if (!this.#tty) return this.#plain.readline(signal)
     // Lines submitted while a turn was still running were queued instead of
     // dropped; serve the oldest before waiting for fresh input.
-    const queued = this.#queuedSubmissions.shift()
+    const queued = this.#takeQueuedInput()
     if (queued !== undefined) {
       this.#render()
       return Promise.resolve(queued)
@@ -1618,10 +1644,14 @@ export class LocalTui implements TuiService {
 
   /** Compatibility helper for provider-level text editing tests and embedders. */
   async readline(): Promise<string | null> {
-    return (await this.readInput())?.text ?? null
+    const submission = await this.readInput()
+    if (submission !== null) this.#pendingInputs.finish(submission)
+    return submission?.text ?? null
   }
 
   restoreInput(submission: TuiSubmission, sessionId?: string): void {
+    const origin = this.#pendingInputs.receipt(submission)?.sessionId
+    if (origin !== '__default__') sessionId ??= origin
     if (sessionId !== undefined && sessionId !== this.#draftScope || this.#prompt !== null || this.#disposed) {
       const target = sessionId ?? this.#draftScope
       const current = target === this.#draftScope
@@ -1643,17 +1673,24 @@ export class LocalTui implements TuiService {
         this.#restoreDraft(draft)
         this.#prompt.savedInput = draft.editor
         this.#editor.restore(answer)
+        this.#draftDirty = true
+        this.#flushDraft()
+        if (this.#draftStore === undefined || !this.#unsavedDrafts.has(this.#pendingScope())) this.#pendingInputs.finish(submission)
         return
       }
       if (target === undefined) return
       this.#unsavedDrafts.set(target, draft)
       try {
         if (this.#draftStore !== undefined) { this.#draftStore.save(target, draft); this.#unsavedDrafts.delete(target) }
-      } catch (error) { this.#reportDraftError('save', error) }
+      } catch (error) { this.#reportDraftError('save', error); return }
+      this.#pendingInputs.finish(submission)
       return
     }
     this.#literalInput ||= submission.literal === true
     this.#images.restore(submission, this.#files.adopt(submission.files ?? []))
+    this.#draftDirty = true
+    this.#flushDraft()
+    if (this.#draftStore === undefined || !this.#unsavedDrafts.has(this.#pendingScope())) this.#pendingInputs.finish(submission)
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -1688,6 +1725,8 @@ export class LocalTui implements TuiService {
     this.#files.clear()
     this.#images.replace(submission, this.#files.adopt(submission.files ?? []))
     this.#historyIndex = 0
+    this.#draftDirty = true
+    this.#flushDraft()
     this.#refreshAutocomplete()
     if (this.#tty) this.#render()
   }
@@ -1698,23 +1737,32 @@ export class LocalTui implements TuiService {
   }
 
   readonly pendingInputs: TuiPendingInputs = {
+    receipt: submission => this.#pendingInputs.receipt(submission),
+    prepare: (submission, messageId) => this.#pendingInputs.prepare(submission, messageId),
+    acknowledge: submission => { this.#pendingInputs.finish(submission); if (this.#tty && !this.#disposed) this.#render() },
+    reconcile: (sessionId, accepted) => this.#pendingInputs.reconcile(sessionId, accepted),
     list: () => {
       if (this.#disposed) return []
       if (this.#queueEditNewer !== null || this.#queueEditPending) throw new Error('Finish editing the queued follow-up with Enter before opening Queue.')
-      if (this.#inspected !== undefined) return []
       return this.#queuedSubmissions.map(submission => {
-        let id = this.#queuedInputIds.get(submission)
-        if (id === undefined) { id = `local-${++this.#queuedInputSerial}`; this.#queuedInputIds.set(submission, id) }
-        return { id, submission }
+        const receipt = this.#pendingInputs.identify(submission, this.#pendingScope())
+        return { id: receipt.id, submission, ...(receipt.recovered ? { recovered: true } : {}) }
       })
     },
     update: (id, change) => {
       if (this.#disposed) return false
-      const index = this.#queuedSubmissions.findIndex(item => this.#queuedInputIds.get(item) === id)
+      const index = this.#queuedSubmissions.findIndex(item => this.#pendingInputs.receipt(item)?.id === id)
       if (index < 0) return false
-      if (change.kind === 'remove') this.#queuedSubmissions.splice(index, 1)
+      if (change.kind === 'release') {
+        const submission = this.#queuedSubmissions[index]!
+        this.#queuedSubmissions.splice(index, 1)
+        this.#dispatchInput(submission)
+      } else if (change.kind === 'remove') this.#queuedSubmissions.splice(index, 1)
       else if (change.kind === 'replace') {
-        this.#queuedInputIds.set(change.submission, id)
+        const old = this.#pendingInputs.receipt(this.#queuedSubmissions[index]!)!
+        const receipt = this.#pendingInputs.identify(change.submission, this.#pendingScope())
+        receipt.id = id
+        receipt.recovered = old.recovered ?? false
         this.#queuedSubmissions[index] = change.submission
       } else {
         const destination = index + change.direction
@@ -1726,6 +1774,20 @@ export class LocalTui implements TuiService {
       if (this.#tty && !this.#disposed) this.#render()
       return true
     },
+  }
+
+  setContinueHandler(handler: (request: { sessionId: string; failureSeq: number }) => Promise<void>): () => void {
+    this.#continueHandler = handler
+    return () => { if (this.#continueHandler === handler) this.#continueHandler = undefined }
+  }
+
+  #canContinue(): boolean {
+    if (this.#continueHandler === undefined || this.#continuing || this.#disposed || this.#sessionId === undefined
+      || this.#sessionControls?.continuation === undefined || this.#inspected !== undefined || this.#state.status !== 'idle'
+      || this.#prompt !== null || this.#hasComposerContent() || this.#pasteInFlight > 0 || this.#queueEditNewer !== null || this.#queueEditPending) return false
+    const pending = this.#pendingInputs.session(this.#sessionId)
+    return pending.queued.length === 0 && pending.sending.size === 0
+      && this.#state.nextTurnInbox.length === 0 && !this.#state.nextStepInbox.some(message => message.source.kind === 'user')
   }
 
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
@@ -1779,6 +1841,7 @@ export class LocalTui implements TuiService {
     if (this.#disposed) return this.#disposeTask ?? this.#herdr.release()
     this.#flushPasteBurst(true)
     this.#flushDraft()
+    this.#pendingInputs.flush(this.#pendingScope())
     this.#disposed = true
     this.#imagePreviewAbort?.abort()
     this.#fileReviewAbort?.abort()
@@ -1787,6 +1850,7 @@ export class LocalTui implements TuiService {
     this.#imageTemporary.clear()
     this.#queueHotkeyAbort?.abort()
     this.#queueHandler = undefined
+    this.#continueHandler = undefined
     this.#cancelQueueRecall()
     if (this.#notificationTimer !== undefined) clearTimeout(this.#notificationTimer)
     this.#notificationQueue.clear()
@@ -2032,15 +2096,12 @@ export class LocalTui implements TuiService {
     this.#queueHotkeyAbort?.abort()
     this.#queueHotkeyAbort = undefined
     this.#cancelQueueRecall()
-    const previousScope = this.#draftScope ?? '__default__'
-    if (this.#queueEditNewer === null) this.#queueDrafts.delete(previousScope)
-    else this.#queueDrafts.set(previousScope, this.#queueEditNewer)
-    this.#queueEditNewer = this.#queueDrafts.get(id ?? '__default__') ?? null
-    this.#queueDrafts.delete(id ?? '__default__')
     this.#flushPasteBurst(true)
     this.#finishPrompt(null)
     this.#flushDraft()
+    this.#pendingInputs.flush(this.#pendingScope())
     const initialInput = this.#draftScope === undefined && this.#editor.text !== '' ? this.#captureDraft() : undefined
+    if (this.#draftScope === undefined && id !== undefined) this.#pendingInputs.bindInitial(id)
     this.#draftScope = id
     this.#historyIndex = 0
     this.#historyDraft = undefined
@@ -2064,6 +2125,7 @@ export class LocalTui implements TuiService {
   }
 
   #render(): void {
+    this.#pendingInputs.flush(this.#pendingScope())
     this.#watchDraft()
     if (this.#streamRenderTimer !== null) {
       clearTimeout(this.#streamRenderTimer)
@@ -2091,9 +2153,10 @@ export class LocalTui implements TuiService {
         input: this.#editor.text,
         inputCursor: this.#editor.cursor,
         inputImages: this.#images.count,
-        queuedSubmissions: this.#queueEditNewer === null
-          ? this.#queuedSubmissions
-          : [...this.#queuedSubmissions, ...this.#queueEditNewer],
+        canContinue: this.#canContinue(),
+        queuedSubmissionScope: this.#pendingScope(),
+        queuedSubmissions: [...this.#queuedSubmissions, ...(this.#queueEditNewer ?? [])].map(submission =>
+          this.#pendingInputs.receipt(submission)?.recovered ? { ...submission, recovered: true } : submission),
         colors: this.#colors,
         pwd: this.#pwd,
         ...(this.#branch !== undefined ? { branch: this.#branch } : {}),
@@ -3824,7 +3887,7 @@ export class LocalTui implements TuiService {
     if (this.#inspected !== undefined && !this.#inspected.writable) return false
     if (this.#queueEditPending) return true
     if (this.#queueEditNewer !== null) {
-      const previous = this.#inspected === undefined ? this.#queuedSubmissions.pop() : undefined
+      const previous = this.#queuedSubmissions.pop()
       if (previous !== undefined) {
         this.#queueEditNewer.unshift(this.#currentSubmission())
         this.#replaceInput(previous)
@@ -3838,7 +3901,7 @@ export class LocalTui implements TuiService {
     if (this.#historyIndex !== 0) return false
     const hasDraft = this.#hasComposerContent()
     if (!allowNonEmpty && hasDraft) return false
-    const submission = this.#inspected === undefined ? this.#queuedSubmissions.pop() : undefined
+    const submission = this.#queuedSubmissions.pop()
     if (submission !== undefined) {
       this.#queueEditNewer = hasDraft ? [this.#currentSubmission()] : []
       this.#replaceInput(submission)
@@ -3904,6 +3967,22 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #dispatchInput(submission: TuiSubmission): void {
+    const receipt = this.#pendingInputs.identify(submission, this.#pendingScope())
+    receipt.recovered = false
+    if (this.#inspected !== undefined) {
+      this.#pendingInputs.take(submission, this.#pendingScope())
+      for (const listener of this.#inspectSubmits) listener(submission)
+    } else if (this.#pending !== null) {
+      const pending = this.#pending
+      this.#pending = null
+      pending.offAbort?.()
+      this.#pendingInputs.take(submission, this.#pendingScope())
+      pending.resolve(submission)
+    } else this.#queuedSubmissions.push(submission)
+    this.#pendingInputs.flush(this.#pendingScope())
+  }
+
   #submit(text: string, delivery?: 'queue' | 'steer'): void {
     if (this.#prompt !== null) {
       if (this.#prompt.request.presentation === 'progress') return
@@ -3938,7 +4017,6 @@ export class LocalTui implements TuiService {
     this.#editor.setText('')
     this.#images.clear()
     this.#files.clear()
-    this.#clearDraft()
     this.#ac = null
     this.#search = null
     this.#settings = null
@@ -3950,24 +4028,17 @@ export class LocalTui implements TuiService {
     if (slash !== null) {
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
       this.#runSlash(slash.name, slash.args)
+      this.#clearDraft()
       return
     }
     this.#followTail()
-    const pending = this.#pending
-    if (pending !== null) {
-      pending.offAbort?.()
-      this.#pending = null
-      pending.resolve(submission)
-      if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
-    } else if (submittedText !== '' || images.length > 0 || files.length > 0 || queueEditNewer !== null) {
-      if (submittedText !== '' || images.length > 0 || files.length > 0) {
-        this.#queuedSubmissions.push(submission)
-      }
-      if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
-    }
+    if (submittedText !== '' || images.length > 0 || files.length > 0 || this.#pending !== null) this.#dispatchInput(submission)
+    if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
     if (submittedText !== '' || images.length > 0 || files.length > 0) {
       this.#popStashedDraft()
     }
+    this.#pendingInputs.flush(this.#pendingScope())
+    this.#clearDraft()
     this.#render()
   }
 
@@ -3990,7 +4061,6 @@ export class LocalTui implements TuiService {
     this.#editor.setText('')
     this.#images.clear()
     this.#files.clear()
-    this.#clearDraft()
     this.#ac = null
     this.#search = null
     const slash = !literal && images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
@@ -4006,11 +4076,13 @@ export class LocalTui implements TuiService {
     }
     const { literal: _literal, ...inspectSubmission } = submission
     if (submittedText !== '' || images.length > 0 || files.length > 0) {
-      for (const listener of this.#inspectSubmits) listener(inspectSubmission)
+      this.#dispatchInput(inspectSubmission)
     }
     for (const draft of newer ?? []) {
-      for (const listener of this.#inspectSubmits) listener({ ...draft, delivery: 'queue' })
+      this.#dispatchInput({ ...draft, delivery: 'queue' })
     }
+    this.#pendingInputs.flush(this.#pendingScope())
+    this.#clearDraft()
     this.#popStashedDraft()
     this.#render()
   }
@@ -4050,14 +4122,7 @@ export class LocalTui implements TuiService {
         return
       }
       const raw = '/' + name + (args === '' ? '' : ' ' + args)
-      const pending = this.#pending
-      if (pending !== null) {
-        pending.offAbort?.()
-        this.#pending = null
-        pending.resolve({ text: raw, images: [] })
-      } else {
-        this.#queuedSubmissions.push({ text: raw, images: [] })
-      }
+      this.#dispatchInput({ text: raw, images: [] })
       this.#render()
       return
     }
@@ -4519,7 +4584,13 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'retry') {
-      this.#submit('/retry')
+      if (!this.#canContinue()) return true
+      const request = { sessionId: this.#sessionId!, failureSeq: this.#sessionControls!.continuation! }
+      this.#continuing = true
+      void this.#continueHandler!(request).catch(error => {
+        if (!this.#disposed && this.#sessionId === request.sessionId) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      }).finally(() => { this.#continuing = false; if (!this.#disposed) this.#render() })
+      this.#render()
       return true
     }
     if (action === 'cycle-model-forward') {
@@ -4602,6 +4673,7 @@ export class LocalTui implements TuiService {
     this.#images.clear()
     this.#files.clear()
     if (options.clearQueueEdit) {
+      if (this.#queueEditNewer !== null) this.#queuedSubmissions.push(...this.#queueEditNewer)
       this.#queueEditNewer = null
       this.#cancelQueueRecall()
     }

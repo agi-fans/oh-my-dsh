@@ -95,7 +95,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 | `Alt+L` | Reset the terminal display. |
 | `Ctrl+R` | Search prompt history. |
 | `↓` (empty composer) | Enter the subagent roster; `↑`/`↓` select a child, `Enter` opens its transcript, `Esc` returns to the composer. |
-| `Alt+R` | Retry the latest human prompt. |
+| `Alt+R` | Continue an eligible failed generation with an empty composer. |
 | `Ctrl+L` | Choose model and reasoning effort. |
 | `Ctrl+P` / `Ctrl+Shift+P` | Cycle to the next or previous favorite model. `Alt+P` also cycles backward. |
 | `Shift+Tab` | Cycle the current model's reasoning effort. |
@@ -140,7 +140,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `steer-turn` | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
 | `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
-| `retry` | `Alt+R` | Run the most recent human prompt again. |
+| `retry` | `Alt+R` | Continue an eligible failed generation with an empty composer. |
 | `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
 | `copy-prompt` | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `copy-line` | `Ctrl+Alt+C` | Copy the current line. |

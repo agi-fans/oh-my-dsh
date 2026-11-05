@@ -100,7 +100,7 @@ describe('runner Composer Shell dispatch', () => {
       expect(execute).not.toHaveBeenCalled()
       expect(restoreInput).not.toHaveBeenCalled()
       if (literal) {
-        expect(send).toHaveBeenCalledWith(expect.objectContaining({ text: '!echo hello', literal: true }))
+        expect(send).toHaveBeenCalledWith(expect.objectContaining({ text: '!echo hello', literal: true }), expect.any(Object))
         expect(startSend).not.toHaveBeenCalled()
       } else {
         expect(send).not.toHaveBeenCalled()
@@ -147,9 +147,9 @@ describe('runner pending-input safety', () => {
       await ctx.plugin(runner)
       await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
       expect(send).toHaveBeenCalledOnce()
-      expect(send).toHaveBeenCalledWith(submission)
+      expect(send).toHaveBeenCalledWith(submission, expect.any(Object))
       expect(restoreInput).toHaveBeenCalledOnce()
-      expect(restoreInput).toHaveBeenCalledWith(submission)
+      expect(restoreInput).toHaveBeenCalledWith(submission, undefined)
     } finally { await ctx.fiber.dispose() }
   })
 })
@@ -175,7 +175,7 @@ describe('runner attachment command dispatch', () => {
     try {
       await ctx.plugin(runner)
       await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
-      if (mode === 'literal') { expect(send).toHaveBeenCalledWith(submission); expect(execute).not.toHaveBeenCalled() }
+      if (mode === 'literal') { expect(send).toHaveBeenCalledWith(submission, expect.any(Object)); expect(execute).not.toHaveBeenCalled() }
       else { expect(execute).toHaveBeenCalledWith(submission, expect.any(AbortSignal)); expect(send).not.toHaveBeenCalled() }
       if (['unknown', 'throw', 'cancel'].includes(mode)) {
         expect(restoreInput).toHaveBeenCalledOnce()
@@ -183,4 +183,32 @@ describe('runner attachment command dispatch', () => {
       } else expect(restoreInput).not.toHaveBeenCalled()
     } finally { await ctx.fiber.dispose() }
   })
+})
+
+it.each(['before-dispatch', 'upload-failure'] as const)('restores to the originating session after %s switch', async mode => {
+  const ctx = new Context()
+  const a = { id: 'a', session: { id: 'a' } }, b = { id: 'b', session: { id: 'b' } }
+  let agent = a
+  const submission: TuiSubmission = { text: 'for A', images: [] }
+  const inputs = [submission]
+  const restoreInput = vi.fn(), acknowledge = vi.fn(), exit = vi.fn(), off = () => () => {}
+  const send = vi.fn(async () => { agent = b; throw new Error('upload failed') })
+  ctx.provide('tui', { interactive: true, readInput: async () => {
+    const value = inputs.shift() ?? null
+    if (mode === 'before-dispatch') agent = b
+    return value
+  }, onInterrupt: off, onQueueEdit: off, onRewind: off, restoreInput, notice: vi.fn(),
+  pendingInputs: { receipt: () => ({ id: 'receipt', sessionId: 'a' }), acknowledge } } as never)
+  ctx.provide('omdshSession', { start: async () => {}, get agent() { return agent }, send } as never)
+  ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+  ctx.provide('appExit', exit)
+  try {
+    await ctx.plugin(runner)
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(restoreInput).toHaveBeenCalledOnce()
+    expect(restoreInput).toHaveBeenCalledWith(submission, 'a')
+    if (mode === 'before-dispatch') expect(send).not.toHaveBeenCalled()
+    else expect(send).toHaveBeenCalledWith(submission, a)
+    expect(acknowledge).not.toHaveBeenCalled()
+  } finally { await ctx.fiber.dispose() }
 })

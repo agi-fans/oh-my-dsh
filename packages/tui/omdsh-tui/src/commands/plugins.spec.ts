@@ -101,7 +101,7 @@ describe('omdsh command plugins', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'new', 'queue', 'resume', 'retry', 'session'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'continue', 'new', 'queue', 'resume', 'retry', 'session'])
     await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)

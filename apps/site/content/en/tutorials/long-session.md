@@ -26,7 +26,7 @@ When the agent is idle and the composer is empty, press `Esc` twice to open the 
 
 Two neighboring commands cover other session workflows:
 
-- `/retry` submits the latest human prompt again as a new turn.
+- `/continue` continues an eligible failed model generation without duplicating the prompt. `/retry` resends the latest human prompt with its images and files as a new turn.
 - `/new` starts a clean session instead of branching the current one.
 
 ### Compact and export

@@ -67,7 +67,7 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashCommand[] = [
 
 // Task groups affect discovery only; command registration stays in Harness.
 export const COMMAND_GROUPS: readonly { label: string; names: readonly string[] }[] = [
-  { label: 'Session', names: ['new', 'resume', 'retry', 'clear'] },
+  { label: 'Session', names: ['new', 'resume', 'continue', 'retry', 'clear'] },
   { label: 'Model and access', names: ['model', 'plan', 'permission', 'agent', 'login', 'logout'] },
   { label: 'Files and output', names: ['diff', 'attach', 'copy', 'export'] },
   { label: 'Tasks', names: ['queue', 'btw', 'questions', 'jobs', 'goal', 'compact', 'schedule'] },

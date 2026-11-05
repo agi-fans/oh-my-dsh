@@ -95,7 +95,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Alt+L` | 重置终端显示。 |
 | `Ctrl+R` | 搜索输入历史。 |
 | `↓`（composer 为空） | 进入子代理名册；`↑`/`↓` 选中一行，`Enter` 打开该子会话转录，`Esc` 回到 composer。 |
-| `Alt+R` | 重试最近一条人类提示。 |
+| `Alt+R` | 输入框为空时，继续可恢复的失败生成。 |
 | `Ctrl+L` | 选择模型和推理强度。 |
 | `Ctrl+P` / `Ctrl+Shift+P` | 切换到下一个或上一个收藏模型；`Alt+P` 也可切换到上一个。 |
 | `Shift+Tab` | 循环切换当前模型的推理强度。 |
@@ -140,7 +140,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |
 | `stash-draft` | `Ctrl+S` | 暂存或恢复当前 composer 草稿。 |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | 在 Settings 选定的编辑器中编辑提示。 |
-| `retry` | `Alt+R` | 重试最近一条人类提示。 |
+| `retry` | `Alt+R` | 输入框为空时，继续可恢复的失败生成。 |
 | `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `copy-prompt` | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `copy-line` | `Ctrl+Alt+C` | 复制当前行。 |

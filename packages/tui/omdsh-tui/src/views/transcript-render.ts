@@ -103,8 +103,11 @@ export interface ViewOptions {
   inputCursor: number
   /** Number of client-owned image drafts represented by input markers. */
   inputImages?: number
-  /** Composer submissions accepted while the active turn is still running. */
-  queuedSubmissions?: readonly TuiSubmission[]
+  /** Local input awaiting Harness admission or recovery confirmation. */
+  queuedSubmissions?: readonly (TuiSubmission & { recovered?: boolean })[]
+  queuedSubmissionScope?: string
+  /** The idle root can continue its latest failed generation without a new prompt. */
+  canContinue?: boolean
   /** Whether to emit color SGR sequences. */
   colors: boolean
   /** Working directory shown in the footer. */
@@ -2273,10 +2276,10 @@ function queuedMessageLabel(message: UserMessage): string {
  * failed while the user was reading elsewhere leaves an apparently idle screen.
  * The row is bounded to a single line so it cannot squeeze the transcript.
  */
-export function renderTurnError(text: string, theme: Theme, width: number): string[] {
+export function renderTurnError(text: string, theme: Theme, width: number, canContinue = false): string[] {
   if (text === '' || width <= 0) return []
   const prefix = SYMBOL.error + ' '
-  const hint = ' · Alt+R retry'
+  const hint = canContinue ? ' · ' + theme.text('Alt+R continue') : ''
   // Drop the retry hint before the message itself when the terminal is narrow.
   const suffix = width - 2 - visibleWidth(prefix) - visibleWidth(hint) >= 8 ? hint : ''
   const budget = Math.max(1, width - 2 - visibleWidth(prefix) - visibleWidth(suffix))
@@ -2300,7 +2303,7 @@ export function renderSteering(inbox: readonly UserMessage[], theme: Theme, widt
 
 /** Compact, unframed pending-message view placed immediately above the composer. */
 export function renderQueuedSubmissions(
-  submissions: readonly TuiSubmission[],
+  submissions: readonly (TuiSubmission & { recovered?: boolean })[],
   theme: Theme,
   width: number,
   inbox: readonly UserMessage[] = [],
@@ -2308,14 +2311,15 @@ export function renderQueuedSubmissions(
 ): string[] {
   const labels = [
     ...inbox.filter(message => message.source.kind === 'user').map(queuedMessageLabel),
-    ...submissions.map(submission => theme.text('Sending') + ' · ' + queuedSubmissionLabel(submission)),
+    ...submissions.map(submission => theme.text(submission.recovered ? 'Recovered' : 'Sending') + ' · ' + queuedSubmissionLabel(submission)),
   ]
   if (labels.length === 0 || width <= 0) return []
   const start = Math.max(0, labels.length - QUEUED_SUBMISSION_PREVIEW)
   const hidden = start
   const accepted = inbox.some(message => message.source.kind === 'user')
-  const queueLabel = theme.bold(theme.fg('accent', theme.text(accepted ? 'Queue' : 'Sending')))
-  const timing = theme.text(accepted ? 'next turn' : 'not yet accepted')
+  const recovered = submissions.some(submission => submission.recovered)
+  const queueLabel = theme.bold(theme.fg('accent', theme.text(accepted ? 'Queue' : recovered ? 'Recovered' : 'Sending')))
+  const timing = theme.text(recovered ? 'review before sending' : accepted ? 'next turn' : 'not yet accepted')
   const rail = '  ' + theme.fg('border', '│') + ' '
   const alignAction = (left: string, action: string, preserveAction = true): string => {
     const leftWidth = visibleWidth(left)
@@ -2565,13 +2569,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ? []
     : [
       ...renderSteering(state.nextStepInbox, theme, width),
-      ...renderQueuedSubmissions(options.inspected === undefined ? options.queuedSubmissions ?? [] : [], theme, width, state.nextTurnInbox, options.inspected === undefined || options.inspected.writable === true),
+      ...renderQueuedSubmissions(options.inspected === undefined || options.queuedSubmissionScope === options.inspected.id ? options.queuedSubmissions ?? [] : [], theme, width, state.nextTurnInbox, options.inspected === undefined || options.inspected.writable === true),
     ]
   // Above the composer and below the queue: the failure explains why the queue
   // is not moving, and the row survives until the next submission.
   const turnError = editor === undefined || options.inspected !== undefined || state.turnError === undefined
     ? []
-    : renderTurnError(state.turnError, theme, width)
+    : renderTurnError(state.turnError, theme, width, options.canContinue === true)
   const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
   const aside = editor === undefined || options.inspected !== undefined || options.aside === undefined
     ? []

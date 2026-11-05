@@ -17,7 +17,8 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 | `/new` | Start a new session. |
 | `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `p` pins a session and `r` renames it. |
 | `/session` | Show the current session's details. |
-| `/retry` | Run the most recent human prompt again. |
+| `/continue` | Continue an eligible failed model generation without resending the prompt. |
+| `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
 
 ## Session configuration

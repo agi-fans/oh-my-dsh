@@ -33,7 +33,7 @@ function fixture(nextTurn: UserMessage[] = [], nextStep: UserMessage[] = [], loc
       if (index < 0) return false
       if (change.kind === 'remove') local.splice(index, 1)
       else if (change.kind === 'replace') local[index] = { id, submission: change.submission }
-      else {
+      else if (change.kind === 'move') {
         const destination = index + change.direction
         if (destination < 0 || destination >= local.length) return false
         const other = local[destination]!

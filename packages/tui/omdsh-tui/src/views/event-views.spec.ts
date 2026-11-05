@@ -2096,7 +2096,7 @@ describe('turn failure row', () => {
     const fixed = rows[rows.length - 1]!
     const composerRow = composerStart(lines)
     expect(fixed.index).toBeLessThan(composerRow)
-    expect(fixed.line).toContain('Alt+R retry')
+    expect(fixed.line).not.toContain('Alt+R')
 
     // Submitting again clears the fixed row; the durable transcript notice stays.
     const submitted = applyEvent(state, ev(
@@ -2106,6 +2106,14 @@ describe('turn failure row', () => {
     ))
     expect(submitted.turnError).toBeUndefined()
     expect(view(submitted).lines.map(stripAnsi).some(line => line.includes('quota exhausted'))).toBe(true)
+  })
+
+  it('acknowledges the failure on empty continuation without adding a human bubble', () => {
+    const state = failed()
+    const continued = applyEvent(state, ev('user/message', { source: { kind: 'retry' }, content: [] }, 3))
+    expect(continued.turnError).toBeUndefined()
+    expect(continued.blocks).toEqual(state.blocks)
+    expect(continued.blocks.some(block => block.kind === 'notice' && block.text.includes('quota exhausted'))).toBe(true)
   })
 
   it('clears the row when a later turn ends without failure', () => {
@@ -2119,8 +2127,13 @@ describe('turn failure row', () => {
     expect(view(failed()).lines.length).toBeLessThanOrEqual(24)
   })
 
+  it.each([false, true])('shows the continuation gesture only when actionable (colors=%s)', colors => {
+    expect(stripAnsi(renderTurnError('boom', createTheme(colors), 80, true)[0]!)).toContain('Alt+R continue')
+    expect(stripAnsi(renderTurnError('boom', createTheme(colors), 80)[0]!)).not.toContain('Alt+R')
+  })
+
   it('drops the retry hint before the message on a narrow terminal', () => {
-    const narrow = renderTurnError('boom', createTheme(false), 20)
+    const narrow = renderTurnError('boom', createTheme(false), 20, true)
     expect(narrow).toHaveLength(1)
     expect(visibleWidth(narrow[0]!)).toBe(20)
     expect(stripAnsi(narrow[0]!)).not.toContain('Alt+R')
@@ -2444,4 +2457,13 @@ it.each([false, true])('shows only the child inbox with actions when writable=%s
   expect(text).not.toContain('parent unsent message')
   expect(text.includes('Alt+Q manage')).toBe(writable)
   expect(text.includes('Alt+Up recall')).toBe(writable)
+})
+
+it.each([24, 48, 80])('labels recovered input without overflowing %s cells', width => {
+  const lines = renderQueuedSubmissions([
+    { text: '/plan 中文 🐳 ' + 'x'.repeat(100), images: [], recovered: true },
+    { text: 'fresh', images: [] },
+  ], createTheme(false), width)
+  expect(lines.join('\n')).toContain('Recovered')
+  expect(lines.every(line => visibleWidth(line) <= width)).toBe(true)
 })

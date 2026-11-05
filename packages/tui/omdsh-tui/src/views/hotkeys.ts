@@ -141,7 +141,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: keysForAction(bindings, 'suspend'), action: 'Suspend to the background' },
         { keys: keysForAction(bindings, 'reset-display'), action: 'Repaint the terminal display' },
         { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
-        { keys: keysForAction(bindings, 'retry'), action: 'Retry the latest human prompt' },
+        { keys: keysForAction(bindings, 'retry'), action: 'Continue a failed generation with an empty composer' },
         { keys: keysForAction(bindings, 'select-model'), action: 'Choose model and reasoning effort' },
         { keys: keysForAction(bindings, 'cycle-model-forward'), action: 'Cycle to the next favorite model' },
         { keys: keysForAction(bindings, 'cycle-model-backward'), action: 'Cycle to the previous favorite model' },

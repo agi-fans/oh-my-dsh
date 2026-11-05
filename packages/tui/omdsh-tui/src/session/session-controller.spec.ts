@@ -848,6 +848,7 @@ describe('SessionRuntime workspace claim', () => {
 describe('SessionRuntime composer delivery', () => {
   function fixture() {
     const ctx = new Context(), tui = stubTui()
+    Object.assign(tui, { pendingInputs: { prepare: vi.fn() } })
     const runtime = new SessionRuntime(ctx, tui)
     const active = vi.spyOn(runtime, 'assertActive').mockImplementation(() => {})
     const events: SessionEvent[] = []
@@ -870,6 +871,18 @@ describe('SessionRuntime composer delivery', () => {
         { type: 'text', text: 'before ' }, { type: 'image', attachment: f.pngRef }, { type: 'text', text: 'after' }, { type: 'file', attachment: file },
       ] }))
       expect(delivery === 'steer' ? f.agent.followup : f.agent.steer).not.toHaveBeenCalled()
+    } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
+  })
+
+  it('records the generated message identity before Harness admission', async () => {
+    const f = fixture()
+    const submission = { text: 'once', images: [] }
+    vi.mocked(f.agent.followup).mockImplementation(message => {
+      expect(f.tui.pendingInputs.prepare).toHaveBeenCalledWith(submission, message.id)
+    })
+    try {
+      await f.runtime.send(submission, f.agent)
+      expect(f.agent.followup).toHaveBeenCalledOnce()
     } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
   })
 
@@ -900,5 +913,103 @@ describe('SessionRuntime composer delivery', () => {
       await expect(f.runtime.send({ text: 'once', images: [], delivery }, f.agent)).resolves.toBeUndefined()
       expect(f.tui.notice).toHaveBeenCalledWith('subscriber failed', { level: 'error' })
     } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
+  })
+})
+
+describe('SessionRuntime continuation and full prompt retry', () => {
+  function fixture() {
+    const ctx = new Context(), tui = stubTui()
+    Object.assign(tui, { pendingInputs: { list: vi.fn(() => []) } })
+    const runtime = new SessionRuntime(ctx, tui)
+    vi.spyOn(runtime, 'assertActive').mockImplementation(() => {})
+    let events: readonly SessionEvent[] = []
+    const agent = { status: 'idle', inbox: { nextTurn: [], nextStep: [] }, session: { snapshotEvents: () => events }, followup: vi.fn(),
+      runMaintenance: vi.fn(async (task: (signal: AbortSignal) => unknown) => task(new AbortController().signal)),
+    } as unknown as Agent
+    const setEvents = (next: unknown[]) => { events = next as SessionEvent[] }
+    const failed = () => setEvents([
+      { type: 'turn/start' },
+      { type: 'user/message', surfaceOp: 'append', data: createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'once' }] }) },
+      { type: 'assistant/attempt' },
+      { type: 'turn/end', seq: 7, data: { reason: { kind: 'error', error: { code: 'SERVER' } } } },
+    ])
+    const dispose = async () => { await runtime.dispose(); await ctx.fiber.dispose() }
+    return { ctx, tui, runtime, agent, setEvents, failed, dispose }
+  }
+
+  it.each([false, true])('resends ordered durable blocks with fresh identity, including attachment-only=%s', async onlyAttachments => {
+    const f = fixture()
+    const file = { attachmentId: AttachmentId('saved-file'), bytes: 3, name: 'notes.txt' }
+    const image = { attachmentId: AttachmentId('saved-image'), bytes: 3, width: 1, height: 1, mediaType: 'image/png' as const }
+    const message = createUserMessage({ source: { kind: 'user' }, content: [
+      ...onlyAttachments ? [] : [{ type: 'text' as const, text: 'before' }],
+      { type: 'image', attachment: image }, { type: 'file', attachment: file },
+      ...onlyAttachments ? [] : [{ type: 'text' as const, text: 'after' }],
+    ] })
+    f.setEvents([{ type: 'user/message', data: message }, { type: 'user/message', data: createUserMessage({ source: { kind: 'retry' }, content: [] }) }])
+    try {
+      expect(await f.runtime.retryLastPrompt(f.agent)).toBe(true)
+      const sent = vi.mocked(f.agent.followup).mock.calls[0]![0]
+      expect(sent.content).toEqual(message.content)
+      expect(sent.id).not.toBe(message.id)
+      expect(sent.source).toEqual({ kind: 'user' })
+      expect(f.agent.runMaintenance).toHaveBeenCalledOnce()
+    } finally { await f.dispose() }
+  })
+
+  it('continues with empty retry input and rejects obsolete failure actions', async () => {
+    const f = fixture(); f.failed()
+    try {
+      await expect(f.runtime.continueGeneration(f.agent, 6)).rejects.toThrow('No recoverable')
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      await f.runtime.continueGeneration(f.agent, 7)
+      expect(f.agent.followup).toHaveBeenCalledWith(expect.objectContaining({ content: [], source: { kind: 'retry' } }))
+      f.setEvents([{ type: 'turn/start' }])
+      await expect(f.runtime.continueGeneration(f.agent, 7)).rejects.toThrow('No recoverable')
+      expect(f.agent.followup).toHaveBeenCalledOnce()
+    } finally { await f.dispose() }
+  })
+
+  it.each(['busy', 'queue', 'steer', 'local', 'cancel', 'question'])('rejects %s before either operation admits input', async condition => {
+    const f = fixture(); f.failed()
+    const signal = new AbortController()
+    const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'pending' }] })
+    if (condition === 'busy') Object.assign(f.agent, { status: 'running' })
+    if (condition === 'queue') Object.assign(f.agent.inbox, { nextTurn: [message] })
+    if (condition === 'steer') Object.assign(f.agent.inbox, { nextStep: [message] })
+    if (condition === 'local') vi.mocked(f.tui.pendingInputs.list).mockReturnValue([{}] as never)
+    if (condition === 'cancel') signal.abort()
+    if (condition === 'question') f.ctx.provide('sessionProjections', { snapshot: () => ({ values: { userQuestions: { active: [{ state: 'open' }] } } }) } as never)
+    try {
+      await expect(f.runtime.continueGeneration(f.agent, 7, signal.signal)).rejects.toThrow()
+      await expect(f.runtime.retryLastPrompt(f.agent, signal.signal)).rejects.toThrow()
+      expect(f.agent.followup).not.toHaveBeenCalled()
+    } finally { await f.dispose() }
+  })
+
+  it('rechecks pending work inside the maintenance claim and preserves pre-admission failures', async () => {
+    const f = fixture(); f.failed()
+    vi.mocked(f.agent.runMaintenance).mockImplementationOnce(async task => {
+      Object.assign(f.agent, { status: 'running' })
+      return task(new AbortController().signal)
+    })
+    try {
+      await expect(f.runtime.continueGeneration(f.agent)).rejects.toThrow('Wait for')
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      Object.assign(f.agent, { status: 'idle' })
+      vi.mocked(f.agent.followup).mockImplementationOnce(() => { throw new Error('not accepted') })
+      await expect(f.runtime.continueGeneration(f.agent)).rejects.toThrow('not accepted')
+    } finally { await f.dispose() }
+  })
+
+  it('blocks repetition while a composer attachment is still uploading', async () => {
+    const f = fixture(); f.failed()
+    let release!: () => void
+    f.ctx.provide('attachments', { saveImages: async () => { await new Promise<void>(resolve => { release = resolve }); return [] } } as never)
+    const send = f.runtime.send({ text: 'upload', images: [{ data: PNG_1X1, mediaType: 'image/png' }] }, f.agent)
+    try {
+      await expect(f.runtime.continueGeneration(f.agent)).rejects.toThrow('Wait for')
+      await expect(f.runtime.retryLastPrompt(f.agent)).rejects.toThrow('Wait for')
+    } finally { release(); await send.catch(() => {}); await f.dispose() }
   })
 })

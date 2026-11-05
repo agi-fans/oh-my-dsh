@@ -54,9 +54,11 @@ async function harness(options: HarnessOptions = {}) {
       ? { sessionId: id, status: 'rejected' as const, reason: new Error('no title') }
       : { sessionId: id, status: 'fulfilled' as const, value: { session: { id }, title: { title } } }
   }))
+  const retryLastPrompt = vi.fn(async () => true)
+  const continueGeneration = vi.fn(async () => {})
   const renameSession = vi.fn(async () => {})
   const output = vi.fn()
-  ctx.provide('omdshSession', { refreshRecent: vi.fn(), resumeSession, renameSession, openSessionTree, recentSessions: options.libraryRows ?? [], sessionLibraryPath: sessionLibraryPath() } as unknown as SessionRuntime)
+  ctx.provide('omdshSession', { refreshRecent: vi.fn(), retryLastPrompt, continueGeneration, resumeSession, renameSession, openSessionTree, recentSessions: options.libraryRows ?? [], sessionLibraryPath: sessionLibraryPath() } as unknown as SessionRuntime)
   ctx.provide('tui', { prompt, notice: vi.fn(), commandOutput: output, interactive: options.interactive ?? true } as unknown as TuiService)
   if (options.omitQueryService !== true) {
     ctx.provide('sessionQuery', { searchSessions, readTitleSnapshots } as never)
@@ -78,7 +80,7 @@ async function harness(options: HarnessOptions = {}) {
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   const execute = (line: string) => ctx.commands.execute(agent, line, [], new AbortController().signal)
-  return { execute, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
+  return { execute, retryLastPrompt, continueGeneration, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
 }
 
 describe('/resume library and search', () => {
@@ -286,4 +288,24 @@ it('refreshes renamed search hits from the session inventory without losing the 
   h.prompt.mockResolvedValueOnce('rename:session-a').mockResolvedValueOnce('After').mockResolvedValueOnce(null)
   await h.execute('/resume needle')
   expect(h.prompt.mock.calls[2]![0].options).toContainEqual(expect.objectContaining({ label: 'After', preview: 'needle' }))
+})
+
+
+describe('continuation and explicit retry commands', () => {
+  it('routes each operation to its own session API', async () => {
+    const h = await harness()
+    expect((await h.execute('/continue'))?.result.kind).toBe('success')
+    expect(h.continueGeneration).toHaveBeenCalledWith(h.agent, undefined, expect.any(AbortSignal))
+    expect(h.retryLastPrompt).not.toHaveBeenCalled()
+    expect((await h.execute('/retry'))?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('attachments') })
+    expect(h.retryLastPrompt).toHaveBeenCalledWith(h.agent, expect.any(AbortSignal))
+  })
+  it('rejects extra arguments and reports missing human content', async () => {
+    const h = await harness()
+    for (const command of ['/continue', '/retry']) expect((await h.execute(command + ' extra'))?.result).toMatchObject({ kind: 'error', text: 'Usage: ' + command })
+    expect(h.retryLastPrompt).not.toHaveBeenCalled()
+    expect(h.continueGeneration).not.toHaveBeenCalled()
+    h.retryLastPrompt.mockResolvedValueOnce(false)
+    expect((await h.execute('/retry'))?.result).toMatchObject({ text: 'No human prompt is available to retry.' })
+  })
 })

@@ -11,12 +11,19 @@ Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back 
 - `omdsh --resume <session-id>` reopens a session from the shell; the second `Ctrl+C` prints that command with the id when the session can be resumed.
 - `/resume` opens the Session Library with message previews, age, event counts and completion state; `/resume <session-id>` skips the selector, and `/resume <query>` searches durable message content and resumes the chosen hit. `Alt+S` searches from inside the library, search results keep rename, pin and archive actions, and `Alt+L` returns to all sessions.
 - `/new` starts a clean session rather than branching the current one.
-- `/retry` submits the latest human prompt again as a new turn.
+- `/continue` continues an eligible failed generation without resending the original prompt; `Alt+R` does the same with an empty composer.
+- `/retry` explicitly resends the latest human prompt, preserving its ordered text, images and files, as a new turn.
 - `Esc` twice opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
 
 See [Recover and manage a long session](tutorials/long-session.md) for the walkthrough.
 
 The terminal's native scrollback stays available when you clear the transcript, resume or switch sessions, or fork through rewind. A labelled boundary marks the replacement. A fresh launch, preset or tool-catalog changes, and entering or leaving subagent inspection omit this boundary. `/new` shows it only when the previous transcript has content beyond notices and tool catalogs.
+
+## Continue after a model failure
+
+Harness applies its automatic retry policy first. After a transient model failure (rate limit, server error, timeout, transport failure, empty response or closed stream), `/continue` requests another generation using the existing conversation. Eligibility survives session resume; reopening a session does not send anything automatically. Completed turns, user interruptions, authentication/configuration errors and tool failures do not qualify.
+
+Continue and Retry require an idle parent session with no pending messages, uploads, blocking questions or approvals. Resolve pending input in `/queue` first. `Alt+R` leaves draft text and attachments untouched and acts only with an empty composer. `/retry` is an explicit new submission, so the model may perform work again.
 
 ## Session Tree
 

@@ -473,6 +473,7 @@ function foldEvent(
       // shared Shell output, a side question, an external model's opinion —
       // therefore render as their own row rather than as a human prompt.
       const source = event.data.source
+      if (source.kind === 'retry' && event.data.content.length === 0) return { ...state, turnError: undefined }
       if ('form' in source && source.form === 'notice') {
         const notice = contentToText(event.data.content).trim()
         if (notice === '') return state

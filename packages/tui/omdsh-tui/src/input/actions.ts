@@ -69,7 +69,7 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'dequeue', primary: ['alt+up'], label: 'Recall the latest queued message', scope: 'composer' },
   { id: 'steer-turn', primary: ['alt+s'], label: 'Send the draft to the active turn’s next step', scope: 'composer' },
   { id: 'manage-queue', primary: ['alt+q'], label: 'Manage queued messages', scope: 'composer' },
-  { id: 'retry', primary: ['alt+r'], label: 'Retry the latest human prompt', scope: 'composer' },
+  { id: 'retry', primary: ['alt+r'], label: 'Continue a failed generation with an empty composer', scope: 'composer' },
 
   { id: 'select-model', primary: ['ctrl+l'], label: 'Choose model and reasoning effort', scope: 'session' },
   { id: 'cycle-model-forward', primary: ['ctrl+p'], label: 'Cycle to the next favorite model', scope: 'session' },

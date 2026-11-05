@@ -263,6 +263,8 @@ export interface TuiPrompt {
 
 /** Durable, Harness-owned session controls projected into terminal chrome. */
 export interface TuiSessionControls {
+  /** Latest eligible failed turn/end sequence; absent when continuation is unavailable. */
+  continuation?: number
   /** Harness Agent preset mounted for this session. */
   agentPreset?: string
   /** Logged Plan Mode state, including a selection awaiting the next step boundary. */
@@ -457,8 +459,15 @@ export interface TuiAgentBehaviorSettingsBinding {
 
 /** Terminal submissions waiting for dispatch, separate from durable Agent inbox input. */
 export interface TuiPendingInputs {
-  list(): readonly { id: string; submission: TuiSubmission }[]
-  update(id: string, change: { kind: 'replace'; submission: TuiSubmission } | { kind: 'remove' } | { kind: 'move'; direction: -1 | 1 }): boolean
+  list(): readonly { id: string; submission: TuiSubmission; recovered?: boolean }[]
+  update(id: string, change: { kind: 'replace'; submission: TuiSubmission } | { kind: 'remove' } | { kind: 'move'; direction: -1 | 1 } | { kind: 'release' }): boolean
+  /** Identity and original scope survive asynchronous dispatch and recovery. */
+  receipt?(submission: TuiSubmission): { id: string; sessionId: string } | undefined
+  /** Record the Harness-generated identity before crossing inbox admission. */
+  prepare?(submission: TuiSubmission, messageId: string): void
+  /** Remove recovery only after admission, command completion, or draft restoration. */
+  acknowledge?(submission: TuiSubmission): void
+  reconcile?(sessionId: string, accepted: ReadonlySet<string>): void
 }
 
 /**
@@ -577,6 +586,8 @@ export interface TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void
+  /** Bind the empty-composer continuation gesture to the active session runtime. */
+  setContinueHandler?(handler: (request: { sessionId: string; failureSeq: number }) => Promise<void>): () => void
   /**
    * Read the next submitted composer value. Resolves null when the user quits
    * (Ctrl-D on empty input, or stdin EOF in non-tty mode), on dispose, or when
