@@ -37,6 +37,16 @@ try {
   assert.ok(![...ctx.loader.entries()].some(entry => entry.options.id === 'tui-command-reasoning'), 'retired reasoning plugin is not mounted')
   assert.ok(!forms.some(row => row.namespace === 'tui-command-reasoning'), 'retired reasoning settings are absent')
   assert.equal(forms.find(row => row.id === 'subagent').section, 'agent')
+  assert.deepEqual(forms.find(row => row.id === 'permission').fields, ['defaultPreset'])
+  assert.deepEqual(forms.find(row => row.id === 'agent-preset-registry').fields, ['selectedDefault'])
+  const registrySetting = ctx.settings.describe().find(row => row.ns === 'agent-preset-registry')
+  const originalPreset = ctx.agentPresets.defaultId
+  await ctx.settings.mutate(registrySetting.ns, [{ op: 'set', path: ['selectedDefault'], value: 'cordis' }], registrySetting.revision)
+  assert.equal(ctx.agentPresets.defaultId, 'cordis')
+  const restoredPreset = ctx.settings.describe().find(row => row.ns === registrySetting.ns)
+  await ctx.settings.mutate(registrySetting.ns, [{ op: 'unset', path: ['selectedDefault'] }], restoredPreset.revision)
+  assert.equal(ctx.agentPresets.defaultId, originalPreset)
+
   assert.equal(forms.find(row => row.id === 'integration:codex').section, 'integrations')
   // The advisor was removed with its plugin, so neither its settings section nor
   // its product form may survive the composition.

@@ -35,16 +35,16 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
 | `Alt+M` | 预览 composer 图片，不发送消息；没有草稿图片时，打开会话中最新的一张图片。 |
 | `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
-| `Alt+Up` | composer 为空时，将最近一条排队消息取回 composer。 |
+| `Alt+Up` | composer 为空时，撤回最近一条排队消息以便编辑；Enter 会重新提交。 |
 | `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
 | `Ctrl+S` | 暂存或恢复当前 composer 草稿；发送一条消息后会自动恢复暂存的草稿。 |
-| `Alt+S` | 将文本纠正消息送到当前 Turn 的下一次模型步骤。 |
-| `Alt+Enter` | 把当前草稿排到活动回合之后；`Enter` 仍然发送下一回合。 |
+| `Alt+S` | 将草稿连同图片和文件送到当前 Turn 的下一次模型步骤。 |
+| `Alt+Enter` | 把当前草稿排到活动回合之后，不受运行时 Enter 行为设置影响。 |
 | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
 | `Ctrl+X` / `Ctrl+G` | 在 Settings 选定的编辑器中编辑提示。 |
 
-超过十行或 1,000 个字符的粘贴内容显示为 `[Pasted #1: 120 lines]` 或字符数标记。方向键和删除操作将每段内容视为一个整体；`Alt+I` 展开光标所在或附近的粘贴块进行编辑，`Ctrl+-` 可撤销插入、删除或展开。复制提示、使用外部编辑器和发送消息时均使用完整文本。临时问答和队列消息编辑保留原文。以折叠粘贴块开头的草稿会作为模型消息发送，即使原文以 `/` 开头。用 `Alt+Enter` 排队的草稿会在 composer 上方标记为 `Follow-up:`，`Alt+Up` 可把它取回编辑。
+超过十行或 1,000 个字符的粘贴内容显示为 `[Pasted #1: 120 lines]` 或字符数标记。方向键和删除操作将每段内容视为一个整体；`Alt+I` 展开光标所在或附近的粘贴块进行编辑，`Ctrl+-` 可撤销插入、删除或展开。复制提示、使用外部编辑器和发送消息时均使用完整文本。临时问答和队列消息编辑保留原文。以折叠粘贴块开头的草稿会作为模型消息发送，即使原文以 `/` 开头。用 `Alt+Enter` 排队的草稿会在 composer 上方标记为 `Queue · next turn`（排队 · 下一回合），`Alt+Up` 可把它取回编辑。
 
 **Paste protection** 还会在终端未标记粘贴输入时识别大段文本、一次读取中的多行内容和快速 ASCII 按键流，避免其中的 Enter 提前提交消息。粘贴结束后稍等，再按 Enter 发送。普通输入和单次输入法提交立即显示。这属于启发式识别；如果影响你使用的终端，可在 Settings 中关闭。关闭后，明确标记的 bracketed paste 仍然不会触发误提交。
 
@@ -88,7 +88,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 | 快捷键 | 作用 |
 |---|---|
-| `Esc` | 取消或退出当前占据屏幕的东西：提示、浮层、搜索、子智能体检视。回合进行中先把排队的跟进消息交回 composer，再中断。没有草稿时连按两次打开 Session Tree。 |
+| `Esc` | 取消或退出当前占据屏幕的东西：提示、浮层、搜索、子智能体检视。回合进行中会中断，并保留已接收的排队和插话消息。没有草稿时连按两次打开 Session Tree。 |
 | `Ctrl+C` 一次 | 清空 composer；composer 为空时中断活动回合。 |
 | `Ctrl+C` 两次 | 退出；持久会话会打印 `omdsh --resume <session-id>` 提示。 |
 | `Ctrl+Z` | 挂起到后台。 |
@@ -120,7 +120,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 ## 自定义键位
 
-应用级绑定存放在 `$OMDSH_HOME/omdsh/keybindings.json`（回退到 `$DSH_HOME`，再到 `~/.dsh`），与会话、设置和 MCP 文件使用同一个 home。你可以在 `/settings` 的 **Interface → Input → Keybindings** 中交互式重绑或解绑快捷键（保存后立即生效），也可以直接编辑 JSON 文件：
+应用级绑定存放在 `$OMDSH_HOME/omdsh/keybindings.json`（回退到 `$DSH_HOME`，再到 `~/.dsh`），与会话、设置和 MCP 文件使用同一个 home。你可以在 `/settings` 的 **Terminal → Input → Keybindings** 中交互式重绑或解绑快捷键（保存后立即生效），也可以直接编辑 JSON 文件：
 
 ```json
 {

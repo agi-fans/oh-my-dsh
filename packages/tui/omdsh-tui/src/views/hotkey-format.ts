@@ -1,12 +1,14 @@
 /**
  * Shortcut row shapes and the one-line hint spelling shared by overlay views.
  *
- * This module deliberately has no imports of its own. Every overlay reads it to
+ * This module depends only on the locale vocabulary. Every overlay reads it to
  * build its bottom hint, and `views/hotkeys.ts` reads both it and the overlay
  * catalogs, so keeping the shared vocabulary here leaves that graph acyclic:
  * overlays never reach back into the help catalog that renders them.
  * @module @agi-fans/dsh-tui/hotkey-format
  */
+
+import { uiText, type UiLanguage } from '../locale/index.ts'
 
 /**
  * One shortcut row: the keys as printed, plus what they do. An overlay view
@@ -56,9 +58,10 @@ export function formatHotkeyKeys(row: HotkeyRow): string {
 export function formatOverlayHint(
   rows: readonly HotkeyRow[],
   keyCase: 'lowercase' | 'catalog' = 'lowercase',
+  language: UiLanguage = 'en',
 ): string {
   return rows.map((row) => {
     const keys = keyCase === 'catalog' ? row.keys : formatHotkeyKeys(row)
-    return `${keys} ${row.action.split(' ')[0]?.toLowerCase() ?? ''}`.trimEnd()
+    return `${keys} ${uiText(language, row.action.split(' ')[0]?.toLowerCase() ?? '')}`.trimEnd()
   }).join(' · ')
 }

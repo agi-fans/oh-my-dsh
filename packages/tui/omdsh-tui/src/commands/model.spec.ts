@@ -58,7 +58,7 @@ describe('model command', () => {
     await ctx.fiber.dispose()
   })
 
-  it('does not ask for a reasoning effort the new model also offers', async () => {
+  it('uses the selected model default even when the previous effort is supported', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -66,14 +66,14 @@ describe('model command', () => {
     const changeSelection = vi.fn(async () => undefined)
     ctx.provide('tui', { prompt } as unknown as TuiService)
     ctx.provide('omdshSession', {
-      // The reader already sits on `high`, and the new model offers it too.
+      // The new model advertises both levels but defaults to low.
       selection: () => ({ provider: 'provider-b', model: 'model-b', reasoningEffort: 'high' }),
       changeSelection,
     } as unknown as SessionRuntime)
     ctx.provide('llm', {
       listProviders: () => [{ id: 'provider-a' }],
       listModels: async () => [{ id: 'model-a' }],
-      resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }),
+      resolveModelInfo: async () => ({ reasoning: { defaultEffort: 'low', efforts: [{ id: 'low' }, { id: 'high' }] } }),
     } as never)
     await ctx.plugin(commandModel)
     const session = ctx.sessions.create(SessionId('model-effort-inherit-test'))
@@ -81,15 +81,15 @@ describe('model command', () => {
 
     await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
-    // One prompt: the effort question had an answer already.
+    // Model selection applies the advertised default without another question.
     expect(prompt).toHaveBeenCalledTimes(1)
     expect(changeSelection).toHaveBeenCalledWith(agent,
-      expect.objectContaining({ provider: 'provider-a', model: 'model-a', reasoningEffort: 'high' }),
+      expect.objectContaining({ provider: 'provider-a', model: 'model-a', reasoningEffort: 'low' }),
       expect.anything(), { persist: true })
     await ctx.fiber.dispose()
   })
 
-  it('asks for an effort only when the new model does not offer the current one', async () => {
+  it('leaves effort unspecified when the model advertises no default', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
@@ -113,8 +113,8 @@ describe('model command', () => {
 
     await ctx.commands.execute(agent, '/model', [], new AbortController().signal)
 
-    expect(prompt).toHaveBeenCalledTimes(2)
-    expect(prompt.mock.calls[1]?.[0]).toMatchObject({ title: 'Reasoning effort' })
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(ctx.omdshSession.changeSelection).toHaveBeenCalledWith(agent, { provider: 'provider-a', model: 'model-a' }, expect.anything(), { persist: true })
     await ctx.fiber.dispose()
   })
 

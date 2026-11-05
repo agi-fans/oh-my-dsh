@@ -66,7 +66,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
       const recent = sortSessionRows(source.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
       if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
-      const answer = await ctx.tui.prompt({
+      const answer = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
         title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
         ...(search === undefined ? {} : { detail: `Content search: ${search.query} · up to ${SESSION_SEARCH_LIMIT} matches` }),
         notify: false,
@@ -114,7 +114,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       invocation.signal.throwIfAborted()
       if (answer === 'library:') { search = undefined; archivedView = false; selectedId = undefined; continue }
       if (answer === 'search:') {
-        const query = await ctx.tui.prompt(askPrompt({ title: 'Search session content', question: 'Enter search text', signal: invocation.signal }))
+        const query = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Search session content', question: 'Enter search text', signal: invocation.signal }))
         if (query === null || query.trim() === '') continue
         const result = await findSessions(ctx, { ...invocation, rawInput: query })
         if (result.kind === 'rows') { search = result; archivedView = false; selectedId = undefined; continue }
@@ -141,7 +141,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         const row = recent.find(item => item.id === target)
         if (row === undefined) continue
         selectedId = target
-        const title = await ctx.tui.prompt(askPrompt({
+        const title = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
           title: 'Rename Session',
           question: `New title for “${row.title}”`,
           initialInput: row.title,
@@ -161,7 +161,7 @@ async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, 
   try {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
-      const migrate = await confirmPrompt(request => ctx.tui.prompt(request), {
+      const migrate = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
         title: 'Migrate session',
         question: ctx.omdshSession.recentSessions.find(row => row.id === id)?.title ?? id,
         detail: 'Opening this session writes a current-format generation and retains the historical source. Browsing the Session Library does not migrate it.',

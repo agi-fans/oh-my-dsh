@@ -4,6 +4,8 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { uiText, type UiLanguage } from '../locale/index.ts'
+
 import {
   contrastRatio, labDistance, nearestPaletteIndex, nearestXterm256, nearestXterm256Grey, relativeLuminance, toOklab,
   type Rgb, type TerminalColors, terminalColorsKey,
@@ -563,6 +565,9 @@ export function parseThemeName(value: string | undefined): ThemeName {
 
 /** Paint helpers the view uses; identity functions when colors are off. */
 export interface Theme {
+  /** Immutable language snapshot shared by renderers and their row-cache identity. */
+  readonly language: UiLanguage
+  text(source: string, values?: Readonly<Record<string, string | number>>): string
   /** Active palette name. */
   readonly name: ThemeName
   /** Whether SGR is emitted. */
@@ -958,6 +963,7 @@ export function createTheme(
   depth: ColorDepth | boolean = detectColorDepth(),
   name: ThemeName = 'dark',
   terminal?: TerminalColors,
+  language: UiLanguage = 'en',
 ): Theme {
   const resolvedDepth: ColorDepth = depth === true ? 'truecolor' : depth === false ? 'ansi16' : depth
   const tc = colors && resolvedDepth === 'truecolor'
@@ -1012,11 +1018,13 @@ export function createTheme(
   const paint = (open: string, text: string, close: string): string =>
     colors && open !== '' ? open + text + close : text
   return {
+    language,
+    text: (source, values) => uiText(language, source, values),
     name,
     colors,
     trueColor: tc,
     depth: resolvedDepth,
-    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal)].join('|'),
+    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal), language].join('|'),
     getFgAnsi,
     getBgAnsi,
     fg: (color, text) => paint(getFgAnsi(color), text, FG_RESET),

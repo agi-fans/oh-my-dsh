@@ -8,5 +8,6 @@
  */
 
 export * from './definition.ts'
+export { resolveUiLanguage, type UiLanguage, type UiLanguagePreference } from './locale/index.ts'
 export { apply, Config, name } from './runtime/provider-local.ts'
 export { imageProtocol } from './chrome/terminal-images.ts'

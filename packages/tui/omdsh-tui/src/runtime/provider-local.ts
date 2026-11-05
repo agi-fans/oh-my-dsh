@@ -11,6 +11,9 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { localizePrompt } from '../locale/prompt.ts'
+import { resolveUiLanguage, uiText, type UiLanguagePreference } from '../locale/index.ts'
+import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
   TerminalNotificationController,
   TerminalNotificationQueue,
@@ -321,6 +324,7 @@ export interface TerminalLike {
 }
 
 type PendingPrompt = PromptSelectorState & {
+  sourceRequest: TuiPrompt
   resolve: (answer: string | null) => void
   offAbort?: () => void
   offTick?: () => void
@@ -478,7 +482,6 @@ export class LocalTui implements TuiService {
   #queueHotkeyAbort: AbortController | undefined
   readonly #queuedInputIds = new WeakMap<TuiSubmission, string>()
   #queuedInputSerial = 0
-  #steerHandler: ((text: string) => void) | undefined
   #rewinds = new Set<() => void>()
   #inspects = new Set<(id: string) => void>()
   #inspectCloses = new Set<() => void>()
@@ -491,6 +494,7 @@ export class LocalTui implements TuiService {
   #autocompleteRequestId = 0
   #pasteBurst = new PasteBurst()
   #pasteBurstTimer: ReturnType<typeof setTimeout> | undefined
+  #busyEnter: 'queue' | 'steer' = 'queue'
   #pasteProtection = true
   #paste = false
   #pasteBuf = ''
@@ -673,6 +677,7 @@ export class LocalTui implements TuiService {
   #prefsSaveTask: Promise<void> | undefined
   #disposeTask: Promise<void> | undefined
   #prefsVersion = 0
+  #uiLanguage: UiLanguagePreference = 'auto'
   #agentBehavior: TuiAgentBehaviorSettings | undefined
   #updateAgentBehavior: ((next: TuiAgentBehaviorSettings) => Promise<void>) | undefined
   #offAgentBehaviorWatch: (() => void) | undefined
@@ -878,7 +883,13 @@ export class LocalTui implements TuiService {
     }
     if (event.type === 'llm/retry') this.#retryDeadline = Date.now() + event.data.delayMs
     if (event.type === 'llm/retry-started' || event.type === 'turn/end') this.#retryDeadline = undefined
+    const claimedHumanInput = event.type === 'agent/inbox/spliced' && event.data.outcome !== 'canceled'
+      && event.data.inserted.length === 0 && (event.data.target === 'next-step' ? this.#state.nextStepInbox : this.#state.nextTurnInbox)
+        .slice(event.data.start, event.data.start + (event.data.removedCount ?? 0)).some(message => message.source.kind === 'user')
     this.#state = applyEvent(this.#state, event, presentation, workspace)
+    if (claimedHumanInput && this.#tty && event.type === 'agent/inbox/spliced') {
+      this.#showTransientStatus(event.data.target === 'next-step' ? 'Steer taken for the next step' : 'Queue taken for the next turn')
+    }
     const compacting = this.#state.status === 'compacting'
     if (compacting && this.#compactionStartedAt === undefined) this.#compactionStartedAt = Date.now()
     else if (!compacting) this.#compactionStartedAt = undefined
@@ -1287,6 +1298,8 @@ export class LocalTui implements TuiService {
   }
 
   prompt(request: TuiPrompt): Promise<string | null> {
+    const sourceRequest = request
+    request = localizePrompt(request, resolveUiLanguage(this.#uiLanguage))
     // Background approvals take the terminal from a user-opened file reader.
     if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal) this.#fileReviewAbort.abort()
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
@@ -1312,7 +1325,7 @@ export class LocalTui implements TuiService {
     return new Promise((resolve) => {
       const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
         (option.value ?? option.label) === request.initialValue) ?? 0)
-      const pending: PendingPrompt = { request, selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
+      const pending: PendingPrompt = { sourceRequest, request, selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
         ...(request.armMs !== undefined && request.armMs > 0 ? { armedUntil: Date.now() + request.armMs } : {}),
         ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query,
           documentWordWrap: request.documentPosition.wordWrap, documentColumn: request.documentPosition.column }),
@@ -1342,16 +1355,17 @@ export class LocalTui implements TuiService {
             if (source !== undefined && source !== this.#prompt.request.documentSource) {
               const shift = (this.#prompt.request.documentSource?.firstLine ?? 1) - (source.firstLine ?? 1)
               const anchor = this.#prompt.documentAnchor
-              this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, documentSource: source },
+              this.#prompt = { ...this.#prompt, sourceRequest: { ...this.#prompt.sourceRequest, documentSource: source }, request: { ...this.#prompt.request, documentSource: source },
                 ...(anchor === undefined ? {} : { documentAnchor: { ...anchor, row: Math.max(0, anchor.row + shift) } }) }
               changed = true
             }
-            if (options !== undefined && options !== this.#prompt.request.options) {
-              this.#prompt = refreshPromptOptions(this.#prompt, options, this.#editor.text)
+            if (options !== undefined && options !== this.#prompt.sourceRequest.options) {
+              this.#prompt.sourceRequest = { ...this.#prompt.sourceRequest, options }
+              this.#prompt = refreshPromptOptions(this.#prompt, localizePrompt(this.#prompt.sourceRequest, resolveUiLanguage(this.#uiLanguage)).options!, this.#editor.text)
               changed = true
             }
             if (detail !== undefined && detail !== this.#prompt.request.detail) {
-              this.#prompt = { ...this.#prompt, request: { ...this.#prompt.request, detail } }
+              this.#prompt = { ...this.#prompt, sourceRequest: { ...this.#prompt.sourceRequest, detail }, request: { ...this.#prompt.request, detail } }
               changed = true
             }
             if (changed) this.#render()
@@ -1481,6 +1495,7 @@ export class LocalTui implements TuiService {
   /** Currently applied preferences; sibling rows read these instead of the config references. */
   prefs(): TuiPrefs {
     return {
+      uiLanguage: this.#uiLanguage,
       theme: this.#themeName,
       colors: this.#colors,
       motion: this.#motion,
@@ -1492,6 +1507,7 @@ export class LocalTui implements TuiService {
       terminalState: this.#terminalState,
       copyOnSelect: this.#copyOnSelect,
       mouseInteraction: this.#mouseInteraction,
+      busyEnter: this.#busyEnter,
       pasteProtection: this.#pasteProtection,
       checkUpdates: this.#checkUpdates,
       startupChangelog: this.#startupChangelog,
@@ -1688,11 +1704,6 @@ export class LocalTui implements TuiService {
     return () => { this.#inspectSubmits.delete(listener) }
   }
 
-  setSteerHandler(handler: (text: string) => void): () => void {
-    this.#steerHandler = handler
-    return () => { if (this.#steerHandler === handler) this.#steerHandler = undefined }
-  }
-
   /**
    * Last-resort restore for a process that exits without disposing: leave the
    * alternate screen, give every mode back and show the cursor. Writes to a TTY
@@ -1710,7 +1721,6 @@ export class LocalTui implements TuiService {
     this.#flushPasteBurst(true)
     this.#flushDraft()
     this.#disposed = true
-    this.#steerHandler = undefined
     this.#imagePreviewAbort?.abort()
     this.#fileReviewAbort?.abort()
     this.#asideAbort?.abort()
@@ -1762,7 +1772,7 @@ export class LocalTui implements TuiService {
       this.#session.dispose()
       this.#term.output.write('\x1b[?25h\r\n')
       if (this.#resumeHintRequested && this.#sessionId !== undefined) {
-        this.#term.output.write(`\r\nResume this session with ${APP_NAME} --resume ${this.#sessionId}\r\n`)
+        this.#term.output.write(`\r\n${uiText(resolveUiLanguage(this.#uiLanguage), 'Resume this session with {command}', { command: `${APP_NAME} --resume ${this.#sessionId}` })}\r\n`)
       }
       // A tty stdin keeps the event loop alive after the tree disposes;
       // release the descriptor so natural completion can exit the process.
@@ -1806,10 +1816,10 @@ export class LocalTui implements TuiService {
   /** Countdown shown on the working row while a retry or a compaction is pending. */
   #workingLabel(): string | undefined {
     if (this.#retryDeadline !== undefined) {
-      return `Retrying in ${Math.max(0, Math.ceil((this.#retryDeadline - Date.now()) / 1000))}s`
+      return uiText(resolveUiLanguage(this.#uiLanguage), 'Retrying in {seconds}s', { seconds: Math.max(0, Math.ceil((this.#retryDeadline - Date.now()) / 1000)) })
     }
     if (this.#state.status === 'compacting' && this.#compactionStartedAt !== undefined) {
-      return `Compacting ${Math.max(0, Math.floor((Date.now() - this.#compactionStartedAt) / 1000))}s`
+      return uiText(resolveUiLanguage(this.#uiLanguage), 'Compacting {seconds}s', { seconds: Math.max(0, Math.floor((Date.now() - this.#compactionStartedAt) / 1000)) })
     }
     return undefined
   }
@@ -2024,10 +2034,11 @@ export class LocalTui implements TuiService {
         spinnerFrame: this.#spinner,
         motion: this.#motion,
         colorDepth: this.#colorDepth,
+        language: resolveUiLanguage(this.#uiLanguage),
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
-        ...(this.#transientStatus === undefined ? {} : { transientStatus: this.#transientStatus }),
+        ...(this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start' }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -2042,7 +2053,9 @@ export class LocalTui implements TuiService {
         expandedTools: this.#detailedToolIds(),
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
-        ...(this.#steerHandler === undefined ? {} : { steerKey: keysForAction(this.#keybindings, 'steer-turn') }),
+        busyEnter: this.#queueEditNewer !== null || this.#queueEditPending ? 'queue' : this.#busyEnter,
+        steerKey: keysForAction(this.#keybindings, 'steer-turn'),
+        queueKey: keysForAction(this.#keybindings, 'follow-up'),
         openedGroups: this.#openedGroups,
         commands: this.#commands(),
         modelReady: this.#modelReady,
@@ -2692,10 +2705,7 @@ export class LocalTui implements TuiService {
       return true
     }
     if (this.#state.status !== 'idle') {
-      // Aborting a turn would strand whatever the user queued behind it. Pi
-      // hands those drafts back first, so nothing typed during the turn is lost
-      // to the abort that ends it.
-      this.#restoreQueuedBeforeAbort()
+      // Harness retains accepted input; stopping a turn does not withdraw messages.
       for (const listener of this.#interrupts) listener()
       return true
     }
@@ -2743,24 +2753,11 @@ export class LocalTui implements TuiService {
     // A running turn keeps Ctrl+C as the familiar abort while the composer is
     // empty; Escape already covers it, and refusing the reflex would be worse.
     if (this.#state.status !== 'idle' && !this.#hasComposerContent()) {
-      this.#restoreQueuedBeforeAbort()
       for (const listener of this.#interrupts) listener()
       return true
     }
     this.#clearComposerWithUndo()
     return true
-  }
-
-  /**
-   * Hand durable follow-ups back to the composer before a turn is abandoned.
-   *
-   * The queued messages would otherwise be delivered to a turn that will never
-   * produce the step they were aimed at, which silently loses them.
-   */
-  #restoreQueuedBeforeAbort(): void {
-    if (!this.#state.nextTurnInbox.some(message => message.source.kind === 'user')) return
-    if (this.#hasComposerContent()) return
-    for (const listener of this.#queueEdits) listener()
   }
 
   #handlePrompt(event: KeyEvent): boolean {
@@ -3049,7 +3046,7 @@ export class LocalTui implements TuiService {
    * something up in it.
    */
   #handleRenderedDocument(event: KeyEvent, prompt: PendingPrompt): boolean {
-    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors), Math.max(1, this.#term.width() - 6))
+    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage)), Math.max(1, this.#term.width() - 6))
     // Always build on the newest state: typing updates the query while the find
     // is open, and jumping from a stale copy would drop it again.
     const jumpTo = (row: number): void => {
@@ -3109,7 +3106,7 @@ export class LocalTui implements TuiService {
 
   #handleDocumentReader(event: KeyEvent, prompt: PendingPrompt): boolean {
     const source = prompt.request.documentSource!
-    const layout = documentLayout(source, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors), Math.max(1, this.#term.width() - 6), {
+    const layout = documentLayout(source, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage)), Math.max(1, this.#term.width() - 6), {
       wordWrap: prompt.documentWordWrap ?? true, column: prompt.documentColumn ?? 0,
     })
     const start = this.#promptDocument?.start ?? 0
@@ -3258,11 +3255,14 @@ export class LocalTui implements TuiService {
     const previous = options.persist ? this.prefs() : undefined
     const version = this.#prefsVersion
     const previousMotion = this.#motion
+    this.#uiLanguage = prefs.uiLanguage ?? 'auto'
+    if (this.#prompt !== null) this.#prompt = { ...this.#prompt, request: localizePrompt(this.#prompt.sourceRequest, resolveUiLanguage(this.#uiLanguage)) }
     this.#themeName = prefs.theme
     this.#colors = prefs.colors
     this.#syncColorDepth()
     this.#motion = prefs.motion ?? 'full'
     this.#flushPasteBurst(true)
+    this.#busyEnter = prefs.busyEnter ?? 'queue'
     this.#pasteProtection = prefs.pasteProtection !== false
     this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalTitle = prefs.terminalTitle ?? 'status'
@@ -3823,7 +3823,7 @@ export class LocalTui implements TuiService {
     }
   }
 
-  #submit(text: string): void {
+  #submit(text: string, delivery?: 'queue' | 'steer'): void {
     if (this.#prompt !== null) {
       if (this.#prompt.request.presentation === 'progress') return
       this.#editor.setText('')
@@ -3833,8 +3833,14 @@ export class LocalTui implements TuiService {
       return
     }
     const { submission, historyText } = this.#buildSubmission(text)
-    const { images, files = [], literal = false, text: submittedText } = submission
+    const { images, files = [], text: submittedText } = submission
     const queueEditNewer = this.#queueEditNewer
+    // Commands keep their own routing; recalled follow-ups remain next-turn messages.
+    if (delivery === 'steer') submission.literal = true
+    const command = !submission.literal && !files.length && (submittedText.trimStart().startsWith('/') || (images.length === 0 && submittedText.startsWith('!')))
+    if (!command && this.#state.status === 'running') {
+      submission.delivery = queueEditNewer !== null || this.#queueEditPending ? 'queue' : delivery ?? this.#busyEnter
+    }
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
       this.#history.push(historyText)
       this.#historyStore?.add(historyText)
@@ -3855,7 +3861,7 @@ export class LocalTui implements TuiService {
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
     // them only to detect and execute Harness commands.
-    const slash = !literal && images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
+    const slash = !submission.literal && images.length === 0 && files.length === 0 ? parseSlashInput(submittedText) : null
     if (slash !== null) {
       if (queueEditNewer !== null) this.#queuedSubmissions.push(...queueEditNewer)
       this.#runSlash(slash.name, slash.args)
@@ -4085,7 +4091,7 @@ export class LocalTui implements TuiService {
      * that did not answer to the shared list vocabulary, which is exactly the
      * inconsistency the reader noticed.
      */
-    const answer = await this.prompt({
+    const answer = await this.prompt({ localize: true,
       title: 'Copy',
       question: items.length === 1 ? 'One thing to copy' : 'Choose what to copy',
       filterable: true,
@@ -4121,9 +4127,12 @@ export class LocalTui implements TuiService {
 
   #settingsActions(): SettingItem[] {
     const runtimeActions = [
-      { id: 'command:model', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
-      { id: 'command:permission', label: 'Access', description: 'Open /permission to choose access for this session.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
-      { id: 'command:agent', label: 'Agent preset', description: 'Open /agent to choose the session Agent preset.', value: this.#sessionControls?.agentPreset ?? 'Choose', values: [], action: 'agent' },
+      { id: 'command:model', group: 'Models', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
+      { id: 'command:permission', group: 'General', label: 'Current session access', description: 'Changes only this session. Default access controls future sessions.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
+      { id: 'command:agent', group: 'Agent presets', label: 'Current session preset', description: 'Choose before the first prompt; does not change the new-session default.', value: this.#sessionControls?.agentPreset === undefined ? 'Choose' : formatAgentPreset(this.#sessionControls.agentPreset), values: [], action: 'agent' },
+      { id: 'command:login', group: 'Models', label: 'Provider credentials', description: 'Sign in or configure a provider. Does not change the selected model.', value: 'Configure', values: [], action: 'login' },
+      { id: 'command:logout', group: 'Models', label: 'Sign out', description: 'Remove saved provider credentials; environment credentials remain available.', value: 'Choose provider', values: [], action: 'logout' },
+      { id: 'command:plugins', group: 'Plugins', label: 'Manage plugins', description: 'Inspect installed entries, enable bundles, discover plugins or start Creator.', value: 'Open', values: [], action: 'plugins' },
     ].filter(item => this.#runtimeCommands.some(command => command.name === item.action))
     const customBindings = Object.entries(this.#keybindings).filter(([key, action]) => DEFAULT_KEYBINDINGS[key] !== action).length
     return [
@@ -4181,6 +4190,7 @@ export class LocalTui implements TuiService {
 
   #configureNotifications(): void {
     this.#notifications.configure({
+      language: resolveUiLanguage(this.#uiLanguage),
       policy: this.#notificationPolicy,
       thresholdMs: NOTIFICATION_THRESHOLD_MS,
     })
@@ -4210,7 +4220,7 @@ export class LocalTui implements TuiService {
    */
   #runHelp(full: boolean): void {
     const text = [
-      formatHelpText(this.#commands()),
+      formatHelpText(this.#commands(), resolveUiLanguage(this.#uiLanguage)),
       '',
       full
         ? `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} shortcuts**`
@@ -4329,23 +4339,10 @@ export class LocalTui implements TuiService {
       if (this.#search !== null) return false
       if (this.#inspected !== undefined || this.#state.status !== 'running') {
         this.notice('Steering needs an active parent turn. Use Enter to send the next message.')
-      } else if (this.#images.count > 0 || this.#files.copies().length > 0) {
-        this.notice('Use Enter to queue attachments; steering accepts text only.')
       } else if (this.#queueEditNewer !== null || this.#queueEditPending) {
         this.notice('Finish editing the queued follow-up with Enter before steering.')
-      } else if (this.#editor.expandedText.trim() !== '') {
-        try {
-          if (this.#steerHandler === undefined) throw new Error('Steering is unavailable in this profile.')
-          this.#steerHandler(this.#editor.expandedText)
-          this.#editor.setText('')
-          this.#literalInput = false
-          this.#historyIndex = 0
-          this.#clearDraft()
-          this.#ac = null
-          this.#render()
-        } catch (error) {
-          this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-        }
+      } else if (this.#editor.expandedText.trim() !== '' || this.#images.count > 0 || this.#files.copies().length > 0) {
+        this.#submit(this.#editor.expandedText, 'steer')
       }
       return true
     }
@@ -4448,11 +4445,10 @@ export class LocalTui implements TuiService {
       this.#startAsyncPaste(this.#pasteClipboard())
       return true
     }
-    // A queued follow-up is the one action that must still work while the turn
-    // it belongs to is running; Enter is which-turn, this is after-this-turn.
+    // Explicit queue delivery is independent of the busy-Enter preference.
     if (action === 'follow-up') {
-      if (this.#editor.expandedText.trim() === '') return false
-      this.#submit(this.#editor.expandedText)
+      if (this.#editor.expandedText.trim() === '' && this.#images.count === 0 && this.#files.copies().length === 0) return false
+      this.#submit(this.#editor.expandedText, 'queue')
       return true
     }
     if (action !== 'external-editor') return false
@@ -4582,7 +4578,7 @@ export class LocalTui implements TuiService {
           description: 'Restore default shortcuts in keybindings.json',
         },
       ]
-      const choice = await this.prompt({
+      const choice = await this.prompt({ localize: true,
         title: 'Keybindings',
         question: 'Choose an action to remap, or Esc to return to /settings.',
         options,
@@ -4606,7 +4602,7 @@ export class LocalTui implements TuiService {
       if (!TUI_ACTIONS.includes(action)) continue
       const currentRawKeys = Object.entries(this.#keybindings).filter(([, bound]) => bound === action).map(([key]) => key)
       const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
-      const entered = await this.prompt({
+      const entered = await this.prompt({ localize: true,
         title: `Remap ${TUI_ACTION_LABELS[action]}`,
         question: `Enter key chord (e.g. ctrl+s, alt+k), "default" (${defaultKeys}), or "none" to unbind.`,
         initialInput: currentRawKeys[0] ?? '',
@@ -4776,6 +4772,7 @@ export class LocalTui implements TuiService {
     if (search === null || search.query.trim() === '') return []
     const options = {
       width: this.#term.width(),
+      language: resolveUiLanguage(this.#uiLanguage),
       colors: this.#colors,
       themeName: this.#themeName,
       ...(this.#colorDepth === undefined ? {} : { colorDepth: this.#colorDepth }),
@@ -4890,6 +4887,7 @@ export function apply(ctx: Context, config: Config): void {
   // settings service, which persists the edit into the active profile patch.
   const storedPrefs = (): TuiPrefs => {
     const prefs: TuiPrefs = {
+      uiLanguage: config.uiLanguage.get(),
       theme: config.theme.get(),
       colors: resolveColors(config.colors.get(), term.output.isTTY === true),
       motion: config.motion.get(),
@@ -4900,6 +4898,7 @@ export function apply(ctx: Context, config: Config): void {
       terminalState: config.terminalState.get(),
       copyOnSelect: config.copyOnSelect.get(),
       mouseInteraction: config.mouseInteraction.get(),
+      busyEnter: config.busyEnter.get(),
       pasteProtection: config.pasteProtection.get(),
       checkUpdates: config.checkUpdates.get(),
       startupChangelog: config.startupChangelog.get(),

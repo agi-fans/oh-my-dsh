@@ -89,7 +89,7 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     })
     if (answer === null) break
     if (answer === ADD_CANDIDATE_PREFIX && ctx.tui.stageFileAttachment !== undefined) {
-      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt(askPrompt({ title: 'Attach file', question: 'Path to the file', signal: invocation.signal })) ?? '')
+      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Attach file', question: 'Path to the file', signal: invocation.signal })) ?? '')
       if (staged.kind === 'error') return staged
       // The list the reader just left is now stale; reopen it with the new row.
       continue

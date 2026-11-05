@@ -11,18 +11,32 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 export const name = 'omdsh-command-session-configuration'
 export const inject = ['commands', 'omdshSession', 'tui', 'agentPresets']
 
+/** Enter Creator without submitting a prompt or changing the default preset. */
+export async function startCreator(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const runtime = ctx.get('omdshSession')
+  if (runtime === undefined) return { kind: 'error', text: 'Creator is unavailable in this host.' }
+  if (invocation.agent.status === 'running') return { kind: 'error', text: 'Finish or interrupt the active turn before starting Creator.' }
+  const preset = (await runtime.agentPresets()).find(preset => preset.id === 'cordis')
+  if (preset === undefined || preset.broken !== undefined) return { kind: 'error', text: preset?.broken ?? 'Creator is unavailable in this profile.' }
+  invocation.signal.throwIfAborted()
+  if (isBlankSession(invocation.agent.session)) await runtime.changeAgentPreset(invocation.agent, preset.id)
+  else await runtime.newSession(invocation.agent, preset.id)
+  return { kind: 'success', text: 'Creator is ready. Describe the plugin you want to create. The default Agent preset is unchanged.' }
+}
+
 async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const args = invocation.rawInput.trim().split(/\s+/u)
+  if (invocation.rawInput.trim() === 'creator') return startCreator(ctx, invocation)
   if (args[0] === 'inspect' && args.length <= 2) {
     return { kind: 'success', text: await presetDiagnostics(ctx.agentPresets, invocation.agent, args[1]) }
   }
-  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /agent [inspect [preset-id]]' }
+  if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /agent [creator|inspect [preset-id]]' }
   if (!isBlankSession(invocation.agent.session)) {
     const lockedMessage = 'The Agent preset is fixed for this conversation. Start /new to choose a different preset before sending a message. Use /agent inspect to view its composition.'
     if (ctx.tui.interactive !== true) {
       return { kind: 'success', text: lockedMessage }
     }
-    const action = await ctx.tui.prompt({
+    const action = await ctx.tui.prompt({ localize: true,
       title: 'Agent',
       question: 'The Agent preset is fixed for this conversation',
       detail: 'Start /new to choose a different preset before sending a message.',
@@ -45,7 +59,7 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
   const controls = ctx.omdshSession.controls(invocation.agent)
   const presets = await ctx.omdshSession.agentPresets()
   if (presets.length === 0) return { kind: 'error', text: 'No Agent presets are configured.' }
-  const selected = await ctx.tui.prompt({
+  const selected = await ctx.tui.prompt({ localize: ['title', 'question', 'actions', 'detail'],
     title: 'Agent',
     question: 'Choose the Agent composition for this blank session',
     detail: 'Locked after the first prompt · /agent inspect shows composition diagnostics',

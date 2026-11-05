@@ -1,13 +1,16 @@
+import { uiText, type UiLanguage } from '../locale/index.ts'
 /** Opt-in terminal notifications kept outside the transcript renderer. */
 
 export type TerminalNotificationPolicy = 'off' | 'unfocused' | 'always'
 
 export interface TerminalNotificationOptions {
+  readonly language?: UiLanguage
   readonly policy: TerminalNotificationPolicy
   readonly thresholdMs: number
 }
 
 export interface TerminalNotification {
+  readonly attention?: boolean
   readonly title: string
   readonly body: string
 }
@@ -34,12 +37,13 @@ function eventTime(event: NotificationEvent, fallback: number): number {
   return typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : fallback
 }
 
-function notificationBody(reason: string | undefined, elapsedMs: number): string {
+function notificationBody(reason: string | undefined, elapsedMs: number, language: UiLanguage): string {
+  const t = (source: string, values?: Record<string, string | number>) => uiText(language, source, values)
   const seconds = Math.max(0, Math.round(elapsedMs / 1_000))
   if (reason && reason !== 'complete' && reason !== 'completed') {
-    return `${END_REASON_COPY[reason] ?? `Turn ended (${reason})`} after ${seconds}s`
+    return t('{reason} after {seconds}s', { reason: END_REASON_COPY[reason] === undefined ? t('Turn ended ({reason})', { reason }) : t(END_REASON_COPY[reason]!), seconds })
   }
-  return `Turn completed in ${seconds}s`
+  return t('Turn completed in {seconds}s', { seconds })
 }
 
 export class TerminalNotificationController {
@@ -48,6 +52,7 @@ export class TerminalNotificationController {
 
   configure(options: TerminalNotificationOptions): void {
     this.#options = {
+      language: options.language ?? 'en',
       policy: options.policy,
       thresholdMs: Math.max(0, options.thresholdMs),
     }
@@ -71,15 +76,18 @@ export class TerminalNotificationController {
 
     const elapsedMs = Math.max(0, endedAt - startedAt)
     if (this.#options.policy === 'unfocused' && elapsedMs < this.#options.thresholdMs) return undefined
+    const language = this.#options.language ?? 'en'
+    const attention = !!event.reason && !['complete', 'completed'].includes(event.reason)
     return {
-      title: event.reason && event.reason !== 'complete' && event.reason !== 'completed' ? 'omdsh needs attention' : 'omdsh finished',
-      body: notificationBody(event.reason, elapsedMs),
+      attention,
+      title: uiText(language, event.reason && event.reason !== 'complete' && event.reason !== 'completed' ? 'omdsh needs attention' : 'omdsh finished'),
+      body: notificationBody(event.reason, elapsedMs, language),
     }
   }
 
   humanPrompt(label = 'Input required'): TerminalNotification | undefined {
     if (this.#options.policy === 'off') return undefined
-    return { title: 'omdsh needs attention', body: label }
+    return { attention: true, title: uiText(this.#options.language ?? 'en', 'omdsh needs attention'), body: uiText(this.#options.language ?? 'en', label) }
   }
 }
 
@@ -88,7 +96,7 @@ export class TerminalNotificationQueue {
   #pending: TerminalNotification | undefined
 
   offer(notification: TerminalNotification): void {
-    if (this.#pending?.title === 'omdsh needs attention' && notification.title !== 'omdsh needs attention') return
+    if ((this.#pending?.attention ?? (this.#pending?.title === 'omdsh needs attention')) && !(notification.attention ?? (notification.title === 'omdsh needs attention'))) return
     this.#pending = notification
   }
 

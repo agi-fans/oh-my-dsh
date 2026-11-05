@@ -24,17 +24,18 @@ description: omdsh 斜杠命令完整参考：会话、会话配置、回合控�
 
 | 命令 | 作用 |
 |---|---|
-| `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Cordis。仅在空白会话可用；不可用的 preset 会显示失败原因。`/agent inspect [preset-id]` 查看声明及当前会话保留的 composition。`code`（PTC）preset 把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
+| `/agent` | 选择 Agent preset：Standard、PTC、Minimal 或 Creator。仅在空白会话可用；不可用的 preset 会显示失败原因。`/agent inspect [preset-id]` 查看声明及当前会话保留的 composition。`code`（PTC）preset 把注册表呈现为生成 SDK，并隐藏 `workflow_run`。 |
+| `/agent creator` | 进入 Creator（`cordis`）创作插件。复用空白会话，已有对话时新建会话；保留各会话草稿，不改变默认 preset，也不提交提示。 |
 | `/permission` | 选择会话 Access 级别，或查看、撤销记住的审批规则。 |
 | `/login` | 登录 provider：目录条目、API key、DeepSeek 账户浏览器登录（或已共享的授权），或自定义 provider（自带 id、base URL、协议与模型 id）。 |
 | `/logout` | 删除存储在文件中的提供方凭据，或登出共享的 DeepSeek 账户；环境变量提供的值保持不变。 |
-| `/settings` | 打开 Interface、Agent、Tools、Integrations、Status line 与 Advanced 设置。别名：`/set`。 |
+| `/settings` | 打开 General、Models、Agent presets、Plugins、Terminal 与 Advanced 设置。别名：`/set`。 |
 
 ### `/model`
 
 | 形式 | 效果 |
 |---|---|
-| `/model` | 打开一个可搜索的列表，列出所有 provider 的全部模型，并标出当前模型。`Enter` 切换保存的默认值；`Ctrl+D` 只对当前会话生效。仅当新模型不提供当前推理强度时才会询问强度。 |
+| `/model` | 打开一个可搜索的列表，列出所有 provider 的全部模型，并标出当前模型。`Enter` 切换保存的默认值；`Ctrl+D` 只对当前会话生效。采用目标模型的默认推理强度，不再追加询问；用 `/model reasoning` 修改强度。 |
 | `/model <query>` | 解析 `provider/model` 或模糊模型名；精确匹配立即切换，歧义时打开过滤后的列表。 |
 | `/model --session` | 同一个列表，只作用于当前会话，不写入保存的默认值；也可附带查询。不能与子命令组合。 |
 | `/model next` / `/model previous` | 切换到下一个或上一个收藏模型。 |
@@ -90,7 +91,7 @@ PNG、JPEG、WebP 和 GIF 文件会打开图片预览页。`/attach` 的列表�
 
 代码预览使用 Prism 语法高亮，颜色跟随所选终端主题。语言根据文件名识别，包括 `Dockerfile` 和 `Makefile`。Markdown 文件默认显示带行号的源码，按 `M` 切换源码与渲染视图；搜索和行号跳转在源码视图中使用。高亮预算内的跨行注释和字符串保留各自的语法颜色，大型预览回退为普通文本。未知语言保持普通文本，关闭颜色后保留源码内容。
 
-用 Tab 或左右方向键选择文档按钮，再按 Enter 执行；`›` 标出当前选项。字母快捷键大小写均可。从工具卡片打开的预览包含同目录文件，供 Previous／Next 切换；只有一个文件时隐藏这两个按钮。`F` 返回文件列表。Open 使用系统默认应用；Editor 使用 `/settings` 的 **Interface → Editor** 设置，默认自动探测已安装的编辑器。在编辑器中保存并关闭文件即可返回 omdsh。操作失败和外部打开的确认会留在预览页，文件导航不会发送需要关注的通知。
+用 Tab 或左右方向键选择文档按钮，再按 Enter 执行；`›` 标出当前选项。字母快捷键大小写均可。从工具卡片打开的预览包含同目录文件，供 Previous／Next 切换；只有一个文件时隐藏这两个按钮。`F` 返回文件列表。Open 使用系统默认应用；Editor 使用 `/settings` 的 **Terminal → Editor** 设置，默认自动探测已安装的编辑器。在编辑器中保存并关闭文件即可返回 omdsh。操作失败和外部打开的确认会留在预览页，文件导航不会发送需要关注的通知。
 
 暂存后的 `/attach` 草稿显示文件标记与字节数回执；删除标记即可移除草稿附件。补充消息后按 Enter 一起发送，也支持只发文件。排队消息和回退会保留文件引用。带文件的草稿把斜杠开头的文字作为模型消息，而不是执行命令。Ctrl+C 取消附件操作；取消后不会暂存草稿。
 

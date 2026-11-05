@@ -10,6 +10,8 @@ omdsh 通过 DeepSeek Harness 插件扩展，这些插件与产品自带的 comp
 
 Skills 与 MCP 仍是独立的部署面，见 [Skills 与 MCP](skills-and-mcp.md)。TUI 的丰富度来自安装层之上的 Cordis 贡献服务，而不是某个 TypeScript extensions 目录。主题、Overlay 和按键注册表在出现第二个拥有独立所有权的贡献者之前保持关闭，见 [架构](architecture.md) 和 [插件内部机制](plugin-internals.md)。
 
+通过 **Settings → Plugins** 配置插件，或从 **/plugins → Configure plugins** 打开同一套表单。**Let the agent create a plugin** 进入 Creator（`cordis`），复用空白会话或在已有对话后新建会话；不会发送提示，也不改变新会话的默认 preset。
+
 ## 插件挂上之后已经可用的能力
 
 TUI 不维护第二份命令、工具或模型注册表。插件进入树之后，这些 Harness 缝已经能到达终端：

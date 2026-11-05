@@ -2,9 +2,9 @@
  * Fixed two-line session footer rendered below the composer.
  *
  * The caller supplies one stable projection; this module owns copy,
- * responsive group selection, color hierarchy, and terminal layout. English
- * copy deliberately stays local until a runtime language module provides a
- * second locale — then this is the single seam where a dictionary is chosen.
+ * responsive group selection, color hierarchy, and terminal layout. Footer
+ * labels stay English in every UI language so their widths and positions stay
+ * stable. User metadata is displayed verbatim.
  * @module @agi-fans/dsh-tui/status-line
  */
 
@@ -116,7 +116,7 @@ function metric(label: string, value: string, tone: StatusTone = 'value'): Statu
   return [part(label + ' ', 'label'), part(value, tone)]
 }
 
-/** English semantic groups; language selection will replace copy here. */
+/** Fixed English metric labels shared by the live footer and settings preview. */
 function buildStatusGroups(stats: TuiSessionStats, config: ResolvedStatusBarConfig): StatusGroup[] {
   const groups: StatusGroup[] = []
   if (stats.contextWindow !== undefined && stats.contextWindow > 0) {
@@ -357,7 +357,7 @@ function permissionLabel(permission: string): string {
 /** Painted permission mode for the composer top-right cap. */
 export function renderPermissionBadge(permission: string | undefined, theme: Theme): string {
   if (permission === undefined || permission === '') return ''
-  return theme.fg(permissionTone(permission), permissionLabel(permission))
+  return theme.fg(permissionTone(permission), theme.text(permissionLabel(permission)))
 }
 
 /**

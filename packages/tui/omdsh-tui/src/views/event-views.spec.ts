@@ -283,7 +283,7 @@ describe('applyEvent', () => {
     }, 2))
 
     const queued = view(state)
-    expect(queued.lines.join('\n')).toContain('Queued · 2')
+    expect(queued.lines.join('\n')).toContain('Queue · 2')
     expect(queued.lines.join('\n')).toContain('│ 1  first follow-up')
     expect(queued.lines.join('\n')).toContain('│ 2  second follow-up')
 
@@ -294,7 +294,7 @@ describe('applyEvent', () => {
       inserted: [],
     }, 3))
     const claimed = view(state)
-    expect(claimed.lines.join('\n')).toContain('Queued · follow-up · second follow-up')
+    expect(claimed.lines.join('\n')).toContain('Queue · next turn · second follow-up')
     expect(claimed.lines.join('\n')).not.toContain('first follow-up')
   })
 
@@ -1452,10 +1452,10 @@ describe('renderView', () => {
     })
     const editorStart = composerStart(frame.lines)
     const queue = frame.lines.slice(editorStart - 3, editorStart)
-    expect(queue[0]).toMatch(/^  │ Queued · 2 · follow-up\s+↑ edit latest$/u)
+    expect(queue[0]).toMatch(/^  │ Sending · 2 · not yet accepted\s+Alt\+Q manage$/u)
     expect(queue.slice(1)).toEqual([
-      '  │ 1  first queued',
-      '  │ 2  second ↵ queued',
+      '  │ 1  Sending · first queued',
+      '  │ 2  Sending · second ↵ queued',
     ])
   })
 
@@ -1463,7 +1463,8 @@ describe('renderView', () => {
     const lines = renderQueuedSubmissions([
       { text: 'one queued message', images: [] },
     ], createTheme(false), 48)
-    expect(lines[0]).toMatch(/^  │ Queued · follow-up · one queued mes…\s+↑ edit$/u)
+    expect(lines[0]).toContain('Sending · not yet accepted')
+    expect(lines[0]).toContain('Alt+Q manage')
     expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(48)
   })
 
@@ -1475,7 +1476,7 @@ describe('renderView', () => {
       { text: 'four '.repeat(20), images: [] },
     ], createTheme(false), 24)
     expect(lines).toHaveLength(4)
-    expect(lines[0]).toContain('Queued · 4')
+    expect(lines[0]).toContain('Sending · 4')
     expect(lines.join('\n')).not.toContain('│ 1  one')
     expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)
   })
@@ -2060,8 +2061,8 @@ describe('renderView', () => {
     })
     const text = frame.lines.join('\n')
     expect(text).toContain('Settings')
-    expect(text).toContain('Theme')
-    expect(text).toContain('dark')
+    expect(text).toContain('UI language')
+    expect(text).toContain('Auto')
     expect(text).toContain('←→ change')
     expect(text).not.toContain('draft')
     expect(frame.lines).toHaveLength(24)
@@ -2212,6 +2213,31 @@ it('keeps successful hooks silent and replays blocking and failed results with t
 })
 
 describe('human guidance display', () => {
+  it.each(['en', 'zh-CN'] as const)('replays both pending queues from a stopped log before handle disposal in %s', language => {
+    const events = [
+      ev('turn/start', { turn: 1 }, 1),
+      ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [
+        { id: 's', source: { kind: 'user' }, content: [{ type: 'text', text: 'Queue · next turn 中文 🐳' }] },
+      ] }, 2),
+      ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [
+        { id: 'q', source: { kind: 'user' }, content: [{ type: 'text', text: 'long'.repeat(40) }] },
+      ] }, 3),
+      ev('turn/end', { turn: 1, reason: { kind: 'failed', message: 'failed' } }, 4),
+    ]
+    const live = events.reduce((state, event) => applyEvent(state, event), initialTranscript())
+    const resumed = replayEvents(events)
+    expect(resumed.nextStepInbox).toEqual(live.nextStepInbox)
+    expect(resumed.nextTurnInbox).toEqual(live.nextTurnInbox)
+    for (const width of [24, 60, 120]) {
+      const frame = renderView(resumed, { width, height: 24, model: 'm', input: '', inputCursor: 0, colors: false, language })
+      expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+      if (width === 120) {
+        expect(frame.lines.join('\n')).toContain(language === 'en' ? 'Steer · next step' : '插话 · 下一步')
+        expect(frame.lines.join('\n')).toContain('Queue · next turn 中文 🐳')
+      }
+    }
+  })
+
   it('distinguishes durable next-step guidance from follow-up queue and hides it when claimed', () => {
     const guide = ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [
       { id: 'steer', source: { kind: 'user' }, content: [{ type: 'text', text: '纠正 🐳 now' }] },
@@ -2223,11 +2249,11 @@ describe('human guidance display', () => {
     const state = replayEvents([guide, queued])
     expect(state).toEqual(applyEvent(applyEvent(initialTranscript(), guide), queued))
     const rendered = view(state).lines.join('\n')
-    expect(rendered).toContain('Guidance · next step · 纠正 🐳 now')
-    expect(rendered).toContain('Queued · follow-up · next task')
+    expect(rendered).toContain('Steer · next step · 纠正 🐳 now')
+    expect(rendered).toContain('Queue · next turn · next task')
     expect(rendered).not.toContain('internal context')
     const claimed = applyEvent(state, ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 2, inserted: [] }, 3))
-    expect(view(claimed).lines.join('\n')).not.toContain('Guidance · next step')
+    expect(view(claimed).lines.join('\n')).not.toContain('Steer · next step')
     for (const width of [12, 24, 80]) {
       const frame = renderView(state, { width, height: 24, model: 'm', input: '', inputCursor: 0, colors: false })
       for (const line of frame.lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width)

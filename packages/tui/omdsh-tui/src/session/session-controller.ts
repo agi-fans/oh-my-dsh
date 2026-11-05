@@ -8,7 +8,6 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { steerAgent } from './steering.ts'
 import { openMessageQueue } from './message-queue.ts'
 import { WorkflowProjection } from './workflow-projection.ts'
 import { join } from 'node:path'
@@ -520,7 +519,6 @@ export class SessionRuntime {
         this.#tui.setInspectedSubagent(this.#inspectView(this.#inspectedId))
       },
     })
-    this.#off.push(tui.setSteerHandler(text => { steerAgent(this.agent, text) }))
     this.#off.push(tui.setQueueHandler(signal => this.openQueue(signal)))
     this.#off.push(tui.onInspectSubagent(id => { void this.#inspectSubagent(id) }))
     this.#off.push(tui.onInspectClose(() => { this.#closeInspect() }))
@@ -680,13 +678,31 @@ export class SessionRuntime {
     await this.#activate(await this.#create(defaults), 'initial')
   }
 
-  /** Submit one human composer value; active turns retain it as a later follow-up. */
+  /** Admit a complete composer value through the selected Harness inbox entry. */
   async send(input: string | TuiSubmission, agent: Agent = this.#requiredAgent()): Promise<void> {
     this.assertActive(agent)
     const submission = typeof input === 'string' ? { text: input, images: [] } : input
+    const assertDelivery = (): void => {
+      this.assertActive(agent)
+      if (submission.delivery === 'steer' && agent.status !== 'running') {
+        throw new Error('Steering needs an active turn. Use Enter to send the next message.')
+      }
+    }
+    assertDelivery()
     const message = await createSubmissionMessage(submission, this.#ctx.get('attachments'))
-    this.assertActive(agent)
-    agent.followup(message)
+    assertDelivery()
+    const offset = agent.session.snapshotEvents().length
+    try {
+      if (submission.delivery === 'steer') agent.steer(message)
+      else agent.followup(message)
+    } catch (error) {
+      // An event subscriber may throw after admission, even after the message was claimed.
+      // Only a pre-admission failure may return the submission to the composer.
+      const accepted = agent.session.snapshotEvents().slice(offset).some(event =>
+        event.type === 'agent/inbox/spliced' && event.data.inserted.some(item => item.id === message.id))
+      if (!accepted) throw error
+      this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    }
   }
 
   async openQueue(signal: AbortSignal, agent: Agent = this.#requiredAgent()): Promise<void> {
@@ -802,9 +818,9 @@ export class SessionRuntime {
   }
 
   /** Start a new top-level session with the current model selection. */
-  async newSession(agent: Agent): Promise<void> {
+  async newSession(agent: Agent, presetId?: string): Promise<void> {
     this.assertActive(agent)
-    await this.#activate(await this.#create(this.selection(agent)), 'new')
+    await this.#activate(await this.#create(this.selection(agent), presetId), 'new')
     await this.refreshRecent()
   }
 
@@ -1297,8 +1313,8 @@ export class SessionRuntime {
     await this.#disposeHandles(handles)
   }
 
-  async #create(selection: ModelSelection): Promise<ActiveSession> {
-    const preset = await this.#ctx.agentPresets.resolve()
+  async #create(selection: ModelSelection, presetId?: string): Promise<ActiveSession> {
+    const preset = await this.#ctx.agentPresets.resolve(presetId)
     let configured: ConfiguredAgentContext | undefined
     const handle = await this.#ctx.agents.create({
       sessionId: SessionId('session-' + randomUUID()),

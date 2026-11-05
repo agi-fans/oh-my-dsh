@@ -4,6 +4,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { TERMINAL_TITLE_MODES, TERMINAL_STATE_MODES, type TerminalTitleMode, type TerminalStateMode } from '../runtime/terminal-state.ts'
 import type { EditorChoice, EditorId } from '../input/editor-discovery.ts'
 import type { KeyEvent } from '../input/keys.ts'
@@ -12,6 +13,7 @@ import {
   STATUS_DENSITIES,
   STATUS_ITEM_IDS,
   isStatusItemId,
+  isStatusMetaId,
   resolveStatusBarConfig,
   statusBarDocument,
   statusItemVisible,
@@ -69,7 +71,7 @@ export interface PluginSettingsEntry {
   id: string
   label: string
   description: string
-  section?: 'agent' | 'tools' | 'integrations' | 'advanced'
+  section?: 'general' | 'presets' | 'agent' | 'tools' | 'integrations' | 'advanced'
   namespace?: string
   fields?: readonly string[]
   summary?: string
@@ -85,6 +87,7 @@ export interface PluginSettingsEntry {
 
 /** Session-local TUI prefs the overlay can change. */
 export interface TuiPrefs {
+  uiLanguage?: 'auto' | 'zh-CN' | 'en'
   theme: ThemeName
   colors: boolean
   motion?: MotionMode
@@ -95,6 +98,7 @@ export interface TuiPrefs {
   editor?: EditorId
   terminalTitle?: TerminalTitleMode
   terminalState?: TerminalStateMode
+  busyEnter?: 'queue' | 'steer'
   pasteProtection?: boolean
   copyOnSelect?: boolean
   mouseInteraction?: 'auto' | 'tui' | 'native'
@@ -143,8 +147,9 @@ export type SettingsCommand =
 
 const COLOR_VALUES = ['on', 'off'] as const
 const STARTUP_CHANGELOG_VALUES = [...STARTUP_CHANGELOG_MODES]
-const AGENT_LANGUAGE_VALUES = ['Auto', 'Simplified Chinese', 'English'] as const
+const AGENT_LANGUAGE_VALUES = ['Follow UI', 'Auto', 'Simplified Chinese', 'English'] as const
 const AGENT_LANGUAGE_LABELS: Record<TuiAgentBehaviorSettings['language'], typeof AGENT_LANGUAGE_VALUES[number]> = {
+  'follow-ui': 'Follow UI',
   auto: 'Auto',
   'zh-CN': 'Simplified Chinese',
   en: 'English',
@@ -152,19 +157,19 @@ const AGENT_LANGUAGE_LABELS: Record<TuiAgentBehaviorSettings['language'], typeof
 const AGENT_LANGUAGE_IDS = Object.fromEntries(
   Object.entries(AGENT_LANGUAGE_LABELS).map(([id, label]) => [label, id]),
 ) as Record<typeof AGENT_LANGUAGE_VALUES[number], TuiAgentBehaviorSettings['language']>
-const STATUS_ITEM_CONTROLS = 'Space shows or hides it.'
+const STATUS_ITEM_CONTROLS = 'Space toggles this preference; width may hide enabled items.'
 const STATUS_ITEM_COPY: Record<StatusItemId, { label: string; description: string; sample: string }> = {
   model: { label: 'Model', description: `Model name on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'deepseek' },
   effort: { label: 'Effort', description: `Reasoning effort on the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: 'max' },
   path: { label: 'Path', description: `Workspace path on the right of the first footer line. ${STATUS_ITEM_CONTROLS}`, sample: '~/project' },
   git: { label: 'Git', description: `Git branch on the first footer line. A dirty worktree stays warning. ${STATUS_ITEM_CONTROLS}`, sample: 'main *1' },
-  session: { label: 'Session', description: `Folded session title on the first footer line. Off at Standard and Minimal; the terminal window title shows it regardless. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
+  session: { label: 'Session', description: `Session title on the first footer line. Hidden by default at Minimal and Standard. ${STATUS_ITEM_CONTROLS}`, sample: 'Fix the parser' },
   context: { label: 'Context', description: `Context occupancy, on the left of the second line. Its representation follows the density. ${STATUS_ITEM_CONTROLS}`, sample: 'Ctx 1.6%' },
   cache: { label: 'Cache', description: `Prompt-cache hit rate, beside occupancy on the left. Cache-hit percentages stay on the success color. ${STATUS_ITEM_CONTROLS}`, sample: 'Cache 99%' },
   tokens: { label: 'Tokens', description: `Input and output token counts, on the right with the other cost figures. ${STATUS_ITEM_CONTROLS}`, sample: '5.9M in' },
-  speed: { label: 'Latency', description: `First-token latency and decode rate, on the right. ${STATUS_ITEM_CONTROLS}`, sample: 'TTFT 1.2s' },
-  durations: { label: 'Time', description: `LLM and tool duration, on the right. ${STATUS_ITEM_CONTROLS}`, sample: 'LLM 16m51s' },
-  counts: { label: 'Activity', description: `Turn and step counts, on the right. ${STATUS_ITEM_CONTROLS}`, sample: '3 turns' },
+  speed: { label: 'Latency / speed', description: `TTFT and tokens per second, on the right of the metrics line. ${STATUS_ITEM_CONTROLS}`, sample: 'TTFT 1.2s' },
+  durations: { label: 'Duration', description: `LLM and tool time, on the left of the totals line. Appears when the metrics line fits. ${STATUS_ITEM_CONTROLS}`, sample: 'LLM 16m51s' },
+  counts: { label: 'Turns / steps', description: `Turn and step counts, on the right of the totals line. Appears when the metrics line fits. ${STATUS_ITEM_CONTROLS}`, sample: '3 turns' },
 }
 
 
@@ -174,8 +179,10 @@ function statusItemRow(config: ResolvedStatusBarConfig, id: StatusItemId): Setti
   return {
     id: `statusItem:${id}`,
     label: copy.label,
-    description: copy.description,
-    sample: visible ? copy.sample : 'hidden',
+    keywords: [id, copy.sample, ...(id === 'counts' ? ['Activity'] : id === 'durations' ? ['Time'] : [])],
+    description: !config.enabled && !isStatusMetaId(id)
+      ? 'Session metrics are off. Enable them to display this item.' : copy.description,
+    sample: copy.sample,
     value: visible ? 'shown' : 'hidden',
     values: ['shown', 'hidden'],
     hidden: !visible,
@@ -241,6 +248,13 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       values: ['auto', 'tui', 'native'],
     },
     {
+      id: 'busyEnter',
+      label: 'Enter while running',
+      description: 'Queue waits for the next turn; Steer guides the next model step. Explicit Queue and Steer shortcuts keep their meaning.',
+      value: prefs.busyEnter === 'steer' ? 'Steer' : 'Queue',
+      values: ['Queue', 'Steer'],
+    },
+    {
       id: 'pasteProtection',
       label: 'Paste protection',
       description: 'Treat rapid text and Enter keys as a paste when the terminal does not mark pasted input.',
@@ -288,8 +302,8 @@ function agentSettingItems(agent: TuiAgentBehaviorSettings | undefined): Setting
   if (agent === undefined) return []
   return [{
     id: 'agentLanguage',
-    label: 'Language',
-    description: 'Preferred language for reasoning and replies',
+    label: 'Response language',
+    description: 'Preferred language for replies, questions and plans',
     value: AGENT_LANGUAGE_LABELS[agent.language],
     values: AGENT_LANGUAGE_VALUES,
   }]
@@ -300,15 +314,16 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
   return [
     {
       id: 'statusEnabled',
-      label: 'Telemetry',
-      description: 'Show session metrics below the first footer line',
+      label: 'Session metrics',
+      keywords: ['Telemetry'],
+      description: 'Show session metrics below the model and workspace line. The first line stays visible.',
       value: statusBar.enabled ? 'on' : 'off',
       values: COLOR_VALUES,
     },
     {
       id: 'statusDensity',
       label: 'Density',
-      description: 'Minimal shows occupancy and cache; Standard adds latency; Verbose adds tokens on the same line and gives durations and activity a third, with long labels and the detailed context form',
+      description: 'Minimal: context and cache. Standard: adds latency and speed. Verbose: adds tokens and totals. Item overrides stay in effect.',
       value: statusBar.density,
       values: STATUS_DENSITIES,
     },
@@ -354,12 +369,14 @@ export function tuiSettingItems(
 
 /** Apply one cycled value back onto the prefs record. */
 export function applySettingValue(prefs: TuiPrefs, id: string, value: string): TuiPrefs {
+  if (id === 'uiLanguage' && ['auto', 'zh-CN', 'en'].includes(value)) return { ...prefs, uiLanguage: value as NonNullable<TuiPrefs['uiLanguage']> }
   if (id === 'theme' && isThemeName(value)) return { ...prefs, theme: value }
   if (id === 'colors') return { ...prefs, colors: value === 'on' }
   if (id === 'motion' && MOTION_MODES.includes(value as MotionMode)) return { ...prefs, motion: value as MotionMode }
   if (id === 'mathMode' && MATH_MODES.includes(value as MathMode)) return { ...prefs, mathMode: value as MathMode }
   if (id === 'mermaidMode' && MERMAID_MODES.includes(value as MermaidMode)) return { ...prefs, mermaidMode: value as MermaidMode }
   if (id === 'hideThinking') return { ...prefs, hideThinking: value === 'hidden' }
+  if (id === 'busyEnter') return { ...prefs, busyEnter: value === 'Steer' ? 'steer' : 'queue' }
   if (id === 'pasteProtection') return { ...prefs, pasteProtection: value === 'on' }
   if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
   if (id === 'mouseInteraction' && ['auto', 'tui', 'native'].includes(value)) {
@@ -447,7 +464,7 @@ function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
 
 
 interface SettingsSection {
-  id: 'general' | 'agent' | 'tools' | 'status' | 'integrations' | 'advanced'
+  id: 'general' | 'models' | 'presets' | 'plugins' | 'terminal' | 'advanced'
   label: string
   start: number
   end: number
@@ -458,18 +475,20 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
     .filter(entry => (entry.section ?? 'advanced') === section)
     .map(entry => ({ ...entry, id: `plugin:${entry.id}`, value: entry.inline?.value ?? entry.summary ?? 'Configure',
       values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
+  const actions = (group: string): SettingItem[] => (state.actions ?? []).filter(item => item.group === group)
+    .map(({ group: _category, ...item }) => group === 'Input' ? { ...item, group } : item)
   return [
-    { id: 'general' as const, label: 'Interface', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
+    { id: 'general' as const, label: 'General', items: [{ id: 'uiLanguage', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true }, ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('general'), ...actions('General')] },
+    { id: 'models' as const, label: 'Models', items: [...actions('Models'), ...(state.actions ?? []).filter(item => item.group === undefined)] },
+    { id: 'presets' as const, label: 'Agent presets', items: [...owned('presets'), ...actions('Agent presets')] },
+    { id: 'plugins' as const, label: 'Plugins', items: [...actions('Plugins'), ...owned('tools'), ...owned('agent'), ...owned('integrations'), ...(state.features === undefined ? [] : featureSettingItems(state.features))] },
+    { id: 'terminal' as const, label: 'Terminal', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
       resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState'].includes(item.id) ? 'Appearance'
-        : ['editor', 'mouseInteraction', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
+        : ['editor', 'mouseInteraction', 'busyEnter', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
           : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
-      description: item.description,
-    })), ...(state.actions ?? []).filter(item => item.group === 'Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')) },
-    { id: 'agent' as const, label: 'Agent', items: [...(state.actions ?? []).filter(item => item.group !== 'Input'), ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('agent')] },
-    { id: 'tools' as const, label: 'Tools', items: [...(state.features === undefined ? [] : featureSettingItems(state.features)), ...owned('tools')] },
-    { id: 'status' as const, label: 'Status line', items: [...statusSettingItems(state.prefs).map(item => ({ ...item, resettable: true })),
-      { id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, description: 'Restore the inherited status-line layout, colors and visibility. Confirmation shows what will be restored.' }] },
-    { id: 'integrations' as const, label: 'Integrations', items: owned('integrations') },
+    })), ...actions('Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')).concat(
+      statusSettingItems(state.prefs).map(item => ({ ...item, resettable: true, group: 'Status line' })),
+      [{ id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, group: 'Status line', description: 'Restore inherited density and item visibility. Confirmation shows what will be restored.' }]) },
     { id: 'advanced' as const, label: 'Advanced', items: owned('advanced') },
   ].filter(group => group.items.length > 0)
 }
@@ -494,7 +513,7 @@ interface SettingsMatch { item: SettingItem; index: number; section: string }
 function settingsMatches(state: SettingsState): readonly SettingsMatch[] {
   let index = 0
   const rows = settingGroups(state).flatMap(group => group.items.map(item => ({ item, index: index++, section: group.label })))
-  return rankSearchResults(rows, state.search ?? '', row => [row.item.label, row.item.description, row.section, row.item.group ?? '', ...row.item.keywords ?? []])
+  return rankSearchResults(rows, state.search ?? '', row => [row.item.label, row.item.description, row.section, row.item.group ?? '', uiText(resolveUiLanguage(state.prefs.uiLanguage), row.item.label), uiText(resolveUiLanguage(state.prefs.uiLanguage), row.section), ...row.item.keywords ?? []])
 }
 
 function searchSettings(state: SettingsState, query: string): SettingsState {
@@ -692,15 +711,17 @@ function border(theme: Theme, text: string): string {
 
 function topBorder(theme: Theme, width: number): string {
   const inner = Math.max(0, width - 2)
-  const title = truncateToWidth(' Settings · Profile ', Math.max(0, inner - 2))
+  const title = truncateToWidth(' ' + theme.text('Settings · Profile') + ' ', Math.max(0, inner - 2))
   const fill = Math.max(0, inner - 1 - visibleWidth(title))
   return border(theme, BOX.topLeft + BOX.horizontal)
     + theme.bold(theme.fg('accent', title))
     + border(theme, BOX.horizontal.repeat(fill) + BOX.topRight)
 }
 
-function divider(theme: Theme, width: number): string {
-  return border(theme, BOX.teeRight + BOX.horizontal.repeat(Math.max(0, width - 2)) + BOX.teeLeft)
+function divider(theme: Theme, width: number, label?: string): string {
+  const inner = Math.max(0, width - 2)
+  const title = label === undefined ? '' : truncateToWidth(` ${label} `, inner)
+  return border(theme, BOX.teeRight + title + BOX.horizontal.repeat(Math.max(0, inner - visibleWidth(title))) + BOX.teeLeft)
 }
 
 function bottomBorder(theme: Theme, width: number): string {
@@ -719,8 +740,8 @@ function renderSectionTabs(
   width: number,
 ): string {
   const tab = (id: SettingsSection['id'], label: string): string => id === active
-    ? theme.bold(theme.fg('accent', `● ${label}`))
-    : theme.fg('muted', `○ ${label}`)
+    ? theme.bold(theme.fg('accent', `● ${theme.text(label)}`))
+    : theme.fg('muted', `○ ${theme.text(label)}`)
   const all = ' ' + sections.map(section => tab(section.id, section.label)).join('    ')
   const current = sections.findIndex(section => section.id === active)
   return framedRow(theme, visibleWidth(all) <= width - 4 ? all
@@ -749,12 +770,13 @@ const STATUS_PREVIEW_META = {
   reasoningEffort: 'max',
   pwd: '~/project',
   branch: 'main *1',
+  sessionTitle: 'Fix the parser',
 }
 
 function renderStatusPreview(state: SettingsState, theme: Theme, width: number, rows: number): string[] {
   const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
   const inner = Math.max(0, width - 4)
-  const prefix = 'Preview  '
+  const prefix = theme.text('Preview') + '  '
   const label = theme.fg('dim', prefix)
   const focus = selectedStatusItem(state)
   const preview = renderStatusFooter({
@@ -764,7 +786,7 @@ function renderStatusPreview(state: SettingsState, theme: Theme, width: number, 
     width: inner,
     ...(focus === undefined ? {} : { focus }),
   }, theme)
-  if (preview.length === 0) return [framedRow(theme, label + theme.fg('muted', 'disabled'), width)]
+  if (preview.length === 0) return [framedRow(theme, label + theme.fg('muted', theme.text('disabled')), width)]
   return preview.slice(0, Math.max(1, rows)).map(line => framedRow(theme, line, width))
 }
 
@@ -785,7 +807,7 @@ export function renderSettings(
   const sectionEnd = section.end
   const sectionItems = items.slice(sectionStart, sectionEnd)
   const descriptionRows = height >= 12 ? 2 : height >= 10 ? 1 : 0
-  const maxPreviewContent = active === 'status'
+  const maxPreviewContent = items[index]?.group === 'Status line'
     ? (height >= 13 ? 3 : height >= 11 ? 2 : height >= 9 ? 1 : 0)
     : 0
   const previewLines = maxPreviewContent > 0
@@ -810,8 +832,8 @@ export function renderSettings(
   const visibleItems = rows.slice(start, start + visibleCount)
   const selected = matches?.length === 0 ? undefined : items[index]
   const lines = [topBorder(theme, width), renderSectionTabs(active, sections, theme, width)]
-  if (matches !== undefined) lines.push(framedRow(theme, `Search: ${state.search || 'type to filter'} · ${matches.length} matches`, width))
-  lines.push(divider(theme, width))
+  if (matches !== undefined) lines.push(framedRow(theme, theme.text('Search: {query} · {count} matches', { query: state.search || theme.text('type to filter'), count: matches.length }), width))
+  lines.push(divider(theme, width, previewLines.length > 0 ? theme.text('Preview · example data · English') : undefined))
   if (previewLines.length > 0) {
     lines.push(...previewLines, divider(theme, width))
   }
@@ -819,10 +841,10 @@ export function renderSettings(
   for (let row = 0; row < viewportHeight; row += 1) {
     const entry = visibleItems[row]
     if (entry === undefined) {
-      lines.push(framedRow(theme, row === 0 && matches?.length === 0 ? theme.fg('muted', 'No matching settings') : '', width))
+      lines.push(framedRow(theme, row === 0 && matches?.length === 0 ? theme.fg('muted', theme.text('No matching settings')) : '', width))
       continue
     }
-    if ('group' in entry) { lines.push(framedRow(theme, theme.fg('dim', ` ${entry.group}`), width)); continue }
+    if ('group' in entry) { lines.push(framedRow(theme, theme.fg('dim', ` ${theme.text(entry.group)}`), width)); continue }
     const item = entry.item
     const selectedRow = entry.index === index
     if (selectedRow) cursorRow = lines.length
@@ -838,7 +860,7 @@ export function renderSettings(
     ), width))
   }
   lines.push(divider(theme, width))
-  const description = selected === undefined ? '' : selected.description
+  const description = selected === undefined ? '' : theme.text(selected.description)
   const descriptionLines = wrapTextStable(description, Math.max(1, width - 8)).slice(0, descriptionRows)
   for (let row = 0; row < descriptionRows; row += 1) {
     const text = descriptionLines[row] ?? ''
@@ -850,9 +872,9 @@ export function renderSettings(
         : selected?.id.startsWith('statusItem:') === true
           ? 'Space show/hide · / search · Esc back'
           : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints()
-  const hints = theme.fg('dim', width < 60
+  const hints = theme.fg('dim', theme.text(width < 60
     ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
-    : fullHint)
+    : fullHint))
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))
   return {
     lines,
@@ -870,15 +892,18 @@ function renderSettingRow(
 ): string {
   // A colour value keeps its swatch tone only when the row is not selected;
   // selection has to win, or the reader cannot tell which row the cursor is on.
-  const rawValue = moving ? 'moving' : item.value
+  const displayValue = item.id === 'uiLanguage'
+    ? ({ auto: 'Auto', 'zh-CN': '简体中文', en: 'English' } as Record<string, string>)[item.value] ?? item.value
+    : item.id.startsWith('statusItem:') ? item.value === 'shown' ? 'on' : 'off' : item.value
+  const rawValue = theme.text(moving ? 'moving' : displayValue)
   const value = selected || item.swatch === undefined ? rawValue : theme.fg(item.swatch, rawValue)
   const row: ListRow = {
-    label: item.label,
+    label: theme.text(item.label),
     ...(item.sample === undefined ? {} : { description: item.sample }),
     secondary: item.hidden === true,
     value,
   }
-  const rendered = renderListRowWithValue(row, theme, width, visibleWidth(item.label), {
+  const rendered = renderListRowWithValue(row, theme, width, visibleWidth(row.label), {
     selected,
     ...(moving ? { moving } : {}),
   })

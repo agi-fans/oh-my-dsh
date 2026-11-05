@@ -1775,8 +1775,8 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     // No readline in flight — the runner is busy driving a turn.
     press(term, 'typed during turn\r')
-    expect(stripAnsi(term.captured)).toContain('│ Queued · follow-up · typed during turn')
-    expect(stripAnsi(term.captured)).toContain('↑ edit')
+    expect(stripAnsi(term.captured)).toContain('│ Sending · not yet accepted · typed')
+    expect(stripAnsi(term.captured)).toContain('Alt+Q manage')
     const next = tui.readline()
     expect(await next).toBe('typed during turn')
     tui.dispose()
@@ -1786,10 +1786,10 @@ describe('LocalTui (tty)', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     for (const message of ['first queued', 'second queued']) press(term, message + '\r')
-    expect(stripAnsi(term.captured)).toContain('Queued · 2')
+    expect(stripAnsi(term.captured)).toContain('Sending · 2')
     press(term, '\x1b[A')
     const restored = stripAnsi(term.captured)
-    expect(restored).toContain('│ Queued · follow-up · first queued')
+    expect(restored).toContain('│ Sending · not yet accepted · first queued')
     expect(restored).toContain('second queued')
     const next = tui.readline()
     expect(await next).toBe('first queued')
@@ -3176,7 +3176,7 @@ describe('LocalTui (tty)', () => {
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain('● Advanced')
       expect(term.visible().join('\n')).toContain('❯ subagent')
-      press(term, '\t')
+      press(term, '\t\t')
       expect(term.visible().join('\n')).toContain('light')
       press(term, '\x1b[27u')
       expect(term.visible().filter(row => row.includes('🐳'))).toHaveLength(1)
@@ -3201,7 +3201,7 @@ describe('LocalTui (tty)', () => {
     ctx.provide('tui', tui)
     const unbind = tui.bindPluginSettings({ entries: () => pluginSettingsEntries(ctx), edit: (id, signal) => editSettingsEntry(ctx, id, signal) })
     try {
-      press(term, `/settings\r\x1b[Z${id === 'claude' ? '\x1b[B' : ''}\r`)
+      press(term, `/settings\r\t${id === 'claude' ? '\x1b[B' : ''}\r`)
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain('Installation status')
       press(term, '\x1b[B\r')
@@ -3214,7 +3214,7 @@ describe('LocalTui (tty)', () => {
       press(term, '\x1b[27u')
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain(`❯ ${label}`)
-      expect(term.visible().join('\n')).toContain('● Integrations')
+      expect(term.visible().join('\n')).toContain('● Plugins')
       press(term, '\x1b[27u')
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain('Package: available (installation)')
@@ -3234,7 +3234,7 @@ describe('LocalTui (tty)', () => {
     ctx.provide('tui', tui)
     const unbind = tui.bindPluginSettings({ entries: () => pluginSettingsEntries(ctx), edit: (id, signal) => editSettingsEntry(ctx, id, signal) })
     try {
-      press(term, `/settings\r${kind === 'field' ? '\t' : '\x1b[Z'}\r`)
+      press(term, '/settings\r\t\r')
       await flushAsyncPaste()
       press(term, '\r'); await flushAsyncPaste()
       if (kind === 'field') { press(term, '\x1542\r'); await flushAsyncPaste() }
@@ -3250,7 +3250,7 @@ describe('LocalTui (tty)', () => {
     const persist = vi.fn(() => pending.promise)
     tui.setPrefsPersist(persist)
     try {
-      press(term, '/settings\r\x1b[C')
+      press(term, '/settings\r\t\x1b[C')
       expect(tui.prefs().theme).toBe('light')
       press(term, '\x1b[C')
       expect(persist).toHaveBeenCalledTimes(1)
@@ -3273,7 +3273,7 @@ describe('LocalTui (tty)', () => {
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     const pending = Promise.withResolvers<void>()
     tui.setPrefsPersist(() => pending.promise)
-    press(term, '/settings\r\x1b[C')
+    press(term, '/settings\r\t\x1b[C')
     const disposed = tui.dispose()
     expect(tui.dispose()).toBe(disposed)
     const output = term.captured
@@ -3330,7 +3330,7 @@ describe('LocalTui (tty)', () => {
     })
     const unbind = tui.bindPluginSettings({ entries, edit: async () => {}, set })
     try {
-      press(term, '/settings\r\x1b[Z\x1b[C')
+      press(term, '/settings\r\t\x1b[C')
       await flushAsyncPaste()
       expect(set).toHaveBeenCalledTimes(1)
       expect(term.visible().join('\n')).toContain('On')
@@ -3362,12 +3362,12 @@ describe('LocalTui (tty)', () => {
       updated = true
     } })
     try {
-      press(term, '/settings\r\x1b[Z\r')
+      press(term, '/settings\r\t\r')
       await flushAsyncPaste()
       press(term, '\x1b[27u')
       await flushAsyncPaste()
       const screen = term.visible().join('\n')
-      expect(screen).toContain('● Integrations')
+      expect(screen).toContain('● Plugins')
       expect(screen).toContain('❯ Advisor')
       expect(screen).not.toContain('❯ Subagent models')
     } finally { await unbind(); tui.dispose() }
@@ -3402,7 +3402,7 @@ describe('LocalTui (tty)', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const pending = tui.readline()
-    press(term, '/settings\r')
+    press(term, '/settings\r\t')
     expect(term.captured).toContain('Settings')
     expect(term.captured).toContain('Theme')
     expect(term.captured).toContain('dark')
@@ -3438,7 +3438,7 @@ describe('LocalTui (tty)', () => {
     void tui.readline()
     press(term, '/set\r')
     expect(term.captured).toContain('Settings')
-    expect(term.captured).toContain('Color palette')
+    expect(term.captured).toContain('UI language')
     tui.dispose()
   })
 
@@ -3459,7 +3459,7 @@ describe('LocalTui (tty)', () => {
     const unbind = tui.bindPluginSettings({ entries: () => [{ id: 'shell', label: 'Shell', description: 'Timeout', section: 'tools' }],
       edit: async (_id, signal) => { await tui.prompt({ title: 'Shell field', question: 'Choose', options: [{ label: 'Timeout' }], signal }) } })
     try {
-      press(term, '/settings\r\x1b[C')
+      press(term, '/settings\r\t\t\x1b[C')
       expect(persist.mock.calls[0]?.[1]).toEqual([{ op: 'set', path: ['theme'], value: 'light' }])
       press(term, 'Shell\r')
       await flushAsyncPaste()
@@ -3516,9 +3516,10 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     tui.setPrefsPersist((prefs) => { persisted.push(prefs) })
     const pending = tui.readline()
-    press(term, '/settings\r')
+    press(term, '/settings\r\t')
     press(term, '\r')
     expect(persisted).toEqual([{
+      uiLanguage: 'auto',
       theme: 'light',
       colors: false,
       motion: 'full',
@@ -3530,6 +3531,7 @@ describe('LocalTui (tty)', () => {
       terminalState: 'auto',
       copyOnSelect: true,
       mouseInteraction: 'auto',
+      busyEnter: 'queue',
       pasteProtection: true,
       checkUpdates: true,
       startupChangelog: 'summary',
@@ -3560,7 +3562,7 @@ describe('LocalTui (tty)', () => {
     void tui.readline()
     // Interface → walk down to Density → cycle its value. The row lives in
     // Interface because it shapes the whole footer, not just its second line.
-    press(term, '/settings\r')
+    press(term, '/settings\r\t')
     press(term, 'Density')
     press(term, '\r')
     press(term, '\x1b[C')
@@ -3584,8 +3586,8 @@ describe('LocalTui (tty)', () => {
         const term = new FakeTerminal()
         tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { featurePatch })
         void tui.readline()
-        press(term, '/settings\r')
-        press(term, '\t\x1b[B\x1b[B')
+        press(term, '/settings\r\t')
+        press(term, '\x1b[B\x1b[B')
         const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
         expect(screen).toMatch(new RegExp(`Ralph loop\\s+${initial}`, 'u'))
         press(term, '\r')
@@ -3676,7 +3678,7 @@ describe('LocalTui (tty)', () => {
       const term = new FakeTerminal()
       const tui = new LocalTui(term, 'm', false)
       void tui.readline()
-      press(term, '/settings\r')
+      press(term, '/settings\r\t')
       press(term, '\x1b[B')
       // Dark accent is brand blue #7c93ff; a colorless session emits no SGR at all.
       expect(term.captured).not.toContain('\x1b[38;2;124;147;255m')
@@ -3736,6 +3738,69 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
+  it('switches UI language immediately, preserves the row and saves only the UI preference', async () => {
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false)
+    const persist = vi.fn(), response = vi.fn(async () => {})
+    tui.setPrefsPersist(persist)
+    tui.bindAgentBehaviorSettings({ get: () => ({ language: 'en' }), update: response, watch: () => () => {} })
+    try {
+      press(term, '/settings\r\x1b[C')
+      expect(term.visible().join('\n')).toContain('❯ 界面语言')
+      expect(term.visible().join('\n')).toContain('回复语言')
+      expect(persist.mock.calls[0]?.[1]).toEqual([{ op: 'set', path: ['uiLanguage'], value: 'zh-CN' }])
+      expect(response).not.toHaveBeenCalled()
+      press(term, '\x1b[C')
+      expect(term.visible().join('\n')).toContain('❯ UI language')
+      expect(tui.prefs().uiLanguage).toBe('en')
+      expect(term.captured).not.toContain('\x1b[3J')
+    } finally { await tui.dispose() }
+  })
+
+  it('localizes the exit hint while retaining an executable resume command', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    tui.applyStoredPrefs({ ...tui.prefs(), uiLanguage: 'zh-CN' })
+    tui.setSession({ id: 'language-resume', recent: [] })
+    press(term, '\x03\x03')
+    await tui.dispose()
+    expect(term.captured).toContain('使用以下命令恢复此会话：omdsh --resume language-resume')
+    expect(term.raw).toBe(false)
+    expect(term.captured).not.toContain('\x1b[3J')
+  })
+
+  it('updates open menu copy while retaining its selection and canonical answer', async () => {
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      const answer = tui.prompt({ localize: true, title: 'Plugins', question: 'Manage this profile',
+        detail: 'Input', options: [{ label: 'Allow once' }, { label: 'Reject' }], allowCustom: false })
+      press(term, '\x1b[B')
+      tui.applyStoredPrefs({ ...tui.prefs(), uiLanguage: 'zh-CN' })
+      expect(term.visible().join('\n')).toContain('插件')
+      expect(term.visible().join('\n')).toContain('Input')
+      expect(term.visible().join('\n')).toContain('拒绝')
+      press(term, '\r')
+      expect(await answer).toBe('Reject')
+      const question = tui.prompt({ title: 'Question', question: 'Cancel', options: [{ label: 'Allow once' }], allowCustom: false })
+      expect(term.visible().join('\n')).toContain('Cancel')
+      expect(term.visible().join('\n')).toContain('Allow once')
+      press(term, '\r')
+      expect(await question).toBe('Allow once')
+    } finally { await tui.dispose() }
+  })
+
+  it('rolls back a failed UI-language write and preserves native history', async () => {
+    const term = new ScrollingTerminal(100, 24), tui = new LocalTui(term, 'm', false)
+    tui.setPrefsPersist(() => Promise.reject(new Error('Language save failed')))
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), uiLanguage: 'en' })
+      press(term, '/settings\r\x1b[D')
+      expect(term.visible().join('\n')).toContain('界面语言')
+      await flushAsyncPaste()
+      expect(tui.prefs().uiLanguage).toBe('en')
+      expect(term.visible().join('\n')).toContain('Language save failed')
+      expect(term.captured).not.toContain('\x1b[3J')
+    } finally { await tui.dispose() }
+  })
+
   it('binds the product-owned Agent language section and persists its value', async () => {
     const updates: Array<{ language: string }> = []
     let publish: ((next: { language: 'auto' | 'zh-CN' | 'en' }) => void) | undefined
@@ -3751,9 +3816,8 @@ describe('LocalTui (tty)', () => {
     })
     void tui.readline()
     press(term, '/settings\r')
-    press(term, '\t')
-    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('● Agent')
-    press(term, '\x1b[C')
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('● General')
+    press(term, '\x1b[B\x1b[C')
     await flushAsyncPaste()
     expect(updates).toEqual([{ language: 'zh-CN' }])
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Simplified Chinese')
@@ -3773,8 +3837,7 @@ describe('LocalTui (tty)', () => {
     })
     void tui.readline()
     press(term, '/settings\r')
-    press(term, '\t')
-    press(term, '\x1b[C')
+    press(term, '\x1b[B\x1b[C')
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Simplified Chinese')
     await flushAsyncPaste()
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Could not save Agent language: disk unavailable')
@@ -4753,7 +4816,7 @@ it('persists the selected editor and uses it for both file and prompt editing', 
   const pending = tui.readline()
   try {
     press(term, '/settings\r')
-    press(term, '\x1b[B'.repeat(tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'editor')) + '\r')
+    press(term, '\t' + '\x1b[B'.repeat(tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'editor') - 1) + '\r')
     expect(persist.mock.calls[0]?.[0].editor).toBe('code')
     press(term, '\x1b')
     tui.openFileInEditor('/workspace/a.ts')
@@ -4849,51 +4912,75 @@ describe('composer paste and steering', () => {
     } finally { tui.dispose() }
   })
 
-  it('uses acknowledged steering without consuming the next-turn reader, while Enter still queues', async () => {
-    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), accepted: string[] = []
+  it('persists the busy Enter setting through its own field', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const persist = vi.fn()
+    tui.setPrefsPersist(persist)
     try {
-      tui.setStatus('running')
-      tui.setSteerHandler(text => { accepted.push(text) })
-      const nextTurn = tui.readInput()
-      press(term, 'correct course\x1bs')
-      expect(accepted).toEqual(['correct course'])
-      press(term, 'next task\r')
-      expect((await nextTurn)?.text).toBe('next task')
+      press(term, '/settings\rEnter while running\x1b[C')
+      await flushAsyncPaste()
+      expect(tui.prefs().busyEnter).toBe('steer')
+      expect(persist).toHaveBeenCalledWith(expect.objectContaining({ busyEnter: 'steer' }), [{ op: 'set', path: ['busyEnter'], value: 'steer' }])
     } finally { tui.dispose() }
   })
 
-  it('keeps a rejected steering draft, including when the active turn just ended', async () => {
+  it('keeps command delivery ordinary and recalled follow-ups queued under Steer preference', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: 'steer' })
+      tui.setStatus('running')
+      press(term, '!echo hello\r')
+      expect(await tui.readInput()).toEqual({ text: '!echo hello', images: [] })
+      press(term, 'queued task\x1b\r\x1b[A\r')
+      expect(await tui.readInput()).toMatchObject({ text: 'queued task', delivery: 'queue' })
+      press(term, '/literal guidance\x1bs')
+      expect(await tui.readInput()).toMatchObject({ text: '/literal guidance', delivery: 'steer', literal: true })
+    } finally { tui.dispose() }
+  })
+
+  it.each(['queue', 'steer'] as const)('freezes %s delivery and keeps explicit shortcuts independent', async busyEnter => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter })
+      tui.setStatus('running')
+      press(term, 'default message\r')
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: busyEnter === 'queue' ? 'steer' : 'queue' })
+      expect(await tui.readInput()).toMatchObject({ text: 'default message', delivery: busyEnter })
+      press(term, 'correct course\x1bs')
+      expect(await tui.readInput()).toMatchObject({ text: 'correct course', delivery: 'steer' })
+      press(term, 'next task\x1b\r')
+      expect(await tui.readInput()).toMatchObject({ text: 'next task', delivery: 'queue' })
+      expect(stripAnsi(term.captured)).toContain('Enter: Steer')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps an idle steering draft and uses ordinary Enter even with Steer preference', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: 'steer' })
+      press(term, 'keep my text\x1bs')
+      expect(stripAnsi(term.captured)).toContain('active parent turn')
+      press(term, '\r')
+      expect(await tui.readInput()).toEqual({ text: 'keep my text', images: [] })
+    } finally { tui.dispose() }
+  })
+
+  it('keeps selectors isolated and sends attachments through the normal submission reader', async () => {
     const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
     try {
       tui.setStatus('running')
-      const release = tui.setSteerHandler(() => { throw new Error('Turn already ended') })
-      press(term, 'keep my text\x1bs')
-      expect(stripAnsi(term.captured)).toContain('Turn already ended')
-      release()
-      press(term, '\r')
-      expect((await tui.readInput())?.text).toBe('keep my text')
-    } finally { tui.dispose() }
-  })
-
-  it('does not route steering from a selector or silently lose attachments', async () => {
-    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), handler = vi.fn()
-    try {
-      tui.setStatus('running')
-      tui.setSteerHandler(handler)
       const modal = tui.prompt({ question: 'Choose', options: [{ label: 'Yes' }] })
       press(term, '\x1bs\r')
       await modal
-      expect(handler).not.toHaveBeenCalled()
-      tui.restoreInput({ text: 'attached', images: [], files: [
-        { attachmentId: AttachmentId('file-steer'), name: 'a.txt', bytes: 1 } as never,
-      ] })
-      press(term, '\x1bs')
-      expect(handler).not.toHaveBeenCalled()
-      expect(stripAnsi(term.captured).replace(/\s+/gu, ' ')).toContain('steering accepts text only')
-      press(term, '\r')
-      expect((await tui.readInput())?.files).toHaveLength(1)
+      expect(tui.pendingInputs.list()).toHaveLength(0)
+      const files = [{ attachmentId: AttachmentId('file-steer'), name: 'a.txt', bytes: 1 }]
+      tui.restoreInput({ text: 'attached', images: [], files })
+      press(term, '\x1bs\x1bs')
+      expect(await tui.readInput()).toMatchObject({ text: 'attached', delivery: 'steer', files })
+      expect(tui.pendingInputs.list()).toHaveLength(0)
     } finally { tui.dispose() }
   })
+
 })
 
 describe('focus-aware notifications', () => {
@@ -5191,7 +5278,7 @@ it('persists Mermaid source mode and refreshes the live reply after leaving Sett
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).not.toContain('-->')
     press(term, '/settings\r')
     const row = tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'mermaidMode')
-    press(term, '\x1b[B'.repeat(row) + '\r')
+    press(term, '\t' + '\x1b[B'.repeat(row - 1) + '\r')
     expect(persist.mock.calls[0]?.[0].mermaidMode).toBe('source')
     press(term, '\x1b')
     await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('A[First] --> B[Second]'))
@@ -5348,7 +5435,7 @@ it('returns to /settings with refreshed action values after opening a sub-comman
     tui.setCommands([{ name: 'model', description: 'Select model' }])
     const pending = tui.readline()
     press(term, '/settings\r')
-    press(term, '\t') // Switch from Interface to Agent section
+    press(term, 'Model and reasoning') // Find the current-model action across sections
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Model and reasoning')
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('old-model')
     // Press Enter on the first row (Model and reasoning) to dispatch /model
@@ -5541,11 +5628,7 @@ describe('status line settings survive a refresh', () => {
     try {
       void tui.readline()
       press(term, '/settings\r')
-      // Tab to the Status line section, then walk to Context. Searching would
-      // filter the rows; this asserts what a row says, not what a filter found.
-      for (let index = 0; index < 3; index += 1) press(term, '\t')
-      for (let index = 0; index < 7; index += 1) press(term, '\x1b[B')
-      press(term, ' ')
+      press(term, 'Context\r')
       expect(tui.prefs().statusBar?.hidden).toContain('context')
       // A session refresh reseeds the rows from the preferences. Before the fix
       // this rewrote the document with the density only, so the row came back
@@ -5565,9 +5648,7 @@ describe('status line settings survive a refresh', () => {
     try {
       void tui.readline()
       press(term, '/settings\r')
-      for (let index = 0; index < 3; index += 1) press(term, '\t')
-      for (let index = 0; index < 12; index += 1) press(term, '\x1b[B')
-      press(term, ' ')
+      press(term, 'Turns / steps\r')
       expect(tui.prefs().statusBar?.shown).toContain('counts')
       tui.setSession({ id: 's', recent: [] })
       expect(tui.prefs().statusBar?.shown).toContain('counts')

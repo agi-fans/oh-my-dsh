@@ -75,6 +75,7 @@ export interface CancelSurface {
  * and no `presentation`; both are supplied here so the caller states one thing.
  */
 export function askPrompt(request: {
+  localize?: TuiPrompt['localize']
   title: string
   question: string
   detail?: string
@@ -93,6 +94,7 @@ export function askPrompt(request: {
   notify?: boolean
 }): TuiPrompt {
   return {
+    ...(request.localize === undefined ? {} : { localize: request.localize }),
     title: request.title,
     question: request.question,
     ...(request.detail === undefined ? {} : { detail: request.detail }),
@@ -116,6 +118,7 @@ export function askPrompt(request: {
  * without an `allowCustom` flag the caller has to reason about.
  */
 export function choosePrompt<const T extends PromptChoice>(request: {
+  localize?: TuiPrompt['localize']
   title: string
   question: string
   detail?: string
@@ -140,6 +143,7 @@ export function choosePrompt<const T extends PromptChoice>(request: {
   notify?: boolean
 }): TuiPrompt {
   return {
+    ...(request.localize === undefined ? {} : { localize: request.localize }),
     title: request.title,
     question: request.question,
     ...(request.detail === undefined ? {} : { detail: request.detail }),
@@ -168,6 +172,7 @@ export function choosePrompt<const T extends PromptChoice>(request: {
 export async function confirmPrompt(
   prompt: (request: TuiPrompt) => Promise<string | null>,
   request: {
+    localize?: TuiPrompt['localize']
     title: string
     question: string
     detail?: string
@@ -192,6 +197,7 @@ export async function confirmPrompt(
 ): Promise<boolean> {
   const accept = request.acceptLabel ?? 'Continue'
   const answer = await prompt({
+    ...(request.localize === undefined ? {} : { localize: request.localize }),
     title: request.title,
     question: request.question,
     ...(request.detail === undefined ? {} : { detail: request.detail }),
@@ -217,6 +223,7 @@ export async function confirmPrompt(
  * caller does not have to pair an open with a close.
  */
 export function readPrompt(request: {
+  localize?: TuiPrompt['localize']
   title: string
   question: string
   /** The text to read; wrapped by default. */
@@ -240,6 +247,7 @@ export function readPrompt(request: {
   onSuperseded?: (input: string) => void
 }): TuiPrompt {
   return {
+    ...(request.localize === undefined ? {} : { localize: request.localize }),
     title: request.title,
     question: request.question,
     ...(request.detail === undefined ? {} : { detail: request.detail }),

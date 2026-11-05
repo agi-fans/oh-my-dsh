@@ -6,8 +6,8 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: cordis
-        name: Cordis
-        description: Coding agent with runtime inspection, development skills, and plugin management for Harness compositions.
+        name: Creator
+        description: Create and configure Harness plugins with runtime inspection, development skills, and plugin management.
         order: 4
         plugins:
           - id: subagent-model-selection

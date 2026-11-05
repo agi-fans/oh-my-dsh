@@ -12,10 +12,12 @@ import {
 const contextFor = (agent?: Agent): AssembleContext => ({ agent }) as AssembleContext
 
 describe('Agent behavior row config', () => {
-  it('defaults to Auto and rejects unknown languages', () => {
+  it('preserves Auto for existing profiles and rejects unknown languages', () => {
     const validate = (input: object): string =>
       (AgentBehaviorConfig(input) as { language: { get(): string } }).language.get()
     expect(validate({})).toBe('auto')
+    expect(validate({ language: 'follow-ui' })).toBe('follow-ui')
+    expect(validate({ language: 'auto' })).toBe('auto')
     expect(validate({ language: 'zh-CN' })).toBe('zh-CN')
     expect(validate({ language: 'en' })).toBe('en')
     expect(() => validate({ language: 'fr' })).toThrow()
@@ -30,12 +32,21 @@ describe('Agent behavior prompt projection', () => {
   })
 
   it('freezes complete English and Simplified Chinese instructions', () => {
-    expect(agentLanguageFragment('zh-CN')).toContain('主要使用简体中文进行推理和面向用户的沟通')
+    expect(agentLanguageFragment('zh-CN')).toContain('主要使用简体中文进行面向用户的沟通')
     expect(agentLanguageFragment('zh-CN')).toContain('Tool 参数')
     expect(agentLanguageFragment('zh-CN')).toContain('用户明确要求当前任务使用其他语言')
     expect(agentLanguageFragment('en')).toContain('Use English as the primary language')
     expect(agentLanguageFragment('en')).toContain('tool arguments')
     expect(agentLanguageFragment('en')).toContain('user explicitly requests another language')
+  })
+
+  it('follows the UI only when selected and retains explicit legacy preferences', () => {
+    expect(agentLanguageFragment('follow-ui', 'zh-CN')).toBe(agentLanguageFragment('zh-CN'))
+    expect(agentLanguageFragment('follow-ui', 'en')).toBe(agentLanguageFragment('en'))
+    expect(agentLanguageFragment('auto', 'zh-CN')).toBe('')
+    expect(agentLanguageFragment('en', 'zh-CN')).toBe(agentLanguageFragment('en'))
+    expect(agentLanguageFragment('en')).not.toContain('reasoning')
+    expect(agentLanguageFragment('zh-CN')).not.toContain('推理')
   })
 
   it('keeps one language snapshot for the whole turn', () => {

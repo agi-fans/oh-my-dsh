@@ -47,6 +47,39 @@ describe('plugin configuration', () => {
     return { ctx, prompt, notice, commandOutput, mutate, set, unset, section, describe }
   }
 
+  it('writes only the new-session permission default using the displayed revision', async () => {
+    const h = await harness(['workspace-write'])
+    h.section.ns = 'permission'
+    h.section.schema = z.object({ defaultPreset: z.string() }).toJSON()
+    const select = vi.fn()
+    h.ctx.provide('permissionPresets', { defaultPreset: 'read-only', select, catalog: () => ({ defaultPreset: 'read-only',
+      defaultOptions: [{ value: 'read-only', name: 'Read Only' }, { value: 'workspace-write', name: 'Workspace Write' }],
+      options: [{ value: 'auto', name: 'Auto review' }] }) } as never)
+    try {
+      expect(config.pluginSettingsEntries(h.ctx)[0]).toMatchObject({ section: 'general', summary: 'read-only' })
+      await config.editSettingsEntry(h.ctx, 'permission', new AbortController().signal)
+      expect(h.prompt.mock.calls[0]?.[0]).toMatchObject({ initialValue: 'read-only', options: [expect.objectContaining({ value: 'read-only' }), expect.objectContaining({ value: 'workspace-write' })] })
+      expect(h.mutate).toHaveBeenCalledWith('permission', [{ op: 'set', path: ['defaultPreset'], value: 'workspace-write' }], 7)
+      expect(select).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('selects a healthy default Agent preset without recomposing the current session', async () => {
+    const h = await harness(['cordis'])
+    h.section.ns = 'agent-preset-registry'
+    h.section.schema = z.object({ selectedDefault: z.string() }).toJSON()
+    const recompose = vi.fn()
+    h.ctx.provide('agentPresets', { defaultId: 'standard', recompose, list: async () => [
+      { id: 'standard', name: 'Standard' }, { id: 'cordis', name: 'Creator' }, { id: 'broken', broken: 'load failed' },
+    ] } as never)
+    try {
+      await config.editSettingsEntry(h.ctx, 'agent-preset-registry', new AbortController().signal)
+      expect(h.prompt.mock.calls[0]?.[0]).toMatchObject({ initialValue: 'standard', options: [expect.objectContaining({ value: 'standard' }), expect.objectContaining({ value: 'cordis' })] })
+      expect(h.mutate).toHaveBeenCalledWith('agent-preset-registry', [{ op: 'set', path: ['selectedDefault'], value: 'cordis' }], 7)
+      expect(recompose).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
   it('places built-in forms in product categories and preserves unclaimed fields in Advanced', async () => {
     const h = await harness([])
     const descriptors = [

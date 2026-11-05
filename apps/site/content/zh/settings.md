@@ -1,10 +1,10 @@
 ---
-description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、可选功能，以及可配置的两行状态栏，含默认值与持久化位置。"
+description: "omdsh 的全部设置：外观、动效、通知、界面与回复语言、可选功能，以及可配置的两行状态栏，含默认值与持久化位置。"
 ---
 
 # 设置
 
-`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 Interface、Agent、Tools、Status line 和 Integrations 之间切换；仅当 Profile 中存在未收编的插件字段时才显示 Advanced；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
+`/settings` 打开设置浮层。`Tab` 与 `Shift+Tab` 在 General、Models、Agent presets、Plugins 和 Terminal 之间切换；仅当 Profile 中存在未收编的插件字段时才显示 Advanced；`↑`/`↓` 移动行，`←`/`→` 修改值。直接输入名称或按 `/` 可跨分类搜索，也支持字段名称。编辑返回后保留查询和选中结果。`Esc` 依次清空查询、返回分类浏览、关闭 Settings；`Ctrl+U` 直接清空查询。窄终端显示当前分类及其序号，便于发现 `Tab` 切换。完整浮层按键见[键盘与快捷键](keyboard.md)。
 
 ## 产品配置
 
@@ -12,14 +12,14 @@ description: "omdsh 的全部设置：外观、动效、通知、Agent 语言、
 
 | 分类 | 配置 |
 |---|---|
-| Interface | 外观、输入、通知与启动偏好。 |
-| Agent | Model and reasoning、Access、Agent preset、Language、Subagents 与 Subagent models。 |
-| Tools | Tool parallelism、Shell 超时／输出限制与可选功能开关。shell executor 的宿主级 `cwd` 有意不提供：每个会话都在当前工作目录中运行。 |
-| Status line | 状态栏布局、可见性、上下文样式与颜色。 |
-| Integrations | Web providers、Web search · API、Web search · Messages、Command hooks、Codex 与 Claude Code。 |
+| General | 界面与回复语言、新会话的 Default access，以及明确标注的 Current session access 操作。 |
+| Models | 当前模型与推理强度、provider 凭据和登出。模型选择同时保存默认值，除非选择仅当前会话。 |
+| Agent presets | 新会话的 Default Agent preset，以及空白会话的 Current session preset。 |
+| Plugins | 插件管理、Shell 限制、工具并行度、子代理、网页服务、命令 Hooks、原生集成及可选功能。 |
+| Terminal | 外观、输入、通知、启动偏好，以及 Status line 分组。 |
 | Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件；为空时隐藏。 |
 
-Integrations 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
+Plugins 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
 
 **Web providers** 选择 search 与 fetch 后端；默认是 `deepseek-search-api`/`deepseek-fetch-api`，每次操作只发一次直连 DeepSeek API 请求，不消耗辅助模型回合。**Web search · API** 配置它的 API 密钥引用、端点、结果数与是否发送触发问题；在 `deepseek-account` 会话中，共享账户 token 优先于 API 密钥；`/login` 会把官方密钥存到上游 `DEEPSEEK_API_KEY` 引用，因此官方 API 登录后即可搜索。**Web search · Messages** 保留备用 Messages Provider 的限额、密钥引用、端点、模型和 API 版本；要使用它，在 Web providers 中选择 `deepseek-official`，本地抓取兜底则选择 `http`。
 
@@ -29,19 +29,19 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 
 密钥输入会被遮蔽，也不会出现在 notice 中。为带有 `apiKeyEnv` 的 `apiKey` 设置值时，密钥通过 Harness credentials 保存，Profile 只记录引用。重置该密钥会同时移除这两个 Profile 字段，恢复继承规则；不会撤销继承凭据或删除凭据库中的密钥。凭据引用字段继续遵循 Harness 的环境变量与凭据源继承规则。
 
-设置保存到当前 Profile。外观立即生效，Agent 语言从下一回合生效，子代理模型选择作用于新会话。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
+设置保存到当前 Profile。外观立即生效，回复语言从下一回合生效，子代理模型选择作用于新会话。这里仅显示已激活插件 schema 声明的实时字段；普通部署选项仍写在 Profile 补丁中。启停及安装见[插件](plugins.md)。
 
-在 **Agent → Subagent models → Allowed models** 中搜索模型目录，用 `Space` 勾选、`Enter` 保存。当前路由会预选，不在目录里的已配置路由也会保留。启用模型选择前需至少选一个模型。新会话采样允许列表，`subagent` 只暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父路由。默认关闭。
+在 **Plugins → Subagent models → Allowed models** 中搜索模型目录，用 `Space` 勾选、`Enter` 保存。当前路由会预选，不在目录里的已配置路由也会保留。启用模型选择前需至少选一个模型。新会话采样允许列表，`subagent` 只暴露这些精确路由；已有会话保留原选择，`subagent_fork` 继承父路由。默认关闭。
 
 产品表单与保存提示使用任务和字段标签，Advanced 保留技术 namespace 与字段路径；字段旁显示 schema 的帮助文字。设置继续写回原插件条目，不复制到 TUI 偏好中。
 
 ### 命令 Hooks
 
-在 **Integrations** 中选择 **Command hooks**。先设置 **Configuration file**，再把 **Hook compatibility** 改为 `codex` 或 `claude-code`；默认 `off` 不执行 Hooks。路径为空时，使用进程工作目录下的 `.codex/hooks.json` 或 `.claude/settings.json`。可以指向已有兼容配置；修改文件内容后，需要重启或将 bridge 关闭再开启。
+在 **Plugins** 中选择 **Command hooks**。先设置 **Configuration file**，再把 **Hook compatibility** 改为 `codex` 或 `claude-code`；默认 `off` 不执行 Hooks。路径为空时，使用进程工作目录下的 `.codex/hooks.json` 或 `.claude/settings.json`。可以指向已有兼容配置；修改文件内容后，需要重启或将 bridge 关闭再开启。
 
 所选的已发布 bridge 执行其支持的同步 command hooks。Codex 映射 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse 和 Stop；Claude Code 遵循其已发布事件子集。不执行不受支持的 async、prompt 和 agent hooks。阻断决定和失败显示在转录中并保留日志；启用后不会为已有会话补跑 SessionStart。一次只启用一个 bridge。
 
-## Interface
+## Terminal
 
 设置分为 Appearance、Input、Notifications 与 Startup。
 
@@ -57,6 +57,7 @@ Advanced 遵守插件的自动表单策略，不重复展示已有产品控件�
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
+| 运行时 Enter 行为 | 排队 / 插话 | 排队 | 选择 Enter 是等待下一回合还是指导下一次模型步骤。排队与插话快捷键含义固定；空闲发送和命令不受影响。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |
@@ -77,17 +78,20 @@ Math in replies 立即应用于实时回复和思考视图。Auto 转换行内�
 
 Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态图、类图、ER 图、思维导图、时间线、饼图和 Git 图。Auto 等待围栏代码块闭合，仅在解析没有警告且整个图形能够容纳时绘制。不支持、不完整、被截断或尺寸过大的图形保留源码；图形连线不会为适应宽度而折行或裁剪。图形颜色跟随当前主题。Source 模式和思考视图显示 Mermaid 代码。复制和导出保留原始 Markdown；切换设置会刷新实时视图，不会重写终端历史。
 
-## Agent
+## General
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
-| Language | Auto / Simplified Chinese / English | Auto | 推理与回复的偏好语言。 |
+| 界面语言（UI language） | 自动 / 简体中文 / English | 自动 | 立即切换界面文字。 |
+| 回复语言（Response language） | 跟随界面 / 自动 / 简体中文 / English | 新配置档案默认跟随界面 | 从下一回合开始使用的面向用户沟通语言。 |
 
-**Model and reasoning**、**Access** 与 **Agent preset** 在命令可用时打开现有的 `/model`、`/permission` 与 `/agent` 选择器。模型选择保存默认路由；Access 和 Agent preset 作用于当前会话。
+**Models → Model and reasoning** 打开 `/model`，修改当前选择并保存默认路由；选择 **This session only** 则仅作用于当前会话。模型选择采用目标模型的默认推理强度，`/model reasoning` 可明确修改强度。**General → Default access** 和 **Agent presets → Default Agent preset** 写入 Harness 的新会话默认设置，不改变现有会话。对应的 **Current session** 操作打开 `/permission` 和 `/agent`；preset 只能在首条提示之前切换。`Ctrl+R` 恢复继承值。Creator 是 `cordis` preset 的用户名称；`/agent creator` 或 **/plugins → Let the agent create a plugin** 进入该模式，不提交提示，也不改变默认 preset。
 
-非 Auto 的选择从下一个回合开始生效；代码、标识符、命令、工具参数、日志、引用与文件内容保持准确形式，当前任务的显式语言要求仍然优先。该偏好是用户级的，因此恢复的会话使用当前值而不是历史快照。
+界面语言覆盖设置、输入区、常用菜单、审批控件与通知。自动依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`：中文环境使用简体中文，其余或未设置的环境使用英语。命令、快捷键、模型名、用户文字、工具输出与文件保留原文；尚未翻译的扩展文字回退到原语言。切换只刷新实时视图，不改写终端原生历史。
 
-## Tools
+回复语言独立设置。“跟随界面”在下一回合开始时读取界面语言；“自动”不注入语言指令。已有配置档案保留明确保存的偏好，未保存时继续使用自动；只有新建配置档案默认跟随界面，恢复继承会回到自动。这是沟通语言偏好，不保证控制模型内部思考的语言；代码、标识符、命令、工具参数、日志、引用与文件内容保持准确形式，当前任务的显式语言要求仍然优先。该偏好是用户级的，因此恢复的会话使用当前值而不是历史快照。
+
+## Plugins
 
 Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows 的 PowerShell 使用同一套表单，分别写回各自配置。可选功能各自消耗上下文、运行时间或转录噪声；每一行关闭一个组合行。
 
@@ -104,22 +108,24 @@ Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows �
 
 支撑某个命令的行（`session-query` 支撑 `/resume`，`workspace` 支撑 `@` 提及）以及会让 agent 不可用的行（`tool-fs`、`tool-bash`、`todo`）刻意不列出。`web_search` 同样缺席：它与 `web_fetch` 共用一行，行级开关表达不了"关搜索、留抓取"。
 
-## Status line
+## Terminal → Status line
+
+底部状态栏和预览始终使用英文标签，不随界面语言切换。设置控件和说明跟随界面语言。预览明确标为示例数据，开启会话标题项后也会显示示例标题。
 
 | 行 | 取值 | 默认 | 作用 |
 |---|---|---|---|
-| Telemetry | on / off | on | 显示首行页脚之下的会话指标；模型和工作区信息仍然显示。关闭后会收回它占用的行。 |
-| Density | minimal / standard / verbose | standard | 页脚显示多少内容。`minimal` 只保留占用——Context 与 Cache——并使用 `Ctx` 标签；`standard` 增加 Latency（`TTFT`）；`verbose` 把 Tokens 加在同一行，并给 Time 与 Activity 单独一行，同时使用长标签（`Context`）与详细上下文形式。 |
+| Session metrics | on / off | on | 显示首行页脚之下的会话指标；模型和工作区信息仍然显示。关闭后会收回它占用的行。 |
+| Density | minimal / standard / verbose | standard | 页脚显示多少内容。`minimal` 只保留占用——Context 与 Cache——并使用 `Ctx` 标签；`standard` 增加 Latency / speed（`TTFT`）；`verbose` 把 Tokens 加在同一行，并给 Duration 与 Turns / steps 单独一行，同时使用长标签（`Context`）与详细上下文形式。 |
 
 在任意页脚项上按 `Space` 可显示或隐藏该项；隐藏是对该数字的判断，因此在切换 Density 后依然生效，而密度自己决定的分组不受影响。**Restore layout** 经确认后恢复继承的 Density 与可见性。
 
-每一项都有固定位置，没有可拖动的东西：一行只表明该项是否出现。第一行左侧是身份——Model（`deepseek`）、Effort（`max`）与 Session，右侧是位置——Path（`~/project`）与 Git（`main *1`）。Session 在 `verbose` 以下默认关闭，因为终端窗口标题无论如何都会显示会话标题。
+每一项都有固定位置。逐项的开关表示显示偏好：已开启的统计项还需要开启“会话统计”、足够的终端宽度和对应的会话数据。关闭会话统计时，选中行的说明会提示这一原因。第一行左侧是身份——Model（`deepseek`）、Effort（`max`）与 Session，右侧是位置——Path（`~/project`）与 Git（`main *1`）。Session 在 `verbose` 以下默认关闭，可以独立于终端窗口标题开启。
 
-首行之下从两端回答两个问题。左侧是占用与已花时间：Context（`Ctx 1.6%`）、Cache（`Cache 99%`）与 Time（`LLM 16m51s`）。右侧是吞吐与工作量：Tokens（`5.9M in`）、Latency（`TTFT 1.2s`）与 Activity（`3 turns`）。两侧不互换，因此同一个数字在每次会话里都在同一位置。
+首行之下从两端回答两个问题。左侧是占用与已花时间：Context（`Ctx 1.6%`）、Cache（`Cache 99%`）与 Duration（`LLM 16m51s`）。右侧是吞吐与工作量：Tokens（`5.9M in`）、Latency / speed（`TTFT 1.2s`）与 Turns / steps（`3 turns`）。两侧不互换，因此同一个数字在每次会话里都在同一位置。
 
-`verbose` 把会话累计放到第三行——左侧 Time、右侧 Activity——这样上面一行不必为了塞下而舍弃它们。该行只在上一行完整时才出现；低于这个宽度不会按乱序补回内容。
+`verbose` 把会话累计放到第三行——左侧 Duration、右侧 Turns / steps——这样上面一行不必为了塞下而舍弃它们。该行只在上一行完整时才出现；低于这个宽度不会按乱序补回内容。
 
-上下文表示形式跟随 Density：`standard` 与 `minimal` 显示百分比，`verbose` 显示 `Context 1.6% · 16.4K/1M`；所有形式都会在占用升高时使用警告和错误颜色。终端较窄时可见集是目录顺序的前缀：放不下就从末尾丢弃，因此 Activity 先于 Time 消失，Time 先于 Latency，也不会因终端变宽而乱序重现。需要引起注意的角色保留自己的颜色：脏工作区分支保持 `warning`，缓存命中率保持成功色。
+上下文表示形式跟随 Density：`standard` 与 `minimal` 显示百分比，`verbose` 显示 `Context 1.6% · 16.4K/1M`；所有形式都会在占用升高时使用警告和错误颜色。终端较窄时可见集是目录顺序的前缀：放不下就从末尾丢弃，因此 Turns / steps 先于 Duration 消失，Duration 先于 Latency / speed，也不会因终端变宽而乱序重现。需要引起注意的角色保留自己的颜色：脏工作区分支保持 `warning`，缓存命中率保持成功色。
 
 ## 持久化
 

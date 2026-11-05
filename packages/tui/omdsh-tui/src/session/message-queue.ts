@@ -47,20 +47,27 @@ export function editedQueuedMessage(message: UserMessage, text: string): UserMes
   return createUserMessage({ ...input, content: [...(text === '' ? [] : [{ type: 'text' as const, text }]), ...attachments] })
 }
 
+/** Text-only editing cannot retain the old text embedded in image-placement segments. */
+function editedSubmission(original: TuiSubmission, text: string): TuiSubmission {
+  if (text === original.text) return original
+  const { segments: _segments, ...draft } = original
+  return { ...draft, text }
+}
+
 function queueOptions(rows: readonly QueuedMessage[]): NonNullable<TuiPrompt['options']> {
   const ordinals = new Map<QueuedMessage['target'], number>()
   return rows.map(row => {
     const ordinal = (ordinals.get(row.target) ?? 0) + 1
     ordinals.set(row.target, ordinal)
-    const label = row.target === 'next-step' ? 'Guidance' : row.target === 'next-turn' ? 'Next turn' : 'Waiting'
+    const label = row.target === 'next-step' ? 'Steer · next step' : row.target === 'next-turn' ? 'Queue · next turn' : 'Sending · not yet accepted'
     const submission = row.target === 'delivery' ? row.value as TuiSubmission : undefined
     const message = row.target === 'delivery' ? undefined : row.value as UserMessage
     const images = submission?.images.length ?? message?.content.filter(block => block.type === 'image').length ?? 0
     const files = submission?.files?.length ?? message?.content.filter(block => block.type === 'file').length ?? 0
     const attachments = [images > 0 ? `${images} image${images === 1 ? '' : 's'}` : '', files > 0 ? `${files} file${files === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')
-    return { label: `${label} · ${ordinal} · ${truncateToWidth(row.text.replace(/\s+/gu, ' ').trim(), 120) || attachments || 'Empty message'}`, value: row.key,
+    return { badge: { label, tone: 'muted' }, label: `${ordinal} · ${truncateToWidth(row.text.replace(/\s+/gu, ' ').trim(), 120) || attachments || 'Empty message'}`, value: row.key,
       preview: row.text.length > 8192 ? row.text.slice(0, 8192) + '\n…' : row.text,
-      description: attachments || (row.target === 'delivery' ? 'Waiting to queue' : row.target === 'next-step' ? 'Before the next model step' : 'After the current turn'), submitLabel: 'edit' }
+      description: attachments, submitLabel: 'edit' }
   })
 }
 
@@ -87,19 +94,64 @@ export async function openMessageQueue(options: {
       }
       return choices
     }
-    const answer = await tui.prompt({ title: 'Message Queue', question: 'Moves stay within Guidance, Next turn, or Waiting.',
+    const answer = await tui.prompt({ title: 'Message Queue', question: 'Steer: next step · Queue: next turn · Sending: not yet accepted.',
+      localize: ['title', 'question', 'actions'],
       notify: false, onSuperseded: () => { superseded = true }, options: refresh(), refreshOptions: refresh, presentation: 'card', filterable: true, allowCustom: false,
       ...(selected === undefined ? {} : { initialValue: selected }), emptyText: 'No pending messages.', submitLabel: 'edit', signal,
-      actions: [{ key: 'Alt+D', label: 'delete', valuePrefix: 'delete:' }, { key: 'Alt+Up', label: 'move earlier', valuePrefix: 'up:' }, { key: 'Alt+Down', label: 'move later', valuePrefix: 'down:' }] })
+      actions: [{ key: 'Alt+S', label: 'steer next step', valuePrefix: 'steer:' }, { key: 'Alt+D', label: 'withdraw', valuePrefix: 'delete:' }, { key: 'Alt+Up', label: 'move earlier', valuePrefix: 'up:' }, { key: 'Alt+Down', label: 'move later', valuePrefix: 'down:' }] })
     if (answer === null) return
     check()
-    const action = /^(delete|up|down):/u.exec(answer)?.[1]
+    const action = /^(steer|delete|up|down):/u.exec(answer)?.[1]
     const key = action === undefined ? answer : answer.slice(action.length + 1)
     const row = queuedMessages(agent, tui.pendingInputs).find(item => item.key === key)
     if (row === undefined) { tui.notice('That message is no longer pending.'); continue }
     selected = key
     let editDraft: TuiSubmission | undefined
     try {
+      if (action === 'steer') {
+        if (row.target !== 'next-turn') {
+          tui.notice('Select an accepted Queue message to steer.')
+          continue
+        }
+        if (agent.status !== 'running') {
+          tui.notice('Steering needs an active turn. The message stays queued.')
+          continue
+        }
+        const message = row.value as UserMessage
+        // Rehydrate before withdrawing so even a failed rollback can retain the complete input.
+        const draft = { ...await restore(message), literal: true }
+        check()
+        const index = agent.inbox.nextTurn.findIndex(item => item.id === message.id && item === message)
+        if (index < 0) { tui.notice('That message is no longer pending.'); continue }
+        if (agent.status !== 'running') {
+          tui.notice('Steering needs an active turn. The message stays queued.')
+          continue
+        }
+        const offset = agent.session.snapshotEvents().length
+        try {
+          if (!agent.inbox.remove(message.id)) { tui.notice('That message is no longer pending.'); continue }
+          if (agent.status !== 'running') throw new Error('Steering needs an active turn. The message stays queued.')
+          agent.steer(message)
+        } catch (error) {
+          // A subscriber can throw after the append committed. Never queue an accepted message twice.
+          const accepted = agent.session.snapshotEvents().slice(offset).some(event =>
+            event.type === 'agent/inbox/spliced' && event.data.inserted.some(item => item.id === message.id))
+          const pending = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(item => item.id === message.id)
+          if (!accepted && !pending) {
+            try { agent.inbox.splice('next-turn', index, 0, [message]) }
+            catch {
+              if (!agent.inbox.nextTurn.some(item => item.id === message.id)) {
+                tui.restoreInput(draft)
+                tui.notice('Could not steer or restore the queue entry. The message and attachments are now an unsent draft.', { level: 'error' })
+                return
+              }
+            }
+          }
+          throw error
+        }
+        selected = `next-step:${message.id}`
+        continue
+      }
       if (action === 'up' || action === 'down') {
         const direction = action === 'up' ? -1 : 1
         if (row.target === 'delivery') tui.pendingInputs.update(row.id, { kind: 'move', direction })
@@ -119,22 +171,28 @@ export async function openMessageQueue(options: {
       const original = row.target === 'delivery' ? row.value as TuiSubmission : { ...await restore(row.value as UserMessage), literal: true }
       check()
       if (!queuedMessages(agent, tui.pendingInputs).some(item => item.key === row.key && item.value === row.value)) { tui.notice('That message is no longer pending.'); continue }
-      const text = await tui.prompt({ title: 'Edit Queued Message', question: 'Enter saves · Alt+Enter inserts a line · Esc cancels. Images and files are kept.',
+      const text = await tui.prompt({ title: 'Edit Queued Message', localize: true, question: 'Enter saves · Alt+Enter inserts a line · Esc cancels. Images and files are kept.',
         notify: false, initialInput: row.text, preserveWhitespace: true, allowCustom: true, signal,
+        onCancelDraft: input => {
+          // Session replacement aborts before changing draft scope. Rescue into the old session only.
+          if (signal.aborted && input !== row.text) tui.restoreInput(editedSubmission(original, input))
+        },
         onSuperseded: input => {
           superseded = true
           if (input !== row.text) {
-            tui.restoreInput({ ...original, text: input })
+            tui.restoreInput(editedSubmission(original, input))
             tui.notice('Queue closed for a request for input. Your edit is an unsent draft; the queued message is unchanged.')
           }
         } })
       if (text === null) { if (superseded) return; continue }
       check()
-      const draft = { ...original, text }
+      const draft = editedSubmission(original, text)
       editDraft = draft
       let replaced: boolean
-      if (row.target === 'delivery') replaced = tui.pendingInputs.update(row.id, { kind: 'replace', submission: draft })
-      else {
+      if (row.target === 'delivery') {
+        if (text.trim() === '' && draft.images.length === 0 && !draft.files?.length) throw new Error('Enter a message, or delete the queue entry.')
+        replaced = tui.pendingInputs.update(row.id, { kind: 'replace', submission: draft })
+      } else {
         const replacement = editedQueuedMessage(row.value as UserMessage, text)
         replaced = agent.inbox.replace((row.value as UserMessage).id, replacement)
         if (replaced) selected = `${row.target}:${replacement.id}`

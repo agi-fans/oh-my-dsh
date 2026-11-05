@@ -68,7 +68,7 @@ describe('settings search and inheritance', () => {
   it('exposes narrow-screen section navigation, reset and existing command links', () => {
     const start = createSettings(prefs, 'notifications', agent, undefined, entries)
     const frame = renderSettings(start, theme, 40, 20).lines.join('\n')
-    expect(frame).toContain('1/5')
+    expect(frame).toContain('3/3')
     expect(frame).toContain('Tab sections')
     expect(applySettingsEvent(start, key('ctrl+r'))).toEqual({ kind: 'reset', id: 'notifications', label: 'Notifications' })
     const action = { id: 'command:model', label: 'Model and reasoning', description: 'Session route', value: 'm', values: [], action: 'model' }
@@ -106,7 +106,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       { id: 'shell', label: 'Shell', description: 'Timeout', section: 'tools' as const },
       { id: 'custom', label: 'Custom plugin', description: 'Advanced' },
     ]
-    const categories = [['parallel', 'Agent'], ['child-models', 'Agent'], ['shell', 'Tools'], ['advisor', 'Integrations'], ['custom', 'Advanced']]
+    const categories = [['parallel', 'Plugins'], ['child-models', 'Plugins'], ['shell', 'Plugins'], ['advisor', 'Plugins'], ['custom', 'Advanced']]
     for (const [id, label] of categories) {
       const state = createSettings(prefs, `plugin:${id}`, agent, defaultFeatureStates(), plugins)
       expect(applySettingsEvent(state, key('enter'))).toEqual({ kind: 'open-plugin', id })
@@ -145,6 +145,7 @@ describe('tuiSettingItems / applySettingValue', () => {
   it('exposes theme and color cycle rows', () => {
     const items = tuiSettingItems(prefs)
     expect(items.map((item) => item.id)).toEqual([
+      'uiLanguage',
       'theme',
       'colors',
       'motion',
@@ -155,6 +156,7 @@ describe('tuiSettingItems / applySettingValue', () => {
       'terminalState',
       'editor',
       'mouseInteraction',
+      'busyEnter',
       'pasteProtection',
       'copyOnSelect',
       'notifications',
@@ -175,13 +177,13 @@ describe('tuiSettingItems / applySettingValue', () => {
       'statusItem:counts',
       'statusReset',
     ])
-    expect(items[0]?.value).toBe('dark')
-    expect(items[1]?.value).toBe('on')
-    expect(items[2]).toMatchObject({ label: 'Motion', value: 'full' })
+    expect(items[1]?.value).toBe('dark')
+    expect(items[2]?.value).toBe('on')
+    expect(items[3]).toMatchObject({ label: 'Motion', value: 'full' })
     expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ label: 'Release notes', value: 'summary' })
     expect(items.find(item => item.id === 'statusEnabled')?.value).toBe('on')
-    expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Telemetry')
+    expect(items.find(item => item.id === 'statusEnabled')?.label).toBe('Session metrics')
     // No arrow, no colour: a row says whether the part is shown.
     expect(items.find(item => item.id === 'statusItem:model')).toMatchObject({ label: 'Model', value: 'shown', sample: 'deepseek' })
     expect(items.find(item => item.id === 'statusItem:context'))
@@ -266,9 +268,9 @@ describe('tuiSettingItems / applySettingValue', () => {
     expect(tuiSettingItems(prefs).some(item => item.id === 'agentLanguage')).toBe(false)
     expect(tuiSettingItems(prefs, agent).find(item => item.id === 'agentLanguage')).toMatchObject({
       id: 'agentLanguage',
-      label: 'Language',
+      label: 'Response language',
       value: 'Auto',
-      values: ['Auto', 'Simplified Chinese', 'English'],
+      values: ['Follow UI', 'Auto', 'Simplified Chinese', 'English'],
     })
   })
 })
@@ -280,59 +282,38 @@ describe('applySettingsEvent', () => {
     expect(cycled).toEqual({
       kind: 'apply',
       domain: 'tui',
-      state: { selected: 0, prefs: { theme: 'light', colors: true } },
+      state: { selected: 1, prefs: { theme: 'light', colors: true } },
     })
     const again = applySettingsEvent(cycled.kind === 'apply' ? cycled.state : open, { type: 'text', value: ' ' })
     expect(again.kind === 'apply' && again.state.prefs.theme).toBe('system')
   })
 
   it('moves between rows and closes on escape', () => {
-    const open = createSettings(prefs)
+    const open = createSettings(prefs, 'theme')
     const down = applySettingsEvent(open, key('down'))
-    expect(down).toEqual({ kind: 'update', state: { selected: 1, prefs } })
+    expect(down).toEqual({ kind: 'update', state: { selected: 2, prefs } })
     const mid = applySettingsEvent(down.kind === 'update' ? down.state : open, key('down'))
-    expect(mid.kind === 'update' && mid.state.selected).toBe(2)
+    expect(mid.kind === 'update' && mid.state.selected).toBe(3)
     const last = applySettingsEvent(mid.kind === 'update' ? mid.state : open, key('down'))
-    expect(last.kind === 'update' && last.state.selected).toBe(3)
+    expect(last.kind === 'update' && last.state.selected).toBe(4)
     const next = applySettingsEvent(last.kind === 'update' ? last.state : open, key('down'))
-    expect(next.kind === 'update' && next.state.selected).toBe(4)
+    expect(next.kind === 'update' && next.state.selected).toBe(5)
     expect(applySettingsEvent(open, key('escape'))).toEqual({ kind: 'close' })
     expect(applySettingsEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
   })
 
-  it('keeps up and down inside the active settings tab', () => {
-    const lastGeneral = createSettings(prefs, 'startupChangelog')
-    const down = applySettingsEvent(lastGeneral, key('down'))
-    expect(down).toEqual({ kind: 'update', state: lastGeneral })
-    const firstStatus = createSettings(prefs, 'statusEnabled')
-    const up = applySettingsEvent(firstStatus, key('up'))
-    expect(up).toEqual({ kind: 'update', state: firstStatus })
-    const end = applySettingsEvent(firstStatus, key('end'))
-    expect(end.kind === 'update' && end.state.selected).toBe(tuiSettingItems(prefs).length - 1)
-    const home = applySettingsEvent(end.kind === 'update' ? end.state : firstStatus, key('home'))
-    expect(home.kind === 'update' && home.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
-  })
-
-  it('uses tab to jump between General and Status line sections', () => {
-    const open = createSettings(prefs, 'theme')
-    const status = applySettingsEvent(open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
-    const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
-    expect(general.kind === 'update' && general.state.selected).toBe(0)
-  })
-
-  it('navigates General, Agent, and Status line as three bounded sections', () => {
-    const open = createSettings(prefs, 'theme', agent)
-    const agentTab = applySettingsEvent(open, key('tab'))
-    expect(agentTab.kind === 'update' && agentTab.state.selected).toBe(tuiSettingItems(prefs).findIndex(item => item.id === 'statusEnabled'))
-    const down = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('down'))
-    expect(down).toEqual(agentTab)
-    const status = applySettingsEvent(agentTab.kind === 'update' ? agentTab.state : open, key('tab'))
-    expect(status.kind === 'update' && status.state.selected).toBe(tuiSettingItems(prefs, agent).findIndex(item => item.id === 'statusEnabled'))
-    const general = applySettingsEvent(status.kind === 'update' ? status.state : open, key('tab'))
-    expect(general.kind === 'update' && general.state.selected).toBe(0)
-    const reverseStatus = applySettingsEvent(general.kind === 'update' ? general.state : open, key('shift+tab'))
-    expect(reverseStatus.kind === 'update' && reverseStatus.state.selected).toBe(tuiSettingItems(prefs, agent).findIndex(item => item.id === 'statusEnabled'))
+  it('keeps navigation within a section and tabs between General and Terminal', () => {
+    const general = createSettings(prefs, 'agentLanguage', agent)
+    expect(applySettingsEvent(general, key('down'))).toEqual({ kind: 'update', state: general })
+    const terminal = applySettingsEvent(general, key('tab'))
+    expect(terminal.kind).toBe('update')
+    const firstTerminal = createSettings(prefs, 'theme', agent)
+    expect(terminal.kind === 'update' && terminal.state.selected).toBe(firstTerminal.selected)
+    expect(applySettingsEvent(firstTerminal, key('up'))).toEqual({ kind: 'update', state: firstTerminal })
+    const lastTerminal = createSettings(prefs, 'statusReset', agent)
+    expect(applySettingsEvent(lastTerminal, key('down'))).toEqual({ kind: 'update', state: lastTerminal })
+    const back = applySettingsEvent(firstTerminal, key('shift+tab'))
+    expect(back.kind === 'update' && back.state.selected).toBe(createSettings(prefs, 'uiLanguage', agent).selected)
   })
 
   it('cycles Agent language independently of TUI preferences', () => {
@@ -394,8 +375,8 @@ describe('Features section', () => {
 
   it('appears only when a feature registry is supplied', () => {
     expect(renderSettings(createSettings(prefs, undefined, undefined, features), theme, 80, 40).lines.join('\n'))
-      .toContain('Tools')
-    expect(renderSettings(createSettings(prefs), theme, 80, 40).lines.join('\n')).not.toContain('Tools')
+      .toContain('Plugins')
+    expect(renderSettings(createSettings(prefs), theme, 80, 40).lines.join('\n')).not.toContain('Plugins')
   })
 
   it('lists every feature with its shipped state', () => {
@@ -445,7 +426,7 @@ describe('Features section', () => {
 
 describe('renderSettings', () => {
   it('paints the title, both rows, and hints', () => {
-    const lines = renderSettings(createSettings(prefs), theme, 50).lines.join('\n')
+    const lines = renderSettings(createSettings(prefs, 'theme'), theme, 50).lines.join('\n')
     expect(lines).toContain('Settings')
     expect(lines).toContain('Theme')
     expect(lines).toContain('dark')
@@ -460,8 +441,9 @@ describe('renderSettings', () => {
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
     expect(status).toContain('Show session metrics')
-    expect(status).toContain('Context')
-    expect(status).toContain('Latency')
+    const metrics = renderSettings(createSettings(prefs, 'statusItem:speed'), theme, 50, 24).lines.join('\n')
+    expect(metrics).toContain('Context')
+    expect(metrics).toContain('Latency')
     expect(status).toContain('deepseek')
     expect(status).toContain('Cache 99%')
     expect(status).toContain('Model')
@@ -487,6 +469,44 @@ describe('renderSettings', () => {
     expect(preview).not.toContain('Ctx')
   })
 
+  it('previews the session title when enabled and keeps English samples in Chinese settings', () => {
+    const chinese = createTheme(false, 'truecolor', 'dark', undefined, 'zh-CN')
+    const base = { ...prefs, uiLanguage: 'zh-CN' as const }
+    const before = renderSettings(createSettings(base, 'statusItem:session'), chinese, 140, 24)
+    expect(before.lines[3]).not.toContain('Fix the parser')
+    const enabled = applySettingValue(base, 'statusItem:session', 'shown')
+    const after = renderSettings(createSettings(enabled, 'statusItem:session'), chinese, 140, 24)
+    expect(after.lines[3]).toContain('Fix the parser')
+    expect(after.lines[2]).toContain('预览 · 示例数据 · 固定英文')
+    expect(after.lines[4]).toContain('Cache 99%')
+    expect(after.lines[4]).toContain('Ctx 1.6%')
+    expect(after.lines.join('\n')).toContain('会话')
+    expect(before.lines).toHaveLength(after.lines.length)
+  })
+
+  it('explains when the metrics switch suppresses an enabled item without losing its choice', () => {
+    const disabled = applySettingValue(prefs, 'statusEnabled', 'off')
+    const item = tuiSettingItems(disabled).find(item => item.id === 'statusItem:cache')!
+    expect(item.value).toBe('shown')
+    expect(item.description).toContain('Session metrics are off')
+    const view = renderSettings(createSettings(disabled, item.id), theme, 140, 24)
+    expect(view.lines.join('\n')).toMatch(/Cache.*on/)
+    expect(view.lines.slice(3, 4).join('\n')).not.toContain('Cache 99%')
+    const enabled = applySettingValue(disabled, 'statusEnabled', 'on')
+    expect(renderSettings(createSettings(enabled, item.id), theme, 140, 24).lines[4]).toContain('Cache 99%')
+  })
+
+  it.each([false, true])('fits the localized settings and fixed English preview (colors=%s)', colors => {
+    for (const language of ['en', 'zh-CN'] as const) {
+      const localized = createTheme(colors, 'truecolor', 'dark', undefined, language)
+      for (const width of [24, 40, 60, 100]) for (const height of [8, 10, 18, 24]) {
+        const view = renderSettings(createSettings({ ...prefs, uiLanguage: language }, 'statusItem:speed'), localized, width, height)
+        expect(view.lines).toHaveLength(height)
+        expect(view.lines.every(line => visibleWidth(line) === width)).toBe(true)
+      }
+    }
+  })
+
   it('lists status rows once each, in catalog order, whatever is hidden', () => {
     // A hidden row keeps its slot so the reader can find it again; nothing in
     // the list depends on what happens to be visible.
@@ -494,7 +514,7 @@ describe('renderSettings', () => {
     const ids = tuiSettingItems(narrowed).map(item => item.id).filter(id => id.startsWith('statusItem:'))
     expect(ids).toEqual([...STATUS_ITEM_IDS].map(id => `statusItem:${id}`))
     const view = renderSettings(createSettings(narrowed, 'statusItem:counts'), theme, 72, 18).lines.join('\n')
-    expect(view).toContain('Activity')
+    expect(view).toContain('Turns / steps')
     expect(view).toContain('Space show/hide')
   })
   it('keeps one footer switch from rewriting what another one decides', () => {
@@ -527,8 +547,8 @@ describe('renderSettings', () => {
     const labels = tuiSettingItems(prefs)
       .filter(item => ids.some(id => item.id === `statusItem:${id}`))
       .map(item => item.label)
-    expect(labels).toEqual(['Model', 'Effort', 'Path', 'Git', 'Session', 'Context', 'Cache', 'Tokens', 'Latency', 'Time', 'Activity'])
-    for (const label of labels) expect(label.length).toBeLessThanOrEqual(8)
+    expect(labels).toEqual(['Model', 'Effort', 'Path', 'Git', 'Session', 'Context', 'Cache', 'Tokens', 'Latency / speed', 'Duration', 'Turns / steps'])
+    for (const label of labels) expect(label.length).toBeLessThanOrEqual(15)
   })
 
   it('marks the selected row with the cursor glyph', () => {
@@ -543,29 +563,31 @@ describe('renderSettings', () => {
     expect(view.lines.every(line => visibleWidth(line) === 60)).toBe(true)
     expect(view.lines[0]).toMatch(/^╭─ .*Settings.*╮$/)
     expect(view.lines.at(-1)).toMatch(/^╰─+╯$/)
-    expect(view.lines.join('\n')).toContain('● Status line')
+    expect(view.lines.join('\n')).toContain('● Terminal')
     expect(view.cursor.row).toBeGreaterThanOrEqual(3)
     const compact = renderSettings(createSettings(prefs, 'statusItem:counts'), theme, 40, 10)
     expect(compact.lines).toHaveLength(10)
-    expect(compact.lines.join('\n')).toContain('Activity')
+    expect(compact.lines.join('\n')).toContain('Turns / steps')
     const tiny = renderSettings(createSettings(prefs, 'statusItem:counts'), theme, 40, 8)
     expect(tiny.lines).toHaveLength(8)
     expect(tiny.lines.every(line => visibleWidth(line) === 40)).toBe(true)
-    expect(tiny.lines.join('\n')).toContain('Activity')
+    expect(tiny.lines.join('\n')).toContain('Turns / steps')
   })
 
   it.each([40, 60, 80])('renders the Agent tab in display cells at width %i', (width) => {
     const view = renderSettings(createSettings(prefs, 'agentLanguage', agent), theme, width, 12)
     const text = view.lines.join('\n')
     expect(view.lines.every(line => visibleWidth(line) === width)).toBe(true)
-    expect(text).toContain('● Agent')
-    expect(text).toContain('Language')
+    expect(text).toContain('● General')
+    expect(text).toContain('Response language')
     expect(text).toContain('Auto')
   })
 
 })
 
 it('persists paste protection and the notification mode', () => {
+  expect(applySettingValue(prefs, 'busyEnter', 'Steer')).toMatchObject({ busyEnter: 'steer' })
+  expect(applySettingValue(prefs, 'busyEnter', 'Queue')).toMatchObject({ busyEnter: 'queue' })
   expect(applySettingValue(prefs, 'pasteProtection', 'off')).toMatchObject({ pasteProtection: false })
   expect(applySettingValue(prefs, 'notifications', 'always')).toMatchObject({ notifications: 'always' })
   expect(tuiSettingItems(prefs).find(row => row.id === 'notifications')?.value).toBe('off')

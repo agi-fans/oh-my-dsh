@@ -6,7 +6,28 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Enter while running can default to Queue or Steer, with a matching composer hint. Explicit shortcuts keep their meaning, and direct steering accepts images and files with failed submissions restored as unsent drafts.
+
+- Message Queue can promote an accepted next-turn message to next-step steering with Alt+S while a turn runs, retaining its identity, text, images and files. Failed transfers return to the queue, or to an unsent draft if the queue cannot be restored.
+
+- Independent UI and response languages: English or Simplified Chinese interface text switches immediately, while responses can follow the UI from the next turn. New profiles default to Follow UI; existing response preferences and terminal history are preserved.
+
+- Settings exposes default access and Agent presets for new sessions, separately from current-session controls. Plugin configuration is also available from `/plugins`.
+- `/agent creator` and the Plugins menu open Creator to author Harness plugins, preserving session drafts without sending a prompt or changing the default Agent preset.
+
 ### Changed
+
+- TUI integrators receive steering through `readInput()` with `TuiSubmission.delivery: 'steer'`; the text-only `setSteerHandler` callback is removed. Consumers must route the delivery intent through the corresponding Harness entry.
+
+- Running input distinguishes Steer for the next step, Queue for the next turn, and submissions awaiting acceptance, with localized queue controls and brief consumption feedback.
+
+- The bottom status footer and its preview keep English labels in every UI language. Status settings use clearer metric names, explain disabled metrics and narrow-width hiding, and preview the session-title toggle with labelled example data.
+
+- Settings groups Harness controls under General, Models, Agent presets and Plugins, with appearance, input and status-line preferences together under Terminal.
+- `/model` selection uses the selected model's default reasoning effort, matching Harness. Use `/model reasoning` to change it explicitly; saved favorites retain their explicit effort.
+- The built-in `cordis` preset is displayed as Creator; its configuration and session identity remain `cordis`.
 
 - The pinned DeepSeek Harness cohort moves from `0.2.1-rc.5` to `0.2.2-rc.1` across all 145 runtime packages, and the `examples/hello` fixture follows it. Cordis moves to `4.1.0`, the loader family to `1.1.0`, the timer to `1.2.0`, and Schemastery to `3.19.0`, because the new cohort declares those as peers and refuses to resolve against `4.0.5`.
 
@@ -19,6 +40,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Subagent model discovery is its own opt-in, so the sampled delegation variant asks for `modelDiscovery` explicitly; the model-selectable child fields are requested by `modelSelection`.
 
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
+
+### Fixed
+
+- Interrupting a turn preserves all accepted Queue and Steer messages and attachments instead of clearing the inbox. Interrupted queue edits return to the original session draft; editing a waiting image message sends the revised text instead of stale image-placement text.
 
 ## [0.22.0] - 2026-10-31
 

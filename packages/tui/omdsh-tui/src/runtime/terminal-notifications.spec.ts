@@ -19,6 +19,7 @@ describe('TerminalNotificationController', () => {
     expect(notifications.event({ type: 'turn/end', time: 30_999 })).toBeUndefined()
     notifications.event({ type: 'turn/start', time: 40_000 })
     expect(notifications.event({ type: 'turn/end', time: 70_000, reason: 'complete' })).toEqual({
+      attention: false,
       title: 'omdsh finished',
       body: 'Turn completed in 30s',
     })
@@ -29,6 +30,7 @@ describe('TerminalNotificationController', () => {
     notifications.configure({ policy: 'always', thresholdMs: 30_000 })
     notifications.event({ type: 'turn/start', time: 1_000 })
     expect(notifications.event({ type: 'turn/end', time: 1_500, reason: 'complete' })).toEqual({
+      attention: false,
       title: 'omdsh finished',
       body: 'Turn completed in 1s',
     })
@@ -45,15 +47,31 @@ describe('TerminalNotificationController', () => {
     notifications.configure({ policy: 'always', thresholdMs: 30_000 })
     notifications.event({ type: 'turn/start', time: 1_000 })
     expect(notifications.event({ type: 'turn/end', time: 2_000, reason })).toEqual({
+      attention: true,
       title: 'omdsh needs attention',
       body,
     })
+  })
+
+  it('localizes notices without changing attention priority', async () => {
+    const { TerminalNotificationQueue } = await import('./terminal-notifications.ts')
+    const notifications = new TerminalNotificationController(), queue = new TerminalNotificationQueue()
+    notifications.configure({ policy: 'always', thresholdMs: 0, language: 'zh-CN' })
+    const question = notifications.humanPrompt()!
+    expect(question.body).toBe('需要输入')
+    queue.offer(question)
+    notifications.event({ type: 'turn/start', time: 0 })
+    const completed = notifications.event({ type: 'turn/end', time: 2000 })!
+    expect(completed.body).toBe('回合已完成，耗时 2 秒')
+    queue.offer(completed)
+    expect(queue.take()).toEqual(question)
   })
 
   it('always reports human prompts when enabled', () => {
     const notifications = new TerminalNotificationController()
     notifications.configure({ policy: 'always', thresholdMs: 30_000 })
     expect(notifications.humanPrompt('Approve tool execution')).toEqual({
+      attention: true,
       title: 'omdsh needs attention',
       body: 'Approve tool execution',
     })

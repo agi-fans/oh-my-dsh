@@ -7,9 +7,10 @@ import type { BundleInfo, ChangeResult, PluginInfo, PluginInstallRequestId } fro
 // The market service declares itself on Context; the type import is what makes
 // `ctx.get('pluginMarket')` typed, and it is what keeps the dependency honest.
 import type PluginMarket from '@deepseek-ai/dsh-plugin-market'
+import { startCreator } from './session-configuration.ts'
 import { registerCommands } from './registration.ts'
 import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
-import { editSettingsEntry, nativeIntegrationId, showIntegrationStatus } from '../runtime/plugin-settings.ts'
+import { editSettingsEntry, nativeIntegrationId, pluginSettingsEntries, showIntegrationStatus } from '../runtime/plugin-settings.ts'
 import { externalAgentGuide } from '../session/external-agents.ts'
 
 export const name = 'omdsh-command-plugins'
@@ -66,7 +67,7 @@ async function install(ctx: Context, spec: string, signal: AbortSignal, approved
   const operation = ctx.pluginManager.installBundle(spec, { requestId, saveExact, ...(approvedBuilds === undefined ? {} : { approvedBuilds }) })
   // The installer owns cancellation through restoration, even after the
   // prompt closes. Never abandon its promise or report cancellation early.
-  const prompt = ctx.tui.prompt({
+  const prompt = ctx.tui.prompt({ localize: true,
     title: 'Install plugin', question: spec, presentation: 'progress',
     detail, refreshDocument: () => detail, notify: false,
     allowCustom: false, signal: AbortSignal.any([signal, promptAbort.signal]),
@@ -78,7 +79,7 @@ async function install(ctx: Context, spec: string, signal: AbortSignal, approved
 async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, saveExact = false): Promise<ChangeResult | undefined> {
   const inspected = await ctx.pluginManager.inspect(spec, undefined, signal)
   if (inspected.status === 'refused') { ctx.tui.notice(inspected.reason, { level: 'error' }); return }
-  const consent = await confirmPrompt(request => ctx.tui.prompt(request), {
+  const consent = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
     title: 'Install bundle',
     question: inspected.name ?? spec,
     detail: `${inspected.version ?? ''} ${inspected.description ?? ''}\nInstalled Host code runs with your user permissions and affects all sessions in this profile.`,
@@ -91,7 +92,7 @@ async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, s
   let result = await install(ctx, spec, signal, undefined, saveExact)
   if (result.pendingBuilds?.length && !signal.aborted) {
     ctx.tui.commandOutput('/plugins', changeText(result))
-    const approved = await confirmPrompt(request => ctx.tui.prompt(request), {
+    const approved = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
       title: 'Dependency scripts',
       question: 'Allow these scripts and retry?',
       detail: `${result.pendingBuilds.join('\n')}\nPermission persists by package name in this profile. Scripts run with your user permissions.`,
@@ -133,7 +134,7 @@ async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
         : 'No usable plugin index source:\n\n' + sources.map(source => `${source.url} · ${source.error}`).join('\n'))
       return
     }
-    const text = await ctx.tui.prompt(askPrompt({ title: 'Discover plugins', question: 'Search the plugin indexes (empty lists everything)', signal }))
+    const text = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Discover plugins', question: 'Search the plugin indexes (empty lists everything)', signal }))
     if (text === null || signal.aborted) return
     try {
       // Search every source, so the reader does not have to know which index
@@ -147,7 +148,7 @@ async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
         ctx.tui.commandOutput('/plugins discover', `No plugin matches "${text.trim()}".`)
         return
       }
-      const chosen = await ctx.tui.prompt({ ...list, title: 'Discover · results', question: `${entries.length} matching plugins`,
+      const chosen = await ctx.tui.prompt({ localize: true, ...list, title: 'Discover · results', question: `${entries.length} matching plugins`,
         options: entries.map(({ page, entry }, at) => {
           // The version that install is offered for is the one the index defaults
           // to; its compatibility is what decides whether the offer is honest.
@@ -187,27 +188,40 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /plugins' }
   if (invocation.agent.status === 'running') return { kind: 'error', text: 'Wait for the current turn to finish before managing plugins.' }
   while (!signal.aborted) {
-    const action = await ctx.tui.prompt({ ...list, title: 'Plugins', question: 'Manage this profile',
+    const runtime = ctx.get('omdshSession')
+    const creator = runtime === undefined ? undefined : (await runtime.agentPresets()).find(preset => preset.id === 'cordis')
+    if (signal.aborted) break
+    const action = await ctx.tui.prompt({ localize: true, ...list, title: 'Plugins', question: 'Manage this profile',
       detail: 'Changes affect every session using this profile. Package replacements may require a restart.',
       options: [
+        ...(ctx.get('settings') === undefined ? [] : [{ label: 'Configure plugins', value: 'configure', description: 'Shell, subagents, web providers and installed plugin settings.' }]),
+        ...(runtime === undefined ? [] : [{ label: 'Let the agent create a plugin', value: 'creator', disabled: creator === undefined || creator.broken !== undefined, description: creator === undefined ? 'Creator is unavailable in this profile.' : creator.broken ?? 'Start Creator without changing your default Agent preset.' }]),
         { label: 'Plugin entries', value: 'entries' },
         { label: 'Bundles', value: 'bundles' },
         { label: 'Discover', value: 'discover', description: 'Browse the plugin indexes this profile configures and install an entry.' },
         { label: 'Install bundle', value: 'install' },
       ], signal })
     if (action === null) break
+    if (action === 'creator') return startCreator(ctx, { ...invocation, signal })
+    if (action === 'configure') {
+      const entries = pluginSettingsEntries(ctx).filter(entry => ['tools', 'agent', 'integrations', 'advanced'].includes(entry.section ?? 'advanced'))
+      const id = await ctx.tui.prompt({ localize: true, ...list, title: 'Plugin settings', question: 'Choose a plugin to configure',
+        options: entries.map(entry => ({ label: entry.label, value: entry.id, description: entry.summary ?? entry.description })), signal })
+      if (id !== null && !signal.aborted && entries.some(entry => entry.id === id)) await editSettingsEntry(ctx, id, signal)
+      continue
+    }
     if (action === 'discover') { await discover(ctx, signal); continue }
     let result: ChangeResult | undefined
     if (action === 'entries') {
       const rows = await ctx.pluginManager.listPlugins()
-      const id = await ctx.tui.prompt({ ...list, title: 'Plugin entries', question: 'Choose an entry to inspect or toggle',
+      const id = await ctx.tui.prompt({ localize: true, ...list, title: 'Plugin entries', question: 'Choose an entry to inspect or toggle',
         options: rows.map(row => ({ label: row.patchId ?? String(row.entryId), value: String(row.entryId),
           description: `${row.enabled ? 'Enabled' : 'Disabled'} · ${row.fiberPhase ?? 'not mounted'} · ${row.moduleName}${pluginReadOnly(row) === undefined ? '' : ` · ${pluginReadOnly(row)}`}` })), signal })
       const row = rows.find(row => row.entryId === id)
       if (row === undefined) continue
       const reason = pluginReadOnly(row)
       if (reason !== undefined) { ctx.tui.notice(`${row.moduleName}: read-only (${reason}).`); continue }
-      const choice = await confirmPrompt(request => ctx.tui.prompt(request), {
+      const choice = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
         title: 'Plugin entry',
         question: row.moduleName,
         acceptLabel: row.enabled ? 'Disable' : 'Enable',
@@ -217,7 +231,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       if (choice && !signal.aborted) result = await ctx.pluginManager.setPluginEnabled(row.entryId, !row.enabled)
     } else if (action === 'bundles') {
       const rows = await ctx.pluginManager.listBundles()
-      const selected = await ctx.tui.prompt({ ...list, title: 'Bundles', question: 'Choose a bundle',
+      const selected = await ctx.tui.prompt({ localize: true, ...list, title: 'Bundles', question: 'Choose a bundle',
         options: rows.map(row => ({ label: row.name, value: row.name,
           description: `${row.version ?? row.installTarget?.version ?? ''} · ${bundleStatus(row)}${row.error === undefined ? '' : ` · ${row.error.diagnostic ?? row.error.code}`}` })), signal })
       const row = rows.find(row => row.name === selected)
@@ -229,7 +243,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
         ? `Included with omdsh. ${integration === undefined ? 'Use Enable or Disable to manage this bundle.' : 'Open Integration settings to enable or disable it.'} It updates with omdsh and cannot be uninstalled separately.`
         : row.installed ? 'Installed in this profile. Uninstall unloads the bundle and removes its package from this profile.' : undefined
       const detail = [ownership, guide ?? row.description].filter(Boolean).join('\n\n')
-      const choice = await ctx.tui.prompt({ title: row.name, question: 'Manage bundle', ...(detail === '' ? {} : { detail }),
+      const choice = await ctx.tui.prompt({ localize: true, title: row.name, question: 'Manage bundle', ...(detail === '' ? {} : { detail }),
         options: [
           ...(guide === undefined || row.availability !== 'missing' && integration !== undefined ? [] : [{ label: 'Check profile status', value: 'check' }]),
           ...(integration === undefined || row.availability === 'missing' ? [] : [{ label: 'Integration settings', value: 'settings' }]),
@@ -243,7 +257,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       if (choice === 'install' && row.installTarget !== undefined) result = await confirmInstall(ctx, row.installTarget.spec, signal, true)
       if (choice === 'toggle') result = await ctx.pluginManager.setBundleEnabled(row.name, !row.enabled)
       if (choice === 'remove' && row.removable) {
-        const consent = await confirmPrompt(request => ctx.tui.prompt(request), {
+        const consent = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
           title: row.installed ? 'Uninstall bundle' : 'Remove bundle from profile',
           question: row.name,
           detail: row.installed
@@ -256,7 +270,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
         if (consent && !signal.aborted) result = await ctx.pluginManager.removeBundle(row.name)
       }
     } else if (action === 'install') {
-      const spec = await ctx.tui.prompt(askPrompt({ title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', signal }))
+      const spec = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Install bundle', question: 'Package name, version, Git URL, or absolute path', signal }))
       if (spec === null || spec.trim() === '' || signal.aborted) continue
       result = await confirmInstall(ctx, spec.trim(), signal)
     }

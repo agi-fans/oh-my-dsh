@@ -31,7 +31,6 @@ function stubTui(): TuiService {
     onInspectSubagent: () => () => {},
     onInspectClose: () => () => {},
     onInspectSubmit: () => () => {},
-    setSteerHandler: () => () => {},
     setQueueHandler: () => () => {},
     setSessionSearch: () => {},
     setFileSearch: () => {},

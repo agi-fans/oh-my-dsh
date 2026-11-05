@@ -9,6 +9,10 @@ import type { BundleInfo } from '@deepseek-ai/dsh-plugin-manager'
 import z from '@deepseek-ai/schemastery'
 
 import type { PluginSettingsEntry } from '../views/settings-list.ts'
+import { BTW_PRESET } from './btw-policy.ts'
+import { formatAgentPreset } from '../session/session-configuration.ts'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-permission-presets'
 import type { TuiService } from '../definition.ts'
 import { externalAgentDiagnostic, externalAgentGuide } from '../session/external-agents.ts'
 import { preferencePaths } from './settings-preferences.ts'
@@ -26,6 +30,8 @@ const SHELL_FORM: ProductForm = { label: 'Shell', section: 'tools', fields: { ti
 
 // Presentation only: values, validation, inheritance and writes belong to each live schema.
 const PRODUCT_FORMS: Record<string, ProductForm> = {
+  permission: { label: 'Default access', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
+  'agent-preset-registry': { label: 'Default Agent preset', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
   'agent-loop': { label: 'Tool parallelism', section: 'tools', fields: { maxParallelToolCalls: 'Parallel tool calls' } },
   subagent: { label: 'Subagents', section: 'agent', fields: { maxDepth: 'Delegation depth', maxActiveSubagents: 'Concurrent subagents' } },
   'subagent-model-selection-settings': { label: 'Subagent models', section: 'agent', fields: { enabled: 'Model selection', allowedModels: 'Allowed models' }, inline: 'enabled', effect: 'Applies to new sessions; existing sessions keep their routes.' },
@@ -45,7 +51,7 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
 
 // Already represented by dedicated controls, or accepted solely for migration.
 const DEDICATED_FIELDS: Record<string, readonly string[]> = {
-  tui: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalTitle', 'terminalState', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
+  tui: ['uiLanguage', 'theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalTitle', 'terminalState', 'busyEnter', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
   'agent-behavior': ['language'],
   // A deployment without the working-directory service may still set these in
   // its profile; normal sessions always run in the Session's current directory.
@@ -68,7 +74,7 @@ export function nativeIntegrationId(bundle: string): string | undefined {
 export async function showSettingsError(tui: Pick<TuiService, 'notice' | 'prompt'>, detail: string, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return
   tui.notice(detail, { level: 'error' })
-  await tui.prompt({ title: 'Settings', question: 'Could not change configuration', detail,
+  await tui.prompt({ localize: true, title: 'Settings', question: 'Could not change configuration', detail,
     options: [{ label: 'Return to settings' }], allowCustom: false, notify: false,
     ...(signal === undefined ? {} : { signal }) })
 }
@@ -151,7 +157,7 @@ export function parseConfigValue(field: ConfigField, text: string): unknown {
   return value
 }
 
-const list = { presentation: 'card' as const, filterable: true, allowCustom: false, notify: false }
+const list = { localize: true, presentation: 'card' as const, filterable: true, allowCustom: false, notify: false }
 
 function constantValues(field: ConfigField): unknown[] | undefined {
   return field.schema.type === 'boolean' ? [true, false] : field.schema.type === 'union'
@@ -196,7 +202,8 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     const owned = paths.filter(path => Object.hasOwn(form?.fields ?? {}, path))
     const advanced = section.autoGenerate === false ? [] : paths.filter(path => !claimed.includes(path))
     const writable = ctx.settings.writable ? 'Edits apply live to this profile.' : 'This profile is read-only.'
-    const summary = fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
+    const defaultPreset = ctx.get('agentPresets')?.defaultId
+    const summary = (ns === 'agent-preset-registry' ? (defaultPreset === undefined ? undefined : formatAgentPreset(defaultPreset)) : ns === 'permission' ? ctx.get('permissionPresets')?.defaultPreset : undefined) ?? fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
       && configValue(section.value, field.path) !== undefined).slice(0, 2)
       .map(field => `${form?.fields[field.path.join('.')]}: ${Array.isArray(configValue(section.value, field.path)) ? `${(configValue(section.value, field.path) as unknown[]).length} selected` : fieldDisplay(field, configValue(section.value, field.path))}`).join(' · ')
     const field = fields.find(field => field.path.join('.') === form?.inline)
@@ -292,7 +299,7 @@ export async function resetSettingsControl(ctx: Context, id: string, entry: Plug
     if (value === undefined) value = field?.schema.meta.default
     return `${path[0] === 'statusBar' && path.length === 1 ? 'Layout' : label}: ${display(value)}`
   }).join('\n')
-  const choice = await ctx.tui.prompt({ title: 'Restore inherited setting', question: id.startsWith('statusItem:') ? `${label} color` : label,
+  const choice = await ctx.tui.prompt({ localize: true, title: 'Restore inherited setting', question: id.startsWith('statusItem:') ? `${label} color` : label,
     detail: `${inherited}\nOnly these Profile overrides will be removed.`, options: [{ label: 'Restore inherited value', value: 'restore' }], allowCustom: false, notify: false, signal })
   if (choice !== 'restore' || signal.aborted) return
   if (entry?.inline !== undefined) {
@@ -306,7 +313,7 @@ export async function resetSettingsControl(ctx: Context, id: string, entry: Plug
 
 export async function editPluginSettings(ctx: Context, ns: string, signal: AbortSignal, allowedFields?: readonly string[], presentation?: Pick<ProductForm, 'label' | 'fields'>, resetOnly = false): Promise<void> {
   let focusedPath: string | undefined
-  const directField = presentation !== undefined && allowedFields?.length === 1 && ['subagent-codex', 'subagent-claude-code'].includes(ns)
+  const directField = presentation !== undefined && allowedFields?.length === 1 && ['subagent-codex', 'subagent-claude-code', 'permission', 'agent-preset-registry'].includes(ns)
   while (!signal.aborted) {
     // Re-read after every write; never carry a stale editor into another field.
     const descriptor = ctx.settings.describe({ redactSecrets: true }).find(item => item.ns === ns)
@@ -327,7 +334,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
     focusedPath = field.path.join('.')
     if (!ctx.settings.writable) { await showSettingsError(ctx.tui, 'This profile is read-only.', signal); continue }
     const label = presentation?.fields[field.path.join('.')] ?? field.path.join('.')
-    const action = presentation !== undefined && !restore ? 'set' : await ctx.tui.prompt({ title: label, question: restore ? 'Restore inherited value?' : 'Set a value or restore inheritance',
+    const action = presentation !== undefined && !restore ? 'set' : await ctx.tui.prompt({ localize: true, title: label, question: restore ? 'Restore inherited value?' : 'Set a value or restore inheritance',
       detail: field.secret ? 'Secret values are never shown. Reset removes the profile value and its paired credential reference; inherited credentials may still apply.' : `Current: ${presentation === undefined ? display(configValue(section.value, field.path)) : fieldDisplay(field, configValue(section.value, field.path))}\nInherited: ${presentation === undefined ? display(configValue(section.base, field.path)) : fieldDisplay(field, configValue(section.base, field.path))}`,
       options: [...(restore ? [] : [{ label: 'Set value', value: 'set' }]), { label: 'Reset to inherited', value: 'reset' }], allowCustom: false, notify: false, signal })
     if (action === null || signal.aborted) continue
@@ -336,6 +343,28 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
         validateModelSelection(section, field, configValue(section.base, field.path))
         const refPath = credentialPath(field, fields)
         await ctx.settings.mutate(ns, [{ op: 'unset', path: field.path }, ...(refPath === undefined ? [] : [{ op: 'unset' as const, path: refPath }])], section.revision)
+      }
+      else if (section.ns === 'permission' && field.path.join('.') === 'defaultPreset') {
+        const permissions = ctx.get('permissionPresets')
+        if (permissions === undefined) throw new Error('Permission presets are unavailable.')
+        const catalog = permissions.catalog()
+        const chosen = await ctx.tui.prompt({ ...list, title: label, question: 'Choose access for new sessions',
+          detail: 'The current session keeps its access level.', initialValue: catalog.defaultPreset,
+          options: catalog.defaultOptions.map(option => ({ label: option.name, value: option.value, description: option.description ?? option.value })), signal })
+        if (chosen === null || signal.aborted) return
+        if (!permissions.catalog().defaultOptions.some(option => option.value === chosen)) throw new Error('That default access level is unavailable.')
+        await saveValue(ctx, section, field, chosen)
+      }
+      else if (section.ns === 'agent-preset-registry' && field.path.join('.') === 'selectedDefault') {
+        const registry = ctx.get('agentPresets')
+        if (registry === undefined) throw new Error('Agent presets are unavailable.')
+        const presets = (await registry.list()).filter(preset => preset.broken === undefined && preset.id !== BTW_PRESET)
+        const chosen = await ctx.tui.prompt({ ...list, title: label, question: 'Choose the default for new sessions',
+          detail: 'Existing sessions keep their preset.', initialValue: registry.defaultId,
+          options: presets.map(preset => ({ label: preset.name ?? formatAgentPreset(preset.id), value: preset.id, description: preset.description ?? preset.id })), signal })
+        if (chosen === null || signal.aborted) return
+        if (!presets.some(preset => preset.id === chosen)) throw new Error('That Agent preset is unavailable.')
+        await saveValue(ctx, section, field, chosen)
       }
       else if (section.ns === 'subagent-model-selection-settings' && field.path.join('.') === 'allowedModels') {
         const routes = await chooseSubagentModels(ctx, configValue(section.value, field.path), signal)
@@ -348,7 +377,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
         const current = configValue(section.value, field.path)
         const unitHelp = field.schema.type !== 'number' ? '' : (field.path.at(-1) ?? '').endsWith('Ms') ? 'Use milliseconds, or units such as 30s and 2m.'
           : (field.path.at(-1) ?? '').endsWith('Bytes') ? 'Use bytes, or units such as 512 KiB and 2 MiB.' : ''
-        const text = await ctx.tui.prompt({ title: label, question: field.schema.type === 'string' || presentation !== undefined && field.schema.type === 'number' ? 'Enter a value' : constants === undefined ? 'Enter a JSON value' : 'Choose a value',
+        const text = await ctx.tui.prompt({ localize: true, title: label, question: field.schema.type === 'string' || presentation !== undefined && field.schema.type === 'number' ? 'Enter a value' : constants === undefined ? 'Enter a JSON value' : 'Choose a value',
           ...(field.secret ? {} : { detail: presentation === undefined ? field.schema.toString() : [`Current: ${fieldDisplay(field, current)}`, field.schema.meta.description, unitHelp].filter(Boolean).join('\n') }), secret: field.secret,
           ...(field.secret ? {} : constants === undefined ? { initialInput: current === undefined ? '' : presentation !== undefined && field.schema.type === 'number' ? fieldDisplay(field, current) : field.schema.type === 'string' ? String(current) : JSON.stringify(current) }
             : { initialValue: JSON.stringify(current) }),

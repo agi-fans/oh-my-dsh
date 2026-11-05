@@ -15,6 +15,7 @@ function resolve(input: object): Record<string, unknown> {
 describe('TUI row settings', () => {
   it('defaults the palette and every non-derived preference', () => {
     expect(resolve({})).toEqual({
+      uiLanguage: 'auto',
       theme: 'dark',
       // Resolved against the output stream, which a schema cannot know.
       colors: undefined,
@@ -26,6 +27,7 @@ describe('TUI row settings', () => {
       terminalTitle: 'status',
       terminalState: 'auto',
       copyOnSelect: true,
+      busyEnter: 'queue',
       pasteProtection: true,
       mouseInteraction: 'auto',
       foldDensity: 'standard',

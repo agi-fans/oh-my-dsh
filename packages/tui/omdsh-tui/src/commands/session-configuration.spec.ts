@@ -8,6 +8,39 @@ import type { SessionRuntime } from '../session/session-controller.ts'
 import * as commandSessionConfiguration from './session-configuration.ts'
 
 describe('session configuration commands', () => {
+  it.each([false, true])('starts Creator without sending a prompt or saving a default (started=%s)', async started => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const session = ctx.sessions.create(SessionId('creator-entry'))
+    if (started) session.append('user/message', { content: [{ type: 'text', text: 'Earlier task' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const agent = { id: session.id, session, status: 'idle' } as Agent
+    const changeAgentPreset = vi.fn(), newSession = vi.fn(), send = vi.fn()
+    ctx.provide('omdshSession', { agentPresets: async () => [{ id: 'cordis' }], changeAgentPreset, newSession, send } as unknown as SessionRuntime)
+    ctx.provide('tui', {} as TuiService)
+    ctx.provide('agentPresets', {} as never)
+    await ctx.plugin(commandSessionConfiguration)
+    const before = session.deriveMessages()
+    const result = await ctx.commands.execute(agent, '/agent creator', [], new AbortController().signal)
+    expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('Creator is ready') })
+    expect(started ? newSession : changeAgentPreset).toHaveBeenCalledWith(agent, 'cordis')
+    expect(started ? changeAgentPreset : newSession).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+    expect(session.deriveMessages()).toEqual(before)
+    await ctx.fiber.dispose()
+  })
+
+  it('leaves the session intact when Creator is broken', async () => {
+    const ctx = new Context()
+    const newSession = vi.fn(), changeAgentPreset = vi.fn()
+    ctx.provide('omdshSession', { agentPresets: async () => [{ id: 'cordis', broken: 'missing dependency' }], newSession, changeAgentPreset } as unknown as SessionRuntime)
+    const result = await commandSessionConfiguration.startCreator(ctx, { agent: { status: 'idle' }, signal: new AbortController().signal } as never)
+    expect(result).toEqual({ kind: 'error', text: 'missing dependency' })
+    expect(newSession).not.toHaveBeenCalled()
+    expect(changeAgentPreset).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
   it('reports failed declarations alongside the session’s retained composition', async () => {
     const registry = {
       compositionInventory: async () => [{ id: 'cordis', name: 'Cordis', isDefault: false, broken: 'missing dependency: demo', rows: [] }],

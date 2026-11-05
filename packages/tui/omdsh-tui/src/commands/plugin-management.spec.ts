@@ -35,6 +35,31 @@ async function harness(answers: readonly (string | null)[]) {
 }
 
 describe('native plugin management', () => {
+  it('starts Creator from Plugins without submitting a message', async () => {
+    const h = await harness(['creator'])
+    const changeAgentPreset = vi.fn(), newSession = vi.fn(), send = vi.fn()
+    h.ctx.provide('omdshSession', { agentPresets: async () => [{ id: 'cordis' }], changeAgentPreset, newSession, send } as never)
+    try {
+      const result = await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[0]![0].options).toContainEqual(expect.objectContaining({ value: 'creator', disabled: false }))
+      expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('Creator is ready') })
+      expect(changeAgentPreset).toHaveBeenCalledWith(h.agent, 'cordis')
+      expect(newSession).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it.each([{ presets: [] }, { presets: [{ id: 'cordis', broken: 'missing dependency' }] }])('disables an unavailable Creator with a reason ($presets)', async ({ presets }) => {
+    const h = await harness([null])
+    h.ctx.provide('omdshSession', { agentPresets: async () => presets } as never)
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[0]![0].options).toContainEqual(expect.objectContaining({
+        value: 'creator', disabled: true, description: presets[0]?.broken ?? 'Creator is unavailable in this profile.',
+      }))
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
   it.each(['cancelled', 'failed'] as const)('does not describe a %s installation as enabled', application => {
     expect(plugins.changeText({ ...changed, stage: 'install', application, enabled: true })).not.toContain('enabled')
   })

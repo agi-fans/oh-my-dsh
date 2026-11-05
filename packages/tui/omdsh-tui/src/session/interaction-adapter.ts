@@ -6,6 +6,7 @@
  * @module @agi-fans/dsh-tui/interaction-adapter
  */
 
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -55,6 +56,7 @@ async function askQuestions(
   service?: UserQuestionService,
   notify = true,
 ): Promise<AskUserQuestionAnswer> {
+  const t = (source: string): string => uiText(resolveUiLanguage(tui.prefs?.().uiLanguage), source)
   const lifetime = new AbortController()
   const signal = request.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, request.signal])
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -103,14 +105,14 @@ async function askQuestions(
       const promptNotify = shouldNotify
       shouldNotify = false
       const raw = await tui.prompt({
-        title: question.intent?.kind === 'plan-review' ? 'Plan review' : (question.header ?? 'Question'),
+        title: question.intent?.kind === 'plan-review' ? t('Plan review') : (question.header ?? t('Question')),
         question: question.question,
         ...(question.detail === undefined ? {} : { detail: question.detail }),
         ...(question.options === undefined ? {} : { options: question.options }),
         ...(question.multiSelect === undefined ? {} : { multiSelect: question.multiSelect }),
         ...(question.intent?.kind === 'plan-review' ? { approveValue: question.intent.approve } : {}),
-        ...(request.questions.length > 1 ? { title: `${question.header ?? 'Question'} · ${index + 1}/${request.questions.length}` } : {}),
-        ...(index > 0 ? { actions: [{ key: 'alt+left', label: 'previous question', valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
+        ...(request.questions.length > 1 ? { title: `${question.header ?? t('Question')} · ${index + 1}/${request.questions.length}` } : {}),
+        ...(index > 0 ? { actions: [{ key: 'alt+left', label: t('previous question'), valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
         ...restoredAnswer,
         ...(tui.insertText === undefined ? {} : {
           onCancelDraft: (draft: string) => {
@@ -118,7 +120,7 @@ async function askQuestions(
           },
         }),
         ...(wait === undefined ? {} : { wait }),
-        ...(request.wait?.timed === true ? { dismissLabel: 'Later' } : {}),
+        ...(request.wait?.timed === true ? { dismissLabel: t('Later') } : {}),
         ...(promptNotify ? {} : { notify: false }),
         skippable: question.intent === undefined,
         allowCustom: true,
@@ -196,13 +198,14 @@ export function approvalDetail(tui: TuiService, request: ApprovalRequest): { det
 }
 
 async function askApproval(ctx: Context, tui: TuiService, request: ApprovalRequest): Promise<ApprovalOutcome> {
+  const t = (source: string, values?: Record<string, string>) => uiText(resolveUiLanguage(tui.prefs?.().uiLanguage), source, values)
   const rules = ctx.get('omdshApprovalRules')
   const action = rules?.describe(request)
   // The action and its reason are the detail of a decision, so they belong on
   // the card that carries the decision rather than on a page of their own.
   const raw = await tui.prompt({
-    title: 'Approval required',
-    question: `Allow ${request.toolName} once?`,
+    localize: true, title: 'Approval required',
+    question: t('Allow {tool} once?', { tool: request.toolName }),
     armMs: 500,
     detail: approvalDetail(tui, request).detail ?? request.toolName,
     options: [
@@ -219,8 +222,8 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   if (raw === null) return 'cancelled'
   if (raw === 'reject-note') {
     const note = await tui.prompt({
-      title: 'Reject with note',
-      question: `Why reject ${request.toolName}, or what should the agent do instead?`,
+      localize: true, title: 'Reject with note',
+      question: t('Why reject {tool}, or what should the agent do instead?', { tool: request.toolName }),
       allowCustom: true,
       notify: false,
       ...(request.signal === undefined ? {} : { signal: request.signal }),
@@ -238,9 +241,9 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   }
   if ((raw === 'remember-allow' || raw === 'remember-reject') && action !== undefined && rules !== undefined) {
     const decision = raw === 'remember-allow' ? 'allow' : 'reject'
-    const scope = await tui.prompt({ title: 'Remember approval decision', question: `Where should this exact invocation be ${decision === 'allow' ? 'allowed' : 'rejected'}?`,
+    const scope = await tui.prompt({ localize: true, title: 'Remember approval decision', question: decision === 'allow' ? 'Where should this exact invocation be allowed?' : 'Where should this exact invocation be rejected?',
       detail: approvalActionDetail(action)
-        + '\n\nMatches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.',
+        + '\n\n' + t('Matches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.'),
       options: [{ label: 'This session', value: 'session', description: 'Retained on resume; not inherited by forks or children.' },
         { label: 'This workspace', value: 'workspace', description: 'Applies to sessions with this same workspace boundary.' },
         { label: 'Cancel', value: 'cancel', description: 'Save nothing and cancel this request.' }],

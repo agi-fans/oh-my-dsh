@@ -21,6 +21,6 @@ describe('session configuration', () => {
 
   it('uses stable product labels for shipped concepts', () => {
     expect(['standard', 'code', 'minimal', 'cordis'].map(formatAgentPreset))
-      .toEqual(['Standard', 'PTC', 'Minimal', 'Cordis'])
+      .toEqual(['Standard', 'PTC', 'Minimal', 'Creator'])
   })
 })

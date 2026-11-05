@@ -67,7 +67,13 @@ export function ensureProductBundleFirst(dir: string): void {
  */
 export function ensureOmdshProfile(home: string): string {
   const dir = resolveProfileDir(PROFILE_NAME, home)
-  if (!existsSync(join(dir, 'package.json'))) initProfile(dir, [PRODUCT_BUNDLE])
+  if (!existsSync(join(dir, 'package.json'))) {
+    // Only fresh profiles adopt Follow UI. An existing patch may predate its manifest.
+    const hasPatch = existsSync(join(dir, PROFILE_PATCH_FILENAME))
+    initProfile(dir, [PRODUCT_BUNDLE])
+    if (!hasPatch) writeFileSync(join(dir, PROFILE_PATCH_FILENAME),
+      '# Response language for this profile; UI language is configured separately.\n- id: agent-behavior\n  config:\n    language: follow-ui\n')
+  }
   ensureProductBundleFirst(dir)
   return dir
 }

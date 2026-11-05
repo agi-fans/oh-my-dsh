@@ -73,7 +73,7 @@ async function fixture(tty = false, durableRoot?: string) {
   const presets = {
     defaultId: 'standard',
     presetForSession: () => 'standard',
-    resolve: async () => ({ id: 'standard' }),
+    resolve: vi.fn(async (id?: string) => ({ id: id ?? 'standard' })),
     mount: async () => ({ id: 'standard' }),
     recompose: async (_ctx: Context, id: string) => ({ id }),
   }
@@ -121,7 +121,7 @@ async function fixture(tty = false, durableRoot?: string) {
   if (tty) input.write('\x1b[?62;22c')
   const runtime = new SessionRuntime(ctx, tui, durableRoot === undefined ? {} : { stateDir: join(durableRoot, 'omdsh') })
   return {
-    ctx, runtime, tui, input, terminal,
+    ctx, runtime, tui, input, terminal, presets,
     output: () => output,
     resetOutput: () => { output = '' },
     async dispose() {
@@ -134,6 +134,19 @@ async function fixture(tty = false, durableRoot?: string) {
 }
 
 describe('session transcript boundaries', () => {
+  it('creates an explicitly requested preset without changing the default', async () => {
+    const f = await fixture()
+    try {
+      await f.runtime.start()
+      const previous = f.runtime.agent!
+      await f.runtime.newSession(previous, 'cordis')
+      expect(f.presets.resolve).toHaveBeenLastCalledWith('cordis')
+      expect(f.runtime.agent!.session.header.agentPreset).toBe('cordis')
+      expect(f.presets.defaultId).toBe('standard')
+      expect(f.runtime.agent!.session.deriveMessages()).toEqual([])
+    } finally { await f.dispose() }
+  })
+
   it('starts a fresh session without claiming earlier output was retained', async () => {
     const f = await fixture()
     try {

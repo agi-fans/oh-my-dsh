@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PROFILE_PATCH_FILENAME } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, loadOptionalPatches, PROFILE_PATCH_FILENAME } from '@deepseek-ai/dsh-app-boot'
 import {
   composeLaunch,
   ensureOmdshProfile,
@@ -36,6 +36,39 @@ describe('omdsh profile', () => {
     }
     expect(manifest.dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
     expect(existsSync(join(dir, PROFILE_PATCH_FILENAME))).toBe(true)
+  })
+
+  it('seeds Follow UI only on fresh profiles and leaves the home layer last', () => {
+    const home = temp('omdsh-profile-language-')
+    const dir = ensureOmdshProfile(home)
+    expect(loadOptionalPatches('omdsh', join(dir, PROFILE_PATCH_FILENAME))).toEqual([
+      { id: 'agent-behavior', config: { language: 'follow-ui' } },
+    ])
+    writeFileSync(join(home, PROFILE_PATCH_FILENAME), '- id: agent-behavior\n  config:\n    language: en\n')
+    const composition = composeLaunch(temp('omdsh-profile-language-cwd-'), { OMDSH_HOME: home })
+    expect(composition.patches.at(-1)).toEqual({ id: 'agent-behavior', config: { language: 'en' } })
+  })
+
+  it.each([undefined, 'auto', 'en', 'zh-CN'])('preserves existing profile language %s', language => {
+    const home = temp('omdsh-profile-language-existing-')
+    const dir = join(home, 'profiles', PROFILE_NAME)
+    initProfile(dir, [PRODUCT_BUNDLE])
+    const path = join(dir, PROFILE_PATCH_FILENAME)
+    if (language !== undefined) writeFileSync(path, `- id: agent-behavior\n  config:\n    language: ${language}\n`)
+    const before = readFileSync(path, 'utf8')
+    ensureOmdshProfile(home)
+    expect(readFileSync(path, 'utf8')).toBe(before)
+  })
+
+  it('preserves a user patch even when the profile manifest is absent', () => {
+    const home = temp('omdsh-profile-patch-only-')
+    const dir = join(home, 'profiles', PROFILE_NAME)
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, PROFILE_PATCH_FILENAME)
+    writeFileSync(path, '- id: agent-behavior\n  config:\n    language: zh-CN\n')
+    const before = readFileSync(path, 'utf8')
+    ensureOmdshProfile(home)
+    expect(readFileSync(path, 'utf8')).toBe(before)
   })
 
   it('restores a dropped product bundle without reordering user layers', () => {

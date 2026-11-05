@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent, InboxTarget } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { TuiPrompt, TuiSubmission, TuiPendingInputs } from '../definition.ts'
 import { editedQueuedMessage, moveQueuedMessage, openMessageQueue, queuedMessages } from './message-queue.ts'
 
 const message = (text: string): UserMessage => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 function fixture(nextTurn: UserMessage[] = [], nextStep: UserMessage[] = [], local: { id: string; submission: TuiSubmission }[] = []) {
+  const events: SessionEvent[] = []
+  const state = { status: 'running' }
   const inbox = {
     nextTurn, nextStep,
-    splice: vi.fn((target: InboxTarget, start: number, count: number, inserted: UserMessage[]) => (target === 'next-turn' ? nextTurn : nextStep).splice(start, count, ...inserted)),
+    splice: vi.fn((target: InboxTarget, start: number, count: number, inserted: UserMessage[]) => {
+      const removed = (target === 'next-turn' ? nextTurn : nextStep).splice(start, count, ...inserted)
+      events.push({ type: 'agent/inbox/spliced', data: { target, start, removedCount: count, inserted } } as SessionEvent)
+      return removed
+    }),
     remove: vi.fn((id: string) => {
       for (const list of [nextTurn, nextStep]) { const index = list.findIndex(item => item.id === id); if (index >= 0) { list.splice(index, 1); return true } }
       return false
@@ -35,12 +42,13 @@ function fixture(nextTurn: UserMessage[] = [], nextStep: UserMessage[] = [], loc
       return true
     },
   }
-  const agent = { inbox } as unknown as Agent
+  const steer = vi.fn((message: UserMessage) => { inbox.splice('next-step', nextStep.length, 0, [message]) })
+  const agent = { inbox, get status() { return state.status }, steer, session: { snapshotEvents: () => events } } as unknown as Agent
   const tui = { pendingInputs: pending, prompt: vi.fn<(prompt: TuiPrompt) => Promise<string | null>>(), notice: vi.fn(), restoreInput: vi.fn() }
   const assertActive = vi.fn()
   const restore = vi.fn(async (item: UserMessage): Promise<TuiSubmission> => ({ text: item.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), images: [] }))
   const open = (signal = new AbortController().signal): Promise<void> => openMessageQueue({ agent, tui, assertActive, restore, signal })
-  return { agent, inbox, tui, pending, assertActive, restore, open }
+  return { agent, inbox, tui, pending, assertActive, restore, open, state, steer, events }
 }
 
 describe('pending message mutations', () => {
@@ -198,6 +206,34 @@ describe('Message Queue interaction', () => {
     expect(f.restore).not.toHaveBeenCalled()
   })
 
+  it('replaces stale image-placement text when editing a waiting submission', async () => {
+    const image = { data: new Uint8Array([1]), mediaType: 'image/png' as const }
+    const file = { attachmentId: AttachmentId('file'), name: 'a.txt', bytes: 1 }
+    const f = fixture([], [], [{ id: 'a', submission: { text: 'old', images: [image], files: [file],
+      segments: [{ kind: 'text', text: 'old' }, { kind: 'image', index: 0 }], literal: true } }])
+    f.tui.prompt.mockResolvedValueOnce('delivery:a').mockResolvedValueOnce('new').mockResolvedValueOnce(null)
+    await f.open()
+    expect(f.pending.list()[0]?.submission).toEqual({ text: 'new', images: [image], files: [file], literal: true })
+  })
+
+  it('rejects an empty waiting edit without silently dropping the original message', async () => {
+    const f = fixture([], [], [{ id: 'a', submission: { text: 'keep', images: [] } }])
+    f.tui.prompt.mockResolvedValueOnce('delivery:a').mockResolvedValueOnce(' ')
+    await f.open()
+    expect(f.pending.list()[0]?.submission.text).toBe('keep')
+    expect(f.tui.notice).toHaveBeenCalledWith(expect.stringContaining('Enter a message'), { level: 'error' })
+  })
+
+  it('keeps user text literal while opting only queue chrome into localization', async () => {
+    const f = fixture([message('Queue · Next turn')])
+    f.tui.prompt.mockImplementationOnce(async request => {
+      expect(request.localize).toEqual(['title', 'question', 'actions'])
+      expect(request.options?.[0]).toMatchObject({ label: '1 · Queue · Next turn', preview: 'Queue · Next turn', badge: { label: 'Queue · next turn' } })
+      return null
+    })
+    await f.open()
+  })
+
   it('aborts safely before applying an answer or opening a nested prompt', async () => {
     const a = message('a')
     const f = fixture([a])
@@ -206,5 +242,91 @@ describe('Message Queue interaction', () => {
     await expect(f.open(abort.signal)).rejects.toThrow('cancelled')
     expect(f.inbox.nextTurn).toEqual([a])
     expect(f.inbox.remove).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Queue to Steer', () => {
+  it('moves one accepted message with its identity and ordered attachments, leaving neighbors intact', async () => {
+    const image = { attachmentId: AttachmentId('image'), mediaType: 'image/png' as const, bytes: 3, width: 1, height: 1 }
+    const file = { attachmentId: AttachmentId('file'), name: '中文.txt', bytes: 5 }
+    const a = message('first'), b = createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'image', attachment: image }, { type: 'text', text: '  Queue · next turn\n🐳' }, { type: 'file', attachment: file },
+    ] }), c = message('third'), previous = message('earlier steer')
+    const f = fixture([a, b, c], [previous])
+    f.tui.prompt.mockResolvedValueOnce(`steer:next-turn:${b.id}`).mockImplementationOnce(async request => {
+      expect(request.initialValue).toBe(`next-step:${b.id}`)
+      return `steer:next-turn:${b.id}`
+    }).mockResolvedValueOnce(null)
+    await f.open()
+    expect(f.steer).toHaveBeenCalledOnce()
+    expect(f.steer).toHaveBeenCalledWith(b)
+    expect(f.inbox.nextTurn).toEqual([a, c])
+    expect(f.inbox.nextStep).toEqual([previous, b])
+    expect(f.tui.restoreInput).not.toHaveBeenCalled()
+  })
+
+  it.each(['idle', 'next-step', 'delivery', 'claimed', 'changed', 'missing-image', 'stopped-during-read', 'stopped-during-remove'])('does not deliver on %s', async reason => {
+    const a = message('keep')
+    const f = fixture([a], [message('already steering')], [{ id: 'local', submission: { text: 'waiting', images: [] } }])
+    let key = `next-turn:${a.id}`
+    if (reason === 'idle') f.state.status = 'idle'
+    if (reason === 'next-step') key = `next-step:${f.inbox.nextStep[0]!.id}`
+    if (reason === 'delivery') key = 'delivery:local'
+    if (reason === 'claimed') f.restore.mockImplementationOnce(async () => { f.inbox.nextTurn.shift(); return { text: 'keep', images: [] } })
+    if (reason === 'changed') f.restore.mockImplementationOnce(async () => { f.assertActive.mockImplementation(() => { throw new Error('changed') }); return { text: 'keep', images: [] } })
+    if (reason === 'missing-image') f.restore.mockRejectedValueOnce(new Error('missing image'))
+    if (reason === 'stopped-during-read') f.restore.mockImplementationOnce(async () => { f.state.status = 'idle'; return { text: 'keep', images: [] } })
+    if (reason === 'stopped-during-remove') f.inbox.remove.mockImplementationOnce(() => { f.inbox.nextTurn.shift(); f.state.status = 'idle'; return true })
+    f.tui.prompt.mockResolvedValueOnce(`steer:${key}`).mockResolvedValueOnce(null)
+    if (reason === 'changed') await expect(f.open()).rejects.toThrow('changed')
+    else await f.open()
+    expect(f.steer).not.toHaveBeenCalled()
+    expect(f.inbox.nextTurn).toEqual(reason === 'claimed' ? [] : [a])
+    expect(f.pending.list()).toHaveLength(1)
+    expect(f.tui.restoreInput).not.toHaveBeenCalled()
+  })
+
+  it('rolls back a failed steer at its original position', async () => {
+    const a = message('a'), b = message('b'), c = message('c')
+    const f = fixture([a, b, c])
+    f.steer.mockImplementationOnce(() => { throw new Error('write failed') })
+    f.tui.prompt.mockResolvedValueOnce(`steer:next-turn:${b.id}`).mockResolvedValueOnce(null)
+    await f.open()
+    expect(f.inbox.nextTurn).toEqual([a, b, c])
+    expect(f.inbox.nextStep).toEqual([])
+    expect(f.tui.restoreInput).not.toHaveBeenCalled()
+    expect(f.tui.notice).toHaveBeenCalledWith('write failed', { level: 'error' })
+  })
+
+  it.each([false, true])('does not duplicate a committed steer when a subscriber throws (claimed=%s)', async claimed => {
+    const a = message('a')
+    const f = fixture([a])
+    f.steer.mockImplementationOnce(item => {
+      f.inbox.splice('next-step', 0, 0, [item])
+      if (claimed) f.inbox.nextStep.shift()
+      throw new Error('subscriber failed after commit')
+    })
+    f.tui.prompt.mockResolvedValueOnce(`steer:next-turn:${a.id}`).mockResolvedValueOnce(null)
+    await f.open()
+    expect(f.inbox.nextTurn).toEqual([])
+    expect(f.inbox.nextStep).toEqual(claimed ? [] : [a])
+    expect(f.inbox.splice).toHaveBeenCalledOnce()
+    expect(f.tui.restoreInput).not.toHaveBeenCalled()
+  })
+
+  it('rescues attachments as an unsent draft when both steering and rollback fail', async () => {
+    const a = message('a')
+    const f = fixture([a])
+    const image = { data: new Uint8Array([1]), mediaType: 'image/png' as const }
+    const file = { attachmentId: AttachmentId('file'), name: 'a.txt', bytes: 1 }
+    f.restore.mockResolvedValueOnce({ text: 'a', images: [image], files: [file] })
+    f.steer.mockImplementationOnce(() => { throw new Error('write failed') })
+    f.inbox.splice.mockImplementationOnce(() => { throw new Error('rollback failed') })
+    f.tui.prompt.mockResolvedValueOnce(`steer:next-turn:${a.id}`)
+    await f.open()
+    expect(f.steer).toHaveBeenCalledOnce()
+    expect(f.tui.restoreInput).toHaveBeenCalledWith({ text: 'a', images: [image], files: [file], literal: true })
+    expect(f.tui.notice).toHaveBeenCalledWith(expect.stringContaining('unsent draft'), { level: 'error' })
   })
 })

@@ -119,7 +119,7 @@ export function refreshPromptOptions<T extends PromptSelectorState>(state: T, op
 const previewCache = new WeakMap<PromptOption, Map<string, string[]>>()
 
 function treePreview(option: PromptOption | undefined, theme: Theme, width: number): string[] {
-  if (option === undefined) return ['No matching conversation turns.']
+  if (option === undefined) return [theme.text('No matching conversation turns.')]
   let cache = previewCache.get(option)
   if (cache === undefined) { cache = new Map(); previewCache.set(option, cache) }
   const key = `${width}:${theme.key}`
@@ -198,7 +198,7 @@ export function renderPromptTreePage(
       : theme.fg('dim', '  ' + truncateToWidth(row.option.description, room))
     list.push(fit(head + text + description, listWidth))
   }
-  if (rows.length === 0) list.push(fit(theme.fg('dim', state.request.emptyText ?? 'No matching conversation turns.'), listWidth))
+  if (rows.length === 0) list.push(fit(theme.fg('dim', state.request.emptyText ?? theme.text('No matching conversation turns.')), listWidth))
   const preview = treePreview(option, theme, Math.max(1, previewWidth))
   const maxScroll = Math.max(0, preview.length - previewHeight)
   const scroll = Math.max(0, Math.min(state.previewScroll ?? 0, maxScroll))
@@ -523,7 +523,7 @@ export function renderPlanReviewPage(
 
   let cursor = { row: Math.max(0, lines.length - 1), column: 1 }
   if (feedback) {
-    lines.push(pageRow(theme, ' ' + theme.bold('Revision feedback') + theme.fg('dim', ' · optional'), width))
+    lines.push(pageRow(theme, ' ' + theme.bold(theme.text('Revision feedback')) + theme.fg('dim', ' · optional'), width))
     const prefix = theme.fg('accent', '> ')
     const available = Math.max(1, width - 8)
     const displayInput = input.replace(/\r?\n/gu, ' ↵ ')
@@ -532,7 +532,7 @@ export function renderPlanReviewPage(
     const inputRow = lines.length
     lines.push(pageRow(theme, ' ' + prefix + value, width))
     // "empty Enter keeps planning" is prose, but it names the key through the catalog.
-    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_SUBMIT, HOTKEY_BACK, HOTKEY_CANCEL_CTRL])} · Ctrl+X editor · empty ${formatHotkeyKeys(HOTKEY_SUBMIT)} keeps planning]`), width))
+    lines.push(pageRow(theme, theme.fg('dim', `[${formatOverlayHint([HOTKEY_SUBMIT, HOTKEY_BACK, HOTKEY_CANCEL_CTRL], 'lowercase', theme.language)} · Ctrl+X editor · empty ${formatHotkeyKeys(HOTKEY_SUBMIT)} keeps planning]`), width))
     lines.push(pageBottom(theme, width))
     cursor = {
       row: inputRow,
@@ -544,7 +544,7 @@ export function renderPlanReviewPage(
       // itself: the query, how many hits it has, and where the reader is in them.
       const index = textMatches.findIndex(match => match.row === state.documentTarget)
       const hits = textMatches.length === 0
-        ? 'No match'
+        ? theme.text('No match')
         : `${index < 0 ? 1 : index + 1}/${textMatches.length} matching rows`
       const label = state.documentInput === 'search' ? 'Find: ' : ''
       const value = input.replace(/\r?\n/gu, ' ')
@@ -572,7 +572,7 @@ export function renderPlanReviewPage(
     lines.push(...actionRows.map(row => pageRow(theme, ' ' + row, width)))
     const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
-      : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL])
+      : formatOverlayHint([HOTKEY_PAGE, HOTKEY_NAVIGATE_TAB, HOTKEY_SELECT, HOTKEY_CANCEL], 'lowercase', theme.language)
         + (state.request.presentation === 'plan-review' ? ' · Ctrl+X editor' : '')
     // A page long enough to need scrolling is a page someone will want to search.
     const pageHint = source === undefined && state.request.presentation === 'document'
@@ -616,8 +616,8 @@ export function renderPromptSelector(
   if (state.request.wait !== undefined) {
     const remaining = Math.max(0, Math.ceil((state.request.wait.deadline - Date.now()) / 1_000))
     body.push(theme.fg('dim', state.waitHeld === true
-      ? 'Take your time · waiting for your answer'
-      : `Continues in ${remaining}s · ${formatHotkeyKeys(HOTKEY_TAKE_TIME)} take time`))
+      ? theme.text('Take your time · waiting for your answer')
+      : theme.text('Continues in {seconds}s · {key} take time', { seconds: remaining, key: formatHotkeyKeys(HOTKEY_TAKE_TIME) })))
   }
   if (state.request.detail !== undefined && state.request.detail !== '') body.push('', state.request.detail)
   if (options.length > 0) {
@@ -644,7 +644,7 @@ export function renderPromptSelector(
     // A filter that matches nothing has to say so. An empty frame reads as a
     // broken list, and the reader cannot tell a typo from an empty transcript.
     body.push('', theme.fg('dim', `  ${state.request.emptyText
-      ?? (filtering ? `No match for ${quote(input)}.` : 'Nothing to choose.')}`))
+      ?? (filtering ? theme.text('No match for {query}.', { query: quote(input) }) : theme.text('Nothing to choose.'))}`))
   }
   /**
    * The query, drawn where the reader types it.
@@ -662,33 +662,33 @@ export function renderPromptSelector(
     // and the list answered with a count.
     const count = filtering ? theme.fg('dim', ` · ${options.length === 0 ? 'no match' : `${state.selected + 1}/${options.length}`}`) : ''
     body.push('', input === ''
-      ? theme.fg('muted', '  ⌕ type to filter') + count
+      ? theme.fg('muted', theme.text('  ⌕ type to filter')) + count
       : theme.fg('text', '  ⌕ ') + input + count)
   }
   // A request that has options but no match has nothing to submit: advertising
   // `enter select` there promises a key the handler swallows.
   const exhausted = options.length === 0 && (state.request.options?.length ?? 0) > 0
   const submit = state.request.submitLabel?.trim()
-    || (options.length === 0 ? 'answer' : state.request.multiSelect === true ? 'confirm' : 'select')
+    || (options.length === 0 ? theme.text('answer') : state.request.multiSelect === true ? theme.text('confirm') : theme.text('select'))
   // The request supplies the submit verb; the key itself comes from the catalog.
   const select = `${formatHotkeyKeys(HOTKEY_SELECT)} ${submit}`
   const navigation = state.request.presentation === 'progress'
-    ? formatOverlayHint([HOTKEY_CANCEL, HOTKEY_CANCEL_CTRL], 'catalog')
+    ? formatOverlayHint([HOTKEY_CANCEL, HOTKEY_CANCEL_CTRL], 'catalog', theme.language)
     : exhausted
-      ? formatOverlayHint([HOTKEY_CANCEL])
+      ? formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)
       : options.length === 0
-        ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+        ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
       : state.request.multiSelect === true
-        ? `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${formatOverlayHint([HOTKEY_TOGGLE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
-        : `${formatOverlayHint([HOTKEY_NAVIGATE])} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL])}`
+        ? `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_TOGGLE], 'lowercase', theme.language)} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
+        : `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
   const dismiss = state.request.dismissLabel
   const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`)
   const hints = [
-    dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL]), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
-    ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP])] : []),
+    dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
+    ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP], 'lowercase', theme.language)] : []),
     ...actionHints,
   ]
-  body.push('', theme.fg('dim', hints.join(' · ')))
+  body.push('', theme.fg('dim', theme.text(hints.join(' · '))))
 
   const card = renderFramedBlock({
     header: state.request.title,
@@ -737,7 +737,7 @@ export function renderPromptSelector(
       ...(state.request.question === '' ? {} : { inlineHint: state.request.question }),
       // The keys live on the bottom rule so the frame says how to answer without
       // spending a row on it.
-      ...(hints.length === 0 ? {} : { note: hints.join(' · ') }),
+      ...(hints.length === 0 ? {} : { note: theme.text(hints.join(' · ')) }),
       border: 'accent',
     }, theme)
     return { lines: editor.lines, cursor: editor.cursor, cursorVisible: true }
@@ -746,7 +746,7 @@ export function renderPromptSelector(
     width,
     input: displayInput,
     inputCursor,
-    status: theme.fg('muted', secret ? 'API key · hidden' : input === '' ? 'answer' : 'custom answer'),
+    status: theme.fg('muted', secret ? theme.text('API key · hidden') : input === '' ? theme.text('answer') : theme.text('custom answer')),
     border: 'accent',
   }, theme)
   const editorStart = card.length + 1

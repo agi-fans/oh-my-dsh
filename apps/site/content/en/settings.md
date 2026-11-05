@@ -1,10 +1,10 @@
 ---
-description: "Every omdsh setting: appearance, motion, notifications, Agent language, optional features, and the configurable two-line status footer, with defaults and persistence."
+description: "Every omdsh setting: appearance, motion, notifications, UI and response languages, optional features, and the configurable two-line status footer, with defaults and persistence."
 ---
 
 # Settings
 
-`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between Interface, Agent, Tools, Status line, and Integrations; Advanced appears only when the profile has unclaimed plugin fields; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
+`/settings` opens the settings overlay. `Tab` and `Shift+Tab` switch between General, Models, Agent presets, Plugins, and Terminal; Advanced appears only when the profile has unclaimed plugin fields; `↑`/`↓` move between rows and `←`/`→` change a value. Type a name or press `/` to search across categories, including field names. Search retains the selected result after editing. `Esc` clears the query, then returns to browsing, then closes Settings; `Ctrl+U` clears the query directly. Narrow terminals show the current category and its position so `Tab` navigation remains visible. The complete overlay keys are in [Keyboard and keys](keyboard.md).
 
 ## Product configuration
 
@@ -12,14 +12,14 @@ Built-in capabilities appear in the product category that owns the task. Command
 
 | Category | Configuration |
 |---|---|
-| Interface | Appearance, input, notifications and startup preferences. |
-| Agent | Model and reasoning, Access, Agent preset, Language, Subagents and Subagent models. |
-| Tools | Tool parallelism, Shell timeout/output limits and optional feature toggles. The shell executor's host-level `cwd` is intentionally not offered: every session runs in its current working directory. |
-| Status line | Footer layout, visibility, context style and colors. |
-| Integrations | Web providers, Web search · API, Web search · Messages, Command hooks, Codex, and Claude Code. |
+| General | UI and response languages, Default access for new sessions, and an explicitly labelled Current session access action. |
+| Models | Current model and reasoning, provider credentials, and sign-out. Model selection also saves the default unless the session-only action is used. |
+| Agent presets | Default Agent preset for new sessions and Current session preset for a blank session. |
+| Plugins | Plugin management, Shell limits, tool parallelism, subagents, web providers, command hooks, native integrations and optional feature toggles. |
+| Terminal | Appearance, input, notifications, startup preferences and the Status line group. |
 | Advanced | Unclaimed live fields and installed plugins without a product form. It is hidden when empty. |
 
-In Integrations, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
+In Plugins, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
 
 **Web providers** selects the search and fetch backend; the shipped default is `deepseek-search-api`/`deepseek-fetch-api`, which make one direct DeepSeek API request without an auxiliary model turn. **Web search · API** configures that provider’s API key reference, endpoint, result count, and whether the triggering question is sent; on a `deepseek-account` session the shared account token takes precedence over the API key; `/login` stores the official key under the upstream `DEEPSEEK_API_KEY` reference, so an official API login is enough. **Web search · Messages** keeps the fallback Messages provider’s limits, key reference, endpoint, model, and API version; select `deepseek-official` under Web providers to use it, or `http` for the local fetch fallback.
 
@@ -29,19 +29,19 @@ Each field shows its effective value and whether it is inherited or overridden i
 
 Secret inputs are masked and are never shown in notices. Setting an `apiKey` beside `apiKeyEnv` saves the key through Harness credentials and writes only its reference into the Profile. Resetting that key removes both Profile fields so inheritance applies again; it does not revoke an inherited credential or erase a key from the credential store. Credential-reference fields retain the Harness environment and credential-source inheritance.
 
-Settings are saved to the active Profile. Appearance applies immediately; Agent language applies from the next turn, child-model selection applies to new sessions. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
+Settings are saved to the active Profile. Appearance applies immediately; response language applies from the next turn, child-model selection applies to new sessions. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
 
-In **Agent → Subagent models → Allowed models**, search the model catalog, press `Space` to toggle models and `Enter` to save. Current routes are preselected; configured routes outside the catalog remain available. Choose at least one model before enabling model selection. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
+In **Plugins → Subagent models → Allowed models**, search the model catalog, press `Space` to toggle models and `Enter` to save. Current routes are preselected; configured routes outside the catalog remain available. Choose at least one model before enabling model selection. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
 
 Product forms and save notices use task and field labels; Advanced retains technical namespaces and paths. Schema help appears beside each field. Settings continue to write the original plugin entry rather than copying configuration into TUI preferences.
 
 ### Command hooks
 
-In **Integrations**, choose **Command hooks**. Set **Configuration file** first, then **Hook compatibility** to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
+In **Plugins**, choose **Command hooks**. Set **Configuration file** first, then **Hook compatibility** to `codex` or `claude-code`; `off` is the default and disables execution. An empty path uses `.codex/hooks.json` or `.claude/settings.json` relative to the process working directory. Paths can point to existing compatible configurations; editing their contents requires a restart or switching the bridge off and on.
 
 The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
 
-## Interface
+## Terminal
 
 Rows are grouped under Appearance, Input, Notifications and Startup.
 
@@ -57,6 +57,7 @@ Rows are grouped under Appearance, Input, Notifications and Startup.
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Keybindings | Default / custom count | Default | Open the shortcut remapping picker, save to `keybindings.json`, and apply immediately. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
+| Enter while running | Queue / Steer | Queue | Choose whether Enter waits for the next turn or guides the next model step. Explicit Queue and Steer shortcuts stay fixed; idle sends and commands are unchanged. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |
@@ -77,17 +78,20 @@ Math in replies applies immediately to the live reply and reasoning view. Auto f
 
 Mermaid in replies uses terminal characters for supported flowcharts, sequence, state, class, ER, mindmap, timeline, pie and Git diagrams. Auto waits for the fenced block to close and draws only when parsing has no warnings and the whole diagram fits. Unsupported, incomplete, truncated or oversized diagrams retain their source; graph connections never wrap or clip to fit. Diagram colors follow the active theme. Source mode and reasoning views show Mermaid code. Copy and export retain the original Markdown; changing this preference refreshes the live view without rewriting terminal history.
 
-## Agent
+## General
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
-| Language | Auto / Simplified Chinese / English | Auto | Preferred language for reasoning and replies. |
+| UI language | Auto / 简体中文 / English | Auto | Switches interface text immediately. |
+| Response language | Follow UI / Auto / 简体中文 / English | Follow UI for new profiles | Preferred language for user-facing model communication, from the next turn. |
 
-**Model and reasoning**, **Access** and **Agent preset** open the existing `/model`, `/permission` and `/agent` selectors when those commands are available. Model selection saves the default route; Access and Agent preset affect the current session.
+**Models → Model and reasoning** opens `/model`: it changes the current selection and saves the default route, unless you choose **This session only**. Model selection uses the selected model’s default effort; `/model reasoning` changes effort explicitly. **General → Default access** and **Agent presets → Default Agent preset** write Harness settings for new sessions only. Their **Current session** actions open `/permission` and `/agent`; a preset can change only before the first prompt. `Ctrl+R` restores inherited defaults. Creator is the user-facing name of the `cordis` preset; `/agent creator` or **/plugins → Let the agent create a plugin** enters it without submitting a prompt or changing the default preset.
 
-A non-Auto choice applies from the next turn; code, identifiers, commands, tool arguments, logs, quotations, and file contents keep their accurate forms, and an explicit language request for the current task still wins. The preference is user-level, so a resumed session uses the current value rather than a historical snapshot.
+UI language covers settings, the composer, common menus, approval controls and notifications. Auto follows `LC_ALL`, then `LC_MESSAGES`, then `LANG`: Chinese locales use Simplified Chinese; other or missing locales use English. Commands, shortcuts, model names, user text, tool output and files retain their original spelling. Untranslated extension text falls back to its source language. Switching updates the live view and leaves native terminal history intact.
 
-## Tools
+Response language is independent. Follow UI resolves the interface language at the next turn; Auto adds no language instruction. Existing profiles keep their explicit language preference, or Auto when none was saved. Only newly created profiles start with Follow UI; restoring inheritance returns to Auto. The setting expresses a communication preference, not control over a model’s internal reasoning language; code, identifiers, commands, tool arguments, logs, quotations, and file contents keep their accurate forms, and an explicit language request for the current task still wins. The preference is user-level, so a resumed session uses the current value rather than a historical snapshot.
+
+## Plugins
 
 Shell offers the active platform’s timeout and output limits: Bash on POSIX and PowerShell on Windows use the same form and save to their respective owners. Optional feature rows control capabilities that cost context, runtime, or transcript noise; each row turns one composition row off.
 
@@ -104,22 +108,24 @@ The running profile watches this patch and applies changes after the write settl
 
 Rows that back a command (`session-query` backs `/resume`, `workspace` backs `@` mentions) and rows that make the agent unusable (`tool-fs`, `tool-bash`, `todo`) are deliberately not listed. `web_search` is also absent: it shares its row with `web_fetch`, so no row-level switch can express "search off, fetch on".
 
-## Status line
+## Terminal → Status line
+
+The footer and preview always use English labels, regardless of UI language. Settings controls and explanations follow the UI language. The preview is labelled as example data and includes a sample session title when that item is enabled.
 
 | Row | Values | Default | Effect |
 |---|---|---|---|
-| Telemetry | on / off | on | Show session metrics below the first footer line; model and workspace metadata remain visible. Turning it off reclaims the rows it used. |
-| Density | minimal / standard / verbose | standard | How much the footer says. `minimal` keeps occupancy — Context and Cache — with `Ctx` labels; `standard` adds Latency (`TTFT`); `verbose` adds Tokens to the same line and gives Time and Activity a third, with long labels (`Context`) and the detailed context form. |
+| Session metrics | on / off | on | Show session metrics below the first footer line; model and workspace metadata remain visible. Turning it off reclaims the rows it used. |
+| Density | minimal / standard / verbose | standard | How much the footer says. `minimal` keeps occupancy — Context and Cache — with `Ctx` labels; `standard` adds Latency / speed (`TTFT`); `verbose` adds Tokens to the same line and gives Duration and Turns / steps a third, with long labels (`Context`) and the detailed context form. |
 
 `Space` on any footer part shows or hides it: hiding is a statement about that number, so it survives a density change, while the parts the density itself decides are left alone. **Restore layout** confirms restoration of the inherited density and visibility.
 
-Every part has a fixed place, and there is nothing to drag: a row says only whether that part appears. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, because the terminal window title carries the session title regardless.
+Every part has a fixed place. An item’s on/off value is a preference: enabled metrics still require Session metrics to be on, enough terminal width, and data from the session. The selected row explains when the metrics switch is off. The first line keeps identity on the left — Model (`deepseek`), Effort (`max`), and Session — and place on the right — Path (`~/project`) and Git (`main *1`). Session is off below `verbose`, and can be enabled independently of the terminal window title.
 
-The lines below the first answer two questions from opposite edges. Occupancy and elapsed time hold the left: Context (`Ctx 1.6%`), Cache (`Cache 99%`), and Time (`LLM 16m51s`). Throughput and the amount of work hold the right: Tokens (`5.9M in`), Latency (`TTFT 1.2s`), and Activity (`3 turns`). The sides do not swap, so the same number is in the same place from one session to the next.
+The lines below the first answer two questions from opposite edges. Occupancy and elapsed time hold the left: Context (`Ctx 1.6%`), Cache (`Cache 99%`), and Duration (`LLM 16m51s`). Throughput and the amount of work hold the right: Tokens (`5.9M in`), Latency / speed (`TTFT 1.2s`), and Turns / steps (`3 turns`). The sides do not swap, so the same number is in the same place from one session to the next.
 
-`verbose` puts the session's totals on a third line — Time on the left, Activity on the right — so the line above it never has to shed them. That line appears only once the line above is whole; below that width nothing is added back out of order.
+`verbose` puts the session's totals on a third line — Duration on the left, Turns / steps on the right — so the line above it never has to shed them. That line appears only once the line above is whole; below that width nothing is added back out of order.
 
-The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Context 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal the visible set is a prefix of the catalog: fitting drops the last group, so Activity goes before Time, Time before Latency, and nothing reappears out of order as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
+The context representation follows the density — `standard` and `minimal` print a percentage, `verbose` prints `Context 1.6% · 16.4K/1M` — and every form keeps warning and error colors as occupancy rises. On a narrow terminal the visible set is a prefix of the catalog: fitting drops the last group, so Turns / steps goes before Duration, Duration before Latency / speed, and nothing reappears out of order as the terminal grows. Roles that need attention keep their own ink: a dirty branch stays `warning`, and a cache-hit percentage stays on the success color.
 
 ## Persistence
 

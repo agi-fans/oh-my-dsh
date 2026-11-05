@@ -146,6 +146,33 @@ function twoColumnShape(line: string): string {
 }
 
 describe('session status line', () => {
+  it.each([false, true])('keeps footer text, fitting and colors identical across UI languages (colors=%s)', colors => {
+    const english = createTheme(colors, 'truecolor', 'dark', undefined, 'en')
+    const chinese = createTheme(colors, 'truecolor', 'dark', undefined, 'zh-CN')
+    for (const density of ['minimal', 'standard', 'verbose'] as const) {
+      for (const width of [24, 40, 60, 80, 120, 200]) {
+        const options = { model: '模型 🐳', reasoningEffort: 'max', sessionTitle: '修复解析器',
+          pwd: '~/项目', branch: 'feature/中文', stats: { ...stats, contextTokens: 16_400, contextWindow: 1_000_000 },
+          config: statusBar({ density }), width }
+        const rows = renderStatusFooter(options, chinese)
+        expect(rows).toEqual(renderStatusFooter(options, english))
+        for (const row of rows) expect(oracleWidth(row)).toBe(width)
+      }
+    }
+    const rows = renderStatusFooter({ model: '模型 🐳', sessionTitle: '修复解析器', stats,
+      config: statusBar({ density: 'verbose' }), width: 200 }, chinese).map(stripAnsi)
+    expect(rows[0]).toContain('修复解析器')
+    expect(rows[1]).toContain('Cache 99%')
+    expect(rows[1]).toContain('5.9M in · 73.8K out')
+    expect(rows[2]).toContain('1 turn · 74 steps')
+    for (const phase of ['waiting', 'paused', 'completed', 'running'] as const) {
+      const options = { model: 'm', config: statusBar(), width: 200,
+        controls: { agentPreset: 'standard', plan: { active: true, pending: true } },
+        loop: { phase, repeats: 1, total: 3 } }
+      expect(renderStatusFooter(options, chinese)).toEqual(renderStatusFooter(options, english))
+    }
+  })
+
   it('keeps initialization telemetry visible with zero context usage', () => {
     const initial: TuiSessionStats = {
       turns: 0,

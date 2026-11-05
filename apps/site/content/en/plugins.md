@@ -10,6 +10,8 @@ Boot applies the shipped [`apps/omdsh/config/cordis.yml`](https://github.com/agi
 
 Skills and MCP remain separate deployment surfaces; see [Skills and MCP](skills-and-mcp.md). TUI richness comes from Cordis contribution services on top of that install layer, not from a TypeScript extensions folder. Theme, overlay, and keybinding registries stay closed until a second independently owned contributor needs them; see [Architecture](architecture.md) and [Plugin internals](plugin-internals.md).
 
+Use **Settings → Plugins** for plugin configuration or **/plugins → Configure plugins** for the same forms. **Let the agent create a plugin** opens Creator (`cordis`), reusing a blank session or creating a new session after an existing conversation. It sends no prompt and leaves the new-session default unchanged.
+
 ## What already works once a plugin is mounted
 
 The TUI does not keep a second command, tool, or model registry. After a plugin is in the tree, these Harness seams already reach the terminal:

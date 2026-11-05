@@ -35,16 +35,16 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Ctrl+V` | Paste clipboard text or an image. |
 | `Alt+M` | Preview composer images without sending them; with no draft image, open the newest image in the conversation. |
 | `Alt+I` | Expand a folded pasted block for editing. |
-| `Alt+Up` | Recall the latest queued message into the composer when the composer is empty. |
+| `Alt+Up` | Withdraw the latest queued message into the empty composer for editing; Enter submits it again. |
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
 | `Ctrl+S` | Stash or restore the current composer draft; a stashed draft returns automatically after you send a message. |
-| `Alt+S` | Send text guidance to the active Turn’s next model step. |
-| `Alt+Enter` | Queue the draft for after the active turn; `Enter` keeps sending the next turn. |
+| `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
+| `Alt+Enter` | Queue the draft for after the active turn, regardless of the Enter while running setting. |
 | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `Ctrl+Alt+C` | Copy the current line. |
 | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
 
-Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 lines]` or a character-count marker. Arrow keys and deletion treat each block as one unit; `Alt+I` expands the block at or nearest the caret for editing, and `Ctrl+-` undoes insertion, deletion, or expansion. Copying the prompt, using the external editor, and sending a message use the full text. Temporary questions and queued-message editing retain the source. A draft beginning with a folded paste sends its source as a message even if it begins with `/`. A draft queued with `Alt+Enter` is marked `Follow-up:` above the composer and `Alt+Up` recalls it for editing.
+Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 lines]` or a character-count marker. Arrow keys and deletion treat each block as one unit; `Alt+I` expands the block at or nearest the caret for editing, and `Ctrl+-` undoes insertion, deletion, or expansion. Copying the prompt, using the external editor, and sending a message use the full text. Temporary questions and queued-message editing retain the source. A draft beginning with a folded paste sends its source as a message even if it begins with `/`. A draft queued with `Alt+Enter` is shown as `Queue · next turn` once Harness accepts it and `Alt+Up` recalls it for editing.
 
 **Paste protection** also recognizes long text chunks, multiline reads, and rapid ASCII key streams when a terminal does not mark pasted input, keeping embedded Enter keys from submitting a message. Wait briefly after the paste finishes, then press Enter to send. Normal typing and individual IME commits appear immediately. This detection is heuristic; turn it off in Settings if it interferes with your terminal. Explicit bracketed paste remains safe with this setting off.
 
@@ -88,7 +88,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 
 | Shortcut | Action |
 |---|---|
-| `Esc` | Cancel or leave whatever has the screen: a prompt, an overlay, a search, a subagent inspection. During a turn it hands queued follow-ups back to the composer and interrupts. With nothing typed it opens the Session Tree when pressed twice. |
+| `Esc` | Cancel or leave whatever has the screen: a prompt, an overlay, a search, a subagent inspection. During a turn it interrupts while preserving accepted Queue and Steer messages. With nothing typed it opens the Session Tree when pressed twice. |
 | `Ctrl+C` once | Clear the composer, or interrupt the active turn while the composer is empty. |
 | `Ctrl+C` twice | Exit; a durable session prints an `omdsh --resume <session-id>` hint. |
 | `Ctrl+Z` | Suspend to the background. |
@@ -120,7 +120,7 @@ Searchable choice lists accept multiple words, such as `official flash`; every w
 
 ## Custom keybindings
 
-Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back to `$DSH_HOME`, then `~/.dsh`), the same home that stores sessions, settings, and MCP files. You can remap or unbind shortcuts interactively in `/settings` under **Interface → Input → Keybindings** (which saves and applies changes immediately), or edit the JSON file directly:
+Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back to `$DSH_HOME`, then `~/.dsh`), the same home that stores sessions, settings, and MCP files. You can remap or unbind shortcuts interactively in `/settings` under **Terminal → Input → Keybindings** (which saves and applies changes immediately), or edit the JSON file directly:
 
 ```json
 {
@@ -137,7 +137,7 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `preview-images` | `Alt+M` | Preview draft images, or the newest conversation image. |
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
-| `steer-turn` | `Alt+S` | Send text guidance to the active Turn’s next model step. |
+| `steer-turn` | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
 | `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Run the most recent human prompt again. |

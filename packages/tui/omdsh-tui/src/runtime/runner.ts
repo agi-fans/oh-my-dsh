@@ -48,7 +48,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
     }
     if (controller.interruptVisible()) return
     operation?.abort(new Error('cancelled by user'))
-    controller.agent?.cancel({ kind: 'user' })
+    controller.agent?.cancel({ kind: 'user' }, { keepInbox: true })
   })
   let queueEditInFlight = false
   const offQueueEdit = tui.onQueueEdit(() => {

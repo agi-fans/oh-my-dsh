@@ -41,7 +41,6 @@ function stubTui(): TuiService {
     onInspectSubagent: () => () => {},
     onInspectClose: () => () => {},
     onInspectSubmit: () => () => {},
-    setSteerHandler: () => () => {},
     setQueueHandler: () => () => {},
     setSessionSearch: () => {},
     setFileSearch: () => {},
@@ -791,5 +790,63 @@ describe('SessionRuntime workspace claim', () => {
       await without.ctx.fiber.dispose()
       await without.agentCtx.fiber.dispose()
     }
+  })
+})
+
+describe('SessionRuntime composer delivery', () => {
+  function fixture() {
+    const ctx = new Context(), tui = stubTui()
+    const runtime = new SessionRuntime(ctx, tui)
+    const active = vi.spyOn(runtime, 'assertActive').mockImplementation(() => {})
+    const events: SessionEvent[] = []
+    const agent = { status: 'running', session: { snapshotEvents: () => events }, followup: vi.fn(), steer: vi.fn() } as unknown as Agent
+    const pngRef = { attachmentId: AttachmentId('steering-image'), mediaType: 'image/png' as const, bytes: 5, width: 1, height: 1 }
+    const saveImages = vi.fn(async () => [pngRef])
+    ctx.provide('attachments', { saveImages } as never)
+    return { ctx, tui, runtime, active, events, agent, pngRef, saveImages }
+  }
+
+  it.each(['queue', 'steer'] as const)('delivers %s with the same ordered content and attachment references', async delivery => {
+    const f = fixture()
+    const file = { attachmentId: AttachmentId('steering-file'), name: '中文.txt', bytes: 3 }
+    try {
+      await f.runtime.send({ text: 'before after', images: [{ data: PNG_1X1, mediaType: 'image/png' }], files: [file],
+        segments: [{ kind: 'text', text: 'before ' }, { kind: 'image', index: 0 }, { kind: 'text', text: 'after' }], delivery }, f.agent)
+      const admit = delivery === 'steer' ? f.agent.steer : f.agent.followup
+      expect(admit).toHaveBeenCalledOnce()
+      expect(admit).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'user' }, content: [
+        { type: 'text', text: 'before ' }, { type: 'image', attachment: f.pngRef }, { type: 'text', text: 'after' }, { type: 'file', attachment: file },
+      ] }))
+      expect(delivery === 'steer' ? f.agent.followup : f.agent.steer).not.toHaveBeenCalled()
+    } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
+  })
+
+  it.each(['upload', 'stopped', 'switched', 'refused'])('rejects %s before admission so the runner can restore the complete draft', async failure => {
+    const f = fixture()
+    f.saveImages.mockImplementationOnce(async () => {
+      if (failure === 'upload') throw new Error('upload failed')
+      if (failure === 'stopped') Object.assign(f.agent, { status: 'idle' })
+      if (failure === 'switched') f.active.mockImplementation(() => { throw new Error('session changed') })
+      return [f.pngRef]
+    })
+    if (failure === 'refused') vi.mocked(f.agent.steer).mockImplementationOnce(() => { throw new Error('refused') })
+    try {
+      await expect(f.runtime.send({ text: 'keep', images: [{ data: PNG_1X1, mediaType: 'image/png' }], delivery: 'steer' }, f.agent)).rejects.toThrow()
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      if (failure !== 'refused') expect(f.agent.steer).not.toHaveBeenCalled()
+    } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
+  })
+
+  it.each(['queue', 'steer'] as const)('does not restore an already admitted %s when an event subscriber throws after claim', async delivery => {
+    const f = fixture()
+    vi.mocked(delivery === 'steer' ? f.agent.steer : f.agent.followup).mockImplementationOnce(message => {
+      f.events.push({ type: 'agent/inbox/spliced', data: { target: delivery === 'steer' ? 'next-step' : 'next-turn', start: 0, inserted: [message] } } as SessionEvent)
+      f.events.push({ type: 'agent/inbox/spliced', data: { target: delivery === 'steer' ? 'next-step' : 'next-turn', start: 0, inserted: [], removedCount: 1 } } as SessionEvent)
+      throw new Error('subscriber failed')
+    })
+    try {
+      await expect(f.runtime.send({ text: 'once', images: [], delivery }, f.agent)).resolves.toBeUndefined()
+      expect(f.tui.notice).toHaveBeenCalledWith('subscriber failed', { level: 'error' })
+    } finally { await f.runtime.dispose(); await f.ctx.fiber.dispose() }
   })
 })

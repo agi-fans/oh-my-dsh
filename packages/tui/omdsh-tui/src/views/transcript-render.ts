@@ -81,7 +81,10 @@ function isBlockPending(block: Block): boolean {
 }
 
 export interface ViewOptions {
-  /** Effective key for active-turn guidance, when the provider has an admission handler. */
+  language?: import('../locale/index.ts').UiLanguage
+  /** Running composer delivery and its explicit shortcut hints. */
+  busyEnter?: 'queue' | 'steer'
+  queueKey?: string
   steerKey?: string
   /** Terminal width in columns. */
   width: number
@@ -546,11 +549,11 @@ function toolBlockLines(
         : highlightedLines(output, detailLanguage, theme, block.status === 'error' ? 'error' : undefined))
         .flatMap(line => wrapTextStable(line, room))
     body = [
-      ...wrapTextStable(theme.fg('dim', 'Input'), room),
+      ...wrapTextStable(theme.fg('dim', theme.text('Input')), room),
       // The arguments are JSON here (they were re-serialized above), so they are
       // highlighted as JSON whatever the tool itself reads.
       ...highlightedLines(input.split('\n'), 'json', theme, undefined, room),
-      '', ...wrapTextStable(theme.fg('dim', 'Output'), room),
+      '', ...wrapTextStable(theme.fg('dim', theme.text('Output')), room),
       ...outputRows,
     ]
     // Keep the tool's rich presentation, but expose received text it replaced.
@@ -629,7 +632,7 @@ function firstLineOf(text: string): string {
  */
 function reasoningSummaryRow(reasoning: string, theme: Theme, width: number): string {
   const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
-  const label = `Thinking: ${firstLineOf(reasoning)}`
+  const label = `${theme.text('Thinking')}: ${firstLineOf(reasoning)}`
   return assistantContentLines([theme.fg('dim', truncateToWidth(label, Math.max(1, width - paddingX * 2)))], width, paddingX)[0]
     ?? ''
 }
@@ -977,6 +980,7 @@ function renderTranscriptBoundary(label: string, theme: Theme, width: number): s
 const renderedBlockCache = new WeakMap<readonly Block[], ReadonlyMap<string, readonly SearchableBlock[]>>()
 
 export function renderedBlocks(state: TranscriptState, options: {
+  language?: import('../locale/index.ts').UiLanguage
   width: number
   colors?: boolean
   themeName?: ThemeName
@@ -994,6 +998,7 @@ export function renderedBlocks(state: TranscriptState, options: {
     options.colorDepth ?? 'truecolor',
     options.themeName ?? 'dark',
     options.terminal,
+    options.language,
   )
   const key = [
     options.width,
@@ -2067,7 +2072,7 @@ export function renderAside(panel: AsidePanel, theme: Theme, width: number, avai
   const detail = panel.detail === undefined || panel.detail === ''
     ? []
     : ['', theme.fg('dim', panel.detail)]
-  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: '/copy', action: 'copy' }, { keys: 'Esc', action: 'close' }]))
+  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: '/copy', action: 'copy' }, { keys: 'Esc', action: 'close' }], 'lowercase', theme.language))
   // Two rules, the question, its blank line, and the hint are always drawn. What
   // is left is the answer's window, so the pane never grows past its cap.
   const cap = Math.max(6, Math.min(ASIDE_MAX_ROWS, available))
@@ -2268,10 +2273,10 @@ export function renderTurnError(text: string, theme: Theme, width: number): stri
 export function renderSteering(inbox: readonly UserMessage[], theme: Theme, width: number): string[] {
   const messages = inbox.filter(message => message.source.kind === 'user')
   if (messages.length === 0 || width <= 0) return []
-  const latest = queuedMessageLabel(messages.at(-1)!)
+  const latest = queuedMessageLabel(messages[0]!)
   const count = messages.length > 1 ? ` · ${messages.length}` : ''
   return [truncateToWidth('  ' + theme.fg('border', '│') + ' '
-    + theme.bold(theme.fg('accent', 'Guidance · next step' + count))
+    + theme.bold(theme.fg('accent', theme.text('Steer · next step') + count))
     + theme.fg('dim', ' · ') + theme.fg('text', latest), width)]
 }
 
@@ -2284,12 +2289,14 @@ export function renderQueuedSubmissions(
 ): string[] {
   const labels = [
     ...inbox.filter(message => message.source.kind === 'user').map(queuedMessageLabel),
-    ...submissions.map(queuedSubmissionLabel),
+    ...submissions.map(submission => theme.text('Sending') + ' · ' + queuedSubmissionLabel(submission)),
   ]
   if (labels.length === 0 || width <= 0) return []
   const start = Math.max(0, labels.length - QUEUED_SUBMISSION_PREVIEW)
   const hidden = start
-  const queueLabel = theme.bold(theme.fg('accent', 'Queued'))
+  const accepted = inbox.some(message => message.source.kind === 'user')
+  const queueLabel = theme.bold(theme.fg('accent', theme.text(accepted ? 'Queue' : 'Sending')))
+  const timing = theme.text(accepted ? 'next turn' : 'not yet accepted')
   const rail = '  ' + theme.fg('border', '│') + ' '
   const alignAction = (left: string, action: string, preserveAction = true): string => {
     const leftWidth = visibleWidth(left)
@@ -2301,17 +2308,15 @@ export function renderQueuedSubmissions(
     const paintedLeft = truncateToWidth(left, width - actionWidth - 2)
     return paintedLeft + '  ' + action
   }
-  const editSingleHint = width >= 72 ? '↑/Alt+Up edit · Alt+Q queue' : '↑ edit'
-  const editMultiHint = width >= 72 ? '↑/Alt+Up edit latest · Alt+Q queue' : '↑ edit latest'
+  const editSingleHint = width >= 72 ? theme.text('↑/Alt+Up recall · Alt+Q manage') : theme.text('Alt+Q manage')
+  const editMultiHint = width >= 72 ? theme.text('↑ recall latest · Alt+Q manage') : theme.text('Alt+Q manage')
   if (labels.length === 1) {
     return [alignAction(
-      // Pi's vocabulary: what Enter typed was a follow-up, and the row says so
-      // in the same word the composer hint uses.
-      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', 'follow-up · ') + theme.fg('text', labels[0] ?? ''),
+      rail + queueLabel + theme.fg('dim', ' · ') + theme.fg('dim', timing + ' · ') + theme.fg('text', accepted ? labels[0] ?? '' : queuedSubmissionLabel(submissions[0]!)),
       theme.fg('dim', editSingleHint),
     )]
   }
-  const summary = ` · ${labels.length} · follow-up${hidden === 0 ? '' : ` · ${hidden} earlier`}`
+  const summary = ` · ${labels.length} · ${timing}${hidden === 0 ? '' : ' · ' + theme.text('{count} earlier', { count: hidden })}`
   const visibleLabels = labels.slice(start)
   const lines = [
     alignAction(rail + queueLabel + theme.fg('dim', summary), theme.fg('dim', editMultiHint), false),
@@ -2335,6 +2340,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     options.colorDepth ?? 'truecolor',
     options.themeName ?? 'dark',
     options.terminal,
+    options.language,
   )
   const width = options.width
   const height = options.height
@@ -2404,19 +2410,19 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const activityLabelText = state.status === 'running'
     ? options.workingLabel ?? DEEP_DRIVING_LABEL
     : state.status === 'compacting'
-      ? options.workingLabel ?? 'Compacting'
+      ? options.workingLabel ?? theme.text('Compacting')
       : undefined
   const working: string[] = []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
   const placeholder = options.inspected === undefined && state.status === 'idle'
     && options.input === '' && (options.inputImages ?? 0) === 0
     ? options.modelReady === false
-      ? 'Run /login to connect a model'
+      ? theme.text('Run /login to connect a model')
       // `/ commands` and `@ files` are already on the header's hint line, and this
       // one is the copy that costs every frame: the header's scrolls into history
       // once the conversation starts, this one does not. A bare prompt is enough
       // to say the composer is ready for words.
-      : 'Ask anything'
+      : theme.text('Ask anything')
     : null
   const inlineHint = options.transcriptSearch !== undefined
     ? transcriptSearchHint({
@@ -2427,8 +2433,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : options.inspected === undefined
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
         ?? placeholder
-        ?? (state.status === 'running' && options.steerKey !== undefined
-          ? `Enter: follow-up · ${options.steerKey}: next step` : null)
+        ?? (state.status === 'running' && !options.input.startsWith('!') && options.steerKey !== undefined
+          ? (options.input === '' ? '' : '  ') + (options.busyEnter === 'steer'
+            ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
+            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey })) : null)
       : options.inspected.writable
         ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? 'Enter to steer · Esc to return'
         : 'Read-only · Esc to return'

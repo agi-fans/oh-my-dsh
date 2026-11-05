@@ -249,18 +249,18 @@ export function renderHistorySearch(
   width: number,
   maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
 ): { lines: string[]; cursor: { row: number; column: number } } {
-  const title = ' ' + theme.bold(theme.fg('accent', '↺ Search History'))
+  const title = ' ' + theme.bold(theme.fg('accent', '↺ ' + theme.text('Search History')))
   const editor = renderEditor({
     width,
     input: state.query,
     inputCursor: state.cursor,
-    status: ' ' + theme.fg('accent', 'search') + ' ',
+    status: ' ' + theme.fg('accent', theme.text('search')) + ' ',
     border: 'accent',
   }, theme)
   const tokens = queryTokens(state.query.trim())
   const visible = Math.max(1, maxVisible)
   const resultLines = renderHistoryResults(state, tokens, theme, width, visible)
-  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL]))
+  const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL], 'lowercase', theme.language))
   const lines = ['', title, '', ...editor.lines, '', ...resultLines, '', truncateToWidth(hints, width)]
   return {
     lines,
@@ -277,7 +277,7 @@ function renderHistoryResults(
 ): string[] {
   if (state.results.length === 0) {
     const message = tokens.length > 0 ? 'No matching history' : 'No history yet'
-    return ['  ' + theme.fg('muted', SYMBOL.info + ' ' + message)]
+    return ['  ' + theme.fg('muted', SYMBOL.info + ' ' + theme.text(message))]
   }
   const index = Math.max(0, Math.min(state.selected, state.results.length - 1))
   const { start, end } = historyVisibleRange(state.results.length, state.selected, maxVisible)

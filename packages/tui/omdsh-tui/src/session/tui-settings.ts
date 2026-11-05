@@ -77,6 +77,7 @@ export const TUI_SETTINGS_ENTRY = 'tui'
 
 /** Durable TUI preferences as live references on the owning entry's config. */
 export interface TuiSettings {
+  uiLanguage: Volatile<'auto' | 'zh-CN' | 'en'>
   theme: Volatile<ThemeName>
   colors: Volatile<boolean | undefined>
   motion: Volatile<MotionMode>
@@ -86,6 +87,7 @@ export interface TuiSettings {
   editor: Volatile<EditorId>
   terminalTitle: Volatile<TerminalTitleMode>
   terminalState: Volatile<TerminalStateMode>
+  busyEnter: Volatile<'queue' | 'steer'>
   pasteProtection: Volatile<boolean>
   copyOnSelect: Volatile<boolean>
   mouseInteraction: Volatile<'auto' | 'tui' | 'native'>
@@ -148,6 +150,7 @@ const STATUS_BAR_SCHEMA: z<any, any, any> = z.object({
  * stay undefined unless a value was written.
  */
 export const TUI_SETTINGS_FIELDS = {
+  uiLanguage: z.union(['auto', 'zh-CN', 'en'] as const).default('auto').volatile(),
   theme: z.union([...THEME_NAMES]).default('dark').volatile(),
   colors: z.boolean().volatile(),
   motion: z.union([...MOTION_MODES]).default('full').volatile(),
@@ -157,6 +160,7 @@ export const TUI_SETTINGS_FIELDS = {
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalTitle: z.union([...TERMINAL_TITLE_MODES]).default('status').volatile(),
   terminalState: z.union([...TERMINAL_STATE_MODES]).default('auto').volatile(),
+  busyEnter: z.union(['queue', 'steer'] as const).default('queue').volatile(),
   pasteProtection: z.boolean().default(true).volatile(),
   copyOnSelect: z.boolean().default(true).volatile(),
   mouseInteraction: z.union(['auto', 'tui', 'native'] as const).default('auto').volatile(),

@@ -32,11 +32,6 @@ function fixedChoice() {
   }
 }
 
-function selected(raw: string, values: readonly string[]): string | undefined {
-  const index = /^\d+$/u.test(raw) ? Number(raw) - 1 : -1
-  return index >= 0 ? values[index] : raw
-}
-
 /** One public-catalog model row used by query resolution (no private metadata). */
 export interface ModelCatalogEntry {
   readonly provider: string
@@ -254,12 +249,9 @@ function catalogOptions(
   })
 }
 
-function pickEffort(current: ModelSelection, info: LlmResolvedModelInfo): ReasoningEffortId | undefined {
-  if (current.reasoningEffort === undefined) return undefined
-  const efforts = info.reasoning?.efforts.map(effort => String(effort.id)) ?? []
-  return efforts.includes(String(current.reasoningEffort))
-    ? ReasoningEffortId(String(current.reasoningEffort))
-    : undefined
+function defaultEffort(info: LlmResolvedModelInfo): ReasoningEffortId | undefined {
+  const effort = info.reasoning?.defaultEffort
+  return effort === undefined ? undefined : ReasoningEffortId(String(effort))
 }
 
 /** Switch through one resolved catalog entry; `sessionOnly` skips the default write. */
@@ -268,10 +260,9 @@ async function applyResolved(
   invocation: CommandInvocation,
   entry: ModelCatalogEntry,
   sessionOnly: boolean,
-  current: ModelSelection,
 ): Promise<CommandResult> {
   const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
-  const reasoningEffort = pickEffort(current, info)
+  const reasoningEffort = defaultEffort(info)
   const selection: ModelSelection = {
     provider: entry.provider,
     model: entry.model,
@@ -288,7 +279,6 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
   const catalog = await loadCatalog(ctx)
   if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const resolve = resolveModelQuery(query, catalog)
-  const current = ctx.omdshSession.selection(invocation.agent)
   if (resolve.kind === 'unknown-provider') return { kind: 'error', text: `Unknown provider: ${resolve.provider}` }
   if (resolve.kind === 'none') {
     const closest = resolve.closest.map(entry => `${entry.provider}/${entry.model}`).join(' · ')
@@ -302,7 +292,7 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
   if (matches.length === 1) {
     entry = matches[0]
   } else {
-    const raw = await ctx.tui.prompt({
+    const raw = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
       ...fixedChoice(),
       title: sessionOnly ? 'Model (session)' : 'Model',
       question: `Matches for "${query.trim()}"; use provider:model to disambiguate`,
@@ -313,7 +303,7 @@ async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, q
     entry = matches.find(match => `${match.provider}/${match.model}` === raw)
   }
   if (entry === undefined) return { kind: 'error', text: `Unknown match: ${query.trim()}` }
-  return applyResolved(ctx, invocation, entry, sessionOnly, current)
+  return applyResolved(ctx, invocation, entry, sessionOnly)
 }
 
 async function selectModel(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
@@ -347,7 +337,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
    * becomes part of the row and part of the search text.
    */
   const favorites = readModelFavorites(favoritesPath())
-  const picked = await ctx.tui.prompt({
+  const picked = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
     presentation: 'card',
     filterable: true,
     allowCustom: false,
@@ -371,8 +361,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
   if (entry === undefined) return { kind: 'error', text: `Unknown model: ${chosen}` }
   const useSession = sessionOnly || scoped
   const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
-  const reasoningEffort = await resolveEffort(ctx, invocation, current, info, useSession)
-  if (reasoningEffort === null) return { kind: 'success' }
+  const reasoningEffort = defaultEffort(info)
   const selection: ModelSelection = {
     provider: entry.provider,
     model: entry.model,
@@ -384,42 +373,6 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
     text: `${useSession ? 'Session' : 'Default'} model: ${entry.provider}/${entry.model}`
       + (reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`),
   }
-}
-
-/**
- * Ask for a reasoning effort only when the choice is actually open.
- *
- * The prompt used to appear on every switch to a reasoning model, including one
- * that kept an effort the new model also offers — a question whose answer was
- * already decided. It now appears when the new model's vocabulary does not
- * contain the current effort, which is the only case where the reader has
- * something to say. `undefined` means "no reasoning", `null` means "cancelled".
- */
-async function resolveEffort(
-  ctx: Context,
-  invocation: CommandInvocation,
-  current: ModelSelection,
-  info: LlmResolvedModelInfo,
-  sessionOnly: boolean,
-): Promise<ReasoningEffortId | undefined | null> {
-  const efforts = info.reasoning?.efforts ?? []
-  if (efforts.length === 0) return undefined
-  const ids = efforts.map(effort => String(effort.id))
-  const inherited = current.reasoningEffort === undefined ? undefined : String(current.reasoningEffort)
-  if (inherited !== undefined && ids.includes(inherited)) return ReasoningEffortId(inherited)
-  // A single effort is not a choice; take it rather than asking.
-  if (ids.length === 1) return ReasoningEffortId(ids[0]!)
-  const raw = await ctx.tui.prompt({
-    ...fixedChoice(),
-    title: sessionOnly ? 'Reasoning effort · this session' : 'Reasoning effort',
-    question: 'Choose reasoning effort',
-    options: efforts.map(effort => ({ label: String(effort.id), description: effort.description ?? effort.name })),
-    ...(ids[0] === undefined ? {} : { initialValue: ids[0] }),
-    signal: invocation.signal,
-  })
-  if (raw === null) return null
-  const resolved = selected(raw, ids)
-  return resolved === undefined || !ids.includes(resolved) ? undefined : ReasoningEffortId(resolved)
 }
 
 export function apply(ctx: Context): void {

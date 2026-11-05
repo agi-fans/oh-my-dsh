@@ -92,3 +92,44 @@ describe('runner Composer Shell dispatch', () => {
     } finally { await ctx.fiber.dispose() }
   })
 })
+
+
+describe('runner pending-input safety', () => {
+  it('stops the active turn without clearing either accepted inbox', async () => {
+    const ctx = new Context()
+    const pending = Promise.withResolvers<null>()
+    let interrupt: (() => void) | undefined
+    const cancel = vi.fn()
+    const off = () => () => {}
+    ctx.provide('tui', { readInput: () => pending.promise, onInterrupt: (listener: () => void) => { interrupt = listener; return () => {} }, onQueueEdit: off, onRewind: off } as never)
+    ctx.provide('omdshSession', { start: async () => {}, interruptVisible: () => false, agent: { cancel, whenIdle: async () => {} } } as never)
+    ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+    ctx.provide('appExit', vi.fn())
+    try {
+      await ctx.plugin(runner)
+      await vi.waitFor(() => { expect(interrupt).toBeDefined() })
+      interrupt!()
+      expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    } finally { pending.resolve(null); await ctx.fiber.dispose() }
+  })
+
+  it.each(['queue', 'steer'] as const)('restores a failed mixed %s submission exactly once without retrying', async delivery => {
+    const ctx = new Context()
+    const submission: TuiSubmission = { text: '/literal', images: [{ data: new Uint8Array([1]), mediaType: 'image/png' }], literal: true, delivery }
+    const inputs = [submission]
+    const send = vi.fn(async () => { throw new Error('attachment save failed') })
+    const restoreInput = vi.fn(), exit = vi.fn(), off = () => () => {}
+    ctx.provide('tui', { readInput: async () => inputs.shift() ?? null, onInterrupt: off, onQueueEdit: off, onRewind: off, restoreInput, notice: vi.fn() } as never)
+    ctx.provide('omdshSession', { start: async () => {}, send, agent: { whenIdle: async () => {} } } as never)
+    ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+    ctx.provide('appExit', exit)
+    try {
+      await ctx.plugin(runner)
+      await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
+      expect(send).toHaveBeenCalledOnce()
+      expect(send).toHaveBeenCalledWith(submission)
+      expect(restoreInput).toHaveBeenCalledOnce()
+      expect(restoreInput).toHaveBeenCalledWith(submission)
+    } finally { await ctx.fiber.dispose() }
+  })
+})

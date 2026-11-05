@@ -93,7 +93,7 @@ function refusalText(result: ScheduleNotFoundResult | ScheduleConflictResult): s
 }
 
 async function edit(ctx: Context, invocation: CommandInvocation, record: ScheduleCatalogEntry, field: 'title' | 'prompt'): Promise<CommandResult> {
-  const value = await ctx.tui.prompt(askPrompt({
+  const value = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
     title: field === 'title' ? 'Reminder name' : 'Reminder instruction',
     question: field === 'title' ? 'Rename this reminder' : 'What should the reminder say?',
     detail: field === 'title'

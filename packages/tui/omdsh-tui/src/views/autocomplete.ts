@@ -1,3 +1,4 @@
+import { uiText, type UiLanguage } from '../locale/index.ts'
 /**
  * Slash-command autocomplete: OMP-style leading-`/` matching, ranking, and
  * completion apply. Pure — the provider owns popup selection and execution.
@@ -332,19 +333,20 @@ function helpCell(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
 }
 
-function helpRows(commands: readonly SlashCommand[]): string[] {
+function helpRows(commands: readonly SlashCommand[], language: UiLanguage): string[] {
   if (commands.length === 0) return []
   return commands.map((command) => {
     const names = [command.name, ...(command.aliases ?? [])]
       .map((name, index) => `\`${helpCell(`/${name}${index === 0 ? argumentHint(command) : ''}`)}\``)
       .join(', ')
-    return `- ${names} — ${helpCell(command.description)}`
+    return `- ${names} — ${helpCell(uiText(language, command.description))}`
   })
 }
 
 /** Grouped Markdown command directory rendered by the command-output surface. */
 export function formatHelpText(
   commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
+  language: UiLanguage = 'en',
 ): string {
   const skills = commands.filter(command => command.name.startsWith('skill:'))
   const core = commands.filter(command => !command.name.startsWith('skill:'))
@@ -353,7 +355,7 @@ export function formatHelpText(
   const groups = [...COMMAND_GROUPS.map(group => ({ label: group.label, commands: core.filter(command => group.names.includes(command.name)) })),
     { label: 'Extensions', commands: core.filter(command => !assigned.has(command.name)) }]
   for (const group of groups) {
-    if (group.commands.length > 0) lines.push('', `**${group.label} · ${group.commands.length}**`, ...helpRows(group.commands))
+    if (group.commands.length > 0) lines.push('', `**${uiText(language, group.label)} · ${group.commands.length}**`, ...helpRows(group.commands, language))
   }
   if (skills.length > 0) {
     lines.push(
@@ -398,14 +400,14 @@ export function renderAutocomplete(
     const item = items[at]
     if (item === undefined) continue
     if (item.kind === 'heading') {
-      lines.push(renderListRow({ label: item.label, heading: true }, theme, width, { selected: false }))
+      lines.push(renderListRow({ label: theme.text(item.label), heading: true }, theme, width, { selected: false }))
       continue
     }
     const bare = item.kind === 'argument' || item.kind === 'path' || item.kind === 'session'
     const row: ListRow = {
       label: autocompleteLabel(item),
       ...(bare ? {} : { tone: 'accent' as const }),
-      ...(item.description === undefined || item.description === '' ? {} : { description: item.description }),
+      ...(item.description === undefined || item.description === '' ? {} : { description: bare ? item.description : theme.text(item.description) }),
     }
     lines.push(renderListRowWithValue(row, theme, width, primaryWidth, { selected: at === index }))
   }

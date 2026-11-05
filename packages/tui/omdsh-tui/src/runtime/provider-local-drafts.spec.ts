@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { copyToClipboard } from '../input/clipboard.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { openMessageQueue } from '../session/message-queue.ts'
 import { ComposerDraftStore } from '../session/composer-drafts.ts'
 import { stripAnsi } from '../chrome/width.ts'
 
@@ -54,6 +57,34 @@ describe('local composer recovery', () => {
     term.press('\r')
     expect(await pending).toBe('another')
     expect(f.store.load('b')).toBeUndefined()
+  })
+
+  it('saves a queue edit in its original session when replacement aborts the editor', async () => {
+    const f = fixture()
+    const { tui, term } = f.open('a')
+    const file = { attachmentId: AttachmentId('file'), name: 'notes.txt', bytes: 12 }
+    const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'accepted' }, { type: 'file', attachment: file }] })
+    const agent = { inbox: { nextTurn: [message], nextStep: [] } } as unknown as Agent
+    const abort = new AbortController()
+    const queue = openMessageQueue({ agent, tui, signal: abort.signal, assertActive: () => {},
+      restore: async () => ({ text: 'accepted', images: [], files: [file] }) })
+    term.press('\r')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    term.press(' revised')
+    abort.abort(new Error('active session changed'))
+    switchTo(tui, 'b')
+    await queue
+    expect(f.store.load('a')?.editor.text).toContain('accepted revised')
+    expect(f.store.load('a')?.files.entries[0]?.file).toEqual(file)
+    expect(agent.inbox.nextTurn).toEqual([message])
+    term.press('new session')
+    const input = tui.readInput()
+    term.press('\r')
+    expect(await input).toEqual({ text: 'new session', images: [] })
+    switchTo(tui, 'a')
+    const restored = tui.readInput()
+    term.press('\r')
+    expect(await restored).toMatchObject({ text: 'accepted revised', files: [file], literal: true })
   })
 
   it('debounces edits without rewriting drafts for transcript updates', async () => {
@@ -165,20 +196,18 @@ describe('local composer recovery', () => {
     expect(f.store.load('a')).toBeUndefined()
     const next = f.open('a')
     next.tui.setStatus('running')
-    const steer = vi.fn()
-    next.tui.setSteerHandler(steer)
     next.term.press('steer me'); next.term.press('\x1bs')
-    expect(steer).toHaveBeenCalledWith('steer me')
+    expect(await next.tui.readInput()).toMatchObject({ text: 'steer me', delivery: 'steer' })
     next.tui.dispose()
     expect(f.store.load('a')).toBeUndefined()
   })
 
-  it('keeps a refused steering draft and clears an explicitly discarded one', () => {
+  it('keeps a failed steering draft and clears an explicitly discarded one', async () => {
     const f = fixture()
     const { tui, term } = f.open('a')
     tui.setStatus('running')
-    tui.setSteerHandler(() => { throw new Error('refused') })
     term.press('still unsent'); term.press('\x1bs')
+    tui.restoreInput((await tui.readInput())!)
     tui.dispose()
     expect(f.store.load('a')?.editor.text).toBe('still unsent')
     const next = f.open('a')

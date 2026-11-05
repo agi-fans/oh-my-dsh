@@ -237,7 +237,7 @@ async function pickLoginChoice(
   const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
   const includeAccount = account?.getState !== undefined
   const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
-  const raw = await ctx.tui.prompt({
+  const raw = await ctx.tui.prompt({ localize: true,
     presentation: 'card',
     filterable: true,
     title: 'Provider',
@@ -304,7 +304,7 @@ async function pickAuthorizationMethod(
 ): Promise<string | undefined> {
   if (flow.methods.length === 1) return flow.methods[0]?.id
   const values = flow.methods.map(method => method.id)
-  const raw = await ctx.tui.prompt({
+  const raw = await ctx.tui.prompt({ localize: true,
     title: `Login to ${flow.label}`,
     question: 'Choose a sign-in method',
     options: flow.methods.map(method => ({
@@ -388,7 +388,7 @@ async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config
     return { kind: 'error', text: unmanagedCredentialMessage(DEEPSEEK_API_KEY, current, 'replace') }
   }
   if (config.openDashboard !== false) openDeepSeekDashboard()
-  const raw = await ctx.tui.prompt(askPrompt({
+  const raw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: 'Login to DeepSeek',
       question: current.configured ? 'Paste a new DeepSeek API key' : 'Paste your DeepSeek API key',
       detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated and stored locally as ${DEEPSEEK_API_KEY}.`,
@@ -436,7 +436,7 @@ async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: 
     return { kind: 'error', text: unmanagedCredentialMessage(ref, current, 'replace') }
   }
   const label = entry.displayName
-  const raw = await ctx.tui.prompt(askPrompt({
+  const raw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: `Login to ${label}`,
       question: current.configured ? `Paste a new ${label} API key` : `Paste your ${label} API key`,
       detail: `The key is stored locally and activates the ${entry.provider} route for the next model request. Use /model to select it.`,
@@ -488,7 +488,7 @@ async function collectCustomModels(
   invocation: CommandInvocation,
   draft: { baseURL: string; api: string; apiKey?: string },
 ): Promise<string[] | undefined> {
-  const source = await ctx.tui.prompt({
+  const source = await ctx.tui.prompt({ localize: true,
     title: 'Custom models',
     question: 'How should omdsh learn the model ids?',
     options: [
@@ -510,7 +510,7 @@ async function collectCustomModels(
       }, invocation.signal)
       if (discovered.length === 1) return [discovered[0]?.id ?? '']
       if (discovered.length > 1) {
-        const picked = await ctx.tui.prompt({
+        const picked = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
           title: 'Custom models',
           question: 'Choose models to enable',
           options: discovered.map(model => ({
@@ -531,7 +531,7 @@ async function collectCustomModels(
     } catch (error) {
       if (invocation.signal.aborted) return undefined
       const detail = error instanceof Error ? error.message : 'the endpoint did not list models'
-      const fallback = await ctx.tui.prompt(askPrompt({
+      const fallback = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
           title: 'Custom models',
           question: 'Enter model ids',
           detail: `Could not fetch models (${detail}). Type one or more ids, separated by commas.`,
@@ -541,7 +541,7 @@ async function collectCustomModels(
       return parseModelIds(fallback)
     }
   }
-  const typed = await ctx.tui.prompt(askPrompt({
+  const typed = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: 'Custom models',
       question: 'Enter model ids',
       detail: 'Separate multiple ids with commas. Example: llama3.1, qwen2.5-coder',
@@ -552,7 +552,7 @@ async function collectCustomModels(
 }
 
 async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const idRaw = await ctx.tui.prompt(askPrompt({
+  const idRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: 'Custom provider',
       question: 'Provider id',
       detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
@@ -569,7 +569,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'error', text: `${id} is a catalog provider. Use /login and choose it from the list.` }
   }
 
-  const urlRaw = await ctx.tui.prompt(askPrompt({
+  const urlRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: 'Custom provider',
       question: 'Base URL',
       detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
@@ -583,7 +583,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'error', text: error instanceof Error ? error.message : 'Invalid base URL.' }
   }
 
-  const api = await ctx.tui.prompt({
+  const api = await ctx.tui.prompt({ localize: true,
     title: 'Custom provider',
     question: 'API protocol',
     options: CUSTOM_PROTOCOLS.map(protocol => ({
@@ -603,7 +603,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     return { kind: 'error', text: `Unknown API protocol: ${api}` }
   }
 
-  const keyRaw = await ctx.tui.prompt(askPrompt({
+  const keyRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
       title: `Login to ${id}`,
       question: `Paste your ${id} API key`,
       detail: 'Leave empty if the endpoint does not need a key.',
@@ -686,7 +686,7 @@ async function logoutDeepSeek(ctx: Context, invocation: CommandInvocation): Prom
     return { kind: 'success', text: `DeepSeek is configured by ${credentialSource(current)}; the credential store cannot remove it.` }
   }
 
-  const answer = await ctx.tui.prompt({
+  const answer = await ctx.tui.prompt({ localize: true,
     title: 'Logout from DeepSeek',
     question: 'Remove the stored DeepSeek API key?',
     detail: 'The next model request will use DEEPSEEK_API_KEY from the launch environment when one is available.',
@@ -727,7 +727,7 @@ async function logoutDeepSeekAccount(ctx: Context, invocation: CommandInvocation
   if (state.status !== 'credential-stored') {
     return { kind: 'success', text: 'No DeepSeek account grant is stored.' }
   }
-  const answer = await ctx.tui.prompt({
+  const answer = await ctx.tui.prompt({ localize: true,
     title: 'Logout from DeepSeek account',
     question: 'Sign out of the shared DeepSeek account?',
     detail: 'Removes the local grant and revokes it in the background. The browser session is not signed out.',
@@ -759,7 +759,7 @@ async function pickLogoutChoice(
   const values = choices.map(choice => choice === DEEPSEEK_ACCOUNT_CHOICE
     ? DEEPSEEK_ACCOUNT_CHOICE
     : isFlowRecordLogout(choice) ? flowChoiceValue(choice.key) : choice.provider)
-  const raw = await ctx.tui.prompt({
+  const raw = await ctx.tui.prompt({ localize: true,
     presentation: 'card',
     filterable: true,
     title: 'Provider',
@@ -805,7 +805,7 @@ async function logoutRecord(
       text: `The stored ${record.label} sign-in is not removable from this session. Update that credential source directly and restart omdsh.`,
     }
   }
-  const answer = await ctx.tui.prompt({
+  const answer = await ctx.tui.prompt({ localize: true,
     title: `Logout from ${record.label}`,
     question: `Remove the stored ${record.label} sign-in?`,
     detail: 'The local credential record is deleted. Settings profiles and environment credentials stay in place. The issuer is not notified.',
@@ -845,7 +845,7 @@ async function logoutCatalog(ctx: Context, invocation: CommandInvocation, entry:
     return { kind: 'error', text: unmanagedCredentialMessage(managedRef, current, 'remove') }
   }
   const removesStoredKey = usesManaged && current.source === 'file'
-  const answer = await ctx.tui.prompt({
+  const answer = await ctx.tui.prompt({ localize: true,
     title: `Logout from ${label}`,
     question: removesStoredKey
       ? `Remove the stored ${label} API key and deactivate the route?`
@@ -970,7 +970,7 @@ async function loginDeepSeekAccount(ctx: Context, invocation: CommandInvocation,
   }
 
   if (state.status === 'credential-stored') {
-    const choice = await ctx.tui.prompt({
+    const choice = await ctx.tui.prompt({ localize: true,
       title: 'DeepSeek account',
       question: 'The account is signed in and shared with DSH.',
       detail: 'Use /model to select the deepseek-account route. Signing out removes the local grant; the DSH browser session is revoked in the background.',
@@ -1030,7 +1030,7 @@ async function loginDeepSeekAccount(ctx: Context, invocation: CommandInvocation,
   }
 
   if (config.openBrowser !== false) openExternal(url)
-  const answer = await ctx.tui.prompt({
+  const answer = await ctx.tui.prompt({ localize: true,
     title: 'DeepSeek account',
     question: 'Complete sign-in in your browser, then return here.',
     detail: `${url}

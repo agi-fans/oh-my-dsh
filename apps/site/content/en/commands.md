@@ -24,17 +24,18 @@ Type `/` in the composer to browse the live catalog with inline argument hints, 
 
 | Command | What it does |
 |---|---|
-| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Cordis. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
+| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Creator. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
+| `/agent creator` | Enter Creator (`cordis`) to author plugins. Reuses a blank session or starts a new one after existing conversation content; preserves session drafts and does not change the default preset or submit a prompt. |
 | `/permission` | Choose the session Access level, or inspect and revoke remembered approval rules. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, a DeepSeek account browser sign-in (or an existing shared grant), or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove a file-stored provider credential or sign out the shared DeepSeek account; environment-owned values are left untouched. |
-| `/settings` | Open Interface, Agent, Tools, Status line, Integrations and Advanced settings. Alias: `/set`. |
+| `/settings` | Open General, Models, Agent presets, Plugins, Terminal and Advanced settings. Alias: `/set`. |
 
 ### `/model`
 
 | Form | Effect |
 |---|---|
-| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The reasoning effort is asked for only when the new model does not offer the current one. |
+| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The selected model’s default reasoning effort applies without a second prompt; use `/model reasoning` to change it. |
 | `/model <query>` | Resolve a `provider/model` or fuzzy model name; an exact match switches immediately and an ambiguous match opens the list filtered to the matches. |
 | `/model --session` | The same list, scoped to the active session without writing the saved default. Accepts a query as well. Does not combine with a subcommand. |
 | `/model next` / `/model previous` | Cycle to the next or previous favorite model. |
@@ -90,7 +91,7 @@ PNG, JPEG, WebP and GIF files open in an image preview page. The `/attach` list 
 
 Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
-Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Interface → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
+Use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Terminal → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 
 A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. A draft containing files treats slash-prefixed text as a model message rather than executing a command. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 

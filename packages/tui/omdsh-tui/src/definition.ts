@@ -131,6 +131,8 @@ export interface TuiDocumentPosition {
 
 /** One terminal-owned human prompt used by approval and question adapters. */
 export interface TuiPrompt {
+  /** Product-owned fixed copy; external questions and arbitrary option text opt out. Values are never translated. */
+  localize?: boolean | readonly ('title' | 'question' | 'options' | 'actions' | 'detail')[]
   title: string
   question: string
   detail?: string
@@ -407,6 +409,8 @@ export type SubmissionSegment =
 export interface TuiSubmission {
   /** What the reader wrote, without the composer's image markers. */
   text: string
+  /** Frozen at submission; absent uses ordinary next-turn delivery. */
+  delivery?: 'queue' | 'steer'
   images: readonly TuiInputImage[]
   files?: readonly FileAttachmentRef[]
   /**
@@ -420,7 +424,7 @@ export interface TuiSubmission {
 
 /** Product-owned language preference projected into the settings overlay. */
 export interface TuiAgentBehaviorSettings {
-  language: 'auto' | 'zh-CN' | 'en'
+  language: 'auto' | 'follow-ui' | 'zh-CN' | 'en'
 }
 
 /** Closed binding between the product settings owner and the terminal surface. */
@@ -576,8 +580,6 @@ export interface TuiService {
    * @returns disposer removing the listener.
    */
   onQueueEdit(listener: () => void): () => void
-  /** Bind synchronous guidance admission; a rejected draft stays in the composer. */
-  setSteerHandler(handler: (text: string) => void): () => void
   readonly pendingInputs: TuiPendingInputs
   /** Open message management through the session owner without submitting the composer. */
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void

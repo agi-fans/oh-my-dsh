@@ -193,8 +193,8 @@ function hintLine(hints: readonly WelcomeHint[], theme: Theme): string {
   if (hints.length === 0) return ''
   // One space after the label, then `key text` entries joined by a separator
   // that carries its own spaces — so no entry opens with a second one.
-  const entries = hints.map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + hint.text))
-  return theme.bold(theme.fg('accent', HINT_LABEL))
+  const entries = hints.map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + theme.text(hint.text)))
+  return theme.bold(theme.fg('accent', theme.text(HINT_LABEL)))
     + ' ' + entries.join(theme.fg('borderMuted', ' · '))
 }
 

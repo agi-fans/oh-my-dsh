@@ -116,7 +116,7 @@ await sleep(100)
 // the composer available afterwards.
 featureMark = out.length
 term.write('!echo OMDSH_SHELL_CARD\r')
-if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('OMDSH_SHELL_CARD'), 'shell card output', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(featureMark)).includes('$ echo OMDSH_SHELL_CARD'), 'rendered shell card command', deadline))) {
   console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
 }
 if (!cleanOutput(out.slice(featureMark)).includes('$ echo OMDSH_SHELL_CARD')) {
@@ -144,7 +144,7 @@ term.write('\x03')
 await sleep(100)
 let mark = out.length
 term.write('/settings\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Interface'), 'settings sections', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('General'), 'settings sections', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -178,7 +178,7 @@ term.write('\x1b[27u')
 await sleep(100)
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Interface'), 'return to original settings category', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● General'), 'return to original settings category', deadline))) {
   term.kill()
   process.exit(1)
 }
@@ -190,12 +190,12 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Restore inherit
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● Interface'), 'cancel inherited preference restoration', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('● General'), 'cancel inherited preference restoration', deadline))) {
   term.kill()
   process.exit(1)
 }
 // Advanced is empty in the shipped profile: Web search now carries its own
-// provider credentials inside the Integrations section.
+// provider credentials inside the Plugins section.
 mark = out.length
 term.write('Web search')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Search: Web search'), 'web search settings result', deadline))) {
@@ -329,7 +329,7 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agen
 }
 term.write('\x1b[B')
 term.write('\r')
-if (!(await waitFor(() => cleanOutput(out).includes('Agent: Cordis'), 'Cordis preset', deadline))) {
+if (!(await waitFor(() => cleanOutput(out).includes('Agent: Creator'), 'Cordis preset', deadline))) {
   console.error(cleanOutput(out).slice(-2500))
   term.kill()
   process.exit(1)
@@ -509,7 +509,7 @@ const ok = exitCode === 0
   && clean.includes('Agent: PTC')
   && clean.includes('ptc')
   && clean.includes('Agent: Minimal')
-  && clean.includes('Agent: Cordis')
+  && clean.includes('Agent: Creator')
   && clean.includes('Plan mode on.')
   && clean.includes('Access: Read only')
   && clean.includes('Session Tree')
@@ -570,9 +570,9 @@ catch (error) { if (error.code !== 'ENOENT') throw error }
 const queueHome = smokeHome('omdsh-queue-pty-')
 const queueProfile = join(queueHome, 'profiles', 'omdsh')
 mkdirSync(queueProfile, { recursive: true })
-writeFileSync(join(queueProfile, 'cordis.patch.yml'), '- id: agent-preset-registry\n  config:\n    default: code\n- id: session-title-llm\n  disabled: true\n')
+writeFileSync(join(queueProfile, 'cordis.patch.yml'), '- id: tui\n  config:\n    busyEnter: steer\n- id: agent-preset-registry\n  config:\n    default: code\n- id: session-title-llm\n  disabled: true\n')
 const queueServer = await startMockLlmServer({ port: 0, sequence: ['slow_success'], successText: 'QUEUE_STREAM_READY ' + '.'.repeat(3000), chunkSize: 10, chunkDelayMs: 100 })
-const queueTerm = pty.spawn(spawnCmd[0], spawnCmd[1], { name: 'xterm-256color', cols: 80, rows: 30, cwd: repoRoot,
+const queueTerm = pty.spawn(spawnCmd[0], spawnCmd[1], { name: 'xterm-256color', cols: 120, rows: 30, cwd: repoRoot,
   env: smokeEnv(queueHome, { DEEPSEEK_BASE_URL: queueServer.baseURL + '/v1', DEEPSEEK_API_KEY: 'sk-mock' }) })
 let queueOut = '', queueExit = null
 queueTerm.onData(data => { queueOut += data })
@@ -585,25 +585,66 @@ async function queueWait(predicate, label) {
 await queueWait(() => hasReasoningEffort(queueOut), 'queue terminal ready')
 queueTerm.write('queue smoke start\r')
 await queueWait(() => cleanOutput(queueOut).includes('QUEUE_STREAM_READY'), 'queue model streaming')
-queueTerm.write('first followup\r')
+// The stored Enter preference applies to full submissions, including image and file attachments.
+await queueWait(() => cleanOutput(queueOut).includes('Enter: Steer'), 'stored busy Enter preference')
+const steeringImage = join(queueHome, 'steering.png')
+const steeringFile = join(queueHome, 'steering.txt')
+writeFileSync(steeringImage, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'))
+writeFileSync(steeringFile, 'steering attachment')
+queueTerm.write(`/attach "${steeringFile}"\r`)
+await queueWait(() => cleanOutput(queueOut).includes('Attached steering.txt'), 'steering file staged')
+queueTerm.write('\x1b[200~' + steeringImage + '\x1b[201~')
+await queueWait(() => cleanOutput(queueOut).includes('[Image #1'), 'steering image staged')
+queueTerm.write('direct attached steering\r')
+await queueWait(() => cleanOutput(queueOut).includes('Steer · next step'), 'Enter steers mixed attachments')
+queueTerm.write('explicit steering\x1bs')
+await queueWait(() => cleanOutput(queueOut).includes('Steer · next step · 2'), 'explicit Alt+S shares delivery')
+queueTerm.write('\x1bq')
+await queueWait(() => cleanOutput(queueOut).includes('1 image · 1 file'), 'steering attachments accepted together')
+queueTerm.write('\x1bd')
+await queueWait(() => cleanOutput(queueOut).includes('1 · explicit steering'), 'withdraw attachment steering')
+let steeringDeleteMark = queueOut.length
+queueTerm.write('\x1bd')
+await queueWait(() => cleanOutput(queueOut.slice(steeringDeleteMark)).includes('No pending messages.'), 'withdraw explicit steering')
+queueTerm.write('\x1b[27u')
+await sleep(100)
+queueTerm.write('first followup\x1b\r')
 await sleep(150)
-queueTerm.write('second followup\r')
-await queueWait(() => cleanOutput(queueOut).includes('Queued · 2'), 'durable follow-ups')
+queueTerm.write('second followup\x1b\r')
+await queueWait(() => cleanOutput(queueOut).includes('Queue · 2'), 'durable follow-ups')
+queueTerm.write('steering survives stop\x1b\r')
+await queueWait(() => cleanOutput(queueOut).includes('Queue · 3'), 'queued entry for promotion')
+queueTerm.write('\x1bq')
+await queueWait(() => cleanOutput(queueOut).includes('Message Queue'), 'queue before promotion')
+const promoteMark = queueOut.length
+queueTerm.write('\x1b[B\x1b[B\x1bs')
+await queueWait(() => cleanOutput(queueOut.slice(promoteMark)).includes('Steer · next step'), 'queued message promoted to steering')
+queueTerm.write('\x1b[27u')
+await sleep(100)
+queueTerm.write('\x1b[27u')
+await queueWait(() => cleanOutput(queueOut).includes('interrupted'), 'stopped turn retains inbox')
 let queueMark = queueOut.length
 queueTerm.write('\x1bq')
 await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Message Queue'), 'queue shortcut')
+await queueWait(() => {
+  const visible = cleanOutput(queueOut.slice(queueMark))
+  return visible.includes('steering survives stop') && visible.includes('first followup') && visible.includes('second followup')
+}, 'all queued messages survive interruption')
+queueMark = queueOut.length
+queueTerm.write('\x1bd')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('1 · first followup'), 'withdraw stopped steering')
 queueMark = queueOut.length
 queueTerm.write('\x1b[B\x1b[1;3A')
-await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · second followup'), 'durable queue reorder')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('1 · second followup'), 'durable queue reorder')
 queueMark = queueOut.length
 queueTerm.write('\r')
 await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Edit Queued Message'), 'queue text editor')
 queueMark = queueOut.length
 queueTerm.write('\x01\x0bupdated followup\r')
-await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · updated followup'), 'durable queue replacement')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('1 · updated followup'), 'durable queue replacement')
 queueMark = queueOut.length
 queueTerm.write('\x1bd')
-await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('Next turn · 1 · first followup'), 'selected queue deletion')
+await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('1 · first followup'), 'selected queue deletion')
 queueMark = queueOut.length
 queueTerm.write('\x1bd')
 await queueWait(() => cleanOutput(queueOut.slice(queueMark)).includes('No pending messages.'), 'empty queue after deletion')

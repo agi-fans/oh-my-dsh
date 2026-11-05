@@ -1,9 +1,11 @@
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { LocalTui, type TerminalLike } from './provider-local.ts'
 import { openMessageQueue } from '../session/message-queue.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '../chrome/width.ts'
 
 class Terminal implements TerminalLike {
@@ -63,6 +65,30 @@ describe('local Message Queue controls', () => {
     expect(await tui.readline()).toBe('three')
   })
 
+  it('uses Alt+S on the selected queue entry without submitting or changing the composer draft', async () => {
+    const { tui, term } = fixture()
+    const first = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'first' }] })
+    const second = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'second' }] })
+    const nextTurn = [first, second], nextStep: UserMessage[] = []
+    const steer = vi.fn((message: UserMessage) => { nextStep.push(message) })
+    const agent = { status: 'running', steer, session: { snapshotEvents: () => [] }, inbox: { nextTurn, nextStep,
+      remove: (id: string) => { const index = nextTurn.findIndex(item => item.id === id); if (index < 0) return false; nextTurn.splice(index, 1); return true },
+    } } as unknown as Agent
+    tui.setQueueHandler(signal => openMessageQueue({ agent, tui, signal, assertActive: () => {}, restore: async () => ({ text: 'second', images: [] }) }))
+    term.press('unsent composer draft\x1bq\x1b[B\x1bs')
+    await flush()
+    expect(steer).toHaveBeenCalledOnce()
+    expect(steer).toHaveBeenCalledWith(second)
+    expect(nextTurn).toEqual([first])
+    expect(nextStep).toEqual([second])
+    expect(stripAnsi(term.captured)).toContain('Steer · next step')
+    term.press('\x1b[27u')
+    await flush()
+    const input = tui.readline()
+    term.press('\r')
+    expect(await input).toBe('unsent composer draft')
+  })
+
   it('keeps stable delivery identities after editing and rejects an already dispatched ID', async () => {
     const { tui, term } = fixture()
     const file = { attachmentId: AttachmentId('file'), name: '中文.txt', bytes: 12 }
@@ -89,12 +115,12 @@ describe('local Message Queue controls', () => {
   it('does not steer queue-edit text or open nested queue management from a prompt', async () => {
     const { tui, term } = fixture()
     tui.setStatus('running')
-    const steer = vi.fn(), handler = vi.fn(async () => {})
-    tui.setSteerHandler(steer); tui.setQueueHandler(handler)
+    const handler = vi.fn(async () => {})
+    tui.setQueueHandler(handler)
     const prompt = tui.prompt({ title: 'Edit', question: 'Edit', initialInput: 'queued text', preserveWhitespace: true })
     term.press('\x1bs\x1bq\r')
     expect(await prompt).toBe('queued text')
-    expect(steer).not.toHaveBeenCalled()
+    expect(tui.pendingInputs.list()).toHaveLength(0)
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -144,6 +170,33 @@ describe('local Message Queue controls', () => {
     const draft = tui.readline()
     term.press('\r')
     expect(await draft).toBe('accepted revised\nexisting draft')
+  })
+
+  it.each(['\x1b[27u', '\x03'])('interrupts without withdrawing accepted messages (%s)', key => {
+    const { tui, term } = fixture()
+    const edit = vi.fn(), interrupt = vi.fn()
+    tui.onQueueEdit(edit); tui.onInterrupt(interrupt)
+    tui.setStatus('running')
+    tui.event({ type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0, inserted: [
+      { id: 'a', source: { kind: 'user' }, content: [{ type: 'text', text: 'keep queued' }] },
+    ] } } as unknown as SessionEvent)
+    term.press(key)
+    expect(interrupt).toHaveBeenCalledOnce()
+    expect(edit).not.toHaveBeenCalled()
+  })
+
+  it.each(['next-turn', 'next-step'])('announces live consumption but not withdrawal of %s', target => {
+    const { tui, term } = fixture()
+    const splice = (data: object, seq: number) => tui.event({ type: 'agent/inbox/spliced', seq, time: seq, data: { target, ...data } } as unknown as SessionEvent)
+    const inserted = [{ id: 'a', source: { kind: 'user' }, content: [{ type: 'text', text: 'message' }] }]
+    splice({ start: 0, inserted }, 1)
+    let mark = term.captured.length
+    splice({ start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }, 2)
+    expect(stripAnsi(term.captured.slice(mark))).not.toContain('taken for')
+    splice({ start: 0, inserted }, 3)
+    mark = term.captured.length
+    splice({ start: 0, removedCount: 1, inserted: [] }, 4)
+    expect(stripAnsi(term.captured.slice(mark))).toContain(target === 'next-turn' ? 'Queue taken for the next turn' : 'Steer taken for the next step')
   })
 
   it('aborts the shortcut owner when the provider is disposed', () => {

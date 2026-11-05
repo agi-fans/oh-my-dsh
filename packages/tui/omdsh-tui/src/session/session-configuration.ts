@@ -28,6 +28,6 @@ export function formatAgentPreset(id: string): string {
   if (id === 'standard') return 'Standard'
   if (id === 'code') return 'PTC'
   if (id === 'minimal') return 'Minimal'
-  if (id === 'cordis') return 'Cordis'
+  if (id === 'cordis') return 'Creator'
   return id
 }
