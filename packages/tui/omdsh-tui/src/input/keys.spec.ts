@@ -181,3 +181,23 @@ describe('DECRPM mode reports', () => {
     expect(parseKeys(first.rest + 'y').events).toEqual([{ type: 'mode-report', mode: 2031, state: 2 }])
   })
 })
+
+it.each([11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24].map((code, i) => [code, `f${i + 1}`] as const))('decodes function key CSI %s with modifiers (%s)', (code, id) => {
+  expect(parseKeys(`\x1b[${code}~`).events).toEqual([{ type: 'key', id }])
+  expect(parseKeys(`\x1b[${code};5~`).events).toEqual([{ type: 'key', id: `ctrl+${id}` }])
+  expect(parseKeys(`\x1b[${code};3:1~`).events).toEqual([{ type: 'key', id: `alt+${id}` }])
+  const bytes = `\x1b[${code};5~`
+  for (let at = 1; at < bytes.length; at++) {
+    const first = parseKeys(bytes.slice(0, at))
+    expect([...first.events, ...parseKeys(first.rest + bytes.slice(at)).events]).toEqual([{ type: 'key', id: `ctrl+${id}` }])
+  }
+})
+
+it.each(['P', 'Q', 'R', 'S'].map((code, i) => [code, `f${i + 1}`] as const))('decodes SS3 and modified CSI function key %s', (code, id) => {
+  expect(parseKeys(`\x1bO${code}`).events).toEqual([{ type: 'key', id }])
+  expect(parseKeys(`\x1b[1;2${code}`).events).toEqual([{ type: 'key', id: `shift+${id}` }])
+})
+
+it('does not reinterpret Option-produced Unicode text as an Alt shortcut', () => {
+  expect(parseKeys('å¥中文').events).toEqual([{ type: 'text', value: 'å¥中文' }])
+})

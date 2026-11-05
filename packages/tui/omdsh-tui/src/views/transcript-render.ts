@@ -5,6 +5,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { uiText } from '../locale/index.ts'
 import { rosterItems, workflowStatus } from './workflow.ts'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -227,6 +228,7 @@ export interface ViewOptions {
    * status that says what a key just did is not part of the conversation, and
    * appending it to history would make the immutable scrollback carry chatter.
    */
+  selectionActions?: 'copy' | 'copy-quote'
   transientStatus?: string
   /**
    * What the terminal reported about itself. A `system` theme and 16-color
@@ -1882,6 +1884,15 @@ function renderTranscriptBody(
   }
   // Streaming text and a call settling change rows in place without changing
   // this; opening, folding, or a run settling at turn end do.
+  const selectedTool = disclosures.find(target => target.block === options.selectedProcess && target.group === undefined
+    && state.blocks[target.block]?.kind === 'tool')
+  if (selectedTool !== undefined && options.width >= 20) {
+    selectedTool.actionColumn = options.width - 7
+    const title = lines[selectedTool.row]!
+    const content = sliceCells(title, 0, visibleWidth(stripAnsi(title).trimEnd()))
+    lines[selectedTool.row] = padToWidth(truncateToWidth(content, selectedTool.actionColumn - 1), selectedTool.actionColumn)
+      + theme.fg('accent', '[···]') + '  '
+  }
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
   transcriptBodyCache.set(state.blocks, {
     fileRegions,
@@ -2559,6 +2570,14 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     width,
   }, theme)
   const permissionBadge = renderPermissionBadge(options.sessionControls?.permission, theme)
+  const selectionLabels = options.selectionActions === undefined ? [] : [
+    { action: 'copy' as const, label: '[' + uiText(options.language ?? 'en', 'Copy') + ']' },
+    ...(options.selectionActions === 'copy' ? [] : [{ action: 'quote' as const, label: '[' + uiText(options.language ?? 'en', 'Quote') + ']' }]),
+  ]
+  // Drop whole buttons on narrow terminals; never expose a clipped click target.
+  while (selectionLabels.length > 0 && visibleWidth(selectionLabels.map(item => item.label).join(' ')) + 4 > width) selectionLabels.pop()
+  const selectionNote = selectionLabels.map(item => item.label).join(' ')
+  const selectionHint = selectionNote + ' · ' + uiText(options.language ?? 'en', 'Esc cancel')
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
@@ -2582,7 +2601,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
       : {}),
     ...(inlineHint !== null ? { inlineHint } : {}),
-    ...(options.transientStatus === undefined ? {} : { note: options.transientStatus }),
+    ...(options.transientStatus !== undefined ? { note: options.transientStatus } : selectionNote === '' ? {}
+      : { note: visibleWidth(selectionHint) + 4 <= width ? selectionHint : selectionNote }),
     ...(activityLabelText === undefined ? {} : {
       activity: {
         frame: motion === 'off' ? SYMBOL.running : SPINNER[Math.max(0, spinnerFrame) % SPINNER.length] ?? SYMBOL.running,
@@ -2811,15 +2831,26 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     const block = state.blocks[target.block]
     if (block?.kind !== 'tool') continue
     const title = transcript.lines[target.row]!
-    const label = sliceCells(title, block.parentCallId === undefined ? 4 : 6, width)
+    const titleStart = block.parentCallId === undefined ? 4 : 6
+    const label = sliceCells(title, titleStart, (target.actionColumn ?? width) - titleStart).trimEnd()
     stickyHeaders.push({
       start: transcriptStart + topPad + target.row + 1,
       end: transcriptStart + topPad + target.detailEnd,
       text: paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth('  ' + label, width), width)),
     })
   }
+  const selectionActions: NonNullable<Frame['selectionActions']>[number][] = []
+  if (!hasOverlay && editor !== undefined && options.transientStatus === undefined) {
+    const row = editorStart + inputLines.length - 1 + topPad
+    const painted = stripAnsi(trimmed[row] ?? '')
+    for (const item of selectionLabels) {
+      const at = painted.indexOf(item.label)
+      if (at >= 0) selectionActions.push({ row, column: visibleWidth(painted.slice(0, at)), width: visibleWidth(item.label), action: item.action })
+    }
+  }
   return {
     lines: trimmed,
+    selectionActions,
     stickyHeaders,
     ...(jumpToLatest === undefined ? {} : { jumpToLatest: { ...jumpToLatest, row: jumpToLatest.row + topPad } }),
     // The tree's preview is a scrollable document too: without its coordinates

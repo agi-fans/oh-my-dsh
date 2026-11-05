@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Selected tools offer a clickable action menu; selected text offers Copy and Quote buttons. Read tool actions copy or quote retained source ranges without display line numbers or wrapping.
+
+- Keybindings includes Test keys to inspect terminal input without running shortcuts or editing drafts. Standard F1–F12 terminal sequences and modifiers are recognized.
+
 - Alt+A opens actions for the current tool: copy its command or result, or view declared files. Terminal command copying also supports PowerShell and provider-declared terminal calls.
 
 - Alt+Y appends selected text as a Markdown quote without sending, preserving the draft and attachments and leaving copy-on-select unchanged.
@@ -92,6 +96,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Copy and quote feedback temporarily overrides process-navigation hints; tool action menus identify the command or file.
 
 - Expanded tool details have top and bottom breathing room. Terminal results no longer receive inferred shell syntax colors, and Read keeps line numbers aligned independently of wrapped source text.
 

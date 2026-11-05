@@ -59,6 +59,9 @@ export interface TranscriptScroll {
 }
 
 export interface TranscriptDisclosure {
+  /** Menu button on a selected tool title, in document cells. */
+  actionColumn?: number
+
   /** End of the painted detail span, only for expanded tools. */
   detailEnd?: number
   row: number
@@ -101,6 +104,9 @@ export interface DocumentRows {
 
 /** One display frame: exact lines plus an optional final cursor position. */
 export interface Frame {
+  /** Selection buttons on the composer rule; row is relative to the full frame. */
+  selectionActions?: readonly { row: number; column: number; width: number; action: 'copy' | 'quote' }[]
+
   /** Trusted graphics resource placed separately from text. */
   image?: import('./terminal-images.ts').ImagePlacement
   /** Viewport-only context labels, active within half-open document row ranges. */

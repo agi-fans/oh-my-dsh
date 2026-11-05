@@ -117,6 +117,8 @@ import {
 import { readTmuxMouseEnabled } from '../input/mouse-policy.ts'
 import { TextSelection } from '../input/text-selection.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from '../input/clipboard.ts'
+import { toolActionContext, toolSource, sourceQuote } from '../views/tool-actions.ts'
+import { keyTestDescription } from '../input/key-test.ts'
 import { buildCopyTargets, toolCommand } from '../views/copy-targets.ts'
 import {
   applyHistorySearchEvent,
@@ -386,6 +388,8 @@ function firstReshapedRow(before: readonly FoldMark[], after: readonly FoldMark[
   return Number.isFinite(row) ? row : 0
 }
 
+interface MouseActionTarget { row: number; column: number; width: number; key: string; action: 'tool' | 'copy' | 'quote'; block?: number }
+
 export class LocalTui implements TuiService {
   get interactive(): boolean { return this.#tty }
 
@@ -402,6 +406,8 @@ export class LocalTui implements TuiService {
   #imageCellSize = { width: 9, height: 18 }
   #imagePreviewAbort: AbortController | undefined
   #fileReviewAbort: AbortController | undefined
+  #keyTest: { signal: AbortSignal; observe: (event: KeyEvent) => void } | undefined
+  #mouseActionPress: MouseActionTarget | undefined
   #fileActionFrame: Frame | undefined
   #imageTemporary = new Set<string>()
   readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
@@ -827,6 +833,7 @@ export class LocalTui implements TuiService {
         // A terminal resize changes the committed/live seam; re-anchor the
         // live window so it stays anchored at the bottom.
         this.#selection.clear()
+        this.#mouseActionPress = undefined
         this.#jumpPress = undefined
         this.#disclosurePress = undefined
         const repaint = (): void => {
@@ -2201,9 +2208,9 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
-        ...(this.#selection.active && this.#canQuoteSelection() ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Selection · Enter copy · {key} quote · Esc cancel', { key: keysForAction(this.#keybindings, 'quote-selection') }) }
-          : this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return', { key: keysForAction(this.#keybindings, 'tool-actions') }) }
-          : this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
+        ...(this.#transientStatus !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }
+          : this.#selection.active ? { selectionActions: this.#canQuoteSelection() ? 'copy-quote' as const : 'copy' as const }
+          : this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return', { key: keysForAction(this.#keybindings, 'tool-actions') }) } : {}),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start', ...(this.#focusBlockOffset === undefined ? {} : { focusBlockOffset: this.#focusBlockOffset }) }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -2346,7 +2353,7 @@ export class LocalTui implements TuiService {
   #setMouseTracking(enabled: boolean): void {
     enabled = enabled && this.#mouseInteraction !== 'native'
       && (this.#mouseInteraction === 'tui' || this.#tmuxMouseEnabled !== false)
-    if (!enabled) { this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
+    if (!enabled) { this.#mouseActionPress = undefined; this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
     this.#session.setMode('mouse', MOUSE_TRACKING, enabled)
@@ -2586,12 +2593,14 @@ export class LocalTui implements TuiService {
   }
 
   /** Resolve only current painted rows, never reinterpret a frozen native-history snapshot. */
-  #disclosureAt(row: number, column: number): TranscriptDisclosure | undefined {
+  #disclosureAt(row: number, column: number, action = false): TranscriptDisclosure | undefined {
     const frame = this.#fileActionFrame
     const document = this.#renderer.documentRowAt(row)
     const source = frame?.documentRows
     if (document === undefined || source == null || document < source.documentStart || document >= source.documentEnd) return
-    const target = frame?.transcript?.disclosures?.find(item => item.row === document && column >= item.column && column < item.column + item.width)
+    const target = frame?.transcript?.disclosures?.find(item => item.row === document && (action
+      ? item.actionColumn !== undefined && column >= item.actionColumn && column < item.actionColumn + 5
+      : column >= item.column && column < item.column + item.width))
     const expected = frame?.lines[source.frameStart + document - source.documentStart]
     const actual = this.#renderer.viewport()[row]
     if (target === undefined || expected === undefined || actual === undefined
@@ -2625,14 +2634,53 @@ export class LocalTui implements TuiService {
     else { this.#focusBlock = target.block; this.#focusBlockEdge = 'start'; this.#render() }
   }
 
+  #mouseActionAt(row: number, column: number): MouseActionTarget | undefined {
+    const frame = this.#fileActionFrame
+    const viewport = this.#renderer.viewport()
+    for (const target of frame?.selectionActions ?? []) {
+      const physical = viewport.length - (frame!.lines.length - target.row)
+      if (row === physical && column >= target.column && column < target.column + target.width
+        && this.#selection.active && this.#selection.valid(viewport)
+        && stripAnsi(viewport[row] ?? '').trimEnd() === stripAnsi(frame!.lines[target.row] ?? '').trimEnd()) {
+        return { ...target, row: physical, key: target.action }
+      }
+    }
+    const tool = this.#disclosureAt(row, column, true)
+    if (tool?.actionColumn !== undefined) return { row, column: tool.actionColumn, width: 5, key: tool.key, action: 'tool', block: tool.block }
+    return undefined
+  }
+
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
+    const pressedAction = this.#mouseActionPress
+    if (pressedAction !== undefined) {
+      const target = this.#mouseActionAt(event.row, event.column)
+      if (event.action === 'release') {
+        this.#mouseActionPress = undefined
+        if (event.button === 'left' && !event.shift && target?.key === pressedAction.key && target.row === pressedAction.row && target.column === pressedAction.column) {
+          if (target.action === 'copy') void this.#copySelection(true)
+          else if (target.action === 'quote') this.#quoteSelection()
+          else {
+            const block = this.#state.blocks[target.block!]
+            if (block?.kind === 'tool') void this.#openToolActions(block)
+          }
+        }
+      } else if (event.action === 'drag' && (target?.key !== pressedAction.key || event.shift)) {
+        // Keep consuming the gesture, but never activate after leaving the button.
+        this.#mouseActionPress = { ...pressedAction, key: '' }
+      }
+      return
+    }
+    if (event.button === 'left' && event.action === 'press' && !event.shift) {
+      const target = this.#mouseActionAt(event.row, event.column)
+      if (target !== undefined) { this.#mouseActionPress = target; this.#disclosurePress = undefined; return }
+    }
     const inside = (target: { row: number; column: number; width: number }): boolean =>
       event.row === target.row && event.column >= target.column && event.column < target.column + target.width
     if (event.button === 'right') {
       this.#disclosurePress = undefined
       if (event.action === 'press') {
-        if (this.#selection.active) void this.#copySelection()
+        if (this.#selection.active) void this.#copySelection(true)
         else {
           const document = this.#renderer.documentRowAt(event.row)
           const frame = this.#fileActionFrame
@@ -2698,13 +2746,16 @@ export class LocalTui implements TuiService {
     return task
   }
 
-  async #copySelection(): Promise<void> {
+  async #copySelection(explicit = false): Promise<void> {
     if (!this.#selection.valid(this.#renderer.viewport())) { this.#selection.clear(); return }
     const text = this.#selection.text()
     if (text === undefined) return
-    try { await this.#deliverCopy(text) }
+    try {
+      const delivery = await this.#deliverCopy(text)
+      if (explicit && !this.#disposed) { this.#showTransientStatus(delivery === 'requested' ? 'Selection sent to terminal clipboard' : 'Copied selection'); this.#render() }
+    }
     catch {
-      if (!this.#disposed) this.notice('Could not copy selection to the clipboard.', { level: 'error' })
+      if (!this.#disposed) { this.#showTransientStatus('Copy failed'); this.#render() }
     }
   }
 
@@ -2718,11 +2769,17 @@ export class LocalTui implements TuiService {
     const text = this.#selection.valid(this.#renderer.viewport()) ? this.#selection.text() : undefined
     this.#selection.clear()
     if (text !== undefined) {
-      this.#editor.setCursor(this.#editor.text.length)
-      this.#editor.paste((this.#editor.text === '' ? '' : '\n\n') + text.split('\n').map(line => '> ' + line).join('\n') + '\n\n')
-      this.#processSelection = undefined
-      this.#refreshAutocomplete()
+      this.#appendQuote(text.split('\n').map(line => '> ' + line).join('\n'))
     }
+    this.#render()
+  }
+
+  #appendQuote(text: string): void {
+    this.#editor.setCursor(this.#editor.text.length)
+    this.#editor.paste((this.#editor.text === '' ? '' : '\n\n') + text + '\n\n')
+    this.#processSelection = undefined
+    this.#refreshAutocomplete()
+    this.#showTransientStatus('Quoted in composer')
     this.#render()
   }
 
@@ -2738,26 +2795,30 @@ export class LocalTui implements TuiService {
     return block?.kind === 'tool' ? block : undefined
   }
 
-  async #openToolActions(): Promise<void> {
-    if (this.#fileReviewAbort !== undefined || this.#search !== null) return
-    const block = this.#currentTool()
+  async #openToolActions(block = this.#currentTool()): Promise<void> {
+    if (this.#fileReviewAbort !== undefined || this.#search !== null || this.#prompt !== null || this.#settings !== null) return
     if (block === undefined) { this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), 'No tool selected · use {key}', { key: keysForAction(this.#keybindings, 'toggle-tools') }), 4_000); return }
     const command = toolCommand(block)
     const files = blockFileAction(block)
+    const source = toolSource(block)
     const options = [
       ...(command === undefined ? [] : [{ label: 'Copy command', value: 'command', description: command.split('\n')[0] ?? '' }]),
       ...(block.output.trim() === '' ? [] : [{ label: 'Copy result', value: 'result' }]),
       ...(files === undefined ? [] : [{ label: 'View file', value: 'files' }]),
+      ...(source === undefined ? [] : [{ label: 'Copy source', value: 'source-copy', description: source.label },
+        ...(this.#canQuoteSelection() ? [{ label: 'Quote source', value: 'source-quote', description: source.label }] : [])]),
     ]
     if (options.length === 0) { this.#showTransientStatus('No content available for this tool.', 4_000); return }
     const abort = new AbortController()
     this.#fileReviewAbort = abort
     try {
-      const answer = await this.prompt({ localize: true, title: 'Tool actions', question: block.name,
-        options, allowCustom: false, notify: false, signal: abort.signal, onSuperseded: () => { abort.abort() } })
+      const answer = await this.prompt({ localize: ['title'], title: 'Tool actions', question: toolActionContext(block),
+        options: options.map(option => ({ ...option, label: uiText(resolveUiLanguage(this.#uiLanguage), option.label) })), allowCustom: false, notify: false, signal: abort.signal, onSuperseded: () => { abort.abort() } })
       if (abort.signal.aborted || this.#disposed) return
       if (answer === 'command' && command !== undefined) await this.#copyPicked(command, 'command')
       else if (answer === 'result') await this.#copyPicked(block.output, 'tool result')
+      else if (answer === 'source-copy' && source !== undefined) await this.#copyPicked(source.text, 'source')
+      else if (answer === 'source-quote' && source !== undefined && this.#canQuoteSelection()) this.#appendQuote(sourceQuote(source))
       else if (answer === 'files' && files !== undefined) {
         this.#fileReviewAbort = undefined
         this.#openFileAction(files)
@@ -2807,10 +2868,16 @@ export class LocalTui implements TuiService {
     }
     this.#jumpPress = undefined
     this.#disclosurePress = undefined
+    this.#mouseActionPress = undefined
+    if (this.#keyTest !== undefined && this.#prompt?.request.signal === this.#keyTest.signal
+      && (event.type === 'text' || event.type === 'paste-start' || event.type === 'paste-end' || event.type === 'key' && !['escape', 'ctrl+c'].includes(event.id))) {
+      this.#keyTest.observe(event)
+      return
+    }
     if (this.#selection.active) {
       if (event.type === 'key' && this.#boundAction(event.id) === 'quote-selection') { this.#quoteSelection(); return }
       if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
-        void this.#copySelection()
+        void this.#copySelection(true)
         return
       }
       this.#selection.clear()
@@ -4877,10 +4944,35 @@ export class LocalTui implements TuiService {
     this.#refreshAutocomplete()
   }
 
+  async #testKeys(): Promise<boolean> {
+    const abort = new AbortController()
+    // Reuse browsing cancellation: approvals and session switches own the terminal.
+    this.#fileReviewAbort = abort
+    this.#keyTest = { signal: abort.signal, observe: event => {
+      const pending = this.#prompt
+      const detail = keyTestDescription(event, this.#keybindings, resolveUiLanguage(this.#uiLanguage))
+      if (pending?.request.signal !== abort.signal || detail === undefined) return
+      pending.sourceRequest = { ...pending.sourceRequest, detail }
+      pending.request = localizePrompt(pending.sourceRequest, resolveUiLanguage(this.#uiLanguage))
+      this.#render()
+    } }
+    try {
+      await this.prompt({ localize: true, title: 'Key test', presentation: 'progress',
+        question: 'Press a key. Esc or Ctrl+C returns without changing bindings.',
+        detail: uiText(resolveUiLanguage(this.#uiLanguage), 'If nothing appears, the terminal or operating system may have intercepted the key.'),
+        allowCustom: false, notify: false, signal: abort.signal, onSuperseded: () => { abort.abort() } })
+    } finally {
+      if (this.#keyTest?.signal === abort.signal) this.#keyTest = undefined
+      if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined
+    }
+    return !abort.signal.aborted
+  }
+
   async #editKeybindings(): Promise<void> {
     if (this.#keybindingsPath === undefined) return
     while (!this.#disposed) {
       const options = [
+        { label: 'Test keys', value: '__test_keys__', description: 'See what the terminal sends without running an action.' },
         ...TUI_ACTIONS.map(action => {
           const keys = keysForAction(this.#keybindings, action)
           const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
@@ -4905,6 +4997,7 @@ export class LocalTui implements TuiService {
         notify: false,
       })
       if (choice === null || this.#disposed) break
+      if (choice === '__test_keys__') { if (!await this.#testKeys()) break; continue }
       if (choice === '__reset_all__') {
         try {
           saveKeybindings(this.#keybindingsPath, DEFAULT_KEYBINDINGS)

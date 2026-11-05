@@ -79,6 +79,10 @@ When the transcript can scroll or contains disclosure arrows or actionable files
 
 Click a process row’s left-hand arrow to open or close its content; click a completed turn’s arrow to browse its process. The left gutter, including the arrow and surrounding blank cells before the title, is clickable. Small movements within that gutter and preview updates do not cancel a click. Titles and paths remain selectable; dragging out of the gutter selects text without toggling, even if the pointer returns. Shift-click keeps extending the selection. Keyboard navigation continues from the clicked item.
 
+The selected tool row also has a `[···]` button for the same actions; the menu identifies the command or file. With text selected, `[Copy]` and `[Quote]` appear beneath the composer when space permits. Clicking them keeps the draft and reading position; dragging outside a button cancels the click. Copy and quote confirmations temporarily replace navigation hints.
+
+For Read results with a retained contiguous range, **Copy source** copies that range without display line numbers or wrapping. **Quote source** appends the file and line range plus a fenced code block to the draft. Both use the content retained by the original call, preserving indentation and long lines; they do not reopen a possibly changed file or recover text the tool did not return. Read-only views offer copying only.
+
 Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` opens the same files for the tool under the reading position, and a completed Turn summary does not make hidden tool cards clickable. Search tools list each declared match by file and line, with its matching text; choosing a match opens that line, including multiple matches in the same file. The reader loads enough text to reach the line within its 4 MiB preview limit; files may have changed since the search. `Alt+A` also offers these files alongside copy actions for the current tool. Closing the menu or reader retains the draft and transcript reading position. Reviewing a turn’s changes is `/diff`. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
 
 **Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
@@ -136,6 +140,8 @@ Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back 
 ```
 
 Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below, or `null` to unbind a default key; an unknown action or a malformed file leaves the shipped binding in place for that entry. `/help` shows the effective keys.
+
+**Test keys** in Keybindings shows the text or key sequence the terminal actually sends and any assigned application action. Testing does not run shortcuts, edit the draft, or save bindings; `Esc` or `Ctrl+C` returns. Standard terminal encodings for `F1`–`F12`, including modifiers, are supported (for example, `"f6": "tool-actions"`). A terminal or OS shortcut may intercept a key before omdsh sees it. On macOS, Option may produce characters such as `å` or `¥`; these remain ordinary text. Use a different binding or configure Option/Alt in the terminal, then test again.
 
 | Action id | Default key | Effect |
 |---|---|---|

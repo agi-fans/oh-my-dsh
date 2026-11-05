@@ -6381,6 +6381,106 @@ describe('process disclosure pointer interaction', () => {
 })
 
 describe('current tool actions and selected quotes', () => {
+  const pointer = (term: ScrollingTerminal, row: number, column: number, action: 'press' | 'release' | 'drag', shift = false) =>
+    press(term, `\x1b[<${(action === 'drag' ? 32 : 0) + (shift ? 4 : 0)};${column + 1};${row + 1}${action === 'release' ? 'm' : 'M'}`)
+  const clickLabel = (term: ScrollingTerminal, label: string) => {
+    const row = term.visible().findIndex(line => line.includes(label))
+    expect(row).toBeGreaterThanOrEqual(0)
+    const col = term.visible()[row]!.indexOf(label)
+    pointer(term, row, col, 'press'); pointer(term, row, col, 'release')
+  }
+
+  it.each([false, true])('opens the selected tool by mouse and shows copy feedback over navigation (colors=%s)', async colors => {
+    const term = new ScrollingTerminal(120, 40), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', colors, 'dark', copy)
+    const prompt = vi.spyOn(tui, 'prompt')
+    try {
+      twoTools(tui)
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      press(term, '\x0f\x1b[A')
+      const history = term.scrollback()
+      clickLabel(term, '[···]')
+      expect(prompt.mock.calls[0]?.[0].question).toBe('command-0')
+      press(term, '\r')
+      await vi.waitFor(() => expect(term.visible().join('\n')).toContain('Copied command'))
+      expect(copy).toHaveBeenCalledWith('command-0')
+      expect(term.visible().join('\n')).toContain('keep draft')
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it.each(['drag', 'shift', 'resize', 'native'] as const)('does not activate a menu after %s', async mode => {
+    const term = new ScrollingTerminal(120, 40), tui = new LocalTui(term, 'm', false)
+    const prompt = vi.spyOn(tui, 'prompt')
+    try {
+      twoTools(tui); press(term, '\x0f')
+      const row = term.visible().findIndex(line => line.includes('[···]'))
+      const column = term.visible()[row]!.indexOf('[···]')
+      if (mode === 'native') tui.applyStoredPrefs({ mouseInteraction: 'native' })
+      pointer(term, row, column, 'press', mode === 'shift')
+      if (mode === 'drag') { pointer(term, row - 1, column, 'drag'); pointer(term, row, column, 'drag') }
+      if (mode === 'resize') term.resize(100)
+      pointer(term, row, column, 'release', mode === 'shift')
+      await flushAsyncPaste()
+      expect(prompt).not.toHaveBeenCalled()
+    } finally { tui.dispose() }
+  })
+
+  it.each(['copy', 'quote', 'failure'] as const)('uses the selection %s button without losing the draft', async action => {
+    const term = new ScrollingTerminal(120, 32), copy = vi.fn(async () => { if (action === 'failure') throw new Error('unavailable') })
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      twoTools(tui); tui.applyStoredPrefs({ copyOnSelect: false })
+      tui.event(ev('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', content: [{ type: 'text', text: 'SELECT_THIS' }] } }, 9))
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      const row = term.visible().findIndex(line => line.includes('SELECT_THIS'))
+      const col = term.visible()[row]!.indexOf('SELECT_THIS')
+      pointer(term, row, col, 'press'); pointer(term, row, col + 11, 'drag'); pointer(term, row, col + 11, 'release')
+      const history = term.scrollback()
+      clickLabel(term, action === 'quote' ? '[Quote]' : '[Copy]')
+      await flushAsyncPaste()
+      expect(term.scrollback()).toEqual(history)
+      expect(term.visible().join('\n')).toContain('keep draft')
+      if (action === 'quote') {
+        expect(term.visible().join('\n')).toContain('Quoted in composer')
+        press(term, '\x1bc'); await flushAsyncPaste()
+        expect(copy).toHaveBeenCalledWith('keep draft\n\n> SELECT_THIS\n\n')
+      } else {
+        expect(copy).toHaveBeenCalledWith('SELECT_THIS')
+        expect(term.visible().join('\n')).toContain(action === 'failure' ? 'Copy failed' : 'Copied selection')
+      }
+    } finally { tui.dispose() }
+  })
+
+  it.each(['copy', 'quote', 'readonly'] as const)('offers retained Read source for %s', async action => {
+    const term = new ScrollingTerminal(120, 40), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    const prompt = vi.spyOn(tui, 'prompt')
+    const text = '  const value = "中文🐳";\n\t// ' + 'long'.repeat(100)
+    try {
+      tui.event(ev('tool/call', { callId: 'source', turn: 1, step: 1, name: 'read', arguments: '{}' }, 1))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'source', content: [{ type: 'text', text: 'decorated result' }] } }, 2),
+        { result: { card: 'read', path: 'missing.ts', offset: 99, totalLines: 100, lines: text.split('\n').map((text, i) => ({ number: i + 99, text })) } })
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      if (action === 'readonly') tui.setInspectedSubagent({ id: 'child', label: 'Read only', phase: 'running', writable: false })
+      press(term, '\x0f\x1ba')
+      const options = prompt.mock.calls[0]![0].options!
+      expect(options.find(option => option.value === 'source-copy')?.description).toBe('missing.ts:99–100')
+      if (action === 'readonly') {
+        expect(options.some(option => option.value === 'source-quote')).toBe(false)
+        return
+      }
+      const index = options.findIndex(option => option.value === 'source-' + action)
+      expect(index).toBeGreaterThanOrEqual(0)
+      press(term, '\x1b[B'.repeat(index) + '\r'); await flushAsyncPaste()
+      if (action === 'copy') expect(copy).toHaveBeenCalledWith(text)
+      else {
+        press(term, '\x1bc'); await flushAsyncPaste()
+        expect(copy).toHaveBeenCalledWith('keep draft\n\nmissing.ts:99–100\n\n```ts\n' + text + '\n```\n\n')
+      }
+    } finally { tui.dispose() }
+  })
+
   function twoTools(tui: LocalTui) {
     tui.event(ev('turn/start', { turn: 1 }, 1))
     for (const [index, name] of ['pwsh', 'bash'].entries()) {
@@ -6518,6 +6618,52 @@ describe('current tool actions and selected quotes', () => {
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain('keep draft')
       expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
+  })
+})
+
+
+describe('terminal key tester', () => {
+  it.each(['escape', 'approval', 'session', 'subagent'] as const)('captures keys without dispatch or draft edits and yields to %s', async ending => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-key-test-')), path = join(root, 'keys.json')
+    const bindings = JSON.stringify({ f6: 'copy-prompt' })
+    writeFileSync(path, bindings)
+    const term = new ScrollingTerminal(120, 40), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy, { keybindingsPath: path })
+    try {
+      void tui.readInput()
+      press(term, '/settings\r')
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      press(term, 'Keybindings\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Test keys')
+      press(term, '\r'); await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Key test')
+      expect(term.visible().join('\n')).not.toContain('enter answer')
+      for (const [bytes, diagnostic] of [['\x1b[17~', 'Key received: f6'], ['\x1ba', 'Key received: alt+a'], ['å¥', 'Text received: "å¥"'], ['\x04', 'Key received: ctrl+d'], ['\x1b[200~literal\x1b[201~', 'Paste received.']]) {
+        press(term, bytes!); await flushAsyncPaste()
+        expect(term.visible().join('\n')).toContain(diagnostic)
+      }
+      expect(copy).not.toHaveBeenCalled()
+      expect(readFileSync(path, 'utf8')).toBe(bindings)
+      if (ending === 'escape') {
+        press(term, '\x1b[27u'); await flushAsyncPaste()
+        expect(term.visible().join('\n')).toContain('Test keys')
+        press(term, '\x1b[27u'); await flushAsyncPaste()
+        press(term, '\x03')
+        expect(term.visible().join('\n')).toContain('keep draft')
+        press(term, '\x1b[17~'); await flushAsyncPaste()
+        expect(copy).toHaveBeenCalledWith('keep draft')
+      } else {
+        if (ending === 'approval') {
+          const approval = tui.prompt({ title: 'Approval required', question: 'Allow?', options: [{ label: 'Allow' }] })
+          await flushAsyncPaste(); press(term, '\r'); await approval
+        } else if (ending === 'session') tui.setSession({ id: 'replacement', recent: [] })
+        else tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: true })
+        await flushAsyncPaste()
+        expect(term.visible().join('\n')).not.toContain('Key test')
+        expect(term.visible().join('\n')).not.toContain('Test keys')
+      }
     } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
   })
 })

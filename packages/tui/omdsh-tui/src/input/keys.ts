@@ -64,6 +64,7 @@ const CSI_LETTER: Record<string, string> = {
   H: 'home',
   F: 'end',
   Z: 'shift+tab',
+  P: 'f1', Q: 'f2', R: 'f3', S: 'f4',
 }
 
 const CSI_TILDE: Record<number, string> = {
@@ -73,6 +74,8 @@ const CSI_TILDE: Record<number, string> = {
   4: 'end',
   5: 'pageUp',
   6: 'pageDown',
+  11: 'f1', 12: 'f2', 13: 'f3', 14: 'f4', 15: 'f5', 17: 'f6',
+  18: 'f7', 19: 'f8', 20: 'f9', 21: 'f10', 23: 'f11', 24: 'f12',
 }
 
 const KITTY: Record<number, string> = {

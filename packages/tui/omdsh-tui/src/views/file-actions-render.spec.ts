@@ -33,3 +33,20 @@ describe('file regions', () => {
     expect(expanded.transcript!.fileRegions!.filter(region => region.file !== undefined)).toHaveLength(10)
   })
 })
+
+it.each([false, true])('shows one selected tool menu button and cell-safe selection buttons (colors=%s)', colors => {
+  for (const width of [12, 20, 40, 80]) {
+    const frame = renderView({ ...initialTranscript(), blocks: [tool, assistant], turn: 1 },
+      { ...options, width, colors, toolsExpanded: true, selectedProcess: 0, selectionActions: 'copy-quote' })
+    const menu = frame.transcript?.disclosures?.filter(target => target.actionColumn !== undefined) ?? []
+    expect(menu).toHaveLength(width < 20 ? 0 : 1)
+    if (width >= 40) expect(frame.lines.join('\n')).not.toContain('…')
+    expect(frame.selectionActions?.length).toBeGreaterThan(0)
+    for (const target of frame.selectionActions ?? []) {
+      expect(target.column + target.width).toBeLessThanOrEqual(width)
+      expect(frame.lines[target.row]).toContain(target.action === 'copy' ? 'Copy' : 'Quote')
+    }
+    const feedback = renderView(initialTranscript(), { ...options, width, selectionActions: 'copy-quote', transientStatus: 'Copied' })
+    expect(feedback.selectionActions).toEqual([])
+  }
+})
