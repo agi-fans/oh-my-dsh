@@ -48,6 +48,24 @@ function projectFileAction(block: Block): FileAction | undefined {
       files: summary.files.map(file => ({ path: file.path, label: file.display })) }
   }
   if (block.kind !== 'tool') return undefined
+  const result = block.presentation?.result
+  if (result?.card === 'search' && result.shape === 'matches') {
+    const cwd = block.presentation?.cwd
+    const files: ReviewFile[] = []
+    const seen = new Set<string>()
+    for (const file of result.files) {
+      if (file.path === '' || /[\u0000-\u001f\u007f-\u009f]/u.test(file.path) || cwd === undefined && !isAbsolute(file.path)) continue
+      const path = resolve(cwd ?? dirname(file.path), file.path)
+      for (const match of file.matches) {
+        if (!Number.isSafeInteger(match.lineNumber) || match.lineNumber < 1) continue
+        const key = `${path}:${match.lineNumber}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        files.push({ path, label: `${file.path}:${match.lineNumber}`, line: match.lineNumber, description: match.line })
+      }
+    }
+    return files.length === 0 ? undefined : { title: 'Search matches · current contents', cwd: cwd ?? dirname(files[0]!.path), files }
+  }
   const locations = toolFileLocations(block.presentation)
   if (locations.length === 0) return undefined
   const cwd = block.presentation?.cwd

@@ -6379,3 +6379,145 @@ describe('process disclosure pointer interaction', () => {
     } finally { tui.dispose() }
   })
 })
+
+describe('current tool actions and selected quotes', () => {
+  function twoTools(tui: LocalTui) {
+    tui.event(ev('turn/start', { turn: 1 }, 1))
+    for (const [index, name] of ['pwsh', 'bash'].entries()) {
+      tui.event(ev('tool/call', { turn: 1, step: index + 1, callId: `action-${index}`, name, arguments: JSON.stringify({ command: `command-${index}` }) }, 2 + index * 2))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: `action-${index}`, content: [{ type: 'text', text: `result-${index}` }] } }, 3 + index * 2))
+    }
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 6))
+  }
+
+  it.each([false, true])('copies the selected older tool and restores draft and reading position (colors=%s)', async colors => {
+    const term = new ScrollingTerminal(120, 40), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', colors, 'dark', copy)
+    const prompt = vi.spyOn(tui, 'prompt')
+    try {
+      twoTools(tui)
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      press(term, '\x0f\x1b[A')
+      const before = term.visible()
+      const history = term.scrollback()
+      press(term, '\x1ba')
+      expect(prompt.mock.calls[0]?.[0].options?.[0]).toMatchObject({ label: 'Copy command', description: 'command-0' })
+      press(term, '\r')
+      await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('command-0'))
+      expect(term.visible().filter(row => row.includes('command-'))).toEqual(before.filter(row => row.includes('command-')))
+      expect(term.visible().join('\n')).toContain('keep draft')
+      expect(term.scrollback()).toEqual(history)
+      press(term, '\x1ba\x1b[B\r')
+      await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('result-0'))
+    } finally { tui.dispose() }
+  })
+
+  it.each(['approval', 'session', 'subagent'] as const)('cancels tool actions when %s takes over', async takeover => {
+    const term = new ScrollingTerminal(100, 32), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      twoTools(tui)
+      press(term, '\x0f\x1ba')
+      if (takeover === 'approval') {
+        const pending = tui.prompt({ title: 'Approval required', question: 'Allow?', options: [{ label: 'Allow once' }] })
+        await flushAsyncPaste()
+        press(term, '\r')
+        expect(await pending).toBe('Allow once')
+      } else if (takeover === 'subagent') tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: true })
+      else tui.setSession({ id: 'replacement', recent: [] })
+      await flushAsyncPaste()
+      expect(copy).not.toHaveBeenCalled()
+      expect(term.visible().join('\n')).not.toContain('Tool actions')
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('quotes Unicode selection into the draft without submitting or losing attachments (copyOnSelect=%s)', async copyOnSelect => {
+    const term = new ScrollingTerminal(120, 32), copy = vi.fn(async () => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, copyOnSelect })
+      twoTools(tui)
+      tui.event(ev('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '引用 中文🐳e\u0301 text' }] } }, 1))
+      const files = [{ attachmentId: AttachmentId('quote-file'), name: 'a.txt', bytes: 1 }]
+      tui.restoreInput({ text: 'keep draft', images: [], files })
+      const submitted = vi.fn()
+      const input = tui.readInput(); void input.then(submitted)
+      const row = term.visible().findIndex(line => line.includes('引用'))
+      const column = term.visible()[row]!.indexOf('引用')
+      press(term, `\x1b[<0;${column + 1};${row + 1}M\x1b[<32;${column + 20};${row + 1}M\x1b[<0;${column + 20};${row + 1}m`)
+      await flushAsyncPaste()
+      press(term, '\x1by')
+      await flushAsyncPaste()
+      expect(submitted).not.toHaveBeenCalled()
+      expect(copy).toHaveBeenCalledTimes(copyOnSelect ? 1 : 0)
+      press(term, '\r')
+      expect(await input).toMatchObject({ text: 'keep draft \n\n> 引用 中文🐳e\u0301 text', files })
+    } finally { tui.dispose() }
+  })
+
+  it.each(['quote', 'undo', 'readonly', 'resized'] as const)('preserves a folded draft with multiline selection (%s)', async mode => {
+    const term = new ScrollingTerminal(120, 40), copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      twoTools(tui)
+      tui.event(ev('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', content: [{ type: 'text', text: 'first selected line\n\nsecond selected line' }] } }, 9))
+      tui.setSession({ id: 'quote-parent', recent: [] })
+      const draft = 'existing pasted text\n'.repeat(15).trimEnd()
+      press(term, '\x1b[200~' + draft + '\x1b[201~')
+      await flushAsyncPaste()
+      if (mode === 'readonly') tui.setInspectedSubagent({ id: 'child', label: 'Read only', phase: 'running', writable: false })
+      const start = term.visible().findIndex(line => line.includes('first selected'))
+      const end = term.visible().findIndex(line => line.includes('second selected'))
+      expect(end).toBeGreaterThan(start)
+      const column = term.visible()[start]!.indexOf('first')
+      press(term, `\x1b[<0;${column + 1};${start + 1}M\x1b[<32;${column + 20};${end + 1}M\x1b[<0;${column + 20};${end + 1}m`)
+      if (mode === 'resized') term.resize(100)
+      press(term, '\x1by')
+      if (mode === 'undo') press(term, '\x1f')
+      if (mode === 'readonly') {
+        press(term, '\x1b[27u')
+        await flushAsyncPaste()
+        press(term, '\x1bc')
+        await flushAsyncPaste()
+        expect(copy.mock.calls.at(-1)?.[0]).toBe('')
+        tui.setInspectedSubagent(undefined)
+      }
+      // Explicit copy reads expanded paste atoms without submitting or losing them.
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      press(term, '\x1bc')
+      await flushAsyncPaste()
+      const copied = copy.mock.calls.at(-1)?.[0] as string | undefined
+      if (mode === 'quote') {
+        expect(copied).toContain(draft + '\n\n> first selected line\n> ')
+        expect(copied).toContain('second selected line')
+      } else expect(copied).toBe(draft)
+    } finally { tui.dispose() }
+  })
+
+  it('opens the chosen match, then restores the same transcript and draft', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-match-action-'))
+    writeFileSync(join(root, 'a.ts'), Array.from({ length: 80 }, (_, i) => `source line ${i + 1}`).join('\n'))
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false, 'dark', async () => {})
+    const prompt = vi.spyOn(tui, 'prompt')
+    try {
+      tui.event(ev('tool/call', { callId: 'search', turn: 1, step: 1, name: 'grep', arguments: '{}' }, 1))
+      tui.event(ev('tool/result', { message: { role: 'tool', toolCallId: 'search', content: [{ type: 'text', text: 'matches' }] } }, 2),
+        { cwd: root, result: { card: 'search', shape: 'matches', files: [{ path: 'a.ts', matches: [{ lineNumber: 12, line: 'first match' }, { lineNumber: 70, line: 'second match' }] }], total: 2, truncated: false } })
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      press(term, '\x0f')
+      const history = term.scrollback()
+      press(term, '\x1ba\x1b[B\r')
+      await vi.waitFor(() => expect(prompt.mock.calls[1]?.[0].options).toHaveLength(2))
+      press(term, '\x1b[B\r')
+      await vi.waitFor(() => expect(prompt.mock.calls[2]?.[0].documentPosition?.row).toBe(69))
+      expect(term.visible().join('\n')).toContain('source line 70')
+      press(term, '\x1b[27u')
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(4))
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('keep draft')
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
+  })
+})

@@ -41,3 +41,16 @@ describe('provider-owned file actions', () => {
       .toMatchObject({ cwd: '/original', title: 'Turn 1 files · current contents', files: [{ path: 'a.ts', label: 'a.ts' }] })
   })
 })
+
+it('keeps distinct search lines in one file and deduplicates canonical locations', () => {
+  const cwd = process.cwd()
+  const action = blockFileAction({ kind: 'tool', presentation: { cwd, result: { card: 'search', shape: 'matches', total: 5, truncated: false,
+    files: [{ path: '中文 🐳.ts', matches: [{ lineNumber: 12, line: 'first' }, { lineNumber: 70, line: 'second' }, { lineNumber: -1, line: 'invalid' }] },
+      { path: resolve(cwd, '中文 🐳.ts'), matches: [{ lineNumber: 12, line: 'duplicate' }] },
+      { path: 'bad\x1b.ts', matches: [{ lineNumber: 3, line: 'invalid path' }] }] } } } as Block)
+  expect(action?.files).toEqual([
+    { path: resolve(cwd, '中文 🐳.ts'), label: '中文 🐳.ts:12', line: 12, description: 'first' },
+    { path: resolve(cwd, '中文 🐳.ts'), label: '中文 🐳.ts:70', line: 70, description: 'second' },
+  ])
+  expect(blockFileAction({ kind: 'tool', presentation: { result: { card: 'search', shape: 'matches', files: [{ path: 'relative.ts', matches: [{ lineNumber: 1, line: 'x' }] }], total: 1, truncated: false } } } as Block)).toBeUndefined()
+})

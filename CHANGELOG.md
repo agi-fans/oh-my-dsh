@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Alt+A opens actions for the current tool: copy its command or result, or view declared files. Terminal command copying also supports PowerShell and provider-declared terminal calls.
+
+- Alt+Y appends selected text as a Markdown quote without sending, preserving the draft and attachments and leaving copy-on-select unchanged.
+
+- Search file previews offer each matching line separately, retain its snippet, and open at the selected line while preserving the transcript reading position.
+
 - Process arrows support mouse expansion alongside keyboard navigation. Titles and paths remain selectable, and dragging from an arrow into text selects without toggling.
 
 - Alt+G and Settings → General → Current goal open live goal controls for editing, pausing, resuming and confirmed clearing. The goal bar distinguishes saved active goals awaiting authorization from armed continuation; stale edits retain their draft and exhausted goals explain the round limit.

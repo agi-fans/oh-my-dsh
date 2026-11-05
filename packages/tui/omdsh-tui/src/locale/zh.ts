@@ -1,6 +1,16 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
-  "Process · ↑↓ select · Enter toggle · Home title · Esc return": "过程 · ↑↓ 选择 · Enter 展开/收起 · Home 标题 · Esc 返回",
+  "Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return": "过程 · ↑↓ 选择 · Enter 展开/收起 · {key} 操作 · Home 标题 · Esc 返回",
+  "Selection · Enter copy · {key} quote · Esc cancel": "选区 · Enter 复制 · {key} 引用 · Esc 取消",
+  "Tool actions": "工具操作",
+  "Copy command": "复制命令",
+  "Copy result": "复制结果",
+  "View file": "查看文件",
+  "Copy or open the current tool’s content": "复制或打开当前工具的内容",
+  "Quote selected text in the composer": "将选中文字引用到输入框",
+  "No tool selected · use {key}": "未选中工具 · 使用 {key}",
+  "No content available for this tool.": "此工具暂无可操作的内容。",
+  "Search matches · current contents": "搜索命中 · 当前内容",
   "Skill": "技能",
   "User only": "仅用户调用",
   "Type `/` and a skill name to find and invoke it. User only skills require an explicit request.": "输入 `/` 和技能名可查找并调用技能。标为“仅用户调用”的技能需要你主动请求。",

@@ -28,3 +28,14 @@ describe('buildCopyTargets', () => {
     expect(buildCopyTargets([{ kind: 'user', text: 'hi' }])).toEqual([])
   })
 })
+
+it.each(['bash', 'pwsh', 'shell', 'exec'])('copies legacy %s commands without depending on the host shell', name => {
+  expect(buildCopyTargets([tool(name, '{"command":"echo 中文🐳"}')])[0]?.text).toBe('echo 中文🐳')
+})
+
+it('uses declared terminal commands without interpreting arbitrary tool arguments as commands', () => {
+  const declared = { ...tool('remote-runner', '{"command":"wrong"}'), presentation: { call: { card: 'terminal', title: 'Get-Process', description: 'Processes' } } } as Block
+  expect(buildCopyTargets([declared])[0]?.text).toBe('Get-Process')
+  expect(buildCopyTargets([tool('unknown', '{"command":"not a shell"}')])).toEqual([])
+  expect(buildCopyTargets([{ ...tool('bash', '{"command":"wrong"}'), presentation: { call: { card: 'generic', title: 'Not a command' } } } as Block])).toEqual([])
+})

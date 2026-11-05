@@ -136,9 +136,20 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
       let image: PreviewImage | undefined
       try {
         if (preview && imageMediaType(file.path) !== undefined) image = previewImage ??= await imageFile(resolve(cwd, file.path), signal)
-        const content: string | FileDocument = image !== undefined ? { binary: true, text: '' } : preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index)
+        let content: string | FileDocument = image !== undefined ? { binary: true, text: '' } : preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index)
         if (typeof content !== 'string' && content.diff !== true && hasDiff && !preview && 'truncated' in content) {
           modes.set(index, 'source'); continue
+        }
+        // A declared match can lie beyond the first prefix. Grow only until it
+        // is reachable, retaining the same bounded preview policy as Load more.
+        if (preview && loaded !== undefined && loaded.binary !== true && file.line !== undefined && !positions.has(key)) {
+          while (loaded.truncated === true && loaded.text.split('\n').length <= file.line && (limits.get(index) ?? PREVIEW_BYTES) < MAX_PREVIEW_BYTES) {
+            const limit = Math.min(MAX_PREVIEW_BYTES, (limits.get(index) ?? PREVIEW_BYTES) * 2)
+            limits.set(index, limit)
+            loaded = await fileDocument(resolve(cwd, file.path), signal, limit)
+          }
+          content = loaded
+          if (loaded.binary !== true && loaded.text.split('\n').length < file.line) feedback = `Line ${file.line} is outside this preview. The file may have changed; Open reads the original.`
         }
         if (typeof content === 'string') detail = content
         else if ('binary' in content && content.binary === true) detail = content.text

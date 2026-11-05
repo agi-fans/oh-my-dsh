@@ -219,3 +219,19 @@ it('inserts @path:line into the composer when Quote is chosen in the reader', as
   expect(insertText).toHaveBeenCalledWith('@a.ts:15')
   expect(notice).toHaveBeenCalledWith('Quoted @a.ts:15 in composer.')
 })
+
+it('opens separate matches in the same file and loads enough source to reach a later match', async () => {
+  const root = await directory(), path = join(root, 'large.ts')
+  await writeFile(path, 'const value = 1\n'.repeat(20_000))
+  const answers = ['next', 'previous', null, null]
+  const prompt = vi.fn<TuiService['prompt']>(async request => {
+    request.onDocumentPosition?.({ row: 50, wrap: 0, query: '' })
+    return answers.shift() ?? null
+  })
+  await reviewFiles({ prompt, notice: vi.fn() }, 'Matches', root,
+    [{ path, label: 'large.ts:12', line: 12 }, { path, label: 'large.ts:15000', line: 15000 }], async () => '', signal(), 0, false)
+  expect(prompt.mock.calls[0]?.[0].documentPosition?.row).toBe(11)
+  expect(prompt.mock.calls[1]?.[0].documentPosition?.row).toBe(14999)
+  expect(prompt.mock.calls[1]?.[0].documentSource!.text.split('\n').length).toBeGreaterThan(15000)
+  expect(prompt.mock.calls[2]?.[0].documentPosition?.row).toBe(50)
+})

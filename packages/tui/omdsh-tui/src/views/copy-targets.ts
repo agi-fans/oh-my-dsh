@@ -1,6 +1,6 @@
 /**
  * `/copy` targets from the live transcript: last assistant text, last fenced
- * code block, or last bash command. Pure — the provider owns the clipboard.
+ * code block, or last terminal command. Pure — the provider owns the clipboard.
  * @module @agi-fans/dsh-tui
  */
 
@@ -32,7 +32,7 @@ export function extractCodeBlocks(text: string): { lang: string; code: string }[
 /** Cap on how many picker rows `/copy` lists (OMP recent-message window). */
 export const COPY_TARGET_LIMIT = 50
 
-/** One row in the `/copy` picker (flat: messages, fences, bash commands, tool outputs). */
+/** One row in the `/copy` picker (flat: messages, fences, terminal commands, tool outputs). */
 export interface CopyPick {
   id: string
   label: string
@@ -131,18 +131,16 @@ export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_L
       })
     }
     if (items.length >= cap) break
-    if (block.name === 'bash') {
-      const command = bashCommand(block.args)
-      if (command !== undefined) {
-        commands += 1
-        items.push({
-          id: 'cmd:' + String(commands),
-          label: firstLine(command),
-          hint: 'bash · ' + pluralLines(command),
-          text: command,
-          copyMessage: 'bash command',
-        })
-      }
+    const command = toolCommand(block)
+    if (command !== undefined) {
+      commands += 1
+      items.push({
+        id: 'cmd:' + String(commands),
+        label: firstLine(command),
+        hint: block.name + ' · ' + pluralLines(command),
+        text: command,
+        copyMessage: block.name + ' command',
+      })
     }
     if (items.length >= cap) break
     if (block.output.trim() !== '') {
@@ -159,7 +157,12 @@ export function buildCopyTargets(blocks: readonly Block[], limit = COPY_TARGET_L
   return items.slice(0, cap)
 }
 
-function bashCommand(args: string): string | undefined {
+/** Terminal presentation titles are commands; legacy shell calls use their command argument. */
+export function toolCommand(block: Extract<Block, { kind: 'tool' }>): string | undefined {
+  const call = block.presentation?.call
+  if (call?.card === 'terminal') return call.title.trim() === '' ? undefined : call.title
+  if (call !== undefined || !/^(bash|shell|pwsh|exec)$/u.test(block.name)) return undefined
+  const args = block.args
   try {
     const parsed: unknown = JSON.parse(args)
     if (typeof parsed === 'object' && parsed !== null && 'command' in parsed) {

@@ -117,7 +117,7 @@ import {
 import { readTmuxMouseEnabled } from '../input/mouse-policy.ts'
 import { TextSelection } from '../input/text-selection.ts'
 import { copyToClipboard, readFromClipboard, type ClipboardReader, type ClipboardWriter } from '../input/clipboard.ts'
-import { buildCopyTargets } from '../views/copy-targets.ts'
+import { buildCopyTargets, toolCommand } from '../views/copy-targets.ts'
 import {
   applyHistorySearchEvent,
   createHistorySearch,
@@ -1048,6 +1048,7 @@ export class LocalTui implements TuiService {
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.needsApproval === inspected?.needsApproval && this.#inspected?.mode === inspected?.mode
       && this.#inspected?.writable === inspected?.writable) return
+    if (this.#inspected?.id !== inspected?.id) this.#fileReviewAbort?.abort()
     this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     this.#drainPendingInput()
@@ -2200,7 +2201,8 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
-        ...(this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · Home title · Esc return') }
+        ...(this.#selection.active && this.#canQuoteSelection() ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Selection · Enter copy · {key} quote · Esc cancel', { key: keysForAction(this.#keybindings, 'quote-selection') }) }
+          : this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return', { key: keysForAction(this.#keybindings, 'tool-actions') }) }
           : this.#transientStatus === undefined ? {} : { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start', ...(this.#focusBlockOffset === undefined ? {} : { focusBlockOffset: this.#focusBlockOffset }) }),
@@ -2706,6 +2708,65 @@ export class LocalTui implements TuiService {
     }
   }
 
+  #canQuoteSelection(): boolean {
+    return this.#prompt === null && this.#settings === null && this.#trajectory === null && this.#search === null
+      && this.#transcriptSearch === null && (this.#inspected === undefined || this.#inspected.writable === true)
+  }
+
+  #quoteSelection(): void {
+    if (!this.#canQuoteSelection()) return
+    const text = this.#selection.valid(this.#renderer.viewport()) ? this.#selection.text() : undefined
+    this.#selection.clear()
+    if (text !== undefined) {
+      this.#editor.setCursor(this.#editor.text.length)
+      this.#editor.paste((this.#editor.text === '' ? '' : '\n\n') + text.split('\n').map(line => '> ' + line).join('\n') + '\n\n')
+      this.#processSelection = undefined
+      this.#refreshAutocomplete()
+    }
+    this.#render()
+  }
+
+  /** Explicit process selection wins; scrolling through an open detail follows that tool. */
+  #currentTool(): Extract<Block, { kind: 'tool' }> | undefined {
+    const detail = this.#fileActionFrame?.transcript?.disclosures?.findLast(target =>
+      target.detailEnd !== undefined && this.#scrollStart > target.row && this.#scrollStart < target.detailEnd)
+    const selected = this.#processSelection
+    const row = selected === undefined ? undefined : this.#blockStarts[selected]
+    const selectedVisible = row !== undefined && row >= this.#scrollStart && row < this.#scrollStart + this.#scrollBudget - 1
+    const index = selectedVisible ? selected : detail?.block ?? selected ?? this.#viewportBlock()
+    const block = index === undefined ? undefined : this.#state.blocks[index]
+    return block?.kind === 'tool' ? block : undefined
+  }
+
+  async #openToolActions(): Promise<void> {
+    if (this.#fileReviewAbort !== undefined || this.#search !== null) return
+    const block = this.#currentTool()
+    if (block === undefined) { this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), 'No tool selected · use {key}', { key: keysForAction(this.#keybindings, 'toggle-tools') }), 4_000); return }
+    const command = toolCommand(block)
+    const files = blockFileAction(block)
+    const options = [
+      ...(command === undefined ? [] : [{ label: 'Copy command', value: 'command', description: command.split('\n')[0] ?? '' }]),
+      ...(block.output.trim() === '' ? [] : [{ label: 'Copy result', value: 'result' }]),
+      ...(files === undefined ? [] : [{ label: 'View file', value: 'files' }]),
+    ]
+    if (options.length === 0) { this.#showTransientStatus('No content available for this tool.', 4_000); return }
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    try {
+      const answer = await this.prompt({ localize: true, title: 'Tool actions', question: block.name,
+        options, allowCustom: false, notify: false, signal: abort.signal, onSuperseded: () => { abort.abort() } })
+      if (abort.signal.aborted || this.#disposed) return
+      if (answer === 'command' && command !== undefined) await this.#copyPicked(command, 'command')
+      else if (answer === 'result') await this.#copyPicked(block.output, 'tool result')
+      else if (answer === 'files' && files !== undefined) {
+        this.#fileReviewAbort = undefined
+        this.#openFileAction(files)
+      }
+    } catch (error) {
+      if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+    } finally { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined }
+  }
+
   #openFileAction(action: FileAction, initial?: number): void {
     if (!this.#tty || this.#disposed || this.#prompt !== null || this.#fileReviewAbort !== undefined) return
     const abort = new AbortController()
@@ -2747,6 +2808,7 @@ export class LocalTui implements TuiService {
     this.#jumpPress = undefined
     this.#disclosurePress = undefined
     if (this.#selection.active) {
+      if (event.type === 'key' && this.#boundAction(event.id) === 'quote-selection') { this.#quoteSelection(); return }
       if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
         void this.#copySelection()
         return
@@ -4593,6 +4655,8 @@ export class LocalTui implements TuiService {
       }
       return true
     }
+    if (action === 'quote-selection') return true
+    if (action === 'tool-actions') { void this.#openToolActions(); return true }
     if (action === 'review-changes') {
       // The keyboard twin of right-clicking a tool's path: open the files the
       // tool under the viewport declared. It shares the mouse path's region
@@ -4608,7 +4672,7 @@ export class LocalTui implements TuiService {
       const regions = this.#fileActionFrame?.transcript?.fileRegions ?? []
       const region = (top === undefined ? undefined : regions.find(region => top >= region.start && top < region.end))
         ?? (this.#inspecting ? regions.find(region => this.#state.blocks[region.block]?.kind === 'tool' && rows.some(row => row >= region.start && row < region.end)) : undefined)
-      const block = this.#state.blocks[region?.block ?? (this.#viewportBlock() ?? this.#state.blocks.length - 1)]
+      const block = this.#currentTool() ?? this.#state.blocks[region?.block ?? (this.#viewportBlock() ?? this.#state.blocks.length - 1)]
       const files = block?.kind === 'tool' ? blockFileAction(block) : undefined
       if (files === undefined) {
         this.#showTransientStatus('No tool files here · use /diff', 4_000)

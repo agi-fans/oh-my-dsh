@@ -33,7 +33,7 @@ export type TuiAction =
   // Model and thinking
   | 'select-model' | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-thinking' | 'toggle-thinking'
   // Transcript
-  | 'toggle-tools' | 'toggle-tool-details' | 'review-changes' | 'search-history' | 'search-transcript'
+  | 'tool-actions' | 'quote-selection' | 'toggle-tools' | 'toggle-tool-details' | 'review-changes' | 'search-history' | 'search-transcript'
   | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down'
 
 const WINDOWS = process.platform === 'win32'
@@ -84,6 +84,8 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'cycle-thinking', primary: ['shift+tab'], aliases: ['ctrl+shift+t'], label: 'Cycle the reasoning effort', scope: 'session' },
   { id: 'toggle-thinking', primary: ['ctrl+t'], label: 'Show or hide thinking in the transcript', scope: 'transcript' },
 
+  { id: 'tool-actions', primary: ['alt+a'], label: 'Copy or open the current tool’s content', scope: 'transcript' },
+  { id: 'quote-selection', primary: ['alt+y'], label: 'Quote selected text in the composer', scope: 'transcript' },
   { id: 'toggle-tools', primary: ['ctrl+o'], label: 'Browse thinking and tool calls', scope: 'transcript' },
   { id: 'toggle-tool-details', primary: ['alt+o'], label: 'Toggle full tool inputs and results', scope: 'transcript' },
   { id: 'review-changes', primary: ['alt+v'], label: 'Preview the files the tool under the viewport declared', scope: 'transcript' },
