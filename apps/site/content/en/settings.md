@@ -8,7 +8,7 @@ description: "Every omdsh setting: appearance, motion, notifications, UI and res
 
 ## Product configuration
 
-Built-in capabilities appear in the product category that owns the task. Command hooks compatibility and Subagent model selection show their current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
+Built-in capabilities appear in the product category that owns the task. Command hooks compatibility shows its current value directly; use `←`/`→` or `Space` to change it. Press `Enter` on a configuration row to open its settings; `Esc` returns to that same row, even when enabling an integration changes the available settings. Empty categories are omitted.
 
 | Category | Configuration |
 |---|---|
@@ -31,7 +31,15 @@ Secret inputs are masked and are never shown in notices. Setting an `apiKey` bes
 
 Settings are saved to the active Profile. Appearance applies immediately; response language applies from the next turn, child-model selection applies to new sessions. Only active, schema-declared live fields appear here; ordinary deployment options still belong in the Profile patch. [Plugins](plugins.md) describes enablement and installation.
 
-In **Plugins → Subagent models → Allowed models**, search the model catalog, press `Space` to toggle models and `Enter` to save. Current routes are preselected; configured routes outside the catalog remain available. Choose at least one model before enabling model selection. New sessions sample the allowlist and expose only those exact routes to `subagent`; existing sessions retain their choice, and `subagent_fork` inherits the parent route. The default is disabled.
+### Subagents
+
+**Plugins → Subagents** combines delegation depth, concurrent subagents and model selection in one draft. Field edits and **Restore inherited setting…** remain staged until **Apply**; leaving the form discards unsaved changes. The model-selection switch and allowed routes save together. Enabling requires at least one route; disabling retains the list. The default is disabled.
+
+Depth counts the main agent as 0, its children as 1, and their children as 2; a tool’s own depth limit takes precedence. Capacity counts live subagents across all levels under one main agent, excluding that main agent. These limits govern future delegations; lowering capacity does not stop existing children. Model selection applies only to new sessions: existing sessions retain their policy, and `subagent_fork` inherits the parent route.
+
+In **Allowed models**, search the catalog, press `Space` to toggle models and `Enter` to retain the selection in the draft. Saved routes outside the catalog stay removable and are marked **Currently unavailable**. Adapter and settings changes refresh the catalog without dropping selections; failed providers do not hide successful ones. Return to **Subagents → Refresh models** to retry. Loading does not block cancellation.
+
+Apply checks each section's original revision. The limits and model policy are independent writes: a failed section keeps its draft for retry, while successful sections stay saved and are not written again. A conflicting draft cannot overwrite newer settings; cancel and reopen to load them.
 
 Product forms and save notices use task and field labels; Advanced retains technical namespaces and paths. Schema help appears beside each field. Settings continue to write the original plugin entry rather than copying configuration into TUI preferences.
 

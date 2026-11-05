@@ -61,6 +61,12 @@ Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek
 
 草稿按 namespace 保留 revision，Apply 先校验所有待写部分，再按参数、凭据、选择的顺序写入。部分成功后只保留剩余草稿供重试；取消不回滚成功写入。切换服务商保留隐藏参数草稿，但切离旧版搜索丢弃密钥；凭据引用变更也丢弃密钥草稿。已有明文密钥先尝试移除本地覆盖，仍由部署提供时拒绝声称引用密钥已生效。选择部署默认服务商使用 unset，部署未指定时才提供 Automatic。
 
+## 子代理设置契约
+
+Plugins → Subagents 合并 `subagent` 的深度／容量和 `subagent-model-selection-settings` 的开关／允许路由，任一 namespace 可独立存在；额外字段留在 Advanced。字段修改与恢复继承均先暂存，Apply 才写入。开关与名单通过同一次 revision 校验写入；开启必须有模型，关闭保留名单。两个 namespace 独立保存，失败保留原草稿与版本，成功后清理对应草稿；取消只放弃未保存内容，不回滚已经成功的部分。
+
+模型目录消费已发布 `llm.listProviders/listModels`，分别处理各服务商结果，刷新响应带代次且关闭后失效。适配器／设置事件刷新目录，手动 Refresh models 可重试；已保存的缺失路由保持可选和可删除，同一次选择过程中已经显示的路由也不移除，避免刷新丢失勾选。界面明确深度从主代理 0 开始且工具自身的限制优先，并发数跨所有层级且排除主代理；降低限制不停止已有子代理。模型策略由 Harness 在新会话建立时冻结，已有会话与 fork 继承不被 TUI 改写。
+
 ## 有意保留的终端差异
 
 - Settings 中明确标注的 Current session 操作是便捷入口；默认设置与当前状态分别呈现。

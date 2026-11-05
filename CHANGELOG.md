@@ -31,6 +31,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Subagent settings combine delegation limits and model choices in one draft, with Apply, cancellation, inheritance resets, catalog refresh and retry, and independent recovery from partial save failures.
+
 - TUI integrators receive steering through `readInput()` with `TuiSubmission.delivery: 'steer'`; the text-only `setSteerHandler` callback is removed. Consumers must route the delivery intent through the corresponding Harness entry.
 
 - Running input distinguishes Steer for the next step, Queue for the next turn, and submissions awaiting acceptance, with localized queue controls and brief consumption feedback.

@@ -11,6 +11,7 @@ import z from '@deepseek-ai/schemastery'
 import type { PluginSettingsEntry } from '../views/settings-list.ts'
 import { BTW_PRESET } from './btw-policy.ts'
 import { modelSettingsEntry, openModelSettings } from './model-settings.ts'
+import { SUBAGENT_SETTINGS_FIELDS, openSubagentSettings, subagentSettingsEntry } from './subagent-settings.ts'
 import { WEB_SETTINGS_FIELDS, openWebSettings, webSettingsEntry } from './web-settings.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -35,8 +36,6 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   permission: { label: 'Default access', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
   'agent-preset-registry': { label: 'Default Agent preset', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
   'agent-loop': { label: 'Tool parallelism', section: 'tools', fields: { maxParallelToolCalls: 'Parallel tool calls' } },
-  subagent: { label: 'Subagents', section: 'agent', fields: { maxDepth: 'Delegation depth', maxActiveSubagents: 'Concurrent subagents' } },
-  'subagent-model-selection-settings': { label: 'Subagent models', section: 'agent', fields: { enabled: 'Model selection', allowedModels: 'Allowed models' }, inline: 'enabled', effect: 'Applies to new sessions; existing sessions keep their routes.' },
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
   'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
@@ -197,14 +196,16 @@ function parseProductValue(field: ConfigField, text: string): unknown {
 
 export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInfo[]): PluginSettingsEntry[] {
   const webEntries = webSettingsEntry(ctx)
+  const subagentEntries = subagentSettingsEntry(ctx)
   const entries: PluginSettingsEntry[] = ctx.settings.describe({ redactSecrets: true }).flatMap(section => {
     const fields = configFields(new z(section.schema as Partial<z>))
     const ns = String(section.ns), webOwned = webEntries.length > 0 && Object.hasOwn(WEB_SETTINGS_FIELDS, ns)
-    const form = !webOwned && Object.hasOwn(PRODUCT_FORMS, ns) ? PRODUCT_FORMS[ns] : undefined
+    const subagentOwned = subagentEntries.length > 0 && Object.hasOwn(SUBAGENT_SETTINGS_FIELDS, ns)
+    const form = !subagentOwned && !webOwned && Object.hasOwn(PRODUCT_FORMS, ns) ? PRODUCT_FORMS[ns] : undefined
     const paths = fields.map(field => field.path.join('.'))
-    const claimed = [...(Object.hasOwn(DEDICATED_FIELDS, ns) ? DEDICATED_FIELDS[ns] ?? [] : []), ...Object.keys(form?.fields ?? {}), ...(webOwned ? WEB_SETTINGS_FIELDS[ns] ?? [] : [])]
+    const claimed = [...(Object.hasOwn(DEDICATED_FIELDS, ns) ? DEDICATED_FIELDS[ns] ?? [] : []), ...Object.keys(form?.fields ?? {}), ...(webOwned ? WEB_SETTINGS_FIELDS[ns] ?? [] : []), ...(subagentOwned ? SUBAGENT_SETTINGS_FIELDS[ns] ?? [] : [])]
     const owned = paths.filter(path => Object.hasOwn(form?.fields ?? {}, path))
-    const advanced = section.autoGenerate === false && !webOwned ? [] : paths.filter(path => !claimed.includes(path))
+    const advanced = section.autoGenerate === false && !webOwned && !subagentOwned ? [] : paths.filter(path => !claimed.includes(path))
     const writable = ctx.settings.writable ? 'Edits apply live to this profile.' : 'This profile is read-only.'
     const defaultPreset = ctx.get('agentPresets')?.defaultId
     const summary = (ns === 'agent-preset-registry' ? (defaultPreset === undefined ? undefined : formatAgentPreset(defaultPreset)) : ns === 'permission' ? ctx.get('permissionPresets')?.defaultPreset : undefined) ?? fields.filter(field => owned.includes(field.path.join('.')) && !field.secret && !field.protected
@@ -236,7 +237,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
       summary: bundles === undefined ? 'Details' : bundle === undefined || bundle.availability === 'missing' ? 'Unavailable' : bundle.error !== undefined ? 'Load error' : bundle.enabled ? 'Enabled' : 'Disabled',
       description: 'Provider model, permissions and profile enablement. Native login has not been checked; Installation status reports registration.' }
   }))
-  return [...entries, ...modelSettingsEntry(ctx), ...webEntries]
+  return [...entries, ...modelSettingsEntry(ctx), ...webEntries, ...subagentEntries]
 }
 
 /** Write the displayed snapshot's revision; a concurrent change must never be silently overwritten. */
@@ -256,6 +257,7 @@ export async function setSettingsEntry(ctx: Context, entry: PluginSettingsEntry,
 
 /** Route a product row to its original owner; installation remains in /plugins. */
 export async function editSettingsEntry(ctx: Context, id: string, signal: AbortSignal, resetOnly = false): Promise<void> {
+  if (id === 'subagents:settings') { await openSubagentSettings(ctx, signal, resetOnly); return }
   if (id === 'web:settings') { await openWebSettings(ctx, signal); return }
   if (id === 'models:providers') { await openModelSettings(ctx, signal); return }
   const native = NATIVE_INTEGRATIONS.find(item => item.id === id)
@@ -311,7 +313,6 @@ export async function resetSettingsControl(ctx: Context, id: string, entry: Plug
   if (entry?.inline !== undefined) {
     const field = configFields(new z(section.schema as Partial<z>)).find(field => field.path.join('.') === entry.inline!.path.join('.'))
     if (field === undefined || field.secret || field.protected) throw new Error('This setting is no longer editable.')
-    validateModelSelection(section, field, configValue(section.base, field.path))
   }
   await ctx.settings.mutate(ns, paths.map(path => ({ op: 'unset' as const, path })), revision)
   ctx.tui.notice('Inherited setting restored.')
@@ -346,7 +347,6 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
     if (action === null || signal.aborted) continue
     try {
       if (action === 'reset') {
-        validateModelSelection(section, field, configValue(section.base, field.path))
         const refPath = credentialPath(field, fields)
         await ctx.settings.mutate(ns, [{ op: 'unset', path: field.path }, ...(refPath === undefined ? [] : [{ op: 'unset' as const, path: refPath }])], section.revision)
       }
@@ -372,12 +372,6 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
         if (!presets.some(preset => preset.id === chosen)) throw new Error('That Agent preset is unavailable.')
         await saveValue(ctx, section, field, chosen)
       }
-      else if (section.ns === 'subagent-model-selection-settings' && field.path.join('.') === 'allowedModels') {
-        const routes = await chooseSubagentModels(ctx, configValue(section.value, field.path), signal)
-        if (routes === null) continue
-        field.schema(routes)
-        await saveValue(ctx, section, field, routes)
-      }
       else {
         const constants = constantValues(field)
         const current = configValue(section.value, field.path)
@@ -401,47 +395,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
   }
 }
 
-async function chooseSubagentModels(ctx: Context, current: unknown, signal: AbortSignal): Promise<{ provider: string; model: string }[] | null> {
-  const routes: { provider: string; model: string; label: string; description?: string }[] = []
-  const key = (route: { provider: string; model: string }): string => JSON.stringify([route.provider, route.model])
-  const existing = Array.isArray(current) ? current.filter((route): route is { provider: string; model: string } => route !== null && typeof route === 'object' && typeof route.provider === 'string' && typeof route.model === 'string') : []
-  const llm = ctx.get('llm')
-  const unavailable: string[] = []
-  if (llm !== undefined) {
-    const providers = llm.listProviders()
-    const catalogs = await Promise.allSettled(providers.map(provider => llm.listModels(provider.id)))
-    signal.throwIfAborted()
-    catalogs.forEach((catalog, index) => {
-      const provider = providers[index]!
-      if (catalog.status === 'rejected') { unavailable.push(provider.id); return }
-      for (const model of catalog.value) routes.push({ provider: provider.id, model: model.id, label: `${model.name ?? model.id} · ${provider.id}`, description: model.description ?? model.id })
-    })
-  }
-  for (const route of existing) if (!routes.some(item => key(item) === key(route))) routes.push({ ...route, label: `${route.model} · ${route.provider}`, description: 'Configured route · currently outside the model catalog' })
-  const unique = routes.filter((route, index) => routes.findIndex(item => key(item) === key(route)) === index)
-  const answer = await ctx.tui.prompt({ ...list, title: 'Allowed subagent models', question: 'Choose models for new sessions', detail: `Space toggles a model. Enter saves the selection. Existing sessions keep their routes.${unavailable.length === 0 ? '' : ` Catalog unavailable: ${unavailable.join(', ')}; configured routes are retained.`}`,
-    emptyText: 'No models are available. Configure a provider through /login or cancel to keep the current setting.',
-    multiSelect: true, allowEmptySelection: true, initialValues: unique.flatMap((route, index) => existing.some(item => key(item) === key(route)) ? [String(index)] : []),
-    options: unique.map((route, index) => ({ label: route.label, ...(route.description === undefined ? {} : { description: route.description }), value: String(index) })), signal, notify: false })
-  if (answer === null) return null
-  if (answer === '') return []
-  return answer.split(', ').map(value => {
-    const route = unique[Number(value)]
-    if (route === undefined || !/^\d+$/u.test(value)) throw new Error('Model selection changed. Refresh and retry.')
-    return { provider: route.provider, model: route.model }
-  })
-}
-
-function validateModelSelection(section: SettingsDescriptor, field: ConfigField, value: unknown): void {
-  if (section.ns === 'subagent-model-selection-settings') {
-    const enabled = field.path[0] === 'enabled' ? value : configValue(section.value, ['enabled'])
-    const models = field.path[0] === 'allowedModels' ? value : configValue(section.value, ['allowedModels'])
-    if (enabled === true && (!Array.isArray(models) || models.length === 0)) throw new Error('Choose at least one allowed model before enabling subagent model selection.')
-  }
-}
-
 async function saveValue(ctx: Context, section: SettingsDescriptor, field: ConfigField, value: unknown): Promise<void> {
-  validateModelSelection(section, field, value)
   const fields = configFields(new z(section.schema as Partial<z>))
   const envPath = credentialPath(field, fields)
   if (envPath !== undefined) {

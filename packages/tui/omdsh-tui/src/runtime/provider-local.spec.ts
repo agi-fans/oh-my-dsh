@@ -3185,6 +3185,39 @@ describe('LocalTui (tty)', () => {
     } finally { await unbind(); tui.dispose() }
   })
 
+  it.each(['en', 'zh-CN'] as const)('stages subagent limits and model choices with real keyboard input (%s)', async language => {
+    const { openSubagentSettings } = await import('./subagent-settings.ts')
+    const z = (await import('@deepseek-ai/schemastery')).default
+    const term = new ScrollingTerminal(100, 32), tui = new LocalTui(term, 'm', false), ctx = new Context(), mutate = vi.fn()
+    tui.applyStoredPrefs({ uiLanguage: language, colors: language === 'zh-CN' })
+    ctx.provide('tui', tui)
+    ctx.provide('settings', { writable: true, describe: () => [
+      { ns: 'subagent', schema: z.object({ maxDepth: z.number().min(0), maxActiveSubagents: z.number().min(1) }).toJSON(), value: { maxDepth: 1, maxActiveSubagents: 8 }, base: {}, user: {}, revision: 1 },
+      { ns: 'subagent-model-selection-settings', schema: z.object({ enabled: z.boolean(), allowedModels: z.array(z.object({ provider: z.string(), model: z.string() })) }).toJSON(), value: { enabled: false, allowedModels: [{ provider: 'offline', model: 'saved-model' }] }, base: {}, user: {}, revision: 1 },
+    ], mutate } as never)
+    ctx.provide('llm', { listProviders: () => [], listModels: async () => [] } as never)
+    try {
+      const task = openSubagentSettings(ctx, new AbortController().signal)
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? 'Delegation depth' : '委派深度')
+      press(term, '\r')
+      await flushAsyncPaste()
+      press(term, '\x153\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? '3 · Draft' : '3 · 草稿')
+      press(term, '\x1b[B\x1b[B\x1b[B\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('saved-model')
+      press(term, ' \r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain(language === 'en' ? '0 · Draft' : '0 · 草稿')
+      expect(mutate).not.toHaveBeenCalled()
+      press(term, '\x1b[27u')
+      await task
+      expect(mutate).not.toHaveBeenCalled()
+    } finally { tui.dispose(); await ctx.fiber.dispose() }
+  })
+
   it.each(['en', 'zh-CN'] as const)('edits Web settings through keyboard selectors without writing a cancelled draft (%s)', async language => {
     const { openWebSettings } = await import('./web-settings.ts')
     const z = (await import('@deepseek-ai/schemastery')).default

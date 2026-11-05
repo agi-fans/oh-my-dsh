@@ -360,49 +360,6 @@ describe('plugin configuration', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it('validates child-model prerequisites and does not retry a failed inline write', async () => {
-    const h = await harness([])
-    h.section.ns = 'subagent-model-selection-settings'
-    h.section.schema = z.object({ enabled: z.boolean(), allowedModels: z.array(z.string()) }).toJSON()
-    Object.assign(h.section.value, { enabled: false, allowedModels: [] })
-    try {
-      const entry = config.pluginSettingsEntries(h.ctx)[0]!
-      await expect(config.setSettingsEntry(h.ctx, entry, 'true', new AbortController().signal)).rejects.toThrow('at least one')
-      expect(h.mutate).not.toHaveBeenCalled()
-      Object.assign(h.section.value, { allowedModels: ['model'] })
-      h.mutate.mockRejectedValueOnce(new Error('Configuration changed'))
-      await expect(config.setSettingsEntry(h.ctx, entry, 'true', new AbortController().signal)).rejects.toThrow('Configuration changed')
-      expect(h.mutate).toHaveBeenCalledTimes(1)
-    } finally { await h.ctx.fiber.dispose() }
-  })
-
-  it('edits allowed models from the catalog, retains configured routes and writes only the owner field', async () => {
-    const h = await harness(['1', '0, 1', null])
-    h.section.ns = 'subagent-model-selection-settings'
-    h.section.schema = z.object({ enabled: z.boolean(), allowedModels: z.array(z.object({ provider: z.string(), model: z.string() })) }).toJSON()
-    const retained = { provider: 'offline-provider', model: 'custom-model' }
-    Object.assign(h.section.value, { enabled: false, allowedModels: [retained] })
-    h.ctx.provide('llm', { listProviders: () => [{ id: 'official' }], listModels: async () => [{ id: 'flash', name: 'Flash' }] } as never)
-    try {
-      await config.editSettingsEntry(h.ctx, 'subagent-model-selection-settings', new AbortController().signal)
-      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ multiSelect: true, allowEmptySelection: true, initialValues: ['1'], options: [{ value: '0' }, { value: '1', description: expect.stringContaining('outside the model catalog') }] })
-      expect(h.mutate).toHaveBeenCalledWith(h.section.ns, [{ op: 'set', path: ['allowedModels'], value: [{ provider: 'official', model: 'flash' }, retained] }], 7)
-      expect(h.prompt.mock.calls[1]![0].question).not.toContain('JSON')
-    } finally { await h.ctx.fiber.dispose() }
-  })
-
-  it.each([null, ''])('cancels without writing or explicitly clears the disabled allowlist (answer=%s)', async answer => {
-    const h = await harness(['1', answer, null])
-    h.section.ns = 'subagent-model-selection-settings'
-    h.section.schema = z.object({ enabled: z.boolean(), allowedModels: z.array(z.object({ provider: z.string(), model: z.string() })) }).toJSON()
-    Object.assign(h.section.value, { enabled: false, allowedModels: [{ provider: 'offline', model: 'custom' }] })
-    try {
-      await config.editSettingsEntry(h.ctx, h.section.ns, new AbortController().signal)
-      if (answer === null) expect(h.mutate).not.toHaveBeenCalled()
-      else expect(h.mutate).toHaveBeenCalledWith(h.section.ns, [{ op: 'set', path: ['allowedModels'], value: [] }], 7)
-    } finally { await h.ctx.fiber.dispose() }
-  })
-
   it('opens a native model directly without a field picker and leaves permissions intact', async () => {
     const h = await harness(['field:model', 'new-model', null])
     h.section.ns = 'subagent-codex'
