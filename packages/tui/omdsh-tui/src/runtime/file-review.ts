@@ -5,7 +5,7 @@ import { open, stat } from 'node:fs/promises'
 import { extname, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { StringDecoder } from 'node:string_decoder'
-import type { TuiDocumentPosition, TuiDocumentSource, TuiService } from '../definition.ts'
+import type { TuiDocumentPosition, TuiDocumentSource, TuiService, TuiReviewFile } from '../definition.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { documentModel } from '../views/document-reader.ts'
 import { openSystemFile } from './file-open.ts'
@@ -54,14 +54,39 @@ export async function gitOutput(cwd: string, args: readonly string[], signal: Ab
   return stdout
 }
 
+/** Git's NUL records retain literal whitespace and both sides of a rename. */
+export async function changedFiles(cwd: string, signal: AbortSignal): Promise<ReviewFile[]> {
+  const status = await gitOutput(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], signal)
+  const records = status.split('\0')
+  const files: ReviewFile[] = []
+  for (let at = 0; at < records.length; at++) {
+    const record = records[at]!
+    if (record.length < 4) continue
+    const xy = record.slice(0, 2), path = record.slice(3)
+    const previousPath = /[RC]/u.test(xy) ? records[++at] : undefined
+    const kind = xy === '??' ? '?' : xy.includes('U') || xy === 'AA' || xy === 'DD' ? 'U'
+      : xy.includes('R') ? 'R' : xy.includes('D') ? 'D' : xy.includes('A') ? 'A' : xy.includes('C') ? 'C' : 'M'
+    const scope = xy === '??' ? 'untracked' : xy[0] !== ' ' && xy[1] !== ' ' ? 'staged + working tree' : xy[0] !== ' ' ? 'staged' : 'working tree'
+    files.push({ path, label: path, status: kind, description: scope, ...(previousPath === undefined ? {} : { previousPath }) })
+  }
+  let numstat: string
+  try { numstat = await gitOutput(cwd, ['diff', 'HEAD', '--numstat', '-z'], signal) }
+  catch { numstat = await gitOutput(cwd, ['diff', '--cached', '--numstat', '-z'], signal) }
+  const stats = numstat.split('\0')
+  for (let at = 0; at < stats.length; at++) {
+    const record = stats[at]!, match = /^(\d+|-)\t(\d+|-)\t(.*)$/su.exec(record)
+    if (!match) continue
+    let path = match[3]!
+    if (path === '') { at++; path = stats[++at] ?? '' }
+    const file = files.find(file => file.path === path)
+    if (file !== undefined) file.description = (match[1] === '-' ? 'binary' : `+${match[1]} −${match[2]}`) + ` · ${file.description}`
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }))
+}
+
 /** Include staged, unstaged, deleted, and untracked paths without shell parsing. */
 export async function changedPaths(cwd: string, signal: AbortSignal): Promise<string[]> {
-  const results = await Promise.all([
-    gitOutput(cwd, ['diff', '--name-only', '-z'], signal),
-    gitOutput(cwd, ['diff', '--cached', '--name-only', '-z'], signal),
-    gitOutput(cwd, ['ls-files', '--others', '--exclude-standard', '-z'], signal),
-  ])
-  return [...new Set(results.flatMap(result => result.split('\0').filter(Boolean)))].sort()
+  return (await changedFiles(cwd, signal)).map(file => file.path)
 }
 
 export async function filePreview(path: string, signal: AbortSignal): Promise<string> {
@@ -101,12 +126,44 @@ export async function fileDocument(path: string, signal: AbortSignal, limit = PR
   } finally { await handle.close() }
 }
 
-export interface ReviewFile { path: string; label: string; description?: string; line?: number }
-export type FileReviewSurface = Pick<TuiService, 'prompt' | 'notice' | 'openFileInEditor' | 'insertText'>
+export type ReviewFile = TuiReviewFile
+export type FileReviewSurface = Pick<TuiService, 'prompt' | 'notice' | 'openFileInEditor' | 'insertText' | 'reviewFiles'>
 
 /** Keep file selection, document scrolling, and external opening in one loop. */
 export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: string, files: readonly ReviewFile[],
-  readDiff: (index: number) => Promise<string | TuiDocumentSource>, signal: AbortSignal, initial?: number, hasDiff = true): Promise<void> {
+  readDiff: (index: number, signal: AbortSignal) => Promise<string | TuiDocumentSource>, signal: AbortSignal, initial?: number, hasDiff = true): Promise<void> {
+  if (hasDiff && tui.reviewFiles !== undefined) {
+    await tui.reviewFiles({ title, files, signal, ...(initial === undefined ? {} : { initial }),
+      canEdit: tui.openFileInEditor !== undefined, canQuote: tui.insertText !== undefined,
+      read: async (index, mode, limit, readSignal) => {
+        if (mode === 'source') {
+          const content = await fileDocument(resolve(cwd, files[index]!.path), readSignal, limit)
+          return content.binary ? { message: content.text } : { source: content, truncated: content.truncated === true }
+        }
+        const content = await readDiff(index, readSignal)
+        readSignal.throwIfAborted()
+        if (typeof content === 'string') return { message: content }
+        // Empty comparisons must explain why; a current file is never an implicit historical fallback.
+        if (content.diff !== true) return { message: content.status ?? 'No comparison is available. Press V to view the current file.' }
+        return { source: content }
+      },
+      action: async (action, index, source, position) => {
+        const file = files[index]!
+        if (action === 'editor') tui.openFileInEditor?.(resolve(cwd, file.path))
+        else if (action === 'open') await openSystemFile(resolve(cwd, file.path))
+        else if (action === 'image') {
+          const image = await imageFile(resolve(cwd, file.path), signal)
+          if (image !== undefined) await tui.prompt({ title: file.label, question: 'Current file', documentImage: image,
+            presentation: 'document', options: [{ label: 'Back', value: 'back' }], allowCustom: false, notify: false, signal })
+        } else {
+          const ref = formatQuoteReference(cwd, file, source, position)
+          tui.insertText?.(ref)
+          tui.notice(`Quoted ${ref} in composer.`)
+        }
+      },
+    })
+    return
+  }
   let index = initial
   let selected: string | undefined
   const positions = new Map<string, TuiDocumentPosition>()
@@ -136,7 +193,7 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
       let image: PreviewImage | undefined
       try {
         if (preview && imageMediaType(file.path) !== undefined) image = previewImage ??= await imageFile(resolve(cwd, file.path), signal)
-        let content: string | FileDocument = image !== undefined ? { binary: true, text: '' } : preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index)
+        let content: string | FileDocument = image !== undefined ? { binary: true, text: '' } : preview ? loaded = await fileDocument(resolve(cwd, file.path), signal, limits.get(index)) : await readDiff(index, signal)
         if (typeof content !== 'string' && content.diff !== true && hasDiff && !preview && 'truncated' in content) {
           modes.set(index, 'source'); continue
         }

@@ -8,7 +8,7 @@ import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
-import { changedPaths, fileDocument, gitOutput, reviewFiles } from '../runtime/file-review.ts'
+import { changedFiles, fileDocument, gitOutput, reviewFiles } from '../runtime/file-review.ts'
 
 export const name = 'omdsh-command-diff'
 export const inject = ['commands']
@@ -133,15 +133,10 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
         }
         if (event === undefined || summary === undefined) return { kind: 'error', text: 'This turn has no retained file comparison. Use /diff to review the current workspace.' }
         await reviewFiles(tui, `Turn ${summary.turn} changes`, summary.cwd,
-          summary.files.map(file => ({ path: file.path, label: file.display, description: `+${file.added} −${file.deleted}` })), async index => {
-            const diff = await service?.diff(invocation.agent.id, event.seq, index, invocation.signal)
+          summary.files.map(file => ({ path: file.path, label: file.display, description: `+${file.added} −${file.deleted}` })), async (index, signal) => {
+            const diff = await service?.diff(invocation.agent.id, event.seq, index, signal)
             if (diff === undefined) {
-              const targetFile = summary.files[index]
-              if (targetFile !== undefined) {
-                try { return await fileDocument(resolve(summary.cwd, targetFile.path), invocation.signal) }
-                catch { /* fall through to retained comparison message */ }
-              }
-              return 'This comparison is no longer retained.'
+              return 'This turn comparison is no longer retained. Press V to view the current workspace file; it may differ from this turn.'
             }
             if (diff.kind !== 'text') return diff.kind === 'binary' ? 'Binary file; open the original to inspect it.' : 'File exceeds the turn comparison limit.'
             return { text: diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), diff: true,
@@ -154,14 +149,25 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
         const root = target === ''
           ? (await gitOutput(cwd, ['rev-parse', '--show-toplevel'], invocation.signal)).replace(/\r?\n$/u, '')
           : cwd
-        const paths = target === '' ? await changedPaths(root, invocation.signal) : [target]
+        const files = target === '' ? await changedFiles(root, invocation.signal) : [{ path: target, label: target }]
+        const paths = files.map(file => file.path)
         if (paths.length === 0) return { kind: 'success', text: 'No workspace changes.' }
-        await reviewFiles(tui, 'Current workspace changes', root, paths.map(path => ({ path, label: path })), async index => {
+        await reviewFiles(tui, 'Workspace changes · HEAD → working tree', root, files, async (index, signal) => {
           const path = paths[index] ?? ''
           let patch: string
-          try { patch = await gitOutput(root, ['diff', 'HEAD', '--', path], invocation.signal) }
-          catch { patch = (await gitOutput(root, ['diff', '--cached', '--', path], invocation.signal)) + (await gitOutput(root, ['diff', '--', path], invocation.signal)) }
-          return patch.trim() === '' ? await fileDocument(resolve(root, path), invocation.signal) : { text: patch, diff: true }
+          try { patch = await gitOutput(root, ['diff', 'HEAD', '--', path, ...(files[index]?.previousPath === undefined ? [] : [files[index]!.previousPath!])], signal) }
+          catch { patch = (await gitOutput(root, ['diff', '--cached', '--', path], signal)) + (await gitOutput(root, ['diff', '--', path], signal)) }
+          if (patch.trim() !== '') {
+            const hunk = patch.search(/^@@ /mu)
+            return { text: hunk < 0 ? patch : patch.slice(hunk), diff: true, status: 'HEAD → current workspace · staged and unstaged changes combined' }
+          }
+          const content = await fileDocument(resolve(root, path), signal)
+          const untracked = files[index]?.status === '?' || (target !== '' && (await gitOutput(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', path], signal)).length > 0)
+          if (!untracked) return { text: '', status: 'No net changes from HEAD. Press V to view the current file.' }
+          if (content.binary) return content.text
+          const lines = content.text.replace(/\n$/u, '').split('\n')
+          return { text: content.text === '' ? '' : `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => '+' + line).join('\n')}`, diff: true,
+            status: content.truncated ? 'New untracked file · comparison preview truncated; V opens the current file with Load more.' : 'New untracked file · all content added' }
         }, invocation.signal, target === '' ? undefined : 0)
       }
       return { kind: 'success' }

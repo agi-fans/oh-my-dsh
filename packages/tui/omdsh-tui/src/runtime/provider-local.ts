@@ -1,3 +1,5 @@
+import { FileBrowser } from './file-browser.ts'
+import type { TuiFileReview } from '../definition.ts'
 import { reasoningKey } from '../views/transcript-types.ts'
 /**
  * TUI capability seam — local terminal provider.
@@ -350,6 +352,7 @@ interface PluginSettingsBinding {
 
 /** One overlay surface displaced by an in-flight human prompt. */
 type DisplacedSurface =
+  | { kind: 'fileBrowser'; browser: FileBrowser }
   | { kind: 'trajectory'; state: TrajectoryState }
   | { kind: 'settings'; state: SettingsState }
   | { kind: 'search'; state: HistorySearchState }
@@ -478,6 +481,7 @@ export class LocalTui implements TuiService {
   #features: FeatureStates | undefined
   /** Profile patch the Tools feature controls write; absent hides those controls. */
   #featurePatch: string | undefined
+  #fileBrowser: FileBrowser | null = null
   #trajectory: TrajectoryState | null = null
   #trajectoryPress: { row: number; column: number; text: string; dragged: boolean } | undefined
   #pending: PendingRead | null = null
@@ -1060,7 +1064,7 @@ export class LocalTui implements TuiService {
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.needsApproval === inspected?.needsApproval && this.#inspected?.mode === inspected?.mode
       && this.#inspected?.writable === inspected?.writable) return
-    if (this.#inspected?.id !== inspected?.id) this.#fileReviewAbort?.abort()
+    if (this.#inspected?.id !== inspected?.id) { this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
     this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     this.#drainPendingInput()
@@ -1083,11 +1087,46 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
+  async reviewFiles(request: TuiFileReview): Promise<void> {
+    if (!this.#tty || this.#disposed || request.signal.aborted) return
+    this.#flushPasteBurst(true)
+    this.#pasteBurst.clear()
+    this.#finishPrompt(null)
+    this.#closeFileBrowser()
+    this.#selection.clear()
+    this.#trajectory = null
+    this.#settings = null
+    this.#search = null
+    this.#ac = null
+    const browser = new FileBrowser(request, () => { if (!this.#disposed) this.#render() }, () => {
+      if (this.#fileBrowser === browser) this.#fileBrowser = null
+      if (this.#promptDisplaced?.kind === 'fileBrowser' && this.#promptDisplaced.browser === browser) this.#promptDisplaced = null
+      this.#selection.clear()
+      this.#trajectoryPress = undefined
+      if (!this.#disposed) this.#render()
+    })
+    this.#fileBrowser = browser
+    browser.start()
+    await browser.done
+  }
+
+  #closeFileBrowser(): void {
+    this.#fileBrowser?.close()
+    if (this.#promptDisplaced?.kind === 'fileBrowser') this.#promptDisplaced.browser.close()
+  }
+
+  #applyFileBrowserInput(event: KeyEvent): void {
+    this.#fileBrowser?.input(event,
+      createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks),
+      this.#term.width(), this.#term.height())
+  }
+
   openTrajectory(events: readonly SessionEvent[]): boolean {
     if (!this.#tty) return false
     this.#finishPrompt(null)
     this.#selection.clear()
     this.#trajectoryPress = undefined
+    this.#closeFileBrowser()
     this.#trajectory = createTrajectory(events)
     this.#settings = null
     this.#search = null
@@ -1455,6 +1494,7 @@ export class LocalTui implements TuiService {
   ): void {
     if (reason !== 'refresh') {
       this.#fileReviewAbort?.abort()
+      this.#closeFileBrowser()
       this.#clearTransientStatus()
     }
     this.#trajectory = null
@@ -1480,7 +1520,7 @@ export class LocalTui implements TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
-    if (info.id !== this.#sessionId) this.#fileReviewAbort?.abort()
+    if (info.id !== this.#sessionId) { this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
     this.#switchDraft(this.#inspected?.id ?? info.id)
     this.#sessionId = info.id
     this.#drainPendingInput()
@@ -1884,6 +1924,7 @@ export class LocalTui implements TuiService {
     this.#disposed = true
     this.#imagePreviewAbort?.abort()
     this.#fileReviewAbort?.abort()
+    this.#closeFileBrowser()
     this.#asideAbort?.abort()
     for (const directory of this.#imageTemporary) { try { rmSync(directory, { recursive: true, force: true }) } catch { /* OS may still hold the opened file. */ } }
     this.#imageTemporary.clear()
@@ -2249,6 +2290,7 @@ export class LocalTui implements TuiService {
         ...(this.#subagentSelection === undefined ? {} : { subagentSelection: this.#subagentSelection }),
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
         ...(this.#trajectory === null ? {} : { trajectory: this.#trajectory }),
+        ...(this.#fileBrowser === null ? {} : { fileBrowser: this.#fileBrowser.state }),
         ...(this.#aside === undefined ? {} : { aside: this.#aside }),
         statusBar: this.#statusBar,
         ...(this.#prompt === null ? {} : { promptSelector: this.#prompt }),
@@ -2269,7 +2311,7 @@ export class LocalTui implements TuiService {
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
-    this.#setMouseTracking(this.#trajectory !== null || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
       && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
@@ -2437,7 +2479,7 @@ export class LocalTui implements TuiService {
   #routeInputBatch(events: readonly KeyEvent[]): void {
     if (this.#pasteProtection && !this.#paste && this.#pasteInFlight === 0
       && this.#prompt === null && this.#settings === null
-      && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
+      && this.#search === null && this.#trajectory === null && this.#fileBrowser === null && this.#transcriptSearch === null
       && events.every(event => event.type === 'text' || (event.type === 'key' && ['enter', 'ctrl+j', 'tab'].includes(event.id)))) {
       if (this.#pasteBurstTimer !== undefined) clearTimeout(this.#pasteBurstTimer)
       for (const event of this.#pasteBurst.pushBatch(events, Date.now())) this.#deliverPasteEmission(event)
@@ -2455,7 +2497,7 @@ export class LocalTui implements TuiService {
   #routeInput(event: KeyEvent): void {
     if (event.type === 'focus' || event.type === 'cell-size') { this.#dispatch(event); return }
     const composer = this.#prompt === null && this.#settings === null
-      && this.#search === null && this.#trajectory === null && this.#transcriptSearch === null
+      && this.#search === null && this.#trajectory === null && this.#fileBrowser === null && this.#transcriptSearch === null
     if (this.#paste || this.#pasteInFlight > 0 || !this.#pasteProtection || !composer
       || event.type === 'paste-start' || event.type === 'paste-end') {
       this.#flushPasteBurst(true)
@@ -2503,6 +2545,7 @@ export class LocalTui implements TuiService {
   }
 
   async #acceptPastedText(text: string): Promise<void> {
+    if (this.#fileBrowser !== null) { this.#applyFileBrowserInput({ type: 'text', value: text }); return }
     if (this.#prompt !== null) {
       const prompt = this.#prompt
       if (prompt.documentInput !== undefined) {
@@ -2660,7 +2703,7 @@ export class LocalTui implements TuiService {
 
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
-    if (this.#trajectory !== null) { this.#handleTrajectoryMouse(event); return }
+    if (this.#trajectory !== null || this.#fileBrowser !== null) { this.#handleTrajectoryMouse(event); return }
     const pressedAction = this.#mouseActionPress
     if (pressedAction !== undefined) {
       const target = this.#mouseActionAt(event.row, event.column)
@@ -2765,8 +2808,9 @@ export class LocalTui implements TuiService {
         if (this.#copyOnSelect) void this.#copySelection()
       } else if (press !== undefined && !press.dragged && !event.shift && press.row === event.row
         && Math.abs(press.column - event.column) <= 1
-        && stripAnsi(this.#renderer.viewport()[event.row] ?? '') === press.text && this.#trajectory !== null) {
-        this.#trajectory = trajectoryClick(this.#trajectory, this.#term.width(), this.#term.height(), event.row, event.column)
+        && stripAnsi(this.#renderer.viewport()[event.row] ?? '') === press.text) {
+        if (this.#fileBrowser !== null) this.#fileBrowser.click(event.row, event.column, this.#term.width(), this.#term.height())
+        else if (this.#trajectory !== null) this.#trajectory = trajectoryClick(this.#trajectory, this.#term.width(), this.#term.height(), event.row, event.column)
       }
     }
     this.#render()
@@ -2815,7 +2859,7 @@ export class LocalTui implements TuiService {
   }
 
   #canQuoteSelection(): boolean {
-    return this.#prompt === null && this.#settings === null && this.#trajectory === null && this.#search === null
+    return this.#prompt === null && this.#settings === null && this.#trajectory === null && this.#fileBrowser === null && this.#search === null
       && this.#transcriptSearch === null && (this.#inspected === undefined || this.#inspected.writable === true)
   }
 
@@ -2943,6 +2987,7 @@ export class LocalTui implements TuiService {
       }
     }
     if (event.type === 'wheel') {
+      if (this.#fileBrowser !== null) { this.#applyFileBrowserInput(event); return }
       if (this.#trajectory !== null) { this.#applyTrajectoryInput(event); return }
       this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
@@ -2974,7 +3019,7 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.type === 'paste-start') {
-      if (this.#prompt === null && this.#settings === null && this.#trajectory === null) this.#processSelection = undefined
+      if (this.#prompt === null && this.#settings === null && this.#trajectory === null && this.#fileBrowser === null) this.#processSelection = undefined
       this.#paste = true
       this.#pasteBuf = ''
       return
@@ -2989,6 +3034,7 @@ export class LocalTui implements TuiService {
       this.#inspectEscapeFenceUntil = 0
     }
     if (this.#handlePrompt(event)) return
+    if (this.#fileBrowser !== null) { this.#applyFileBrowserInput(event); return }
     if (this.#trajectory !== null) {
       this.#applyTrajectoryInput(event)
       return
@@ -4456,11 +4502,14 @@ export class LocalTui implements TuiService {
 
   /** Save and close the visible overlay so a prompt owns both input and screen. */
   #displaceSurface(): DisplacedSurface | null {
-    const displaced: DisplacedSurface | null = this.#trajectory !== null
+    const displaced: DisplacedSurface | null = this.#fileBrowser !== null
+      ? { kind: 'fileBrowser', browser: this.#fileBrowser }
+      : this.#trajectory !== null
       ? { kind: 'trajectory', state: this.#trajectory }
       : this.#settings !== null
         ? { kind: 'settings', state: this.#settings }
         : this.#search !== null ? { kind: 'search', state: this.#search } : null
+    this.#fileBrowser = null
     this.#trajectory = null
     this.#settings = null
     this.#search = null
@@ -4472,7 +4521,8 @@ export class LocalTui implements TuiService {
     const displaced = this.#promptDisplaced
     this.#promptDisplaced = null
     if (displaced === null) return
-    if (displaced.kind === 'trajectory') this.#trajectory = displaced.state
+    if (displaced.kind === 'fileBrowser') this.#fileBrowser = displaced.browser
+    else if (displaced.kind === 'trajectory') this.#trajectory = displaced.state
     else if (displaced.kind === 'settings') {
       this.#settings = displaced.state
       this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])

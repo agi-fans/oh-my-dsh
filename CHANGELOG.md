@@ -51,6 +51,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Diff review keeps file navigation beside the comparison on wide terminals, with change status, line deltas, filtering, remembered reading positions, clickable file rows and independent wheel scrolling. Narrow terminals retain a single-pane reader, text remains selectable, and secondary actions are grouped in a keyboard-accessible menu. Missing turn comparisons are explicit instead of falling back to current content; untracked files show additions.
+
 - Trajectory uses readable summaries, folded context and nested calls, a wider detail pane, and Overview/Input/Result/Raw sections. Click and wheel navigation preserve text selection; keyboard focus, full-screen details, copying, problem filtering and slow-call navigation make long runs easier to inspect. Timing bars explicitly show accumulated durations without counting enclosed PTC calls twice.
 
 - Refined dark and light palettes based on Catppuccin Mocha and Latte, with blue interaction accents, readable comments and thinking text, and neutral tool details. Theme choices remain dark, light and system.

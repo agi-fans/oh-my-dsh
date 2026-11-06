@@ -1,3 +1,4 @@
+import { renderFileBrowser, type FileBrowserState } from './file-browser.ts'
 /**
  * Transcript rendering: Block -> lines. Every function here is pure; the two
  * WeakMap caches key formatted rows on the immutable block objects the fold
@@ -144,6 +145,7 @@ export interface ViewOptions {
   settings?: SettingsState
   /** `/trajectory` full-screen event ledger. */
   trajectory?: TrajectoryState
+  fileBrowser?: FileBrowserState
   /** Terminal-owned graphics capability and measured cell geometry. */
   imageProtocol?: import('../chrome/terminal-images.ts').ImageProtocol
   imageCellSize?: { width: number; height: number }
@@ -2465,6 +2467,10 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const pwd = options.pwd ?? ''
   const motion = options.motion ?? 'full'
   const spinnerFrame = motion === 'off' ? -1 : options.spinnerFrame ?? 0
+  if (options.fileBrowser !== undefined) {
+    const browser = renderFileBrowser(options.fileBrowser, theme, width, height)
+    return { ...browser, lines: fitFrame(browser.lines, width), documentRows: null }
+  }
   if (options.trajectory !== undefined) {
     const trajectory = renderTrajectory(options.trajectory, theme, width, height)
     return {

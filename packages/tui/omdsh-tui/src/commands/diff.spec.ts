@@ -165,3 +165,26 @@ describe('interactive workspace comparison from a subdirectory', () => {
     }
   })
 })
+
+
+it('does not substitute a current file for a missing historical comparison', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'omdsh-missing-diff-'))
+  const ctx = new Context()
+  try {
+    await writeFile(join(root, 'current.txt'), 'This content belongs to a later turn')
+    await ctx.plugin(SessionStore); await ctx.plugin(CommandRuntime)
+    const session = ctx.sessions.create(SessionId('missing-diff'))
+    session.append('workspace/changes', { turn: 1, cwd: root, files: [] } as never)
+    ctx.provide('workspaceChanges', { summary: () => ({ turn: 1, cwd: root, files: [{ path: 'current.txt', display: 'current.txt', added: 1, deleted: 0 }] }), diff: async () => undefined } as never)
+    let comparison: unknown, source: unknown
+    ctx.provide('tui', { interactive: true, notice: () => {}, prompt: vi.fn(),
+      reviewFiles: async (request: import('../definition.ts').TuiFileReview) => {
+        comparison = await request.read(0, 'diff', 131072, request.signal)
+        source = await request.read(0, 'source', 131072, request.signal)
+      } } as never)
+    await ctx.plugin(commandDiff)
+    await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/diff turn 1', [], new AbortController().signal)
+    expect(comparison).toEqual({ message: expect.stringContaining('no longer retained') })
+    expect(source).toMatchObject({ source: { text: 'This content belongs to a later turn' } })
+  } finally { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
+})

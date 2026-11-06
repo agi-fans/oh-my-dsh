@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TuiService } from '../definition.ts'
-import { changedPaths, codeDocument, fileDocument, filePreview, formatQuoteReference, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
+import { changedFiles, changedPaths, codeDocument, fileDocument, filePreview, formatQuoteReference, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
@@ -235,4 +235,24 @@ it('opens separate matches in the same file and loads enough source to reach a l
   expect(prompt.mock.calls[1]?.[0].documentPosition?.row).toBe(14999)
   expect(prompt.mock.calls[1]?.[0].documentSource!.text.split('\n').length).toBeGreaterThan(15000)
   expect(prompt.mock.calls[2]?.[0].documentPosition?.row).toBe(50)
+})
+
+
+it('retains rename destinations, binary deltas, deleted files and stage/worktree provenance', async () => {
+  const root = await directory()
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root })
+  git('init', '--quiet')
+  await writeFile(join(root, 'old 中文.txt'), 'one\ntwo\nthree\n')
+  await writeFile(join(root, 'deleted.txt'), 'gone\n')
+  await writeFile(join(root, 'binary.dat'), Buffer.from([0, 1]))
+  git('add', '.')
+  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture')
+  git('mv', 'old 中文.txt', 'new 中文.txt')
+  await writeFile(join(root, 'new 中文.txt'), 'one\ntwo\nthree\nfour\n')
+  await rm(join(root, 'deleted.txt'))
+  await writeFile(join(root, 'binary.dat'), Buffer.from([0, 2]))
+  const files = await changedFiles(root, signal())
+  expect(files).toContainEqual(expect.objectContaining({ path: 'new 中文.txt', previousPath: 'old 中文.txt', status: 'R', description: '+1 −0 · staged + working tree' }))
+  expect(files).toContainEqual(expect.objectContaining({ path: 'deleted.txt', status: 'D', description: '+0 −1 · working tree' }))
+  expect(files).toContainEqual(expect.objectContaining({ path: 'binary.dat', description: 'binary · working tree' }))
 })

@@ -31,7 +31,7 @@ Matching scans the full ledger, so collapsed turns and hidden subtool calls stil
 
 ## Workspace diff: `/diff`
 
-`/diff` summarizes the workspace changes as a per-file table with added and removed line counts and lists untracked files; `/diff <path>` prints one file's patch. It only reads git state and never stages or commits.
+`/diff` opens a file browser for current Git changes against HEAD, including staged, unstaged and untracked files. `/diff <path>` opens one file, and `/diff turn [number]` reads a retained turn comparison. Missing historical comparisons are marked unavailable; `V` explicitly switches to current content. Plain mode retains the text summary and patch output. These commands only read Git state and never stage or commit.
 
 ## Per-turn changed files
 

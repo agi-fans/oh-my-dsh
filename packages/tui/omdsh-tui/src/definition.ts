@@ -474,6 +474,31 @@ export interface TuiPendingInputs {
   reconcile?(sessionId: string, accepted: ReadonlySet<string>): void
 }
 
+export interface TuiReviewFile {
+  path: string
+  label: string
+  description?: string
+  status?: string
+  previousPath?: string
+  line?: number
+}
+
+/** A comparison browser reads on demand; the caller owns comparison provenance and host actions. */
+export interface TuiFileReview {
+  title: string
+  files: readonly TuiReviewFile[]
+  initial?: number
+  signal: AbortSignal
+  read(index: number, mode: 'diff' | 'source', limit: number, signal: AbortSignal): Promise<{
+    source?: TuiDocumentSource
+    message?: string
+    truncated?: boolean
+  }>
+  action(action: 'open' | 'editor' | 'quote' | 'image', index: number, source: TuiDocumentSource | undefined, position: TuiDocumentPosition): void | Promise<void>
+  canEdit: boolean
+  canQuote: boolean
+}
+
 /**
  * Terminal presentation service.
  * Implementations must be single-consumer: one runner owns readInput().
@@ -531,6 +556,8 @@ export interface TuiService {
   setCommands(commands: readonly TuiCommand[]): void
   /** Open a keyboard-driven event ledger for the active session. */
   openTrajectory(events: readonly SessionEvent[]): boolean
+  /** Browse comparisons with persistent file navigation and independent reading positions. */
+  reviewFiles?(request: TuiFileReview): Promise<void>
   /**
    * One-line plain-text summary of a tool call this interface already rendered,
    * for surfaces that must explain a pending decision. Undefined when the call

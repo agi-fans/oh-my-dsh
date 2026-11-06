@@ -6711,3 +6711,59 @@ describe('Trajectory pointer ownership', () => {
     } finally { tui.dispose() }
   })
 })
+
+it('keeps file review clicks, text selection, modal displacement and composer restoration under terminal ownership', async () => {
+  const term = new FakeTerminal(); term.columns = 120
+  const copy = vi.fn(async () => {})
+  const tui = new LocalTui(term, 'test', false, 'dark', copy)
+  const abort = new AbortController()
+  const reads = vi.fn(async (index: number) => ({ source: { text: `file ${index}\n` + 'content\n'.repeat(60), diff: false } }))
+  const input = tui.readInput()
+  try {
+    press(term, 'draft')
+    const review = tui.reviewFiles({ title: 'Review fixture', files: [{ path: 'a.ts', label: 'a.ts' }, { path: 'b.ts', label: 'b.ts' }],
+      signal: abort.signal, read: reads, action: vi.fn(), canEdit: true, canQuote: true })
+    await flushAsyncPaste()
+    expect(term.captured).toContain('Review fixture')
+    expect(term.captured).toContain('\x1b[?1000h')
+    // A click on the second full-width file row selects it; a drag never selects another file.
+    press(term, '\x1b[<0;10;6M\x1b[<0;10;6m'); await flushAsyncPaste()
+    expect(reads.mock.calls.at(-1)?.[0]).toBe(1)
+    press(term, '\x1b[<0;3;5M\x1b[<32;12;5M\x1b[<0;12;5m'); await flushAsyncPaste()
+    expect(reads.mock.calls.at(-1)?.[0]).toBe(1)
+    press(term, '\x1b[27u') // clear the drag selection
+    const prompt = tui.prompt({ title: 'Approval', question: 'Continue?', options: [{ label: 'Yes', value: 'yes' }], notify: false })
+    press(term, '\r'); expect(await prompt).toBe('yes')
+    await flushAsyncPaste()
+    const mark = term.captured.length
+    press(term, '\t\x1b[B')
+    expect(term.captured.slice(mark)).toContain('content')
+    press(term, '\x1b[27u'); await review
+    press(term, '\r')
+    expect(await input).toEqual({ text: 'draft', images: [] })
+  } finally { abort.abort(); await tui.dispose() }
+})
+
+it('copies file-review text without switching files or disturbing native history', async () => {
+  const term = new ScrollingTerminal(120, 24)
+  const copy = vi.fn(async (_text: string) => {})
+  const tui = new LocalTui(term, 'm', true, 'dark', copy)
+  try {
+    tui.applyStoredPrefs({ mouseInteraction: 'tui', copyOnSelect: false })
+    const before = term.visible(), history = term.scrollback()
+    const review = tui.reviewFiles({ title: 'Diff selection fixture', files: [{ path: 'a.ts', label: 'a.ts' }],
+      signal: new AbortController().signal, read: async () => ({ source: { text: 'selectable-content\nsecond-line' } }), action: vi.fn(), canEdit: false, canQuote: false })
+    await flushAsyncPaste()
+    const row = term.visible().findIndex(line => line.includes('selectable-content'))
+    const column = term.visible()[row]!.indexOf('selectable-content')
+    press(term, `\x1b[<0;${column + 1};${row + 1}M\x1b[<32;${column + 18};${row + 1}M\x1b[<0;${column + 18};${row + 1}m`)
+    expect(copy).not.toHaveBeenCalled()
+    press(term, '\r'); await flushAsyncPaste()
+    expect(copy).toHaveBeenCalledWith('selectable-content')
+    press(term, '\x1b[27u')
+    expect(term.visible().join('\n')).toContain('selectable-content')
+    press(term, '\x1b[27u'); await review
+    expect(term.visible()).toEqual(before)
+    expect(term.scrollback()).toEqual(history)
+  } finally { await tui.dispose() }
+})
