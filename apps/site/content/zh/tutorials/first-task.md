@@ -42,7 +42,7 @@ Access 控制工具权限，需要提升权限的操作仍会进入审批流程�
 
 <video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
 
-这段录屏展示了 v0.22.0 的一轮真实 DeepSeek 账户对话，录制后启动页头进行了简化。可以看到回复逐步出现，完成后的过程收起为 `Worked for …` 摘要。
+这段约 26 秒的真实终端录像展示了 Agent 读取仓库 README 并回复。完成后的过程收起为 `Worked for …` 摘要，随后再次展开，回顾思考与工具行。输入区与状态栏全程可见。
 
 | 界面部分 | 如何使用 |
 |---|---|

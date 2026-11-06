@@ -12,9 +12,11 @@ oh-my-dsh 致力于成为 [DeepSeek Harness](https://github.com/deepseek-ai/deep
 
 </div>
 
-[![omdsh 终端演示 — 一轮真实的 DeepSeek 账户回合](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
+[![omdsh 在 Kaku 中读取 README、回复并折叠已完成的过程](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
 
-这段真实的 Kaku 录屏展示了一轮 DeepSeek 账户对话，回复落地后，过程收起为 `Worked for 2s · Ctrl+O to expand`，底部显示上下文、缓存与延迟。录制时使用 v0.22.0，启动页头随后进行了简化。点击可查看全分辨率录像。
+这段约 26 秒的真实终端录像展示了 omdsh 读取仓库 README 并回复，完成后将过程收起为 `Worked for 7s · Ctrl+O to expand`，再展开思考与工具行回顾执行过程。输入区与状态栏固定在底部，展示上下文占用、缓存命中率、首字延迟和输出速度。点击预览可查看全分辨率视频。
+
+<!-- 用户于 2026-11-06 提供的实录素材 iShot_2026-11-06_19.46.27.mp4。画面显示 v0.22.0、deepseek-flash 和 high 推理强度。保留原始 MP4，1810 × 1276、30 fps、26.3 秒。GIF 与封面均从该录屏生成。 -->
 
 ## 快速开始
 

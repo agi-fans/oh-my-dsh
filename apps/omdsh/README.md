@@ -14,9 +14,11 @@ oh-my-dsh aims to be the best TUI companion for [DeepSeek Harness](https://githu
 
 </div>
 
-[![omdsh terminal demo — one real DeepSeek account turn](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/omdsh-demo.gif)](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/public/omdsh-demo.mp4)
+[![omdsh in Kaku — reading the README, replying, and folding completed work](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/omdsh-demo.gif)](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/public/omdsh-demo.mp4)
 
-A real Kaku recording of one DeepSeek account turn shows the reply, the process folding to `Worked for 2s · Ctrl+O to expand`, and context, cache, and latency in the footer. It was captured on v0.22.0 before the startup header was simplified. Click it for the full-resolution recording.
+A 26-second terminal recording shows omdsh reading the repository README and replying, folding the completed process into `Worked for 7s · Ctrl+O to expand`, then reopening the thinking and tool rows for review. The composer and footer stay at the bottom, showing context usage, cache hits, first-token latency, and token throughput. Click the preview for the full-resolution video.
+
+<!-- User-recorded demo from iShot_2026-11-06_19.46.27.mp4, supplied on 2026-11-06. The video shows v0.22.0, deepseek-flash, and high reasoning. Original MP4 preserved at 1810 × 1276, 30 fps, 26.3 seconds. GIF and poster are derived from that recording. -->
 
 ## Quick start
 
