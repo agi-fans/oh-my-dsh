@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Added
 
+- Model selection shows ready providers while slower catalogs load, keeps the picker responsive during refresh, and discards results after closing or starting a newer refresh.
+
+- Session Library loads additional content-search matches and preserves the list after a failed resume or cancelled migration.
+
+- Plugin discovery supports loading more results, per-source retries and cancellable loading feedback. Successful sources and previously loaded results remain available when another source fails.
+
 - Selected tools offer a clickable action menu; selected text offers Copy and Quote buttons. Read tool actions copy or quote retained source ranges without display line numbers or wrapping.
 
 - Keybindings includes Test keys to inspect terminal input without running shortcuts or editing drafts. Standard F1–F12 terminal sequences and modifiers are recognized.
@@ -50,6 +56,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `/agent creator` and the Plugins menu open Creator to author Harness plugins, preserving session drafts without sending a prompt or changing the default Agent preset.
 
 ### Changed
+
+- Long-session recovery avoids repeated history scans. Markdown previews reuse their layout while scrolling, unwrapped source readers format only visible rows when panning, and streaming replies reuse unchanged Markdown blocks and padded lines.
+
+- Slash completion and Help share localized command search, including common Chinese task keywords. Settings show scope and save behavior in a fixed location, with pending-change counts in staged forms.
 
 - Plugin configuration and bundle pages return through their parent lists with filters and selection preserved. Discover retains search results through cancellation, incompatibility and retry, and plugin operation results stay beside their controls with full logs available on demand. Agent composition opens in a searchable, copyable reader.
 
@@ -126,6 +136,18 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Shell output sharing confirms accepted delivery, preserves captured output after failure and retries delivery without rerunning the command. Failed and unknown commands restore their input for correction.
+
+- Multi-select questions preserve supplementary text and punctuation in option labels, and restore both choices and text when navigating between questions.
+
+- Model provider and Web settings can load current configuration while retaining drafts and resolving field conflicts before saving.
+
+- Model selection keeps the live status accurate when saving the default fails and offers a retry. Model browsing retains healthy providers and supports refreshing failed catalogs.
+
+- Settings drafts can load concurrent changes and resolve conflicting fields without re-entering edits. DeepSeek API-key sign-in can retry validation or storage in place.
+
+- Custom provider setup retains non-secret drafts when stepping back and retries invalid fields in place. Approval rules return through Access with inline revocation feedback, and export actions remain available after copying, opening or an action failure.
 
 - Browsing approval rules or cancelling Full access confirmation preserves the persistent composer Shell. Shell cleanup happens after confirming an Access change.
 

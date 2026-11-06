@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { renderInline, renderMarkdown } from './markdown.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { renderInline, renderMarkdown, renderStreamingMarkdown } from './markdown.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
 import { oracleWidth } from './width.oracle.ts'
@@ -29,6 +29,61 @@ describe('renderInline', () => {
 })
 
 describe('renderMarkdown', () => {
+  it.each([false, true])('matches a fresh document render at every streaming prefix (color=%s)', colors => {
+    const theme = createTheme(colors, 'truecolor')
+    const sources = [
+      '# Intro\n\n[reference][id]\n\n- [item][id]\n\n[id]: https://example.com/late\n',
+      'Intro\n\nHeading\n---\n\n| Name | Value |\n| --- | --- |\n| 中文 | 👩‍💻e\u0301 |\n',
+      '```ts\n/* comment\ncontinued */\nconst value = "🐳"\n```\n\nTail',
+      '> Quote\n>\n> 1. item\n>    - child\n\n- [ ] task\n\n  continuation\n\n---\n',
+      'Formula $x^2$ and \\(y_1\\).\n\n$$\n\\frac{a}{b}\n$$\n\nTail',
+      '<details>\n<summary>Summary</summary>\n\n**bold** and <br> text\n</details>',
+    ]
+    for (const width of [18, 60]) for (const source of sources) {
+      for (let end = 1; end <= source.length; end++) {
+        const prefix = source.slice(0, end)
+        expect(renderStreamingMarkdown(prefix, theme, width)).toEqual(renderMarkdown(prefix, theme, width))
+      }
+      const style = { color: 'thinkingText' as const, italic: true, mathMode: 'source' as const }
+      expect(renderStreamingMarkdown(source, theme, width, style)).toEqual(renderMarkdown(source, theme, width, style))
+    }
+  })
+
+  it('reuses stable blocks but resolves later reference definitions in earlier content', () => {
+    const fg = vi.fn(color.fg)
+    const tracked = { ...color, key: `${color.key}:stream-test`, fg }
+    const prefix = '# Cached heading\n\n[reference][late]\n\n- [item][late]\n\n'
+    const initial = renderStreamingMarkdown(prefix, tracked, 80)
+    expect(initial.map(stripAnsi).join('\n')).toContain('[reference][late]')
+    fg.mockClear()
+    const final = renderStreamingMarkdown(prefix + '[late]: https://example.com/updated\n\nTail', tracked, 80)
+    expect(fg.mock.calls.some(([ink]) => ink === 'mdHeading')).toBe(false)
+    expect(final.map(stripAnsi).join('\n')).toContain('reference (https://example.com/updated)')
+    expect(final.map(stripAnsi).join('\n')).toContain('item (https://example.com/updated)')
+    expect(initial.map(stripAnsi).join('\n')).toContain('[reference][late]')
+    final[0] = 'caller mutation'
+    expect(renderStreamingMarkdown(prefix + '[late]: https://example.com/updated\n\nTail', tracked, 80)[0]).not.toBe('caller mutation')
+  })
+
+  it.each([false, true])('invalidates changing Markdown blocks and presentation (color=%s)', colors => {
+    const dark = createTheme(colors, 'truecolor', 'dark')
+    const source = 'Stable\n\nHeading'
+    renderStreamingMarkdown(source, dark, 50)
+    expect(renderStreamingMarkdown(source + '\n---\n', dark, 50).map(stripAnsi).join('\n')).toContain('## Heading')
+    renderStreamingMarkdown('intro\n\n| First | Second |', dark, 50)
+    const table = renderStreamingMarkdown('intro\n\n| First | Second |\n| --- | --- |\n| 中文 | 🐳 |', dark, 50)
+    expect(table.map(stripAnsi).join('\n')).toContain('│')
+    renderStreamingMarkdown('```ts\n/* comment', dark, 50)
+    expect(renderStreamingMarkdown('```ts\n/* comment */\nconst value = 1\n```\n\nDone', dark, 50).map(stripAnsi).join('\n')).toContain('Done')
+    const text = 'Paragraph **bold** 中文👩‍💻 and $x^2$ '.repeat(8)
+    const wide = renderStreamingMarkdown(text, dark, 80)
+    const narrow = renderStreamingMarkdown(text, dark, 20)
+    expect(narrow.length).toBeGreaterThan(wide.length)
+    expect(narrow.every(row => oracleWidth(row) <= 20)).toBe(true)
+    expect(renderStreamingMarkdown(text, dark, 80, { mathMode: 'source' }).map(stripAnsi).join('\n')).toContain('$x^2$')
+    if (colors) expect(renderStreamingMarkdown(text, createTheme(true, 'truecolor', 'light'), 80)).not.toEqual(wide)
+  })
+
   it('preserves HTML, entities and literal emphasis in code', () => {
     expect(plain('```html\n<div>Hello &amp; goodbye</div>\n```')).toContain('<div>Hello &amp; goodbye</div>')
     expect(plain('`<span>label &lt; x</span>`')).toBe('<span>label &lt; x</span>')

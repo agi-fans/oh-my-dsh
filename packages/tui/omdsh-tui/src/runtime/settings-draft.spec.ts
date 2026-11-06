@@ -94,7 +94,8 @@ describe('staged Shell and tool parallelism settings', () => {
 
   it('retains the draft on a save error and retries with the original revision', async () => {
     const h = harness(['timeoutMs', '20s', '@apply', request => {
-      expect(request.detail).toBe('disk full')
+      expect(request.detail).toContain('disk full')
+      expect(request.detail).toContain('1 pending change')
       expect(request.options?.find(row => row.value === 'timeoutMs')?.description).toContain('20s · Draft')
       return '@apply'
     }])
@@ -109,6 +110,58 @@ describe('staged Shell and tool parallelism settings', () => {
     const h = harness(['timeoutMs', '20s', () => { h.section.revision++; return '@apply' }, request => {
       expect(request.detail).toContain('Configuration changed'); return '@cancel'
     }])
+    try { await h.run(); expect(h.mutate).not.toHaveBeenCalled() }
+    finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('reloads unrelated external edits while preserving the staged change', async () => {
+    const h = harness(['timeoutMs', '20s', () => {
+      h.section.revision++
+      h.section.value = { ...h.section.value, graceMs: 4000 }
+      h.section.user = { ...h.section.user, graceMs: 4000 }
+      return '@apply'
+    }, '@reload', request => {
+      expect(request.options?.find(row => row.value === 'timeoutMs')?.description).toContain('20s · Draft')
+      expect(request.options?.find(row => row.value === 'graceMs')?.description).toContain('4s')
+      return '@apply'
+    }])
+    try {
+      await h.run()
+      expect(h.mutate).toHaveBeenCalledWith('bash', [{ op: 'set', path: ['timeoutMs'], value: 20000 }], 8)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it.each(['mine', 'latest'])('resolves a field changed on both sides with %s', async choice => {
+    const h = harness(['timeoutMs', '20s', () => {
+      h.section.revision++
+      h.section.value = { ...h.section.value, timeoutMs: 40000 }
+      h.section.user = { ...h.section.user, timeoutMs: 40000 }
+      return '@apply'
+    }, '@reload', request => {
+      expect(request.title).toBe('Setting changed elsewhere')
+      expect(request.options?.map(row => row.description)).toEqual(['20s', '40s'])
+      return choice
+    }, request => {
+      const value = request.options?.find(row => row.value === 'timeoutMs')?.description
+      expect(value).toContain(choice === 'mine' ? '20s · Draft' : '40s · Profile override')
+      return choice === 'mine' ? '@apply' : '@cancel'
+    }])
+    try {
+      await h.run()
+      expect(h.mutate).toHaveBeenCalledTimes(choice === 'mine' ? 1 : 0)
+      if (choice === 'mine') expect(h.mutate.mock.calls[0]?.[2]).toBe(8)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps the original draft if conflict resolution is cancelled and detects another edit before saving', async () => {
+    const h = harness(['timeoutMs', '20s', () => {
+      h.section.revision++
+      h.section.value = { ...h.section.value, timeoutMs: 40000 }
+      return '@apply'
+    }, '@reload', null, request => {
+      expect(request.options?.find(row => row.value === 'timeoutMs')?.description).toContain('20s · Draft')
+      return '@reload'
+    }, 'mine', () => { h.section.revision++; return '@apply' }, '@cancel'])
     try { await h.run(); expect(h.mutate).not.toHaveBeenCalled() }
     finally { await h.ctx.fiber.dispose() }
   })

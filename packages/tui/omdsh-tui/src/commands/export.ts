@@ -36,26 +36,32 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
   const tui = ctx.get('tui')
   const prompt = (request: TuiPrompt) => tui!.prompt({ ...request, signal, onSuperseded: () => abort.abort() })
   const interactive = input === '' && tui?.interactive === true
-  if (interactive) {
-    const answer = await prompt(choosePrompt({ localize: true, title: 'Export', question: 'Choose a format', signal,
-      options: [
-        { label: 'Markdown', value: 'markdown', description: 'Conversation as editable text' },
-        { label: 'HTML', value: 'html', description: 'Conversation for viewing in a browser' },
-        { label: 'Session archive', value: 'archive', description: 'Session logs, descendants and original attachments' },
-      ] }))
-    if (answer === null || signal.aborted) return { kind: 'success' }
-    format = answer as ExportFormat
-  }
-  const fallback = format === 'archive' ? `omdsh-session-${invocation.agent.id}.zip`
-    : `omdsh-transcript-${invocation.agent.id}.${format === 'html' ? 'html' : 'md'}`
+  let chooseFormat = interactive
   const t = (text: string) => uiText(resolveUiLanguage(tui?.prefs?.().uiLanguage), text)
   let diagnostic = '', path = ''
   let contents: string | Uint8Array | undefined
   while (!signal.aborted) {
-    if (interactive) {
-      const answer = await prompt(askPrompt({ localize: ['title', 'question'], title: 'Export', question: 'Save to file',
-        initialInput: pathInput || fallback, ...(diagnostic === '' ? {} : { detail: diagnostic }), signal }))
+    if (chooseFormat) {
+      const answer = await prompt(choosePrompt({ localize: true, title: 'Export', question: 'Choose a format', initialValue: format, signal,
+        options: [
+          { label: 'Markdown', value: 'markdown', description: 'Conversation as editable text' },
+          { label: 'HTML', value: 'html', description: 'Conversation for viewing in a browser' },
+          { label: 'Session archive', value: 'archive', description: 'Session logs, descendants and original attachments' },
+        ] }))
       if (answer === null || signal.aborted) return { kind: 'success' }
+      format = answer as ExportFormat
+      contents = undefined
+      chooseFormat = false
+    }
+
+    const fallback = format === 'archive' ? `omdsh-session-${invocation.agent.id}.zip`
+      : `omdsh-transcript-${invocation.agent.id}.${format === 'html' ? 'html' : 'md'}`
+
+    if (interactive) {
+      const answer = await prompt({ ...askPrompt({ localize: ['title', 'question'], title: 'Export', question: 'Save to file',
+        initialInput: pathInput || fallback, onCancelDraft: value => { pathInput = value }, ...(diagnostic === '' ? {} : { detail: diagnostic }), signal }), dismissLabel: 'Back' })
+      if (signal.aborted) return { kind: 'success' }
+      if (answer === null) { chooseFormat = true; diagnostic = ''; continue }
       pathInput = answer.trim()
     }
     const unquoted = pathInput.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
@@ -89,15 +95,22 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
     }
   }
   if (signal.aborted) return { kind: 'success' }
-  if (interactive && !signal.aborted) {
-    const action = await prompt(choosePrompt({ localize: ['title', 'question', 'options'], title: 'Export complete', question: path, signal,
+  let feedback = ''
+  while (interactive && !signal.aborted) {
+    const action = await prompt(choosePrompt({ localize: ['title', 'question', 'options'], title: 'Export complete', question: path, detail: feedback, signal,
       options: [{ label: 'Done', value: 'done' }, { label: 'Open file', value: 'open' },
         ...(tui.copyText === undefined ? [] : [{ label: 'Copy path', value: 'copy' }])] }))
-    if (!signal.aborted) {
-      try {
-        if (action === 'open') await openSystemFile(path)
-        else if (action === 'copy') await tui.copyText?.(path, 'Export path')
-      } catch (error) { tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
+    if (signal.aborted || action === null || action === 'done') break
+    try {
+      if (action === 'open') {
+        await openSystemFile(path)
+        feedback = t('File opened.')
+      } else if (action === 'copy') {
+        await tui.copyText?.(path, 'Export path')
+        feedback = t('Path copied.')
+      }
+    } catch (error) {
+      feedback = `${t('Could not complete the action. Try again or copy the path.')}\n${error instanceof Error ? error.message : String(error)}`
     }
   }
   return { kind: 'success', text: format === 'archive' ? `Archived session logs, descendants, and attachments to ${path}` : `Exported complete transcript to ${path}` }

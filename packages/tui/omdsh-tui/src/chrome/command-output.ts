@@ -98,7 +98,7 @@ const SHELL_PREVIEW_ROWS = 12
  * exit gesture, no reader to leave. A failing command keeps its output and adds
  * the exit code, because that code is the reason the reader needs to look.
  */
-export function renderShell(block: { command: string; output: string; status: 'running' | 'ok' | 'error'; code?: number; shared?: boolean }, theme: Theme, width: number): string[] {
+export function renderShell(block: { command: string; output: string; status: 'running' | 'ok' | 'error'; code?: number }, theme: Theme, width: number): string[] {
   const inset = width > 4 ? 2 : 0
   const room = Math.max(1, width - inset * 2)
   const rows = block.output.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replace(/\s+$/u, '')
@@ -128,7 +128,6 @@ export function renderShell(block: { command: string; output: string; status: 'r
     }
   }
   if (block.status === 'error' && block.code !== undefined) body.push(theme.fg('error', `exit ${block.code}`))
-  if (block.shared === true) body.push(theme.fg('dim', 'shared to conversation'))
   // The fill is the state: pending while it writes, success when it settles, and
   // the failure surface when it exits non-zero — the same three surfaces a tool
   // card uses, so a reader reads one vocabulary for both.

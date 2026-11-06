@@ -246,3 +246,33 @@ describe('Shell card projection', () => {
     } finally { h.operation.cancel(); await h.ctx.fiber.dispose() }
   })
 })
+
+
+it.each(['retry', 'keep', null])('recovers failed output delivery without repeating the command (%s)', async choice => {
+  const h = harness()
+  const inject = vi.fn().mockImplementationOnce(() => { throw new Error('session busy') })
+  Object.assign(h.owner, { inject })
+  h.prompt.mockResolvedValueOnce(choice)
+  try {
+    await runComposerShell(h.ctx, h.owner, 'git status', new AbortController().signal, { share: true })
+    expect(h.terminals.startSend).toHaveBeenCalledOnce()
+    expect(inject).toHaveBeenCalledTimes(choice === 'retry' ? 2 : 1)
+    expect(h.prompt.mock.calls[0]?.[0]).toMatchObject({ title: 'Share Shell output', detail: 'session busy' })
+    expect(h.cardOutput.last).toContain('M a.ts')
+    if (choice === 'retry') {
+      expect(inject.mock.calls[1]?.[0].content).toEqual(inject.mock.calls[0]?.[0].content)
+      expect(h.notice).toHaveBeenCalledWith('Shell output queued for the next model step.')
+    } else expect(h.notice).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('yields failed sharing to a newer prompt without retrying', async () => {
+  const h = harness(), inject = vi.fn(() => { throw new Error('session busy') })
+  Object.assign(h.owner, { inject })
+  h.prompt.mockImplementationOnce(async request => { request.onSuperseded?.(''); return 'retry' })
+  try {
+    await runComposerShell(h.ctx, h.owner, 'git status', new AbortController().signal, { share: true })
+    expect(inject).toHaveBeenCalledOnce()
+    expect(h.terminals.startSend).toHaveBeenCalledOnce()
+  } finally { await h.ctx.fiber.dispose() }
+})

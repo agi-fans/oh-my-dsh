@@ -45,7 +45,7 @@ const OVERLAY_CATALOGS: readonly { label: string; rows: readonly HotkeyRow[]; ke
     label: 'Prompts',
     rows: PROMPT_SELECTOR_HOTKEYS,
     keys: [
-      'Text', '↑↓', 'Tab / Shift+Tab', '←→', 'PgUp / PgDn', 'Home / End', 'Space',
+      'Text', '↑↓', 'Tab / Shift+Tab', '←→', 'PgUp / PgDn', 'Home / End', 'Space', 'Ctrl+G',
       'Enter', 'Enter', 'Ctrl+J', 'Esc', 'Esc', 'Ctrl+C', 'Ctrl+T', 'Ctrl+S',
     ],
   },

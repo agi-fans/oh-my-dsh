@@ -15,7 +15,9 @@ import {
 } from '@deepseek-ai/dsh-credentials'
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
-import type {} from '../definition.ts'
+import type { TuiPrompt, TuiService } from '../definition.ts'
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import { createAuthorizationInteraction } from '../session/authorization-interaction.ts'
 import { logoutDeepSeekAccount } from './auth-account.ts'
 import { openExternal } from './open-external.ts'
@@ -215,10 +217,10 @@ function credentialOwnershipBadge(info: { configured: boolean, source?: string }
 async function pickLoginChoice(
   ctx: Context,
   invocation: CommandInvocation,
+  prompt: TuiService['prompt'],
 ): Promise<LoginChoice | undefined> {
   const entries = catalogProvidersWithoutFlows(ctx)
   const flows = loginAuthorizationFlows(ctx)
-  if (entries.length === 0 && flows.length === 0) return CUSTOM_PROVIDER_VALUE
   const entryRows = await Promise.all(entries.map(async (entry) => {
     const ref = profileApiKeyEnv(ctx, entry)
     const info = ref === undefined ? UNCONFIGURED : await ctx.credentials.describe(credentialRef(ref))
@@ -237,7 +239,7 @@ async function pickLoginChoice(
   const accountState = account?.getState === undefined ? undefined : await account.getState().catch(() => undefined)
   const includeAccount = account?.getState !== undefined
   const values = loginChoiceValues(entries, orderedFlows, true, includeAccount)
-  const raw = await ctx.tui.prompt({ localize: true,
+  const raw = await prompt({ localize: true,
     presentation: 'card',
     filterable: true,
     title: 'Provider',
@@ -366,35 +368,50 @@ export function openDeepSeekDashboard(): void {
   openExternal(DEEPSEEK_API_KEYS_URL)
 }
 
-async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config: Config): Promise<CommandResult> {
+async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config: Config, prompt: TuiService['prompt']): Promise<CommandResult> {
   const current = await ctx.credentials.describe(DEEPSEEK_API_KEY)
   if (current.configured && !current.writable) {
     return { kind: 'error', text: unmanagedCredentialMessage(DEEPSEEK_API_KEY, current, 'replace') }
   }
   if (config.openDashboard !== false) openDeepSeekDashboard()
-  const raw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+  let stored = false
+  while (!invocation.signal.aborted && !stored) {
+    const apiKey = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
       title: 'Login to DeepSeek',
       question: current.configured ? 'Paste a new DeepSeek API key' : 'Paste your DeepSeek API key',
       detail: `Create or copy a key at ${DEEPSEEK_API_KEYS_URL}. It will be validated and stored locally as ${DEEPSEEK_API_KEY}.`,
-      secret: true,
-      submitLabel: 'validate',
-      signal: invocation.signal,
-  }))
-  if (raw === null) return { kind: 'success' }
-
-  let apiKey: string
-  try {
-    apiKey = normalizeDeepSeekApiKey(raw)
-    await validateDeepSeekApiKey(apiKey, invocation.signal)
-  } catch (error) {
-    if (invocation.signal.aborted) return { kind: 'success' }
-    return { kind: 'error', text: error instanceof Error ? error.message : 'DeepSeek login failed.' }
+      secret: true, submitLabel: 'validate', signal: invocation.signal,
+    }), normalizeDeepSeekApiKey)
+    if (apiKey === null) return { kind: 'success' }
+    let validated = false
+    while (!invocation.signal.aborted) {
+      try {
+        if (!validated) await validateDeepSeekApiKey(apiKey, invocation.signal)
+        validated = true
+        invocation.signal.throwIfAborted()
+        await ctx.credentials.set(DEEPSEEK_API_KEY, apiKey)
+        stored = true
+        break
+      } catch (error) {
+        if (invocation.signal.aborted) return { kind: 'success' }
+        const diagnostic = validated
+          ? 'The API key is valid, but it could not be saved to the Harness credential store.'
+          : error instanceof Error ? error.message : 'DeepSeek login failed.'
+        const action = await prompt({ localize: ['title', 'question', 'options'],
+          title: 'Login to DeepSeek', question: validated ? 'Could not save the key' : 'Could not validate the key',
+          detail: diagnostic, allowCustom: false, notify: false, signal: invocation.signal,
+          options: [
+            { label: validated ? 'Retry saving' : 'Retry validation', value: 'retry' },
+            { label: 'Enter another key', value: 'edit' },
+            { label: 'Back', value: 'back' },
+          ],
+        })
+        if (action === null || action === 'back') return { kind: 'success' }
+        if (action !== 'retry') break
+      }
+    }
   }
-  try {
-    await ctx.credentials.set(DEEPSEEK_API_KEY, apiKey)
-  } catch {
-    return { kind: 'error', text: 'The API key is valid, but it could not be saved to the Harness credential store.' }
-  }
+  if (invocation.signal.aborted) return { kind: 'success' }
   // A profile may still pin the old product-owned reference. Reset it so the
   // upstream default resolves the key that was just stored.
   if (profileApiKeyEnv(ctx, fallbackDeepSeekEntry()) !== String(DEEPSEEK_API_KEY)) {
@@ -413,29 +430,22 @@ async function loginDeepSeek(ctx: Context, invocation: CommandInvocation, config
   }
 }
 
-async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: LlmConfigurableProvider): Promise<CommandResult> {
+async function loginCatalog(ctx: Context, invocation: CommandInvocation, entry: LlmConfigurableProvider, prompt: TuiService['prompt']): Promise<CommandResult> {
   const ref = managedProviderCredentialRef(entry.provider)
   const current = await ctx.credentials.describe(ref)
   if (current.configured && !current.writable) {
     return { kind: 'error', text: unmanagedCredentialMessage(ref, current, 'replace') }
   }
   const label = entry.displayName
-  const raw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+  const apiKey = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
       title: `Login to ${label}`,
       question: current.configured ? `Paste a new ${label} API key` : `Paste your ${label} API key`,
       detail: `The key is stored locally and activates the ${entry.provider} route for the next model request. Use /model to select it.`,
       secret: true,
       submitLabel: 'save',
       signal: invocation.signal,
-  }))
-  if (raw === null) return { kind: 'success' }
-
-  let apiKey: string
-  try {
-    apiKey = normalizeApiKey(raw, label)
-  } catch (error) {
-    return { kind: 'error', text: error instanceof Error ? error.message : `${label} login failed.` }
-  }
+  }), value => normalizeApiKey(value, label))
+  if (apiKey === null) return { kind: 'success' }
   try {
     await ctx.credentials.set(ref, apiKey)
   } catch {
@@ -467,161 +477,145 @@ function reservedProviderIds(ctx: Context): Set<string> {
   ])
 }
 
+/** Retry a field in place, keeping only non-secret text in its editor. */
+async function readLoginField(
+  prompt: TuiService['prompt'],
+  request: TuiPrompt,
+  validate: (value: string) => string | Promise<string>,
+): Promise<string | null> {
+  let input = request.initialInput ?? '', diagnostic = ''
+  while (!request.signal?.aborted) {
+    const raw = await prompt({ ...request,
+      ...(request.secret ? {} : { initialInput: input }),
+      detail: [diagnostic, request.detail].filter(Boolean).join('\n\n'),
+    })
+    if (raw === null || request.signal?.aborted) return null
+    if (!request.secret) input = raw
+    try { return await validate(raw) }
+    catch (error) { diagnostic = error instanceof Error ? error.message : 'Invalid value.' }
+  }
+  return null
+}
+
 async function collectCustomModels(
   ctx: Context,
   invocation: CommandInvocation,
   draft: { baseURL: string; api: string; apiKey?: string },
+  prompt: TuiService['prompt'],
 ): Promise<string[] | undefined> {
-  const source = await ctx.tui.prompt({ localize: true,
-    title: 'Custom models',
-    question: 'How should omdsh learn the model ids?',
-    options: [
-      { label: 'Enter model ids', value: 'enter', description: 'Type one or more ids, separated by commas.' },
-      { label: 'Fetch from endpoint', value: 'fetch', description: 'Ask the base URL for GET /models.' },
-    ],
-    initialValue: 'enter',
-    allowCustom: false,
-    notify: false,
-    signal: invocation.signal,
-  })
-  if (source === null) return undefined
-  if (source === 'fetch') {
-    try {
-      const discovered = await ctx.llm.discoverModels('llm-pi-ai', {
-        baseURL: draft.baseURL,
-        api: draft.api,
-        ...(draft.apiKey === undefined ? {} : { apiKey: draft.apiKey }),
-      }, invocation.signal)
-      if (discovered.length === 1) return [discovered[0]?.id ?? '']
-      if (discovered.length > 1) {
-        const picked = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
-          title: 'Custom models',
-          question: 'Choose models to enable',
-          options: discovered.map(model => ({
-            label: model.id,
-            value: model.id,
-            ...(model.name === undefined || model.name === model.id ? {} : { description: model.name }),
-          })),
-          multiSelect: true,
-          allowCustom: false,
-          notify: false,
-          filterable: true,
-          presentation: 'card' as const,
-          signal: invocation.signal,
+  let diagnostic = '', typed = ''
+  while (!invocation.signal.aborted) {
+    const source = await prompt({ localize: true,
+      title: 'Custom models', question: 'How should omdsh learn the model ids?', detail: diagnostic,
+      options: [
+        { label: 'Enter model ids', value: 'enter', description: 'Type one or more ids, separated by commas.' },
+        { label: 'Fetch from endpoint', value: 'fetch', description: 'Ask the base URL for GET /models.' },
+      ],
+      initialValue: 'enter', allowCustom: false, notify: false, signal: invocation.signal,
+    })
+    if (source === null || invocation.signal.aborted) return undefined
+    if (source === 'fetch') {
+      try {
+        const discovered = await ctx.llm.discoverModels('llm-pi-ai', draft, invocation.signal)
+        if (invocation.signal.aborted) return undefined
+        if (discovered.length === 1) return [discovered[0]!.id]
+        if (discovered.length === 0) { diagnostic = 'No models were returned. Try again or enter model ids.'; continue }
+        const picked = await prompt({ localize: ['title', 'question', 'actions'],
+          title: 'Custom models', question: 'Choose models to enable',
+          options: discovered.map(model => ({ label: model.id, value: model.id,
+            ...(model.name === undefined || model.name === model.id ? {} : { description: model.name }) })),
+          multiSelect: true, allowCustom: false, notify: false, filterable: true,
+          presentation: 'card', signal: invocation.signal,
         })
-        if (picked === null) return undefined
+        if (picked === null) continue
         return parseModelIds(picked)
+      } catch (error) {
+        diagnostic = error instanceof Error ? error.message : 'Could not fetch models. Try again or enter model ids.'
+        continue
       }
-    } catch (error) {
-      if (invocation.signal.aborted) return undefined
-      const detail = error instanceof Error ? error.message : 'the endpoint did not list models'
-      const fallback = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-          title: 'Custom models',
-          question: 'Enter model ids',
-          detail: `Could not fetch models (${detail}). Type one or more ids, separated by commas.`,
-          signal: invocation.signal,
-  }))
-      if (fallback === null) return undefined
-      return parseModelIds(fallback)
     }
-  }
-  const typed = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-      title: 'Custom models',
-      question: 'Enter model ids',
+    const value = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
+      title: 'Custom models', question: 'Enter model ids',
       detail: 'Separate multiple ids with commas. Example: llama3.1, qwen2.5-coder',
-      signal: invocation.signal,
-  }))
-  if (typed === null) return undefined
-  return parseModelIds(typed)
+      initialInput: typed, onCancelDraft: value => { typed = value }, signal: invocation.signal,
+    }), value => parseModelIds(value).join(', '))
+    if (value !== null) return parseModelIds(value)
+  }
+  return undefined
 }
 
-async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const idRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-      title: 'Custom provider',
-      question: 'Provider id',
-      detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
-      signal: invocation.signal,
-  }))
-  if (idRaw === null) return { kind: 'success' }
-  let id: string
-  try {
-    id = parseProviderId(idRaw)
-  } catch (error) {
-    return { kind: 'error', text: error instanceof Error ? error.message : 'Invalid provider id.' }
-  }
-  if (reservedProviderIds(ctx).has(id)) {
-    return { kind: 'error', text: `${id} is a catalog provider. Use /login and choose it from the list.` }
-  }
-
-  const urlRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-      title: 'Custom provider',
-      question: 'Base URL',
-      detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
-      signal: invocation.signal,
-  }))
-  if (urlRaw === null) return { kind: 'success' }
-  let baseURL: string
-  try {
-    baseURL = parseBaseURL(urlRaw)
-  } catch (error) {
-    return { kind: 'error', text: error instanceof Error ? error.message : 'Invalid base URL.' }
-  }
-
-  const api = await ctx.tui.prompt({ localize: true,
-    title: 'Custom provider',
-    question: 'API protocol',
-    options: CUSTOM_PROTOCOLS.map(protocol => ({
-      label: protocol,
-      value: protocol,
-      description: protocol === 'openai-completions'
-        ? 'Chat Completions — Ollama, vLLM, LM Studio, and most gateways'
-        : protocol === 'openai-responses' ? 'OpenAI Responses API' : 'Anthropic Messages API',
-    })),
-    initialValue: 'openai-completions',
-    allowCustom: false,
-    notify: false,
-    signal: invocation.signal,
-  })
-  if (api === null) return { kind: 'success' }
-  if (!(CUSTOM_PROTOCOLS as readonly string[]).includes(api)) {
-    return { kind: 'error', text: `Unknown API protocol: ${api}` }
-  }
-
-  const keyRaw = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
-      title: `Login to ${id}`,
-      question: `Paste your ${id} API key`,
-      detail: 'Leave empty if the endpoint does not need a key.',
-      secret: true,
-      submitLabel: 'continue',
-      signal: invocation.signal,
-  }))
-  if (keyRaw === null) return { kind: 'success' }
+async function loginCustom(ctx: Context, invocation: CommandInvocation, prompt: TuiService['prompt']): Promise<CommandResult | undefined> {
+  let step = 0, id = '', baseURL = '', api = 'openai-completions'
   let apiKey: string | undefined
-  if (keyRaw.trim() !== '') {
-    try {
-      apiKey = normalizeApiKey(keyRaw, id)
-    } catch (error) {
-      return { kind: 'error', text: error instanceof Error ? error.message : `${id} login failed.` }
+  let modelIds: string[] | undefined
+  while (!invocation.signal.aborted && modelIds === undefined) {
+    switch (step) {
+      case 0: {
+        const value = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
+          title: 'Custom provider', question: 'Provider id',
+          detail: 'Lowercase letters, digits, and hyphens. This id is permanent.',
+          initialInput: id, onCancelDraft: value => { id = value }, signal: invocation.signal,
+        }), value => {
+          const parsed = parseProviderId(value)
+          if (reservedProviderIds(ctx).has(parsed)) throw new Error(uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), '{name} is a catalog provider. Choose it from the provider list.', { name: parsed }))
+          return parsed
+        })
+        if (value === null) return undefined
+        id = value
+        step = 1
+        break
+      }
+      case 1: {
+        const value = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
+          title: 'Custom provider', question: 'Base URL',
+          detail: 'Absolute http(s) prefix, for example http://127.0.0.1:11434/v1',
+          initialInput: baseURL, onCancelDraft: value => { baseURL = value }, signal: invocation.signal,
+        }), parseBaseURL)
+        if (value === null) { step = 0; break }
+        baseURL = value
+        step = 2
+        break
+      }
+      case 2: {
+        const value = await prompt({ localize: true, title: 'Custom provider', question: 'API protocol',
+          options: CUSTOM_PROTOCOLS.map(protocol => ({ label: protocol, value: protocol,
+            description: protocol === 'openai-completions'
+              ? 'Chat Completions — Ollama, vLLM, LM Studio, and most gateways'
+              : protocol === 'openai-responses' ? 'OpenAI Responses API' : 'Anthropic Messages API' })),
+          initialValue: api, allowCustom: false, notify: false, signal: invocation.signal,
+        })
+        if (value === null) { step = 1; break }
+        if (!(CUSTOM_PROTOCOLS as readonly string[]).includes(value)) break
+        api = value
+        step = 3
+        break
+      }
+      case 3: {
+        apiKey = undefined
+        const value = await readLoginField(prompt, askPrompt({ localize: ['title', 'question', 'actions'],
+          title: `Login to ${id}`, question: `Paste your ${id} API key`,
+          detail: 'Leave empty if the endpoint does not need a key.', secret: true,
+          submitLabel: 'continue', signal: invocation.signal,
+        }), value => value.trim() === '' ? '' : normalizeApiKey(value, id))
+        if (value === null) { step = 2; break }
+        apiKey = value === '' ? undefined : value
+        step = 4
+        break
+      }
+      case 4:
+        modelIds = await collectCustomModels(ctx, invocation, { baseURL, api,
+          ...(apiKey === undefined ? {} : { apiKey }),
+        }, prompt)
+        if (modelIds === undefined) step = 3
+        break
     }
   }
-
-  let modelIds: string[]
-  try {
-    const collected = await collectCustomModels(ctx, invocation, {
-      baseURL,
-      api,
-      ...(apiKey === undefined ? {} : { apiKey }),
-    })
-    if (collected === undefined) return { kind: 'success' }
-    modelIds = collected.filter(item => item !== '')
-    if (modelIds.length === 0) throw new Error('Enter at least one model id.')
-  } catch (error) {
-    return { kind: 'error', text: error instanceof Error ? error.message : 'Invalid model list.' }
-  }
+  if (invocation.signal.aborted || modelIds === undefined) return undefined
 
   const ref = managedProviderCredentialRef(id)
   if (apiKey !== undefined) {
     const current = await ctx.credentials.describe(ref)
+    if (invocation.signal.aborted) return undefined
     if (current.configured && !current.writable) {
       return { kind: 'error', text: unmanagedCredentialMessage(ref, current, 'replace') }
     }
@@ -632,6 +626,7 @@ async function loginCustom(ctx: Context, invocation: CommandInvocation): Promise
     }
   }
 
+  if (invocation.signal.aborted) return undefined
   try {
     await ctx.settings.mutate(PI_AI_SETTINGS, [{
       op: 'set',
@@ -834,17 +829,32 @@ async function login(ctx: Context, invocation: CommandInvocation, config: Config
   if (invocation.rawInput.trim() !== '') {
     return { kind: 'error', text: 'Usage: /login (paste the key only into the protected prompt)' }
   }
-  const choice = await pickLoginChoice(ctx, invocation)
-  if (choice === undefined) return { kind: 'success' }
-  if (choice === DEEPSEEK_ACCOUNT_CHOICE) {
-    await openAccountSettings(ctx, invocation.signal, { ...config, signIn: true })
-    return { kind: 'success' }
+  const abort = new AbortController()
+  invocation = { ...invocation, signal: AbortSignal.any([invocation.signal, abort.signal]) }
+  const prompt: TuiService['prompt'] = request => ctx.tui.prompt({ dismissLabel: 'Back', ...request,
+    ...(request.detail === undefined ? {} : { detail: request.detail.split('\n').map(line => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), line)).join('\n') }),
+    signal: invocation.signal, onSuperseded: () => abort.abort(),
+  })
+  const browse = createPromptBrowser(request => prompt({ ...request, dismissLabel: 'Cancel' }))
+  while (!invocation.signal.aborted) {
+    const choice = await pickLoginChoice(ctx, invocation, browse)
+    if (choice === undefined || invocation.signal.aborted) return { kind: 'success' }
+    if (choice === DEEPSEEK_ACCOUNT_CHOICE) {
+      await openAccountSettings(ctx, invocation.signal, { ...config, signIn: true })
+      return { kind: 'success' }
+    }
+    if (choice === CUSTOM_PROVIDER_VALUE) {
+      const result = await loginCustom(ctx, invocation, prompt)
+      if (result !== undefined) return result
+      continue
+    }
+    if (isAuthorizationFlow(choice)) return loginAuthorization(ctx, invocation, choice)
+    const result = isDeepSeek(choice)
+      ? await loginDeepSeek(ctx, invocation, config, prompt)
+      : await loginCatalog(ctx, invocation, choice, prompt)
+    if (result.kind !== 'success' || result.text !== undefined) return result
   }
-  if (choice === CUSTOM_PROVIDER_VALUE) return loginCustom(ctx, invocation)
-  if (isAuthorizationFlow(choice)) return loginAuthorization(ctx, invocation, choice)
-  return isDeepSeek(choice)
-    ? loginDeepSeek(ctx, invocation, config)
-    : loginCatalog(ctx, invocation, choice)
+  return { kind: 'success' }
 }
 
 async function logout(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {

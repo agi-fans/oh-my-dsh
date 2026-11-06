@@ -16,6 +16,9 @@ import {
   type TrajectoryState,
 } from '../packages/tui/omdsh-tui/src/views/trajectory.ts'
 import type { KeyEvent } from '../packages/tui/omdsh-tui/src/input/keys.ts'
+import { createTheme } from '../packages/tui/omdsh-tui/src/chrome/theme.ts'
+import { documentLayout } from '../packages/tui/omdsh-tui/src/views/document-reader.ts'
+import { renderFileBrowser, type FileBrowserState } from '../packages/tui/omdsh-tui/src/views/file-browser.ts'
 
 const RUNS = 7
 
@@ -254,7 +257,7 @@ const searchMatchCount = trajectorySearch(searchPrepared).matches.length
 // cache hits rather than a rescan. Before that cache it was 5139 ms, because
 // every Ctrl+N derived the full match list twice and each rendered frame twice
 // more (18 ms per derivation over 10,000 records).
-benchmark('Search and navigate a 10,000-record ledger (200 frames)', () => {
+benchmark('Search a 10,000-record ledger (200 moves)', () => {
   let state = searchPrepared
   for (let index = 0; index < 200; index += 1) {
     state = (applyTrajectoryEvent(state, { type: 'key', id: 'ctrl+n' }) as { state: TrajectoryState }).state
@@ -293,3 +296,50 @@ const revealMedian = benchmark('Count 20 appends onto a 121k-char answer', () =>
 })
 console.log(`${'Per appended frame'.padEnd(42)} ${(revealMedian / revealTicks).toFixed(3).padStart(9)} ms`)
 console.log(`${'Revealed units per frame'.padEnd(42)} ${revealUnits.toFixed(0).padStart(9)} units`)
+
+// Include actual layouts: reveal counting and navigation alone cannot detect
+// Markdown repaint or whole-file horizontal-scroll regressions.
+const theme = createTheme(true, 'truecolor', 'dark')
+const source = {
+  text: Array.from({ length: 10_000 }, (_, at) => `const value${at} = "中文🐳 ${'long value '.repeat(6)}";`).join('\n'),
+  language: 'typescript',
+}
+benchmark('Pan 10,000 source lines (200 viewports)', () => {
+  for (let index = 0; index < 200; index++) {
+    const layout = documentLayout(source, theme, 80, { wordWrap: false, column: index % 30 })
+    layout.rows.slice(100, 145)
+  }
+})
+
+const richAnswer = ('# Overview 中文🐳\n\nA **bold** paragraph with `inline code` and e\u0301.\n\n'
+  + '- list one\n- list two\n\n```ts\nconst value = "hello 中文🐳"\n```\n\n'
+  + '| Name | Value |\n| --- | --- |\n| 中文 | 42 |\n\n').repeat(700)
+benchmark('Render 20 rich streaming answer appends', () => {
+  let text = richAnswer
+  for (let index = 0; index < 20; index++) {
+    text += `tail ${index} `
+    renderView(revealState(text), { width: 80, height: 40, model: 'deepseek-v4-pro', input: '', inputCursor: 0, colors: true })
+  }
+})
+console.log(`Rich streaming fixture: ${richAnswer.length.toLocaleString('en-US')} characters`)
+
+const fileState: FileBrowserState = {
+  title: 'Files', files: [{ path: 'README.md', label: 'README.md' }], selected: 0,
+  focus: 'document', filter: '', input: '', inputCursor: 0, mode: 'source', markdown: true,
+  position: { row: 0, wrap: 0, query: '' }, source: { text: richAnswer, language: 'markdown' },
+  message: '', loading: false, help: false, helpScroll: 0, menu: undefined,
+  notice: '', canEdit: false, canQuote: false, truncated: false, limit: 256 * 1024,
+}
+benchmark('Scroll rich Markdown preview (200 frames)', () => {
+  for (let index = 0; index < 200; index++) {
+    renderFileBrowser({ ...fileState, position: { row: index, wrap: 0, query: '' } }, theme, 160, 50)
+  }
+})
+
+const completeConversation = conversation.flatMap((event, index) => index % 2 === 0
+  ? [{ type: 'turn/start', data: { turn: index / 2 + 1 } }, event]
+  : [event, { type: 'turn/end', data: { turn: (index + 1) / 2, reason: { kind: 'completed' } } }])
+  .map((event, index) => ({ ...event, seq: index + 1, time: index + 1 })) as SessionEvent[]
+benchmark('Resume 10,000 turns with lifecycle events', () => {
+  replayEvents(completeConversation)
+})

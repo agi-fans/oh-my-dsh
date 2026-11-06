@@ -1,11 +1,46 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
-import { documentDestination, documentLayout, documentLineRow, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
+import { documentDestination, documentLayout, documentLineRow, documentMarkdown, documentMatches, documentModel, documentPosition, documentStart } from './document-reader.ts'
 import { renderPlanReviewPage } from './prompt-selector.ts'
 import { oracleWidth } from '../chrome/width.oracle.ts'
 
 describe('source document navigation', () => {
+  it.each([false, true])('lays out only the requested unwrapped viewport and keeps old offsets stable (color=%s)', colors => {
+    const source = { text: Array.from({ length: 10_000 }, (_, at) => `${at} 中文👩‍💻e\u0301 ${'value '.repeat(20)}`).join('\n') }
+    const theme = createTheme(colors)
+    documentLayout(source, theme, 80)
+    const fg = vi.fn(theme.fg)
+    const first = documentLayout(source, { ...theme, fg }, 32, { wordWrap: false, column: 7 })
+    expect(first.rows.length).toBe(10_000)
+    expect(fg).not.toHaveBeenCalled()
+    const viewport = first.rows.slice(100, 112)
+    expect(viewport).toHaveLength(12)
+    expect(viewport.every(row => oracleWidth(row) <= 32)).toBe(true)
+    expect(fg).toHaveBeenCalledTimes(12)
+    expect(first.rows.slice(100, 112)).toEqual(viewport)
+    expect(fg).toHaveBeenCalledTimes(12)
+    const moved = documentLayout(source, theme, 32, { wordWrap: false, column: 12 })
+    expect(moved.rows.slice(100, 112)).not.toEqual(viewport)
+    expect(first.rows.slice(100, 112)).toEqual(viewport)
+    expect(moved.starts).toBe(first.starts)
+    expect(first.rows.slice(-2)).toEqual([first.rows.at(-2), first.rows.at(-1)])
+    expect(first.rows.at(10_000)).toBeUndefined()
+    expect(first.rows.slice(20, 10)).toEqual([])
+  })
+
+  it('reuses Markdown layout while invalidating source, width, palette and hyperlink policy', () => {
+    const source = { text: '# Reader\n\n[docs](https://example.com/very/long/reference/path/for/the/reader) 中文🐳 '.repeat(10) }
+    const dark = createTheme(true, 'truecolor', 'dark')
+    const original = documentMarkdown(source, dark, 80)
+    expect(documentMarkdown(source, dark, 80)).toBe(original)
+    expect(documentMarkdown(source, dark, 24)).not.toEqual(original)
+    expect(documentMarkdown(source, createTheme(true, 'truecolor', 'light'), 80)).not.toEqual(original)
+    expect(documentMarkdown(source, createTheme(true, 'truecolor', 'dark', undefined, 'en', true), 80)).not.toEqual(original)
+    expect(documentMarkdown({ text: '# Refreshed' }, dark, 80).map(stripAnsi).join('\n')).toContain('Refreshed')
+    expect(original.map(stripAnsi).join('\n')).toContain('Reader')
+  })
+
   it.each([false, true])('pans source cells with fixed line numbers and preserves anchors across wrap changes (color=%s)', colors => {
     const source = { text: 'const 中文🐳 = "' + 'x'.repeat(60) + '";\nsecond line', language: 'ts' }
     const theme = createTheme(colors)
@@ -13,8 +48,8 @@ describe('source document navigation', () => {
     expect(wrapped.starts[1]).toBeGreaterThan(1)
     const panned = documentLayout(source, theme, 20, { wordWrap: false, column: 7 })
     expect(panned.starts).toEqual([0, 1])
-    expect(stripAnsi(panned.rows[0]!)).toMatch(/^ 1 /u)
-    expect(panned.rows.every(row => oracleWidth(row) <= 20)).toBe(true)
+    expect(stripAnsi(panned.rows.at(0)!)).toMatch(/^ 1 /u)
+    expect(panned.rows.slice().every(row => oracleWidth(row) <= 20)).toBe(true)
     expect(documentLayout(source, theme, 20, { wordWrap: false, column: 7 })).toBe(panned)
     const anchor = documentPosition(panned, 1, 'line')
     expect(anchor).toEqual({ row: 1, wrap: 0, query: 'line', wordWrap: false, column: 7 })
@@ -22,7 +57,7 @@ describe('source document navigation', () => {
     expect(documentMatches(source, '中文🐳')).toEqual([0])
     const edge = documentLayout(source, theme, 20, { wordWrap: false, column: 1_000_000 })
     expect(edge.column).toBe(edge.maxColumn)
-    expect(stripAnsi(edge.rows[0]!)).toContain('";')
+    expect(stripAnsi(edge.rows.at(0)!)).toContain('";')
   })
   it('uses retained snapshot line numbers for search and line jumps', () => {
     const source = { text: 'older\n中文🐳 match\nlast\n', firstLine: 701 }
@@ -45,7 +80,7 @@ describe('source document navigation', () => {
 
   it('keeps every diff row on one number column', () => {
     const source = { diff: true, text: 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n@@ -100,2 +120,2 @@\n keep\n-last\n+final\n' }
-    const rows = documentLayout(source, createTheme(false), 60).rows.map(stripAnsi)
+    const rows = documentLayout(source, createTheme(false), 60).rows.slice().map(stripAnsi)
     // The gutter used to carry the old and the new number side by side, so a
     // removal printed its number in the left sub-column and the addition under it
     // printed its own in the right one: reading down a hunk, the numbers stepped
@@ -76,7 +111,7 @@ describe('source document navigation', () => {
     const theme = createTheme(colors, true)
     for (const width of [12, 30, 80]) {
       const layout = documentLayout(source, theme, width)
-      expect(layout.rows.every(row => visibleWidth(row) <= width)).toBe(true)
+      expect(layout.rows.slice().every(row => visibleWidth(row) <= width)).toBe(true)
       expect(documentLayout(source, theme, width)).toBe(layout)
       const at = layout.starts[3]! + 1
       const anchor = documentPosition(layout, at, '中文')
@@ -85,7 +120,7 @@ describe('source document navigation', () => {
       const wider = documentLayout(source, theme, 100)
       expect(wider.sourceRows[documentStart(wider, anchor)]).toBe(3)
       expect(layout.rows.slice(layout.starts[3], layout.starts[4]).map(stripAnsi).map(row => row.slice(3)).join('')).toMatch(/^ {8}const/u)
-      if (colors) expect(layout.rows[1]).not.toContain(theme.getFgAnsi('mdKeyword'))
+      if (colors) expect(layout.rows.at(1)).not.toContain(theme.getFgAnsi('mdKeyword'))
     }
   })
 

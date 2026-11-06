@@ -8,6 +8,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TuiPrompt } from '../definition.ts'
 import * as command from './export.ts'
+import { openSystemFile } from '../runtime/file-review.ts'
+
+vi.mock('../runtime/file-review.ts', () => ({ openSystemFile: vi.fn(async () => {}) }))
 
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -121,4 +124,32 @@ it('removes a partially written export before retrying the same destination', as
     expect((await h.run('/export'))?.result.kind).toBe('success')
     expect(await fs.readFile(path, 'utf8')).toContain('export-test')
   } finally { open.mockImplementation(originalOpen); await h.ctx.fiber.dispose(); await fs.rm(dir, { recursive: true, force: true }) }
+})
+
+
+it('keeps export actions available after open fails and after copying', async () => {
+  const h = await fixture(true), dir = await fs.mkdtemp(join(tmpdir(), 'omdsh-export-actions-'))
+  const path = join(dir, 'result.html')
+  vi.mocked(openSystemFile).mockRejectedValueOnce(new Error('No associated application'))
+  for (const answer of ['html', path, 'open', 'copy', 'open', 'done']) h.prompt.mockResolvedValueOnce(answer)
+  try {
+    expect((await h.run('/export'))?.result.kind).toBe('success')
+    expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Export complete', question: path, detail: expect.stringContaining('No associated application') })
+    expect(h.prompt.mock.calls[4]![0].detail).toBe('Path copied.')
+    expect(h.prompt.mock.calls[5]![0].detail).toBe('File opened.')
+    expect(h.copyText).toHaveBeenCalledWith(path, 'Export path')
+    expect(await fs.readdir(dir)).toEqual(['result.html'])
+  } finally { await h.ctx.fiber.dispose(); await fs.rm(dir, { recursive: true, force: true }) }
+})
+
+it('returns from destination to format selection and exports the newly chosen format', async () => {
+  const h = await fixture(true), dir = await fs.mkdtemp(join(tmpdir(), 'omdsh-export-back-'))
+  const path = join(dir, 'result.html')
+  for (const answer of ['markdown', null, 'html', path, 'done']) h.prompt.mockResolvedValueOnce(answer)
+  try {
+    expect((await h.run('/export'))?.result.kind).toBe('success')
+    expect(h.prompt.mock.calls[2]![0]).toMatchObject({ question: 'Choose a format', initialValue: 'markdown' })
+    expect(h.prompt.mock.calls[3]![0]).toMatchObject({ initialInput: 'omdsh-transcript-export-test.html', dismissLabel: 'Back' })
+    expect(await fs.readFile(path, 'utf8')).toContain('<html')
+  } finally { await h.ctx.fiber.dispose(); await fs.rm(dir, { recursive: true, force: true }) }
 })

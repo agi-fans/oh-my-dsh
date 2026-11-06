@@ -19,7 +19,7 @@ import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
 import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
 import { DEEP_DRIVING_LABEL, renderEditor, renderFramedBlock, renderWelcome } from '../chrome/box.ts'
-import { renderMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
+import { renderMarkdown, renderStreamingMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/renderer.ts'
 import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
@@ -286,9 +286,32 @@ function shortPath(path: string, width: number): string {
   return prefix + tail
 }
 
-function assistantContentLines(lines: readonly string[], width: number, paddingX: number): string[] {
+// Streaming reuses most painted rows even though the enclosing block changes.
+// Bound both row count and retained text, including ANSI and hyperlink bytes.
+const assistantRowCache = new Map<string, { row: string; size: number }>()
+let assistantRowChars = 0
+const ASSISTANT_ROW_CACHE_CHARS = 1024 * 1024
+
+function assistantContentLines(lines: readonly string[], width: number, paddingX: number, streaming = false): string[] {
   const margin = ' '.repeat(paddingX)
-  return lines.map((line) => padToWidth(margin + line + margin, width))
+  if (!streaming) return lines.map(line => padToWidth(margin + line + margin, width))
+  return lines.map(line => {
+    const key = `${width}:${paddingX}:${line}`
+    const cached = assistantRowCache.get(key)
+    if (cached !== undefined) return cached.row
+    const row = padToWidth(margin + line + margin, width)
+    const size = key.length + row.length
+    if (size <= ASSISTANT_ROW_CACHE_CHARS) {
+      while (assistantRowCache.size >= 4096 || assistantRowChars + size > ASSISTANT_ROW_CACHE_CHARS) {
+        const first = assistantRowCache.keys().next().value!
+        assistantRowChars -= assistantRowCache.get(first)!.size
+        assistantRowCache.delete(first)
+      }
+      assistantRowCache.set(key, { row, size })
+      assistantRowChars += size
+    }
+    return row
+  })
 }
 
 function lockThinkingLine(line: string, theme: Theme): string {
@@ -306,12 +329,13 @@ function assistantMarkdown(
   theme: Theme,
   width: number,
   style?: MarkdownStyle,
+  streaming = false,
 ): string[] {
   const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
   const contentWidth = Math.max(1, width - paddingX * 2)
-  const rendered = renderMarkdown(source, theme, contentWidth, style)
-  if (style?.color !== 'thinkingText') return assistantContentLines(rendered, width, paddingX)
-  return assistantContentLines(rendered.map(line => lockThinkingLine(line, theme)), width, paddingX)
+  const rendered = (streaming ? renderStreamingMarkdown : renderMarkdown)(source, theme, contentWidth, style)
+  if (style?.color !== 'thinkingText') return assistantContentLines(rendered, width, paddingX, streaming)
+  return assistantContentLines(rendered.map(line => lockThinkingLine(line, theme)), width, paddingX, streaming)
 }
 
 /**
@@ -689,7 +713,7 @@ function reasoningDisclosureLines(block: Extract<Block, { kind: 'assistant' }>, 
 
 /** Thinking uses the same quiet Markdown style throughout the turn. */
 function openReasoningLines(block: Extract<Block, { kind: 'assistant' }>, theme: Theme, width: number, mathMode: import('../chrome/math.ts').MathMode = 'auto'): string[] {
-  return assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true, mathMode })
+  return assistantMarkdown(block.reasoning, theme, width, { color: 'thinkingText', italic: true, mathMode }, block.streaming)
 }
 
 interface GroupRenderContext {
@@ -923,7 +947,7 @@ export function blockLines(
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
       lines.push(...assistantContentLines([theme.fg('dim', '…')], width, paddingX))
     } else if (block.text !== '') {
-      lines.push(...assistantMarkdown(block.text, theme, width, { ...(hasExplicitTextColor(theme) ? { color: 'text' as const } : {}), mathMode, mermaidMode }))
+      lines.push(...assistantMarkdown(block.text, theme, width, { ...(hasExplicitTextColor(theme) ? { color: 'text' as const } : {}), mathMode, mermaidMode }, block.streaming))
     }
     if (block.interrupted === true) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0

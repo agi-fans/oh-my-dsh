@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TuiSubmission } from '../definition.ts'
 import type {} from '@deepseek-ai/dsh-terminal'
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { shareTerminalOutputToConversation } from '../commands/terminal.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
 
@@ -119,7 +120,30 @@ export async function runComposerShell(
   })
   if (options.share === true && !signal.aborted) {
     // Share what this line produced, for the same reason the card shows that.
-    shareTerminalOutputToConversation(owner, `Shell · \`${command}\``, produced)
+    await shareShellOutput(ctx, owner, command, produced, signal)
+  }
+}
+
+/** Retry delivery of captured output without executing the Shell command again. */
+async function shareShellOutput(ctx: Context, owner: Agent, command: string, output: string, parentSignal: AbortSignal): Promise<void> {
+  if (output.trim() === '') return
+  const lifetime = new AbortController()
+  const signal = AbortSignal.any([parentSignal, lifetime.signal])
+  while (!signal.aborted) {
+    try {
+      shareTerminalOutputToConversation(owner, `Shell · \`${command}\``, output)
+    } catch (error) {
+      const answer = await ctx.tui.prompt({ localize: ['title', 'question', 'options'],
+        title: 'Share Shell output', question: 'Sharing failed. Retry sends the captured output to the conversation.',
+        detail: error instanceof Error ? error.message : String(error),
+        options: [{ label: 'Retry sharing', value: 'retry' }, { label: 'Keep output in terminal', value: 'keep' }],
+        allowCustom: false, notify: false, signal, onSuperseded: () => lifetime.abort(),
+      })
+      if (answer !== 'retry') return
+      continue
+    }
+    ctx.tui.notice(uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), 'Shell output queued for the next model step.'))
+    return
   }
 }
 

@@ -53,6 +53,8 @@ export interface SettingItem {
   id: string
   label: string
   description: string
+  /** Scope and save behavior shown at the fixed description boundary. */
+  behavior?: string
   value: string
   values: readonly string[]
   /** Preview fragment this row controls, when it is a footer item. */
@@ -71,6 +73,7 @@ export interface PluginSettingsEntry {
   id: string
   label: string
   description: string
+  behavior?: string
   section?: 'general' | 'models' | 'presets' | 'agent' | 'tools' | 'integrations' | 'advanced'
   namespace?: string
   fields?: readonly string[]
@@ -344,7 +347,7 @@ function featureSettingItems(features: FeatureStates): SettingItem[] {
   return FEATURE_TOGGLES.map(feature => ({
     id: `feature:${feature.id}`,
     label: feature.label,
-    description: `${feature.description} Saved in profile; applies live when supported.`,
+    description: `${feature.description} Saved in profile; applies live when supported.`, behavior: 'Profile · Applies after reload or restart',
     value: features[feature.id] === false ? 'off' : 'on',
     values: COLOR_VALUES,
   }))
@@ -478,16 +481,17 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
   const actions = (group: string): SettingItem[] => (state.actions ?? []).filter(item => item.group === group)
     .map(({ group: _category, ...item }) => group === 'Input' ? { ...item, group } : item)
   return [
-    { id: 'general' as const, label: 'General', items: [{ id: 'uiLanguage', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true }, ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('general'), ...actions('General')] },
+    { id: 'general' as const, label: 'General', items: [{ id: 'uiLanguage', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.', behavior: 'Profile · Saves immediately · Applies now', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true }, ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, behavior: 'Profile · Saves immediately · Next turn', description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('general'), ...actions('General')] },
     { id: 'models' as const, label: 'Models', items: [...actions('Models'), ...owned('models'), ...(state.actions ?? []).filter(item => item.group === undefined)] },
     { id: 'presets' as const, label: 'Agent presets', items: [...owned('presets'), ...actions('Agent presets')] },
     { id: 'plugins' as const, label: 'Plugins', items: [...actions('Plugins'), ...owned('tools'), ...owned('agent'), ...owned('integrations'), ...(state.features === undefined ? [] : featureSettingItems(state.features))] },
     { id: 'terminal' as const, label: 'Terminal', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
+      behavior: ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Profile · Saves immediately · Next launch' : 'Profile · Saves immediately',
       resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState'].includes(item.id) ? 'Appearance'
         : ['editor', 'mouseInteraction', 'busyEnter', 'pasteProtection', 'copyOnSelect'].includes(item.id) ? 'Input'
           : ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Startup' : 'Notifications',
     })), ...actions('Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')).concat(
-      statusSettingItems(state.prefs).map(item => ({ ...item, resettable: true, group: 'Status line' })),
+      statusSettingItems(state.prefs).map(item => ({ ...item, behavior: 'Profile · Saves immediately · Applies now', resettable: true, group: 'Status line' })),
       [{ id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, group: 'Status line', description: 'Restore inherited density and item visibility. Confirmation shows what will be restored.' }]) },
     { id: 'advanced' as const, label: 'Advanced', items: owned('advanced') },
   ].filter(group => group.items.length > 0)
@@ -711,7 +715,7 @@ function border(theme: Theme, text: string): string {
 
 function topBorder(theme: Theme, width: number): string {
   const inner = Math.max(0, width - 2)
-  const title = truncateToWidth(' ' + theme.text('Settings · Profile') + ' ', Math.max(0, inner - 2))
+  const title = truncateToWidth(' ' + theme.text('Settings') + ' ', Math.max(0, inner - 2))
   const fill = Math.max(0, inner - 1 - visibleWidth(title))
   return border(theme, BOX.topLeft + BOX.horizontal)
     + theme.bold(theme.fg('accent', title))
@@ -859,7 +863,7 @@ export function renderSettings(
       false,
     ), width))
   }
-  lines.push(divider(theme, width))
+  lines.push(divider(theme, width, selected === undefined ? undefined : theme.text(selected.behavior ?? 'Open to configure')))
   const description = selected === undefined ? '' : theme.text(selected.description)
   const descriptionLines = wrapTextStable(description, Math.max(1, width - 8)).slice(0, descriptionRows)
   for (let row = 0; row < descriptionRows; row += 1) {

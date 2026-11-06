@@ -8,7 +8,7 @@ import type { TuiCommand } from '../definition.ts'
 
 import type { Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
-import { subsequencePenalty } from '../input/fuzzy-search.ts'
+import { rankSearchResults, subsequencePenalty } from '../input/fuzzy-search.ts'
 import {
   listPrimaryColumnWidth,
   listVisibleRange,
@@ -139,6 +139,7 @@ interface NamedMatch {
   aliases?: readonly string[]
   description: string
   skill?: TuiCommand['skill']
+  searchFields?: readonly string[]
 }
 
 function buildNamedCompletions(
@@ -163,7 +164,7 @@ function buildNamedCompletions(
         if (entry.description !== '') item.description = entry.description
         best = item
       }
-      if (kind === 'command' && lowerPrefix.length >= 3 && best === undefined && entry.description.toLowerCase().includes(lowerPrefix)) {
+      if (kind === 'command' && lowerPrefix.length >= 2 && best === undefined && rankSearchResults([entry], lowerPrefix, item => [item.description, ...(item.searchFields ?? [])]).length > 0) {
         best = { value: entry.value, label: entry.value, kind, score: 50, description: entry.description }
       }
       return best === undefined ? [] : [{ ...best, ...(entry.skill === undefined ? {} : { skill: entry.skill }) }]
@@ -172,10 +173,28 @@ function buildNamedCompletions(
     .map(({ score: _score, ...rest }) => rest)
 }
 
+/** Search terms aid discovery while command names remain the executable vocabulary. */
+const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  model: ['model', 'provider', '模型', '供应商'],
+  permission: ['access', 'permissions', '权限', '访问'],
+  resume: ['session', 'history', '会话', '历史', '恢复'],
+  new: ['session', '会话', '新建'],
+  context: ['context', 'usage', '上下文', '用量'],
+  diff: ['changes', 'files', '差异', '修改', '文件'],
+  plan: ['planning', '计划', '规划'],
+  login: ['account', 'credentials', '登录', '账户', '密钥'],
+  settings: ['preferences', '设置', '配置'],
+  plugins: ['extensions', '插件', '扩展'],
+  queue: ['messages', '消息', '队列'],
+  copy: ['clipboard', '复制', '剪贴板'],
+  help: ['shortcuts', '帮助', '快捷键'],
+}
+
 /** Ranked command-name completions for a prefix (no leading slash). */
 export function buildSlashCommandCompletions(
   commands: readonly SlashCommand[],
   lowerPrefix: string,
+  language: UiLanguage = 'en',
 ): AutocompleteItem[] {
   return buildNamedCompletions(
     (lowerPrefix === '' ? [...commands].sort((a, b) => {
@@ -184,10 +203,11 @@ export function buildSlashCommandCompletions(
     }) : commands).map((command) => ({
       value: command.name,
       ...(command.aliases === undefined ? {} : { aliases: command.aliases }),
-      description: command.description,
+      description: uiText(language, command.description),
+      searchFields: [command.description, ...(COMMAND_KEYWORDS[command.name] ?? [])],
       ...(command.skill === undefined ? {} : { skill: command.skill }),
     })),
-    lowerPrefix,
+    lowerPrefix.trim().replace(/^\//u, ''),
     'command',
   )
 }
@@ -242,6 +262,7 @@ export function slashSuggestions(
   text: string,
   cursor: number,
   commands: readonly SlashCommand[] = BUILTIN_SLASH_COMMANDS,
+  language: UiLanguage = 'en',
 ): { items: AutocompleteItem[]; prefix: string } | null {
   const before = text.slice(0, cursor)
   if (text.includes('\n')) return null
@@ -251,7 +272,7 @@ export function slashSuggestions(
   if (token.slice(1).includes('/')) return null
   const space = token.indexOf(' ')
   if (space === -1) {
-    const items = buildSlashCommandCompletions(commands, token.slice(1).toLowerCase())
+    const items = buildSlashCommandCompletions(commands, token.slice(1).toLowerCase(), language)
     if (items.length === 0) return null
     return { items, prefix: before }
   }

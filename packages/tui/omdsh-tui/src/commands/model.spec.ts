@@ -9,6 +9,8 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as commandModel from './model.ts'
 import { resolveModelQuery } from './model.ts'
 import type { TuiService } from '../definition.ts'
+import { DefaultModelSaveError } from '../session/session-controller.ts'
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
 import { readModelFavorites, writeModelFavorites } from '../session/model-favorites.ts'
 
@@ -179,7 +181,7 @@ describe('model command', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
-    const prompt = vi.fn().mockResolvedValueOnce('model-1')
+    const prompt = vi.fn().mockResolvedValueOnce('deepseek-official/model-1')
     ctx.provide('tui', { prompt } as unknown as TuiService)
     ctx.provide('omdshSession', {
       selection: () => ({ provider: 'deepseek-official', model: 'model-1' }),
@@ -401,5 +403,127 @@ describe('model query command', () => {
     expect(env.result?.result).toMatchObject({ kind: 'success' })
     expect(env.selection).not.toHaveBeenCalled()
     await env.dispose()
+  })
+})
+
+
+describe('model selection recovery', () => {
+  async function harness() {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    const prompt = vi.fn<TuiService['prompt']>(async () => null)
+    let current = { provider: 'old', model: 'old-model' }
+    const changeSelection = vi.fn(async (_agent: Agent, selection: typeof current) => { current = selection })
+    const listModels = vi.fn(async (_provider: string) => [{ id: 'model' }])
+    const resolveModelInfo = vi.fn(async () => ({}))
+    ctx.provide('tui', { prompt, interactive: true } as never)
+    ctx.provide('llm', { listProviders: () => [{ id: 'good' }, { id: 'bad' }], listModels, resolveModelInfo } as never)
+    ctx.provide('omdshSession', { selection: () => current, changeSelection } as never)
+    await ctx.plugin(commandModel)
+    const session = ctx.sessions.create(SessionId('model-recovery'))
+    const agent = { id: session.id, session } as Agent
+    return { ctx, prompt, changeSelection, listModels, resolveModelInfo,
+      run: () => ctx.commands.execute(agent, '/model', [], new AbortController().signal) }
+  }
+
+  it('opens with ready models while a slow provider loads, then refreshes in place', async () => {
+    const h = await harness()
+    let finish!: (models: { id: string }[]) => void
+    const slow = new Promise<{ id: string }[]>(resolve => { finish = resolve })
+    h.listModels.mockImplementation(provider => provider === 'bad' ? slow : Promise.resolve([{ id: 'model' }]))
+    h.prompt.mockImplementationOnce(async request => {
+      expect(request.options).toEqual([expect.objectContaining({ value: 'good/model' })])
+      expect(request.detail).toContain('Loading models… bad')
+      const initialRows = request.refreshOptions!()
+      expect(request.refreshOptions!()).toBe(initialRows)
+      finish([{ id: 'late' }])
+      await vi.waitFor(() => expect(request.refreshOptions!().map(row => row.value)).toEqual(['good/model', 'bad/late']))
+      expect(request.refreshDocument!()).not.toContain('Loading models')
+      return 'bad/late'
+    })
+    try {
+      await h.run()
+      expect(h.changeSelection).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ provider: 'bad', model: 'late' }), expect.anything(), expect.anything())
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('closes without waiting for a stalled catalog and ignores its late failure', async () => {
+    const h = await harness()
+    let fail!: (error: Error) => void
+    h.listModels.mockImplementation(provider => provider === 'bad' ? new Promise((_resolve, reject) => { fail = reject }) : Promise.resolve([{ id: 'model' }]))
+    try {
+      await h.run()
+      expect(h.prompt).toHaveBeenCalledOnce()
+      const request = h.prompt.mock.calls[0]![0], rows = request.refreshOptions!(), detail = request.refreshDocument!()
+      fail(new Error('late failure'))
+      await new Promise(resolve => setImmediate(resolve))
+      expect(request.refreshOptions!()).toBe(rows)
+      expect(request.refreshDocument!()).toBe(detail)
+      expect(h.changeSelection).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('discards an older refresh when a newer catalog has already loaded', async () => {
+    const h = await harness()
+    let finish!: (models: { id: string }[]) => void
+    const stale = new Promise<{ id: string }[]>(resolve => { finish = resolve })
+    h.listModels.mockImplementation(provider => provider === 'bad' ? stale : Promise.resolve([{ id: 'model' }]))
+    h.prompt.mockImplementationOnce(async () => {
+      h.listModels.mockResolvedValue([{ id: 'fresh' }])
+      return '\u0000refresh'
+    }).mockImplementationOnce(async request => {
+      expect(request.options?.map(row => row.value)).toEqual(['good/fresh', 'bad/fresh'])
+      finish([{ id: 'stale' }])
+      await new Promise(resolve => setImmediate(resolve))
+      expect(request.refreshOptions!().map(row => row.value)).toEqual(['good/fresh', 'bad/fresh'])
+      return null
+    })
+    try { await h.run(); expect(h.changeSelection).not.toHaveBeenCalled() }
+    finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps healthy providers and retains loaded rows when refreshing fails', async () => {
+    const h = await harness()
+    h.listModels.mockImplementation(async provider => {
+      if (provider === 'bad') throw new Error('provider offline')
+      return [{ id: 'model' }]
+    })
+    h.prompt.mockImplementationOnce(async request => {
+      expect(request.options).toEqual([expect.objectContaining({ value: 'good/model' })])
+      expect(request.detail).toContain('bad · provider offline')
+      Object.assign(promptBrowserState(request)!, { query: 'good', selected: 'good/model' })
+      h.listModels.mockRejectedValue(new Error('network offline'))
+      return '\u0000refresh'
+    })
+    try {
+      await h.run()
+      expect(h.prompt.mock.calls[1]![0].options).toEqual([expect.objectContaining({ value: 'good/model' })])
+      expect(promptBrowserState(h.prompt.mock.calls[1]![0])).toEqual({ query: 'good', selected: 'good/model' })
+      expect(h.changeSelection).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps the picker open after resolution fails and retries the same model', async () => {
+    const h = await harness()
+    h.resolveModelInfo.mockRejectedValueOnce(new Error('model unavailable'))
+    h.prompt.mockResolvedValueOnce('good/model').mockResolvedValueOnce('good/model')
+    try {
+      expect((await h.run())?.result.kind).toBe('success')
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ detail: 'model unavailable', initialValue: 'good/model' })
+      expect(h.changeSelection).toHaveBeenCalledTimes(1)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it.each(['retry', 'done', null])('offers recovery after the live model changes and saving fails (%s)', async action => {
+    const h = await harness()
+    h.changeSelection.mockRejectedValueOnce(new DefaultModelSaveError({ provider: 'good', model: 'model' }, new Error('disk full')))
+    h.prompt.mockResolvedValueOnce('good/model').mockResolvedValueOnce(action)
+    try {
+      const result = await h.run()
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Default model', detail: 'good/model\ndisk full' })
+      expect(h.changeSelection).toHaveBeenCalledTimes(action === 'retry' ? 2 : 1)
+      expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining(action === 'retry' ? 'Default model:' : 'Default model was not saved.') })
+    } finally { await h.ctx.fiber.dispose() }
   })
 })

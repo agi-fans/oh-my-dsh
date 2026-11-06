@@ -212,3 +212,22 @@ it.each(['before-dispatch', 'upload-failure'] as const)('restores to the origina
     expect(acknowledge).not.toHaveBeenCalled()
   } finally { await ctx.fiber.dispose() }
 })
+
+
+it.each(['unknown', 'error'])('restores a plain command after %s without executing it again', async outcome => {
+  const ctx = new Context(), submission = { text: '/example draft', images: [] }, inputs = [submission]
+  const restoreInput = vi.fn(), acknowledge = vi.fn(), exit = vi.fn(), off = () => () => {}
+  const execute = vi.fn(async () => { if (outcome === 'error') throw new Error('unavailable'); return false })
+  ctx.provide('tui', { interactive: true, readInput: async () => inputs.shift() ?? null, onInterrupt: off, onQueueEdit: off, onRewind: off,
+    restoreInput, pendingInputs: { acknowledge }, notice: vi.fn() } as never)
+  ctx.provide('omdshSession', { start: async () => {}, execute, agent: { session: { id: 'origin' } } } as never)
+  ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
+  ctx.provide('appExit', exit)
+  try {
+    await ctx.plugin(runner)
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(restoreInput).toHaveBeenCalledWith(submission, 'origin')
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledOnce()
+  } finally { await ctx.fiber.dispose() }
+})

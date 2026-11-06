@@ -2,6 +2,7 @@
 
 import type { TuiDocumentPosition, TuiDocumentSource } from '../definition.ts'
 import { highlightCodeLines } from '../chrome/code-highlight.ts'
+import { renderMarkdown } from '../chrome/markdown.ts'
 import { type Theme } from '../chrome/theme.ts'
 import { expandTabs, sliceCells, stripAnsi, visibleWidth, wrapCode } from '../chrome/width.ts'
 
@@ -9,10 +10,19 @@ export interface DocumentModel {
   lines: readonly string[]
   numbers: readonly { old?: number; next?: number }[]
   hunks: readonly number[]
+  digits: number
+  indices: readonly number[]
+}
+
+/** A viewport can read rows without laying out the entire unwrapped file. */
+export interface DocumentRowSource {
+  readonly length: number
+  at(index: number): string | undefined
+  slice(start?: number, end?: number): string[]
 }
 
 export interface DocumentLayout {
-  rows: readonly string[]
+  rows: DocumentRowSource
   starts: readonly number[]
   sourceRows: readonly number[]
   gutterWidth: number
@@ -25,6 +35,19 @@ const models = new WeakMap<TuiDocumentSource, DocumentModel>()
 const layouts = new WeakMap<TuiDocumentSource, Map<string, DocumentLayout>>()
 const searches = new WeakMap<TuiDocumentSource, Map<string, number[]>>()
 const paints = new WeakMap<TuiDocumentSource, Map<string, { lines: readonly string[]; width: number }>>()
+const markdownLayouts = new WeakMap<TuiDocumentSource, Map<string, readonly string[]>>()
+
+export function documentMarkdown(source: TuiDocumentSource, theme: Theme, width: number): readonly string[] {
+  let cache = markdownLayouts.get(source)
+  if (cache === undefined) { cache = new Map(); markdownLayouts.set(source, cache) }
+  const key = `${width}:${theme.key}`
+  const cached = cache.get(key)
+  if (cached !== undefined) return cached
+  const rows = renderMarkdown(source.text, theme, width)
+  if (cache.size >= 2) cache.clear()
+  cache.set(key, rows)
+  return rows
+}
 
 export function documentModel(source: TuiDocumentSource): DocumentModel {
   const cached = models.get(source)
@@ -48,7 +71,8 @@ export function documentModel(source: TuiDocumentSource): DocumentModel {
       numbers.push({ old: old++, next: next++ }); oldRemaining--; nextRemaining--
     } else numbers.push({})
   }
-  const model = { lines, numbers, hunks }
+  const digits = numbers.reduce((max, number) => Math.max(max, String(Math.max(number.old ?? 0, number.next ?? 0)).length), 1)
+  const model = { lines, numbers, hunks, digits, indices: lines.map((_, at) => at) }
   models.set(source, model)
   return model
 }
@@ -83,7 +107,7 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   const cached = cache.get(key)
   if (cached !== undefined) return cached
   const model = documentModel(source)
-  const digits = model.numbers.reduce((max, number) => Math.max(max, String(Math.max(number.old ?? 0, number.next ?? 0)).length), 1)
+  const digits = model.digits
   /*
    * One number column, not one per side.
    *
@@ -114,12 +138,42 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
   const painted = paint.lines
   const maxColumn = Math.max(0, paint.width - inner)
   const column = Math.max(0, Math.min(Math.floor(options.column ?? 0), maxColumn))
+  const labelAt = (at: number): string => {
+    const number = model.numbers[at] ?? {}
+    return `${String(number.next ?? number.old ?? '').padStart(digits)} `
+  }
+  if (!wordWrap) {
+    const retained = new Map<number, string>()
+    const rows: DocumentRowSource = {
+      length: painted.length,
+      at(index) {
+        const at = index < 0 ? painted.length + index : index
+        const line = painted[at]
+        if (line === undefined) return undefined
+        const cached = retained.get(at)
+        if (cached !== undefined) return cached
+        const row = (showNumbers ? ' ' + theme.fg('dim', labelAt(at)) : '') + sliceCells(line, column, inner)
+        if (retained.size >= 256) retained.clear()
+        retained.set(at, row)
+        return row
+      },
+      slice(start = 0, end = painted.length) {
+        const clamp = (at: number): number => Math.max(0, Math.min(painted.length, at < 0 ? painted.length + at : at))
+        const result: string[] = []
+        for (let at = clamp(start); at < clamp(end); at++) result.push(rows.at(at)!)
+        return result
+      },
+    }
+    const layout = { rows, starts: model.indices, sourceRows: model.indices, gutterWidth: showNumbers ? gutterWidth : 0, wordWrap, column, maxColumn }
+    if (cache.size >= 2) cache.clear()
+    cache.set(key, layout)
+    return layout
+  }
   const rows: string[] = [], starts: number[] = [], sourceRows: number[] = []
   for (const [at, line] of painted.entries()) {
     starts.push(rows.length)
-    const number = model.numbers[at] ?? {}
-    const label = `${String(number.next ?? number.old ?? '').padStart(digits)} `
-    const segments = wordWrap ? wrapCode(line, inner) : [sliceCells(line, column, inner)]
+    const label = labelAt(at)
+    const segments = wrapCode(line, inner)
     for (const [wrap, segment] of segments.entries()) {
       rows.push((showNumbers ? ' ' + theme.fg('dim', wrap === 0 ? label : ' '.repeat(gutterWidth - 1)) : '') + segment)
       sourceRows.push(at)

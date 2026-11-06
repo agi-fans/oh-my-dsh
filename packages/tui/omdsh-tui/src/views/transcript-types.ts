@@ -117,7 +117,6 @@ export type Block =
     /** Exit code, once the command settled. */
     code?: number
     /** The reader asked for the output to enter the conversation. */
-    shared?: boolean
   }
   | WorkspaceBlock
   | {

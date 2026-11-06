@@ -25,15 +25,19 @@ export function shareTerminalOutputToConversation(owner: Agent, title: string, r
   // write: the model can refer to what was injected, so a row that only the
   // live TUI knows about would vanish on resume and leave the model citing
   // content the reader cannot see.
-  try {
-    owner.inject?.(createUserMessage({
-      source: { kind: 'omdsh-terminal', form: 'notice', summary: `Shared output from ${title}.` },
-      content: [{
-        type: 'text',
-        text: `The user shared terminal output from ${title}:\n\n${formatted}`,
-      }],
-    }))
-  } catch { /* ignore when session does not support injection */ }
+  if (typeof owner.inject !== 'function') throw new Error('This session cannot receive shared output.')
+  const message = createUserMessage({
+    source: { kind: 'omdsh-terminal', form: 'notice', summary: `Shared output from ${title}.` },
+    content: [{ type: 'text', text: `The user shared terminal output from ${title}:\n\n${formatted}` }],
+  })
+  const offset = owner.session?.snapshotEvents?.().length ?? 0
+  try { owner.inject(message) }
+  catch (error) {
+    // A listener can fail after the inbox committed the message. Retrying then would duplicate it.
+    const accepted = owner.session?.snapshotEvents?.().slice(offset).some(event =>
+      event.type === 'agent/inbox/spliced' && event.data.inserted.some(item => item.id === message.id))
+    if (!accepted) throw error
+  }
   return true
 }
 

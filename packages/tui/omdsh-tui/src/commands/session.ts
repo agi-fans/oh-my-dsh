@@ -4,8 +4,8 @@ import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { TuiRecentSession } from '../definition.ts'
-import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
+import type { TuiRecentSession, TuiService } from '../definition.ts'
+import type { SessionSearchHit, SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '../runtime/session-runtime.ts'
@@ -33,13 +33,16 @@ async function newSession(ctx: Context, invocation: CommandInvocation): Promise<
   return { kind: 'success', text: 'Started a new session.' }
 }
 
-async function resumeSession(ctx: Context, invocation: CommandInvocation, search?: { query: string; rows: readonly TuiRecentSession[] }): Promise<CommandResult> {
+async function resumeSession(ctx: Context, invocation: CommandInvocation, search?: { query: string; rows: readonly TuiRecentSession[]; nextCursor?: SessionSearchCursor }): Promise<CommandResult> {
   if (ctx.get('sessionPersistence') === undefined) return { kind: 'error', text: 'Session persistence is not configured.' }
   if (invocation.agent.status === 'running') {
     return { kind: 'error', text: 'Finish or interrupt the active turn before resuming another session.' }
   }
+  const abort = new AbortController()
+  invocation = { ...invocation, signal: AbortSignal.any([invocation.signal, abort.signal]) }
+  const prompt: TuiService['prompt'] = request => ctx.tui.prompt({ ...request, signal: invocation.signal, onSuperseded: () => abort.abort() })
   await ctx.omdshSession.refreshRecent()
-  let id = search === undefined ? invocation.rawInput.trim() : ''
+  const id = search === undefined ? invocation.rawInput.trim() : ''
   if (id !== '' && search === undefined) {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored === undefined) {
@@ -52,11 +55,11 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
   }
   if (id === '') {
     const libraryPath = ctx.omdshSession.sessionLibraryPath
-    const browse = createPromptBrowser(request => ctx.tui.prompt(request))
+    const browse = createPromptBrowser(prompt)
     let archivedView = false
     let searchDiagnostic = ''
     let selectedId: string | undefined
-    while (id === '') {
+    while (!invocation.signal.aborted) {
       const library = readSessionLibrary(libraryPath)
       const inventory = new Map(ctx.omdshSession.recentSessions.map(row => [row.id, row]))
       const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
@@ -64,7 +67,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
       const answer = await browse({ localize: ['title', 'question', 'actions'],
         title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
-        detail: [searchDiagnostic, search === undefined ? '' : `Content search: ${search.query} · up to ${SESSION_SEARCH_LIMIT} matches`].filter(Boolean).join('\n'),
+        detail: [searchDiagnostic, search === undefined ? '' : `Content search: ${search.query} · ${search.rows.length} matches loaded`].filter(Boolean).join('\n'),
         notify: false,
         ...(selectedId === undefined ? {} : { initialValue: selectedId }),
         question: '',
@@ -94,6 +97,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
               }),
         })),
         actions: [
+          ...(search?.nextCursor === undefined ? [] : [{ key: 'Alt+N', label: 'load more', valuePrefix: 'more:', scope: 'list' as const }]),
           ...(search === undefined ? [] : [{ key: 'Alt+L', label: 'all sessions', valuePrefix: 'library:', scope: 'list' as const }]),
           ...(ctx.get('sessionQuery') === undefined ? [] : [{ key: 'Alt+S', label: 'search content', valuePrefix: 'search:', scope: 'list' as const }]),
           { key: 'Alt+R', label: 'rename', valuePrefix: 'rename:' },
@@ -106,11 +110,19 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         allowCustom: false,
         signal: invocation.signal,
       }, JSON.stringify([search?.query, archivedView]))
-      if (answer === null) return { kind: 'success' }
+      if (answer === null || invocation.signal.aborted) return { kind: 'success' }
       invocation.signal.throwIfAborted()
+      if (answer === 'more:' && search?.nextCursor !== undefined) {
+        const page = await findSessions(ctx, { ...invocation, rawInput: search.query }, search.nextCursor)
+        if (page.kind === 'rows') {
+          search = { ...page, rows: [...new Map([...search.rows, ...page.rows].map(row => [row.id, row])).values()] }
+          searchDiagnostic = ''
+        } else searchDiagnostic = page.text ?? ''
+        continue
+      }
       if (answer === 'library:') { searchDiagnostic = ''; search = undefined; archivedView = false; selectedId = undefined; continue }
       if (answer === 'search:') {
-        const query = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Search session content', question: 'Enter search text', signal: invocation.signal }))
+        const query = await prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Search session content', question: 'Enter search text', initialInput: search?.query ?? '', signal: invocation.signal }))
         if (query === null || query.trim() === '') continue
         const result = await findSessions(ctx, { ...invocation, rawInput: query })
         if (result.kind === 'rows') { searchDiagnostic = ''; search = result; archivedView = false; selectedId = undefined; continue }
@@ -137,27 +149,35 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         const row = recent.find(item => item.id === target)
         if (row === undefined) continue
         selectedId = target
-        const title = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+        const title = await prompt(askPrompt({ localize: ['title', 'question', 'actions'],
           title: 'Rename Session',
           question: `New title for “${row.title}”`,
           initialInput: row.title,
           signal: invocation.signal,
         }))
-        if (title !== null) await ctx.omdshSession.renameSession(invocation.agent, target, title, invocation.signal)
+        if (title !== null && !invocation.signal.aborted) {
+          try { await ctx.omdshSession.renameSession(invocation.agent, target, title, invocation.signal); searchDiagnostic = '' }
+          catch (error) { searchDiagnostic = error instanceof Error ? error.message : String(error) }
+        }
         continue
       }
-      id = answer
+      selectedId = answer
+      if (answer === invocation.agent.id) { searchDiagnostic = 'That session is already active.'; continue }
+      const resumed = await resumeStoredSession(ctx, invocation, answer, prompt)
+      if (resumed.kind === 'success' && resumed.text !== undefined) return resumed
+      searchDiagnostic = resumed.text ?? ''
     }
+    return { kind: 'success' }
   }
   if (id === invocation.agent.id) return { kind: 'success', text: 'That session is already active.' }
-  return resumeStoredSession(ctx, invocation, id)
+  return resumeStoredSession(ctx, invocation, id, prompt)
 }
 
-async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string): Promise<CommandResult> {
+async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string, prompt: TuiService['prompt']): Promise<CommandResult> {
   try {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
-      const migrate = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
+      const migrate = await confirmPrompt(prompt, { localize: ['title', 'options', 'actions'],
         title: 'Migrate session',
         question: ctx.omdshSession.recentSessions.find(row => row.id === id)?.title ?? id,
         detail: 'Opening this session writes a current-format generation and retains the historical source. Browsing the Session Library does not migrate it.',
@@ -170,15 +190,16 @@ async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, 
     await ctx.omdshSession.resumeSession(invocation.agent, id, invocation.signal)
     return { kind: 'success', text: `Resumed ${id}.` }
   } catch (error: unknown) {
+    if (ctx.omdshSession.agent?.id === id) return { kind: 'success', text: `Resumed ${id}. Session Library refresh failed: ${error instanceof Error ? error.message : String(error)}` }
     if (invocation.signal.aborted) return { kind: 'error', text: 'Resume cancelled.' }
     return { kind: 'error', text: 'Resume failed: ' + (error instanceof Error ? error.message : String(error)) }
   }
 }
 
-type SessionSearchResult = CommandResult | { kind: 'rows'; query: string; rows: readonly TuiRecentSession[] }
+type SessionSearchResult = CommandResult | { kind: 'rows'; query: string; rows: readonly TuiRecentSession[]; nextCursor?: SessionSearchCursor }
 
 /** Read session content without replacing the active conversation. */
-async function findSessions(ctx: Context, invocation: CommandInvocation): Promise<SessionSearchResult> {
+async function findSessions(ctx: Context, invocation: CommandInvocation, cursor?: SessionSearchCursor): Promise<SessionSearchResult> {
   if (invocation.agent.status === 'running') {
     return { kind: 'error', text: 'Finish or interrupt the active turn before resuming another session.' }
   }
@@ -186,14 +207,16 @@ async function findSessions(ctx: Context, invocation: CommandInvocation): Promis
   const sessionQuery = ctx.get('sessionQuery')
   if (sessionQuery === undefined) return { kind: 'error', text: 'Session search is not configured.' }
   let hits: readonly SessionSearchHit[]
+  let nextCursor: SessionSearchCursor | undefined
   try {
-    const page = await sessionQuery.searchSessions({ query, limit: SESSION_SEARCH_LIMIT }, { signal: invocation.signal })
+    const page = await sessionQuery.searchSessions({ query, limit: SESSION_SEARCH_LIMIT, ...(cursor === undefined ? {} : { cursor }) }, { signal: invocation.signal })
     hits = page.items
+    nextCursor = page.nextCursor
   } catch (error: unknown) {
     if (invocation.signal.aborted) return { kind: 'error', text: 'Search cancelled.' }
     return { kind: 'error', text: 'Session search failed: ' + (error instanceof Error ? error.message : String(error)) }
   }
-  if (hits.length === 0) return { kind: 'success', text: `No sessions match “${query}”.` }
+  if (hits.length === 0 && cursor === undefined) return { kind: 'success', text: `No sessions match “${query}”.` }
   const titles = new Map<string, string>()
   try {
     for (const result of await sessionQuery.readTitleSnapshots(hits.map(hit => hit.header.id), invocation.signal)) {
@@ -202,7 +225,7 @@ async function findSessions(ctx: Context, invocation: CommandInvocation): Promis
       }
     }
   } catch { /* title folding is best-effort; the snippet still identifies the hit */ }
-  return { kind: 'rows', query, rows: hits.map(hit => ({
+  return { kind: 'rows', query, ...(nextCursor === undefined ? {} : { nextCursor }), rows: hits.map(hit => ({
     id: hit.header.id,
     title: titles.get(hit.header.id) ?? hit.bestMatch.snippet,
     preview: hit.bestMatch.snippet,

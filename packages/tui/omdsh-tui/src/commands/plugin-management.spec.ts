@@ -5,6 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import Commands from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { PluginInfo, ChangeResult, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager'
+import type PluginMarket from '@deepseek-ai/dsh-plugin-market'
 import type { TuiService } from '../definition.ts'
 import z from '@deepseek-ai/schemastery'
 import * as plugins from './plugins.ts'
@@ -316,13 +317,13 @@ describe('Discover', () => {
     installation: { status: 'not-installed' },
   }
 
-  async function discoverHarness(options: { indexes: unknown[]; entries?: unknown[] }) {
+  async function discoverHarness(options: { indexes: unknown[]; entries?: Awaited<ReturnType<PluginMarket['search']>>['entries'] }) {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(Commands)
     const prompt = vi.fn<TuiService['prompt']>(async () => null)
     const commandOutput = vi.fn(), notice = vi.fn()
-    const search = vi.fn(async () => ({
+    const search = vi.fn<PluginMarket['search']>(async () => ({
       url: 'https://market.test/index.json', title: { en: 'Test market' }, metadata: {},
       fetchedAt: 1, entries: options.entries ?? [entry], total: 1, nextOffset: null,
     }))
@@ -338,6 +339,90 @@ describe('Discover', () => {
     const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
     return { ctx, agent, prompt, commandOutput, notice, search, manager }
   }
+
+  it('loads later pages and retries only the source that failed', async () => {
+    const first = 'https://market.test/index.json', second = 'https://other.test/index.json'
+    const h = await discoverHarness({ indexes: [{ url: first }, { url: second }] })
+    const page = (url: string, suffix: string, nextOffset: number | null) => ({
+      url, title: { en: url }, metadata: {}, fetchedAt: 1,
+      entries: [{ ...entry, name: `${entry.name}-${suffix}` }], total: 2, nextOffset,
+    })
+    h.search.mockImplementation(async (url, query) => page(url, `${url}-${query.offset}`, query.offset === 0 ? 1 : null))
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('')
+      .mockImplementationOnce(async request => {
+        Object.assign(promptBrowserState(request)!, { query: 'example', selected: request.options![0]!.value })
+        h.search.mockRejectedValueOnce(new Error('temporarily offline'))
+        return 'more:'
+      }).mockResolvedValueOnce('retry:')
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      const failed = h.prompt.mock.calls[3]![0], recovered = h.prompt.mock.calls[4]![0]
+      expect(failed.options).toHaveLength(3)
+      expect(failed.detail).toContain(`${first} · temporarily offline`)
+      expect(recovered.options).toHaveLength(4)
+      expect(recovered.detail).toBe('Showing 4 of 4 plugins')
+      expect(recovered.actions?.some(action => action.valuePrefix === 'more:')).toBe(false)
+      expect(recovered.actions?.some(action => action.valuePrefix === 'retry:')).toBe(false)
+      expect(promptBrowserState(recovered)?.query).toBe('example')
+      expect(h.search.mock.calls.slice(2)).toEqual([
+        [first, expect.objectContaining({ offset: 1, fetchedAt: 1 })],
+        [second, expect.objectContaining({ offset: 1, fetchedAt: 1 })],
+        [first, expect.objectContaining({ offset: 1, fetchedAt: 1 })],
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('shows successful sources when another source fails on the first search', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://bad.test' }, { url: 'https://market.test/index.json' }] })
+    h.search.mockRejectedValueOnce(new Error('offline'))
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('')
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[2]![0]).toMatchObject({ options: [expect.objectContaining({ label: entry.name })],
+        detail: expect.stringContaining('https://bad.test · offline'),
+        actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'retry:' })]) })
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('restarts pagination if the index snapshot changes between pages', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
+    const page = { url: 'https://market.test/index.json', title: { en: 'Market' }, metadata: {}, total: 2 }
+    h.search.mockResolvedValueOnce({ ...page, fetchedAt: 1, entries: [entry], nextOffset: 1 })
+      .mockResolvedValueOnce({ ...page, fetchedAt: 2, entries: [{ ...entry, name: 'new-tail' }], nextOffset: null })
+      .mockResolvedValueOnce({ ...page, fetchedAt: 2, entries: [{ ...entry, name: 'new-head' }], nextOffset: 1 })
+    for (const answer of ['discover', '', 'more:', null]) h.prompt.mockResolvedValueOnce(answer)
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.search).toHaveBeenLastCalledWith(page.url, expect.objectContaining({ offset: 0, fetchedAt: 2 }))
+      expect(h.prompt.mock.calls[3]![0].options).toEqual([expect.objectContaining({ label: 'new-head' })])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it.each(['dismiss', 'interrupt', 'supersede'] as const)('abandons a slow search on %s without publishing its late result', async action => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
+    let finish!: (value: Awaited<ReturnType<PluginMarket['search']>>) => void
+    h.search.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const abort = new AbortController()
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('')
+      .mockImplementationOnce(async request => {
+        expect(request.presentation).toBe('progress')
+        if (action === 'interrupt') abort.abort()
+        if (action === 'supersede') request.onSuperseded?.('')
+        return null
+      })
+    try {
+      const run = h.ctx.commands.execute(h.agent, '/plugins', [], abort.signal)
+      if (action === 'interrupt') await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+      else await run
+      const calls = h.prompt.mock.calls.length
+      if (action === 'dismiss') expect(h.prompt.mock.calls[3]![0]).toMatchObject({ options: [], detail: 'Loading cancelled. Refresh to try again.' })
+      else expect(calls).toBe(3)
+      finish({ url: 'https://market.test/index.json', title: { en: 'Market' }, metadata: {}, fetchedAt: 1, entries: [entry], total: 1, nextOffset: null })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(h.prompt).toHaveBeenCalledTimes(calls)
+      expect(h.manager.installBundle).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
 
   it('keeps source setup guidance and retry in Discover', async () => {
     const h = await discoverHarness({ indexes: [] })
@@ -411,8 +496,8 @@ describe('Discover', () => {
       .mockResolvedValueOnce('refresh:')
     try {
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
-      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ question: 'example', detail: 'Index unavailable', options: expect.arrayContaining([expect.objectContaining({ label: entry.name })]) })
-      expect(h.prompt.mock.calls[4]![0].detail).toBe('')
+      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ question: 'example', detail: expect.stringContaining('Index unavailable'), options: expect.arrayContaining([expect.objectContaining({ label: entry.name })]) })
+      expect(h.prompt.mock.calls[4]![0].detail).toBe('Showing 1 of 1 plugins')
       expect(h.search).toHaveBeenCalledTimes(3)
       expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }

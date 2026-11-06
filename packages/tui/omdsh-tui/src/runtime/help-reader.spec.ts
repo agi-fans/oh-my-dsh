@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { TuiPrompt } from '../definition.ts'
+import { buildSlashCommandCompletions } from '../views/autocomplete.ts'
 import { filteredPromptOptions } from '../views/prompt-selector.ts'
 import { browseHelp, helpOptions } from './help-reader.ts'
 
@@ -30,4 +31,17 @@ describe('help reader', () => {
     expect(requests.map(request => request.title)).toEqual(['Help', 'Help · Shortcuts', 'Help'])
     expect(requests[1]?.detail).toContain('Diff / file browser')
   })
+})
+
+
+it('uses the same localized command matching and ranking as slash completion', async () => {
+  const catalog = [...commands, { name: 'model', description: 'Choose a model' }, { name: 'permission', description: 'Change access' }]
+  const prompt = vi.fn(async (request: TuiPrompt) => {
+    for (const query of ['模型', '权限', '/ext', 'examples', 'diff']) {
+      expect(filteredPromptOptions(request, query).map(option => option.value)).toEqual(
+        buildSlashCommandCompletions(catalog, query, 'zh-CN').map(item => '/' + item.value))
+    }
+    return null
+  })
+  await browseHelp({ prompt }, catalog, {}, 'zh-CN', false, new AbortController().signal)
 })

@@ -106,6 +106,7 @@ function dropCompactionNotice(blocks: Block[]): void {
 
 interface ReplayIndexes {
   readonly toolByCallId: Map<string, number>
+  readonly runningTools: Set<number>
 }
 
 function isMutableAttemptBlock(block: Block, turn: number, step?: number): boolean {
@@ -154,8 +155,10 @@ function dropPartialToolPreviews(blocks: Block[], indexes?: ReplayIndexes): bool
 }
 
 /** Preserve dispatched calls for audit while ensuring none remain visually active after a turn. */
-function settleUnfinishedToolCalls(blocks: Block[]): void {
-  for (const [index, block] of blocks.entries()) {
+function settleUnfinishedToolCalls(blocks: Block[], indexes?: ReplayIndexes): void {
+  const pending = indexes === undefined ? blocks.keys() : indexes.runningTools.values()
+  for (const index of pending) {
+    const block = blocks[index]!
     if (block.kind !== 'tool' || block.status !== 'running' || block.partial === true) continue
     blocks[index] = {
       ...block,
@@ -163,6 +166,7 @@ function settleUnfinishedToolCalls(blocks: Block[]): void {
       output: block.output === '' ? UNFINISHED_TOOL_OUTPUT : block.output,
     }
   }
+  indexes?.runningTools.clear()
 }
 
 /** Replace the trailing streaming block with a settled one, or append. */
@@ -205,7 +209,9 @@ function settleAssistant(
     ...(interrupted ? { interrupted: true } : {}),
   }
   let streamingIndex = -1
-  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+  // Replay contains durable events only; streaming blocks are introduced by
+  // applyStreamChunk, never by the log. Live settlement still searches for them.
+  for (let index = mutable ? -1 : blocks.length - 1; index >= 0; index -= 1) {
     const candidate = blocks[index]
     if (candidate?.kind === 'assistant' && candidate.streaming && candidate.turn === turn && candidate.step === step) {
       streamingIndex = index
@@ -335,11 +341,18 @@ export function replayEvents(
   workspaces?: ReadonlyMap<number, WorkspaceChangesSummary>,
 ): TranscriptState {
   let state = initialTranscript()
-  const indexes: ReplayIndexes = { toolByCallId: new Map() }
+  const indexes: ReplayIndexes = { toolByCallId: new Map(), runningTools: new Set() }
   for (const event of events) {
     state = foldEvent(state, event, presentations?.get(event.seq), true, indexes, workspaces?.get(event.seq))
   }
   return state
+}
+
+/** Only replay owns these spans exclusively until the finished state escapes. */
+function withTurnSpan(state: TranscriptState, turn: number, span: { start: number; end?: number }, mutable: boolean) {
+  const spans = (mutable ? state.turnSpans ?? {} : { ...state.turnSpans }) as Record<number, { start: number; end?: number }>
+  spans[turn] = span
+  return spans
 }
 
 function foldEvent(
@@ -376,7 +389,7 @@ function foldEvent(
         todos: [],
         compactCommandId: undefined,
         compaction: undefined,
-        turnSpans: { ...state.turnSpans, [event.data.turn]: { start: event.time } },
+        turnSpans: withTurnSpan(state, event.data.turn, { start: event.time }, mutable),
       }
     case 'llm/retry': {
       const blocks = editableBlocks(state, mutable)
@@ -406,8 +419,8 @@ function foldEvent(
       const blocks = editableBlocks(state, mutable)
       let failure: string | undefined
       if (reason.kind === 'error') hideFailedAttempt(blocks, event.data.turn, undefined, indexes)
-      const droppedPartialTool = dropPartialToolPreviews(blocks, indexes)
-      settleUnfinishedToolCalls(blocks)
+      const droppedPartialTool = mutable ? false : dropPartialToolPreviews(blocks, indexes)
+      settleUnfinishedToolCalls(blocks, indexes)
       dropRetryNotice(blocks)
       const settledLast = blocks[blocks.length - 1]
       if (settledLast?.kind === 'assistant' && settledLast.streaming) {
@@ -459,7 +472,7 @@ function foldEvent(
         ...(stoppedTurns === undefined ? {} : { stoppedTurns }),
         ...(span === undefined
           ? {}
-          : { turnSpans: { ...state.turnSpans, [event.data.turn]: { start: span.start, end: event.time } } }),
+          : { turnSpans: withTurnSpan(state, event.data.turn, { start: span.start, end: event.time }, mutable) }),
       }
     }
     case 'user/message': {
@@ -694,6 +707,7 @@ function startToolCall(
     blocks.push(block)
     indexes?.toolByCallId.set(callId, blocks.length - 1)
   }
+  indexes?.runningTools.add(partial >= 0 ? partial : blocks.length - 1)
   return { ...state, blocks }
 }
 
@@ -728,6 +742,7 @@ function applyToolResult(
     const block = blocks[indexed]
     if (block?.kind === 'tool') {
       blocks[indexed] = settleTool(block, content, isError, error, presentation)
+      indexes?.runningTools.delete(indexed)
       return { ...state, blocks }
     }
   }

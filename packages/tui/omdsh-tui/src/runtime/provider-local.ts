@@ -224,6 +224,7 @@ import {
   refreshPromptOptions,
   promptTreePageSize,
   selectedPromptAnswer,
+  structuredPromptAnswer,
   selectedFilteredPromptAnswer,
   togglePromptSelection,
   documentRows,
@@ -1272,7 +1273,6 @@ export class LocalTui implements TuiService {
       output: result.output === '' ? current.output : result.output,
       status: failed ? 'error' : 'ok',
       ...(result.code === undefined ? {} : { code: result.code }),
-      ...(request.share === true ? { shared: true } : {}),
     }))
     paint()
     return result
@@ -3381,13 +3381,15 @@ export class LocalTui implements TuiService {
       const selected = filteredPromptOptions(prompt.request, '', prompt.collapsed)[prompt.selected]
       if (action !== undefined && (action.scope === 'list' || selected !== undefined)) {
         if (!disarmed) {
-          this.#finishPrompt(action.valuePrefix + (action.scope === 'list' ? '' : selected!.value ?? selected!.label))
+          this.#finishPrompt(action.valuePrefix + (action.scope === 'list' ? '' : selected!.value ?? selected!.label), 'action')
           this.#render()
         }
         return true
       }
     }
-    if (event.type === 'text' && event.value === ' ' && prompt.request.multiSelect === true) {
+    const toggleAnswer = prompt.request.answerFormat === 'json' && event.type === 'key' && event.id === 'ctrl+g'
+    const toggleSpace = event.type === 'text' && event.value === ' ' && (prompt.request.answerFormat !== 'json' || this.#editor.text === '')
+    if (prompt.request.multiSelect === true && (toggleAnswer || toggleSpace)) {
       this.#prompt = togglePromptSelection(prompt, this.#editor.text) as PendingPrompt
       this.#render()
       return true
@@ -3410,7 +3412,7 @@ export class LocalTui implements TuiService {
       if (!disarmed) {
         const selected = filtered[prompt.selected]
         if (keyAction.scope === 'list' || selected !== undefined) {
-          this.#finishPrompt(keyAction.valuePrefix + (keyAction.scope === 'list' ? '' : selected!.value ?? selected!.label))
+          this.#finishPrompt(keyAction.valuePrefix + (keyAction.scope === 'list' ? '' : selected!.value ?? selected!.label), 'action')
           this.#render()
         }
       }
@@ -3484,10 +3486,9 @@ export class LocalTui implements TuiService {
     }
     if (event.id === 'enter' && (this.#editor.text === '' || prompt.request.multiSelect === true)) {
       const answer = selectedPromptAnswer(prompt)
-      // A disabled row and an empty multi-select both swallow Enter: nothing is
-      // being answered, so the surface stays where the reader is.
-      if (answer === null) return true
-      this.#finishPrompt(answer)
+      // Supplementary text can answer a question even with no checked options.
+      if (answer === null && !(prompt.request.answerFormat === 'json' && this.#editor.expandedText.trim())) return true
+      this.#finishPrompt(answer ?? '', 'selection')
       this.#render()
       return true
     }
@@ -4098,7 +4099,7 @@ export class LocalTui implements TuiService {
       return
     }
     const commands = this.#commands()
-    const slashResult = slashSuggestions(this.#editor.text, this.#editor.cursor, commands)
+    const slashResult = slashSuggestions(this.#editor.text, this.#editor.cursor, commands, resolveUiLanguage(this.#uiLanguage))
     if (slashResult !== null) {
       this.#setAutocomplete(slashResult)
       return
@@ -4428,7 +4429,6 @@ export class LocalTui implements TuiService {
   #submit(text: string, delivery?: 'queue' | 'steer'): void {
     if (this.#prompt !== null) {
       if (this.#prompt.request.presentation === 'progress') return
-      this.#editor.setText('')
       const answer = this.#prompt.request.preserveWhitespace === true ? text : text.trim()
       this.#finishPrompt(answer.trim() === '' ? null : answer)
       this.#render()
@@ -4604,9 +4604,15 @@ export class LocalTui implements TuiService {
     return [...BUILTIN_SLASH_COMMANDS, ...runtime]
   }
 
-  #finishPrompt(answer: string | null): void {
+  #finishPrompt(answer: string | null, kind: 'text' | 'selection' | 'action' = 'text'): void {
     const pending = this.#prompt
     if (pending === null) return
+    const draft = structuredPromptAnswer(pending, this.#editor.expandedText)
+    try { pending.request.onAnswerDraft?.(draft) }
+    catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
+    if (answer !== null && pending.request.answerFormat === 'json' && kind !== 'action' && this.#tty) {
+      answer = JSON.stringify(kind === 'selection' ? draft : { selected: [], ...(answer === '' ? {} : { custom: answer }) })
+    }
     if (pending.browserState !== undefined) {
       const selected = filteredPromptOptions(pending.request, this.#editor.text, pending.collapsed)[pending.selected]
       pending.browserState.query = this.#editor.text
@@ -4742,17 +4748,17 @@ export class LocalTui implements TuiService {
 
   #settingsActions(): SettingItem[] {
     const runtimeActions = [
-      { id: 'command:model', group: 'Models', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
-      { id: 'command:permission', group: 'General', label: 'Current session access', description: 'Changes only this session. Default access controls future sessions.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
-      { id: 'command:agent', group: 'Agent presets', label: 'Current session preset', description: 'Choose before the first prompt; does not change the new-session default.', value: this.#sessionControls?.agentPreset === undefined ? 'Choose' : formatAgentPreset(this.#sessionControls.agentPreset), values: [], action: 'agent' },
-      { id: 'command:login', group: 'Models', label: 'Provider credentials', description: 'Sign in or configure a provider. Does not change the selected model.', value: 'Configure', values: [], action: 'login' },
-      { id: 'command:logout', group: 'Models', label: 'Sign out', description: 'Remove saved provider credentials; environment credentials remain available.', value: 'Choose provider', values: [], action: 'logout' },
+      { id: 'command:model', behavior: 'Session + Profile · Choose scope in Model', group: 'Models', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
+      { id: 'command:permission', behavior: 'Current session · Applies now', group: 'General', label: 'Current session access', description: 'Changes only this session. Default access controls future sessions.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
+      { id: 'command:agent', behavior: 'Current session · Before the first prompt', group: 'Agent presets', label: 'Current session preset', description: 'Choose before the first prompt; does not change the new-session default.', value: this.#sessionControls?.agentPreset === undefined ? 'Choose' : formatAgentPreset(this.#sessionControls.agentPreset), values: [], action: 'agent' },
+      { id: 'command:login', behavior: 'Provider credentials', group: 'Models', label: 'Provider credentials', description: 'Sign in or configure a provider. Does not change the selected model.', value: 'Configure', values: [], action: 'login' },
+      { id: 'command:logout', behavior: 'Provider credentials', group: 'Models', label: 'Sign out', description: 'Remove saved provider credentials; environment credentials remain available.', value: 'Choose provider', values: [], action: 'logout' },
       { id: 'command:plugins', group: 'Plugins', label: 'Manage plugins', description: 'Inspect installed entries, enable bundles, discover plugins or start Creator.', value: 'Open', values: [], action: 'plugins' },
     ].filter(item => this.#runtimeCommands.some(command => command.name === item.action))
     const customBindings = Object.entries(this.#keybindings).filter(([key, action]) => DEFAULT_KEYBINDINGS[key] !== action).length
     return [
       ...runtimeActions,
-      ...(this.#goalHandler === undefined ? [] : [{ id: 'action:goal', group: 'General' as const, label: 'Current goal', description: 'Edit, pause, resume or clear this session’s goal.', value: 'Open', values: [], action: 'manage-goal' }]),
+      ...(this.#goalHandler === undefined ? [] : [{ id: 'action:goal', behavior: 'Current session · Applies now', group: 'General' as const, label: 'Current goal', description: 'Edit, pause, resume or clear this session’s goal.', value: 'Open', values: [], action: 'manage-goal' }]),
       ...(this.#keybindingsPath === undefined ? [] : [{
         id: 'action:keybindings',
         label: 'Keybindings',

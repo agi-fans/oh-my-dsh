@@ -24,6 +24,7 @@ import {
   recentSessionContent,
   restoreSubmissionMessage,
   SessionRuntime,
+  DefaultModelSaveError,
   sessionControls,
   shouldRefreshSessionInfoAfter,
   sessionStats,
@@ -803,6 +804,25 @@ describe('SessionRuntime workspace claim', () => {
     }) as unknown as TuiService
     return { ctx, agentCtx, calls, tui, runtime: new SessionRuntime(ctx, tui) }
   }
+
+  it('publishes the live model before a default save failure and retries without another selection event', async () => {
+    const h = await harness('/tmp/omdsh-model-retry')
+    const saveSelection = vi.fn().mockRejectedValueOnce(new Error('disk full')).mockResolvedValue(undefined)
+    Object.assign(h.ctx.agentDefaultModel, { saveSelection })
+    try {
+      await h.runtime.start()
+      const agent = h.runtime.agent!
+      const select = vi.spyOn(agent.model, 'select')
+      const selected = { provider: 'other', model: 'new-model' }
+      h.calls.length = 0
+      await expect(h.runtime.changeSelection(agent, selected, {})).rejects.toBeInstanceOf(DefaultModelSaveError)
+      expect(h.runtime.selection(agent)).toEqual(selected)
+      expect(h.calls).toContain('model')
+      await h.runtime.changeSelection(agent, selected, {})
+      expect(select).toHaveBeenCalledTimes(1)
+      expect(saveSelection).toHaveBeenCalledTimes(2)
+    } finally { await h.runtime.dispose(); await h.ctx.fiber.dispose(); await h.agentCtx.fiber.dispose() }
+  })
 
   it('adopts the cwd workspace and attaches the activated session', async () => {
     const attachSession = vi.fn(async () => undefined)

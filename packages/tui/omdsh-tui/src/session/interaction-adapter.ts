@@ -61,6 +61,14 @@ export function parsePromptAnswer(
   input: string,
   question: Pick<AskUserQuestionItem, 'options' | 'multiSelect'>,
 ): { selected: string[]; custom?: string } {
+  try {
+    const answer = JSON.parse(input)
+    if (answer !== null && typeof answer === 'object' && Array.isArray(answer.selected)
+      && answer.selected.every((value: unknown) => typeof value === 'string')
+      && (answer.custom === undefined || typeof answer.custom === 'string')) {
+      return { selected: answer.selected, ...(answer.custom === undefined ? {} : { custom: answer.custom }) }
+    }
+  } catch { /* Legacy text-only prompt providers return labels or numbers. */ }
   const options = question.options ?? []
   const tokens = question.multiSelect === true ? input.split(',').map(token => token.trim()) : [input.trim()]
   const selected: string[] = []
@@ -132,7 +140,7 @@ async function askQuestions(
         : question.multiSelect === true
           ? {
               ...(previousParsed.selected.length === 0 ? {} : { initialValues: previousParsed.selected }),
-              ...(previousParsed.selected.length === 0 && previousParsed.custom !== undefined ? { initialInput: previousParsed.custom } : {}),
+              ...(previousParsed.custom !== undefined ? { initialInput: previousParsed.custom } : {}),
             }
           : previousParsed.custom !== undefined
             ? { initialInput: previousParsed.custom }
@@ -150,6 +158,8 @@ async function askQuestions(
         ...(request.questions.length > 1 ? { title: `${question.header ?? t('Question')} · ${index + 1}/${request.questions.length}` } : {}),
         ...(index > 0 ? { actions: [{ key: 'alt+left', label: t('previous question'), valuePrefix: QUESTION_BACK_VALUE, scope: 'list' as const }] } : {}),
         ...restoredAnswer,
+        answerFormat: 'json',
+        onAnswerDraft: answer => { rawAnswers.set(index, JSON.stringify(answer)) },
         ...(tui.insertText === undefined ? {} : {
           onCancelDraft: (draft: string) => {
             if (draft.trim() !== '') tui.insertText?.(draft)

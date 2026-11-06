@@ -112,7 +112,7 @@ export interface TuiShellRequest {
   readonly signal: AbortSignal
   /** Interrupt the command: wired to the same key that stops a running turn. */
   readonly abort: () => void
-  /** The reader asked for the output to enter the conversation. */
+  /** Sharing intent only. A durable message confirms delivery to the conversation. */
   readonly share?: boolean
 }
 
@@ -203,6 +203,10 @@ export interface TuiPrompt {
   /** Keep indentation and trailing newlines when editing message text. */
   preserveWhitespace?: boolean
   multiSelect?: boolean
+  /** Return JSON with separate selected values and custom text. */
+  answerFormat?: 'json'
+  /** Preserve question drafts when navigating between prompts. */
+  onAnswerDraft?: (answer: { selected: string[]; custom?: string }) => void
   /** Values checked when a multi-select editor opens. */
   initialValues?: readonly string[]
   /** Submit an empty string when all multi-select choices are cleared. */
@@ -229,6 +233,8 @@ export interface TuiPrompt {
   refreshDocument?: () => string
   /** Refresh a source reader; false requests a stable paused snapshot. */
   refreshDocumentSource?: (following: boolean) => TuiDocumentSource
+  /** Rank a card's existing choices with the owning surface's search policy. */
+  filterOptions?: (query: string) => readonly NonNullable<TuiPrompt['options']>[number][]
   /** Refresh live choices; option values identify retained selection. */
   refreshOptions?: () => NonNullable<TuiPrompt['options']>
   /** Yield this reading surface to an attention-requesting prompt and recover any entered text. */

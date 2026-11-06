@@ -32,6 +32,7 @@ interface ProductForm {
   inline?: string
   effect?: string
   staged?: boolean
+  behavior?: string
   help?: Record<string, string>
 }
 
@@ -48,13 +49,13 @@ const SHELL_FORM: ProductForm = { label: 'Shell', section: 'tools', staged: true
 
 // Presentation only: values, validation, inheritance and writes belong to each live schema.
 const PRODUCT_FORMS: Record<string, ProductForm> = {
-  permission: { label: 'Default access', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
-  'agent-preset-registry': { label: 'Default Agent preset', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
+  permission: { label: 'Default access', behavior: 'Profile · Saves immediately · New sessions', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
+  'agent-preset-registry': { label: 'Default Agent preset', behavior: 'Profile · Saves immediately · New sessions', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
   'agent-loop': { label: 'Tool parallelism', section: 'tools', staged: true, fields: { maxParallelToolCalls: 'Parallel tool calls' },
     help: { maxParallelToolCalls: 'Maximum parallel-safe tool calls in one step. Other calls remain serial. Applies to subsequent tool batches; does not change subagent capacity.' } },
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
-  'file-recovery': { label: 'File recovery snapshots', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
+  'file-recovery': { label: 'File recovery snapshots', behavior: 'Profile · Saves immediately · Next turn', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
     effect: 'Default: deepseek-search-api and deepseek-fetch-api. Fallbacks: deepseek-official (Messages) and http (local). With more than one provider installed, an empty value is ambiguous.' },
@@ -269,11 +270,11 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     }
     return [
       ...(form === undefined || owned.length === 0 ? [] : [{ id: ns, namespace: ns, label: form.label, section: form.section, fields: owned,
-        ...(inline === undefined ? {} : { inline }), summary, keywords: [...owned, ...Object.values(form.fields)],
+        ...(inline === undefined ? {} : { inline }), behavior: !ctx.settings.writable ? 'Profile · Read only' : form.behavior ?? (form.staged ? 'Profile · Apply to save' : 'Profile · Saves on confirmation'), summary, keywords: [...owned, ...Object.values(form.fields)],
         description: `${form.effect === undefined ? '' : `${form.effect} `}${field === undefined ? '' : `${fieldDescription(section, field, fields)} · `}${formEffect}` }]),
       ...(advanced.length === 0 ? [] : [{ id: `advanced:${ns}`, namespace: ns,
         label: String(section.ns).replace(/[-_]+/gu, ' ').replace(/^./u, first => first.toUpperCase()), section: 'advanced' as const, fields: advanced,
-        summary: `${advanced.length} fields`, keywords: advanced, description: `${ns} · ${advanced.length} fields · ${writable}` }]),
+        behavior: ctx.settings.writable ? 'Profile · Saves on confirmation' : 'Profile · Read only', summary: `${advanced.length} fields`, keywords: advanced, description: `${ns} · ${advanced.length} fields · ${writable}` }]),
     ]
   })
   if (ctx.get('pluginManager') !== undefined) entries.push(...NATIVE_INTEGRATIONS.map(item => {

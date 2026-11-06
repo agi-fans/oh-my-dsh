@@ -2,8 +2,7 @@
 import type { TuiDocumentPosition, TuiDocumentSource, TuiReviewFile } from '../definition.ts'
 import { paintSurface, type Theme } from '../chrome/theme.ts'
 import { padToWidth, stripAnsi, truncateToWidth, wrapText } from '../chrome/width.ts'
-import { renderMarkdown } from '../chrome/markdown.ts'
-import { documentLayout, documentMatches, documentPosition, documentStart } from './document-reader.ts'
+import { documentLayout, documentMarkdown, documentMatches, documentPosition, documentStart } from './document-reader.ts'
 
 export interface FileBrowserState {
   title: string
@@ -65,7 +64,7 @@ export function fileBrowserDocument(state: FileBrowserState, theme: Theme, width
   const geometry = fileBrowserGeometry(state, width, height)
   const layout = state.source === undefined || state.markdown ? undefined : documentLayout(state.source, theme, geometry.documentWidth, state.position)
   const rows = geometry.files.length === 0 ? ['No matching files.'] : state.loading ? ['Loading…'] : layout?.rows ?? (state.markdown && state.source !== undefined
-    ? renderMarkdown(state.source.text, theme, geometry.documentWidth)
+    ? documentMarkdown(state.source, theme, geometry.documentWidth)
     : wrapText(state.message || 'No content.', geometry.documentWidth))
   const max = Math.max(0, rows.length - geometry.page)
   const start = Math.max(0, Math.min(max, layout === undefined ? state.position.row : documentStart(layout, state.position)))
@@ -126,7 +125,7 @@ export function renderFileBrowser(state: FileBrowserState, theme: Theme, width: 
       left = fit(left, listWidth)
       if (at === state.selected) left = paintSurface(theme, 'userMessageBg', 'userMessageText', left)
     } else if (row === 0 && doc.files.length === 0) left = theme.fg('dim', ' No matching files.')
-    const text = doc.rows[doc.documentStart + row] ?? ''
+    const text = doc.rows.at(doc.documentStart + row) ?? ''
     let right = text
     if (doc.layout !== undefined && matches.includes(doc.layout.sourceRows[doc.documentStart + row] ?? -1)) right = paintSurface(theme, 'userMessageBg', 'userMessageText', right)
     if (state.help) right = theme.fg('dim', browserHelp(doc.documentWidth)[state.helpScroll + row] ?? '')

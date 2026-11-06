@@ -13,7 +13,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionSearchHit } from '@deepseek-ai/dsh-session-query'
+import { SessionSearchCursor, type SessionSearchHit, type SessionSearchPage, type SessionSearchRequest } from '@deepseek-ai/dsh-session-query'
 import * as commandSession from './session.ts'
 import type { TuiService, TuiPrompt, TuiRecentSession } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
@@ -45,7 +45,7 @@ async function harness(options: HarnessOptions = {}) {
   const prompt = vi.fn(async (_request: TuiPrompt): Promise<string | null> => options.promptAnswer ?? null)
   const resumeSession = vi.fn(async () => {})
   const openSessionTree = vi.fn(async () => {})
-  const searchSessions = vi.fn(async () => {
+  const searchSessions = vi.fn(async (_request: SessionSearchRequest): Promise<SessionSearchPage<SessionSearchHit>> => {
     if (options.failSearch !== undefined) throw options.failSearch
     return { items: options.hits ?? [] }
   })
@@ -81,7 +81,7 @@ async function harness(options: HarnessOptions = {}) {
     inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   const execute = (line: string) => ctx.commands.execute(agent, line, [], new AbortController().signal)
-  return { execute, retryLastPrompt, continueGeneration, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
+  return { ctx, execute, retryLastPrompt, continueGeneration, prompt, output, resumeSession, renameSession, openSessionTree, searchSessions, agent }
 }
 
 describe('/resume library and search', () => {
@@ -322,4 +322,79 @@ it('keeps separate library filters through pinning, archived view and content se
   for (const index of [1, 3, 6]) expect(promptBrowserState(h.prompt.mock.calls[index]![0])).toMatchObject({ query: 'Parser', selected: 'session-a' })
   for (const index of [2, 5]) expect(promptBrowserState(h.prompt.mock.calls[index]![0])?.query).toBe('')
   expect(h.resumeSession).not.toHaveBeenCalled()
+})
+
+
+it('loads more session matches, keeps existing rows on failure and retries the same cursor', async () => {
+  isolatedLibrary()
+  const h = await harness({ hits: [hit('session-a', 'first')] })
+  const cursor = SessionSearchCursor('page-two')
+  h.searchSessions.mockResolvedValueOnce({ items: [hit('session-a', 'first')], nextCursor: cursor })
+    .mockRejectedValueOnce(new Error('search offline'))
+    .mockResolvedValueOnce({ items: [hit('session-a', 'updated'), hit('session-b', 'second')] })
+  h.prompt.mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'session', selected: 'session-a' })
+    return 'more:'
+  }).mockResolvedValueOnce('more:')
+  await h.execute('/resume needle')
+  expect(h.prompt.mock.calls[1]![0]).toMatchObject({ detail: expect.stringContaining('search offline'), options: [expect.objectContaining({ value: 'session-a' })] })
+  const loaded = h.prompt.mock.calls[2]![0]
+  expect(loaded.options?.map(option => option.value)).toEqual(['session-a', 'session-b'])
+  expect(loaded.actions?.some(action => action.valuePrefix === 'more:')).toBe(false)
+  expect(promptBrowserState(loaded)).toEqual({ query: 'session', selected: 'session-a' })
+  expect(h.searchSessions.mock.calls.slice(1).map(([request]) => request)).toEqual([
+    { query: 'needle', limit: 20, cursor }, { query: 'needle', limit: 20, cursor },
+  ])
+})
+
+it('returns to the filtered library after resume fails and can retry', async () => {
+  isolatedLibrary()
+  const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }] })
+  h.resumeSession.mockRejectedValueOnce(new Error('file temporarily unavailable'))
+  h.prompt.mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'A', selected: 'session-a' })
+    return 'session-a'
+  }).mockResolvedValueOnce('session-a')
+  expect((await h.execute('/resume'))?.result).toMatchObject({ kind: 'success', text: 'Resumed session-a.' })
+  const retry = h.prompt.mock.calls[1]![0]
+  expect(retry.detail).toContain('file temporarily unavailable')
+  expect(promptBrowserState(retry)).toEqual({ query: 'A', selected: 'session-a' })
+  expect(h.resumeSession).toHaveBeenCalledTimes(2)
+})
+
+it('returns from migration cancellation and can choose another session', async () => {
+  isolatedLibrary()
+  const h = await harness({ migration: true, libraryRows: [
+    { id: 'old', title: 'Old', createdAt: 1, formatStatus: 'migration-required' },
+    { id: 'session-a', title: 'A', createdAt: 2 },
+  ] })
+  for (const answer of ['old', null, 'session-a']) h.prompt.mockResolvedValueOnce(answer)
+  await h.execute('/resume')
+  expect(h.prompt.mock.calls[2]![0].title).toBe('Session Library')
+  expect(h.resumeSession).toHaveBeenCalledTimes(1)
+  expect(h.resumeSession).toHaveBeenCalledWith(h.agent, 'session-a', expect.any(AbortSignal))
+})
+
+it('does not reopen the library when a migration prompt is superseded', async () => {
+  isolatedLibrary()
+  const h = await harness({ migration: true, libraryRows: [{ id: 'old', title: 'Old', createdAt: 1, formatStatus: 'migration-required' }] })
+  h.prompt.mockResolvedValueOnce('old').mockImplementationOnce(async request => { request.onSuperseded?.(''); return null })
+  await h.execute('/resume')
+  expect(h.prompt).toHaveBeenCalledTimes(2)
+  expect(h.resumeSession).not.toHaveBeenCalled()
+})
+
+
+it('reports a resumed session when only the subsequent library refresh fails', async () => {
+  isolatedLibrary()
+  const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }] })
+  h.resumeSession.mockImplementationOnce(async () => {
+    Object.assign(h.ctx.omdshSession, { agent: { id: SessionId('session-a') } })
+    throw new Error('directory unavailable')
+  })
+  h.prompt.mockResolvedValueOnce('session-a')
+  const result = await h.execute('/resume')
+  expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('Resumed session-a. Session Library refresh failed:') })
+  expect(h.prompt).toHaveBeenCalledTimes(1)
+  expect(h.resumeSession).toHaveBeenCalledTimes(1)
 })

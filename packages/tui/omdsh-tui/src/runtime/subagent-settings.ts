@@ -1,3 +1,4 @@
+import { settingsDraftSummary } from './settings-draft.ts'
 /** Delegation preferences remain Harness-owned; this editor only stages their fields. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settings'
@@ -29,7 +30,7 @@ interface Draft { section: SettingsDescriptor; changes: Map<string, unknown>; er
 
 export function subagentSettingsEntry(ctx: Context) {
   if (![LIMITS, MODELS].some(ns => describe(ctx, ns) !== undefined)) return []
-  return [{ id: 'subagents:settings', label: 'Subagents', section: 'agent' as const, fields: [], summary: 'Configure',
+  return [{ id: 'subagents:settings', label: 'Subagents', section: 'agent' as const, fields: [], summary: 'Configure', behavior: ctx.settings.writable ? 'Profile · Apply to save' : 'Profile · Read only',
     keywords: ['Subagent models', ...Object.values(labels)], description: 'Edit delegation limits and model choices together, then Apply to save.' }]
 }
 
@@ -184,9 +185,9 @@ export async function openSubagentSettings(ctx: Context, signal: AbortSignal, re
     }
     return ok
   }
-  const detail = (): string => [...drafts.values()].filter(draft => draft.error)
+  const detail = (): string => [settingsDraftSummary(ctx, [...drafts.values()].reduce((count, draft) => count + draft.changes.size, 0)), ...[...drafts.values()].filter(draft => draft.error)
     .map(draft => text(ctx, draft.section.ns === LIMITS ? 'Delegation limits' : 'Subagent models') + ': ' + text(ctx, draft.error))
-    .concat(catalogStatus()).filter(Boolean).join('\n')
+    .concat(catalogStatus())].filter(Boolean).join('\n')
   try {
     if (resetOnly && ctx.settings.writable) await restore()
     while (!signal.aborted) {

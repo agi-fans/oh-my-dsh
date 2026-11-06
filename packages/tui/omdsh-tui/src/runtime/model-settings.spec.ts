@@ -113,7 +113,7 @@ describe('Models provider management', () => {
 
   it('refuses a stale draft without overwriting an external edit or its credential', async () => {
     const h = harness(['relay', 'key', 'sk-test', () => { h.replace({ revision: 8 }); return 'apply' }, request => {
-      expect(request.detail).toContain('Your draft is kept')
+      expect(request.detail).toContain('Load the latest settings')
       expect(request.options?.find(row => row.value === 'key')?.description).toBe('New key ready to save')
       return 'cancel'
     }, null])
@@ -264,4 +264,58 @@ describe('Models provider management', () => {
     h.describeSettings.mockReturnValue([])
     try { expect(modelSettingsEntry(h.ctx)).toEqual([]) } finally { await h.ctx.fiber.dispose() }
   })
+})
+
+
+it.each(['mine', 'latest'])('rebases provider drafts and resolves a changed field using %s', async decision => {
+  const h = harness(['relay', 'baseURL', 'https://mine.example/v1', 'displayName', 'My name', () => {
+    const updated = { ...initialProfile, baseURL: 'https://latest.example/v1' }
+    h.replace({ revision: 8, value: { providers: { relay: updated } }, user: { providers: { relay: updated } } })
+    return 'apply'
+  }, request => {
+    expect(request.options?.some(row => row.value === 'reload')).toBe(true)
+    return 'reload'
+  }, request => { expect(request.question).toBe('Base URL'); return decision }, 'apply', null])
+  try {
+    await openModelSettings(h.ctx, h.signal)
+    expect(h.mutate).toHaveBeenCalledOnce()
+    expect(h.mutate.mock.calls[0]?.[2]).toBe(8)
+    const ops = h.mutate.mock.calls[0]?.[1]
+    expect(ops).toContainEqual({ op: 'set', path: ['providers', 'relay', 'displayName'], value: 'My name' })
+    expect(ops?.some(op => op.path.at(-1) === 'baseURL')).toBe(decision === 'mine')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('keeps a credential draft when rebasing unrelated provider changes', async () => {
+  const h = harness(['relay', 'key', 'sk-draft', () => { h.replace({ revision: 8 }); return 'apply' }, 'reload', 'apply', null])
+  try {
+    await openModelSettings(h.ctx, h.signal)
+    expect(h.set).toHaveBeenCalledWith('OMDSH_RELAY_API_KEY', 'sk-draft')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+
+it('requires a new credential draft after its reference changes during rebase', async () => {
+  const h = harness(['relay', 'key', 'sk-draft', () => {
+    const updated = { ...initialProfile, apiKeyEnv: 'OTHER_KEY' }
+    h.replace({ revision: 8, value: { providers: { relay: updated } }, user: { providers: { relay: updated } } })
+    return 'apply'
+  }, 'reload', request => {
+    expect(request.detail).toContain('credential reference changed')
+    expect(request.options?.find(row => row.value === 'key')?.description).not.toBe('New key ready to save')
+    return 'cancel'
+  }, null])
+  try { await openModelSettings(h.ctx, h.signal); expect(h.set).not.toHaveBeenCalled() }
+  finally { await h.ctx.fiber.dispose() }
+})
+
+
+it('counts staged provider fields and credentials without displaying the key', async () => {
+  const h = harness(['relay', 'baseURL', 'https://new.example/v1', 'key', 'sk-secret', request => {
+    expect(request.detail).toContain('2 pending changes')
+    expect(request.detail).not.toContain('sk-secret')
+    return 'cancel'
+  }, null])
+  try { await openModelSettings(h.ctx, h.signal); expect(h.mutate).not.toHaveBeenCalled() }
+  finally { await h.ctx.fiber.dispose() }
 })

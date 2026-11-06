@@ -7178,3 +7178,51 @@ it.each([false, true])('restores browsing filters and selection across actions a
     expect(term.visible().join('\n')).toContain('unsent draft')
   } finally { tui.dispose() }
 })
+
+
+describe('structured question answers', () => {
+  it.each([false, true])('keeps checked labels and supplementary text together (color=%s)', async color => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', color)
+    try {
+      const answer = tui.prompt({ title: 'Question', question: 'Choose', multiSelect: true, allowCustom: true, answerFormat: 'json',
+        options: [{ label: 'Read, then write' }, { label: 'Test' }] })
+      press(term, ' ')
+      press(term, 'also check 中文, please')
+      press(term, '\x1b[B\x07')
+      press(term, '\r')
+      expect(JSON.parse((await answer)!)).toEqual({ selected: ['Read, then write', 'Test'], custom: 'also check 中文, please' })
+      const customOnly = tui.prompt({ title: 'Question', question: 'Choose', multiSelect: true, allowCustom: true, answerFormat: 'json', options: [{ label: 'Test' }] })
+      press(term, 'something else\r')
+      expect(JSON.parse((await customOnly)!)).toEqual({ selected: [], custom: 'something else' })
+    } finally { tui.dispose() }
+  })
+
+  it('captures both parts before returning a navigation action and restores them', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false), onAnswerDraft = vi.fn()
+    try {
+      const request = { title: 'Question', question: 'Choose', multiSelect: true, allowCustom: true, answerFormat: 'json' as const,
+        options: [{ label: 'Read, then write' }], onAnswerDraft,
+        actions: [{ key: 'alt+left', label: 'previous question', valuePrefix: '__back__', scope: 'list' as const }] }
+      const pending = tui.prompt(request)
+      press(term, ' ')
+      press(term, 'draft text')
+      press(term, '\x1b[1;3D')
+      expect(await pending).toBe('__back__')
+      expect(onAnswerDraft).toHaveBeenLastCalledWith({ selected: ['Read, then write'], custom: 'draft text' })
+      const restored = tui.prompt({ ...request, initialValues: ['Read, then write'], initialInput: 'draft text' })
+      press(term, '\r')
+      expect(JSON.parse((await restored)!)).toEqual({ selected: ['Read, then write'], custom: 'draft text' })
+    } finally { tui.dispose() }
+  })
+})
+
+
+it('uses the durable shared message as delivery confirmation, never the Shell intent', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    await tui.shellCommand({ command: 'echo captured', share: true, signal: new AbortController().signal, abort: () => {},
+      run: async () => ({ output: 'captured' }) })
+    expect(term.captured).toContain('captured')
+    expect(term.captured).not.toContain('shared to conversation')
+  } finally { tui.dispose() }
+})

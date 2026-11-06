@@ -46,6 +46,29 @@ const composerRows = (lines: readonly string[], start: number): number => {
 }
 
 describe('applyEvent', () => {
+  it('replays repeated call ids, unfinished calls and late results like the live event fold', () => {
+    const events: SessionEvent[] = []
+    const push = (type: string, data: unknown) => events.push(ev(type, data, events.length + 1))
+    for (let turn = 1; turn <= 100; turn++) {
+      push('turn/start', { turn })
+      push('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: `question ${turn}` }] })
+      const callId = `call-${turn % 7}`
+      push('tool/call', { turn, step: 1, callId, name: 'bash', arguments: { command: 'true' } })
+      if (turn % 3 !== 0) push('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: `result ${turn}` }] } })
+      push('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: `answer ${turn}` }] }, stream: [] })
+      push('turn/end', { turn, reason: { kind: 'completed' } })
+      if (turn % 5 === 0) push('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: `late ${turn}` }] } })
+    }
+    const replayed = replayEvents(events)
+    expect(replayed).toEqual(events.reduce((state, event) => applyEvent(state, event), initialTranscript()))
+    Object.freeze(replayed.turnSpans)
+    Object.freeze(replayed.blocks)
+    const continued = applyEvent(replayed, ev('turn/start', { turn: 101 }, events.length + 1))
+    expect(continued.turnSpans?.[101]?.start).toBe(events.length + 1)
+    expect(replayed.turnSpans?.[101]).toBeUndefined()
+    expect(replayEvents(events)).toEqual(replayed)
+  })
+
   it('explains remembered rejections on live and replayed transcripts without adding grant chatter', () => {
     const allowed = { ...ev('plugin:omdsh/approval-rule-matched', { id: 'allow', scope: 'session', decision: 'allow' }, 0), ignorable: true as const }
     const rejected = { ...ev('plugin:omdsh/approval-rule-matched', { id: 'reject', scope: 'workspace', decision: 'reject' }, 1), ignorable: true as const }

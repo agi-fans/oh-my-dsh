@@ -476,6 +476,14 @@ export async function restoreSubmissionMessage(
     ...(images.length === 0 && files.length === 0 ? {} : { segments }) }
 }
 
+/** The live selection succeeded, but the profile default still needs saving. */
+export class DefaultModelSaveError extends Error {
+  constructor(selection: ModelSelection, cause: unknown) {
+    super(`Session model is now ${selection.provider}/${selection.model}. The default model could not be saved.`, { cause })
+    this.name = 'DefaultModelSaveError'
+  }
+}
+
 /** Own one switchable top-level Agent and project it onto a TuiService. */
 export class SessionRuntime {
   readonly #commandAttachments: CommandAttachments | undefined
@@ -1035,16 +1043,21 @@ export class SessionRuntime {
   ): Promise<void> {
     this.assertActive(agent)
     const active = this.#requiredActive()
-    agent.model.select(selection)
     const resolved = info ?? await this.#resolveModelInfo(selection)
+    this.assertActive(agent)
+    const current = agent.model.current()
+    if (current?.provider !== selection.provider || current.model !== selection.model || current.reasoningEffort !== selection.reasoningEffort) {
+      agent.model.select(selection)
+    }
     active.contextWindow = resolved?.context?.contextWindow
     const status = modelStatus(selection, resolved)
     active.reasoningEffort = status.reasoningEffort
-    if (options?.persist !== false) {
-      await this.#ctx.get('agentDefaultModel')?.saveSelection(selection)
-    }
     this.#tui.setModel(status.model, status.reasoningEffort)
     this.#pushSessionInfo()
+    if (options?.persist !== false) {
+      try { await this.#ctx.get('agentDefaultModel')?.saveSelection(selection) }
+      catch (error) { throw new DefaultModelSaveError(selection, error) }
+    }
   }
 
   /** Start a new top-level session with the current model selection. */

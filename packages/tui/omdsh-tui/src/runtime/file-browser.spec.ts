@@ -23,6 +23,25 @@ function setup(read?: TuiFileReview['read']) {
 }
 
 describe('file browser', () => {
+  it('scrolls cached Markdown while refresh and width changes use a new layout', async () => {
+    const { browser, key } = setup(async () => ({ source: { text: '# Preview\n\n' + 'A paragraph 中文🐳 '.repeat(100) } }))
+    await flush()
+    browser.state.mode = 'source'
+    browser.state.markdown = true
+    const first = fileBrowserDocument(browser.state, theme, 120, 24)
+    key('tab')
+    key('pageDown')
+    const scrolled = fileBrowserDocument(browser.state, theme, 120, 24)
+    expect(scrolled.rows).toBe(first.rows)
+    expect(scrolled.documentStart).toBeGreaterThan(first.documentStart)
+    expect(fileBrowserDocument(browser.state, theme, 60, 24).rows).not.toBe(first.rows)
+    browser.state.source = { text: '# Updated\n\nFresh content' }
+    const updated = fileBrowserDocument(browser.state, theme, 120, 24)
+    expect(updated.rows.slice().join('\n')).toContain('Updated')
+    expect(updated.documentStart).toBe(0)
+    browser.close()
+  })
+
   it('keeps padding and complete frames at narrow and wide display-cell widths with and without color', async () => {
     const { browser } = setup(); await flush()
     for (const colors of [true, false]) for (const width of [12, 24, 60, 99, 100, 140]) for (const height of [8, 24]) {

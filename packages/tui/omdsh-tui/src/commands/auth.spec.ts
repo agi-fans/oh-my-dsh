@@ -251,9 +251,9 @@ describe('DeepSeek auth commands', () => {
     )
 
     expect(harness.set).not.toHaveBeenCalled()
-    expect(execution?.result.kind).toBe('error')
-    expect(execution?.result.text).toContain('rejected')
-    expect(execution?.result.text).not.toContain(secret)
+    expect(execution?.result.kind).toBe('success')
+    expect(harness.prompt.mock.calls[2]![0].detail).toContain('rejected')
+    expect(JSON.stringify(harness.prompt.mock.calls)).not.toContain(secret)
     await harness.ctx.fiber.dispose()
   })
 
@@ -908,4 +908,119 @@ describe('DeepSeek account logout', () => {
     expect(execution?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('Signed out of the DeepSeek account') })
     await harness.ctx.fiber.dispose()
   })
+})
+
+it('corrects custom provider fields in place before saving any credentials', async () => {
+  const h = await authHarness({ configurable: [DEEPSEEK_ENTRY], answers: [
+    'custom', 'Bad ID', 'deepseek', 'my-gateway', 'bad-url', 'http://localhost:11434/v1',
+    'openai-completions', '', 'enter', '', 'model-one',
+  ] })
+  try {
+    const result = await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    expect(result?.result.kind).toBe('success')
+    const requests = h.prompt.mock.calls.map(([request]) => request)
+    expect(requests[2]).toMatchObject({ question: 'Provider id', initialInput: 'Bad ID', detail: expect.stringContaining('lowercase') })
+    expect(requests[3]).toMatchObject({ question: 'Provider id', initialInput: 'deepseek', detail: expect.stringContaining('provider list') })
+    expect(requests[5]).toMatchObject({ question: 'Base URL', initialInput: 'bad-url', detail: expect.stringContaining('URL') })
+    expect(requests[10]).toMatchObject({ question: 'Enter model ids', detail: expect.stringContaining('at least one') })
+    expect(h.set).not.toHaveBeenCalled()
+    expect(h.settingsMutate).toHaveBeenCalledWith(commandAuth.PI_AI_SETTINGS, [expect.objectContaining({
+      value: { api: 'openai-completions', baseURL: 'http://localhost:11434/v1', models: [{ id: 'model-one' }] },
+    })])
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('steps back through custom setup with non-secret drafts and returns to Provider', async () => {
+  const h = await authHarness({ configurable: [DEEPSEEK_ENTRY], answers: [
+    'custom', 'my-gateway', 'http://localhost:11434/v1', 'openai-responses', 'private-key',
+    null, null, null, null, null, null,
+  ] })
+  try {
+    await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    const requests = h.prompt.mock.calls.map(([request]) => request)
+    expect(requests[6]).toMatchObject({ secret: true })
+    expect(requests[6]?.initialInput).toBeUndefined()
+    expect(requests[7]).toMatchObject({ question: 'API protocol', initialValue: 'openai-responses' })
+    expect(requests[8]).toMatchObject({ dismissLabel: 'Back', question: 'Base URL', initialInput: 'http://localhost:11434/v1' })
+    expect(requests[9]).toMatchObject({ question: 'Provider id', initialInput: 'my-gateway' })
+    expect(requests[10]).toMatchObject({ title: 'Provider', dismissLabel: 'Cancel' })
+    expect(JSON.stringify(requests)).not.toContain('private-key')
+    expect(h.set).not.toHaveBeenCalled()
+    expect(h.settingsMutate).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('retains an unfinished URL when returning through the provider id', async () => {
+  const h = await authHarness({ configurable: [DEEPSEEK_ENTRY], answers: ['custom', 'my-gateway'] })
+  h.prompt.mockImplementationOnce(async request => {
+    request.onCancelDraft?.('http://unfinished')
+    return null
+  }).mockResolvedValueOnce('my-gateway')
+  try {
+    await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    expect(h.prompt.mock.calls[4]![0]).toMatchObject({ question: 'Base URL', initialInput: 'http://unfinished' })
+    expect(h.set).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('stops custom setup when another prompt takes over', async () => {
+  const h = await authHarness({ configurable: [DEEPSEEK_ENTRY], answers: ['custom'] })
+  h.prompt.mockImplementationOnce(async request => { request.onSuperseded?.(''); return 'my-gateway' })
+  try {
+    await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    expect(h.prompt).toHaveBeenCalledTimes(2)
+    expect(h.set).not.toHaveBeenCalled()
+    expect(h.settingsMutate).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('retries validation after a network error without asking for the key again', async () => {
+  const fetch = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(new Response('', { status: 200 }))
+  vi.stubGlobal('fetch', fetch)
+  const h = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-private-retry', 'retry'] })
+  try {
+    expect((await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal))?.result.kind).toBe('success')
+    expect(h.prompt.mock.calls.filter(([request]) => request.secret)).toHaveLength(1)
+    expect(h.prompt.mock.calls[2]![0]).toMatchObject({ question: 'Could not validate the key', detail: expect.stringContaining('Check your network') })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(h.set).toHaveBeenCalledWith(commandAuth.DEEPSEEK_API_KEY, 'sk-private-retry')
+    expect(JSON.stringify(h.prompt.mock.calls)).not.toContain('sk-private-retry')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('retries storing a validated key without another validation request', async () => {
+  const fetch = vi.fn(async () => new Response('', { status: 200 }))
+  vi.stubGlobal('fetch', fetch)
+  const h = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-private-save', 'retry'] })
+  h.set.mockRejectedValueOnce(new Error('disk full'))
+  try {
+    expect((await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal))?.result.kind).toBe('success')
+    expect(h.prompt.mock.calls[2]![0].question).toBe('Could not save the key')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(h.set).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(h.prompt.mock.calls)).not.toContain('sk-private-save')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('replaces a rejected key with a fresh protected input', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('', { status: 401 })).mockResolvedValueOnce(new Response('', { status: 200 })))
+  const h = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-rejected', 'edit', 'sk-valid'] })
+  try {
+    await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    expect(h.prompt.mock.calls[3]![0]).toMatchObject({ secret: true })
+    expect(h.prompt.mock.calls[3]![0].initialInput).toBeUndefined()
+    expect(h.set).toHaveBeenCalledTimes(1)
+    expect(h.set).toHaveBeenCalledWith(commandAuth.DEEPSEEK_API_KEY, 'sk-valid')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('ends key recovery when a higher priority prompt takes over', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+  const h = await authHarness({ answers: [commandAuth.DEEPSEEK_PROVIDER, 'sk-rejected'] })
+  h.prompt.mockImplementationOnce(async request => { request.onSuperseded?.(''); return 'retry' })
+  try {
+    await h.ctx.commands.execute(h.agent, '/login', [], new AbortController().signal)
+    expect(h.prompt).toHaveBeenCalledTimes(3)
+    expect(h.set).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
 })

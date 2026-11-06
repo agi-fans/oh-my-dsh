@@ -592,3 +592,16 @@ it('persists paste protection and the notification mode', () => {
   expect(applySettingValue(prefs, 'notifications', 'always')).toMatchObject({ notifications: 'always' })
   expect(tuiSettingItems(prefs).find(row => row.id === 'notifications')?.value).toBe('off')
 })
+
+
+it.each([32, 80])('shows setting scope at a stable boundary without overflowing %s columns', width => {
+  const state = createSettings(prefs, undefined, agent)
+  const items = tuiSettingItems(state.prefs, state.agent)
+  const selected = items.findIndex(item => item.id === 'theme')
+  const frame = renderSettings({ ...state, selected }, theme, width, 18)
+  expect(frame.lines.join('\n')).toContain('Profile')
+  expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+  expect(frame.lines).toHaveLength(18)
+  const language = renderSettings({ ...state, selected: 0 }, theme, width, 18)
+  expect(language.lines).toHaveLength(frame.lines.length)
+})

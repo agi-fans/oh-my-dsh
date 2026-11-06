@@ -110,6 +110,7 @@ const mathInline: TokenizerAndRendererExtension = {
 
 const parser = new Marked()
 parser.use({ gfm: true, breaks: false, extensions: [mathBlock, mathInline] })
+const proseParser = new Marked({ gfm: true, breaks: false })
 
 function normalizeHtml(source: string): string {
   return source
@@ -633,12 +634,58 @@ function renderTokens(
   return lines
 }
 
-/**
- * Render markdown to display lines already wrapped to `width`.
- */
+// Keep resolved block layouts, not source prefixes: a later reference definition
+// can change an earlier paragraph without changing that paragraph's raw text.
+// The lexer still sees the complete document; its resolved token is the key.
+const blockLayouts = new Map<string, { lines: readonly string[]; size: number }>()
+const MAX_BLOCK_LAYOUTS = 4096
+const MAX_BLOCK_LAYOUT_CHARS = 2 * 1024 * 1024
+let blockLayoutChars = 0
+
+/** Render a complete document without retaining a second copy of its blocks. */
 export function renderMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
-  const tokens = parser.lexer(prepare(source))
-  const lines = renderTokens(tokens, theme, width, 0, style)
+  return renderDocument(source, theme, width, style, false)
+}
+
+/** Reuse resolved block layouts while an assistant response is still growing. */
+export function renderStreamingMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
+  return renderDocument(source, theme, width, style, true)
+}
+
+function renderDocument(source: string, theme: Theme, width: number, style: MarkdownStyle | undefined, streaming: boolean): string[] {
+  const prepared = prepare(source)
+  // Extension start hooks scan the remaining source at each block. Most prose
+  // has no math delimiters at all and can use the identical base grammar.
+  const lexer = prepared.includes('$') || prepared.includes('\\(') || prepared.includes('\\[') ? parser : proseParser
+  const tokens = lexer.lexer(prepared)
+  const context = JSON.stringify([theme.key, width, style])
+  const lines: string[] = []
+  for (const token of tokens) {
+    if (!streaming) {
+      lines.push(...renderTokens([token], theme, width, 0, style))
+      continue
+    }
+    const key = context + JSON.stringify(token)
+    const cached = blockLayouts.get(key)
+    if (cached !== undefined) {
+      blockLayouts.delete(key)
+      blockLayouts.set(key, cached)
+      lines.push(...cached.lines)
+      continue
+    }
+    const rendered = renderTokens([token], theme, width, 0, style)
+    const size = key.length + rendered.reduce((sum, row) => sum + row.length, 0)
+    if (size <= MAX_BLOCK_LAYOUT_CHARS) {
+      while (blockLayouts.size >= MAX_BLOCK_LAYOUTS || blockLayoutChars + size > MAX_BLOCK_LAYOUT_CHARS) {
+        const first = blockLayouts.keys().next().value!
+        blockLayoutChars -= blockLayouts.get(first)!.size
+        blockLayouts.delete(first)
+      }
+      blockLayouts.set(key, { lines: rendered, size })
+      blockLayoutChars += size
+    }
+    lines.push(...rendered)
+  }
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   while (lines[0] === '') lines.shift()
   return lines

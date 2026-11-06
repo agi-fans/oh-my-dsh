@@ -325,3 +325,21 @@ describe('argument completion from live state', () => {
     expect(slashSuggestions('/model zzz', 10, commands)).toBeNull()
   })
 })
+
+
+it.each(['en', 'zh-CN'] as const)('finds Chinese command topics while preserving executable names (%s)', language => {
+  const commands = [
+    { name: 'model', description: 'Choose a model' }, { name: 'permission', description: 'Change access' },
+    { name: 'resume', description: 'Browse history' }, { name: 'new', description: 'Start fresh' },
+  ]
+  expect(buildSlashCommandCompletions(commands, '模型', language).map(item => item.value)).toEqual(['model'])
+  expect(buildSlashCommandCompletions(commands, '权限', language).map(item => item.value)).toEqual(['permission'])
+  expect(buildSlashCommandCompletions(commands, '会话', language).map(item => item.value)).toEqual(['resume', 'new'])
+  expect(slashSuggestions('/模型', 3, commands, language)?.items[0]?.value).toBe('model')
+})
+
+it('searches localized plugin descriptions and ranks exact names before description matches', () => {
+  const commands = [{ name: 'example', description: 'Open settings' }, { name: 'settings', description: 'Preferences' }]
+  expect(buildSlashCommandCompletions(commands, '设置', 'zh-CN').map(item => item.value)).toContain('example')
+  expect(buildSlashCommandCompletions(commands, 'settings', 'zh-CN')[0]?.value).toBe('settings')
+})

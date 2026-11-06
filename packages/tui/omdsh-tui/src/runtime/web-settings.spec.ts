@@ -199,3 +199,42 @@ describe('Web search and fetch settings', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 })
+
+
+it('rebases Web drafts across sections and keeps unrelated edits', async () => {
+  const h = harness(['count', '20', 'fetch', 'provider:http', () => {
+    const section = h.sections[1]!
+    section.revision++
+    section.user = { count: 30 }; section.value = { ...(section.value as object), count: 30 }
+    return 'apply'
+  }, 'reload', request => { expect(request.question).toBe('Results per search'); return 'latest' }, 'apply'])
+  try {
+    await openWebSettings(h.ctx, h.signal)
+    expect(h.mutate.mock.calls).toEqual([['web', [{ op: 'set', path: ['fetchProvider'], value: 'http' }], 1]])
+    expect(h.sections[1]!.value).toMatchObject({ count: 30 })
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('keeps the original Web draft when conflict resolution is cancelled', async () => {
+  const h = harness(['count', '20', () => {
+    h.sections[1]!.revision++; h.sections[1]!.value = { count: 30 }; h.sections[1]!.user = { count: 30 }
+    return 'apply'
+  }, 'reload', null, request => {
+    expect(request.options?.find(row => row.value === 'count')?.description).toContain('20')
+    return 'reload'
+  }, 'mine', 'apply'])
+  try {
+    await openWebSettings(h.ctx, h.signal)
+    expect(h.mutate).toHaveBeenCalledWith('web-deepseek-api', [{ op: 'set', path: ['count'], value: 20 }], 2)
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+
+it('shows localized pending changes across Web settings sections', async () => {
+  const h = harness(['count', '20', 'fetch', 'provider:http', request => {
+    expect(request.detail).toContain('2 项待保存修改')
+    return 'cancel'
+  }], 'zh-CN')
+  try { await openWebSettings(h.ctx, h.signal); expect(h.mutate).not.toHaveBeenCalled() }
+  finally { await h.ctx.fiber.dispose() }
+})

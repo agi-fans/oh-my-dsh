@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { rebaseSettingsDraft, settingsDraftSummary } from './settings-draft.ts'
 import z from '@deepseek-ai/schemastery'
 import type { TuiPrompt, WebSettingsProvider } from '../definition.ts'
 import { askPrompt } from '../prompt-intents.ts'
@@ -32,7 +33,7 @@ export const WEB_SETTINGS_FIELDS: Record<string, readonly string[]> = {
 
 export function webSettingsEntry(ctx: Context) {
   if (ctx.get('omdshWebProviders') === undefined || describe(ctx, 'web') === undefined) return []
-  return [{ id: ID, label: 'Web search and fetch', section: 'integrations' as const, fields: [], summary: 'Configure',
+  return [{ id: ID, label: 'Web search and fetch', section: 'integrations' as const, fields: [], behavior: ctx.settings.writable ? 'Profile · Apply to save' : 'Profile · Read only', summary: 'Configure',
     description: 'Choose search and fetch providers, edit their settings, then Apply to save.' }]
 }
 
@@ -97,7 +98,7 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
   const check = (draft: Draft): void => {
     signal.throwIfAborted()
     if (!ctx.settings.writable) throw new Error('This profile is read-only.')
-    if (describe(ctx, draft.section.ns)?.revision !== draft.section.revision) throw new Error('Configuration changed. Your draft is kept. Cancel and reopen to load the latest settings.')
+    if (describe(ctx, draft.section.ns)?.revision !== draft.section.revision) throw new Error('Configuration changed. Load the latest settings to continue with your draft.')
   }
   const commit = async (ns: string): Promise<void> => {
     const draft = drafts.get(ns)
@@ -184,7 +185,7 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
       }
       if (signal.aborted) return
       const answer = await ctx.tui.prompt({ ...list, title: 'Web search and fetch', question: 'Edit the draft, then Apply to save',
-        detail: [diagnostic, loadError].filter(Boolean).map(message => text(ctx, message)).join('\n'),
+        detail: [settingsDraftSummary(ctx, [...drafts.values()].reduce((count, draft) => count + draft.changes.size, key ? 1 : 0)), ...[diagnostic, loadError].filter(Boolean).map(message => text(ctx, message))].join('\n'),
         options: [
           { label: text(ctx, 'Search provider'), value: 'search', description: selectionSummary('search'), preview: providerDescription(selected('search')), disabled: !writable || !!diagnostic },
           { label: text(ctx, 'Fetch provider'), value: 'fetch', description: selectionSummary('fetch'), preview: providerDescription(selected('fetch')), disabled: !writable || !!diagnostic },
@@ -194,12 +195,32 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
             { label: text(ctx, 'Base URL'), value: 'baseURL', description: fieldSummary('web-search-deepseek', 'baseURL'), disabled: !writable },
             { label: text(ctx, 'Maximum searches per request'), value: 'maxUses', description: fieldSummary('web-search-deepseek', 'maxUses'), disabled: !writable },
           ] : []),
+          ...([...drafts.values()].some(draft => describe(ctx, draft.section.ns)?.revision !== draft.section.revision) ? [{ label: text(ctx, 'Load latest and keep draft'), value: 'reload' }] : []),
           { label: text(ctx, 'Refresh'), value: 'refresh' }, { label: text(ctx, 'Apply'), value: 'apply', disabled: !writable }, { label: text(ctx, 'Cancel'), value: 'cancel' },
         ], signal })
       if (answer === null || answer === 'cancel') return
       if (answer === 'refresh') { dirty = true; continue }
       if (!writable) continue
       try {
+        if (answer === 'reload') {
+          const rebased = new Map<string, Draft>()
+          for (const [ns, draft] of drafts) {
+            const latest = describe(ctx, ns)
+            if (latest === undefined) throw new Error('These settings are no longer available. Cancel and reopen Settings.')
+            const result = await rebaseSettingsDraft(ctx, draft.section, latest, draft.changes, [...draft.changes.keys()].map(field => ({
+              key: field, label: ({ count: 'Results per search', maxUses: 'Maximum searches per request', baseURL: 'Base URL', searchProvider: 'Search provider', fetchProvider: 'Fetch provider' } as Record<string, string>)[field] ?? field,
+              defaultValue: new z(latest.schema as Partial<z>).dict?.[field]?.meta.default,
+              format: (value: unknown) => String(value ?? text(ctx, 'Inherited')),
+            })), signal)
+            if (result === undefined) break
+            rebased.set(ns, result)
+          }
+          if (rebased.size !== drafts.size || signal.aborted) continue
+          for (const [ns, draft] of rebased) drafts.set(ns, draft)
+          diagnostic = ''
+          dirty = true
+          continue
+        }
         if (answer === 'search' || answer === 'fetch') { if (!diagnostic) await chooseProvider(answer); continue }
         if (answer === 'count' && api) { await editField('web-deepseek-api', 'count', 'Results per search'); diagnostic = ''; continue }
         if ((answer === 'baseURL' || answer === 'maxUses') && legacy) {

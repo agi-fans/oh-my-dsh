@@ -18,6 +18,11 @@ describe('parsePromptAnswer', () => {
     expect(parsePromptAnswer('alpha', { options })).toEqual({ selected: ['Alpha'] })
   })
 
+  it('preserves punctuation and numeric labels in structured answers', () => {
+    const answer = { selected: ['Read, then write', '2'], custom: 'Keep commas, and newlines\n中文' }
+    expect(parsePromptAnswer(JSON.stringify(answer), { options: answer.selected.map(label => ({ label })), multiSelect: true })).toEqual(answer)
+  })
+
   it('supports multi-select and keeps custom text', () => {
     expect(parsePromptAnswer('1, Beta, something else', { options, multiSelect: true })).toEqual({
       selected: ['Alpha', 'Beta'],
@@ -62,6 +67,28 @@ describe('bindHumanInteraction', () => {
 
     await dispose()
     await ctx.fiber.dispose()
+  })
+
+  it('restores selection and supplementary drafts when revisiting questions', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    let at = 0
+    const first = { selected: ['A, B'], custom: 'plus C' }, second = { selected: [], custom: 'unfinished' }
+    const prompt = vi.fn(async (request: TuiPrompt) => {
+      at++
+      if (at === 1 || at === 3) return JSON.stringify(first)
+      if (at === 2) { request.onAnswerDraft?.(second); return '__back__' }
+      return JSON.stringify(second)
+    })
+    const dispose = bindHumanInteraction(ctx, { prompt } as unknown as TuiService, () => undefined)
+    try {
+      const answer = await ctx.userQuestions.ask({ questions: [
+        { id: 'one', question: 'First?', multiSelect: true, options: [{ label: 'A, B' }] }, { id: 'two', question: 'Second?' },
+      ] })
+      expect(prompt.mock.calls[2]?.[0]).toMatchObject({ initialValues: ['A, B'], initialInput: 'plus C' })
+      expect(prompt.mock.calls[3]?.[0].initialInput).toBe('unfinished')
+      expect(answer.answers).toEqual([{ id: 'one', ...first }, { id: 'two', ...second }])
+    } finally { await dispose(); await ctx.fiber.dispose() }
   })
 
   it('supports Alt+Left back navigation across multi-question batches and rescues cancelled custom drafts', async () => {

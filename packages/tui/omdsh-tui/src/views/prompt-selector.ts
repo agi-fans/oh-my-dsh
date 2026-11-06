@@ -64,6 +64,7 @@ const HOTKEY_CHOOSE: HotkeyRow = { keys: '←→', action: 'Choose — move betw
 const HOTKEY_PAGE: HotkeyRow = { keys: 'PgUp / PgDn', action: 'Scroll — page the options or the plan' }
 const HOTKEY_EDGE: HotkeyRow = { keys: 'Home / End', action: 'Jump to the first or last option, or the plan edges' }
 const HOTKEY_TOGGLE: HotkeyRow = { keys: 'Space', action: 'Toggle — check or clear a multi-select option' }
+const HOTKEY_ANSWER_TOGGLE: HotkeyRow = { keys: 'Ctrl+G', action: 'Toggle — check or clear a multi-select option' }
 const HOTKEY_SELECT: HotkeyRow = { keys: 'Enter', action: 'Select the highlighted option' }
 const HOTKEY_SUBMIT: HotkeyRow = { keys: 'Enter', action: 'Submit — send revision feedback, or keep planning when empty' }
 const HOTKEY_SUBMIT_NEWLINE: HotkeyRow = { keys: 'Ctrl+J', action: 'Submit — send revision feedback like Enter' }
@@ -82,6 +83,7 @@ export const PROMPT_SELECTOR_HOTKEYS: readonly HotkeyRow[] = [
   HOTKEY_PAGE,
   HOTKEY_EDGE,
   HOTKEY_TOGGLE,
+  HOTKEY_ANSWER_TOGGLE,
   HOTKEY_SELECT,
   HOTKEY_SUBMIT,
   HOTKEY_SUBMIT_NEWLINE,
@@ -104,6 +106,7 @@ export function filteredPromptOptions(request: TuiPrompt, query: string, collaps
   if (request.presentation === 'tree') return promptTreeRows(request, collapsed, query).map(row => row.option)
   const options = request.options ?? []
   if (request.filterable !== true) return options
+  if (request.filterOptions !== undefined) return request.filterOptions(query)
   return rankSearchResults(options, query, option =>
     [option.label, option.value, option.preview, option.description, option.badge?.label]
       .filter((value): value is string => value !== undefined))
@@ -502,14 +505,17 @@ export function renderPlanReviewPage(
     wordWrap: state.documentWordWrap ?? state.request.documentPosition?.wordWrap ?? true,
     column: state.documentColumn ?? state.request.documentPosition?.column ?? 0,
   })
-  const document = layout?.rows ?? state.renderDocument?.(theme, markdownWidth) ?? documentRows(state.request, theme, markdownWidth)
+  const textDocument = layout === undefined
+    ? state.renderDocument?.(theme, markdownWidth) ?? documentRows(state.request, theme, markdownWidth)
+    : undefined
+  const document = layout?.rows ?? textDocument ?? []
   const maxStart = Math.max(0, document.length - bodyRows)
   const start = Math.max(0, Math.min(state.documentScroll === Number.POSITIVE_INFINITY ? maxStart : layout !== undefined && state.documentAnchor !== undefined
     ? documentStart(layout, state.documentAnchor) : state.documentScroll ?? state.request.documentPosition?.row ?? 0, maxStart))
   const visible = document.slice(start, start + bodyRows)
   const query = state.documentQuery ?? ''
   const matches = source === undefined ? [] : documentMatches(source, query)
-  const textMatches = source === undefined ? findInRows(document, query) : []
+  const textMatches = textDocument === undefined ? [] : findInRows(textDocument, query)
   const matching = new Set(matches)
   if (layout !== undefined) for (let at = 0; at < visible.length; at++) {
     if (matching.has(layout.sourceRows[start + at] ?? -1)) {
@@ -712,7 +718,7 @@ export function renderPromptSelector(
       : options.length === 0
         ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
       : state.request.multiSelect === true
-        ? `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_TOGGLE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
+        ? `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([state.request.answerFormat === 'json' ? HOTKEY_ANSWER_TOGGLE : HOTKEY_TOGGLE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
         : `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
   const dismiss = state.request.dismissLabel
   const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`)
@@ -822,6 +828,16 @@ export function togglePromptSelection(state: PromptSelectorState, query = ''): P
   if (checked.has(index)) checked.delete(index)
   else checked.add(index)
   return { ...state, checked }
+}
+
+/** Keep option values and free text separate, including punctuation in labels. */
+export function structuredPromptAnswer(state: PromptSelectorState, custom: string): { selected: string[]; custom?: string } {
+  const options = state.request.options ?? []
+  const selected = state.request.multiSelect === true
+    ? options.flatMap((option, index) => state.checked.has(index) && !option.disabled ? [option.value ?? option.label] : [])
+    : custom.trim() !== '' || options[state.selected] === undefined || options[state.selected]?.disabled === true
+      ? [] : [options[state.selected]!.value ?? options[state.selected]!.label]
+  return { selected, ...(custom.trim() === '' ? {} : { custom: custom.trim() }) }
 }
 
 /** Resolve the selected labels in stable option order. */

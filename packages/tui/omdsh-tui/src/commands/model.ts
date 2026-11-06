@@ -1,5 +1,6 @@
 /** Model/provider selection command registered through dsh-commands. */
 
+import { setTimeout as delay } from 'node:timers/promises'
 import { homedir } from 'node:os'
 import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import { join } from 'node:path'
@@ -17,6 +18,8 @@ import {
   writeModelFavorites,
   type FavoriteModel,
 } from '../session/model-favorites.ts'
+import { DefaultModelSaveError } from '../session/session-controller.ts'
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { registerCommands } from './registration.ts'
 
 export const name = 'omdsh-command-model'
@@ -163,7 +166,8 @@ async function cycleFavorite(ctx: Context, invocation: CommandInvocation, direct
     if (entry === undefined || sameModel(entry, current)) continue
     const resolved = await resolveFavorite(ctx, entry, invocation.signal)
     if (resolved === undefined) continue
-    await ctx.omdshSession.changeSelection(invocation.agent, resolved.selection, resolved.info)
+    const incomplete = await changeSelection(ctx, invocation, resolved.selection, resolved.info)
+    if (incomplete !== undefined) return incomplete
     return { kind: 'success', text: `Model: ${entry.provider}/${entry.model}${resolved.selection.reasoningEffort === undefined ? '' : ` (${String(resolved.selection.reasoningEffort)})`}` }
   }
   return { kind: 'error', text: 'No other available favorite model was found.' }
@@ -179,7 +183,8 @@ async function cycleReasoning(ctx: Context, invocation: CommandInvocation): Prom
   const next = efforts[(currentIndex + 1 + efforts.length) % efforts.length]
   if (next === undefined) return { kind: 'error', text: 'No reasoning effort is available.' }
   const selection: ModelSelection = { ...current, reasoningEffort: ReasoningEffortId(String(next.id)) }
-  await ctx.omdshSession.changeSelection(invocation.agent, selection, info)
+  const incomplete = await changeSelection(ctx, invocation, selection, info)
+  if (incomplete !== undefined) return incomplete
   const path = favoritesPath()
   const favorites = readModelFavorites(path)
   if (favorites.some(entry => sameModel(entry, current))) {
@@ -205,21 +210,64 @@ async function manageFavorite(ctx: Context, invocation: CommandInvocation, actio
   return { kind: 'success', text: `Removed favorite: ${current.provider}/${current.model}` }
 }
 
-/** Load the public model catalog (id/name/description only). */
-async function loadCatalog(ctx: Context, providerId?: string): Promise<ModelCatalogEntry[]> {
-  const catalog: ModelCatalogEntry[] = []
-  for (const provider of ctx.llm.listProviders().filter(item => providerId === undefined || item.id === providerId)) {
-    const models = await ctx.llm.listModels(provider.id)
-    for (const model of models) {
-      catalog.push({
-        provider: provider.id,
-        model: model.id,
-        name: model.name ?? model.id,
-        description: model.description ?? '',
+interface ModelCatalog {
+  entries: ModelCatalogEntry[]
+  failures: { provider: string; message: string }[]
+}
+
+/** Publish settled providers while the remaining catalogs load independently. */
+async function loadCatalog(ctx: Context, providerId?: string, update?: (catalog: ModelCatalog, pending: string[]) => void): Promise<ModelCatalog> {
+  const providers = ctx.llm.listProviders().filter(item => providerId === undefined || item.id === providerId)
+  const groups = new Map<string, ModelCatalog>()
+  const pending = new Set(providers.map(provider => provider.id))
+  const snapshot = (): ModelCatalog => ({
+    entries: providers.flatMap(provider => groups.get(provider.id)?.entries ?? []),
+    failures: providers.flatMap(provider => groups.get(provider.id)?.failures ?? []),
+  })
+  update?.(snapshot(), [...pending])
+  await Promise.all(providers.map(async provider => {
+    try {
+      const models = await ctx.llm.listModels(provider.id)
+      groups.set(provider.id, { entries: models.map(model => ({ provider: provider.id, model: model.id, name: model.name ?? model.id, description: model.description ?? '' })), failures: [] })
+    } catch (error) {
+      groups.set(provider.id, { entries: [], failures: [{ provider: provider.id, message: error instanceof Error ? error.message : String(error) }] })
+    }
+    pending.delete(provider.id)
+    update?.(snapshot(), [...pending])
+  }))
+  return snapshot()
+}
+
+/** Keep live model selection and default persistence visible as separate outcomes. */
+async function changeSelection(
+  ctx: Context,
+  invocation: Pick<CommandInvocation, 'agent' | 'signal'>,
+  selection: ModelSelection,
+  info: LlmResolvedModelInfo,
+  persist = true,
+): Promise<CommandResult | undefined> {
+  const abort = new AbortController()
+  const signal = AbortSignal.any([invocation.signal, abort.signal])
+  const t = (source: string) => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), source)
+  while (!signal.aborted) {
+    try {
+      await ctx.omdshSession.changeSelection(invocation.agent, selection, info, { persist })
+      return undefined
+    } catch (error) {
+      if (!(error instanceof DefaultModelSaveError)) throw error
+      if (signal.aborted) return { kind: 'success' }
+      if (ctx.tui.interactive === false) return { kind: 'error', text: error.message }
+      const answer = await ctx.tui.prompt({ localize: ['title', 'question', 'options'],
+        title: 'Default model', question: 'The session model changed, but the default could not be saved',
+        detail: `${selection.provider}/${selection.model}\n${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
+        options: [{ label: 'Retry saving default', value: 'retry' }, { label: 'Keep for this session', value: 'done' }],
+        allowCustom: false, notify: false, signal, onSuperseded: () => abort.abort(),
       })
+      if (signal.aborted) return { kind: 'success' }
+      if (answer !== 'retry') return { kind: 'success', text: `${t('Session model')} · ${selection.provider}/${selection.model}\n${t('Default model was not saved.')}` }
     }
   }
-  return catalog
+  return { kind: 'success' }
 }
 
 /**
@@ -259,7 +307,7 @@ function defaultEffort(info: LlmResolvedModelInfo): ReasoningEffortId | undefine
 /** Switch through one resolved catalog entry; `sessionOnly` skips the default write. */
 async function applyResolved(
   ctx: Context,
-  invocation: CommandInvocation,
+  invocation: Pick<CommandInvocation, 'agent' | 'signal'>,
   entry: ModelCatalogEntry,
   sessionOnly: boolean,
 ): Promise<CommandResult> {
@@ -270,7 +318,8 @@ async function applyResolved(
     model: entry.model,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
   }
-  await ctx.omdshSession.changeSelection(invocation.agent, selection, info, { persist: !sessionOnly })
+  const incomplete = await changeSelection(ctx, invocation, selection, info, !sessionOnly)
+  if (incomplete !== undefined) return incomplete
   return {
     kind: 'success',
     text: `${sessionOnly ? 'Session' : 'Default'} model: ${entry.provider}/${entry.model}${reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`}`,
@@ -278,7 +327,8 @@ async function applyResolved(
 }
 
 async function resolveQuerySelect(ctx: Context, invocation: CommandInvocation, query: string, sessionOnly: boolean): Promise<CommandResult> {
-  const catalog = await loadCatalog(ctx)
+  const { entries: catalog, failures } = await loadCatalog(ctx)
+  if (catalog.length === 0 && failures.length > 0) return { kind: 'error', text: failures.map(failure => `${failure.provider} · ${failure.message}`).join('\n') }
   if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const resolve = resolveModelQuery(query, catalog)
   if (resolve.kind === 'unknown-provider') return { kind: 'error', text: `Unknown provider: ${resolve.provider}` }
@@ -331,73 +381,95 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
 
 /** Shared picker retains favorites, reasoning defaults and session/default scope. */
 export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'signal'>, sessionOnly = false, providerId?: string, favoritesOnly = false): Promise<CommandResult> {
-  const catalog = await loadCatalog(ctx, providerId)
-  if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
-  const current = ctx.omdshSession.selection(invocation.agent)
-  /**
-   * One list for every provider.
-   *
-   * Choosing a model used to take three prompts — provider, then model, then
-   * reasoning effort — and the first two were asking the reader to narrow a list
-   * the terminal can filter itself. Provider is not a decision a reader needs to
-   * make first: it is one column of the model they already have in mind, so it
-   * becomes part of the row and part of the search text.
-   */
-  let selected = `${current.provider}/${current.model}`
-  let chosen = '', useSession = sessionOnly
-  const prompt = createPromptBrowser(request => ctx.tui.prompt(request))
-  while (!invocation.signal.aborted) {
-    const favorites = readModelFavorites(favoritesPath())
-    const available = favoritesOnly ? catalog.filter(entry => favorites.some(favorite => favorite.provider === entry.provider && favorite.model === entry.model)) : catalog
-    const picked = await prompt({ localize: ['title', 'question', 'actions'],
-      presentation: 'card', filterable: true, allowCustom: false, notify: false,
-      title: favoritesOnly ? 'Favorite models' : providerId === 'deepseek-account' ? 'Account models' : 'Model',
-      question: sessionOnly ? 'Enter switches this session only' : 'Enter switches and saves the default model',
-      emptyText: 'No matching models. Alt+A switches between all models and favorites.',
-      options: catalogOptions(available, current, favorites), initialValue: selected,
-      actions: [
-        ...(sessionOnly ? [] : [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }]),
-        { key: 'alt+f', label: 'Favorite/unfavorite', valuePrefix: '\u0000favorite:' },
-        { key: 'alt+a', label: favoritesOnly ? 'All models' : 'Favorites', valuePrefix: '\u0000view', scope: 'list' },
-      ], signal: invocation.signal,
-    }, 'models')
-    if (picked === null || invocation.signal.aborted) return { kind: 'success' }
-    if (picked === '\u0000view') { favoritesOnly = !favoritesOnly; continue }
-    if (picked.startsWith('\u0000favorite:')) {
-      selected = picked.slice('\u0000favorite:'.length)
-      const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === selected)
-      if (entry === undefined) continue
-      const selection = { provider: entry.provider, model: entry.model }
-      if (favorites.some(favorite => sameModel(favorite, selection))) writeModelFavorites(favoritesPath(), removeModelFavorite(favorites, selection))
-      else {
-        const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
-        invocation.signal.throwIfAborted()
-        const effort = sameModel(selection, current) ? current.reasoningEffort : defaultEffort(info)
-        writeModelFavorites(favoritesPath(), addModelFavorite(favorites, { ...selection, ...(effort === undefined ? {} : { reasoningEffort: String(effort) }) }))
+  const abort = new AbortController()
+  invocation = { ...invocation, signal: AbortSignal.any([invocation.signal, abort.signal]) }
+  let catalog: ModelCatalogEntry[] = [], failures: ModelCatalog['failures'] = [], pending: string[] = []
+  let diagnostic = '', generation = 0
+  const startLoad = (): Promise<void> => {
+    const version = ++generation, previous = catalog
+    return loadCatalog(ctx, providerId, (loaded, remaining) => {
+      if (invocation.signal.aborted || version !== generation) return
+      const retained = new Set([...remaining, ...loaded.failures.map(failure => failure.provider)])
+      catalog = [...loaded.entries, ...previous.filter(entry => retained.has(entry.provider))]
+      failures = loaded.failures
+      pending = remaining
+    }).then(() => {}, error => {
+      if (!invocation.signal.aborted && version === generation) { diagnostic = String(error); pending = [] }
+    })
+  }
+  try {
+    const loading = startLoad(), timer = new AbortController()
+    try { await Promise.race([loading, delay(100, undefined, { signal: AbortSignal.any([invocation.signal, timer.signal]) }).catch(() => {})]) }
+    finally { timer.abort() }
+    if (invocation.signal.aborted) return { kind: 'success' }
+    const initial = ctx.omdshSession.selection(invocation.agent)
+    let selected = `${initial.provider}/${initial.model}`
+    const prompt = createPromptBrowser(request => ctx.tui.prompt({ ...request, onSuperseded: () => abort.abort() }))
+    while (!invocation.signal.aborted) {
+      const current = ctx.omdshSession.selection(invocation.agent)
+      const favorites = readModelFavorites(favoritesPath())
+      let displayedCatalog = catalog
+      const options = () => catalogOptions(favoritesOnly ? catalog.filter(entry => favorites.some(favorite => favorite.provider === entry.provider && favorite.model === entry.model)) : catalog, current, favorites)
+      let rows = options()
+      const detail = () => [diagnostic,
+        ...(pending.length ? [uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), 'Loading models…') + ' ' + pending.join(', ')] : []),
+        ...failures.map(failure => `${failure.provider} · ${failure.message}`)].filter(Boolean).join('\n')
+      const picked = await prompt({ localize: ['title', 'question', 'actions'],
+        presentation: 'card', filterable: true, allowCustom: false, notify: false,
+        title: favoritesOnly ? 'Favorite models' : providerId === 'deepseek-account' ? 'Account models' : 'Model',
+        question: sessionOnly ? 'Enter switches this session only' : 'Enter switches and saves the default model',
+        emptyText: 'No matching models. Alt+A switches between all models and favorites.',
+        detail: detail(), refreshDocument: detail,
+        options: rows, refreshOptions: () => {
+          if (displayedCatalog !== catalog) { displayedCatalog = catalog; rows = options() }
+          return rows
+        }, initialValue: selected,
+        actions: [
+          ...(sessionOnly ? [] : [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }]),
+          { key: 'alt+f', label: 'Favorite/unfavorite', valuePrefix: '\u0000favorite:' },
+          { key: 'alt+a', label: favoritesOnly ? 'All models' : 'Favorites', valuePrefix: '\u0000view', scope: 'list' },
+          { key: 'alt+r', label: 'refresh', valuePrefix: '\u0000refresh', scope: 'list' },
+        ], signal: invocation.signal,
+      }, 'models')
+      if (picked === null || invocation.signal.aborted) return { kind: 'success' }
+      if (picked === '\u0000refresh') {
+        diagnostic = ''
+        const loading = startLoad()
+        // Fast catalogs settle before reopening; slow ones keep the live picker usable.
+        const timer = new AbortController()
+        try { await Promise.race([loading, delay(100, undefined, { signal: AbortSignal.any([invocation.signal, timer.signal]) }).catch(() => {})]) }
+        finally { timer.abort() }
+        continue
       }
-      continue
+      try {
+        if (picked === '\u0000view') { favoritesOnly = !favoritesOnly; continue }
+        if (picked.startsWith('\u0000favorite:')) {
+          selected = picked.slice('\u0000favorite:'.length)
+          const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === selected)
+          if (entry === undefined) continue
+          const selection = { provider: entry.provider, model: entry.model }
+          if (favorites.some(favorite => sameModel(favorite, selection))) writeModelFavorites(favoritesPath(), removeModelFavorite(favorites, selection))
+          else {
+            const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
+            invocation.signal.throwIfAborted()
+            const effort = sameModel(selection, current) ? current.reasoningEffort : defaultEffort(info)
+            writeModelFavorites(favoritesPath(), addModelFavorite(favorites, { ...selection, ...(effort === undefined ? {} : { reasoningEffort: String(effort) }) }))
+          }
+          continue
+        }
+        const scoped = picked.startsWith(SESSION_SCOPE)
+        const chosen = scoped ? picked.slice(SESSION_SCOPE.length) : picked
+        const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === chosen)
+        if (entry === undefined) continue
+        selected = chosen
+        return await applyResolved(ctx, invocation, entry, sessionOnly || scoped)
+      } catch (error) {
+        if (invocation.signal.aborted) return { kind: 'success' }
+        diagnostic = error instanceof Error ? error.message : String(error)
+      }
     }
-    const scoped = picked.startsWith(SESSION_SCOPE)
-    chosen = scoped ? picked.slice(SESSION_SCOPE.length) : picked
-    useSession = sessionOnly || scoped
-    break
-  }
-  invocation.signal.throwIfAborted()
-  const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === chosen)
-  if (entry === undefined) return { kind: 'error', text: `Unknown model: ${chosen}` }
-  const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
-  const reasoningEffort = defaultEffort(info)
-  const selection: ModelSelection = {
-    provider: entry.provider,
-    model: entry.model,
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-  }
-  await ctx.omdshSession.changeSelection(invocation.agent, selection, info, { persist: !useSession })
-  return {
-    kind: 'success',
-    text: `${useSession ? 'Session' : 'Default'} model: ${entry.provider}/${entry.model}`
-      + (reasoningEffort === undefined ? '' : ` (${String(reasoningEffort)})`),
-  }
+    return { kind: 'success' }
+  } finally { abort.abort() }
 }
 
 export function apply(ctx: Context): void {

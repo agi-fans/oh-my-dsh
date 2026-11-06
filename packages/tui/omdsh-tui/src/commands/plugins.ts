@@ -144,49 +144,101 @@ function marketText(text: { readonly en: string } | string): string {
   return typeof text === 'string' ? text : text.en
 }
 
-async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
+async function discover(ctx: Context, signal: AbortSignal, onSuperseded: () => void): Promise<void> {
+  const prompt = (request: TuiPrompt) => ctx.tui.prompt({ dismissLabel: 'Back', ...request, signal: request.signal ?? signal, onSuperseded })
   const market: PluginMarket | undefined = ctx.get('pluginMarket')
   const t = (text: string) => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), text)
   if (market === undefined) {
     await readReference(ctx.tui, t('Discover plugins'), t('The plugin market is not mounted in this profile.'), signal)
     return
   }
-  const searchPrompt = (query: string) => ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+  const searchPrompt = (query: string) => prompt(askPrompt({ localize: ['title', 'question', 'actions'],
     title: 'Discover plugins', question: 'Search the plugin indexes (empty lists everything)', initialInput: query, signal }))
   const initialQuery = await searchPrompt('')
   if (initialQuery === null || signal.aborted) return
   let query = initialQuery
   type Page = Awaited<ReturnType<PluginMarket['search']>>
   let entries: { page: Page; entry: Page['entries'][number] }[] = []
+  const pages = new Map<string, Page>()
+  const failures = new Map<string, { offset: number; message: string }>()
   let diagnostic = '', result: ChangeResult | undefined
-  const load = async (): Promise<void> => {
+  const load = async (mode: 'first' | 'refresh' | 'more' | 'retry' = 'first'): Promise<void> => {
     const sources = market.listIndexes()
     const usable = sources.filter(source => source.error === undefined)
-    if (usable.length === 0) {
-      entries = []
-      diagnostic = sources.length === 0
-        ? t('No plugin index sources are configured. Add one in Settings to browse a market.')
-        : sources.map(source => `${source.url} · ${source.error}`).join('\n')
-      return
-    }
+    for (const url of pages.keys()) if (!usable.some(source => source.url === url)) pages.delete(url)
+    for (const url of failures.keys()) if (!usable.some(source => source.url === url)) failures.delete(url)
+    const requests = usable.flatMap(source => {
+      const previous = pages.get(source.url)
+      const failure = failures.get(source.url)
+      const offset = mode === 'more' ? previous?.nextOffset
+        : mode === 'retry' ? failure?.offset : 0
+      return offset == null ? [] : [{ url: source.url, offset, previous }]
+    })
+    // The published search API has no per-request abort. Dismissal abandons
+    // this read, and only the winning result may update the browser state.
+    const dismissed = new AbortController()
+    const readSignal = AbortSignal.any([signal, dismissed.signal])
+    const progressEnd = new AbortController()
+    let progress: Promise<unknown> | undefined
+    let stop!: () => void
+    const stopped = new Promise<null>(resolve => { stop = () => resolve(null) })
+    readSignal.addEventListener('abort', stop, { once: true })
+    if (readSignal.aborted) stop()
+    const timer = setTimeout(() => {
+      if (readSignal.aborted) return
+      progress = prompt({ localize: true, title: 'Discover plugins', question: 'Loading plugins…',
+        detail: t('Esc returns to the results.'), presentation: 'progress', allowCustom: false, notify: false,
+        signal: AbortSignal.any([readSignal, progressEnd.signal]),
+      }).then(() => { if (!progressEnd.signal.aborted) dismissed.abort() }, () => dismissed.abort())
+    }, 150)
     try {
-      const pages = await Promise.all(usable.map(source => market.search(source.url, {
-        ...(query.trim() === '' ? {} : { text: query.trim() }), sort: { kind: 'relevance' }, offset: 0, limit: 20,
-      })))
+      const operation = Promise.allSettled(requests.map(async ({ url, offset, previous }) => {
+        const queryOptions = { ...(query.trim() === '' ? {} : { text: query.trim() }), sort: { kind: 'relevance' as const }, limit: 20 }
+        let page = await market.search(url, { ...queryOptions, offset,
+          ...(mode === 'refresh' || (mode === 'retry' && offset === 0) ? { refresh: true } : {}),
+          ...(offset > 0 && previous !== undefined ? { fetchedAt: previous.fetchedAt } : {}),
+        })
+        if (readSignal.aborted) return page
+        if (offset > 0 && previous !== undefined) {
+          if (page.fetchedAt === previous.fetchedAt) page = { ...page, entries: [...previous.entries, ...page.entries] }
+          else page = await market.search(url, { ...queryOptions, offset: 0, fetchedAt: page.fetchedAt })
+        }
+        return page
+      }))
+      const settled = await Promise.race([operation, stopped])
       if (signal.aborted) return
-      entries = pages.flatMap(page => page.entries.map(entry => ({ page, entry })))
-      diagnostic = ''
-    } catch (error) {
-      diagnostic = error instanceof Error ? error.message : String(error)
+      if (settled === null || readSignal.aborted) {
+        diagnostic = t('Loading cancelled. Refresh to try again.')
+        return
+      }
+      settled.forEach((response, index) => {
+        const request = requests[index]!
+        if (response.status === 'fulfilled') {
+          pages.set(request.url, response.value)
+          failures.delete(request.url)
+        } else failures.set(request.url, { offset: request.offset,
+          message: response.reason instanceof Error ? response.reason.message : String(response.reason) })
+      })
+      entries = [...pages.values()].flatMap(page => page.entries.map(entry => ({ page, entry })))
+      diagnostic = sources.length === 0 ? t('No plugin index sources are configured. Add one in Settings to browse a market.')
+        : [...sources.filter(source => source.error !== undefined).map(source => `${source.url} · ${source.error}`),
+          ...[...failures].map(([url, failure]) => `${url} · ${failure.message}`)].join('\n')
+    } finally {
+      clearTimeout(timer)
+      progressEnd.abort()
+      await progress
+      readSignal.removeEventListener('abort', stop)
     }
   }
-  const browse = createPromptBrowser(request => ctx.tui.prompt(request))
+  const browse = createPromptBrowser(prompt)
   await load()
   while (!signal.aborted) {
     const feedback = changeFeedback(result)
+    const total = [...pages.values()].reduce((sum, page) => sum + page.total, 0)
+    const count = pages.size === 0 ? '' : t('Showing {loaded} of {total} plugins').replace('{loaded}', String(entries.length)).replace('{total}', String(total))
     const chosen = await browse({ localize: ['title', 'actions'], ...list,
       title: 'Discover plugins', question: query,
-      detail: [diagnostic, feedback.detail].filter(Boolean).join('\n'), emptyText: t('No matching plugins.'),
+      detail: [count, diagnostic, feedback.detail].filter(Boolean).join('\n'), emptyText: t('No matching plugins.'),
       options: entries.map(({ page, entry }) => {
         const version = entry.versions.find(item => item.version === entry.defaultVersion) ?? entry.versions[0]
         return {
@@ -201,6 +253,8 @@ async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
       actions: [
         { key: 'Alt+S', label: 'search', valuePrefix: 'search:', scope: 'list' },
         { key: 'Alt+R', label: 'refresh', valuePrefix: 'refresh:', scope: 'list' },
+        ...([...pages.values()].some(page => page.nextOffset !== null) ? [{ key: 'Alt+N', label: 'load more', valuePrefix: 'more:', scope: 'list' as const }] : []),
+        ...(failures.size > 0 ? [{ key: 'Alt+T', label: 'retry', valuePrefix: 'retry:', scope: 'list' as const }] : []),
         ...(feedback.actions ?? []),
       ], signal,
     }, query)
@@ -209,12 +263,14 @@ async function discover(ctx: Context, signal: AbortSignal): Promise<void> {
     if (chosen === 'search:') {
       const next = await searchPrompt(query)
       if (next === null || signal.aborted) continue
-      if (next !== query) { entries = []; result = undefined }
+      if (next !== query) { entries = []; pages.clear(); failures.clear(); result = undefined }
       query = next
       await load()
       continue
     }
-    if (chosen === 'refresh:') { await load(); continue }
+    if (chosen === 'refresh:') { await load('refresh'); continue }
+    if (chosen === 'more:') { await load('more'); continue }
+    if (chosen === 'retry:') { await load('retry'); continue }
     const picked = entries.find(({ page, entry }) => JSON.stringify([page.url, entry.name]) === chosen)
     if (picked === undefined) continue
     const version = picked.entry.versions.find(item => item.version === picked.entry.defaultVersion) ?? picked.entry.versions[0]
@@ -329,7 +385,10 @@ async function browseBundles(ctx: Context, signal: AbortSignal, configurationCtx
 async function manage(ctx: Context, invocation: CommandInvocation, signal: AbortSignal, configurationCtx?: Context): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /plugins' }
   if (invocation.agent.status === 'running') return { kind: 'error', text: 'Wait for the current turn to finish before managing plugins.' }
-  const browse = createPromptBrowser(request => ctx.tui.prompt(request))
+  const navigation = new AbortController()
+  signal = AbortSignal.any([signal, navigation.signal])
+  const onSuperseded = (): void => navigation.abort()
+  const browse = createPromptBrowser(request => ctx.tui.prompt({ ...request, onSuperseded }))
   let result: ChangeResult | undefined
   while (!signal.aborted) {
     const runtime = ctx.get('omdshSession')
@@ -359,7 +418,7 @@ async function manage(ctx: Context, invocation: CommandInvocation, signal: Abort
       }
       continue
     }
-    if (action === 'discover') { await discover(ctx, signal); continue }
+    if (action === 'discover') { await discover(ctx, signal, onSuperseded); continue }
     if (action === 'entries') {
       let entryResult: ChangeResult | undefined
       while (!signal.aborted) {

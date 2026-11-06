@@ -9,6 +9,7 @@ import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { askPrompt } from '../prompt-intents.ts'
 import { managedProviderCredentialRef, parseBaseURL, parseModelIds, parseProviderId } from '../commands/auth-input.ts'
 import { walkPath } from '../commands/auth-providers.ts'
+import { rebaseSettingsDraft, settingsDraftSummary } from './settings-draft.ts'
 import { openAccountSettings } from './account-settings.ts'
 import { editModelCatalog, modelReasoningLevels } from './model-catalog-editor.ts'
 
@@ -31,7 +32,7 @@ const errorText = (error: unknown): string => error instanceof Error ? error.mes
 
 export function modelSettingsEntry(ctx: Context) {
   if (ctx.get('llm') === undefined || !ctx.settings.describe({ redactSecrets: true }).some(section => NAMESPACES.includes(section.ns))) return []
-  return [{ id: MODEL_SETTINGS, label: 'Model providers', section: 'models' as const, fields: [],
+  return [{ id: MODEL_SETTINGS, label: 'Model providers', section: 'models' as const, fields: [], behavior: ctx.settings.writable ? 'Profile · Apply to save' : 'Profile · Read only',
     description: 'Manage provider credentials, endpoints and model lists. Keeps the selected model.', summary: 'Configure' }]
 }
 
@@ -47,7 +48,7 @@ function deletable(section: SettingsDescriptor, entry: LlmConfigurableProvider):
 
 function assertRevision(ctx: Context, section: SettingsDescriptor): void {
   if (!ctx.settings.writable) throw new Error('This profile is read-only.')
-  if (describe(ctx, section.ns)?.revision !== section.revision) throw new Error('Configuration changed. Your draft is kept. Cancel and reopen the provider to load the latest settings.')
+  if (describe(ctx, section.ns)?.revision !== section.revision) throw new Error('Configuration changed. Load the latest settings to continue with your draft.')
 }
 
 /** Never materialize redacted secret slots when replacing a compound catalog value. */
@@ -177,7 +178,7 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
     const canWrite = ctx.settings.writable
     const auth = text(ctx, await authentication(ctx, entry, saved).catch(errorText))
     if (signal.aborted) return
-    const choice = await ctx.tui.prompt({ ...list, localize: ['title', 'question', 'actions'], title: 'Provider settings', question: 'Edit the draft, then Apply to save', detail: [entry.displayName, entry.provider, text(ctx, diagnostic)].filter(Boolean).join('\n'),
+    const choice = await ctx.tui.prompt({ ...list, localize: ['title', 'question', 'actions'], title: 'Provider settings', question: 'Edit the draft, then Apply to save', detail: [settingsDraftSummary(ctx, changes.size + (key ? 1 : 0) + (creating ? 1 : 0)), entry.displayName, entry.provider, text(ctx, diagnostic)].filter(Boolean).join('\n'),
       options: [
         { label: 'API key', value: 'key', description: key === '' ? auth : text(ctx, 'New key ready to save'), disabled: !canWrite },
         { label: 'Base URL', value: 'baseURL', description: string(value('baseURL')) || entry.defaultBaseURL || text(ctx, 'Inherited'), disabled: !canWrite },
@@ -186,6 +187,7 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
         { label: 'Model list', value: 'models', description: models(value('models')).map(model => string(model.id)).join(', ') || text(ctx, 'Inherited'), disabled: !canWrite },
         { label: 'Fetch available models', value: 'fetch', disabled: !canWrite },
         ...(!custom(entry) ? [{ label: 'Restore default models', value: 'reset', disabled: !canWrite }] : []),
+        ...(describe(ctx, section.ns)?.revision !== section.revision ? [{ label: 'Load latest and keep draft', value: 'reload' }] : []),
         { label: 'Apply', value: 'apply', disabled: !canWrite },
         ...(deletable(section, entry) && !creating ? [{ label: 'Delete provider', value: 'delete', disabled: !canWrite }] : []),
         { label: 'Cancel', value: 'cancel' },
@@ -193,6 +195,23 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
     if (choice === null || choice === 'cancel') return
     if (!canWrite) continue
     try {
+      if (choice === 'reload') {
+        const latest = describe(ctx, section.ns)
+        if (latest === undefined) throw new Error('Provider configuration is no longer available.')
+        const result = await rebaseSettingsDraft(ctx, section, latest, changes, [...changes.keys()].map(field => ({
+          key: field, label: ({ baseURL: 'Base URL', api: 'API protocol', displayName: 'Display name', models: 'Model list' } as Record<string, string>)[field] ?? field,
+          defaultValue: undefined, format: (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value) ?? text(ctx, 'Inherited'),
+        })), signal, entry.settingsPath)
+        if (result === undefined) continue
+        const nextSaved = profile(result.section, entry)
+        const credentialChanged = saved.apiKeyEnv !== nextSaved.apiKeyEnv
+        section = result.section; saved = nextSaved
+        changes.clear()
+        for (const [field, value] of result.changes) changes.set(field, value)
+        diagnostic = 'Latest settings loaded. Your remaining changes are ready to apply.'
+        if (key && credentialChanged) { key = ''; diagnostic = 'The credential reference changed. Enter the key again for the current reference.' }
+        continue
+      }
       if (choice === 'apply') {
         signal.throwIfAborted()
         assertRevision(ctx, section)
