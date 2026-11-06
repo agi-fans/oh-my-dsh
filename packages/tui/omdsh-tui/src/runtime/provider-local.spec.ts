@@ -825,13 +825,15 @@ describe('LocalTui folds against a scrolling terminal', () => {
           ...(surface === 'plan-review' ? { approveValue: 'Approve' } : {}),
         })
         expect(term.visible()).not.toEqual(screen)
-        if (surface !== 'trajectory') expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+        const releasesMouse = surface === 'settings' || surface === 'card'
+        if (releasesMouse) expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
+        else expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
         const restore = term.captured.length
         press(term, '\x1b[27u')
         if (answer !== undefined) expect(await answer).toBeNull()
         expect(term.visible()).toEqual(screen)
         expect(term.scrollback()).toEqual(history)
-        if (surface !== 'trajectory') expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
+        if (releasesMouse) expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
         // The restored frame must still accept wheel input, not only look right.
         press(term, '\x1b[<64;5;5M')
         expect(term.visible()).not.toEqual(screen)
@@ -2961,7 +2963,7 @@ describe('LocalTui (tty)', () => {
     })))
     press(term, '/help\r')
     await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toContain('Commands · 30 core')
+    expect(stripAnsi(term.captured)).toContain('1/31 · scroll for more')
     tui.dispose()
   })
 
@@ -3131,22 +3133,41 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('folds /help into the transcript and opens it with Ctrl+O', async () => {
-    // Reference is output: sixty rows fold behind one line rather than taking the
-    // frame, which is the shape a long tool result already uses.
+  it('filters help and inserts a command for confirmation', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
+    tui.setCommands([{ name: 'model', description: 'Choose a model' }])
+    const pending = tui.readline()
     press(term, '/help\r')
     await flushAsyncPaste()
-    const folded = stripAnsi(term.captured)
-    expect(folded).toContain('Commands ·')
-    expect(folded).toMatch(/… \d+ more lines · Ctrl\+O: Expand/u)
-    expect(folded).toContain('🐳')
-    term.captured = ''
-    press(term, '\x0f')
+    expect(stripAnsi(term.captured)).toContain('Find a command')
+    press(term, 'model')
     await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toContain('Essential Shortcuts')
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('/model')
+    press(term, '\r')
+    expect(await pending).toBe('/model')
     tui.dispose()
+  })
+
+  it('opens shortcuts from Help with Enter and yields to a foreground prompt', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      press(term, '/help\r')
+      await flushAsyncPaste()
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('Keyboard Shortcuts')
+      const pending = tui.prompt({ title: 'Approval required', question: 'Continue?', options: [{ label: 'Yes' }], allowCustom: false })
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).toContain('Approval required')
+      term.captured = ''
+      press(term, '\x03')
+      await pending
+      await flushAsyncPaste()
+      expect(stripAnsi(term.captured)).not.toContain('Keyboard Shortcuts')
+    } finally { tui.dispose() }
   })
 
   it('finds inside a rendered document, which has no source to search', async () => {
@@ -3179,18 +3200,20 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('gives /help full the whole shortcut catalog behind the same fold', async () => {
+  it('opens the full shortcut catalog in a searchable reader', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     press(term, '/help full\r')
     await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toMatch(/… \d+ more lines · Ctrl\+O: Expand/u)
-    term.captured = ''
-    press(term, '\x0f')
+    expect(stripAnsi(term.captured)).toContain('Keyboard Shortcuts')
+    press(term, '/')
+    press(term, 'Comparison')
     await flushAsyncPaste()
-    const opened = stripAnsi(term.captured)
-    expect(opened).toContain('Keyboard Shortcuts')
-    expect(opened).toContain('Navigation')
+    press(term, '\r')
+    await flushAsyncPaste()
+    expect(stripAnsi(term.captured)).toContain('matching rows')
+    press(term, '\x03')
+    await flushAsyncPaste()
     tui.dispose()
   })
 
@@ -5823,6 +5846,138 @@ describe('startup probe gating', () => {
   })
 })
 
+describe('text reader pointer interaction', () => {
+  const wheelDown = '\x1b[<65;10;5M'
+  const wheelUp = '\x1b[<64;10;5M'
+  const body = Array.from({ length: 100 }, (_, index) => `ROW_${String(index).padStart(3, '0')}`).join('\n')
+
+  const markdown = body.split('\n').map(line => '- ' + line).join('\n')
+
+  it.each([
+    ['document', false, false], ['document', false, true],
+    ['document', true, false], ['document', true, true],
+    ['plan-review', false, false], ['plan-review', false, true],
+  ] as const)('scrolls %s (source=%s, colors=%s) and restores the conversation', async (presentation, source, colors) => {
+    const term = new ScrollingTerminal(80, 24)
+    const tui = new LocalTui(term, 'm', colors, 'dark', copyToClipboard, { wheelAcceleration: false })
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'tui' })
+      longTurn(tui, 1, 50)
+      press(term, '\x1b[5~')
+      press(term, 'keep draft')
+      const before = term.visible(), history = term.scrollback()
+      const position = vi.fn()
+      const pending = tui.prompt({ title: 'Reader', question: '', presentation, notify: false, allowCustom: false,
+        ...(source ? { documentSource: { text: body } } : { detail: markdown }),
+        options: [{ label: 'Close' }], onDocumentPosition: position })
+      expect(term.visible().join('\n')).toContain('ROW_000')
+      press(term, wheelDown)
+      const firstScroll = term.visible()
+      press(term, wheelDown)
+      press(term, wheelUp)
+      expect(term.visible().join('\n')).not.toContain('ROW_000')
+      expect(term.visible()).toEqual(firstScroll)
+      press(term, '\x03')
+      await pending
+      if (presentation === 'document') expect(position).toHaveBeenCalledWith(expect.objectContaining({ row: 3 }))
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it('bounds scrolling and pauses a live source until End resumes following', async () => {
+    const term = new ScrollingTerminal(80, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'tui' })
+      const position = vi.fn()
+      const pending = tui.prompt({ title: 'Log', question: '', presentation: 'document', notify: false,
+        documentSource: { text: body }, documentTail: true, onDocumentPosition: position, options: [{ label: 'Close' }] })
+      expect(term.visible().join('\n')).toContain('Following')
+      press(term, wheelUp)
+      expect(term.visible().join('\n')).toContain('Paused')
+      for (let at = 0; at < 150; at++) press(term, wheelUp)
+      expect(term.visible().join('\n')).toContain('ROW_000')
+      const top = term.visible()
+      press(term, wheelUp)
+      expect(term.visible()).toEqual(top)
+      for (let at = 0; at < 150; at++) press(term, wheelDown)
+      expect(term.visible().join('\n')).toContain('ROW_099')
+      expect(term.visible().join('\n')).toContain('Paused')
+      press(term, '\x1b[F')
+      expect(term.visible().join('\n')).toContain('Following')
+      press(term, '\x03')
+      await pending
+      expect(position).toHaveBeenCalledWith(expect.objectContaining({ following: true }))
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('retains drag selection and right-click copy (copyOnSelect=%s)', async copyOnSelect => {
+    const term = new ScrollingTerminal(80, 24), copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'tui', copyOnSelect })
+      const pending = tui.prompt({ title: 'Reader', question: '', presentation: 'document', detail: markdown, notify: false, options: [{ label: 'Close' }] })
+      const row = term.visible().findIndex(line => line.includes('ROW_001'))
+      const column = term.visible()[row]!.indexOf('ROW_001')
+      press(term, `\x1b[<0;${column + 1};${row + 1}M\x1b[<32;${column + 7};${row + 1}M\x1b[<0;${column + 7};${row + 1}m`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledTimes(copyOnSelect ? 1 : 0)
+      press(term, `\x1b[<2;${column + 1};${row + 1}M`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenLastCalledWith('ROW_001')
+      press(term, wheelDown)
+      const calls = copy.mock.calls.length
+      press(term, `\x1b[<0;${column + 7};${row + 1}m`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledTimes(calls)
+      press(term, '\x03')
+      await pending
+    } finally { tui.dispose() }
+  })
+
+  it('keeps the search query while scrolling and remembers the resulting position', async () => {
+    const term = new ScrollingTerminal(80, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      const position = vi.fn()
+      const pending = tui.prompt({ title: 'Reader', question: '', presentation: 'document', detail: markdown, notify: false,
+        options: [{ label: 'Close' }], onDocumentPosition: position })
+      press(term, '/')
+      press(term, 'ROW_060')
+      press(term, '\r')
+      press(term, wheelDown)
+      expect(term.visible().join('\n')).toContain('“ROW_060”')
+      press(term, '\x03')
+      await pending
+      expect(position.mock.calls[0]?.[0]).toMatchObject({ query: 'ROW_060' })
+      expect(position.mock.calls[0]?.[0].row).toBeGreaterThan(59)
+    } finally { tui.dispose() }
+  })
+
+  it('leaves native mouse mode alone and releases capture for a choice prompt', async () => {
+    const term = new ScrollingTerminal(80, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'native' })
+      const abort = new AbortController()
+      const pending = tui.prompt({ title: 'Reader', question: '', presentation: 'document', detail: markdown, signal: abort.signal,
+        notify: false, options: [{ label: 'Close' }] })
+      const before = term.visible()
+      press(term, wheelDown)
+      expect(term.visible()).toEqual(before)
+      tui.applyStoredPrefs({ mouseInteraction: 'tui' })
+      press(term, wheelDown)
+      expect(term.visible()).not.toEqual(before)
+      abort.abort()
+      await pending
+      const choice = tui.prompt({ title: 'Choose', question: '', options: [{ label: 'One' }], notify: false })
+      const card = term.visible()
+      press(term, wheelDown)
+      expect(term.visible()).toEqual(card)
+      press(term, '\x03')
+      await choice
+    } finally { tui.dispose() }
+  })
+})
+
 describe('wheel acceleration option', () => {
   const wheelUp = '\x1b[<64;10;5M'
   const firstLineRow = (rows: readonly string[]): { at: number; label: string } | undefined => {
@@ -6252,6 +6407,32 @@ describe('process disclosure pointer interaction', () => {
     mouse(term, row, column, 'press')
     mouse(term, row, column, 'release')
   }
+
+  it.each([false, true])('opens command output by click and restores its draft and reading position (colors=%s)', async colors => {
+    const term = new ScrollingTerminal(80, 30), tui = new LocalTui(term, 'm', colors)
+    try {
+      tui.applyStoredPrefs({ mouseInteraction: 'tui', copyOnSelect: false })
+      tui.commandOutput('context', 'Context Details\n\n' + Array.from({ length: 40 }, (_, i) => `- ROW_${i}`).join('\n'), { focus: true })
+      press(term, 'keep draft')
+      const history = term.scrollback()
+      click(term, 'Context Details', 10)
+      const row = term.visible().findIndex(line => line.includes('Context Details'))
+      expect(term.visible()[row]).toContain('▾')
+      const before = term.visible()
+      click(term, 'Context Details', 77)
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('/ find')
+      press(term, '\x03')
+      await flushAsyncPaste()
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+      expect(term.visible().join('\n')).toContain('keep draft')
+      mouse(term, row, 5, 'press')
+      mouse(term, row, 15, 'drag')
+      mouse(term, row, 15, 'release')
+      expect(term.visible()[row]).toContain('▾')
+    } finally { tui.dispose() }
+  })
 
   it.each([false, true])('shares keyboard state and preserves draft and native history (colors=%s)', colors => {
     const term = new ScrollingTerminal(100, 40), tui = new LocalTui(term, 'm', colors)

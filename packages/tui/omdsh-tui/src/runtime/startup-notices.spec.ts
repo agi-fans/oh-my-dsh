@@ -29,7 +29,8 @@ describe('startup notices plugin', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(CommandRuntime)
     const notice = vi.fn()
-    const prompt = vi.fn(() => Promise.resolve(null))
+    const answers = ['0.3.0', 'sections', '1', null, null]
+    const prompt = vi.fn(async () => answers.shift() ?? null)
     ctx.provide('tui', {
       notice,
       prompt,
@@ -43,9 +44,12 @@ describe('startup notices plugin', () => {
     await ctx.omdshStartup.afterSessionStart()
     expect(notice).toHaveBeenCalledWith("What's New · v0.3.0\n1 fix · /changelog for details")
     const result = await ctx.commands.execute(agent, '/changelog', [], new AbortController().signal)
-    // Release notes are output: they come back as text for the transcript to fold.
-    expect(prompt).not.toHaveBeenCalled()
-    expect(result?.result).toMatchObject({ kind: 'success', text: expect.stringContaining('## [0.3.0]') })
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'Changelog', filterable: true, options: [expect.objectContaining({ label: 'v0.3.0', description: '2026-08-16 · 1 fixed' })] }))
+    expect(result?.result).toEqual({ kind: 'success' })
+    expect(prompt).toHaveBeenNthCalledWith(4, expect.objectContaining({ title: 'Changelog · v0.3.0', question: 'Fixed', detail: '### Fixed\n\n- Fixed startup.' }))
+    expect(prompt).toHaveBeenCalledTimes(5)
+    await ctx.commands.execute(agent, '/changelog full', [], new AbortController().signal)
+    expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Changelog', presentation: 'document' }))
 
     await ctx.fiber.dispose()
   })

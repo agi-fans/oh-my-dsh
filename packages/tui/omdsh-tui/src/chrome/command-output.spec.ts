@@ -3,7 +3,6 @@ import { formatHelpText } from '../views/autocomplete.ts'
 import { renderCommandOutput, renderCommandSeparator, renderShell } from './command-output.ts'
 import { createTheme } from './theme.ts'
 import { stripAnsi, visibleWidth } from './width.ts'
-import { stripAnsi, visibleWidth } from './width.ts'
 
 const theme = createTheme(false)
 
@@ -23,9 +22,17 @@ describe('renderCommandOutput', () => {
     expect(text).toContain('Model')
     expect(text).toContain('deepseek-v4-flash')
     expect(text).toContain('├')
-    expect(stripAnsi(lines[0] ?? '')).toBe(' Session Details')
+    expect(stripAnsi(lines[0] ?? '')).toMatch(/^   Session Details\s+\[Read\] $/u)
     expect(stripAnsi(lines[0] ?? '')).not.toMatch(/[╭│╰]/u)
     expect(lines.every(line => visibleWidth(line) <= 60)).toBe(true)
+  })
+
+  it.each([1, 8, 29, 30, 60, 100])('fits long Unicode titles and fold hints into %s cells', width => {
+    for (const colors of [false, true]) {
+      const rows = renderCommandOutput('context', '诊断 🐳 é '.repeat(12) + '\n\n' + '- details\n'.repeat(30), createTheme(colors), width, { expandKey: 'Ctrl+O' })
+      expect(rows.every(row => visibleWidth(row) <= width)).toBe(true)
+      if (width >= 30) expect(stripAnsi(rows[0]!)).toContain('[Read]')
+    }
   })
 
   it('keeps every help command in a distinct compact row', () => {

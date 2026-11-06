@@ -4,7 +4,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 
 # Keyboard and keys
 
-`/help` prints the live shortcut catalog beside the command list, and `/help full` adds the complete version; the catalog reads the bindings actually in effect. Application bindings are overridable through `keybindings.json`, while the editor keeps a fixed Vi-like key set.
+`/help` opens a filterable command list. Choose Keyboard shortcuts or press Alt+K to show the shortcut catalog, and `/help full` opens it directly. The catalog starts with essential operations and uses the current effective bindings. Press S for sections, including Diff and the file browser, or `/` to search. Application bindings are overridable through `keybindings.json`, while the editor keeps a fixed Vi-like key set.
 
 ## Navigation
 

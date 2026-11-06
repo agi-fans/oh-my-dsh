@@ -35,6 +35,13 @@ it.each([false, true])('renders progress with cancellation hints and no answer e
   }
 })
 
+it('shows the selected filtered option’s action in a card', () => {
+  const state: PromptSelectorState = { request: { title: 'Help', question: '', filterable: true, submitLabel: 'insert',
+    options: [{ label: 'Keyboard shortcuts', submitLabel: 'read' }, { label: '/model', submitLabel: 'insert' }] }, selected: 0, checked: new Set() }
+  expect(renderPromptSelector(state, createTheme(false), 60, '', 0).lines.join('\n')).toContain('enter read')
+  expect(renderPromptSelector(state, createTheme(false), 60, 'model', 5).lines.join('\n')).toContain('enter insert')
+})
+
 describe('plan review page', () => {
   it.each([false, true])('does not leave an empty separator when a source reader has no custom actions (color=%s)', color => {
     for (const width of [30, 60, 130]) {

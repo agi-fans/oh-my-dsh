@@ -1,3 +1,5 @@
+import { browseHelp } from './help-reader.ts'
+import { readReference } from './reference-reader.ts'
 import { FileBrowser } from './file-browser.ts'
 import type { TuiFileReview } from '../definition.ts'
 import { reasoningKey } from '../views/transcript-types.ts'
@@ -228,7 +230,7 @@ import { edgeIndex, listNavigation, navigateIndex } from '../views/list-navigati
 import { refreshProjectContext, resolveGitStatusFiles, resolveProjectContext } from '../session/project-context.ts'
 
 import { modelRouteReady } from '../session/model-readiness.ts'
-import { formatEssentialHotkeysText, formatHotkeysText, hotkeyCount, keysForAction } from '../views/hotkeys.ts'
+import { formatEssentialHotkeysText, formatHotkeysText, keysForAction } from '../views/hotkeys.ts'
 import {
   imagePathCandidates,
   splitComposerAttachmentMarkers,
@@ -623,7 +625,7 @@ export class LocalTui implements TuiService {
   #hideThinking = true
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
-  #disclosurePress: { target: TranscriptDisclosure; row: number } | undefined
+  #disclosurePress: { target: TranscriptDisclosure; row: number; column: number } | undefined
   #jumpPress: { row: number; column: number; width: number } | undefined
   #jumpToLatest: { row: number; column: number; width: number } | undefined
   #openedGroups = new Set<string>()
@@ -1407,6 +1409,11 @@ export class LocalTui implements TuiService {
       this.#syncWindowTitle()
     }
     if (this.#tty && request.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
+    this.#selection.clear()
+    this.#disclosurePress = undefined
+    this.#mouseActionPress = undefined
+    this.#jumpPress = undefined
+    this.#wheelGesture = IDLE_WHEEL
     const savedInput = this.#editor.snapshot()
     this.#editor.setText(request.allowCustom === false || request.filterable === true || (request.options?.length && request.initialInput === undefined) ? '' : request.initialInput ?? '')
     this.#ac = null
@@ -2311,7 +2318,7 @@ export class LocalTui implements TuiService {
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
-    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
       && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
@@ -2399,6 +2406,23 @@ export class LocalTui implements TuiService {
     this.#processSelection = undefined
   }
 
+  #documentMouseEnabled(): boolean {
+    const prompt = this.#prompt
+    return prompt !== null && prompt.feedback !== true && this.#promptDocument !== undefined
+      && (prompt.request.presentation === 'document' || prompt.request.presentation === 'plan-review')
+  }
+
+  #scrollPromptDocument(row: number): void {
+    if (this.#prompt === null) return
+    this.#prompt = {
+      ...this.#prompt,
+      documentAnchor: undefined,
+      documentTarget: undefined,
+      documentScroll: row === Number.POSITIVE_INFINITY ? row : Math.max(0, Math.min(row, this.#promptDocument?.maxStart ?? 0)),
+    }
+    this.#render()
+  }
+
   /** Capture transcript navigation; overlays and disposal restore terminal ownership. */
   #setMouseTracking(enabled: boolean): void {
     enabled = enabled && this.#mouseInteraction !== 'native'
@@ -2435,7 +2459,7 @@ export class LocalTui implements TuiService {
    * or go back to the live tail once nothing is open any more.
    */
   #inspect(target: number | undefined): void {
-    const open = this.#toolsExpanded || this.#openedGroups.size > 0
+    const open = this.#toolsExpanded || this.#openedGroups.size > 0 || this.#expandedOutputs.size > 0
     if (!open) {
       this.#inspecting = false
       this.#followTail()
@@ -2650,7 +2674,7 @@ export class LocalTui implements TuiService {
     const source = frame?.documentRows
     if (document === undefined || source == null || document < source.documentStart || document >= source.documentEnd) return
     const target = frame?.transcript?.disclosures?.find(item => item.row === document && (action
-      ? item.actionColumn !== undefined && column >= item.actionColumn && column < item.actionColumn + 5
+      ? item.actionColumn !== undefined && column >= item.actionColumn && column < item.actionColumn + (item.key.startsWith('output:') ? 6 : 5)
       : column >= item.column && column < item.column + item.width))
     const expected = frame?.lines[source.frameStart + document - source.documentStart]
     const actual = this.#renderer.viewport()[row]
@@ -2663,12 +2687,23 @@ export class LocalTui implements TuiService {
   #pressedDisclosureAt(row: number, column: number): TranscriptDisclosure | undefined {
     const pressed = this.#disclosurePress
     if (pressed === undefined || pressed.row !== row) return
+    if (pressed.target.key.startsWith('output:') && Math.abs(pressed.column - column) > 1) return
     const target = this.#disclosureAt(row, column)
     if (target?.key === pressed.target.key && target.row === pressed.target.row
       && target.column === pressed.target.column && target.width === pressed.target.width) return target
   }
 
   #activateDisclosure(target: TranscriptDisclosure): void {
+    const output = this.#state.blocks[target.block]
+    if (output?.kind === 'commandOutput' && target.key === `output:${target.block}`) {
+      if (this.#expandedOutputs.has(output)) this.#expandedOutputs.delete(output)
+      else this.#expandedOutputs.add(output)
+      this.#inspect(target.block)
+      this.#focusBlock = target.block
+      this.#focusBlockEdge = 'start'
+      this.#render()
+      return
+    }
     const groups = turnGroups(this.#state)
     const group = groups.find(item => target.group === undefined
       ? target.block >= item.start && target.block < item.until : item.key === target.group)
@@ -2697,7 +2732,7 @@ export class LocalTui implements TuiService {
       }
     }
     const tool = this.#disclosureAt(row, column, true)
-    if (tool?.actionColumn !== undefined) return { row, column: tool.actionColumn, width: 5, key: tool.key, action: 'tool', block: tool.block }
+    if (tool?.actionColumn !== undefined) return { row, column: tool.actionColumn, width: tool.key.startsWith('output:') ? 6 : 5, key: tool.key, action: 'tool', block: tool.block }
     return undefined
   }
 
@@ -2715,6 +2750,7 @@ export class LocalTui implements TuiService {
           else {
             const block = this.#state.blocks[target.block!]
             if (block?.kind === 'tool') void this.#openToolActions(block)
+            else if (block?.kind === 'commandOutput') void this.#readCommandOutput(block)
           }
         }
       } else if (event.action === 'drag' && (target?.key !== pressedAction.key || event.shift)) {
@@ -2754,7 +2790,7 @@ export class LocalTui implements TuiService {
     }
     if (event.action === 'press') {
       const disclosure = event.shift ? undefined : this.#disclosureAt(event.row, event.column)
-      this.#disclosurePress = disclosure === undefined ? undefined : { target: disclosure, row: event.row }
+      this.#disclosurePress = disclosure === undefined ? undefined : { target: disclosure, row: event.row, column: event.column }
       const target = this.#jumpToLatest
       this.#jumpPress = target !== undefined && inside(target) ? target : undefined
       if (this.#jumpPress !== undefined) this.#selection.clear()
@@ -2993,7 +3029,10 @@ export class LocalTui implements TuiService {
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
         const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1, !this.#wheelAccelerates)
         this.#wheelGesture = step.gesture
-        if (step.lines !== 0) this.#scrollBy(step.lines)
+        if (step.lines !== 0) {
+          if (this.#documentMouseEnabled()) this.#scrollPromptDocument(this.#promptDocument!.start + step.lines)
+          else this.#scrollBy(step.lines)
+        }
       }
       return
     }
@@ -3442,13 +3481,7 @@ export class LocalTui implements TuiService {
     else if (event.id === 'home') documentScroll = 0
     else if (event.id === 'end') documentScroll = prompt.request.documentTail === true ? Number.POSITIVE_INFINITY : scroll?.maxStart ?? prompt.documentScroll ?? 0
     if (documentScroll !== undefined) {
-      this.#prompt = {
-        ...prompt,
-        documentAnchor: undefined,
-        documentTarget: undefined,
-        documentScroll: documentScroll === Number.POSITIVE_INFINITY ? documentScroll : Math.max(0, Math.min(documentScroll, scroll?.maxStart ?? Number.POSITIVE_INFINITY)),
-      }
-      this.#render()
+      this.#scrollPromptDocument(documentScroll)
       return true
     }
     if (event.id === 'tab' || event.id === 'right') {
@@ -4437,6 +4470,11 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
+    if (command.name === 'help') {
+      if (args !== '' && args !== 'full') this.notice('Usage: /help [full]')
+      else this.#runHelp(args === 'full')
+      return
+    }
     this.#followTail()
     if (command.name === 'quit') {
       this.#render()
@@ -4457,12 +4495,7 @@ export class LocalTui implements TuiService {
       this.#runTools()
       return
     }
-    if (args !== '' && args !== 'full') {
-      this.#notice('Usage: /help [full]')
-      this.#render()
-      return
-    }
-    this.#runHelp(args === 'full')
+    this.#render()
   }
 
 
@@ -4477,6 +4510,8 @@ export class LocalTui implements TuiService {
     const pending = this.#prompt
     if (pending === null) return
     this.#prompt = null
+    this.#selection.clear()
+    this.#wheelGesture = IDLE_WHEEL
     if (pending.request.notify !== false) {
       this.#herdr.promptResolved()
       this.#syncWindowTitle()
@@ -4689,23 +4724,38 @@ export class LocalTui implements TuiService {
     }, 25)
   }
 
-  /**
-   * Help is reference, not conversation: 60 rows of it pushed into immutable
-   * scrollback and vanished on resume, so the reader paid for it twice. It opens
-   * in the reading surface instead, where it can be searched and left with Esc.
-   */
   #runHelp(full: boolean): void {
-    const text = [
-      formatHelpText(this.#commands(), resolveUiLanguage(this.#uiLanguage)),
-      '',
-      full
-        ? `**Keyboard Shortcuts · ${hotkeyCount(this.#keybindings)} shortcuts**`
-        : '**Essential Shortcuts**',
-      '',
-      full ? formatHotkeysText(this.#keybindings) : formatEssentialHotkeysText(this.#keybindings),
-      ...(full ? [] : ['', 'Use `/help full` to view every keyboard shortcut.']),
-    ].join('\n')
-    this.commandOutput('help', text, { focus: true })
+    if (!this.#tty) {
+      this.commandOutput('help', ['Help', '', '## Essential Shortcuts', '', formatEssentialHotkeysText(this.#keybindings),
+        '', formatHelpText(this.#commands(), resolveUiLanguage(this.#uiLanguage)),
+        ...(full ? ['', formatHotkeysText(this.#keybindings)] : ['', 'Use `/help full` to view every keyboard shortcut.'])].join('\n'))
+      return
+    }
+    if (this.#fileReviewAbort !== undefined || this.#prompt !== null) return
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    const surface = {
+      prompt: (request: TuiPrompt) => this.prompt({ ...request, signal: abort.signal, onSuperseded: () => { abort.abort() } }),
+      copyText: (text: string, label?: string) => this.copyText(text, label),
+      insertText: (text: string) => this.insertText(text),
+    }
+    void browseHelp(surface, this.#commands(), this.#keybindings, resolveUiLanguage(this.#uiLanguage), full, abort.signal)
+      .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.notice(String(error), { level: 'error' }) })
+      .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
+  }
+
+  async #readCommandOutput(block: Extract<Block, { kind: 'commandOutput' }>): Promise<void> {
+    if (this.#fileReviewAbort !== undefined || this.#prompt !== null || this.#disposed) return
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    try {
+      await readReference({
+        prompt: request => this.prompt({ ...request, signal: abort.signal, onSuperseded: () => { abort.abort() } }),
+        copyText: (text, label) => this.copyText(text, label),
+      }, `/${block.command}`, block.text, abort.signal)
+    } catch (error) {
+      if (!abort.signal.aborted && !this.#disposed) this.notice(String(error), { level: 'error' })
+    } finally { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined }
   }
 
   /**
@@ -4824,7 +4874,13 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'quote-selection') return true
-    if (action === 'tool-actions') { void this.#openToolActions(); return true }
+    if (action === 'tool-actions') {
+      const anchor = this.#viewportBlock()
+      const block = anchor === undefined ? undefined : this.#state.blocks[anchor]
+      if (block?.kind === 'commandOutput') void this.#readCommandOutput(block)
+      else void this.#openToolActions()
+      return true
+    }
     if (action === 'review-changes') {
       // The keyboard twin of right-clicking a tool's path: open the files the
       // tool under the viewport declared. It shares the mouse path's region
@@ -5184,6 +5240,8 @@ export class LocalTui implements TuiService {
       if (this.#expandedOutputs.has(anchored)) this.#expandedOutputs.delete(anchored)
       else this.#expandedOutputs.add(anchored)
       this.#inspect(anchor)
+      this.#focusBlock = anchor
+      this.#focusBlockEdge = 'start'
       this.#render()
       return
     }

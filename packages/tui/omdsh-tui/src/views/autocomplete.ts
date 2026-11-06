@@ -75,7 +75,7 @@ export const COMMAND_GROUPS: readonly { label: string; names: readonly string[] 
   { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'changelog'] },
   { label: 'Application', names: ['help', 'quit'] },
 ]
-const COMMON_COMMANDS = ['model', 'plan', 'permission', 'resume', 'diff', 'settings', 'new', 'help']
+export const COMMON_COMMANDS = ['model', 'plan', 'permission', 'resume', 'diff', 'settings', 'new', 'help']
 
 /** Visible popup rows (OMP editor default). */
 export const AUTOCOMPLETE_MAX_VISIBLE = 5
@@ -200,7 +200,7 @@ export function buildSlashArgumentCompletions(
   return buildNamedCompletions(args, lowerPrefix, 'argument')
 }
 
-function argumentHint(command: SlashCommand): string {
+export function argumentHint(command: SlashCommand): string {
   if (command.inputHint !== undefined && command.inputHint !== '') return ' ' + command.inputHint
   const args = command.arguments
   if (args === undefined || args.length === 0) return ''

@@ -51,6 +51,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Help offers a filterable command picker that inserts commands for review, with searchable shortcut sections including Diff controls. Changelog offers release and category navigation. Command outputs support click-to-expand and a searchable reader with section navigation, page and diagnostic-field copying, and restored reading positions. Session and context summaries prioritize current settings and occupancy.
+
 - Diff review keeps file navigation beside the comparison on wide terminals, with change status, line deltas, filtering, remembered reading positions, clickable file rows and independent wheel scrolling. Narrow terminals retain a single-pane reader, text remains selectable, and secondary actions are grouped in a keyboard-accessible menu. Missing turn comparisons are explicit instead of falling back to current content; untracked files show additions.
 
 - Trajectory uses readable summaries, folded context and nested calls, a wider detail pane, and Overview/Input/Result/Raw sections. Click and wheel navigation preserve text selection; keyboard focus, full-screen details, copying, problem filtering and slow-call navigation make long runs easier to inspect. Timing bars explicitly show accumulated durations without counting enclosed PTC calls twice.
@@ -104,6 +106,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - `omdsh exec` disables the Harness module watcher. A one-shot run never observes a reload, and on a fresh home its first-boot refresh stays pending while the loader shuts down, which leaves the timer service waiting on the refresh that is waiting for the timer.
 
 ### Fixed
+
+- Text readers accept mouse-wheel and trackpad scrolling, with drag selection and copying. Scrolling stays within the preview and restores the conversation position on close; live source readers pause when scrolled.
 
 - Trajectory correctly associates native and PTC tool results, including failures and empty outputs, and loads tool schemas from request headers. Finished calls no longer remain live; interrupted calls and partial history do not invent successful results or durations. Detail scrolling stops at its bounds and can move back immediately after End. Selecting text in a full-screen view no longer paints chat content over the selection.
 

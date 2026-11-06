@@ -55,10 +55,11 @@ describe('overlay key catalogs', () => {
   it('keeps every overlay key in the `/help` Overlays table', () => {
     const text = formatHotkeysText()
     for (const overlay of OVERLAY_CATALOGS) {
+      expect(text).toContain(`## ${overlay.label}`)
       for (const row of overlay.rows) {
         // The rendered row carries both cells, so a key cannot pass by matching
         // another section, and an overlay cannot silently lose its rows.
-        expect(text, `${overlay.label} is missing ${row.keys}`).toContain(`\`${row.keys}\` | ${overlay.label}: ${row.action}`)
+        expect(text, `${overlay.label} is missing ${row.keys}`).toContain(`\`${row.keys}\` | ${row.action}`)
       }
     }
   })
@@ -73,10 +74,10 @@ describe('overlay key catalogs', () => {
 describe('formatHotkeysText', () => {
   it('groups the bindings this TUI implements into Markdown tables', () => {
     const text = formatHotkeysText()
-    expect(text).toContain('**Navigation**')
-    expect(text).toContain('**Editing**')
-    expect(text).toContain('**Transcript**')
-    expect(text).toContain('**Session**')
+    expect(text).toContain('## Navigation')
+    expect(text).toContain('## Editing')
+    expect(text).toContain('## Transcript')
+    expect(text).toContain('## Session')
     expect(text).toContain('| Shortcut | Action |')
     expect(text).toContain('Enter')
     expect(text).toContain('Send the message')
@@ -94,6 +95,7 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Ctrl+P')
     expect(text).toContain('favorite model')
     expect(text).toContain('reasoning effort')
+    expect(text).toContain('Comparison / current file')
     // Thinking is now a first-class control, so the catalog names it.
     expect(text).toContain('Show or hide thinking')
     expect(text).not.toContain('Speech-to-text')

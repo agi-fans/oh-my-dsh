@@ -1,5 +1,18 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
+  "Keyboard shortcuts": "键盘快捷键",
+  "Browse essential keys and shortcuts by section": "查看常用操作，按章节查找快捷键",
+  "Help": "帮助",
+  "Changelog": "更新日志",
+  "Find a command · Enter inserts it into the composer": "查找命令 · Enter 填入输入框",
+  "Choose a release": "选择版本",
+  "Choose a section": "选择章节",
+  "Choose content": "选择内容",
+  "All sections": "全部章节",
+  "This page": "当前页",
+  "sections": "章节",
+  "shortcuts": "快捷键",
+  "copy": "复制",
   "Copy": "复制",
   "Quote": "引用",
   "Copy source": "复制源码",

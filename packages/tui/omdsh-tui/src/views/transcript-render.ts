@@ -1883,6 +1883,13 @@ function renderTranscriptBody(
       block, context.options, theme, themeName, depth, expanded,
       absorbed.has(index),
     )
+    if (block.kind === 'commandOutput' && block.text.trimEnd().includes('\n')) {
+      const foldable = /^ [▸▾] /u.test(stripAnsi(rendered[0] ?? ''))
+      disclosures.push({ block: index, row: lines.length, column: 0, width: foldable ? Math.max(0, options.width - 8) : 0,
+        key: `output:${index}`, detailEnd: lines.length + rendered.length,
+        ...(options.width >= 30 ? { actionColumn: options.width - 7 } : {}),
+      })
+    }
     regionsAt(index, lines.length, rendered.length, expanded)
     lines.push(...paintSearch(rendered, index, occurrences, theme))
     blockDrawStarts[index] = blockStarts[index]!

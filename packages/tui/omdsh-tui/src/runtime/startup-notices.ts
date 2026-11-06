@@ -1,3 +1,5 @@
+import { choosePrompt } from '../prompt-intents.ts'
+import { readReference } from './reference-reader.ts'
 /** Startup release notes and update-notification Cordis plugin. */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -8,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from '../commands/registration.ts'
 import type { TuiService } from '../definition.ts'
-import { changelogText, resolveStartupChangelog } from '../session/release-notes.ts'
+import { changelogText, parseChangelog, resolveStartupChangelog } from '../session/release-notes.ts'
 import { APP_VERSION, PACKAGE_NAME } from '../session/package-metadata.ts'
 import { checkForUpdate, type UpdateCheckCache } from '../session/update-check.ts'
 
@@ -139,14 +141,38 @@ class StartupNotices implements OmdshStartupService {
   }
 }
 
-async function showChangelog(config: ResolvedConfig, invocation: CommandInvocation): Promise<CommandResult> {
+async function showChangelog(tui: TuiService, config: ResolvedConfig, invocation: CommandInvocation): Promise<CommandResult> {
   const input = invocation.rawInput.trim().toLowerCase()
   if (input !== '' && input !== 'full') return { kind: 'error', text: 'Usage: /changelog [full]' }
   try {
     const changelog = await readFile(config.changelogPath, 'utf8')
-    // Release notes are output, so they belong in the transcript with the rest of
-    // it; a long one folds behind its first rows instead of taking the screen.
-    return { kind: 'success', text: changelogText(changelog, input === 'full') }
+    if (tui.interactive !== true) return { kind: 'success', text: changelogText(changelog, input === 'full') }
+    const abort = new AbortController()
+    const signal = AbortSignal.any([invocation.signal, abort.signal])
+    const surface = {
+      prompt: (request: Parameters<TuiService['prompt']>[0]) => tui.prompt({ ...request, signal, onSuperseded: () => { abort.abort() } }),
+      ...(tui.copyText === undefined ? {} : { copyText: (text: string, label?: string) => tui.copyText!(text, label) }),
+    }
+    const entries = parseChangelog(changelog)
+    if (input === 'full' || entries.length === 0) {
+      await readReference(surface, 'Changelog', changelogText(changelog, true), signal)
+      return { kind: 'success' }
+    }
+    let selected = entries[0]!.version
+    while (!signal.aborted) {
+      const answer = await surface.prompt(choosePrompt({ localize: ['title', 'question'], title: 'Changelog', question: 'Choose a release', filterable: true, initialValue: selected,
+        options: entries.map(entry => ({ label: `v${entry.version}`, value: entry.version,
+          description: [entry.markdown.split('\n')[0]?.match(/\d{4}-\d{2}-\d{2}/u)?.[0],
+            ...Object.entries(entry.categoryCounts).map(([category, count]) => `${count} ${category.toLowerCase()}`)].filter(Boolean).join(' · '),
+        })),
+      }))
+      if (answer === null || signal.aborted) break
+      const entry = entries.find(item => item.version === answer)
+      if (entry === undefined) break
+      selected = entry.version
+      await readReference(surface, `Changelog · v${entry.version}`, entry.markdown, signal)
+    }
+    return { kind: 'success' }
   } catch (error: unknown) {
     return { kind: 'error', text: 'Changelog unavailable: ' + (error instanceof Error ? error.message : String(error)) }
   }
@@ -165,7 +191,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'changelog',
     description: 'Show recent release notes',
     input: { hint: '[full]' },
-    handler: invocation => showChangelog(resolved, invocation),
+    handler: invocation => showChangelog(tui, resolved, invocation),
   }], 'omdsh changelog command')
   ctx.provide('omdshStartup', new StartupNotices(tui, resolved))
 }

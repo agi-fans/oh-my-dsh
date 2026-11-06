@@ -73,9 +73,22 @@ export function fileBrowserDocument(state: FileBrowserState, theme: Theme, width
     position: layout === undefined ? { ...state.position, row: start } : documentPosition(layout, start, state.position.query) }
 }
 
+export const FILE_BROWSER_HOTKEYS = [
+  { keys: 'Tab / Enter / Esc', action: 'Switch pane / read file / close' },
+  { keys: '/', action: 'Filter files or find in content' },
+  { keys: 'Ctrl+N / Ctrl+P', action: 'Next / previous match' },
+  { keys: 'N / P', action: 'Next / previous file' },
+  { keys: 'V', action: 'Comparison / current file' },
+  { keys: '↑↓ / PgUp / PgDn / Home / End', action: 'Scroll / page / edges' },
+  { keys: 'G / [ / ]', action: 'Jump to new-file line / previous / next hunk' },
+  { keys: 'W / Alt+← / Alt+→', action: 'Wrap / horizontal scroll' },
+  { keys: 'O / E / Q / M / I', action: 'Open / editor / quote / Markdown / image' },
+  { keys: 'L / R / A / ?', action: 'Load more / refresh / actions / help' },
+  { keys: 'Click / Drag / Right-click', action: 'Select file / select text / copy' },
+] as const
+
 export function browserHelp(width: number): string[] {
-  const help = ['Tab switch pane · Enter read file · Esc close', '/ filter files or find in content · Ctrl+N/P next/previous match', 'N/P next/previous file · V comparison/current file', '↑↓ scroll · PgUp/PgDn page · Home/End edges', 'G jump to new-file line · [/] previous/next hunk', 'W wrap · Alt+←→ horizontal scroll', 'O open · E editor · Q quote · M Markdown · I image', 'L load more · R refresh · A actions · ? help', 'Click selects · Drag selects text · Right-click copies']
-  return help.flatMap(line => wrapText(line, Math.max(1, width)))
+  return FILE_BROWSER_HOTKEYS.flatMap(row => wrapText(`${row.keys}  ${row.action}`, Math.max(1, width)))
 }
 
 export function renderFileBrowser(state: FileBrowserState, theme: Theme, width: number, height: number) {

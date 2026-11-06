@@ -9,6 +9,7 @@ import type { HotkeyRow, OverlayCatalog } from './hotkey-format.ts'
 
 export type { HotkeyRow }
 export { formatHotkeyKeys, formatOverlayHint } from './hotkey-format.ts'
+import { FILE_BROWSER_HOTKEYS } from './file-browser.ts'
 import { HISTORY_SEARCH_HOTKEYS } from './history-search.ts'
 import { PROMPT_SELECTOR_HOTKEYS } from './prompt-selector.ts'
 import { SETTINGS_HOTKEYS } from './settings-list.ts'
@@ -32,6 +33,7 @@ const OVERLAY_CATALOGS: readonly OverlayCatalog[] = [
   { label: 'History search', rows: HISTORY_SEARCH_HOTKEYS },
   { label: 'Transcript search', rows: TRANSCRIPT_SEARCH_HOTKEYS },
   { label: 'Trajectory', rows: TRAJECTORY_HOTKEYS },
+  { label: 'Diff / file browser', rows: FILE_BROWSER_HOTKEYS },
   { label: 'Prompts', rows: PROMPT_SELECTOR_HOTKEYS },
 ]
 
@@ -81,7 +83,7 @@ function keysForActions(bindings: HotkeyBindings, ...actions: TuiAction[]): stri
   return actions.map(action => keysForAction(bindings, action)).join(' / ')
 }
 
-function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
+function hotkeySections(bindings: HotkeyBindings): readonly HotkeySection[] {
   return [
     {
       title: 'Navigation',
@@ -128,7 +130,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: 'End / click jump label', action: 'Return to the latest message while browsing' },
         { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
         { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },
-        { keys: keysForAction(bindings, 'tool-actions'), action: 'Copy or open the current tool’s content' },
+        { keys: keysForAction(bindings, 'tool-actions'), action: 'Read or copy the current tool or command output' },
         { keys: keysForAction(bindings, 'quote-selection'), action: 'Quote selected text in the composer' },
         { keys: keysForAction(bindings, 'review-changes'), action: 'Preview the files the tool under the viewport declared' },
         { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript; n/N step across matches' },
@@ -157,13 +159,7 @@ function sections(bindings: HotkeyBindings): readonly HotkeySection[] {
         { keys: '/help', action: 'Show commands and keyboard shortcuts' },
       ],
     },
-    {
-      title: 'Overlays',
-      rows: OVERLAY_CATALOGS.flatMap(catalog => catalog.rows.map(row => ({
-        keys: row.keys,
-        action: `${catalog.label}: ${row.action}`,
-      }))),
-    },
+    ...OVERLAY_CATALOGS.map(catalog => ({ title: catalog.label, rows: catalog.rows })),
   ]
 }
 
@@ -173,7 +169,7 @@ function tableCell(value: string): string {
 
 /** Number of shortcut rows in the catalog. */
 export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): number {
-  return sections(bindings).reduce((total, section) => total + section.rows.length, 0)
+  return hotkeySections(bindings).reduce((total, section) => total + section.rows.length, 0)
 }
 
 /** Short, high-frequency subset shown by the default `/help` view. */
@@ -200,9 +196,9 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DI
 
 /** Markdown tables embedded in the `/help` transcript panel. */
 export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): string {
-  return sections(bindings).flatMap((section, index) => [
+  return hotkeySections(bindings).flatMap((section, index) => [
     ...(index === 0 ? [] : ['']),
-    `**${section.title}**`,
+    `## ${section.title}`,
     '| Shortcut | Action |',
     '|---|---|',
     ...section.rows.map(row => `| \`${tableCell(row.keys)}\` | ${tableCell(row.action)} |`),

@@ -26,6 +26,8 @@ export function contextDiagnosticsMarkdown(diagnostics: ContextDiagnostics): str
   return [
     'Context Details',
     '',
+    occupancy === 'unavailable' ? 'Context usage is not available yet.' : `**${occupancy} used** · ${value(remaining)} tokens remaining`,
+    '',
     '## Occupancy',
     '',
     '| Metric | Tokens |',

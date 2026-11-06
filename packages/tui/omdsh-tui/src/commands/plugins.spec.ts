@@ -125,7 +125,7 @@ describe('omdsh command plugins', () => {
     if (context === undefined) throw new Error('/context was not resolved')
     expect(context.result).toMatchObject({
       kind: 'success',
-      text: expect.stringContaining('Context Details\n\n## Occupancy'),
+      text: expect.stringContaining('Context Details\n\n**25.0% used** · 75K tokens remaining'),
     })
     expect(context.result).toMatchObject({ text: expect.stringContaining('| Pressure | 25.0% |') })
     expect(tui.prompt).not.toHaveBeenCalled()

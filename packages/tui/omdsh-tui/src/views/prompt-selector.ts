@@ -469,15 +469,26 @@ export function renderPlanReviewPage(
   const actionRows = documentActionRows(state, theme, width, pageHeight)
   const readerInput = state.documentInput !== undefined
   const customHints = (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`)
+  const renderedReader = source === undefined && state.request.presentation === 'document'
+  let renderedHints = renderedReader ? wrapTextStable(readerInput ? 'Enter find · Esc cancel'
+    : ['↑↓/PgUp/PgDn/wheel scroll', '/ find', 'Ctrl+N/P match', ...customHints,
+      ...(state.request.options && state.request.options.length > 1 ? ['Tab actions · Enter'] : []), 'Esc back'].join(' · '), Math.max(1, width - 4)) : []
+
+  const maxRenderedHints = Math.max(1, pageHeight - (state.request.question === '' ? 5 : 6) - actionRows.length - (readerInput || state.documentQuery ? 1 : 0))
+  if (renderedHints.length > maxRenderedHints) renderedHints = [...renderedHints.slice(0, maxRenderedHints - 1), '/ find · Esc back']
   let readerHints = source === undefined ? [] : wrapTextStable(readerInput ? 'Enter apply · Esc cancel'
-    : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
+    : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn/wheel scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
       + ' · ' + ['Tab/←→ actions', 'Enter activate', ...customHints, 'Esc back'].join(' · '), width - 4)
   const maxHints = Math.max(1, Math.min(4, pageHeight - 8 - actionRows.length))
   if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
   const compactReader = source !== undefined && pageHeight < 10
   if (compactReader) readerHints = []
-  const footerRows = feedback ? 5 : actionRows.length + 3 + (source === undefined ? 0 : readerHints.length)
-  const bodyRows = Math.max(1, pageHeight - (source === undefined ? 5 : compactReader ? 2 : 3) - footerRows)
+  const renderedSearchRows = readerInput || state.documentQuery ? 1 : 0
+  const hintRows = renderedReader ? renderedHints.length - 1 + renderedSearchRows : readerHints.length
+  const footerRows = feedback ? 5 : actionRows.length + 3 + hintRows
+  const headerRows = renderedReader ? 2 + Number(state.request.question !== '')
+    : source === undefined ? 5 : compactReader ? 2 : 3
+  const bodyRows = Math.max(1, pageHeight - headerRows - footerRows)
   const markdownWidth = Math.max(1, width - 6)
   const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth, {
     wordWrap: state.documentWordWrap ?? state.request.documentPosition?.wordWrap ?? true,
@@ -515,9 +526,9 @@ export function renderPlanReviewPage(
 
   const lines = [
     pageTop(theme, width, `${appName} · ${compactReader ? state.request.question : state.request.title}`),
-    ...(source === undefined ? [pageRow(theme, '', width)] : []),
-    ...(compactReader ? [] : [pageRow(theme, ' ' + theme.bold(state.request.question), width)]),
-    ...(source === undefined ? [pageRow(theme, '', width)] : []),
+    ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
+    ...(compactReader || renderedReader && state.request.question === '' ? [] : [pageRow(theme, ' ' + theme.bold(state.request.question), width)]),
+    ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
     pageDivider(theme, width),
     ...visible.map(line => pageRow(theme, '  ' + line, width)),
     pageDivider(theme, width),
@@ -580,7 +591,8 @@ export function renderPlanReviewPage(
     const pageHint = source === undefined && state.request.presentation === 'document'
       ? `[${shortcuts} · / find · Ctrl+N/P match]`
       : `[${shortcuts}]`
-    lines.push(...(source === undefined ? [pageHint] : readerHints).map(hint => pageRow(theme, theme.fg('dim', hint), width)))
+    const hints = renderedReader ? renderedHints : source === undefined ? [pageHint] : readerHints
+    lines.push(...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)))
     lines.push(pageBottom(theme, width))
   }
 
@@ -588,7 +600,7 @@ export function renderPlanReviewPage(
     lines,
     cursor,
     document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1),
-      ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query: '' } } : {} : { position: { ...documentPosition(layout, start, query),
+      ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query } } : {} : { position: { ...documentPosition(layout, start, query),
         ...(state.request.documentTail === true ? { following: state.documentScroll === Number.POSITIVE_INFINITY } : {}) } }) },
     cursorVisible: feedback || readerInput,
   }
@@ -670,7 +682,7 @@ export function renderPromptSelector(
   // A request that has options but no match has nothing to submit: advertising
   // `enter select` there promises a key the handler swallows.
   const exhausted = options.length === 0 && (state.request.options?.length ?? 0) > 0
-  const submit = state.request.submitLabel?.trim()
+  const submit = (state.request.multiSelect === true ? state.request.submitLabel : options[state.selected]?.submitLabel ?? state.request.submitLabel)?.trim()
     || (options.length === 0 ? theme.text('answer') : state.request.multiSelect === true ? theme.text('confirm') : theme.text('select'))
   // The request supplies the submit verb; the key itself comes from the catalog.
   const select = `${formatHotkeyKeys(HOTKEY_SELECT)} ${submit}`

@@ -4,9 +4,11 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 # Commands
 
-Command completion prioritizes common tasks and matches names, aliases and description keywords. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` groups commands by task; third-party contributions remain discoverable.
+Command completion prioritizes common tasks and matches names, aliases and description keywords. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` puts common commands first; third-party contributions remain discoverable.
 
-Type `/` in the composer to browse the live catalog with inline argument hints, or run `/help` to print the command list plus the essential shortcuts into the conversation (`/help full` adds the complete keyboard catalog); a result longer than twelve rows folds to one line, and `Ctrl+O` opens it. The catalog is assembled from the active plugins, so commands contributed by Skills and user bundles appear beside the built-ins. `/help` groups the catalog by user task, including extension commands. Inside a document reader — file recovery, plugin settings, session composition — `/` opens a find line over the rendered rows: the count updates as you type, Enter jumps to the first hit, and Ctrl+N/Ctrl+P walk them. Command results, including `/help` and `/changelog`, stay in the conversation instead, folded when long.
+Type `/` in the composer to browse the live catalog with inline argument hints. `/help` opens a filterable command list assembled from active plugins, including Skills and user bundles. Enter inserts the selected command into the composer for review and submission. Choose Keyboard shortcuts or press Alt+K to open the shortcut catalog, starting with essential operations. `/help full` opens that catalog directly, including Diff and file-browser shortcuts. In text readers, the mouse wheel or trackpad scrolls the preview, dragging selects text, and right-click copies the selection. Native mouse mode leaves selection and scrolling to the terminal. `/` searches, Ctrl+N/Ctrl+P move between matches, S chooses a section, and Y copies the current page. Esc returns to the preceding view.
+
+`/changelog` lists releases with change counts. Choose a version, then press S to read a category such as Added or Fixed. `/changelog full` opens the complete release history. Other command results stay in the transcript, showing a twelve-row preview when long. Click their heading or use Ctrl+O to expand, and click Read or press Alt+A to open the searchable reader. Diagnostic fields such as session IDs can be copied individually through Y. Closing a reader restores the conversation reading position and composer draft. In non-interactive mode, Help and Changelog return plain text.
 
 `[brackets]` mark optional arguments and `|` separates alternatives. A command with a picker runs without arguments.
 
@@ -130,7 +132,7 @@ A staged `/attach` draft displays a file marker and byte-count receipt; deleting
 |---|---|
 | `/copy` | Choose what to copy in the composer card: the last assistant reply, its fenced code blocks, the last bash command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
 | `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
-| `/changelog [full]` | Show recent release notes, or the complete packaged release history with `full`. |
+| `/changelog [full]` | Choose a release and browse its categories, or read the complete packaged history with `full`. |
 
 ## Skills
 
@@ -140,7 +142,7 @@ User-invocable Skills appear as `/<name>`, with descriptions and a **User only**
 
 | Command | What it does |
 |---|---|
-| `/help [full]` | Show commands and essential shortcuts; `full` adds the complete keyboard catalog. Aliases: `/h`, `/?`. |
+| `/help [full]` | Find and insert a command; Alt+K opens shortcuts, and `full` opens the complete shortcut reader directly. Aliases: `/h`, `/?`. |
 | `/quit` | Quit the application. Aliases: `/q`, `/exit`. |
 
 ## Related

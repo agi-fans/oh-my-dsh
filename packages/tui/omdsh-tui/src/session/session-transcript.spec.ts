@@ -360,8 +360,7 @@ describe('session transcript boundaries', () => {
       expect(screen.join('\n')).not.toContain('answer line 29')
       const mark = f.output().length
       const reader = f.tui.prompt({ title: 'Composition', question: 'Declared presets', detail: 'presets', presentation: 'document', allowCustom: false, notify: false })
-      expect(f.output().slice(mark)).toContain('\x1b[?1000l')
-      const restore = f.output().length
+      expect(f.output().slice(mark)).not.toContain('\x1b[?1000l')
       f.input.write('\x03')
       await reader
       expect(f.terminal!.visible()).toEqual(screen)

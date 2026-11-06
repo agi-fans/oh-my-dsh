@@ -21,17 +21,24 @@ export function renderCommandOutput(
   options: { surface?: 'aside'; expanded?: boolean; expandKey?: string } = {},
 ): string[] {
   const rows = renderCommandOutputRows(command, text, theme, width)
+  const foldable = rows.length > COMMAND_OUTPUT_PREVIEW + 1
+  if (text.trimEnd().includes('\n')) {
+    const marker = foldable ? options.expanded === true ? '▾' : '▸' : ' '
+    const room = Math.max(1, width - (width >= 30 ? 10 : 4))
+    rows[0] = truncateToWidth(` ${marker} ${truncateToWidth(rows[0]!.trimStart(), room)}`, width)
+    if (width >= 30) rows[0] = padToWidth(rows[0]!, width - 7) + theme.fg('accent', '[Read]') + ' '
+  }
   const plain = options.expanded === true || rows.length <= COMMAND_OUTPUT_PREVIEW + 1
     ? rows
     : [
         ...rows.slice(0, COMMAND_OUTPUT_PREVIEW),
-        theme.fg('dim', `  … ${rows.length - COMMAND_OUTPUT_PREVIEW} more lines${options.expandKey === undefined ? '' : ` · ${options.expandKey}: Expand`}`),
+        truncateToWidth(theme.fg('dim', `  … ${rows.length - COMMAND_OUTPUT_PREVIEW} more lines${options.expandKey === undefined ? '' : ` · ${options.expandKey}: Expand`}`), width),
       ]
   const { surface } = options
-  if (surface === undefined || !theme.colors) return plain
+  if (surface === undefined || !theme.colors) return plain.map(row => truncateToWidth(row, width))
   // A tinted block, not a border: the answer is prose from somewhere else, and a
   // frame around it would claim it is a component the reader operates.
-  return plain.map(row => paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(row, width)))
+  return plain.map(row => paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth(row, width), width)))
 }
 
 function renderCommandOutputRows(command: string, text: string, theme: Theme, width: number): string[] {

@@ -4,7 +4,7 @@ import { contextDiagnosticsMarkdown } from './context-diagnostics.ts'
 describe('contextDiagnosticsMarkdown', () => {
   it('keeps missing projection categories explicit', () => {
     const text = contextDiagnosticsMarkdown({})
-    expect(text).toMatch(/^Context Details\n\n## Occupancy/)
+    expect(text).toMatch(/^Context Details\n\nContext usage is not available yet\./)
     expect(text).toContain('| Context window | unavailable |')
     expect(text).toContain('| System prompt | unavailable |')
     expect(text).toContain('| Attachments | unavailable |')

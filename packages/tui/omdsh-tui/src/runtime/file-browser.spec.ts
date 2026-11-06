@@ -108,7 +108,7 @@ it('keeps the selected action visible in a short terminal and bounds help scroll
   expect(renderFileBrowser(browser.state, theme, 100, 10).lines.map(stripAnsi).join('\n')).toContain('Keyboard help')
   key('enter')
   for (let at = 0; at < 50; at++) key('pageDown')
-  expect(renderFileBrowser(browser.state, theme, 100, 10).lines.map(stripAnsi).join('\n')).toContain('Right-click copies')
+  expect(renderFileBrowser(browser.state, theme, 100, 10).lines.map(stripAnsi).join('\n')).toContain('Click / Drag / Right-click  Select file / select text / copy')
   browser.close()
 })
 
