@@ -1873,7 +1873,7 @@ describe('renderView', () => {
     const text = frame.lines.join('\n')
     expect(text).toContain('skill-13')
     expect(text).toContain('13/24 · scroll for more')
-    expect(text).toContain('enter run')
+    expect(text).toContain('[ Enter run ]')
     expect(text).not.toContain('skill-1 —')
     expect(composerStart(frame.lines)).toBe(-1)
     expect(frame.cursorVisible).toBe(false)

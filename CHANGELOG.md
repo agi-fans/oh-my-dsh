@@ -51,6 +51,26 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
+- Plugin configuration and bundle pages return through their parent lists with filters and selection preserved. Discover retains search results through cancellation, incompatibility and retry, and plugin operation results stay beside their controls with full logs available on demand. Agent composition opens in a searchable, copyable reader.
+
+- MCP, job, schedule and Session Library lists retain browsing filters across details and actions. Session search feedback stays in the library.
+
+- Native plugin installation status opens in a structured reader with refresh, copying and return to the selected action. Integration menus show a compact summary with full guidance under Usage notes.
+
+- Tools, model favorites and plugin-entry browsing retain filters and selection while navigating details or taking actions. Plugin entries offer scrollable, copyable descriptions, load state and diagnostics, including read-only entries.
+
+- Interactive export retains the format and destination after a save error so the path can be corrected and retried.
+
+- Choice lists support mouse selection, wheel navigation and clickable actions while preserving text selection. Session Library uses Alt+R to rename and Alt+P to pin without interrupting search.
+
+- `/tools` provides a searchable catalog and complete descriptions. MCP browsing adds server entries with tool counts and recent calls. Jobs and stored text attachments open directly in their readers, with actions available alongside the content.
+
+- Model pickers support Alt+F to toggle favorites and Alt+A to browse them. `/model favorites` opens the picker, and the model-switch scope is shown before selection.
+
+- `/export` guides format and path selection and offers Open and Copy path after completion. All export formats protect existing files, and `/export markdown` correctly uses the default Markdown filename.
+
+- `/context` opens a live occupancy and session overview with responsive charts, searchable details, session ID copying, and access to compaction. Text-reader action buttons support mouse clicks.
+
 - Help offers a filterable command picker that inserts commands for review, with searchable shortcut sections including Diff controls. Changelog offers release and category navigation. Command outputs support click-to-expand and a searchable reader with section navigation, page and diagnostic-field copying, and restored reading positions. Session and context summaries prioritize current settings and occupancy.
 
 - Diff review keeps file navigation beside the comparison on wide terminals, with change status, line deltas, filtering, remembered reading positions, clickable file rows and independent wheel scrolling. Narrow terminals retain a single-pane reader, text remains selectable, and secondary actions are grouped in a keyboard-accessible menu. Missing turn comparisons are explicit instead of falling back to current content; untracked files show additions.
@@ -107,6 +127,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Browsing approval rules or cancelling Full access confirmation preserves the persistent composer Shell. Shell cleanup happens after confirming an Access change.
+
+- Plugin configuration opens with the required Settings and Credentials service scopes, including native integration settings reached from Bundles.
+
+- List previews reserve indentation before wrapping, keeping long text and Markdown aligned. Filter cursors stay on the input row when questions, diagnostics or previews wrap.
+
 - Text readers accept mouse-wheel and trackpad scrolling, with drag selection and copying. Scrolling stays within the preview and restores the conversation position on close; live source readers pause when scrolled.
 
 - Trajectory correctly associates native and PTC tool results, including failures and empty outputs, and loads tool schemas from request headers. Finished calls no longer remain live; interrupted calls and partial history do not invent successful results or durations. Detail scrolling stops at its bounds and can move back immediately after End. Selecting text in a full-screen view no longer paints chat content over the selection.
@@ -142,6 +168,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Subagent shortcuts target the inspected child, Ctrl-C leaves parent turns and Shell commands running, and failed or cancelled submissions return to the original child draft. Stopped children no longer appear as failed, continuable idle children show Ready, and roster selection stays with the same child when rows reorder.
 
 - Interrupting a turn preserves all accepted Queue and Steer messages and attachments instead of clearing the inbox. Interrupted queue edits return to the original session draft; editing a waiting image message sends the revised text instead of stale image-placement text.
+
+### Removed
+
+- `/session`; current-session information is available in `/context`.
 
 ## [0.22.0] - 2026-10-31
 

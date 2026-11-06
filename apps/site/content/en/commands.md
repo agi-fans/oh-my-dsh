@@ -17,8 +17,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session. |
-| `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `p` pins a session and `r` renames it. |
-| `/session` | Show the current session's details. |
+| `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
 | `/continue` | Continue an eligible failed model generation without resending the prompt. |
 | `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
@@ -38,13 +37,13 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 
 | Form | Effect |
 |---|---|
-| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The selected model’s default reasoning effort applies without a second prompt; use `/model reasoning` to change it. |
+| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Alt+F` adds or removes a favorite, and `Alt+A` switches between all models and favorites. Search and selection survive these actions. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The selected model’s default reasoning effort applies without a second prompt; use `/model reasoning` to change it. |
 | `/model <query>` | Resolve a `provider/model` or fuzzy model name; an exact match switches immediately and an ambiguous match opens the list filtered to the matches. |
 | `/model --session` | The same list, scoped to the active session without writing the saved default. Accepts a query as well. Does not combine with a subcommand. |
 | `/model next` / `/model previous` | Cycle to the next or previous favorite model. |
 | `/model reasoning` | Cycle the current model's reasoning effort. |
 | `/model favorite` / `/model unfavorite` | Add or remove the current model from the local favorites list, stored in `$OMDSH_HOME/omdsh/model-favorites.json`. |
-| `/model favorites` | List the favorite models. |
+| `/model favorites` | Open the favorite-model picker. `Alt+F` adds or removes the selected favorite, and `Alt+A` switches to all models. Line mode prints the list. |
 
 ## Turn control
 
@@ -64,7 +63,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 
 ## Background jobs
 
-`/jobs` opens a searchable list with running jobs first, progress, elapsed time and terminal reasons. Select a job for **View output** or **Stop job**; stopping defaults to **Keep running** and rechecks the task after confirmation. Lists update while open, retain the last state after refresh failure, and offer Refresh to retry. A failed read disables task actions until a successful refresh.
+`/jobs` opens a searchable list with running jobs first, progress, elapsed time and terminal reasons. Select a job to open its output directly. **Stop job** and **Refresh** are available inside the reader; stopping defaults to **Keep running** and rechecks the task after confirmation. Lists update while open, retain the last state after refresh failure, and offer Refresh to retry. A failed read disables task actions until a successful refresh.
 
 The output reader observes stdout, stderr and narration through the non-consuming Harness API, so viewing output never advances the model’s read cursor. It follows new output at the bottom; scrolling up or searching freezes the displayed snapshot, and End resumes following. Each snapshot shows at most the latest roughly 256K characters and 10,000 lines, with a notice for clipped or discarded output. Output retention belongs to Harness and does not promise persistence after process exit. Closing the reader releases its subscription without stopping the job; session replacement, plugin unload and cancellation close the browser. Approval prompts take precedence. In line mode, `/jobs <id>` retains its narration-only output and `/jobs kill <id>` requests a stop directly.
 
@@ -86,12 +85,12 @@ The answer streams into a pane docked above the composer while the consultation 
 
 | Command | What it does |
 |---|---|
-| `/context` | Print an inline, projection-backed breakdown of context usage that stays in the transcript. |
+| `/context` | Open live context occupancy and session statistics. Details shows configuration and diagnostic samples; actions copy the session ID or open compaction. |
 | `/diff [path\|turn [number]]` | Browse current Git changes against HEAD, or a retained Turn snapshot with `turn`. Plain mode keeps the text summary. Never stages or commits. |
 | `/trajectory` | Inspect turns, steps and tool calls with readable summaries, recorded status, duration and token usage. Context entries and nested subcalls start folded. Details provide Overview, decoded Input, Result, Raw event data and Schema when recorded; tool results remain plain text. Click or use the keyboard, search hidden records, filter problems, visit slow calls, enlarge details and copy content. The timing bars marked Σ show accumulated recorded durations, not elapsed time; measured parent calls include their PTC children once. Requires an interactive terminal. |
 | `/schedule` | Manage this session's durable reminders: pause, resume, run now, edit a name or instruction, delete, and browse delivery history. |
-| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Installation can be cancelled before application. |
-| `/tools` | List the tools visible to the agent as a transcript result. |
+| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Plugin entries open scrollable, copyable details with load state and diagnostics, including read-only entries. Installation can be cancelled before application. |
+| `/tools` | Search the tools visible to the agent, then read a selected tool’s full description. Returning restores the filter and selected row. Line mode prints the catalog. |
 | `/mcp` | Browse MCP registration diagnostics, available tools and the session’s latest ten calls; refresh the snapshot. Live connection and authentication status are unavailable. |
 
 ### Scheduled reminders
@@ -118,7 +117,7 @@ Tool cards and Changed files also open this reader through right-click when no t
 
 In source views, `/` or `Ctrl+F` opens a case-insensitive literal search over the loaded text; Enter keeps the query, `Ctrl+N`/`Ctrl+P` cycle through matching lines, and Esc cancels an edit without closing the reader. `G` or `Ctrl+G` jumps to a file line. Diff views use one fixed gutter showing each line’s own side, use new-file line numbers for jumps, and navigate hunks with `[`/`]`; lines outside the displayed hunks cannot be reached. Text loads start at 128 KiB; `L` or **Load more** doubles the loaded prefix up to 4 MiB. Open reads the original beyond that limit; other binary formats open in their application.
 
-PNG, JPEG, WebP and GIF files open in an image preview page. The `/attach` list includes stored images from user messages and declared tool/model output, and previews their bytes when the provider has no local path; `Alt+M` previews composer images, or the newest conversation image when the composer has none. Known direct Kitty, Ghostty, WezTerm, Warp, Herdr, Rex and iTerm2 terminals display the image within the page; set `OMDSH_IMAGE_PROTOCOL=kitty`, `iterm2` or `none` when detection is wrong, and `omdsh doctor` reports the detected protocol. tmux, screen, Zellij and unknown terminals show image information with an Open action when an original is available. Esc restores the previous view and draft. Previews preserve aspect ratio, fit the available cells and show the first frame of animated images; decoding is limited to 32 MiB and 40 million pixels, and preview PNGs are at most 2048 px per side. These limits do not change the original attachment or the model’s image admission rules.
+Stored text attachments open directly in the file reader, with **Open** available for the original file. PNG, JPEG, WebP and GIF files open in an image preview page. The `/attach` list includes stored images from user messages and declared tool/model output, and previews their bytes when the provider has no local path; `Alt+M` previews composer images, or the newest conversation image when the composer has none. Known direct Kitty, Ghostty, WezTerm, Warp, Herdr, Rex and iTerm2 terminals display the image within the page; set `OMDSH_IMAGE_PROTOCOL=kitty`, `iterm2` or `none` when detection is wrong, and `omdsh doctor` reports the detected protocol. tmux, screen, Zellij and unknown terminals show image information with an Open action when an original is available. Esc restores the previous view and draft. Previews preserve aspect ratio, fit the available cells and show the first frame of animated images; decoding is limited to 32 MiB and 40 million pixels, and preview PNGs are at most 2048 px per side. These limits do not change the original attachment or the model’s image admission rules.
 
 Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
@@ -131,7 +130,7 @@ A staged `/attach` draft displays a file marker and byte-count receipt; deleting
 | Command | What it does |
 |---|---|
 | `/copy` | Choose what to copy in the composer card: the last assistant reply, its fenced code blocks, the last bash command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
-| `/export [html\|markdown\|archive] [path]` | Export a Markdown/HTML transcript, or a ZIP of logical logs, descendant sessions, and original attachments. |
+| `/export [html\|markdown\|archive] [path]` | Choose a format and destination, then open the exported file or copy its path. Explicit arguments export directly. Existing files require a different destination. Interactive save failures retain the format and editable path for retry. |
 | `/changelog [full]` | Choose a release and browse its categories, or read the complete packaged history with `full`. |
 
 ## Skills

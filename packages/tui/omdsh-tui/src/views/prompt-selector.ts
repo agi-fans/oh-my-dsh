@@ -9,13 +9,15 @@ import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { renderEditor, renderFramedBlock } from '../chrome/box.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { BOX, SYMBOL, type Theme } from '../chrome/theme.ts'
-import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
+import { expandTabs, padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import { formatHotkeyKeys, formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { renderListRow, type ListRow } from './list-view.ts'
 
 /** Presentation state owned by the terminal while a human prompt is active. */
 export interface PromptSelectorState {
   request: TuiPrompt
+  /** Terminal-owned document formatting, shared by rendering and search. */
+  renderDocument?: (theme: Theme, width: number) => string[]
   selected: number
   checked: ReadonlySet<number>
   /** Requested first document row for full-screen review surfaces. */
@@ -40,6 +42,8 @@ export interface PromptSelectorState {
 }
 
 export interface PromptSelectorFrame {
+  actions?: readonly { row: number; column: number; width: number; index: number; key?: string }[]
+  choices?: readonly { row: number; column: number; width: number; value: string; index: number }[]
   image?: import('../chrome/terminal-images.ts').ImagePlacement
   lines: string[]
   cursor: { row: number; column: number }
@@ -217,7 +221,7 @@ export function renderPromptTreePage(
   const navigation = option === undefined || option.disabled === true ? theme.text('Esc back') : theme.text(`Enter ${action} · Esc back`)
   lines.push(pageRow(theme, theme.fg('dim', navigation), width),
     ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageBottom(theme, width))
-  return { lines, cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
+  return { lines, choices: rows.slice(range.start, range.end).map((row, index) => ({ row: 4 + index, column: 2, width: listWidth, index: range.start + index, value: row.option.value ?? row.option.label })), cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
     document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight }, cursorVisible: true }
 }
 
@@ -405,8 +409,9 @@ export function promptNeedsPage(request: TuiPrompt): boolean {
 }
 
 /** Render a bounded, scrollable Markdown document with fixed actions. */
-function documentActionRows(state: PromptSelectorState, theme: Theme, width: number, pageHeight: number): string[] {
+function documentActionRows(state: PromptSelectorState, theme: Theme, width: number, pageHeight: number): { lines: string[]; actions: NonNullable<PromptSelectorFrame['actions']> } {
   const actionRows: string[] = []
+  const actions: { row: number; column: number; width: number; index: number }[] = []
   let actionRow = ''
   const actionWidth = Math.max(1, width - 5)
   for (const [index, option] of (state.request.options ?? []).entries()) {
@@ -415,6 +420,7 @@ function documentActionRows(state: PromptSelectorState, theme: Theme, width: num
       actionRows.push(actionRow)
       actionRow = ''
     }
+    actions.push({ row: actionRows.length, column: 3 + visibleWidth(actionRow) + (actionRow === '' ? 0 : 3), width: visibleWidth(label), index })
     const painted = index === state.selected ? theme.bold(theme.fg('accent', label)) : theme.fg('muted', label)
     actionRow += (actionRow === '' ? '' : theme.fg('dim', '   ')) + painted
   }
@@ -423,8 +429,9 @@ function documentActionRows(state: PromptSelectorState, theme: Theme, width: num
     const selected = state.request.options?.[state.selected]
     actionRows.splice(0, actionRows.length, selected === undefined ? ''
       : theme.bold(theme.fg('accent', truncateToWidth(`› [ ${selected.label} ]`, actionWidth))))
+    actions.splice(0, actions.length, ...(selected === undefined ? [] : [{ row: 0, column: 3, width: visibleWidth(actionRows[0]!), index: state.selected }]))
   }
-  return actionRows
+  return { lines: actionRows, actions }
 }
 
 /** Reserve a bordered, padded rectangle; graphics never become display-row content. */
@@ -433,7 +440,7 @@ export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme,
   const image = state.request.documentImage!
   if (width < 16 || height < 10) return renderPromptSelector({ ...state, request: { ...state.request,
     detail: image.description + '\nEnlarge the terminal or use Open to view the image.' } }, theme, width, '', 0, Math.max(1, height - 8))
-  const actions = documentActionRows(state, theme, width, height)
+  const { lines: actions } = documentActionRows(state, theme, width, height)
   const hints = 'Tab/←→ actions · Enter activate · Esc back'
   const bodyRows = Math.max(1, height - 8 - actions.length)
   const lines = [pageTop(theme, width, appName + ' · ' + state.request.title), pageRow(theme, state.request.question, width),
@@ -466,7 +473,8 @@ export function renderPlanReviewPage(
     return renderPromptSelector(source === undefined ? state : { ...state, request: { ...state.request, detail: source.text } }, theme, width, input, inputCursor, Math.max(1, pageHeight - 8))
   }
   const feedback = state.feedback === true
-  const actionRows = documentActionRows(state, theme, width, pageHeight)
+  const actionLayout = documentActionRows(state, theme, width, pageHeight)
+  const actionRows = actionLayout.lines
   const readerInput = state.documentInput !== undefined
   const customHints = (state.request.actions ?? []).map(action => `${action.key.toUpperCase()} ${action.label}`)
   const renderedReader = source === undefined && state.request.presentation === 'document'
@@ -494,7 +502,7 @@ export function renderPlanReviewPage(
     wordWrap: state.documentWordWrap ?? state.request.documentPosition?.wordWrap ?? true,
     column: state.documentColumn ?? state.request.documentPosition?.column ?? 0,
   })
-  const document = layout?.rows ?? documentRows(state.request, theme, markdownWidth)
+  const document = layout?.rows ?? state.renderDocument?.(theme, markdownWidth) ?? documentRows(state.request, theme, markdownWidth)
   const maxStart = Math.max(0, document.length - bodyRows)
   const start = Math.max(0, Math.min(state.documentScroll === Number.POSITIVE_INFINITY ? maxStart : layout !== undefined && state.documentAnchor !== undefined
     ? documentStart(layout, state.documentAnchor) : state.documentScroll ?? state.request.documentPosition?.row ?? 0, maxStart))
@@ -534,6 +542,7 @@ export function renderPlanReviewPage(
     pageDivider(theme, width),
   ]
 
+  const actions: { row: number; column: number; width: number; index: number }[] = []
   let cursor = { row: Math.max(0, lines.length - 1), column: 1 }
   if (feedback) {
     lines.push(pageRow(theme, ' ' + theme.bold(theme.text('Revision feedback')) + theme.fg('dim', ' · optional'), width))
@@ -582,6 +591,7 @@ export function renderPlanReviewPage(
       cursor = { row: lines.length, column: Math.min(width - 3, 2 + visibleWidth(label + value.slice(0, inputCursor))) }
       lines.push(pageRow(theme, theme.fg('muted', status), width))
     }
+    actions.push(...actionLayout.actions.map(action => ({ ...action, row: action.row + lines.length })))
     lines.push(...actionRows.map(row => pageRow(theme, ' ' + row, width)))
     const shortcuts = state.request.presentation === 'document' && state.request.actions?.length
       ? 'Tab/←→ select · Enter activate · ' + state.request.actions.map(action => `${action.key.toUpperCase()} ${action.label}`).join(' · ') + ' · Esc back'
@@ -599,6 +609,7 @@ export function renderPlanReviewPage(
   return {
     lines,
     cursor,
+    actions,
     document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1),
       ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query } } : {} : { position: { ...documentPosition(layout, start, query),
         ...(state.request.documentTail === true ? { following: state.documentScroll === Number.POSITIVE_INFINITY } : {}) } }) },
@@ -627,6 +638,9 @@ export function renderPromptSelector(
   const filtering = input !== ''
   const contentWidth = Math.max(1, width - 4)
   const body = [state.request.question]
+  const choices: NonNullable<PromptSelectorFrame['choices']>[number][] = []
+  const actions: NonNullable<PromptSelectorFrame['actions']>[number][] = []
+  const bodyRow = () => 1 + body.reduce((count, line) => count + wrapTextStable(expandTabs(line, 8, 2), contentWidth).length, 0)
   if (state.request.wait !== undefined) {
     const remaining = Math.max(0, Math.ceil((state.request.wait.deadline - Date.now()) / 1_000))
     body.push(theme.fg('dim', state.waitHeld === true
@@ -636,8 +650,12 @@ export function renderPromptSelector(
   if (state.request.detail !== undefined && state.request.detail !== '') body.push('', state.request.detail)
   if (options.length > 0) {
     const { start, end } = promptSelectorVisibleRange(options.length, state.selected, maxVisible)
-    body.push('', ...options.slice(start, end).map((option, offset) =>
-      optionRow(option, start + offset, state, theme, contentWidth, (state.request.options ?? []).indexOf(option))))
+    body.push('')
+    for (let index = start; index < end; index++) {
+      const option = options[index]!
+      choices.push({ row: bodyRow(), column: 2, width: contentWidth, index, value: option.value ?? option.label })
+      body.push(optionRow(option, index, state, theme, contentWidth, (state.request.options ?? []).indexOf(option)))
+    }
     if (options.length > maxVisible) {
       body.push(theme.fg('dim', `  ${state.selected + 1}/${options.length} · ${theme.text('scroll for more')}`))
     }
@@ -646,9 +664,10 @@ export function renderPromptSelector(
     // content it was being browsed for.
     const preview = options[state.selected]?.preview
     if (preview !== undefined && preview !== '') {
-      const wrapped = state.request.options?.[state.selected]?.previewFormat === 'markdown'
-        ? renderMarkdown(preview, theme, contentWidth)
-        : wrapTextStable(preview, contentWidth)
+      const previewWidth = Math.max(1, contentWidth - 2)
+      const wrapped = options[state.selected]?.previewFormat === 'markdown'
+        ? renderMarkdown(preview, theme, previewWidth)
+        : wrapTextStable(expandTabs(preview, 8, 4), previewWidth)
       body.push('', ...wrapped.slice(0, CARD_PREVIEW_LINES).map(line => theme.fg('dim', '  ' + line)))
       if (wrapped.length > CARD_PREVIEW_LINES) {
         body.push(theme.fg('dim', `  … ${wrapped.length - CARD_PREVIEW_LINES} more lines`))
@@ -669,7 +688,7 @@ export function renderPromptSelector(
    * hits looked broken rather than empty.
    */
   const filterRow = state.request.filterable === true && state.request.presentation !== 'progress'
-    ? body.length
+    ? bodyRow() + 1
     : undefined
   if (filterRow !== undefined) {
     // The query and what it kept belong on one line: the reader typed one thing
@@ -681,7 +700,7 @@ export function renderPromptSelector(
   }
   // A request that has options but no match has nothing to submit: advertising
   // `enter select` there promises a key the handler swallows.
-  const exhausted = options.length === 0 && (state.request.options?.length ?? 0) > 0
+  const exhausted = options.length === 0 && state.request.options !== undefined && state.request.allowCustom === false
   const submit = (state.request.multiSelect === true ? state.request.submitLabel : options[state.selected]?.submitLabel ?? state.request.submitLabel)?.trim()
     || (options.length === 0 ? theme.text('answer') : state.request.multiSelect === true ? theme.text('confirm') : theme.text('select'))
   // The request supplies the submit verb; the key itself comes from the catalog.
@@ -693,16 +712,27 @@ export function renderPromptSelector(
       : options.length === 0
         ? `${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
       : state.request.multiSelect === true
-        ? `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_TOGGLE], 'lowercase', theme.language)} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
-        : `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${select} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
+        ? `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_TOGGLE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
+        : `${formatOverlayHint([HOTKEY_NAVIGATE], 'lowercase', theme.language)} · ${formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language)}`
   const dismiss = state.request.dismissLabel
   const actionHints = (state.request.actions ?? []).map(action => `${action.key} ${action.label}`)
   const hints = [
     dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
     ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP], 'lowercase', theme.language)] : []),
-    ...actionHints,
   ]
   body.push('', theme.fg('dim', theme.text(hints.join(' · '))))
+  if (state.request.options !== undefined) {
+    const buttons = [...(options.length === 0 ? [] : [{ key: 'enter', label: submit }]), ...(state.request.actions ?? []).filter(action => options.length > 0 || action.scope === 'list')]
+    let line = ''
+    for (const button of buttons) {
+      const label = truncateToWidth(`[ ${button.key === 'enter' ? 'Enter' : button.key} ${button.label} ]`, contentWidth)
+      if (line !== '' && visibleWidth(line + '  ' + label) > contentWidth) { body.push(line); line = '' }
+      const gap = line === '' ? '' : '  '
+      actions.push({ row: bodyRow(), column: 2 + visibleWidth(line + gap), width: visibleWidth(label), index: -1, key: button.key.toLowerCase() })
+      line += gap + theme.fg('accent', label)
+    }
+    if (line !== '') body.push(line)
+  } else if (actionHints.length > 0) body.push(theme.fg('dim', actionHints.join(' · ')))
 
   const card = renderFramedBlock({
     header: state.request.title,
@@ -716,10 +746,10 @@ export function renderPromptSelector(
     // without one it stays on body padding, because the selector glyph
     // owns focus while no text editor is present.
     return {
-      lines: card,
+      lines: card, choices, actions,
       cursor: filterRow === undefined
         ? { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 }
-        : { row: filterRow + 2, column: 4 + visibleWidth(input.slice(0, inputCursor)) },
+        : { row: filterRow, column: 4 + visibleWidth(input.slice(0, inputCursor)) },
       cursorVisible: filterRow !== undefined,
     }
   }
@@ -748,7 +778,7 @@ export function renderPromptSelector(
       input: displayInput,
       inputCursor,
       status: ' ' + theme.fg('accent', label) + ' ',
-      ...(state.request.question === '' ? {} : { inlineHint: state.request.question }),
+      ...(displayInput !== '' || state.request.question === '' ? {} : { inlineHint: state.request.question }),
       // The keys live on the bottom rule so the frame says how to answer without
       // spending a row on it.
       ...(hints.length === 0 ? {} : { note: theme.text(hints.join(' · ')) }),
@@ -765,7 +795,7 @@ export function renderPromptSelector(
   }, theme)
   const editorStart = card.length + 1
   return {
-    lines: [...card, '', ...editor.lines],
+    lines: [...card, '', ...editor.lines], choices, actions,
     cursor: { row: editorStart + editor.cursor.row, column: editor.cursor.column },
     cursorVisible: true,
   }

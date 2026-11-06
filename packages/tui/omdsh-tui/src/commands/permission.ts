@@ -56,12 +56,6 @@ async function selectAccess(
     signal: invocation.signal,
   }))
   if (selected === null || selected === current) return { kind: 'success' }
-  // The composer Shell keeps the session pinned to the Access level it was
-  // created in, so a spent one is closed before the switch. A Shell still
-  // running a command is left alone, and the Harness then reports the conflict
-  // rather than this command silently killing work.
-  const { closeIdleComposerShell } = await import('../runtime/composer-shell.ts')
-  await closeIdleComposerShell(ctx, invocation.agent)
   if (selected === 'rules') return manageRules(ctx, invocation)
   if (!ctx.permissionPresets.names.includes(selected)) {
     return { kind: 'error', text: `Unknown permission: ${selected}` }
@@ -69,6 +63,12 @@ async function selectAccess(
   if (selected === 'danger-full-access' && !await confirmFullAccess(ctx, invocation)) {
     return { kind: 'success' }
   }
+
+  invocation.signal.throwIfAborted()
+  // A persistent composer Shell pins Access until a confirmed switch closes it.
+  const { closeIdleComposerShell } = await import('../runtime/composer-shell.ts')
+  await closeIdleComposerShell(ctx, invocation.agent)
+  invocation.signal.throwIfAborted()
 
   // The scoped presentation shadows the global Harness command, while its
   // captured handler remains the single authoritative mutation path.

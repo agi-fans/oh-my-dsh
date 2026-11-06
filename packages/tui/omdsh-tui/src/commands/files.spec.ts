@@ -126,3 +126,25 @@ it('retires the separate /attachments command', async () => {
       .toMatchObject({ result: { kind: 'success', text: 'No attachments in this session.' } })
   } finally { await ctx.fiber.dispose() }
 })
+
+it('opens a stored text attachment directly with file actions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'omdsh-attach-preview-')); roots.push(root)
+  const path = join(root, 'report.txt')
+  await writeFile(path, 'Complete attachment text')
+  const ref = { attachmentId: 'stored-file', name: 'report.txt', bytes: 24 }
+  const ctx = new Context(), requests: TuiPrompt[] = []
+  const answers = ['0', null, null]
+  try {
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CommandRuntime)
+    ctx.provide('tui', { interactive: true, prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } } as never)
+    ctx.provide('attachments', { fileHostPath: () => path, readFileStream: async function* () { yield Buffer.from('Complete attachment text') } } as never)
+    await ctx.plugin(filesCommand)
+    const session = ctx.sessions.create(SessionId('text-attachment-test'))
+    session.append('user/message', { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } as never, { surfaceOp: 'append' })
+    await ctx.commands.execute({ id: session.id, session, status: 'idle' } as unknown as Agent, '/attach', [], new AbortController().signal)
+    expect(requests[1]?.presentation).toBe('document')
+    expect(requests[1]?.documentSource?.text).toContain('Complete attachment text')
+    expect(requests[1]?.options).toContainEqual(expect.objectContaining({ value: 'open' }))
+  } finally { await ctx.fiber.dispose() }
+})

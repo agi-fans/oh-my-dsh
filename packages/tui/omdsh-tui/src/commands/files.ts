@@ -107,11 +107,7 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     else for await (const chunk of ctx.attachments.readFileStream(ref, invocation.signal)) { void chunk }
     const path = ctx.attachments.fileHostPath(ref)
     if (path === undefined) { ctx.tui.notice('This attachment provider does not expose a local file to open.'); continue }
-    const action = await ctx.tui.prompt({ title: ref.name ?? 'Attachment', question: 'Open the stored original or preview it?', allowCustom: false, signal: invocation.signal,
-      notify: false,
-      options: [{ label: 'Preview', value: 'preview' }, { label: 'Open original', value: 'open' }] })
-    if (action === 'open') await openSystemFile(path)
-    else if (action === 'preview') await reviewFiles(ctx.tui, 'Attachment', '/', [{ path, label: ref.name ?? path }], () => filePreview(path, invocation.signal), invocation.signal, 0, false)
+    await reviewFiles(ctx.tui, 'Attachment', '/', [{ path, label: ref.name ?? path }], () => filePreview(path, invocation.signal), invocation.signal, 0, false)
   }
   return { kind: 'success' }
 }

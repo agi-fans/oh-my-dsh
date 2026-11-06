@@ -1,3 +1,4 @@
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import { expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
@@ -29,7 +30,7 @@ it('refreshes progress and observes all output without consuming the model curso
       h.update({ progress: '2/3' })
       expect(request.refreshOptions?.()?.[0]?.description).toContain('2/3')
       return 'bash-1'
-    }).mockResolvedValueOnce('output').mockImplementationOnce(async request => {
+    }).mockImplementationOnce(async request => {
       expect(request.documentSource?.text).toContain('stdout')
       const initial = request.documentSource
       h.readAt.mockReturnValue({ chunks: [{ at: 20, text: 'stderr\n', channel: 'stderr' }], next: 27, lossy: true })
@@ -84,13 +85,58 @@ it('retains a stale roster after a read failure and allows explicit retry', asyn
 it('closes observation when superseded by an approval and removes subscriptions', async () => {
   const h = fixture()
   try {
-    h.prompt.mockResolvedValueOnce('output').mockImplementationOnce(async request => {
+    h.prompt.mockImplementationOnce(async request => {
       request.onSuperseded?.('')
       expect(request.signal?.aborted).toBe(true)
       return null
     })
     await h.run('bash-1')
-    expect(h.prompt).toHaveBeenCalledTimes(2)
+    expect(h.prompt).toHaveBeenCalledTimes(1)
+    expect(h.listeners.size).toBe(0)
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+
+it('preserves a paused output position across stop confirmation and explicit refresh', async () => {
+  const h = fixture()
+  const position = { row: 0, wrap: 0, query: '', following: false }
+  try {
+    h.prompt.mockImplementationOnce(async request => {
+      request.onDocumentPosition?.(position)
+      return 'stop'
+    }).mockImplementationOnce(async () => {
+      h.readAt.mockReturnValue({ chunks: [{ at: 0, text: 'updated output', channel: 'stdout' }], next: 14, lossy: false })
+      h.update({ progress: '2/3' })
+      return null
+    }).mockImplementationOnce(async request => {
+      expect(request.documentPosition).toEqual(position)
+      expect(request.documentTail).toBe(true)
+      expect(request.documentSource?.text).toContain('stdout')
+      expect(h.readAt).toHaveBeenCalledTimes(1)
+      return 'refresh'
+    }).mockImplementationOnce(async request => {
+      expect(request.documentPosition).toEqual(position)
+      expect(request.documentTail).toBe(true)
+      expect(request.documentSource?.text).toContain('updated output')
+      return null
+    })
+    await h.run('bash-1')
+    expect(h.kill).not.toHaveBeenCalled()
+    expect(h.listeners.size).toBe(0)
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('keeps the job filter when returning from output', async () => {
+  const h = fixture()
+  h.prompt.mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'pnpm', selected: 'bash-1' })
+    return 'bash-1'
+  }).mockResolvedValueOnce(null)
+  try {
+    await h.run()
+    expect(h.prompt.mock.calls[1]![0].presentation).toBe('document')
+    expect(h.prompt.mock.calls[2]![0].title).toBe('Background jobs')
+    expect(promptBrowserState(h.prompt.mock.calls[2]![0])).toMatchObject({ query: 'pnpm', selected: 'bash-1' })
     expect(h.listeners.size).toBe(0)
   } finally { await h.ctx.fiber.dispose() }
 })

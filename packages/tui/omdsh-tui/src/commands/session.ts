@@ -1,5 +1,6 @@
 /** Session lifecycle and inspection commands registered through dsh-commands. */
 
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -11,10 +12,11 @@ import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
 import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
 import { formatRelativeAge } from '../chrome/relative-time.ts'
-import { formatPermission, formatTokens } from '../chrome/status-line.ts'
+import { formatPermission } from '../chrome/status-line.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import { readSessionLibrary, sortSessionRows, togglePinnedSession, updateSessionLibrary } from '../session/session-library.ts'
-import { contextDiagnosticsMarkdown } from '../session/context-diagnostics.ts'
+import { contextOverviewDetails, type ContextOverview } from '../session/context-diagnostics.ts'
+import { readReference } from '../runtime/reference-reader.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
@@ -50,7 +52,9 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
   }
   if (id === '') {
     const libraryPath = ctx.omdshSession.sessionLibraryPath
+    const browse = createPromptBrowser(request => ctx.tui.prompt(request))
     let archivedView = false
+    let searchDiagnostic = ''
     let selectedId: string | undefined
     while (id === '') {
       const library = readSessionLibrary(libraryPath)
@@ -58,9 +62,9 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
       const recent = sortSessionRows(source.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
       if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
-      const answer = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
+      const answer = await browse({ localize: ['title', 'question', 'actions'],
         title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
-        ...(search === undefined ? {} : { detail: `Content search: ${search.query} · up to ${SESSION_SEARCH_LIMIT} matches` }),
+        detail: [searchDiagnostic, search === undefined ? '' : `Content search: ${search.query} · up to ${SESSION_SEARCH_LIMIT} matches`].filter(Boolean).join('\n'),
         notify: false,
         ...(selectedId === undefined ? {} : { initialValue: selectedId }),
         question: '',
@@ -92,8 +96,8 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         actions: [
           ...(search === undefined ? [] : [{ key: 'Alt+L', label: 'all sessions', valuePrefix: 'library:', scope: 'list' as const }]),
           ...(ctx.get('sessionQuery') === undefined ? [] : [{ key: 'Alt+S', label: 'search content', valuePrefix: 'search:', scope: 'list' as const }]),
-          { key: 'r', label: 'rename', valuePrefix: 'rename:' },
-          { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
+          { key: 'Alt+R', label: 'rename', valuePrefix: 'rename:' },
+          { key: 'Alt+P', label: 'pin/unpin', valuePrefix: 'pin:' },
           { key: 'Alt+A', label: archivedView ? 'restore' : 'archive', valuePrefix: 'archive:' },
           { key: 'Alt+V', label: archivedView ? 'active sessions' : 'archived sessions', valuePrefix: 'view:', scope: 'list' },
         ],
@@ -101,17 +105,17 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         filterable: true,
         allowCustom: false,
         signal: invocation.signal,
-      })
+      }, JSON.stringify([search?.query, archivedView]))
       if (answer === null) return { kind: 'success' }
       invocation.signal.throwIfAborted()
-      if (answer === 'library:') { search = undefined; archivedView = false; selectedId = undefined; continue }
+      if (answer === 'library:') { searchDiagnostic = ''; search = undefined; archivedView = false; selectedId = undefined; continue }
       if (answer === 'search:') {
         const query = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Search session content', question: 'Enter search text', signal: invocation.signal }))
         if (query === null || query.trim() === '') continue
         const result = await findSessions(ctx, { ...invocation, rawInput: query })
-        if (result.kind === 'rows') { search = result; archivedView = false; selectedId = undefined; continue }
+        if (result.kind === 'rows') { searchDiagnostic = ''; search = result; archivedView = false; selectedId = undefined; continue }
         if (result.text !== undefined) {
-          ctx.tui.commandOutput('Session search', result.text)
+          searchDiagnostic = result.text
           continue
         }
         continue
@@ -206,38 +210,22 @@ async function findSessions(ctx: Context, invocation: CommandInvocation): Promis
   })) }
 }
 
-function showSession(ctx: Context, invocation: CommandInvocation): CommandResult {
+function contextSnapshot(ctx: Context, invocation: CommandInvocation): ContextOverview {
   const stats = ctx.omdshSession.stats(invocation.agent)
   const selection = ctx.omdshSession.selection(invocation.agent)
-  const reasoningEffort = ctx.omdshSession.reasoningEffort(invocation.agent)
+  const reasoning = ctx.omdshSession.reasoningEffort(invocation.agent)
   const controls = ctx.omdshSession.controls(invocation.agent)
   const workflow = controls.plan?.pending === true
     ? controls.plan.active ? 'Plan → Default (pending)' : 'Plan (pending)'
     : controls.plan?.active === true ? 'Plan' : 'Default'
   return {
-    kind: 'success',
-    text: [
-      'Session Details',
-      '',
-      '## Session',
-      '',
-      '| Field | Value |',
-      '|---|---|',
-      `| Session | \`${invocation.agent.id}\` |`,
-      `| Model | \`${selection.provider}/${selection.model}\` |`,
-      `| Reasoning | \`${reasoningEffort ?? 'not available'}\` |`,
-      `| Agent | ${formatAgentPreset(controls.agentPreset ?? 'standard')} |`,
-      `| Workflow | ${workflow} |`,
-      ...(controls.permission === undefined ? [] : [`| Access | ${formatPermission(controls.permission)} |`]),
-      '',
-      '## Activity',
-      '',
-      '| Field | Value |',
-      '|---|---|',
-      `| Activity | ${stats.turns} turns · ${stats.steps} steps |`,
-      `| Tokens | ${formatTokens(stats.inputTokens)} in · ${formatTokens(stats.outputTokens)} out |`,
-      `| Queue | ${invocation.agent.inbox.nextTurn.length} follow-up · ${invocation.agent.inbox.nextStep.length} steering |`,
-    ].join('\n'),
+    ...ctx.omdshSession.contextDiagnostics(invocation.agent),
+    sessionId: invocation.agent.id, model: `${selection.provider}/${selection.model}`,
+    ...(reasoning === undefined ? {} : { reasoning }),
+    agent: formatAgentPreset(controls.agentPreset ?? 'standard'), workflow,
+    ...(controls.permission === undefined ? {} : { access: formatPermission(controls.permission) }),
+    turns: stats.turns, steps: stats.steps, inputTokens: stats.inputTokens, outputTokens: stats.outputTokens,
+    followUp: invocation.agent.inbox.nextTurn.length, steering: invocation.agent.inbox.nextStep.length,
   }
 }
 
@@ -247,13 +235,33 @@ async function retry(ctx: Context, invocation: CommandInvocation): Promise<Comma
   return { kind: 'success', text: resent ? 'Re-sent the last human prompt with its attachments as a new turn.' : 'No human prompt is available to retry.' }
 }
 
-function showContext(ctx: Context, invocation: CommandInvocation): CommandResult {
+async function showContext(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /context' }
-  return {
-    kind: 'success',
-    text: contextDiagnosticsMarkdown(ctx.omdshSession.contextDiagnostics(invocation.agent)),
+  const read = (): ContextOverview => contextSnapshot(ctx, invocation)
+  if (ctx.tui.interactive !== true || ctx.tui.openContext === undefined) {
+    return { kind: 'success', text: contextOverviewDetails(read()) }
   }
+  const abort = new AbortController()
+  const signal = AbortSignal.any([invocation.signal, abort.signal])
+  const onSuperseded = (): void => { abort.abort() }
+  while (!signal.aborted) {
+    const action = await ctx.tui.openContext({ read, signal, onSuperseded,
+      canCompact: ctx.commands.list(invocation.agent).some(command => command.name === 'compact') })
+    if (signal.aborted || action === null) break
+    if (action === 'details') {
+      await readReference({ prompt: request => ctx.tui.prompt({ ...request, onSuperseded }),
+        ...(ctx.tui.copyText === undefined ? {} : { copyText: (text, label) => ctx.tui.copyText!(text, label) }),
+      }, 'Context · Details', contextOverviewDetails(read()), signal)
+    } else if (action === 'copy') {
+      await ctx.tui.copyText?.(invocation.agent.id, 'Session ID')
+    } else if (action === 'compact') {
+      const result = await ctx.commands.execute(invocation.agent, '/compact', [], signal)
+      return result?.result ?? { kind: 'error', text: 'Context compaction is unavailable.' }
+    } else break
+  }
+  return { kind: 'success' }
 }
+
 
 
 export function apply(ctx: Context): void {
@@ -264,7 +272,7 @@ export function apply(ctx: Context): void {
       return { kind: 'success' }
     } },
 
-    { name: 'context', description: 'Inspect projection-backed context usage', handler: invocation => showContext(ctx, invocation) },
+    { name: 'context', description: 'Inspect context usage and session details', handler: invocation => showContext(ctx, invocation) },
     { name: 'new', description: 'Start a new session', handler: invocation => newSession(ctx, invocation) },
     {
       name: 'resume',
@@ -272,7 +280,6 @@ export function apply(ctx: Context): void {
       input: { hint: '[session-id|query]' },
       handler: invocation => resumeSession(ctx, invocation),
     },
-    { name: 'session', description: 'Show current session details', handler: invocation => showSession(ctx, invocation) },
     { name: 'continue', description: 'Continue an eligible failed generation without resending the prompt', handler: async invocation => {
       if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /continue' }
       await ctx.omdshSession.continueGeneration(invocation.agent, undefined, invocation.signal)

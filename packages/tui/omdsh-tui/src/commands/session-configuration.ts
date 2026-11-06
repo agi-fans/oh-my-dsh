@@ -6,6 +6,8 @@ import type {} from '../runtime/session-runtime.ts'
 import { isBlankSession, formatAgentPreset } from '../session/session-configuration.ts'
 import { registerCommands } from './registration.ts'
 import type { AgentPresetRegistry } from '@deepseek-ai/dsh-agent-preset-registry'
+import { readReference } from '../runtime/reference-reader.ts'
+import type { TuiService } from '../definition.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 export const name = 'omdsh-command-session-configuration'
@@ -25,10 +27,22 @@ export async function startCreator(ctx: Context, invocation: CommandInvocation):
 }
 
 async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  const lifetime = new AbortController()
+  invocation = { ...invocation, signal: AbortSignal.any([invocation.signal, lifetime.signal]) }
+  const reader = {
+    prompt: (request: Parameters<TuiService['prompt']>[0]) => ctx.tui.prompt({ ...request, onSuperseded: () => lifetime.abort() }),
+    ...(ctx.tui.copyText === undefined ? {} : { copyText: (text: string, label?: string) => ctx.tui.copyText!(text, label) }),
+  }
+  const inspect = async (requested?: string): Promise<CommandResult> => {
+    const text = await presetDiagnostics(ctx.agentPresets, invocation.agent, requested)
+    if (ctx.tui.interactive !== true) return { kind: 'success', text }
+    await readReference(reader, 'Agent composition', text, invocation.signal)
+    return { kind: 'success' }
+  }
   const args = invocation.rawInput.trim().split(/\s+/u)
   if (invocation.rawInput.trim() === 'creator') return startCreator(ctx, invocation)
   if (args[0] === 'inspect' && args.length <= 2) {
-    return { kind: 'success', text: await presetDiagnostics(ctx.agentPresets, invocation.agent, args[1]) }
+    return inspect(args[1])
   }
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /agent [creator|inspect [preset-id]]' }
   if (!isBlankSession(invocation.agent.session)) {
@@ -36,23 +50,24 @@ async function selectAgent(ctx: Context, invocation: CommandInvocation): Promise
     if (ctx.tui.interactive !== true) {
       return { kind: 'success', text: lockedMessage }
     }
-    const action = await ctx.tui.prompt({ localize: true,
-      title: 'Agent',
-      question: 'The Agent preset is fixed for this conversation',
-      detail: 'Start /new to choose a different preset before sending a message.',
-      options: [
-        { label: 'Close', value: 'close', description: 'Return to the current conversation' },
-        { label: 'Inspect composition', value: 'inspect', description: 'View declared presets and this session’s retained composition' },
-      ],
-      initialValue: 'close',
-      allowCustom: false,
-      notify: false,
-      signal: invocation.signal,
-    })
-    if (action === 'inspect') {
-      const diagnostics = await presetDiagnostics(ctx.agentPresets, invocation.agent)
-      // Composition is a report; the transcript is where reports live.
-      ctx.tui.commandOutput('Agent composition', diagnostics)
+    let selected = 'close'
+    while (!invocation.signal.aborted) {
+      const action = await reader.prompt({ localize: true,
+        title: 'Agent',
+        question: 'The Agent preset is fixed for this conversation',
+        detail: 'Start /new to choose a different preset before sending a message.',
+        options: [
+          { label: 'Close', value: 'close', description: 'Return to the current conversation' },
+          { label: 'Inspect composition', value: 'inspect', description: 'View declared presets and this session’s retained composition' },
+        ],
+        initialValue: selected,
+        allowCustom: false,
+        notify: false,
+        signal: invocation.signal,
+      })
+      if (action !== 'inspect') break
+      selected = action
+      await inspect()
     }
     return { kind: 'success' }
   }
@@ -94,16 +109,16 @@ export async function presetDiagnostics(registry: AgentPresetRegistry, agent: Ag
   const rows = requested === undefined ? declared : declared.filter(row => row.id === requested)
   if (rows.length === 0) return `No declared preset: ${requested ?? '(none)'}`
   return [
-    'Agent compositions',
+    '# Agent compositions',
     'Current declarations apply to new sessions. Existing sessions retain their mounted revision.',
     ...rows.flatMap(row => [
-      '', `${row.name ?? row.id} (${row.id})${row.isDefault ? ' · default' : ''}${row.broken === undefined ? '' : ' · unavailable'}`,
-      ...(row.broken === undefined ? row.rows.map(plugin => `  ${plugin.entryId ?? '(no id)'} · ${plugin.enabled === 'conditional' ? 'conditional' : plugin.enabled ? 'enabled' : 'disabled'} · ${plugin.moduleName}${plugin.fiberState === undefined ? '' : ` · ${['pending', 'loading', 'active', 'failed', 'disposed', 'unloading'][plugin.fiberState] ?? 'unknown'}`}`) : [row.broken]),
+      '', `## ${row.name ?? row.id} (${row.id})${row.isDefault ? ' · default' : ''}${row.broken === undefined ? '' : ' · unavailable'}`,
+      ...(row.broken === undefined ? row.rows.map(plugin => `- ${plugin.entryId ?? '(no id)'} · ${plugin.enabled === 'conditional' ? 'conditional' : plugin.enabled ? 'enabled' : 'disabled'} · ${plugin.moduleName}${plugin.fiberState === undefined ? '' : ` · ${['pending', 'loading', 'active', 'failed', 'disposed', 'unloading'][plugin.fiberState] ?? 'unknown'}`}`) : [row.broken]),
     ]),
-    '', 'This session’s retained composition',
+    '', '## This session’s retained composition',
     ...(retained.length === 0 ? ['No preset composition is bound to this session.'] : retained.flatMap(row => [
-      row.id,
-      ...row.modules.map(module => `  ${module.moduleName}`),
+      `### ${row.id}`,
+      ...row.modules.map(module => `- ${module.moduleName}`),
       ...(row.leakedServices.length === 0 ? [] : [`Isolation errors: ${row.leakedServices.join(', ')}`]),
     ])),
   ].join('\n')

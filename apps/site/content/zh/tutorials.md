@@ -35,7 +35,7 @@ description: omdsh 任务式教程，从安装和第一个任务，到 Skills、
 | 选择 Agent preset | `/agent` |
 | 进入或退出 Plan 状态 | `/plan` / `/plan off` |
 | 选择会话 Access | `/permission` |
-| 查看会话统计 | `/session` |
+| 查看会话统计 | `/context` |
 | 查看会话事件轨迹 | `/trajectory` |
 | 查看可用工具 | `/tools` |
 | 朝着长期目标推进 | `/goal <objective>` |

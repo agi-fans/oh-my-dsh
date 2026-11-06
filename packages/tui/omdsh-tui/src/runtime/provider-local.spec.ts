@@ -1,4 +1,5 @@
 import sharp from 'sharp'
+import { createPromptBrowser } from './prompt-browser.ts'
 /**
  * LocalTui contract tests over a fake terminal: key routing (edit, history,
  * slash/tab autocomplete, Ctrl-R history search, PgUp/PgDn transcript
@@ -825,7 +826,7 @@ describe('LocalTui folds against a scrolling terminal', () => {
           ...(surface === 'plan-review' ? { approveValue: 'Approve' } : {}),
         })
         expect(term.visible()).not.toEqual(screen)
-        const releasesMouse = surface === 'settings' || surface === 'card'
+        const releasesMouse = surface === 'settings'
         if (releasesMouse) expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
         else expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
         const restore = term.captured.length
@@ -1740,7 +1741,7 @@ describe('LocalTui (tty)', () => {
 
     expect(stripAnsi(term.captured)).toContain('Skills · 2 available')
     expect(stripAnsi(term.captured)).toContain('reusable playbooks')
-    expect(stripAnsi(term.captured)).toContain('enter run')
+    expect(stripAnsi(term.captured)).toContain('[ Enter run ]')
     expect(stripAnsi(term.captured)).not.toContain('custom answer')
     expect(term.captured.slice(beforePrompt)).toContain('\x1b[?25l')
     const beforeClose = term.captured.length
@@ -2976,26 +2977,31 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('lists agent tools as a transcript result', async () => {
-    // Output goes into the transcript, like every other command result.
-    const term = new FakeTerminal()
-    const tui = new LocalTui(term, 'm', false)
-    press(term, '/tools\r')
-    await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toContain('No tools are currently visible')
-    tui.setTools([
-      { name: 'bash', description: 'Run a shell command.' },
-      { name: 'fs', description: '' },
-    ])
-    term.captured = ''
-    press(term, '/tools\r')
-    await flushAsyncPaste()
-    const listed = stripAnsi(term.captured)
-    expect(listed).toContain('bash')
-    expect(listed).toContain('Run a shell command')
-    // A result is not a mode: the composer never leaves.
-    expect(listed).toContain('🐳')
-    tui.dispose()
+  it('browses the tool catalog and opens full descriptions', async () => {
+    const term = new ScrollingTerminal(80, 30), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.setTools([{ name: 'bash', description: 'Run a shell command.\n\nFull description.' }, { name: 'fs', description: '' }])
+      press(term, '/tools\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Search tools')
+      press(term, 'bash')
+      await flushAsyncPaste()
+      const filtered = term.visible()
+      press(term, '\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('Full description.')
+      press(term, '\x1b[27u')
+      await flushAsyncPaste()
+      expect(term.visible()).toEqual(filtered)
+      press(term, '\x03')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('🐳')
+      press(term, '/tools\r')
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).toContain('type to filter')
+      press(term, '\x03')
+      await flushAsyncPaste()
+    } finally { tui.dispose() }
   })
 
   it('shows the last streamed chunk even when it arrived inside the paint window', async () => {
@@ -3513,7 +3519,7 @@ describe('LocalTui (tty)', () => {
   it.each([
     ['Codex', 'codex', false], ['Codex', 'codex', true],
     ['Claude Code', 'claude', false], ['Claude Code', 'claude', true],
-  ] as const)('prints %s status into the transcript and returns through its settings (color=%s)', async (label, id, color) => {
+  ] as const)('reads %s status in place and returns through its settings (color=%s)', async (label, id, color) => {
     const term = new ScrollingTerminal(90, 24)
     const tui = new LocalTui(term, 'm', color)
     const ctx = new Context()
@@ -3532,17 +3538,21 @@ describe('LocalTui (tty)', () => {
       press(term, '\x1b[B\r')
       await flushAsyncPaste()
       expect(listPlugins).toHaveBeenCalledTimes(1)
-      // The status is output, so it does not take the settings surface; it waits
-      // in the transcript behind it and is read after leaving.
+      const status = term.visible().join('\n')
+      expect(status).toContain(`${label} · Installation status`)
+      expect(status).toContain('Included with omdsh')
+      expect(status).toContain('Refresh')
+      press(term, '\x1b[27u')
       await flushAsyncPaste()
-      expect(term.visible().join('\n')).not.toContain('Package: available (installation)')
+      expect(term.visible().join('\n')).toContain('❯ Installation status')
+      expect(term.visible().join('\n')).not.toContain('type to filter')
       press(term, '\x1b[27u')
       await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain(`❯ ${label}`)
       expect(term.visible().join('\n')).toContain('● Plugins')
       press(term, '\x1b[27u')
       await flushAsyncPaste()
-      expect(term.visible().join('\n')).toContain('Package: available (installation)')
+      expect(term.visible().join('\n')).not.toContain('Included with omdsh')
     } finally { await unbind(); tui.dispose(); await ctx.fiber.dispose() }
   })
 
@@ -5846,12 +5856,195 @@ describe('startup probe gating', () => {
   })
 })
 
+describe('choice list pointer interaction', () => {
+  function clickText(term: ScrollingTerminal, text: string) {
+    const row = term.visible().findIndex(line => line.includes(text))
+    expect(row).toBeGreaterThanOrEqual(0)
+    const column = term.visible()[row]!.indexOf(text) + 1
+    press(term, `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`)
+  }
+
+  it.each([[40, false], [80, false], [40, true], [80, true]] as const)('selects rows and activates buttons at %s columns (colors=%s)', async (width, colors) => {
+    const term = new ScrollingTerminal(width, 30), tui = new LocalTui(term, 'm', colors)
+    try {
+      press(term, 'my draft')
+      const before = term.visible(), history = term.scrollback()
+      const pending = tui.prompt({ title: 'Models', question: 'Choose a model', filterable: true, allowCustom: false,
+        options: [{ label: 'Alpha', value: 'a' }, { label: 'Beta', value: 'b' }],
+        actions: [{ key: 'alt+f', label: 'Favorite/unfavorite', valuePrefix: 'favorite:' }] })
+      clickText(term, 'Beta')
+      expect(term.visible().join('\n')).toContain('Models')
+      clickText(term, 'alt+f')
+      expect(await pending).toBe('favorite:b')
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('keeps preview padding and click targets aligned after reflow (colors=%s)', async colors => {
+    const term = new ScrollingTerminal(80, 40), tui = new LocalTui(term, 'm', colors)
+    try {
+      const pending = tui.prompt({ title: 'Tools', question: 'A long question that wraps on a narrow terminal.',
+        detail: 'First detail line\nSecond detail line', filterable: true, allowCustom: false,
+        options: [{ label: 'Alpha', value: 'a', preview: 'x'.repeat(180) }, { label: 'Beta', value: 'b', preview: 'y'.repeat(180) }] })
+      term.resize(40)
+      const rows = term.visible().filter(line => line.includes('xxx'))
+      expect(rows).toHaveLength(3)
+      expect(rows.every(line => line.startsWith('│   '))).toBe(true)
+      clickText(term, 'Beta')
+      expect(term.visible().filter(line => line.includes('yyy'))).toHaveLength(3)
+      clickText(term, 'Enter select')
+      expect(await pending).toBe('b')
+    } finally { tui.dispose() }
+  })
+
+  it('cancels a button gesture after dragging over another action', async () => {
+    const term = new ScrollingTerminal(80, 28), tui = new LocalTui(term, 'm', false)
+    try {
+      const pending = tui.prompt({ title: 'Actions', question: '', allowCustom: false,
+        options: [{ label: 'Alpha', value: 'a' }],
+        actions: [{ key: 'alt+f', label: 'Favorite', valuePrefix: 'favorite:' }] })
+      const row = term.visible().findIndex(line => line.includes('[ Enter select ]'))
+      const primary = term.visible()[row]!.indexOf('Enter select') + 1
+      const secondary = term.visible()[row]!.indexOf('alt+f') + 1
+      press(term, `\x1b[<0;${primary};${row + 1}M\x1b[<32;${secondary};${row + 1}M\x1b[<32;${primary};${row + 1}M\x1b[<0;${primary};${row + 1}m`)
+      expect(term.visible().join('\n')).toContain('[ Enter select ]')
+      clickText(term, 'alt+f')
+      expect(await pending).toBe('favorite:a')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps letters available for filtering and clamps wheel navigation', async () => {
+    const term = new ScrollingTerminal(80, 28), tui = new LocalTui(term, 'm', false)
+    try {
+      const pending = tui.prompt({ title: 'Library', question: '', filterable: true, allowCustom: false,
+        options: [{ label: 'react project', value: 'react' }, { label: 'python project', value: 'python' }],
+        actions: [{ key: 'alt+r', label: 'rename', valuePrefix: 'rename:' }, { key: 'alt+p', label: 'pin', valuePrefix: 'pin:' }] })
+      press(term, 'r')
+      expect(term.visible().join('\n')).toContain('react project')
+      press(term, '\x1b')
+      press(term, '\x1b[<65;10;8M\x1b[<65;10;8M')
+      clickText(term, 'Enter select')
+      expect(await pending).toBe('python')
+    } finally { tui.dispose() }
+  })
+
+  it('keeps drag selection copyable and never submits a disabled or armed choice', async () => {
+    const term = new ScrollingTerminal(80, 28), copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      const pending = tui.prompt({ title: 'Approval', question: 'Continue?', allowCustom: false, armMs: 60_000,
+        options: [{ label: 'Disabled', value: 'disabled', disabled: true }, { label: 'Confirm', value: 'confirm' }] })
+      clickText(term, 'Confirm')
+      clickText(term, 'Enter select')
+      expect(term.visible().join('\n')).toContain('Approval')
+      const row = term.visible().findIndex(line => line.includes('Confirm'))
+      const column = term.visible()[row]!.indexOf('Confirm') + 1
+      press(term, `\x1b[<0;${column};${row + 1}M\x1b[<32;${column + 6};${row + 1}M\x1b[<0;${column + 6};${row + 1}m`)
+      press(term, `\x1b[<2;${column};${row + 1}M`)
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('Confirm')
+      press(term, '\x03')
+      expect(await pending).toBeNull()
+      const disabled = tui.prompt({ title: 'Disabled row', question: '', allowCustom: false, options: [{ label: 'Unavailable', disabled: true }] })
+      clickText(term, 'Unavailable')
+      clickText(term, 'Enter select')
+      expect(term.visible().join('\n')).toContain('Disabled row')
+      press(term, '\x03')
+      expect(await disabled).toBeNull()
+    } finally { tui.dispose() }
+  })
+})
+
+describe('context overview interaction', () => {
+  const snapshot = {
+    sessionId: 'session-context', model: 'deepseek/model', agent: 'Standard', workflow: 'Default',
+    turns: 12, steps: 38, inputTokens: 280_000, outputTokens: 18_000, followUp: 0, steering: 0,
+    pressure: { contextWindow: 128_000, projectedTokens: 64_000 },
+  }
+
+  it.each([false, true])('opens directly, handles mouse actions and restores the draft and history (colors=%s)', async colors => {
+    const term = new ScrollingTerminal(80, 30), tui = new LocalTui(term, 'm', colors)
+    try {
+      longTurn(tui, 1, 50)
+      press(term, '\x1b[5~')
+      press(term, 'keep this draft')
+      const before = term.visible(), history = term.scrollback()
+      const pending = tui.openContext({ read: () => snapshot, canCompact: true, signal: new AbortController().signal, onSuperseded: vi.fn() })
+      expect(term.visible().join('\n')).toContain('50.0%')
+      expect(term.visible().join('\n')).toContain('12 turns')
+      const row = term.visible().findIndex(line => line.includes('[ Copy session ID ]'))
+      const column = term.visible()[row]!.indexOf('Copy session ID') + 2
+      press(term, `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`)
+      expect(await pending).toBe('copy')
+      expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it('scrolls a short panel, searches the rendered rows, and activates actions with the keyboard', async () => {
+    const term = new ScrollingTerminal(40, 20), tui = new LocalTui(term, 'm', false)
+    try {
+      const pending = tui.openContext({ read: () => snapshot, canCompact: false, signal: new AbortController().signal, onSuperseded: vi.fn() })
+      const before = term.visible()
+      press(term, '\x1b[<65;10;8M')
+      expect(term.visible()).not.toEqual(before)
+      press(term, '/')
+      press(term, '12 turns\r')
+      expect(term.visible().join('\n')).toContain('12 turns')
+      press(term, '\t\r')
+      expect(await pending).toBe('copy')
+    } finally { tui.dispose() }
+  })
+
+  it('activates a clicked action while the search field is open', async () => {
+    const term = new ScrollingTerminal(80, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      const pending = tui.openContext({ read: () => snapshot, canCompact: true, signal: new AbortController().signal, onSuperseded: vi.fn() })
+      press(term, '/')
+      press(term, 'turns')
+      const row = term.visible().findIndex(line => line.includes('[ Details ]'))
+      const column = term.visible()[row]!.indexOf('Details') + 2
+      press(term, `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`)
+      expect(await pending).toBe('details')
+    } finally { tui.dispose() }
+  })
+
+  it('refreshes projections and releases the panel when an approval arrives', async () => {
+    const term = new ScrollingTerminal(80, 30), tui = new LocalTui(term, 'm', false)
+    try {
+      let current = snapshot
+      const superseded = vi.fn()
+      const pending = tui.openContext({ read: () => current, canCompact: true, signal: new AbortController().signal, onSuperseded: superseded })
+      current = { ...snapshot, pressure: { contextWindow: 128_000, projectedTokens: 96_000 } }
+      await vi.waitFor(() => { expect(term.visible().join('\n')).toContain('75.0%') })
+      const approval = tui.prompt({ title: 'Approve', question: 'Continue?', options: [{ label: 'Yes' }], allowCustom: false })
+      expect(await pending).toBeNull()
+      expect(superseded).toHaveBeenCalledTimes(1)
+      press(term, '\x03')
+      await approval
+    } finally { tui.dispose() }
+  })
+})
+
 describe('text reader pointer interaction', () => {
   const wheelDown = '\x1b[<65;10;5M'
   const wheelUp = '\x1b[<64;10;5M'
   const body = Array.from({ length: 100 }, (_, index) => `ROW_${String(index).padStart(3, '0')}`).join('\n')
 
   const markdown = body.split('\n').map(line => '- ' + line).join('\n')
+
+  it('activates the visible Back button in a full-screen reader', async () => {
+    const term = new ScrollingTerminal(80, 24), tui = new LocalTui(term, 'm', false)
+    try {
+      const pending = tui.prompt({ title: 'Reader', question: '', presentation: 'document', detail: markdown, notify: false,
+        allowCustom: false, options: [{ label: 'Back', value: 'close' }] })
+      const row = term.visible().findIndex(line => line.includes('[ Back ]'))
+      const column = term.visible()[row]!.indexOf('Back') + 2
+      press(term, `\x1b[<0;${column};${row + 1}M\x1b[<0;${column};${row + 1}m`)
+      expect(await pending).toBe('close')
+    } finally { tui.dispose() }
+  })
 
   it.each([
     ['document', false, false], ['document', false, true],
@@ -6947,4 +7140,41 @@ it('copies file-review text without switching files or disturbing native history
     expect(term.visible()).toEqual(before)
     expect(term.scrollback()).toEqual(history)
   } finally { await tui.dispose() }
+})
+
+it.each([false, true])('restores browsing filters and selection across actions and catalog changes (colors=%s)', async colors => {
+  const term = new ScrollingTerminal(55, 24), tui = new LocalTui(term, 'm', colors)
+  const browse = createPromptBrowser(request => tui.prompt(request))
+  const options = Array.from({ length: 30 }, (_, index) => ({ label: `model-${String(index).padStart(2, '0')}`, value: String(index) }))
+  const request = { title: 'Models', question: '', filterable: true, allowCustom: false, notify: false, options,
+    actions: [{ key: 'alt+f', label: 'Favorite', valuePrefix: 'favorite:' }] }
+  try {
+    press(term, 'unsent draft')
+    const first = browse(request, 'models')
+    press(term, 'model-1')
+    await flushAsyncPaste()
+    press(term, '\x1b[F')
+    const before = term.visible()
+    press(term, '\x1bf')
+    expect(await first).toBe('favorite:19')
+    const again = browse({ ...request }, 'models')
+    expect(term.visible()).toEqual(before)
+    press(term, '\r')
+    expect(await again).toBe('19')
+    const empty = browse({ ...request, title: 'Favorites', options: [] }, 'models')
+    expect(term.visible().join('\n')).toContain('model-1')
+    press(term, '\x03')
+    expect(await empty).toBeNull()
+    const all = browse({ ...request }, 'models')
+    press(term, '\r')
+    expect(await all).toBe('19')
+    const changed = browse({ ...request, options: options.slice(0, 15) }, 'models')
+    press(term, '\r')
+    expect(await changed).toBe('10')
+    const other = browse({ ...request }, 'other-list')
+    expect(term.visible().join('\n')).toContain('type to filter')
+    press(term, '\x03')
+    await other
+    expect(term.visible().join('\n')).toContain('unsent draft')
+  } finally { tui.dispose() }
 })

@@ -9,6 +9,36 @@ export interface ContextDiagnostics {
   readonly breakdown?: ContextBreakdownProjection
 }
 
+/** Current Harness projections and session identity shown by /context. */
+export interface ContextOverview extends ContextDiagnostics {
+  sessionId: string
+  model: string
+  reasoning?: string
+  agent: string
+  workflow: string
+  access?: string
+  turns: number
+  steps: number
+  inputTokens: number
+  outputTokens: number
+  followUp: number
+  steering: number
+}
+
+export function contextOverviewDetails(snapshot: ContextOverview): string {
+  return [contextDiagnosticsMarkdown(snapshot), '', '## Session', '', '| Field | Value |', '|---|---|',
+    `| Session | \`${snapshot.sessionId}\` |`,
+    `| Model | \`${snapshot.model}\` |`,
+    `| Reasoning | \`${snapshot.reasoning ?? 'unavailable'}\` |`,
+    `| Agent | ${snapshot.agent} |`,
+    `| Workflow | ${snapshot.workflow} |`,
+    ...(snapshot.access === undefined ? [] : [`| Access | ${snapshot.access} |`]),
+    `| Activity | ${snapshot.turns} turns · ${snapshot.steps} steps |`,
+    `| Tokens | ${formatTokens(snapshot.inputTokens)} in · ${formatTokens(snapshot.outputTokens)} out |`,
+    `| Queue | ${snapshot.followUp} follow-up · ${snapshot.steering} steering |`,
+  ].join('\n')
+}
+
 function value(tokens: number | undefined): string {
   return tokens === undefined ? 'unavailable' : formatTokens(tokens)
 }

@@ -101,16 +101,16 @@ describe('omdsh command plugins', () => {
       inbox: { nextTurn: [], nextStep: [] },
     } as unknown as Agent
 
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'continue', 'new', 'queue', 'resume', 'retry', 'session'])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['context', 'continue', 'new', 'queue', 'resume', 'retry'])
     await expect(ctx.commands.execute(agent, '/new', [], new AbortController().signal))
       .resolves.toMatchObject({ result: { kind: 'success', text: 'Started a new session.' } })
     expect(newSession).toHaveBeenCalledWith(agent)
     expect(session.snapshotEvents().filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
       .toEqual(['command/run', 'command/done'])
 
-    const details = await ctx.commands.execute(agent, '/session', [], new AbortController().signal)
+    const details = await ctx.commands.execute(agent, '/context', [], new AbortController().signal)
     expect(details).toBeDefined()
-    if (details === undefined) throw new Error('/session was not resolved')
+    if (details === undefined) throw new Error('/context was not resolved')
     expect(details.result).toMatchObject({
       kind: 'success',
       text: expect.stringContaining('| Workflow | Plan |'),
@@ -130,8 +130,30 @@ describe('omdsh command plugins', () => {
     expect(context.result).toMatchObject({ text: expect.stringContaining('| Pressure | 25.0% |') })
     expect(tui.prompt).not.toHaveBeenCalled()
 
+    expect(await ctx.commands.execute(agent, '/session', [], new AbortController().signal)).toBeUndefined()
+    const copyText = vi.fn(async () => {})
+    const openContext = vi.fn().mockResolvedValueOnce('details').mockResolvedValueOnce('copy').mockResolvedValueOnce(null)
+    Object.assign(tui, { interactive: true, openContext, copyText })
+    vi.mocked(tui.prompt).mockResolvedValue(null)
+    await expect(ctx.commands.execute(agent, '/context', [], new AbortController().signal)).resolves.toMatchObject({ result: { kind: 'success' } })
+    expect(openContext).toHaveBeenCalledTimes(3)
+    expect(openContext.mock.calls[0]![0].read()).toMatchObject({ sessionId: agent.id, workflow: 'Plan', pressure: { projectedTokens: 25_000 } })
+    expect(openContext.mock.calls[0]![0].canCompact).toBe(false)
+    expect(tui.prompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'Context · Details', detail: expect.stringContaining('| Session |') }))
+    expect(copyText).toHaveBeenCalledWith(agent.id, 'Session ID')
+
+    const compact = vi.fn(async () => ({ kind: 'success' as const, text: 'Compacted' }))
+    ctx.commands.register({ name: 'compact', description: 'Compact', handler: compact })
+    openContext.mockResolvedValueOnce('compact')
+    await expect(ctx.commands.execute(agent, '/context', [], new AbortController().signal)).resolves.toMatchObject({ result: { kind: 'success', text: 'Compacted' } })
+    expect(compact).toHaveBeenCalledTimes(1)
+    expect(openContext.mock.calls.at(-1)![0].canCompact).toBe(true)
+    openContext.mockImplementationOnce(async request => { request.onSuperseded(); return 'compact' })
+    await ctx.commands.execute(agent, '/context', [], new AbortController().signal)
+    expect(compact).toHaveBeenCalledTimes(1)
+
     await fiber.dispose()
-    expect(ctx.commands.list(agent)).toEqual([])
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['compact'])
     await ctx.fiber.dispose()
   })
 })

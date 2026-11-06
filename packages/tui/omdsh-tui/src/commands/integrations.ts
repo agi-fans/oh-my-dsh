@@ -1,11 +1,14 @@
 /** Integration discovery commands registered through dsh-commands. */
 
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { PluginInfo } from '@deepseek-ai/dsh-plugin-manager'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { choosePrompt, readPrompt } from '../prompt-intents.ts'
+import { readReference } from '../runtime/reference-reader.ts'
+import { browseTools } from '../runtime/tool-reader.ts'
+import { choosePrompt } from '../prompt-intents.ts'
 import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { registerCommands } from './registration.ts'
 
@@ -71,6 +74,10 @@ export function recentMcpCalls(events: readonly SessionEvent[]): McpCall[] {
 
 async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /mcp' }
+  const lifetime = new AbortController()
+  const signal = AbortSignal.any([invocation.signal, lifetime.signal])
+  const tui = { prompt: (request: Parameters<typeof ctx.tui.prompt>[0]) => ctx.tui.prompt({ ...request, signal, onSuperseded: () => lifetime.abort() }),
+    ...(ctx.tui.copyText === undefined ? {} : { copyText: (text: string, label?: string) => ctx.tui.copyText!(text, label) }) }
   const t = (source: string, values?: Record<string, string | number>): string => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), source, values)
   const caveat = t('Plugin registration and tool availability do not verify transport health or authentication.')
   const connection = t('Live connection and authentication status are unavailable in this Harness version.')
@@ -80,7 +87,7 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
   const load = async (): Promise<void> => {
     try {
       const next = await ctx.get('pluginManager')?.listPlugins()
-      invocation.signal.throwIfAborted()
+      signal.throwIfAborted()
       const schemas = ctx.get('tools')?.schemas(invocation.agent) ?? []
       const nextEntries = next?.filter(entry => entry.moduleName === '@deepseek-ai/dsh-mcp-client')
       const nextTools = schemas.filter(schema => schema.name.startsWith('mcp__')).map(schema => ({ name: schema.name, description: schema.description }))
@@ -90,7 +97,7 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
       calls = nextCalls
       loaded = true; error = ''
     } catch {
-      if (!invocation.signal.aborted) error = t(loaded ? 'Could not refresh MCP diagnostics. Showing the last loaded state; use Refresh to try again.' : 'Could not load MCP diagnostics. Use Refresh to try again.')
+      if (!signal.aborted) error = t(loaded ? 'Could not refresh MCP diagnostics. Showing the last loaded state; use Refresh to try again.' : 'Could not load MCP diagnostics. Use Refresh to try again.')
     }
   }
   const phase = (entry: PluginInfo): string => t(!entry.enabled ? 'disabled' : entry.fiberPhase ?? 'not mounted')
@@ -103,25 +110,42 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
     ...(calls.length === 0 ? [t('No MCP calls recorded in this session.')] : []),
   ].join('\n')
   await load()
-  invocation.signal.throwIfAborted()
+  signal.throwIfAborted()
   if (ctx.tui.interactive === false) return { kind: error && !loaded ? 'error' : 'success', text: document() }
-  while (!invocation.signal.aborted) {
-    const answer = await ctx.tui.prompt(choosePrompt({ title: t('MCP diagnostics'), question: t('Inspect registration, available tools and recent calls'),
+  const browse = createPromptBrowser(tui.prompt)
+  while (!signal.aborted) {
+    const servers = [...new Set(tools.map(tool => /^mcp__(.+?)__/u.exec(tool.name)?.[1]).filter((server): server is string => server !== undefined))]
+    const answer = await browse(choosePrompt({ title: t('MCP diagnostics'), question: t('Inspect registration, available tools and recent calls'), filterable: true,
       detail: [error, connection, caveat, setup, entries === undefined ? t('Registration status is unavailable in this host.') : entries.length === 0 ? t('No MCP client entries are registered.') : ''].filter(Boolean).join('\n'),
-      signal: invocation.signal, options: [
+      signal, options: [
+        ...servers.map(server => ({ label: server, value: `server:${server}`,
+          description: t('Tools: {count}', { count: tools.filter(tool => tool.name.startsWith(`mcp__${server}__`)).length }),
+          preview: calls.filter(call => call.name.startsWith(`mcp__${server}__`)).map(call => `${call.name} · ${t(call.outcome)}`).join('\n') })),
         ...(entries ?? []).map((entry, index) => ({ label: String(entry.entryId), value: `entry:${index}`, description: phase(entry),
           ...(entry.diagnostic ? { preview: entry.diagnostic } : {}) })),
         { label: t('Available tools'), value: 'tools', description: String(tools.length) },
         { label: t('Recent calls in this session'), value: 'calls', description: String(calls.length) },
         { label: t('Refresh'), value: 'refresh' },
       ] }))
-    if (invocation.signal.aborted || answer === null) break
+    if (signal.aborted || answer === null) break
     if (answer === 'refresh') { await load(); continue }
+    if (answer === 'tools') {
+      await browseTools(tui, tools, resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), signal, 'Available tools')
+      continue
+    }
+    if (answer.startsWith('server:')) {
+      const server = answer.slice(7)
+      const serverTools = tools.filter(tool => tool.name.startsWith(`mcp__${server}__`))
+      const recent = calls.filter(call => call.name.startsWith(`mcp__${server}__`))
+      await readReference(tui, server, [connection, '', mcpCatalogText(serverTools, t), '', '## ' + t('Recent calls in this session'),
+        ...recent.map(call => `${call.name} · ${t(call.outcome)}${call.detail ? '\n\n' + call.detail : ''}`),
+        ...(recent.length === 0 ? [t('No MCP calls recorded in this session.')] : [])].join('\n'), signal)
+      continue
+    }
     const entry = answer.startsWith('entry:') ? entries?.[Number(answer.slice(6))] : undefined
     const text = entry !== undefined ? [String(entry.entryId), phase(entry), entry.diagnostic, connection, t('Manage plugin configuration in /settings or /plugins.')].filter(Boolean).join('\n\n')
-      : answer === 'tools' ? mcpCatalogText(tools, t)
       : answer === 'calls' ? [t('Recorded outcomes are historical; an error may come from the tool rather than the connection.'), ...calls.map(call => `${call.name} · ${t(call.outcome)} · #${call.seq}${call.detail ? '\n' + call.detail : ''}`), ...(calls.length === 0 ? [t('No MCP calls recorded in this session.')] : [])].join('\n\n') : undefined
-    if (text !== undefined) await ctx.tui.prompt(readPrompt({ title: t('MCP diagnostics'), question: entry?.entryId ?? t(answer === 'tools' ? 'Available tools' : 'Recent calls in this session'), text, cancelLabel: t('Back'), signal: invocation.signal }))
+    if (text !== undefined) await readReference(tui, entry?.entryId ?? t('Recent calls in this session'), text, signal)
   }
   return { kind: 'success' }
 }

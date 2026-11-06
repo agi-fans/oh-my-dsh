@@ -1,8 +1,9 @@
 /** Session-owned job navigation and non-consuming output observation. */
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
 import type { JobView } from '@deepseek-ai/dsh-jobs'
-import type { TuiDocumentSource, TuiPrompt } from '../definition.ts'
+import type { TuiDocumentPosition, TuiDocumentSource, TuiPrompt } from '../definition.ts'
 import { confirmPrompt, readPrompt } from '../prompt-intents.ts'
 import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { formatDuration } from '../chrome/status-line.ts'
@@ -17,6 +18,7 @@ export async function browseJobs(ctx: Context, invocation: CommandInvocation, in
   const owner = invocation.agent.session.id
   const t = (source: string) => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), source)
   const prompt = (request: TuiPrompt) => ctx.tui.prompt({ ...request, signal, notify: false, onSuperseded: () => lifetime.abort() })
+  const browse = createPromptBrowser(prompt)
   let rows: JobView[] = [], diagnostic = '', failed = false, dirty = true
   const off = ctx.jobs.events.subscribe({ owner }, event => { if (event.type !== 'output') dirty = true })
   const refresh = (force = false): void => {
@@ -27,10 +29,6 @@ export async function browseJobs(ctx: Context, invocation: CommandInvocation, in
   }
   const current = (id: string) => { refresh(); return rows.find(row => row.id === id) }
   const status = (job: JobView) => [t(JOB_STATUS_WORD[job.status]), formatDuration(Math.max(0, (job.finishedAt ?? Date.now()) - job.startedAt)), live(job) ? job.progress : job.detail].filter(Boolean).join(' · ')
-  const detail = (id: string) => {
-    const job = current(id)
-    return [diagnostic, job ? `${job.label || job.kind}\n${job.id}\n${status(job)}` : t('This job is no longer available.')].filter(Boolean).join('\n\n')
-  }
   const cancel = async (id: string): Promise<void> => {
     refresh(true)
     const job = current(id)
@@ -68,37 +66,29 @@ export async function browseJobs(ctx: Context, invocation: CommandInvocation, in
       }
       return source
     }
+    let position: TuiDocumentPosition | undefined
+    const options = (): NonNullable<TuiPrompt['options']> => [
+      { label: t('Back'), value: 'back' },
+      { label: t('Stop job'), value: 'stop', disabled: failed || current(id)?.status !== 'running' },
+      { label: t('Refresh'), value: 'refresh' },
+    ]
     try {
-      await prompt({ ...readPrompt({ title: t('Job output'), question: job.label || job.kind, source: read(true), tail: true, cancelLabel: t('Back'), signal }),
-        refreshDocumentSource: read })
+      while (!signal.aborted) {
+        const action = await prompt({ ...readPrompt({ title: t('Job output'), question: job.label || job.kind, source: read(position?.following !== false),
+          tail: true, ...(position === undefined ? {} : { position }), onPosition: value => { position = value }, signal }),
+          options: options(), refreshOptions: options, refreshDocumentSource: read })
+        if (signal.aborted || action === null || action === 'back') return
+        if (action === 'stop') await cancel(id)
+        else if (action === 'refresh') { refresh(true); changed = true; read(true) }
+      }
     } finally { unwatch() }
-  }
-  const manage = async (id: string): Promise<void> => {
-    const options = (): NonNullable<TuiPrompt['options']> => {
-      const job = current(id)
-      return [
-        { label: t('View output'), value: 'output', disabled: failed || !job || (!live(job) && job.output.total <= job.output.earliest) },
-        { label: t('Stop job'), value: 'stop', disabled: failed || job?.status !== 'running' },
-        { label: t('Refresh'), value: 'refresh' }, { label: t('Back'), value: 'back' },
-      ]
-    }
-    while (!signal.aborted) {
-      const action = await prompt({ title: t('Background job'), question: '', detail: detail(id), refreshDocument: () => detail(id),
-        options: options(), refreshOptions: options, allowCustom: false })
-      if (signal.aborted || action === null || action === 'back') return
-      if (action === 'refresh') { refresh(true); continue }
-      refresh(true)
-      if (failed) continue
-      if (action === 'output') await output(id)
-      else if (action === 'stop') await cancel(id)
-    }
   }
   try {
     refresh(true)
     if (initialId !== undefined) {
       if (!failed && !current(initialId)) throw new Error(t('This job is no longer available.'))
       if (stop) await cancel(initialId)
-      else await manage(initialId)
+      else await output(initialId)
       return
     }
     let selected: string | undefined, key = '', cached: NonNullable<TuiPrompt['options']> = []
@@ -113,12 +103,12 @@ export async function browseJobs(ctx: Context, invocation: CommandInvocation, in
     }
     const overview = () => { refresh(); return diagnostic || (rows.length ? t('Select a job to inspect output or stop it.') : t('No background jobs in this session.')) }
     while (!signal.aborted) {
-      const answer = await prompt({ title: t('Background jobs'), question: '', detail: overview(), refreshDocument: overview, options: options(), refreshOptions: options,
+      const answer = await browse({ title: t('Background jobs'), question: '', detail: overview(), refreshDocument: overview, options: options(), refreshOptions: options,
         ...(selected === undefined ? {} : { initialValue: selected }), filterable: true, allowCustom: false })
       if (signal.aborted || answer === null) return
       selected = answer
       refresh(true)
-      if (answer !== '__refresh__' && !failed) await manage(answer)
+      if (answer !== '__refresh__' && !failed) await output(answer)
     }
   } finally { lifetime.abort(); off() }
 }

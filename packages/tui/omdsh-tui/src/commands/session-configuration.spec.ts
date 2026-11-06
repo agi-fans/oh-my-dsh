@@ -104,3 +104,27 @@ describe('session configuration commands', () => {
     await ctx.fiber.dispose()
   })
 })
+
+it.each(['/agent', '/agent inspect'])('reads composition in place and returns to its owning page (%s)', async command => {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore); await ctx.plugin(CommandRuntime)
+  const session = ctx.sessions.create(SessionId('composition-reader'))
+  session.append('user/message', { content: [{ type: 'text', text: 'Earlier task' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  const agent = { id: session.id, session, ctx, status: 'idle' } as Agent
+  const prompt = vi.fn<TuiService['prompt']>(async () => null), commandOutput = vi.fn(), copyText = vi.fn()
+  ctx.provide('tui', { interactive: true, prompt, commandOutput, copyText } as unknown as TuiService)
+  ctx.provide('omdshSession', {} as never)
+  ctx.provide('agentPresets', { compositionInventory: async () => [{ id: 'standard', rows: [{ entryId: 'tools', moduleName: 'tool-package', enabled: true }] }], inspectCompositions: () => [] } as never)
+  await ctx.plugin(commandSessionConfiguration)
+  if (command === '/agent') prompt.mockResolvedValueOnce('inspect')
+  prompt.mockResolvedValueOnce('copy').mockResolvedValueOnce('close')
+  try {
+    expect((await ctx.commands.execute(agent, command, [], new AbortController().signal))?.result).toEqual({ kind: 'success' })
+    expect(copyText).toHaveBeenCalledWith(expect.stringContaining('tool-package'), 'This page')
+    const documents = prompt.mock.calls.map(([request]) => request).filter(request => request.presentation === 'document')
+    expect(documents).toHaveLength(2)
+    expect(documents[0]?.title).toBe('Agent composition')
+    if (command === '/agent') expect(prompt.mock.lastCall?.[0]).toMatchObject({ title: 'Agent', initialValue: 'inspect' })
+    expect(commandOutput).not.toHaveBeenCalled()
+  } finally { await ctx.fiber.dispose() }
+})

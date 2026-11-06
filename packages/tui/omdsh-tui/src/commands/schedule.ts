@@ -1,5 +1,6 @@
 /** Human controls over the Harness-owned schedule and its delivery records. */
 
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { ScheduleCatalogEntry, ScheduleRecord } from '@deepseek-ai/dsh-schedule'
@@ -175,6 +176,7 @@ export async function scheduleCommand(ctx: Context, invocation: CommandInvocatio
   if (invocation.rawInput.trim() !== '') return { kind: 'error', text: 'Usage: /schedule' }
   const { signal } = invocation, catalog = scheduleCatalog(ctx, invocation.agent.session.id, signal)
   const t = (source: string): string => text(ctx, source)
+  const browse = createPromptBrowser(request => ctx.tui.prompt(request))
   let rows: NonNullable<TuiPrompt['options']> = [], key = '', selected = ''
   const options = (): NonNullable<TuiPrompt['options']> => {
     const { entries, error } = catalog.snapshot(), language = resolveUiLanguage(ctx.tui.prefs().uiLanguage)
@@ -196,7 +198,7 @@ export async function scheduleCommand(ctx: Context, invocation: CommandInvocatio
   try {
     await catalog.refresh()
     while (!signal.aborted) {
-      const answer = await ctx.tui.prompt({ ...list, title: t('Scheduled tasks'), question: t('Reminders involving this session'), filterable: true,
+      const answer = await browse({ ...list, title: t('Scheduled tasks'), question: t('Reminders involving this session'), filterable: true,
         detail: listDetail(), refreshDocument: listDetail,
         options: options(), refreshOptions: options, ...(selected ? { initialValue: selected } : {}), signal })
       if (signal.aborted || answer == null) break

@@ -38,8 +38,8 @@ it.each([false, true])('renders progress with cancellation hints and no answer e
 it('shows the selected filtered option’s action in a card', () => {
   const state: PromptSelectorState = { request: { title: 'Help', question: '', filterable: true, submitLabel: 'insert',
     options: [{ label: 'Keyboard shortcuts', submitLabel: 'read' }, { label: '/model', submitLabel: 'insert' }] }, selected: 0, checked: new Set() }
-  expect(renderPromptSelector(state, createTheme(false), 60, '', 0).lines.join('\n')).toContain('enter read')
-  expect(renderPromptSelector(state, createTheme(false), 60, 'model', 5).lines.join('\n')).toContain('enter insert')
+  expect(renderPromptSelector(state, createTheme(false), 60, '', 0).lines.join('\n')).toContain('[ Enter read ]')
+  expect(renderPromptSelector(state, createTheme(false), 60, 'model', 5).lines.join('\n')).toContain('[ Enter insert ]')
 })
 
 describe('plan review page', () => {
@@ -258,15 +258,17 @@ it('renders scrolling documents in bounded cells and keeps action selection visi
 
 
 describe('Session Library footer actions', () => {
-  it.each([false, true])('keeps archive and view switching discoverable when empty (colors=%s)', colors => {
+  it.each([false, true])('keeps view switching actionable when empty (colors=%s)', colors => {
     const frame = renderPromptSelector({ request: { title: 'Session Library', question: '', allowCustom: false, options: [], actions: [
-      { key: 'r', label: 'rename', valuePrefix: 'rename:' }, { key: 'p', label: 'pin/unpin', valuePrefix: 'pin:' },
+      { key: 'Alt+R', label: 'rename', valuePrefix: 'rename:' }, { key: 'Alt+P', label: 'pin/unpin', valuePrefix: 'pin:' },
       { key: 'Alt+A', label: 'archive', valuePrefix: 'archive:' },
       { key: 'Alt+V', label: 'archived sessions', valuePrefix: 'view:', scope: 'list' },
     ] }, selected: 0, checked: new Set() }, createTheme(colors), 60, '', 0)
     const text = stripAnsi(frame.lines.join(' '))
-    // The card carries the action hints too, so archive and view stay discoverable.
-    expect(text).toContain('Alt+A')
+    expect(text).not.toContain('Alt+A')
+    expect(text).not.toContain('enter answer')
+    expect(frame.actions).toHaveLength(1)
+    expect(frame.actions![0]!.key).toBe('alt+v')
     expect(text).toContain('Alt+V')
     expect(frame.lines.every(line => visibleWidth(line) <= 60)).toBe(true)
   })
@@ -527,4 +529,66 @@ it.each([false, true])('aligns Provider badges within the prompt border (colors=
     expect(suffixes[0]).toMatch(/^ +│$/u)
     expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
   }
+})
+
+
+it('keeps a prefilled answer separate from its empty-input hint', () => {
+  const state: PromptSelectorState = { request: { title: 'Export', question: 'Save to file' }, selected: 0, checked: new Set() }
+  const theme = createTheme(false)
+  expect(renderPromptSelector(state, theme, 80, '', 0).lines.join('\n')).toContain('Save to file')
+  const filled = renderPromptSelector(state, theme, 80, 'transcript.md', 13).lines.join('\n')
+  expect(filled).toContain('transcript.md')
+  expect(filled).not.toContain('Save to file')
+})
+
+
+describe('preview wrapping and filter coordinates', () => {
+  it.each([false, true])('keeps wrapped preview rows inset and the filter cursor on its row (color=%s)', colors => {
+    const state: PromptSelectorState = { request: { title: 'Tools', question: '', allowCustom: false, filterable: true,
+      options: [{ label: 'subagent', preview: 'x'.repeat(108) }] }, selected: 0, checked: new Set() }
+    const frame = renderPromptSelector(state, createTheme(colors), 40, '', 0)
+    const lines = frame.lines.map(stripAnsi)
+    const preview = lines.filter(line => line.includes('xxx'))
+    expect(preview).toHaveLength(3)
+    expect(preview.every(line => line.startsWith('│   '))).toBe(true)
+    expect(lines[frame.cursor.row]).toContain('type to filter')
+    expect(frame.cursor.column).toBe(4)
+  })
+
+  it('keeps the filter cursor below wrapped questions and multiline details', () => {
+    const state: PromptSelectorState = { request: { title: 'MCP', question: 'A long diagnostic question '.repeat(4),
+      detail: 'Connection details\nA multiline diagnostic message', allowCustom: false, filterable: true,
+      options: [{ label: 'docs', preview: 'short description' }] }, selected: 0, checked: new Set() }
+    const frame = renderPromptSelector(state, createTheme(false), 40, 'doc', 2)
+    expect(stripAnsi(frame.lines[frame.cursor.row]!)).toContain('doc · 1/1')
+  })
+})
+
+it.each(['plain', 'markdown'] as const)('keeps %s previews padded across widths, Unicode and tabbed content', format => {
+  for (const colors of [false, true]) for (const width of [24, 40, 80, 160, 240]) {
+    for (const preview of ['Delegate a self-contained task to a subagent. '.repeat(12),
+      '中文 🐳 e\u0301 '.repeat(30), 'BEGIN\t' + 'x'.repeat(200),
+      '**Description** with `inline code` and a [link](https://example.com). '.repeat(12),
+      '```ts\n\tconst value = "' + 'x'.repeat(200) + '"\n```']) {
+      const state: PromptSelectorState = { request: { title: 'Preview', question: '', allowCustom: false, filterable: true,
+        options: [{ label: 'selected_item', preview, ...(format === 'markdown' ? { previewFormat: 'markdown' as const } : {}) }] }, selected: 0, checked: new Set() }
+      const frame = renderPromptSelector(state, createTheme(colors), width, '', 0)
+      const lines = frame.lines.map(stripAnsi)
+      const start = lines.findIndex(line => line.includes('selected_item')) + 2
+      const previewRows = lines.slice(start, frame.cursor.row - 1)
+      expect(previewRows.length).toBeLessThanOrEqual(4)
+      expect(previewRows.every(line => line.startsWith('│   '))).toBe(true)
+      expect(lines[frame.cursor.row]).toContain('type to filter')
+      expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+      expect(frame.lines.join('')).not.toContain('\t')
+    }
+  }
+})
+
+it('expands tabs before laying out a plain tree preview', () => {
+  const state: PromptSelectorState = { request: { title: 'Session Tree', question: '', allowCustom: false,
+    presentation: 'tree', options: [{ label: 'Turn', preview: 'BEGIN\t' + 'word '.repeat(30) }] }, selected: 0, checked: new Set() }
+  const frame = renderPromptTreePage(state, createTheme(false), 80, 30, '', 0, 'omdsh')
+  expect(frame.lines.join('')).not.toContain('\t')
+  expect(frame.lines.every(line => visibleWidth(line) <= 80)).toBe(true)
 })

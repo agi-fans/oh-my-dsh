@@ -1,3 +1,4 @@
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -270,4 +271,15 @@ describe('reminder timing as a reader asks it', () => {
   it('calls an overdue active reminder due rather than showing a negative wait', () => {
     expect(command.scheduleWhen(record, 'active', Date.parse('2026-10-27T13:05:00Z'))).toBe('next due now · 2026-10-27 13:00 UTC')
   })
+})
+
+it('keeps the task filter through editing and returning to the list', async () => {
+  const h = await fixture([request => {
+    Object.assign(promptBrowserState(request)!, { query: 'Release', selected: 'task-1' })
+    return 'task-1'
+  }, 'pause', null, null])
+  await h.run()
+  expect(h.prompt.mock.calls[3]![0].title).toBe('Scheduled tasks')
+  expect(promptBrowserState(h.prompt.mock.calls[3]![0])).toMatchObject({ query: 'Release', selected: 'task-1' })
+  expect(h.prompt.mock.calls[3]![0].options?.[0]?.badge?.label).toBe('Paused')
 })

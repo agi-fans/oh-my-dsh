@@ -125,9 +125,11 @@ Diff 中点击文件行切换文件，Tab 在列表与内容之间切换键盘�
 | 历史搜索（`Ctrl+R`） | 输入以筛选，`↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` 导航，`Enter` 选择，`Esc`/`Ctrl+C` 取消；查询输入支持行编辑按键。 |
 | 转录搜索（`Ctrl+Shift+F`） | 输入查询，编辑中按 `Ctrl+N`/`Ctrl+P` 跳转，`Enter` 确认，`n`/`N` 在匹配间跳转，`/` 编辑查询，`Esc`/`Ctrl+C` 关闭。 |
 | 轨迹（`/trajectory`） | `Enter` 打开详情；`Tab` 切换记录／详情焦点，`←`/`→` 切换分区，`↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 操作当前面板。在列表中 `End` 跟随最新记录。`Ctrl+N`/`Ctrl+P` 切换记录；`f` 放大详情，`y` 复制分区内容。`Space` 展开上下文／子调用，`t` 折叠回合，`c` 折叠调用，`e` 筛选问题，`s` 按耗时从长到短查看调用。`/` 搜索全部记录，`n`/`N` 跳转匹配（输入时使用 `Ctrl+N`/`Ctrl+P`）。`Esc`/`Ctrl+C` 先关闭详情，再关闭轨迹。 |
-| Session Library | 清空搜索后 `p` 置顶／取消置顶、`r` 重命名；`Alt+A` 归档／恢复选中会话，`Alt+V` 切换默认／归档列表，列表为空或正在搜索时也可切换。 |
+| Session Library | `Alt+P` 置顶／取消置顶、`Alt+R` 重命名，搜索期间也可操作；`Alt+A` 归档／恢复选中会话，`Alt+V` 切换默认／归档列表，列表为空或正在搜索时也可切换。 |
 | Session Tree | 输入搜索；`↑`/`↓`/`Tab` 选择，`←`/`→` 折叠，`Ctrl+↑`/`Ctrl+↓` 滚动预览，`Enter` 编辑 Turn 或恢复分支，`Alt+Enter` 恢复选中节点所在的分支，`Alt+L` 添加标记，`Alt+U` 清除标记，`Alt+B` 切换已标记节点，`Alt+R` 检查 Turn 文件恢复，`Esc` 先清除搜索再关闭，`Ctrl+C` 取消。 |
 | 交互选择器（resume、permission、model、agent、workflow、login） | 输入以筛选，`↑`/`↓`/`Tab` 导航，`←`/`→` 选择，多题提问中按 `Alt+Left` 返回上一题，Plan Review 中按 `Ctrl+X` 用外部编辑器编写修改意见，`PgUp`/`PgDn` 与 `Home`/`End` 移动，`Space` 多选，`Enter` 选择或提交，`Ctrl+J` 提交，`Esc` 返回或取消，`Ctrl+C` 取消。 |
+
+选择列表支持滚轮导航和点击选中，通过 Enter 或可见的操作按钮执行。拖动文字可选中并复制。模型选择器支持 `Alt+F` 收藏／取消收藏，`Alt+A` 切换全部模型与收藏。
 
 可搜索的选择列表支持多词查询，例如 `official flash`；每个词都必须匹配名称、标识符、预览或描述中的内容。`flsh` 这样的短缩写可以在单词内部匹配。名称的完整匹配和前缀匹配排在仅描述匹配之前，清空查询会恢复原始顺序。这些规则用于选择器筛选；转录搜索、提示历史和 `/resume <query>` 保留各自的搜索规则。
 

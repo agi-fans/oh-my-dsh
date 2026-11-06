@@ -118,3 +118,22 @@ describe('permission command', () => {
     await ctx.fiber.dispose()
   })
 })
+
+it.each([
+  { answers: ['rules'], changes: false },
+  { answers: ['danger-full-access', 'cancel'], changes: false },
+  { answers: ['workspace-write'], changes: false },
+  { answers: ['danger-full-access', 'accept'], changes: true },
+  { answers: ['read-only'], changes: true },
+])('closes the composer Shell only for a confirmed Access change ($answers)', async ({ answers, changes }) => {
+  const h = await permissionHarness(answers)
+  const kill = vi.fn(async () => {})
+  h.ctx.provide('terminals', { list: () => [{ name: 'Composer shell', type: 'shell', sessionId: 'shell-1' }], kill } as never)
+  h.ctx.provide('omdshApprovalRules', { list: () => [] } as never)
+  try {
+    await h.ctx.commands.execute(h.agent, '/permission', [], new AbortController().signal)
+    expect(kill).toHaveBeenCalledTimes(changes ? 1 : 0)
+    expect(h.switched).toHaveBeenCalledTimes(changes ? 1 : 0)
+    if (changes) expect(kill.mock.invocationCallOrder[0]).toBeLessThan(h.switched.mock.invocationCallOrder[0]!)
+  } finally { await h.scope.dispose(); await h.ctx.fiber.dispose() }
+})

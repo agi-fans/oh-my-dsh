@@ -1,3 +1,4 @@
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -11,7 +12,7 @@ import * as plugins from './plugins.ts'
 const row = { entryId: 'include:tool-web', patchId: 'tool-web', moduleName: '@deepseek-ai/dsh-tool-web', enabled: true, fiberPhase: 'active' } as PluginInfo
 const changed: ChangeResult = { changed: true, application: 'applied', stage: 'enable', target: 'tool-web', enabled: false }
 
-async function harness(answers: readonly (string | null)[]) {
+async function harness(answers: readonly (string | null)[], settings?: unknown, credentials?: unknown) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(Commands)
@@ -29,12 +30,69 @@ async function harness(answers: readonly (string | null)[]) {
   const commandOutput = vi.fn()
   ctx.provide('pluginManager', manager as never)
   ctx.provide('tui', { prompt, commandOutput, notice: vi.fn() } as unknown as TuiService)
+  const settingsProvider = settings === undefined ? undefined : await ctx.plugin({ name: 'test-profile-settings', apply(provider: Context) {
+    provider.provide('settings', settings as never)
+  } })
+  if (credentials !== undefined) await ctx.plugin({ name: 'test-profile-credentials', apply(provider: Context) {
+    provider.provide('credentials', credentials as never)
+  } })
   const fiber = await ctx.plugin(plugins)
   const session = ctx.sessions.create(SessionId('plugins-test'))
-  return { ctx, fiber, prompt, commandOutput, manager, agent: { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent }
+  return { ctx, fiber, settingsProvider, prompt, commandOutput, manager, agent: { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent }
 }
 
 describe('native plugin management', () => {
+  it('opens Configure plugins with Settings provided by a sibling plugin', async () => {
+    const h = await harness(['configure', null, null], { writable: true, describe: () => [] })
+    try {
+      const result = await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(result?.result).toEqual({ kind: 'success' })
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ title: 'Plugin settings' })
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('saves configuration and credentials through their sibling provider scopes', async () => {
+    const mutate = vi.fn(async () => {}), set = vi.fn(async (_reference: string, _value: string) => {})
+    const h = await harness(['configure', 'advanced:custom', '0', 'set', 'test-token', null, null], {
+      writable: true, describe: () => [{ ns: 'custom', revision: 7,
+        schema: z.object({ apiKey: z.string().role('secret'), apiKeyEnv: z.string() }).toJSON(),
+        value: {}, base: {}, user: {} }], mutate,
+    }, { set })
+    try {
+      const result = await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(result?.result).toEqual({ kind: 'success' })
+      expect(set).toHaveBeenCalledWith(expect.stringMatching(/^OMDSH_CUSTOM_API_KEY_/u), 'test-token')
+      expect(mutate).toHaveBeenCalledWith('custom', [
+        { op: 'unset', path: ['apiKey'] },
+        { op: 'set', path: ['apiKeyEnv'], value: set.mock.calls[0]![0] },
+      ], 7)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps plugin management available when Settings is absent', async () => {
+    const h = await harness([null])
+    try {
+      expect((await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal))?.result).toEqual({ kind: 'success' })
+      expect(h.prompt.mock.calls[0]![0].options?.some(option => option.value === 'configure')).toBe(false)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('closes a configuration prompt when its Settings provider is unloaded', async () => {
+    const h = await harness(['configure'], { writable: true, describe: () => [] })
+    h.prompt.mockImplementation(request => new Promise(resolve => {
+      request.signal!.addEventListener('abort', () => resolve(null), { once: true })
+    }))
+    try {
+      const operation = h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      await vi.waitFor(() => expect(h.prompt.mock.calls[1]?.[0].title).toBe('Plugin settings'))
+      await h.settingsProvider!.dispose()
+      expect((await operation)?.result).toEqual({ kind: 'success' })
+      h.prompt.mockResolvedValue(null)
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls.at(-1)![0].options?.some(option => option.value === 'configure')).toBe(false)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
   it('starts Creator from Plugins without submitting a message', async () => {
     const h = await harness(['creator'])
     const changeAgentPreset = vi.fn(), newSession = vi.fn(), send = vi.fn()
@@ -67,7 +125,7 @@ describe('native plugin management', () => {
     const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'install', 'accept', null, null])
     await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
     expect(h.prompt.mock.calls[1]![0].options?.[0]?.description).toContain('Not installed')
-    expect(h.prompt.mock.calls[2]![0].options?.map(option => option.value)).toEqual(['check', 'install'])
+    expect(h.prompt.mock.calls[2]![0].options?.map(option => option.value)).toEqual(['check', 'install', 'guide'])
     expect(h.manager.setBundleEnabled).not.toHaveBeenCalled()
     expect(h.manager.inspect).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', undefined, expect.any(AbortSignal))
     expect(h.manager.installBundle).toHaveBeenCalledWith('@deepseek-ai/dsh-subagent-codex@0.2.1-rc.2', expect.objectContaining({ saveExact: true }))
@@ -142,10 +200,11 @@ describe('native plugin management', () => {
   })
 
   it('toggles an addressable entry and reports the observed application result', async () => {
-    const h = await harness(['entries', row.entryId, 'accept', null])
+    const h = await harness(['entries', row.entryId, 'toggle', 'accept', null])
     await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
     expect(h.manager.setPluginEnabled).toHaveBeenCalledWith(row.entryId, false)
-    expect(h.commandOutput).toHaveBeenCalledWith('/plugins', 'tool-web: applied · disabled')
+    expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: 'Plugin entries', detail: 'tool-web: applied · disabled' })
+    expect(h.commandOutput).not.toHaveBeenCalled()
     await h.ctx.fiber.dispose()
   })
 
@@ -153,22 +212,24 @@ describe('native plugin management', () => {
     const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'check', null])
     try {
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
-      expect(h.prompt.mock.calls[2]![0].detail).toContain('no executable from PATH')
-      // Status is a result, so it lands in the transcript rather than on a surface.
-      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('Package: not installed'))
-      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('authentication: not tested'))
+      expect(h.prompt.mock.calls[2]![0].detail).toContain('Bundled runtime')
+      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ presentation: 'document', title: 'Codex · Installation status' })
+      expect(h.prompt.mock.calls[3]![0].detail).toContain('| Installation | Not installed |')
+      expect(h.prompt.mock.calls[3]![0].detail).toContain('Not checked. Runtime startup and sign-in')
+      expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: '@deepseek-ai/dsh-subagent-codex', initialValue: 'check' })
+      expect(h.commandOutput).not.toHaveBeenCalled()
       expect(h.manager.installBundle).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 
   it('opens native model and permission fields through revision-checked Settings without exposing env', async () => {
-    const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'settings', 'field:permissionMode', '"never"', null, null, null])
     const mutate = vi.fn(async () => {})
+    const h = await harness(['bundles', '@deepseek-ai/dsh-subagent-codex', 'settings', 'field:permissionMode', '"never"', null, null, null], { writable: true, describe: () => [{ ns: 'subagent-codex', revision: 3,
+      schema: z.object({ model: z.string(), permissionMode: z.union(['never', 'approve-for-me']), env: z.dict(z.string()) }).toJSON(),
+      value: { permissionMode: 'approve-for-me', env: { API_KEY: 'private-secret' } }, base: {}, user: {} }], mutate })
     h.manager.listBundles.mockResolvedValue([{ name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'profile', enabled: true,
       installed: true, optional: false, removable: true, rows: [{ rowId: 'subagent-codex', moduleName: '@deepseek-ai/dsh-subagent-codex' }], overrides: [] }] as never)
-    h.ctx.provide('settings', { writable: true, describe: () => [{ ns: 'subagent-codex', revision: 3,
-      schema: z.object({ model: z.string(), permissionMode: z.union(['never', 'approve-for-me']), env: z.dict(z.string()) }).toJSON(),
-      value: { permissionMode: 'approve-for-me', env: { API_KEY: 'private-secret' } }, base: {}, user: {} }], mutate } as never)
+
     try {
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
       expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: 'Permissions' })
@@ -212,7 +273,8 @@ describe('native plugin management', () => {
     expect(ended).toBe(false)
     settlement.resolve({ ...changed, stage: 'install', application: 'cancelled' })
     await operation
-    expect(h.commandOutput.mock.calls[0]![1]).toContain('cancelled')
+    expect(h.prompt.mock.lastCall![0].detail).toContain('cancelled')
+    expect(h.commandOutput).not.toHaveBeenCalled()
     await h.ctx.fiber.dispose()
   })
 
@@ -266,30 +328,34 @@ describe('Discover', () => {
     }))
     ctx.provide('pluginMarket', { listIndexes: () => options.indexes, search } as never)
     // The command plugin injects the manager, so it must exist for the row to mount.
-    ctx.provide('pluginManager', { listPlugins: async () => [], listBundles: async () => [] } as never)
+    const manager = { listPlugins: async () => [], listBundles: async () => [],
+      inspect: vi.fn(async () => ({ status: 'accepted', name: entry.name, version: '1.2.0' })),
+      installBundle: vi.fn(async () => ({ ...changed, target: entry.name, stage: 'install', enabled: true })), cancelInstall: vi.fn() }
+    ctx.provide('pluginManager', manager as never)
     ctx.provide('tui', { prompt, commandOutput, notice } as unknown as TuiService)
     await ctx.plugin(plugins)
     const session = ctx.sessions.create(SessionId('market-test'))
     const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
-    return { ctx, agent, prompt, commandOutput, notice, search }
+    return { ctx, agent, prompt, commandOutput, notice, search, manager }
   }
 
-  it('says a source must be configured instead of showing an empty list', async () => {
-    // The next step is a setting, not a choice, so a picker would be the wrong answer.
+  it('keeps source setup guidance and retry in Discover', async () => {
     const h = await discoverHarness({ indexes: [] })
     try {
-      h.prompt.mockResolvedValueOnce('discover')
+      h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('')
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
-      expect(h.commandOutput).toHaveBeenCalledWith('/plugins discover', expect.stringContaining('No plugin index sources'))
+      expect(h.prompt.mock.calls[2]![0]).toMatchObject({ title: 'Discover plugins', detail: expect.stringContaining('No plugin index sources') })
+      expect(h.commandOutput).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 
   it('lists a source that cannot be read with the reason it was refused', async () => {
     const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json', error: 'not canonical' }] })
     try {
-      h.prompt.mockResolvedValueOnce('discover')
+      h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('')
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
-      expect(h.commandOutput).toHaveBeenCalledWith('/plugins discover', expect.stringContaining('not canonical'))
+      expect(h.prompt.mock.calls[2]![0].detail).toContain('not canonical')
+      expect(h.commandOutput).not.toHaveBeenCalled()
       expect(h.search).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
@@ -297,12 +363,146 @@ describe('Discover', () => {
   it('searches the configured indexes and offers the entry that was chosen', async () => {
     const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
     try {
-      h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example').mockResolvedValueOnce('0').mockResolvedValueOnce(null)
+      h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example').mockResolvedValueOnce(JSON.stringify(['https://market.test/index.json', entry.name])).mockResolvedValueOnce(null)
       await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
       expect(h.search).toHaveBeenCalledWith('https://market.test/index.json', expect.objectContaining({ text: 'example', offset: 0 }))
       const results = h.prompt.mock.calls[2]![0]
-      expect(results.options?.[0]).toMatchObject({ label: 'dsh-plugin-example', value: '0' })
+      expect(results.options?.[0]).toMatchObject({ label: 'dsh-plugin-example', value: JSON.stringify(['https://market.test/index.json', entry.name]) })
       expect(results.options?.[0]?.preview).toBe('An example plugin.')
     } finally { await h.ctx.fiber.dispose() }
   })
+
+  it('returns from cancelled installation to the same search result', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example')
+      .mockImplementationOnce(async request => {
+        Object.assign(promptBrowserState(request)!, { query: 'plugin', selected: request.options![0]!.value })
+        return request.options![0]!.value!
+      }).mockResolvedValueOnce(null)
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[3]![0].title).toBe('Install bundle')
+      expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: 'Discover plugins', question: 'example' })
+      expect(promptBrowserState(h.prompt.mock.calls[4]![0])).toMatchObject({ query: 'plugin', selected: JSON.stringify(['https://market.test/index.json', entry.name]) })
+      expect(h.search).toHaveBeenCalledTimes(1)
+      expect(h.manager.installBundle).not.toHaveBeenCalled()
+      expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('allows a new search from empty results and keeps its text on cancellation', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }], entries: [] })
+    for (const answer of ['discover', 'missing', 'search:', null, 'search:', 'example', null]) h.prompt.mockResolvedValueOnce(answer)
+    h.search.mockResolvedValueOnce({ url: 'https://market.test/index.json', title: { en: 'Test market' }, metadata: {}, fetchedAt: 1, entries: [], total: 0, nextOffset: null })
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[2]![0]).toMatchObject({ emptyText: 'No matching plugins.', actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'search:', scope: 'list' })]) })
+      expect(h.prompt.mock.calls[3]![0].initialInput).toBe('missing')
+      expect(h.prompt.mock.calls[4]![0].question).toBe('missing')
+      expect(h.search).toHaveBeenLastCalledWith('https://market.test/index.json', expect.objectContaining({ text: 'example' }))
+      expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('retains the previous search results after a failed refresh and retries in place', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }] })
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example')
+      .mockImplementationOnce(async () => { h.search.mockRejectedValueOnce(new Error('Index unavailable')); return 'refresh:' })
+      .mockResolvedValueOnce('refresh:')
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ question: 'example', detail: 'Index unavailable', options: expect.arrayContaining([expect.objectContaining({ label: entry.name })]) })
+      expect(h.prompt.mock.calls[4]![0].detail).toBe('')
+      expect(h.search).toHaveBeenCalledTimes(3)
+      expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('keeps incompatible plugin feedback with the results', async () => {
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }], entries: [{ ...entry,
+      versions: [{ ...entry.versions[0], compatibility: { compatible: false, requirements: { dsh: '99.0.0' } } }] }] })
+    h.prompt.mockResolvedValueOnce('discover').mockResolvedValueOnce('example')
+      .mockResolvedValueOnce(JSON.stringify(['https://market.test/index.json', entry.name]))
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Discover plugins', question: 'example', detail: expect.stringContaining('requires dsh 99.0.0') })
+      expect(h.manager.inspect).not.toHaveBeenCalled()
+      expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+})
+
+it('reads and copies full diagnostics for a required plugin, then returns to its list', async () => {
+  const h = await harness(['entries', row.entryId, 'copy', null, null, null])
+  const diagnostic = 'Startup failed\n' + 'long error detail\n'.repeat(80)
+  h.manager.listPlugins.mockResolvedValue([{ ...row, moduleName: '@agi-fans/dsh-tui', diagnostic,
+    meta: { description: { en: 'English introduction', 'zh-CN': '中文介绍' } } }])
+  const copyText = vi.fn(async () => {})
+  Object.assign(h.ctx.tui, { copyText, prefs: () => ({ uiLanguage: 'zh-CN' }) })
+  try {
+    await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+    const detail = h.prompt.mock.calls[2]![0]
+    expect(detail.presentation).toBe('document')
+    expect(detail.documentSource?.text).toContain(diagnostic)
+    expect(detail.documentSource?.text).toContain('中文介绍')
+    expect(detail.documentSource?.text).toContain('终端运行所必需')
+    expect(detail.options?.map(option => option.value)).toEqual(['back', 'copy'])
+    expect(copyText).toHaveBeenCalledWith(detail.documentSource?.text, '插件条目')
+    expect(h.prompt.mock.calls[4]![0].title).toBe('Plugin entries')
+    expect(h.manager.setPluginEnabled).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('returns from a declined toggle to the plugin detail and rechecks stale enablement', async () => {
+  const h = await harness(['entries', row.entryId, 'toggle', null, 'toggle', 'accept', null, null])
+  h.manager.listPlugins.mockResolvedValueOnce([row]).mockResolvedValue([{ ...row, enabled: false }])
+  try {
+    await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+    expect(h.prompt.mock.calls[4]![0].presentation).toBe('document')
+    expect(h.manager.setPluginEnabled).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+
+it('returns through configuration and bundle parents with their filters intact', async () => {
+  const bundle = '@deepseek-ai/dsh-subagent-codex'
+  const h = await harness([], { writable: true, describe: () => [{ ns: 'custom', revision: 1,
+    schema: z.object({ value: z.string() }).toJSON(), value: {}, base: {}, user: {} }] })
+  h.manager.listBundles.mockResolvedValue([{ name: bundle, official: true, availability: 'installation', installed: false,
+    enabled: false, optional: false, removable: false, rows: [], overrides: [] }] as never)
+  h.prompt.mockResolvedValueOnce('configure').mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'custom', selected: 'advanced:custom' })
+    return 'advanced:custom'
+  }).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce('bundles')
+    .mockImplementationOnce(async request => {
+      Object.assign(promptBrowserState(request)!, { query: 'codex', selected: bundle })
+      return bundle
+    }).mockResolvedValueOnce('settings').mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+  try {
+    expect((await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal))?.result.kind).toBe('success')
+    expect(h.prompt.mock.calls[3]![0].title).toBe('Plugin settings')
+    expect(promptBrowserState(h.prompt.mock.calls[3]![0])).toMatchObject({ query: 'custom', selected: 'advanced:custom' })
+    expect(h.prompt.mock.calls[8]![0]).toMatchObject({ title: bundle, initialValue: 'settings' })
+    expect(h.prompt.mock.calls[9]![0].title).toBe('Bundles')
+    expect(promptBrowserState(h.prompt.mock.calls[9]![0])).toMatchObject({ query: 'codex', selected: bundle })
+    expect(h.prompt.mock.calls[10]![0].title).toBe('Plugins')
+  } finally { await h.ctx.fiber.dispose() }
+})
+
+it('shows a compact installation result and opens copyable full logs on demand', async () => {
+  const h = await harness(['install', 'demo', 'accept', null, 'result:', 'copy', 'back', null])
+  const copyText = vi.fn(async () => {})
+  const log = 'installation output\n' + 'log detail\n'.repeat(80)
+  const result = { ...changed, stage: 'install', application: 'failed', packageResult: { output: log, logPath: '/tmp/install.log' } } as ChangeResult
+  h.manager.installBundle.mockResolvedValue(result)
+  Object.assign(h.ctx.tui, { copyText })
+  try {
+    await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+    expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: 'Plugins', detail: expect.stringContaining('failed'), actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'result:' })]) })
+    expect(h.prompt.mock.calls[4]![0].detail).not.toContain(log)
+    expect(h.prompt.mock.calls[5]![0]).toMatchObject({ presentation: 'document', documentSource: { text: expect.stringContaining(log) } })
+    expect(copyText).toHaveBeenCalledWith(plugins.changeText(result), result.target)
+    expect(h.prompt.mock.calls[7]![0].title).toBe('Plugins')
+    expect(h.commandOutput).not.toHaveBeenCalled()
+  } finally { await h.ctx.fiber.dispose() }
 })

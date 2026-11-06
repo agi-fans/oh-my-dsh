@@ -234,10 +234,10 @@ describe('plugin configuration', () => {
     try {
       const operation = config.editSettingsEntry(h.ctx, 'integration:codex', closing.signal)
       await vi.waitFor(() => { expect(h.prompt).toHaveBeenCalledTimes(2) })
-      // Status prints into the transcript, so nothing waits to be dismissed —
-      // and a cancellation still stops it before it reads again.
-      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('Profile: enabled'))
-      expect(h.commandOutput).toHaveBeenCalledWith('Codex · Status', expect.stringContaining('authentication: not tested'))
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ presentation: 'document', title: 'Codex · Installation status' })
+      expect(h.prompt.mock.calls[1]![0].detail).toContain('| Profile | Enabled |')
+      expect(h.prompt.mock.calls[1]![0].detail).toContain('Not checked. Runtime startup and sign-in')
+      expect(h.commandOutput).not.toHaveBeenCalled()
       expect(h.prompt).toHaveBeenCalledTimes(2)
       closing.abort()
       await operation
@@ -245,6 +245,52 @@ describe('plugin configuration', () => {
       expect(setBundleEnabled).not.toHaveBeenCalled()
       expect(h.set).not.toHaveBeenCalled()
     } finally { closing.abort(); await h.ctx.fiber.dispose() }
+  })
+
+  it('refreshes status, retains a failed refresh snapshot and copies the visible document', async () => {
+    const h = await harness([])
+    const bundle = { name: '@deepseek-ai/dsh-subagent-codex', availability: 'installation', enabled: true, version: '1.0', rows: [] }
+    const listBundles = vi.fn().mockResolvedValueOnce([bundle]).mockRejectedValueOnce(new Error('temporarily unavailable'))
+      .mockResolvedValueOnce([{ ...bundle, enabled: false }]).mockResolvedValueOnce([])
+    const listPlugins = vi.fn(async () => [])
+    const copyText = vi.fn(async () => {})
+    h.ctx.provide('pluginManager', { listBundles, listPlugins } as never)
+    Object.assign(h.ctx.tui, { copyText })
+    h.prompt.mockImplementationOnce(async request => {
+      request.onDocumentPosition?.({ row: 4, wrap: 0, query: 'Profile' })
+      return 'refresh'
+    }).mockResolvedValueOnce('copy').mockResolvedValueOnce('refresh').mockResolvedValueOnce('refresh').mockResolvedValueOnce(null)
+    try {
+      await config.showIntegrationStatus(h.ctx, bundle.name, new AbortController().signal)
+      const stale = h.prompt.mock.calls[1]![0]
+      expect(stale.detail).toContain('Showing the last loaded state')
+      expect(stale.detail).toContain('| Profile | Enabled |')
+      expect(stale.documentPosition).toEqual({ row: 4, wrap: 0, query: 'Profile' })
+      expect(copyText).toHaveBeenCalledWith(stale.detail, 'Codex · Installation status')
+      expect(h.prompt.mock.calls[3]![0].detail).toContain('| Profile | Disabled |')
+      expect(h.prompt.mock.calls[3]![0].detail).not.toContain('Could not refresh')
+      expect(h.prompt.mock.calls[4]![0].detail).toBe('This integration is no longer registered in this profile.')
+      expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('offers retry after an initial status failure and returns from usage notes to the selected action', async () => {
+    const h = await harness(['refresh', null])
+    const bundle = { name: '@deepseek-ai/dsh-subagent-codex', availability: 'installation', enabled: true, rows: [] }
+    const listBundles = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue([bundle])
+    h.ctx.provide('pluginManager', { listBundles, listPlugins: async () => [] } as never)
+    try {
+      await config.showIntegrationStatus(h.ctx, bundle.name, new AbortController().signal)
+      expect(h.prompt.mock.calls[0]![0].detail).toContain('Could not load installation status')
+      expect(h.prompt.mock.calls[1]![0].detail).toContain('| Profile | Enabled |')
+      h.prompt.mockClear().mockResolvedValueOnce('guide').mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+      await config.editSettingsEntry(h.ctx, 'integration:codex', new AbortController().signal)
+      expect(h.prompt.mock.calls[0]![0].detail).toContain('Bundled runtime')
+      expect(h.prompt.mock.calls[0]![0].detail).not.toContain('scrubbed')
+      expect(h.prompt.mock.calls[1]![0]).toMatchObject({ presentation: 'document', title: 'Codex · Usage notes' })
+      expect(h.prompt.mock.calls[1]![0].detail).toContain('scrubbed')
+      expect(h.prompt.mock.calls[2]![0].initialValue).toBe('guide')
+    } finally { await h.ctx.fiber.dispose() }
   })
 
   it('directs missing native packages to Plugins without enabling or installing them', async () => {

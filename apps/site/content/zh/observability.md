@@ -1,5 +1,5 @@
 ---
-description: "检查 omdsh 正在做什么：/trajectory 事件账本、基于 projection 的 /context 用量、/session 详情，以及 /diff 工作区摘要。"
+description: "检查 omdsh 正在做什么：/trajectory 事件账本、/context 用量与会话详情，以及 /diff 工作区摘要。"
 ---
 
 # 可观测性
@@ -21,13 +21,13 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 匹配会扫描整个账本，因此折叠的回合和隐藏的子工具调用同样会被计入。`/trajectory` 需要交互式终端。
 
-## 上下文：`/context` 与状态栏
+## 上下文与会话概览
 
-`/context` 会在转录中打印基于 projection 的上下文用量分解。它读取与状态栏相同的、客户端可见的 Harness projection，并区分 provider 记账的占用与启发式的提示组成。状态栏的 `Ctx` 组以百分比加已用/窗口 Token 数显示压力，压力升高时会转为警告色与错误色。可配置的状态项见[调整工作环境](tutorials/environment.md)。
+`/context` 打开实时面板，展示预计占用、剩余容量、分类估算和会话活动。宽终端采用紧凑占用网格，窄终端采用横条。分类采用启发式估算，与校准后的总占用独立计数；缺少的测量值会标为暂无数据。
 
-## 会话详情：`/session`
+按 Tab 和 Enter 或点击操作按钮，可打开详情、复制会话 ID，或调用已挂载的 `/compact` 命令。详情包含模型、推理强度、工作流、权限、队列数量、累计提供商用量和最近的 token 采样。面板支持滚轮阅读、搜索和文字选择。选中文字时暂停刷新，Esc 恢复对话位置和草稿。非交互模式输出完整文本报告。
 
-`/session` 在转录中报告活动会话的详细信息，包括其身份与当前配置。需要精确的会话 id 用于 `omdsh --resume` 时可以查看它。
+底部状态栏的 `Ctx` 显示占用百分比、已用量和窗口容量，压力升高时使用警告或错误颜色。可配置的状态项见[调整工作环境](tutorials/environment.md)。
 
 ## 工作区差异：`/diff`
 
@@ -41,7 +41,7 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 ## 工具与集成：`/tools` 与 `/mcp`
 
-`/tools` 按注册表暴露的方式分组在阅读器中列出 agent 可见的工具，按 Esc 关闭。`/mcp` 也在自己的阅读器中按 MCP 服务器分组显示已连接的工具。两者都不占转录的行，因此 MCP 重连导致工具列表变化后，重新打开即可看到最新结果。超过上下文预算的工具结果会溢写到私有文件，转录中只保留有界预览；原始内容仍可用 `read` 或 `grep` 读取。
+`/tools` 打开可搜索的目录并预览说明，Enter 阅读完整说明，Esc 返回列表。`/mcp` 按服务器提供工具数量与最近调用入口，同时提供可搜索的工具目录和排版后的诊断页面。这些视图展示已暴露的工具和已记录的结果，当前发布的 Harness API 尚未提供实时连接与认证状态。目录变化后可重新打开 `/tools` 或刷新 `/mcp`。超过上下文预算的工具结果会溢写到私有文件，转录中保留有界预览，原始内容仍可用 `read` 或 `grep` 读取。
 
 ## Herdr 面板集成
 
@@ -49,6 +49,6 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 ## 相关
 
-- [命令](commands.md) —— `/trajectory`、`/context`、`/session`、`/diff` 及其余命令目录
+- [命令](commands.md) —— `/trajectory`、`/context`、`/diff` 及其余命令目录
 - [键盘与快捷键](keyboard.md) —— 账本与浮层按键
 - [性能](performance.md) —— 长会话下转录与账本保持快速的方式

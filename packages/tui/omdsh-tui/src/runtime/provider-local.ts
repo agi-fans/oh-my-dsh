@@ -1,3 +1,7 @@
+import { renderContextOverview } from '../views/context-overview.ts'
+import { contextOverviewDetails } from '../session/context-diagnostics.ts'
+import { browseTools } from './tool-reader.ts'
+import { promptBrowserState, type PromptBrowserState } from './prompt-browser.ts'
 import { browseHelp } from './help-reader.ts'
 import { readReference } from './reference-reader.ts'
 import { FileBrowser } from './file-browser.ts'
@@ -338,6 +342,7 @@ export interface TerminalLike {
 
 type PendingPrompt = PromptSelectorState & {
   sourceRequest: TuiPrompt
+  browserState?: PromptBrowserState
   resolve: (answer: string | null) => void
   offAbort?: () => void
   offTick?: () => void
@@ -680,6 +685,10 @@ export class LocalTui implements TuiService {
    */
   #subagentSelection: number | undefined
   #inspected: TuiInspectedSubagent | undefined
+  #promptActions: NonNullable<Frame['promptActions']> = []
+  #promptActionPress: (NonNullable<Frame['promptActions']>[number] & { selectedValue: string | undefined }) | undefined
+  #promptChoices: NonNullable<Frame['promptChoices']> = []
+  #promptChoicePress: { value: string; row: number; dragged: boolean } | undefined
   #promptDocument: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition } | undefined
   /**
    * 24-bit switch for the current color preference, re-derived whenever that
@@ -1388,8 +1397,25 @@ export class LocalTui implements TuiService {
     this.#state = { ...this.#state, blocks: next }
   }
 
+  openContext(request: Parameters<NonNullable<TuiService['openContext']>>[0]): Promise<string | null> {
+    let snapshot = request.read()
+    return this.#promptWithDocument({
+      localize: ['title', 'options'], title: 'Context', question: '',
+      detail: contextOverviewDetails(snapshot), presentation: 'document', allowCustom: false, notify: false,
+      options: [{ label: 'Details', value: 'details' }, { label: 'Copy session ID', value: 'copy' },
+        ...(request.canCompact ? [{ label: 'Compact', value: 'compact' }] : [])],
+      refreshDocument: () => { snapshot = request.read(); return contextOverviewDetails(snapshot) },
+      signal: request.signal, onSuperseded: request.onSuperseded,
+    }, (theme, width) => renderContextOverview(snapshot, theme, width))
+  }
+
   prompt(request: TuiPrompt): Promise<string | null> {
+    return this.#promptWithDocument(request)
+  }
+
+  #promptWithDocument(request: TuiPrompt, renderDocument?: PromptSelectorState['renderDocument']): Promise<string | null> {
     const sourceRequest = request
+    const browserState = promptBrowserState(request)
     request = localizePrompt(request, resolveUiLanguage(this.#uiLanguage))
     // Background approvals take the terminal from a user-opened file reader.
     if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal) this.#fileReviewAbort.abort()
@@ -1410,18 +1436,22 @@ export class LocalTui implements TuiService {
     }
     if (this.#tty && request.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
     this.#selection.clear()
+    this.#promptActionPress = undefined
+    this.#promptChoicePress = undefined
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
     this.#jumpPress = undefined
     this.#wheelGesture = IDLE_WHEEL
     const savedInput = this.#editor.snapshot()
-    this.#editor.setText(request.allowCustom === false || request.filterable === true || (request.options?.length && request.initialInput === undefined) ? '' : request.initialInput ?? '')
+    this.#editor.setText(request.filterable === true ? browserState?.query ?? ''
+      : request.allowCustom === false || (request.options?.length && request.initialInput === undefined) ? '' : request.initialInput ?? '')
     this.#ac = null
     const displaced = this.#displaceSurface()
     return new Promise((resolve) => {
-      const selected = Math.max(0, filteredPromptOptions(request, '').findIndex(option =>
-        (option.value ?? option.label) === request.initialValue) ?? 0)
-      const pending: PendingPrompt = { sourceRequest, request, selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
+      const selected = Math.max(0, filteredPromptOptions(request, this.#editor.text).findIndex(option =>
+        (option.value ?? option.label) === (browserState?.selected ?? request.initialValue)))
+      const pending: PendingPrompt = { sourceRequest, request, ...(renderDocument === undefined ? {} : { renderDocument }), selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
+        ...(browserState === undefined ? {} : { browserState }),
         ...(request.armMs !== undefined && request.armMs > 0 ? { armedUntil: Date.now() + request.armMs } : {}),
         ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query,
           documentWordWrap: request.documentPosition.wordWrap, documentColumn: request.documentPosition.column }),
@@ -1442,7 +1472,7 @@ export class LocalTui implements TuiService {
       }
       if (this.#tty && (request.refreshDocument !== undefined || request.refreshDocumentSource !== undefined || request.refreshOptions !== undefined)) {
         const tick = setInterval(() => {
-          if (this.#disposed || this.#prompt === null) return
+          if (this.#disposed || this.#prompt === null || this.#selection.active) return
           try {
             const detail = request.refreshDocument?.()
             const source = request.refreshDocumentSource?.(this.#prompt.documentScroll === Number.POSITIVE_INFINITY)
@@ -2311,6 +2341,8 @@ export class LocalTui implements TuiService {
     this.#focusBlock = undefined
     this.#focusBlockEdge = undefined
     this.#focusBlockOffset = undefined
+    this.#promptActions = frame.promptActions ?? []
+    this.#promptChoices = frame.promptChoices ?? []
     this.#promptDocument = frame.promptDocument
     if (this.#prompt !== null && this.#prompt.documentScroll !== Number.POSITIVE_INFINITY && frame.promptDocument?.position !== undefined) {
       this.#prompt = { ...this.#prompt, documentAnchor: frame.promptDocument.position }
@@ -2318,7 +2350,7 @@ export class LocalTui implements TuiService {
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
-    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
       && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
@@ -2739,6 +2771,61 @@ export class LocalTui implements TuiService {
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
     if (this.#trajectory !== null || this.#fileBrowser !== null) { this.#handleTrajectoryMouse(event); return }
+    const promptAction = this.#promptActions.find(action => event.row === action.row && event.column >= action.column && event.column < action.column + action.width)
+    if (this.#promptActionPress !== undefined) {
+      const pressed = this.#promptActionPress
+      if (event.action === 'release') {
+        this.#promptActionPress = undefined
+        this.#promptChoicePress = undefined
+        if (event.button === 'left' && !event.shift && promptAction?.index === pressed.index && promptAction.key === pressed.key
+          && promptAction.row === pressed.row && promptAction.column === pressed.column && this.#prompt !== null) {
+          if (pressed.key === undefined) {
+            this.#prompt = { ...this.#prompt, selected: pressed.index, documentInput: undefined }
+            this.#handlePlanReview({ type: 'key', id: 'enter' }, this.#prompt)
+          } else if (pressed.selectedValue === (filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed)[this.#prompt.selected]?.value
+            ?? filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed)[this.#prompt.selected]?.label)) {
+            this.#handlePrompt({ type: 'key', id: pressed.key })
+          }
+        }
+      } else if (event.action === 'drag' && (promptAction?.index !== pressed.index || promptAction.key !== pressed.key
+        || promptAction.row !== pressed.row || promptAction.column !== pressed.column || event.shift)) {
+        this.#promptActionPress = { ...pressed, index: -2 }
+      }
+      return
+    }
+    if (event.button === 'left' && event.action === 'press' && !event.shift && promptAction !== undefined) {
+      this.#selection.clear()
+      const selected = this.#prompt === null ? undefined : filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed)[this.#prompt.selected]
+      this.#promptActionPress = { ...promptAction, selectedValue: selected?.value ?? selected?.label }
+      return
+    }
+    if (this.#promptChoices.length > 0 && event.button === 'left') {
+      const choice = this.#promptChoices.find(item => item.row === event.row && event.column >= item.column && event.column < item.column + item.width)
+      if (event.action === 'press') {
+        const prompt = this.#prompt
+        if (prompt?.request.wait !== undefined && prompt.waitHeld !== true) {
+          prompt.request.wait.hold()
+          prompt.offTick?.()
+          this.#prompt = { ...prompt, waitHeld: true }
+        }
+        this.#promptChoicePress = choice === undefined ? undefined : { value: choice.value, row: choice.row, dragged: event.shift }
+        this.#selection.begin(this.#renderer.viewport(), event, Date.now(), event.shift)
+      } else if (event.action === 'drag') {
+        if (this.#promptChoicePress !== undefined) this.#promptChoicePress.dragged = true
+        this.#selection.move(event)
+      } else {
+        const pressed = this.#promptChoicePress
+        this.#promptChoicePress = undefined
+        const text = this.#selection.release(event)
+        if (text !== undefined) { if (this.#copyOnSelect) void this.#copySelection() }
+        else if (pressed !== undefined && !pressed.dragged && !event.shift && choice?.value === pressed.value && choice.row === pressed.row && this.#prompt !== null) {
+          this.#prompt = { ...this.#prompt, selected: choice.index, previewScroll: 0 }
+          if (this.#prompt.request.multiSelect === true && filteredPromptOptions(this.#prompt.request, this.#editor.text)[choice.index]?.disabled !== true) this.#prompt = togglePromptSelection(this.#prompt, this.#editor.text) as PendingPrompt
+        }
+      }
+      this.#render()
+      return
+    }
     const pressedAction = this.#mouseActionPress
     if (pressedAction !== undefined) {
       const target = this.#mouseActionAt(event.row, event.column)
@@ -3001,6 +3088,8 @@ export class LocalTui implements TuiService {
       this.#handleMouse(event)
       return
     }
+    this.#promptActionPress = undefined
+    this.#promptChoicePress = undefined
     this.#jumpPress = undefined
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
@@ -3030,7 +3119,16 @@ export class LocalTui implements TuiService {
         const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1, !this.#wheelAccelerates)
         this.#wheelGesture = step.gesture
         if (step.lines !== 0) {
-          if (this.#documentMouseEnabled()) this.#scrollPromptDocument(this.#promptDocument!.start + step.lines)
+          if (this.#prompt !== null && this.#prompt.request.presentation !== 'document' && this.#prompt.request.presentation !== 'plan-review') {
+            if (this.#prompt.request.wait !== undefined && this.#prompt.waitHeld !== true) {
+              this.#prompt.request.wait.hold()
+              this.#prompt.offTick?.()
+              this.#prompt = { ...this.#prompt, waitHeld: true }
+            }
+            const count = filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed).length
+            this.#prompt = movePromptSelection(this.#prompt, Math.max(0, Math.min(count - 1, this.#prompt.selected + step.lines)), count) as PendingPrompt
+            this.#render()
+          } else if (this.#documentMouseEnabled()) this.#scrollPromptDocument(this.#promptDocument!.start + step.lines)
           else this.#scrollBy(step.lines)
         }
       }
@@ -3308,13 +3406,10 @@ export class LocalTui implements TuiService {
     const filtered = filteredPromptOptions(prompt.request, this.#editor.text, prompt.collapsed)
     const count = filtered.length
     const keyAction = prompt.request.actions?.find(item => item.key.toLowerCase() === event.id.toLowerCase())
-    if (keyAction !== undefined && (keyAction.scope === 'list'
-      || prompt.request.presentation === 'tree'
-      || prompt.request.presentation === 'card')) {
+    if (keyAction !== undefined && (keyAction.scope === 'list' || filtered[prompt.selected] !== undefined)) {
       if (!disarmed) {
         const selected = filtered[prompt.selected]
         if (keyAction.scope === 'list' || selected !== undefined) {
-          this.#editor.setText('')
           this.#finishPrompt(keyAction.valuePrefix + (keyAction.scope === 'list' ? '' : selected!.value ?? selected!.label))
           this.#render()
         }
@@ -3401,7 +3496,6 @@ export class LocalTui implements TuiService {
       // A heading under a filter is still a heading: clearing the query and
       // closing on it would lose both the list and the filter.
       if (answer === null) return true
-      this.#editor.setText('')
       this.#finishPrompt(answer)
       this.#render()
       return true
@@ -3521,7 +3615,11 @@ export class LocalTui implements TuiService {
    * something up in it.
    */
   #handleRenderedDocument(event: KeyEvent, prompt: PendingPrompt): boolean {
-    const rows = (): string[] => documentRows(prompt.request, createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks), Math.max(1, this.#term.width() - 6))
+    const rows = (): string[] => {
+      const theme = createTheme(this.#colors, this.#colorDepth, this.#themeName, this.#terminalColors, resolveUiLanguage(this.#uiLanguage), this.#compactLinks)
+      const width = Math.max(1, this.#term.width() - 6)
+      return prompt.renderDocument?.(theme, width) ?? documentRows(prompt.request, theme, width)
+    }
     // Always build on the newest state: typing updates the query while the find
     // is open, and jumping from a stale copy would drop it again.
     const jumpTo = (row: number): void => {
@@ -4509,7 +4607,14 @@ export class LocalTui implements TuiService {
   #finishPrompt(answer: string | null): void {
     const pending = this.#prompt
     if (pending === null) return
+    if (pending.browserState !== undefined) {
+      const selected = filteredPromptOptions(pending.request, this.#editor.text, pending.collapsed)[pending.selected]
+      pending.browserState.query = this.#editor.text
+      if (selected !== undefined) pending.browserState.selected = selected.value ?? selected.label
+    }
     this.#prompt = null
+    this.#promptActionPress = undefined
+    this.#promptChoicePress = undefined
     this.#selection.clear()
     this.#wheelGesture = IDLE_WHEEL
     if (pending.request.notify !== false) {
@@ -4758,14 +4863,21 @@ export class LocalTui implements TuiService {
     } finally { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined }
   }
 
-  /**
-   * Tools are reference, like the command list: a table of names and
-   * descriptions the reader consults and dismisses, not a step of the work.
-   */
+  /** Open the searchable catalog, retaining plain output for line mode. */
   #runTools(): void {
-    // The first row of a command result is its heading, so a table needs one.
-    const heading = `Tools · ${this.#tools.length} active`
-    this.commandOutput('tools', `${heading}\n\n${formatToolsText(this.#tools)}`, { focus: true })
+    if (!this.#tty) {
+      this.commandOutput('tools', `Tools · ${this.#tools.length} active\n\n${formatToolsText(this.#tools)}`)
+      return
+    }
+    if (this.#fileReviewAbort !== undefined || this.#prompt !== null) return
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    void browseTools({
+      prompt: request => this.prompt({ ...request, signal: abort.signal, onSuperseded: () => { abort.abort() } }),
+      copyText: (text, label) => this.copyText(text, label),
+    }, this.#tools, resolveUiLanguage(this.#uiLanguage), abort.signal)
+      .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.notice(String(error), { level: 'error' }) })
+      .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
   }
 
   /** Resolve a configured action for one key id, tolerating camelCase ids. */

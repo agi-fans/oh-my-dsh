@@ -35,7 +35,7 @@ The exhaustive lists live in [Commands](commands.md) and [Keyboard and keys](key
 | Choose Agent preset | `/agent` |
 | Enter or leave Plan mode | `/plan` / `/plan off` |
 | Choose session Access | `/permission` |
-| Inspect session statistics | `/session` |
+| Inspect session statistics | `/context` |
 | Inspect the session event trajectory | `/trajectory` |
 | Inspect available tools | `/tools` |
 | Work toward a long-running goal | `/goal <objective>` |

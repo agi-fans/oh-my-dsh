@@ -1,3 +1,4 @@
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
@@ -47,20 +48,20 @@ describe('/mcp diagnostics', () => {
     try {
       await h.execute()
       expect(h.prompt.mock.calls[0]![0].options).toContainEqual(expect.objectContaining({ label: 'mcp-failed', description: 'failed' }))
-      expect(h.prompt.mock.calls[1]![0].documentSource?.text).toContain('Server executable could not start')
-      expect(h.prompt.mock.calls[3]![0].documentSource?.text).toContain('Search documents')
+      expect(h.prompt.mock.calls[1]![0].detail).toContain('Server executable could not start')
+      expect(h.prompt.mock.calls[3]![0].options).toContainEqual(expect.objectContaining({ label: 'mcp__docs__search', preview: 'Search documents' }))
       expect(h.listPlugins).toHaveBeenCalledTimes(2)
     } finally { await h.ctx.fiber.dispose() }
   })
 
   it('translates diagnostic chrome while retaining tool and server content', async () => {
     const h = await fixture(true, 'zh-CN')
-    h.prompt.mockResolvedValueOnce('tools').mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    h.prompt.mockResolvedValueOnce('server:docs').mockResolvedValueOnce(null).mockResolvedValueOnce(null)
     try {
       await h.execute()
       expect(h.prompt.mock.calls[0]![0].title).toBe('MCP 诊断')
       expect(h.prompt.mock.calls[0]![0].options).toContainEqual(expect.objectContaining({ label: 'mcp-failed', description: '失败' }))
-      const text = h.prompt.mock.calls[1]![0].documentSource?.text
+      const text = h.prompt.mock.calls[1]![0].detail
       expect(text).toContain('MCP 工具 · 服务器：1 · 工具：1')
       expect(text).toContain('| 工具 | 说明 |')
       expect(text).toContain('Search documents')
@@ -110,4 +111,17 @@ it('correlates native and PTC MCP results without treating missing results as su
     { id: 'a', name: 'mcp__docs__read', seq: 1, outcome: 'Returned an error', detail: 'Permission denied by server' },
   ])
   expect(command.recentMcpCalls(JSON.parse(JSON.stringify(events)))).toEqual(command.recentMcpCalls(events))
+})
+
+it('keeps the MCP filter and server selection after reading details and refreshing', async () => {
+  const h = await fixture()
+  h.prompt.mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'docs', selected: 'server:docs' })
+    return 'server:docs'
+  }).mockResolvedValueOnce(null).mockResolvedValueOnce('refresh')
+  try {
+    await h.execute()
+    for (const index of [2, 3]) expect(promptBrowserState(h.prompt.mock.calls[index]![0])).toMatchObject({ query: 'docs', selected: 'server:docs' })
+    expect(h.prompt.mock.calls[1]![0].presentation).toBe('document')
+  } finally { await h.ctx.fiber.dispose() }
 })

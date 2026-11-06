@@ -143,6 +143,23 @@ if (!cleanOutput(out.slice(featureMark)).includes('[File:')) {
 term.write('\x03')
 await sleep(100)
 let mark = out.length
+term.write('/plugins\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Configure plugins'), 'plugin configuration entry', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+mark = out.length
+term.write('\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose a plugin to configure'), 'plugin configuration with injected Settings', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Manage this profile'), 'return from plugin configuration', deadline))) {
+  console.error(cleanOutput(out).slice(-2000)); term.kill(); process.exit(1)
+}
+term.write('\x1b[27u')
+await sleep(100)
+mark = out.length
 term.write('/settings\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('General'), 'settings sections', deadline))) {
   term.kill()
@@ -239,15 +256,18 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Enable integrat
   process.exit(1)
 }
 mark = out.length
-term.write('\x1b[F\r')
-// The status is a transcript result now: it does not cover the settings surface,
-// so the reading happens after leaving rather than on a page of its own.
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Installation status'), 'native status selected', deadline))) {
-  term.kill()
-  process.exit(1)
+term.write('\x1b[B\r')
+if (!(await waitFor(() => {
+  const status = cleanOutput(out.slice(mark))
+  return status.includes('Included with omdsh') && status.includes('Disabled') && status.includes('Copy details')
+}, 'structured native installation status', deadline))) {
+  console.error(cleanOutput(out).slice(-2500)); term.kill(); process.exit(1)
 }
-// Nothing covers the settings surface any more, so Escape closes it and the
-// report reads where it was printed.
+mark = out.length
+term.write('\x1b[27u')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Bundled runtime') && cleanOutput(out.slice(mark)).includes('❯ Installation status'), 'return to the selected installation status action', deadline))) {
+  console.error(cleanOutput(out).slice(-2500)); term.kill(); process.exit(1)
+}
 let settingsClosed = false
 for (let attempt = 0; attempt < 5 && !settingsClosed; attempt += 1) {
   mark = out.length
@@ -256,12 +276,6 @@ for (let attempt = 0; attempt < 5 && !settingsClosed; attempt += 1) {
   settingsClosed = cleanOutput(out.slice(mark)).includes('Ask anything')
 }
 if (!settingsClosed) {
-  console.error(cleanOutput(out).slice(-2500))
-  term.kill()
-  process.exit(1)
-}
-if (!cleanOutput(out).includes('Package: available') || !cleanOutput(out).includes('Profile: disabled')) {
-  console.error('FAIL: the native status result never reached the transcript')
   console.error(cleanOutput(out).slice(-2500))
   term.kill()
   process.exit(1)
@@ -310,7 +324,7 @@ if (!minimalCatalog.includes('bash') || !minimalCatalog.includes('str_replace_ed
   term.kill()
   process.exit(1)
 }
-// The catalog is a reader now: leaving it returns to the composer, and Ctrl+O on
+// Closing the tool catalog returns to the composer, and Ctrl+O on
 // a blank transcript has no turn group to inspect. scripts/pty-inspect-smoke.mjs
 // covers the positive path, where a settled tool call gives the frame something
 // to open.
@@ -319,19 +333,22 @@ await sleep(100)
 mark = out.length
 term.write('\x0f')
 await sleep(200)
-if (out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
+if (cleanOutput(out.slice(mark)).includes('Process ·')
   || cleanOutput(out.slice(mark)).includes('Jump to latest message')) {
   console.error('FAIL: Ctrl+O entered inspection with nothing to inspect')
+  console.error(cleanOutput(out.slice(mark)).slice(-2500))
   term.kill()
   process.exit(1)
 }
 term.write('\x1b[5~')
 mark = out.length
-term.write('/session\r')
-if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Session Details'), 'plugin command result after scrolling back', deadline))) {
+term.write('/context\r')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('This session'), 'context overview after scrolling back', deadline))) {
   term.kill()
   process.exit(1)
 }
+term.write('\x1b')
+await sleep(200)
 mark = out.length
 term.write('/agent\r')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Choose the Agent composition for this blank session'), 'Minimal Agent selector', deadline))) {
@@ -469,7 +486,7 @@ await sleep(100)
 mark = out.length
 term.write('\x0f')
 await sleep(200)
-if (out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h')) {
+if (cleanOutput(out.slice(mark)).includes('Process ·')) {
   console.error('FAIL: Ctrl+O opened an empty transcript after the historical fork')
   term.kill()
   process.exit(1)

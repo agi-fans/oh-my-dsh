@@ -47,7 +47,7 @@ Git capture covers tracked and nonignored untracked files in the active director
 
 ## Session Library
 
-`/resume` opens the Session Library: `p` pins or unpins a session, `r` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search; letter actions require an empty search. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/resume <query>`; resuming does not automatically restore it to the default list.
+`/resume` opens the Session Library: `Alt+P` pins or unpins a session, `Alt+R` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search. Rename and pin shortcuts work while searching. Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/resume <query>`; resuming does not automatically restore it to the default list.
 
 Pins, archive state, and tree labels are stored in `$OMDSH_HOME/omdsh/session-library.json`. Session titles remain in the Harness session logs. These paths fall back to `$DSH_HOME` and then `~/.dsh`.
 

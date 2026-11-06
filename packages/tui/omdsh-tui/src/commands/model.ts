@@ -1,6 +1,7 @@
 /** Model/provider selection command registered through dsh-commands. */
 
 import { homedir } from 'node:os'
+import { createPromptBrowser } from '../runtime/prompt-browser.ts'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
@@ -187,10 +188,11 @@ async function cycleReasoning(ctx: Context, invocation: CommandInvocation): Prom
   return { kind: 'success', text: `Reasoning effort: ${String(next.id)}` }
 }
 
-function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'favorite' | 'unfavorite' | 'favorites'): CommandResult {
+async function manageFavorite(ctx: Context, invocation: CommandInvocation, action: 'favorite' | 'unfavorite' | 'favorites'): Promise<CommandResult> {
   const path = favoritesPath()
   const favorites = readModelFavorites(path)
   if (action === 'favorites') {
+    if (ctx.tui.interactive !== false) return openModelPicker(ctx, invocation, false, undefined, true)
     if (favorites.length === 0) return { kind: 'success', text: 'No favorite models. Use `/model favorite` to add the current model.' }
     return { kind: 'success', text: favorites.map((entry, index) => `${index + 1}. ${entry.provider}/${entry.model}${entry.reasoningEffort === undefined ? '' : ` (${entry.reasoningEffort})`}`).join('\n') }
   }
@@ -243,7 +245,7 @@ function catalogOptions(
       value: id,
       ...(entry.description === '' ? {} : { description: entry.description }),
       ...(isCurrent
-        ? { badge: { label: 'current', tone: 'success' as const } }
+        ? { badge: { label: isFavorite ? 'current · favorite' : 'current', tone: 'success' as const } }
         : isFavorite ? { badge: { label: 'favorite', tone: 'muted' as const } } : {}),
     }
   })
@@ -328,7 +330,7 @@ async function selectModel(ctx: Context, invocation: CommandInvocation): Promise
 }
 
 /** Shared picker retains favorites, reasoning defaults and session/default scope. */
-export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'signal'>, sessionOnly = false, providerId?: string): Promise<CommandResult> {
+export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'signal'>, sessionOnly = false, providerId?: string, favoritesOnly = false): Promise<CommandResult> {
   const catalog = await loadCatalog(ctx, providerId)
   if (catalog.length === 0) return { kind: 'error', text: 'No model providers are registered.' }
   const current = ctx.omdshSession.selection(invocation.agent)
@@ -341,30 +343,48 @@ export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvo
    * make first: it is one column of the model they already have in mind, so it
    * becomes part of the row and part of the search text.
    */
-  const favorites = readModelFavorites(favoritesPath())
-  const picked = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'],
-    presentation: 'card',
-    filterable: true,
-    allowCustom: false,
-    notify: false,
-    title: providerId === 'deepseek-account' ? 'Account models' : sessionOnly ? 'Model · this session' : 'Model',
-    question: providerId === undefined ? 'Type to search every provider, then Enter to switch' : 'Choose an account model',
-    options: catalogOptions(catalog, current, favorites),
-    ...(current.provider === '' || current.model === '' ? {} : { initialValue: `${current.provider}/${current.model}` }),
-    // Enter applies the scope the reader already asked for. The action is the
-    // other scope, so "just this once" no longer requires knowing the model id
-    // before opening the list.
-    ...(sessionOnly
-      ? {}
-      : { actions: [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }] }),
-    signal: invocation.signal,
-  })
-  if (picked === null) return { kind: 'success' }
-  const scoped = picked.startsWith(SESSION_SCOPE)
-  const chosen = scoped ? picked.slice(SESSION_SCOPE.length) : picked
+  let selected = `${current.provider}/${current.model}`
+  let chosen = '', useSession = sessionOnly
+  const prompt = createPromptBrowser(request => ctx.tui.prompt(request))
+  while (!invocation.signal.aborted) {
+    const favorites = readModelFavorites(favoritesPath())
+    const available = favoritesOnly ? catalog.filter(entry => favorites.some(favorite => favorite.provider === entry.provider && favorite.model === entry.model)) : catalog
+    const picked = await prompt({ localize: ['title', 'question', 'actions'],
+      presentation: 'card', filterable: true, allowCustom: false, notify: false,
+      title: favoritesOnly ? 'Favorite models' : providerId === 'deepseek-account' ? 'Account models' : 'Model',
+      question: sessionOnly ? 'Enter switches this session only' : 'Enter switches and saves the default model',
+      emptyText: 'No matching models. Alt+A switches between all models and favorites.',
+      options: catalogOptions(available, current, favorites), initialValue: selected,
+      actions: [
+        ...(sessionOnly ? [] : [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }]),
+        { key: 'alt+f', label: 'Favorite/unfavorite', valuePrefix: '\u0000favorite:' },
+        { key: 'alt+a', label: favoritesOnly ? 'All models' : 'Favorites', valuePrefix: '\u0000view', scope: 'list' },
+      ], signal: invocation.signal,
+    }, 'models')
+    if (picked === null || invocation.signal.aborted) return { kind: 'success' }
+    if (picked === '\u0000view') { favoritesOnly = !favoritesOnly; continue }
+    if (picked.startsWith('\u0000favorite:')) {
+      selected = picked.slice('\u0000favorite:'.length)
+      const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === selected)
+      if (entry === undefined) continue
+      const selection = { provider: entry.provider, model: entry.model }
+      if (favorites.some(favorite => sameModel(favorite, selection))) writeModelFavorites(favoritesPath(), removeModelFavorite(favorites, selection))
+      else {
+        const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
+        invocation.signal.throwIfAborted()
+        const effort = sameModel(selection, current) ? current.reasoningEffort : defaultEffort(info)
+        writeModelFavorites(favoritesPath(), addModelFavorite(favorites, { ...selection, ...(effort === undefined ? {} : { reasoningEffort: String(effort) }) }))
+      }
+      continue
+    }
+    const scoped = picked.startsWith(SESSION_SCOPE)
+    chosen = scoped ? picked.slice(SESSION_SCOPE.length) : picked
+    useSession = sessionOnly || scoped
+    break
+  }
+  invocation.signal.throwIfAborted()
   const entry = catalog.find(candidate => `${candidate.provider}/${candidate.model}` === chosen)
   if (entry === undefined) return { kind: 'error', text: `Unknown model: ${chosen}` }
-  const useSession = sessionOnly || scoped
   const info = await ctx.llm.resolveModelInfo(entry.provider, entry.model, invocation.signal)
   const reasoningEffort = defaultEffort(info)
   const selection: ModelSelection = {

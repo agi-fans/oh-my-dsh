@@ -133,6 +133,8 @@ export interface Frame {
   /** Clipped transcript window; omitted when the view has no body budget. */
   transcript?: TranscriptScroll
   /** Full-screen prompt review document scroll state, when one is active. */
+  promptActions?: readonly { row: number; column: number; width: number; index: number; key?: string }[]
+  promptChoices?: readonly { row: number; column: number; width: number; value: string; index: number }[]
   promptDocument?: { start: number; maxStart: number; pageSize: number; position?: import('../definition.ts').TuiDocumentPosition }
   /** First line that is still live/mutable for main-screen scrollback; rows before this are committed. */
   liveStart?: number

@@ -1,5 +1,5 @@
 ---
-description: "Inspect what omdsh is doing: the /trajectory event ledger, projection-backed /context usage, /session details, and the /diff workspace summary."
+description: "Inspect what omdsh is doing: the /trajectory event ledger, /context usage and session details, and the /diff workspace summary."
 ---
 
 # Observability
@@ -21,13 +21,13 @@ From there you can:
 
 Matching scans the full ledger, so collapsed turns and hidden subtool calls still count. `/trajectory` needs an interactive TTY.
 
-## Context: `/context` and the status line
+## Context and session overview
 
-`/context` prints an inline, projection-backed context breakdown that stays in the transcript. It reads the same client-visible Harness projections as the status footer and separates provider-anchored occupancy from the heuristic prompt composition. The footer's `Ctx` group shows pressure as a percentage with used and window token counts and turns to warning and error colors as pressure rises. See [Tune the working environment](tutorials/environment.md) for the configurable status items.
+`/context` opens a live panel with projected occupancy, remaining capacity, estimated composition, and session activity. Wide terminals show a compact occupancy grid; narrow terminals show a bar. The categories use heuristic estimates, independently of the calibrated occupancy total. Missing measurements are labelled unavailable.
 
-## Session details: `/session`
+Use Tab and Enter or click an action to open Details, copy the session ID, or invoke the available `/compact` command. Details contains model, reasoning, workflow, access, queue counts, cumulative provider usage, and the latest token samples. The panel supports wheel scrolling, search, and text selection. Updates pause during text selection, and Esc restores the conversation position and draft. Non-interactive output includes the complete text report.
 
-`/session` reports the active session's details in the transcript, including its identity and current configuration. Use it when you need the exact session id for `omdsh --resume`.
+The footer's `Ctx` group shows pressure as a percentage with used and window token counts and turns to warning and error colors as pressure rises. See [Tune the working environment](tutorials/environment.md) for the configurable status items.
 
 ## Workspace diff: `/diff`
 
@@ -41,7 +41,7 @@ Every completed turn ends with a record of the files that turn changed, with the
 
 ## Tools and integrations: `/tools` and `/mcp`
 
-`/tools` lists the tools visible to the agent, grouped the way the registry exposes them, in a reader you close with `Esc`. `/mcp` groups connected tools by their MCP server in its own reader. Neither is a transcript row, so reopen it after a tool list changes following an MCP reconnect. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
+`/tools` opens a searchable catalog with a description preview. Enter opens the complete description, and Esc returns to the list. `/mcp` offers server entries with tool counts and recent calls, a searchable tool catalog, and rendered diagnostic pages. These views reflect exposed tools and recorded outcomes. Live connection and authentication status are unavailable in the published Harness API. Reopen `/tools` or refresh `/mcp` after a catalog change. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
 
 ## Herdr pane integration
 
@@ -49,6 +49,6 @@ Inside a Herdr pane, omdsh registers as a first-class agent: the sidebar follows
 
 ## Related
 
-- [Commands](commands.md) — `/trajectory`, `/context`, `/session`, `/diff`, and the rest of the catalog
+- [Commands](commands.md) — `/trajectory`, `/context`, `/diff`, and the rest of the catalog
 - [Keyboard and keys](keyboard.md) — ledger and overlay keys
 - [Performance](performance.md) — how the transcript and ledger stay fast on long sessions

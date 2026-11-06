@@ -18,8 +18,10 @@ import { WEB_SETTINGS_FIELDS, openWebSettings, webSettingsEntry } from './web-se
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-permission-presets'
-import type { TuiService } from '../definition.ts'
-import { externalAgentDiagnostic, externalAgentGuide } from '../session/external-agents.ts'
+import type { TuiDocumentPosition, TuiService } from '../definition.ts'
+import { externalAgentDiagnostic, externalAgentGuide, externalAgentSummary } from '../session/external-agents.ts'
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
+import { readReference } from './reference-reader.ts'
 import { preferencePaths } from './settings-preferences.ts'
 import { resolveStatusBarConfig } from '../chrome/status-config.ts'
 
@@ -94,15 +96,43 @@ export async function showSettingsError(tui: Pick<TuiService, 'notice' | 'prompt
     ...(signal === undefined ? {} : { signal }) })
 }
 
-/** Diagnostics are a result: they go to the transcript, folded when long. */
+/** Inspect registration in place and retain the last complete snapshot on refresh failure. */
 export async function showIntegrationStatus(ctx: Context, bundle: string, signal: AbortSignal): Promise<void> {
   const manager = ctx.get('pluginManager')
   if (manager === undefined || signal.aborted) return
-  const row = (await manager.listBundles()).find(row => row.name === bundle)
-  const text = row === undefined ? 'This integration is no longer registered in this profile.'
-    : externalAgentDiagnostic(row, await manager.listPlugins())
-  if (signal.aborted) return
-  ctx.tui.commandOutput(`${NATIVE_INTEGRATIONS.find(item => item.bundle === bundle)?.label ?? bundle} · Status`, text)
+  const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
+  const t = (text: string) => uiText(language, text)
+  const title = `${NATIVE_INTEGRATIONS.find(item => item.bundle === bundle)?.label ?? bundle} · ${t('Installation status')}`
+  let text = '', error = '', position: TuiDocumentPosition | undefined
+  const refresh = async (): Promise<void> => {
+    try {
+      const [bundles, plugins] = await Promise.all([manager.listBundles(), manager.listPlugins()])
+      if (signal.aborted) return
+      const row = bundles.find(row => row.name === bundle)
+      text = row === undefined ? t('This integration is no longer registered in this profile.') : externalAgentDiagnostic(row, plugins, language)
+      error = ''
+    } catch {
+      error = t(text === '' ? 'Could not load installation status. Use Refresh to try again.'
+        : 'Could not refresh installation status. Showing the last loaded state.')
+    }
+  }
+  await refresh()
+  if (ctx.tui.interactive === false) {
+    if (!signal.aborted) ctx.tui.commandOutput(title, [error, text].filter(Boolean).join('\n\n'))
+    return
+  }
+  while (!signal.aborted) {
+    const detail = [error, text].filter(Boolean).join('\n\n')
+    const action = await ctx.tui.prompt({ title, question: '', detail, localize: ['options'],
+      presentation: 'document', allowCustom: false, notify: false, signal,
+      ...(position === undefined ? {} : { documentPosition: position }),
+      onDocumentPosition: value => { position = value },
+      options: [{ label: 'Back', value: 'back' }, { label: 'Refresh', value: 'refresh' },
+        ...(ctx.tui.copyText === undefined ? [] : [{ label: 'Copy details', value: 'copy' }])] })
+    if (signal.aborted || action === null || action === 'back') return
+    if (action === 'refresh') await refresh()
+    if (action === 'copy') await ctx.tui.copyText?.(detail, title)
+  }
 }
 
 export interface ConfigField {
@@ -280,23 +310,30 @@ export async function editSettingsEntry(ctx: Context, id: string, signal: AbortS
   if (native !== undefined) {
     const manager = ctx.get('pluginManager')
     if (manager === undefined) return
+    let selected: string | undefined
+    let outcome = ''
     while (!signal.aborted) {
       const row = (await manager.listBundles()).find(row => row.name === native.bundle)
       if (row === undefined || row.availability === 'missing') { await showSettingsError(ctx.tui, `${native.label} is unavailable. Open /plugins → Bundles to install or repair its package.`, signal); return }
       const ns = row.rows.find(item => item.moduleName === row.name)?.rowId
       const configurable = ns !== undefined && ctx.get('settings')?.describe({ redactSecrets: true }).some(section => section.ns === ns)
-      const action = await ctx.tui.prompt({ ...list, title: native.label, question: row.enabled ? 'Enabled' : 'Disabled',
-        detail: [row.error === undefined ? undefined : `Load error: ${row.error.diagnostic ?? row.error.code}`, externalAgentGuide(row.name)].filter(Boolean).join('\n\n'), options: [{ label: row.enabled ? 'Disable integration' : 'Enable integration', value: 'toggle' },
-          ...(configurable ? [{ label: 'Model', value: 'field:model' }, { label: 'Permissions', value: 'field:permissionMode' }] : []), ...(configurable ? [{ label: 'Restore inherited model or permissions…', value: 'restore' }] : []), { label: 'Installation status', value: 'check' }], notify: false, signal })
+      const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
+      const action = await ctx.tui.prompt({ localize: true, allowCustom: false, title: native.label, question: row.enabled ? 'Enabled' : 'Disabled',
+        ...(selected === undefined ? {} : { initialValue: selected }),
+        detail: [outcome, row.error === undefined ? undefined : uiText(language, 'Load error. Open Installation status for details.'), externalAgentSummary(row.name, language)].filter(Boolean).join('\n\n'), options: [{ label: row.enabled ? 'Disable integration' : 'Enable integration', value: 'toggle' },
+          ...(configurable ? [{ label: 'Model', value: 'field:model' }, { label: 'Permissions', value: 'field:permissionMode' }] : []), ...(configurable ? [{ label: 'Restore inherited model or permissions…', value: 'restore' }] : []), { label: 'Installation status', value: 'check' }, { label: 'Usage notes', value: 'guide' }], notify: false, signal })
       if (action === null || signal.aborted) return
+      selected = action
       if (action === 'toggle') {
         const result = await manager.setBundleEnabled(row.name, !row.enabled)
+        outcome = `${native.label}: ${result.application}.`
         if (result.error !== undefined || result.application === 'failed') await showSettingsError(ctx.tui, result.error?.diagnostic ?? result.error?.code ?? 'Could not change integration.', signal)
-        else ctx.tui.notice(`${native.label}: ${result.application}${result.enabled === undefined ? '' : result.enabled ? ' · enabled' : ' · disabled'}.`)
+        else outcome = `${native.label}: ${result.application}${result.enabled === undefined ? '' : result.enabled ? ' · enabled' : ' · disabled'}.`
       }
       if (action.startsWith('field:') && configurable && ns !== undefined) await editPluginSettings(ctx, ns, signal, [action.slice(6)], { label: native.label, fields: { model: 'Model', permissionMode: 'Permissions' } })
       if (action === 'restore' && configurable && ns !== undefined) await editPluginSettings(ctx, ns, signal, ['model', 'permissionMode'], { label: native.label, fields: { model: 'Model', permissionMode: 'Permissions' } }, true)
       if (action === 'check') await showIntegrationStatus(ctx, row.name, signal)
+      if (action === 'guide') await readReference(ctx.tui, `${native.label} · ${uiText(language, 'Usage notes')}`, externalAgentGuide(row.name)!, signal)
     }
     return
   }

@@ -3,6 +3,7 @@
  * content query searches every durable session, and an explicit id resumes it.
  * The retired `/sessions` entry point must not reappear.
  */
+import { promptBrowserState } from '../runtime/prompt-browser.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -267,14 +268,13 @@ it('returns immediately after resuming a hit selected from library search', asyn
   expect(h.resumeSession).toHaveBeenCalledTimes(1)
 })
 
-it('keeps an empty-search notice visible until acknowledged and returns to the library', async () => {
+it('keeps empty-search feedback in the library', async () => {
   isolatedLibrary()
   const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [] })
   h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce(null)
   await h.execute('/resume')
-  // The result is output, not a surface: it goes to the transcript and the
-  // library comes straight back.
-  expect(h.output).toHaveBeenCalledWith('Session search', expect.stringContaining('No sessions match'))
+  expect(h.prompt.mock.calls[2]![0].detail).toContain('No sessions match')
+  expect(h.output).not.toHaveBeenCalled()
   expect(h.prompt.mock.calls[2]![0].title).toBe('Session Library')
   expect(h.resumeSession).not.toHaveBeenCalled()
 })
@@ -308,4 +308,18 @@ describe('continuation and explicit retry commands', () => {
     h.retryLastPrompt.mockResolvedValueOnce(false)
     expect((await h.execute('/retry'))?.result).toMatchObject({ text: 'No human prompt is available to retry.' })
   })
+})
+
+it('keeps separate library filters through pinning, archived view and content search', async () => {
+  isolatedLibrary()
+  const h = await harness({ libraryRows: [{ id: 'session-a', title: 'Parser', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
+  h.prompt.mockImplementationOnce(async request => {
+    Object.assign(promptBrowserState(request)!, { query: 'Parser', selected: 'session-a' })
+    return 'pin:session-a'
+  }).mockResolvedValueOnce('view:').mockResolvedValueOnce('view:').mockResolvedValueOnce('search:')
+    .mockResolvedValueOnce('needle').mockResolvedValueOnce('library:').mockResolvedValueOnce(null)
+  await h.execute('/resume')
+  for (const index of [1, 3, 6]) expect(promptBrowserState(h.prompt.mock.calls[index]![0])).toMatchObject({ query: 'Parser', selected: 'session-a' })
+  for (const index of [2, 5]) expect(promptBrowserState(h.prompt.mock.calls[index]![0])?.query).toBe('')
+  expect(h.resumeSession).not.toHaveBeenCalled()
 })

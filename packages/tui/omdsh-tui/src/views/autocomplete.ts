@@ -72,7 +72,7 @@ export const COMMAND_GROUPS: readonly { label: string; names: readonly string[] 
   { label: 'Files and output', names: ['diff', 'attach', 'copy', 'export'] },
   { label: 'Tasks', names: ['queue', 'btw', 'questions', 'jobs', 'goal', 'compact', 'schedule'] },
   { label: 'Settings and integrations', names: ['settings', 'mcp', 'plugins'] },
-  { label: 'Diagnostics', names: ['session', 'context', 'trajectory', 'tools', 'changelog'] },
+  { label: 'Diagnostics', names: ['context', 'trajectory', 'tools', 'changelog'] },
   { label: 'Application', names: ['help', 'quit'] },
 ]
 export const COMMON_COMMANDS = ['model', 'plan', 'permission', 'resume', 'diff', 'settings', 'new', 'help']

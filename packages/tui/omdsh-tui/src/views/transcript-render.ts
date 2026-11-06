@@ -2498,7 +2498,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  if (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document') {
+  if (options.promptSelector?.renderDocument === undefined && (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document')) {
     const review = options.promptSelector.request.documentImage === undefined ? renderPlanReviewPage(
       options.promptSelector,
       theme,
@@ -2516,6 +2516,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       // A full-screen surface drew no transcript body.
       documentRows: null,
       ...(review.document === undefined ? {} : { promptDocument: review.document }),
+      ...(review.actions === undefined ? {} : { promptActions: review.actions }),
     }
   }
   const welcome = renderWelcome({
@@ -2650,7 +2651,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       appName,
     )
   let promptVisibleRows = Math.max(3, Math.min(10, height - working.length - 14))
-  let promptSelector = treeRows ?? (options.promptSelector === undefined
+  const documentPanel = options.promptSelector?.renderDocument === undefined ? undefined : renderPlanReviewPage(
+    options.promptSelector, theme, width,
+    Math.max(10, Math.min(height - working.length - 4, options.promptSelector.renderDocument(theme, Math.max(1, width - 6)).length + 8)),
+    options.input, options.inputCursor, appName,
+  )
+  let promptSelector = documentPanel ?? treeRows ?? (options.promptSelector === undefined
     ? undefined
     : renderPromptSelector(
       options.promptSelector,
@@ -2662,7 +2668,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ))
   // Details and live notices consume rows too. Window choices before they push
   // the navigation hints and fixed footer outside a short terminal.
-  while (treeRows === undefined && options.promptSelector?.request.allowCustom === false
+  while (documentPanel === undefined && treeRows === undefined && options.promptSelector?.request.allowCustom === false
     && promptSelector !== undefined && promptSelector.lines.length > height - working.length - 3 && promptVisibleRows > 3) {
     promptSelector = renderPromptSelector(options.promptSelector, theme, width, options.input, options.inputCursor, --promptVisibleRows)
   }
@@ -2875,6 +2881,8 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // the advertised Ctrl+↑↓ had nothing to move, because the card path never
     // reported them.
     ...(promptSelector?.document === undefined ? {} : { promptDocument: promptSelector.document }),
+    ...(promptSelector?.choices === undefined ? {} : { promptChoices: promptSelector.choices.map(choice => ({ ...choice, row: choice.row + editorStart + topPad })) }),
+    ...(promptSelector?.actions === undefined ? {} : { promptActions: promptSelector.actions.map(action => ({ ...action, row: action.row + editorStart + topPad })) }),
     documentRows: bodySource,
     cursor: {
       row: editorStart + caret.row + topPad,

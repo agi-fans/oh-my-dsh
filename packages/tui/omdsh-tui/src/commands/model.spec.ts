@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -10,7 +10,7 @@ import * as commandModel from './model.ts'
 import { resolveModelQuery } from './model.ts'
 import type { TuiService } from '../definition.ts'
 import type { SessionRuntime } from '../session/session-controller.ts'
-import { writeModelFavorites } from '../session/model-favorites.ts'
+import { readModelFavorites, writeModelFavorites } from '../session/model-favorites.ts'
 
 describe('model command', () => {
   it('asks for a model in one searchable list instead of provider then model', async () => {
@@ -329,6 +329,31 @@ describe('model query command', () => {
     return { result, selection, prompt, dispose: async () => { await ctx.fiber.dispose() } }
   }
 
+  it('toggles favorites in the picker and switches from the favorites list', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'omdsh-model-picker-'))
+    vi.stubEnv('OMDSH_HOME', home)
+    try {
+      const prompt = vi.fn().mockResolvedValueOnce('\u0000favorite:mock-provider/mirror-pro')
+        .mockResolvedValueOnce('\u0000view').mockResolvedValueOnce('\u0000session:mock-provider/mirror-pro')
+      const env = await queryEnv('/model', prompt)
+      try {
+        expect(readModelFavorites(join(home, 'omdsh', 'model-favorites.json'))).toEqual([{ provider: 'mock-provider', model: 'mirror-pro' }])
+        expect(prompt.mock.calls[2]![0].options).toHaveLength(1)
+        expect(env.selection.mock.calls[0]![3]).toEqual({ persist: false })
+      } finally { await env.dispose() }
+      const favorites = await queryEnv('/model favorites', vi.fn().mockResolvedValueOnce('mock-provider/mirror-pro'))
+      try {
+        expect(favorites.prompt.mock.calls[0]![0].options).toEqual([expect.objectContaining({ label: 'mock-provider/mirror-pro' })])
+        expect(favorites.selection).toHaveBeenCalledTimes(1)
+      } finally { await favorites.dispose() }
+      const remove = await queryEnv('/model favorites', vi.fn().mockResolvedValueOnce('\u0000favorite:mock-provider/mirror-pro').mockResolvedValueOnce(null))
+      try {
+        expect(readModelFavorites(join(home, 'omdsh', 'model-favorites.json'))).toEqual([])
+        expect(remove.selection).not.toHaveBeenCalled()
+      } finally { await remove.dispose() }
+    } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+  })
+
   it('switches a unique match and persists the default', async () => {
     const env = await queryEnv('/model mirror-pro')
     expect(env.selection).toHaveBeenCalledTimes(1)
@@ -370,7 +395,7 @@ describe('model query command', () => {
     expect(prompt.mock.calls[0]?.[0]).toMatchObject({
       presentation: 'card',
       filterable: true,
-      title: 'Model · this session',
+      question: 'Enter switches this session only',
     })
     // Cancelling the list is not an error.
     expect(env.result?.result).toMatchObject({ kind: 'success' })

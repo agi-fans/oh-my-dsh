@@ -506,6 +506,13 @@ export interface TuiFileReview {
 export interface TuiService {
   /** True when the provider owns a keyboard-driven terminal viewport. */
   readonly interactive?: boolean
+  /** Inspect live context and session projections in a bounded reading panel. */
+  openContext?(request: {
+    read(): import('./session/context-diagnostics.ts').ContextOverview
+    canCompact: boolean
+    signal: AbortSignal
+    onSuperseded(): void
+  }): Promise<string | null>
   /** Effective directory supplied by the viewed Session's Harness projection. */
   setWorkingDirectory?(cwd: string): void
   /** Hand the terminal to the configured editor, then restore the live viewport. */

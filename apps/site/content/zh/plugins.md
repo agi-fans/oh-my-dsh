@@ -103,13 +103,15 @@ Codex 与 Claude Code 子代理 bundle 随 omdsh 默认安装，初始关闭。B
 
 Profile 自行安装的 bundle 提供 Uninstall，确认后卸载插件并移除该 Profile 的软件包，影响使用此 Profile 的全部会话；保留原生 Codex／Claude 登录与用户设置。没有对应 Profile 依赖的条目提供 Remove from profile，仅移除启用选择。随 omdsh 安装的软件包不能单独卸载，可在集成设置中通过 Disable integration 关闭，并随 omdsh 更新。
 
-Integration settings 中的 Installation status 报告包是否可用、Profile 是否启用及实际挂载条目的状态；缺失的软件包也在 Bundles 中提供 Check profile status，不验证原生运行时启动或认证。Provider 有可编辑的 Settings 配置段后，Model and Permissions 会在共用的版本检查产品表单中打开这两个字段；未指定 model 时沿用原生设置。孩子的权限独立于父级 Access。显式 `env` 覆盖写在 Provider 的 Profile 补丁中；凭证类环境变量会被清除，因此不能假定父级 API key 自动继承。这些集成执行独立的纯文本任务，最终结果返回父会话，不提供追问或本地子转录。见[子智能体](subagents.md)。
+Integration settings 中的 Installation status 打开结构化阅读页，展示包是否可用、Profile 是否启用及组件加载状态。Refresh 重新读取注册信息，Copy details 复制当前报告，Back 返回原先选中的操作。集成菜单展示简短摘要，完整说明放在 Usage notes 中；缺失的软件包也在 Bundles 中提供 Check profile status，不验证原生运行时启动或认证。Provider 有可编辑的 Settings 配置段后，Model and Permissions 会在共用的版本检查产品表单中打开这两个字段；未指定 model 时沿用原生设置。孩子的权限独立于父级 Access。显式 `env` 覆盖写在 Provider 的 Profile 补丁中；凭证类环境变量会被清除，因此不能假定父级 API key 自动继承。这些集成执行独立的纯文本任务，最终结果返回父会话，不提供追问或本地子转录。见[子智能体](subagents.md)。
 
 HMR 会监视 Profile 和主目录的 `cordis.patch.yml`。新 bundle 与配置修改可以实时应用；替换已安装包的代码仍需重启。CLI 包操作后仍应重启；运行中选择器会明确报告修改是已应用、被覆盖、失败还是需要重启。源码监视默认关闭（`hmr.config.root: []`），可通过 Profile 补丁指定源码目录。
 
 Cordis 增加已发布的 Harness 组合与插件开发 Skills、运行时只读查询工具及 `plugin_manager`。该工具保留上游的完整宿主访问或逐次审批要求，构建脚本另需显式授权。`/agent inspect [preset-id]` 查看当前声明及此会话保留的实际模块组成，包含激活失败和隔离错误。已有会话不会静默切换到新声明的 preset revision。
 
 ## 用户流程
+
+插件配置与插件包页面逐级返回，并保留上一级列表的筛选词和选中项。操作结果显示在当前页面，Alt+D 打开完整诊断和安装日志供阅读、复制。Discover 在取消安装或选择不兼容条目后保留当前搜索；Alt+S 修改搜索词，Alt+R 刷新或重试。
 
 ```sh
 omdsh plugin add ./examples/hello
