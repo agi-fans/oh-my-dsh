@@ -1,6 +1,6 @@
 # 会话收尾与子 Agent
 
-状态：产品侧收尾和后台刷新修复已实现；按 omdsh `0.19.0` 核对。执行、持久事件、子 Agent 消息与取消语义由已发布的 Harness 包拥有，TUI 只维护展示投影。
+产品侧实现工具收尾、后台流式隔离与子会话检视。执行、持久事件、子 Agent 消息与取消语义由已发布的 Harness 包拥有，TUI 只维护展示投影。
 
 ## 工具预览与真实执行
 
@@ -20,7 +20,7 @@
 
 ## 子 Agent 展示与流式边界
 
-主界面子 Agent 列表只显示任务名称与 Starting、Running、Waiting、Done、Failed；Waiting 和 Done 不能合并。工具活动在子会话转录与打印的结果中查看，后台 thinking、正文和工具参数不能驱动主界面列表重绘。
+主界面子 Agent 列表只显示任务名称与 Starting、Running、Waiting、Ready、Done、Stopped、Failed；Ready 表示可继续的空闲子会话，Stopped 表示已中断；各状态分别保留。工具活动在子会话转录与打印的结果中查看，后台 thinking、正文和工具参数不能驱动主界面列表重绘。
 
 [session-controller](../../packages/tui/omdsh-tui/src/session/session-controller.ts)先校验并缓冲完整的流式增量，只向当前可见会话转发。打开 inspector 后，[live-attempt-tracker](../../packages/tui/omdsh-tui/src/session/live-attempt-tracker.ts)补回进行中前缀，再继续实时显示；关闭后停止转发后台增量。优化必须保留 attempt revision/index 连续性和最终内容，不能为减少重绘直接丢 chunk。
 
@@ -39,6 +39,8 @@
 修复前的 fake-terminal 单次合成负载中，3 个后台 Agent 的 120 个无可见变化 chunk 仍触发 120 次 render。10,000 个简单历史 block 且前部工具 pending 时，已安装版本阻塞约 2,237ms；无 pending 时约 108ms。该实验没有真实网络、工具或 TTY，临时 profile 与脚本未入库，不能当作当前版本基准。[修复记录](https://github.com/agi-fans/oh-my-dsh/blob/7c6dae0/docs/subagent-status-plan.md)另有确定性工作量回归和当时的 PTY 验证，不替代修复后的性能采样。
 
 进程内 spawn/fork 与 TUI 共享 JavaScript 事件循环；异步网络可以重叠，同步插件计算仍会阻塞输入和取消。fork 是会话 seed，不是操作系统 fork。Done 数量也不等于驻留 runtime 数量，不能据此推断泄漏。可选 ACP 通道提供进程隔离，但不能等价替代可继续对话的进程内子任务，配置边界见 [Harness 集成](../integrations/deepseek-harness.md)。
+
+当前回归基准及已落地的生命周期投影优化见[性能报告](../../apps/site/content/zh/performance.md)，上述调查数字保留其历史适用范围。
 
 ## 后续调查条件
 

@@ -4,7 +4,7 @@ description: "omdsh 的 Access preset、沙箱与审批行为、升级授权、s
 
 # 权限与 Access
 
-每个会话都以一个明确的 Access preset 开始。它决定模型运行所在的文件系统与 shell 沙箱，以及沙箱之外的操作是否需要你的审批。按会话用 `/permission` 选择；部署默认值来自 `OMDSH_PERMISSION_MODE`。
+每个会话都以一个明确的 Access preset 开始。它决定模型运行所在的文件系统与 shell 沙箱，以及沙箱之外的操作是否需要你的审批。通过 `/permission` 选择当前会话的权限，**Settings → General → Default access** 保存未来会话的默认偏好。恢复继承后使用部署默认值，可由 `OMDSH_PERMISSION_MODE` 指定。
 
 ## Preset
 
@@ -32,11 +32,11 @@ description: "omdsh 的 Access preset、沙箱与审批行为、升级授权、s
 
 ## Shell 限制
 
-每个宿主只挂载一套受限 shell——POSIX 上是 `bash`，Windows 上是 `pwsh`——每次调用带有固定的 120 秒超时。模型可以按调用提高限制，或改为在后台运行；之后 `/jobs` 会列出它。
+每个宿主挂载一套受限 Shell，POSIX 使用 Bash，Windows 使用 PowerShell。随包默认超时为 120 秒。**Settings → Plugins → Shell** 配置新命令的默认和最大超时、输出限制及关闭宽限时间。调用显式指定的超时受最大值约束，后台命令可通过 `/jobs` 查看。
 
 ## Plan 模式
 
-`/plan` 要求模型只检查、不改动，并提交一份可评审的计划。工具目录为请求缓存稳定性保持不变，plan 模式的规则会覆盖其中的改动类指引；只有在计划获批后才开始实现。
+`/plan` 指导模型检查并提交可评审的计划。Approve 退出 Plan 模式并继续执行，Keep planning 允许补充反馈。Access 继续负责执行权限边界，评审与取消行为见 [Plan 模式](commands.md#plan-模式)。
 
 ## 相关
 

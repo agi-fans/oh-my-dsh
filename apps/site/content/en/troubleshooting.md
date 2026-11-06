@@ -6,7 +6,7 @@ description: "Fix common omdsh issues: interrupt and exit behavior, resuming, De
 
 ## Interrupt and exit
 
-The first `Ctrl+C` clears the composer; while the composer is empty it interrupts the active turn instead, and the same is always available as `Esc`. A second `Ctrl+C` exits, and `Ctrl+D` exits directly. A durable session prints `omdsh --resume <session-id>` on exit so the conversation can be reopened in a new terminal.
+The first `Ctrl+C` clears the composer; while the composer is empty it interrupts the active turn instead, and the same is always available as `Esc`. A second `Ctrl+C` exits, and `Ctrl+D` exits when the composer is empty; otherwise it deletes forward. A durable session prints `omdsh --resume <session-id>` on exit so the conversation can be reopened in a new terminal.
 
 ## Find a session id again
 
@@ -18,7 +18,7 @@ Sessions first created with v0.5.0 through v0.11.0 may contain a private event t
 
 `/login` → **DeepSeek account** opens the platform authorization page with a loopback callback such as `http://127.0.0.1:<port>/oauth/callback`. After approval, the page should end at `.../dsh/authorized?login_source=web` and show “Authorization complete”. A page that opens DeepSeek Harness Desktop ends with `login_source=desktop` (or no `login_source`); it belongs to a Desktop-initiated attempt, not the TUI. Close that tab and start a fresh `/login` instead of reusing it.
 
-The browser may keep the tab open because it was opened from the terminal rather than by `window.open`; close it after the completion message and press Enter in the TUI. On a remote host, forward the displayed loopback port over SSH so the callback can reach the TUI. Once signed in, the shared account appears in both `/login` and `/logout`; signing out removes the local grant and revokes it in the background.
+The browser may keep the tab open because it was opened from the terminal rather than by `window.open`; close it after the completion message. Successful authorization returns the TUI to the account page automatically. On a remote host, forward the displayed loopback port over SSH so the callback can reach the TUI. Once signed in, the shared account appears in both `/login` and `/logout`; signing out removes the local grant and revokes it in the background.
 
 ## Logs
 
@@ -36,17 +36,17 @@ On terminals that implement the Kitty keyboard protocol, omdsh asks for unambigu
 
 ## Scrollback and multiplexers
 
-omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. It also keeps it when the transcript is replaced: `/clear`, a session switch, and `--resume` all append the new document below a labelled seam instead of erasing what is above, because that history holds the output your shell printed before omdsh started. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` resets the terminal display.
+omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. It also keeps it when the transcript is replaced: `/clear`, a session switch, and `--resume` all append the new document below a labelled seam instead of erasing what is above, because that history holds the output your shell printed before omdsh started. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` redraws the live display while preserving native scrollback.
 
 Rows that have scrolled into that history are snapshots of what was shown at the time, and nothing rewrites them. Scrolling up past a seam therefore shows calls that have since finished, or a run that has since folded, laid out as they were when the terminal received them. The seam is the only thing that marks the change, and the live view below it is the source of truth for the current transcript.
 
 ## Plugins fail at boot
 
-A version mismatch, a bundle without a `dsh.bundle.patch` declaration, or an unresolved package name fails at startup rather than degrading silently. `omdsh --dump-config` prints the composed tree with the layer that contributed each entry, and `omdsh plugin remove <package>` reverses an install. Two copies of Cordis or the Harness packages in one tree split service tokens and are the most common cause; see [User plugins](plugins.md).
+An incompatible bundle or unresolved package can prevent plugin loading. A plain library without a `dsh.bundle.patch` declaration installs with a warning and contributes no composition layer. `omdsh --dump-config` shows the composed tree and each entry’s source; `omdsh plugin remove <package>` removes a Profile installation. Check DSH compatibility and duplicate Cordis or Harness copies when services fail to resolve. See [User plugins](plugins.md).
 
 ## Updates and notifications
 
-The daily update check only reports a newer npm version; it never installs one. Post-upgrade release notes, the update check, and terminal notifications are configured in `/settings` → Interface. See [Settings](settings.md).
+The daily update check only reports a newer npm version; it never installs one. Post-upgrade release notes, the update check, and terminal notifications are configured in `/settings` → Terminal. See [Settings](settings.md).
 
 ## Piped input
 

@@ -36,8 +36,8 @@ The package needs three files: `package.json`, `cordis.patch.yml`, and `index.js
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5-alpha.1",
-    "@deepseek-ai/dsh-commands": "0.2.1-alpha.2"
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-commands": "0.2.2-rc.1"
   }
 }
 ```
@@ -116,3 +116,7 @@ A later version that gains `dsh.bundle.patch` joins the layer list on the next s
 - Git: install with `omdsh plugin add github:<owner>/greet-plugin`. A git-hosted package that builds in `prepare` may need an `allowBuilds` entry in `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml` if pnpm blocks the script.
 
 Import only published package exports, do not reach into `refs/`, and do not assume Host, HTTP, or a Web UI is mounted. [User plugins](../plugins.md) defines which surfaces a bundle can rely on.
+
+### Next
+
+For the next integration, use [User plugins](../plugins.md) for bundle compatibility and [Plugin internals](../plugin-internals.md) for the public terminal interfaces.

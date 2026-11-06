@@ -51,7 +51,7 @@ Git capture covers tracked and nonignored untracked files in the active director
 
 Pins, archive state, and tree labels are stored in `$OMDSH_HOME/omdsh/session-library.json`. Session titles remain in the Harness session logs. These paths fall back to `$DSH_HOME` and then `~/.dsh`.
 
-`/resume <query>` searches durable session content instead, through the session-query index — SQLite FTS5, built in memory on the first search of a run — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
+`/resume <query>` searches durable session content instead, through the session-query index — SQLite FTS5, persisted in `sessions-query.sqlite` and opened lazily on the first search — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
 
 ## Unsent drafts
 
@@ -97,3 +97,19 @@ The archive has a 64 MiB uncompressed limit, refuses an existing destination and
 - [User plugins](plugins.md) — the Profile directory and `omdsh plugin`
 
 File recovery snapshots and receipts are profile-local and are not included in portable archives.
+
+## Pending messages and recovery
+
+You do not need a special command to continue a running task. By default, Enter during `Deep Driving` places an ordinary message in the next-turn queue, shown immediately above the composer. Settings → Terminal → Input → Enter while running can change Enter to Steer. The composer shows the current action; explicit Queue and Steer shortcuts keep their meaning.
+
+With an empty composer, press `Alt+Up` to withdraw the latest queued message for editing, then `Enter` to submit it again. To edit an older entry, open `/queue` or press `Alt+Q` and select it. These actions keep the current tool call running.
+
+To correct the active task instead, type guidance and press `Alt+S`. The Harness receives it before the next model step; it does not interrupt the current tool call. **Steer · next step** remains visible until the message is claimed, while **Queue · next turn** waits for the current Turn to finish. Both delivery modes accept text, images and files, preserving image placement and file order. `Alt+Enter` always queues (Windows also uses `Ctrl+Q`), while `Alt+S` always steers. Delivery is fixed when submitted; changing the preference does not redirect pending messages. A rejected submission returns as an unsent draft without an automatic retry. If the turn ends while attachments are being saved, steering returns to the composer instead of silently starting a new turn. Idle Enter, commands and editing a recalled follow-up keep their existing behavior.
+
+Press Esc, or Ctrl+C with an empty composer, to interrupt the active turn. Accepted Queue and Steer messages retain their attachments while the session stays mounted; use `/queue` to edit or withdraw them. A second Ctrl+C within the exit window leaves omdsh, so pause before pressing it again if you intend to continue the session.
+
+Open `/queue` or press `Alt+Q` to manage individual pending messages. The live list distinguishes **Steer · next step**, **Queue · next turn**, and **Sending · not yet accepted**. The labels and controls follow the UI language; message text stays literal. Type to filter and use arrows or Tab to select; Enter edits text while keeping its images and file references. While a turn is running, `Alt+S` moves the selected accepted Queue message to Steer with the same text, image and file references. Sending entries and messages already in Steer cannot be promoted. A stopped turn leaves the message queued. `Alt+D` withdraws one entry, and `Alt+↑`/`Alt+↓` move it within its group without crossing plugin-owned queue messages. Esc cancels, preserving the composer draft and accepted input.
+
+The pinned Harness release clears pending inbox messages when its Agent handle is disposed. Normal exit and session-switch cleanup therefore do not preserve the queue for resume. An unclaimed inbox can be replayed from a log that has not been cleared, but this is not a guarantee of recovery after normal exit. Composer drafts and input not yet accepted by Harness are saved separately. On restart, local pending input appears as **Recovered · review before sending** and waits for confirmation. Open `/queue`, select an entry and press `Alt+R` to send it, or recall it into the composer to edit and submit. Entries already recorded as accepted are removed using their Harness message identities. A command or child delivery may have completed before its local confirmation was saved; check the transcript before resending recovered input. Recovery never automatically replays commands or Shell actions.
+
+A tool question takes priority over the queue page. If it interrupts editing, the changed text returns as an unsent composer draft while the queued entry stays unchanged. If the model takes an entry before its edit can be saved, the edit also returns as a draft instead of automatically creating another message. Steer and Queue changes use the Harness’s durable inbox. Input not yet accepted by Harness is saved locally in its original session, including text, attachments, order and delivery intent. If a session switch interrupts an edit, the changed text and attachments are saved as a draft in the original session. A brief composer confirmation appears when Harness takes a pending message for processing; this does not claim the model has answered it.

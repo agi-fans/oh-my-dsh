@@ -6,7 +6,7 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 
 ## 中断与退出
 
-第一次 `Ctrl+C` 清空 composer；composer 为空时改为中断活动回合，`Esc` 始终都能中断。第二次 `Ctrl+C` 退出，`Ctrl+D` 直接退出。持久会话退出时会打印 `omdsh --resume <session-id>`，方便在新终端里重新打开这段对话。
+第一次 `Ctrl+C` 清空 composer；composer 为空时改为中断活动回合，`Esc` 始终都能中断。第二次 `Ctrl+C` 退出，输入框为空时 `Ctrl+D` 退出，有文字时向前删除字符。持久会话退出时会打印 `omdsh --resume <session-id>`，方便在新终端里重新打开这段对话。
 
 ## 找回会话 id
 
@@ -18,7 +18,7 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 
 `/login` → **DeepSeek account** 会用 loopback 回调地址（例如 `http://127.0.0.1:<port>/oauth/callback`）打开平台授权页。授权完成后，页面应结束在 `.../dsh/authorized?login_source=web` 并显示“授权已完成”。如果页面拉起 DeepSeek Harness Desktop，它的地址会带 `login_source=desktop`（或没有 `login_source`），属于 Desktop 发起的授权，不是 TUI；关闭那个标签页，重新从 `/login` 获取新地址，不要复用旧标签页。
 
-由于标签页是从终端打开而不是由 `window.open` 打开，浏览器可能不会自动关闭它；看到完成提示后手动关闭，并在 TUI 中按回车。远程主机需要把 TUI 显示的 loopback 端口通过 SSH 转发到本机，回调才能到达 TUI。登录后共享账户会同时出现在 `/login` 与 `/logout`；登出会删除本地 grant，并在后台尝试撤销。
+由于标签页是从终端打开而不是由 `window.open` 打开，浏览器可能不会自动关闭它；看到完成提示后可手动关闭，授权成功后 TUI 自动返回账户页面。远程主机需要把 TUI 显示的 loopback 端口通过 SSH 转发到本机，回调才能到达 TUI。登录后共享账户会同时出现在 `/login` 与 `/logout`；登出会删除本地 grant，并在后台尝试撤销。
 
 ## 日志
 
@@ -36,17 +36,17 @@ description: "排查常见 omdsh 问题：中断与退出行为、恢复会话�
 
 ## 滚动回看与复用器
 
-普通更新期间 omdsh 保留终端原生滚动回看；只有真正的全屏浮层会借用备用屏幕。替换转录时同样保留：`/clear`、切换会话与 `--resume` 都会在带标签的接缝下方追加新文档，而不是清掉上面的内容——那段历史里还有 omdsh 启动前你 shell 打印的东西。在 tmux、screen 与 ConPTY 下，宿主滚动回看会被保留，resize 突发会先合并再重绘。附加或 resize 后如果显示看起来过期，用 `Alt+L` 重置终端显示。
+普通更新期间 omdsh 保留终端原生滚动回看；只有真正的全屏浮层会借用备用屏幕。替换转录时同样保留：`/clear`、切换会话与 `--resume` 都会在带标签的接缝下方追加新文档，而不是清掉上面的内容——那段历史里还有 omdsh 启动前你 shell 打印的东西。在 tmux、screen 与 ConPTY 下，宿主滚动回看会被保留，resize 突发会先合并再重绘。附加或 resize 后如果显示看起来过期，用 `Alt+L` 重绘实时视图，终端原生历史继续保留。
 
 已经滚进那段历史的行，是当时显示内容的快照，之后不会被改写。因此向上滚过接缝时，会看到已经结束的工具调用、或已经折叠成组头的工作段，仍按终端收到它们时的样子排列。接缝是唯一标记这次更替的地方，接缝之下的实时视图才是当前转录的准。
 
 ## 插件启动失败
 
-版本不匹配、bundle 缺少 `dsh.bundle.patch` 声明，或包名无法解析，都会在启动时直接失败，而不是静默降级。`omdsh --dump-config` 会打印组合树并标注每个条目来自哪一层，`omdsh plugin remove <package>` 可以撤销一次安装。同一棵树里出现两份 Cordis 或 Harness 包会分裂 service token，是最常见的原因；见[用户插件](plugins.md)。
+不兼容的 bundle 或无法解析的包可能阻止插件加载。没有声明 `dsh.bundle.patch` 的普通库安装时会收到警告，并且不贡献组合层。`omdsh --dump-config` 显示组合树及各条目的来源，`omdsh plugin remove <package>` 移除 Profile 安装。服务无法解析时，请检查 DSH 兼容性及是否存在重复的 Cordis 或 Harness 副本。见[用户插件](plugins.md)。
 
 ## 更新与通知
 
-每日更新检查只会提示存在新的 npm 版本，从不自动安装。升级后的版本说明、更新检查与终端通知都在 `/settings` → Interface 中配置。见[设置](settings.md)。
+每日更新检查只会提示存在新的 npm 版本，从不自动安装。升级后的版本说明、更新检查与终端通知都在 `/settings` → Terminal 中配置。见[设置](settings.md)。
 
 ## 管道输入
 

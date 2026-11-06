@@ -1,14 +1,14 @@
 # TUI 渲染与浏览约束
 
-状态：已实现；按 omdsh `0.19.0` 核对。用户键位见[键盘与快捷键](../../apps/site/content/zh/keyboard.md)，外观配置见[设置](../../apps/site/content/zh/settings.md)。Pi、Codex 和 oh-my-pi 提供交互研究依据，运行时与渲染实现均由 omdsh 自有包维护。
+当前实现采用逐项展开与回合收尾折叠。用户键位见[键盘与快捷键](../../apps/site/content/zh/keyboard.md)，外观配置见[设置](../../apps/site/content/zh/settings.md)。Pi、Codex 和 oh-my-pi 提供交互研究依据，运行时与渲染实现均由 omdsh 自有包维护。
 
 ## 回合与工具
 
-运行中的 turn 平铺显示思考正文、中途回复和工具预览。结束后把中间过程收为 `Worked for 16s` 这样的耗时摘要，保留完整最终答复；失败事实不能只藏在摘要内。回合分组是 block 列表的渲染投影，不增加新的 durable 事件或独立分组模型。
+运行中的 turn 将思考和工具调用显示为紧凑的可展开行，助手回复保持正文展示。结束后过程收为 `Worked for 16s` 一类耗时摘要，所有助手回复和失败事实继续显示。正在检视的项目保持展开，直到读者回到实时底部。回合分组由 block 列表投影，持久事实继续来自 Harness 事件。
 
 | 操作 | 行为 |
 | --- | --- |
-| `Ctrl+O` | 恢复当前阅读的已完成回合的过程预览；在检视中再次按下关闭检视并返回实时底部。运行中的回合已经平铺，不另切换形态 |
+| `Ctrl+O` | 浏览当前阅读的运行中或已完成回合，方向键选择，Enter 展开，Home 回到工具标题；再次按下或 Esc 结束检视 |
 | `Alt+O` | 切换当前阅读回合的完整工具输入和结果；若过程被折叠，同时打开过程。再次按下恢复工具预览，保留过程检视 |
 | `End`、跳转浮层或检视中滚动到底 | 返回最新内容，关闭回合检视并重置工具详情 |
 | `/trajectory` | 独立检查事件与请求轨迹，不共用转录的工具详情状态 |
@@ -23,7 +23,7 @@
 
 所有应用程序级按键都属于 [action catalog](../../packages/tui/omdsh-tui/src/input/actions.ts) 中的唯一一个 action。每个条目声明 ship 默认键（`primary`）、迁移期仍可解析但不再展示的别名（`aliases`）、面向读者的标签和作用域。`input/editor.ts` 只处理缓冲区内的编辑：Esc、Ctrl+C、Ctrl+Z、Alt+L 一律返回 `ignored`，由 provider 通过用户实际生效的绑定解析，因此改键不会和编辑器争抢同一个键。
 
-`interrupt`（默认 `Esc`）按“最短暂的面 → 最持久的面”顺序只交还一层：prompt → settings → 历史搜索 → 转录搜索 → 轨迹 → 子代理条选择 → 子检视 → 活动回合。回合进行中它会先把排队的跟进消息交回 composer 再中断，避免消息被送进一个永远不会运行的回合。`clear-composer`（默认 `Ctrl+C`）只做清空；连续两次退出。
+`interrupt`（默认 `Esc`）优先关闭当前临时交互面，返回转录后中断活动回合。`clear-composer`（默认 `Ctrl+C`）在输入非空时清空，输入为空时中断，连续两次退出。已由 Harness 接收的排队与插话消息在会话保持挂载时继续保留，可从 `/queue` 编辑或撤回。子会话检视中的中断作用于当前子会话，具体边界见[会话收尾与子 Agent](session-lifecycle.md)。
 
 `keysForAction` 只打印 ship 主键和用户自己写的键，迁移别名永远不出现在提示里。用户文档把两个 action 绑到同一个键时，`reportBindingConflicts` 报告该键实际解析到的 action，而不是让其中一方静默失效。
 
@@ -36,7 +36,7 @@
 | surface | 覆盖 | 理由 |
 | --- | --- | --- |
 | Settings | `tab`/`shift+tab` 切区块；`home`/`end` 跳当前区块两端 | 行属于不同分类，跳到全表首尾没有意义 |
-| Trajectory | `tab`/`←→` 切详情页签；`PgUp`/`PgDn` 滚打开的详情；`home`/`end` 携带 following | 阅读事件账本与浏览扁平列表不是同一件事 |
+| Trajectory | `Tab` 切列表和详情焦点，`←`/`→` 切详情分区，滚动键操作当前焦点面板，列表 End 跟随新记录 | 分别维护记录选择与内容阅读位置 |
 | Prompt 选择器 | 树形视图的翻页用 clamp 而非 wrap | 树是结构，越过末枝会让读者落到无关位置 |
 | Transcript 搜索 | 只取关闭与匹配步进 | 它没有列表 |
 
@@ -54,19 +54,19 @@
 
 composer 上边框承载活动状态（spinner + 标签），下边框承载上一步操作的确认。两者都不写入 transcript：活动行不占转录行，确认在下一次按键时清除。降级顺序为 完整标签 → 仅 spinner，宽度不足时先丢文字而保留“仍在工作”这一事实。上边框右角属于 Access Level；`Esc` 是全 TUI 统一的取消键，不需要在每个运行中的回合上重复提示。真正的会话事件仍然作为 notice block 进入转录。
 
-工具卡片的底色本身表明状态：进行中为中性色、成功为绿色、失败为红色，三者同明度而靠色相区分。深色与浅色各一套，`system` 向终端报告的背景与状态色混合。非真彩色终端上三种填充作为一组解析而非逐个量化，否则近邻色会被合并成同一底色，失败卡与成功卡无法区分。
+过程中的工具详情使用中性底色和四周留白，状态文字与符号表达进行中、成功和失败。独立工具卡片使用配套状态底色与文字色。深浅主题分别适配 Catppuccin Mocha 和 Latte，System 跟随终端报告的颜色，普通正文与页面背景由终端控制。有限颜色下仍须保留可读状态标记。
 
 ## 思考
 
-思考默认展开，`Ctrl+T` 折叠为一行 `Thinking: …` 摘要（保留首行内容而非统一占位文本）。`hideThinking` 是默认值，`expandedReasoning` 是个体展开的集合，两者分离，因此搜索命中可以单独展开某个思考而不改变全局默认。`Shift+Tab` 循环推理强度，与折叠无关。
+思考默认折叠成一行 `Thinking · …`，预览采用最新段落，流式段落的首行完整后才进入预览。已有明确 Shown 偏好继续生效，`Ctrl+T` 修改全局可见性，单个思考仍可独立展开。搜索命中必须打开对应内容。`Shift+Tab` 循环推理强度。
 
 ## 滚动与视口控件
 
-折叠态和展开态都支持向上浏览。离开最新内容时显示 `Jump to latest message · End` 控件；点击或按 End 回到底部。某 turn 的用户消息已滚出视口、回答仍在视口中时，在顶部显示该请求的摘要，不添加 `›` 前缀。请求范围必须按当前文档行定位，不能把上一 turn 的提示固定在下一 turn 上。
+折叠态和展开态都支持向上浏览。离开最新内容时显示 `Latest · End` 控件；点击或按 End 回到底部。某 turn 的用户消息已滚出视口、回答仍在视口中时，在顶部显示该请求的摘要，不添加 `›` 前缀。请求范围必须按当前文档行定位，不能把上一 turn 的提示固定在下一 turn 上。
 
 置顶请求和跳转控件只属于视口，不能作为 transcript 内容写入原生历史，也不能改变正文的行映射。工具详情、搜索和普通滚动都需要维持 composer 与两行 footer 的底部位置。
 
-本地 provider 拥有鼠标输入模式：转录浏览启用 `1000`/`1006`，overlay 和 dispose 恢复终端所有权。纯渲染层只提供点击目标的行、列和宽度，不处理原始输入字节。
+本地 provider 按当前交互面接管鼠标，转录、选择列表、文本阅读器、Trajectory 与 Diff 各自提供点击和滚动目标。Auto 尊重 tmux 的 mouse off，Native 将鼠标留给终端。拖动选择、选中即复制与手动复制遵循用户偏好。退出或交还终端时恢复模式，纯渲染层只提供 display-cell 坐标。
 
 ## 原生历史与实时文档
 
@@ -98,13 +98,15 @@ resize 时终端可能把可见行推入历史，也可能在增高时拉回历�
 
 ## 布局、主题与增量更新
 
-assistant 内容和工具结果必须有水平内边距。工具色块还保留上下留白，pending、success、error 分别读取主题的 `toolPendingBg`、`toolSuccessBg`、`toolErrorBg`；无色模式也保持相同的留白与错误信息。用户消息使用 `userMessageBg`。颜色属于[theme](../../packages/tui/omdsh-tui/src/chrome/theme.ts)，不能散落为工具组件里的固定 ANSI 色值。
+assistant 内容和工具结果有水平内边距，工具详情另有上下留白。过程详情使用中性 surface，独立卡片使用主题状态 surface 与配套文字色，无色模式保持相同布局。Shell 输出按纯文本展示，只有可确定语言的源码使用语法高亮，Read 行号列与折行内容分开布局。颜色统一由 [theme](../../packages/tui/omdsh-tui/src/chrome/theme.ts) 拥有。
 
 布局按 display cells 计算，处理 ANSI、CJK、emoji、字素簇、组合字符、tab 和长无断点命令。截断纯文本不应额外产生 ANSI reset，右侧 padding 和边框不能因 JavaScript 字符串长度判断而消失。宽度实现及独立预言机位于 [width.ts](../../packages/tui/omdsh-tui/src/chrome/width.ts) 和 [width.oracle.ts](../../packages/tui/omdsh-tui/src/chrome/width.oracle.ts)。
 
 带样式的文本折行必须用 `wrapTextStable`，不能用 `wrapText`。后者把 ANSI 转义附着到后续字形上，折行时不会重新开启，因此包裹整段的样式只在第一行生效——一条长命令会呈现“首行有色、其余裸奔”。`wrapTextStable` 追踪前景色、粗体、斜体、下划线、反显和超链接并在每个续行开头重开。纯文本或保证单行的调用才可以直接用 `wrapText`。
 
 格式化行按内容版本、宽度、主题和展开状态缓存；稳定内容不随每次 scroll 或 token 重新排版。流式更新复用显示调度器，后台子 Agent 的更新边界见[会话收尾与子 Agent](session-lifecycle.md)。工具 pending 和原生历史提交状态不能直接决定整个后缀是否重新测宽。
+
+长源码阅读器按可见行格式化并复用语法缓存，Markdown 阅读滚动复用已解析布局，流式 Markdown 缓存稳定 token 并继续校验完整语法边界。当前测量和适用限制见[性能报告](../../apps/site/content/zh/performance.md)。
 
 ## 实现与验证入口
 

@@ -10,6 +10,10 @@ describe('pagePath', () => {
 })
 
 describe('alternatePath', () => {
+  it('returns to the Chinese homepage from the shared English error page', () => {
+    expect(alternatePath('/404', 'en')).toBe('/zh/')
+  })
+
   it('maps English pages onto the /zh/ tree', () => {
     expect(alternatePath('/', 'en')).toBe('/zh/')
     expect(alternatePath('/docs/plugins', 'en')).toBe('/zh/docs/plugins/')

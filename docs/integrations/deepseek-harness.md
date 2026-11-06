@@ -1,15 +1,15 @@
 # DeepSeek Harness 集成与兼容
 
-状态：按 omdsh `0.20.0` 的 Unreleased 工作区、DSH `0.2.1-rc.2` 核对，日期为 2026-10-18。这是当前兼容决策，不是 npm 最新版本查询。升级操作由 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)维护，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
+当前工作区为 omdsh `0.22.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.1`，下表依据 manifest 与 lockfile 核对。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
 
 ## 依赖基线
 
 | 层 | 当前版本与来源 |
 | --- | --- |
-| omdsh 根、CLI、TUI | `0.20.0`，保持同步；本次适配尚未发布 |
-| 直接 DSH 运行时依赖 | npm `0.2.1-rc.2`，精确 pin；lockfile 保持单一 DSH cohort |
-| Cordis / Loader / Timer / Schemastery | `4.0.5` / `1.0.6` / `1.1.7` / `3.18.5`；Cosmokit 由同一 release-age 白名单放行 `1.8.6` |
-| pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.1.0` |
+| omdsh 根、CLI、TUI | `0.22.0`，保持同步，后续行为变更记录在 Unreleased |
+| 直接 DSH 运行时依赖 | npm `0.2.2-rc.1`，精确 pin，lockfile 保持单一 DSH cohort |
+| Cordis / Loader / Timer / Schemastery | `4.1.0` / `1.1.0` / `1.2.0` / `3.19.0`，Cosmokit 为 `1.9.0` |
+| pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.5.0` |
 
 事实来源是[CLI manifest](../../apps/omdsh/package.json)、[TUI manifest](../../packages/tui/omdsh-tui/package.json)、[lockfile](../../pnpm-lock.yaml)和[产品组合](../../apps/omdsh/config/cordis.yml)。`refs/` 仅用于研究，不参与解析、编译、测试或运行；`examples/hello` 是独立插件示例，不是 workspace 成员。
 
@@ -20,6 +20,8 @@
 2026-10-09 迁移至 [DSH `0.2.1-alpha.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-alpha.2)。删除已合并的 `dsh-subagent-in-process-driver` 依赖，挂载 `dsh-working-directory` 和 `dsh-tool-working-directory`。三个 preset 不再引用已移除的 `{{cwd}}` 变量，当前目录由上游模型上下文贡献提供。子代理工具移除 `backgroundMode` 配置，执行与结果回传由 runtime-managed activation 拥有。Session 格式仍为 v4；旧日志、历史 one-shot 子转录和 fork 种子保留原有恢复路径。
 
 2026-10-18 迁移至 [DSH `0.2.1-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.2)，同步 Cordis 稳定线（`4.0.5` / `1.0.6` / `1.1.7` / `3.18.5`），并把 `node-addon-require-builtin` 提到 `^0.1.9`，满足 loader `1.0.6` 的新 peer。插件兼容判断改用 app-boot 导出的 `evaluatePluginCompatibility`：声明 `engines.dsh` 时只按该区间判定，否则才看 DSH peer；`/plugins` 相应展示 `requirements` 与 `restartReason`，不再自行推导 peer 规则。`dsh-session-persistence-jsonl` 不再默认导出持久化类，改为 Cordis 插件；YAML 组合不变，直接挂载它的测试改用命名空间。子代理能力声明移除 `toolFilter`/`persona`、新增 `agentPreset`，产品本来就不传这两个字段。headless 凭据优先级变化只发生在上游 `headless` profile 的组合里，`omdsh exec` 使用自己的 profile，仍读取已保存凭据。Session 格式仍为 v4，token 投影的公开形状未变。完整证据见[升级记录](../history/dsh-0.2.1-rc.2-upgrade.md)。
+
+2026-11-04 升级至 `0.2.2-rc.1`，模型选择改由 `agent.model` 与 Session 持久投影拥有，工具执行使用独立 native/PTC 执行器，定时提醒通过 `schedule.edit` 更新，子模型选择和发现分别配置。发布产物检查、兼容适配和验证范围见[升级记录](../history/dsh-0.2.2-rc.1-upgrade.md)。
 
 ## 工作目录
 
@@ -52,7 +54,7 @@ Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理
 - **Web Search 与反馈**：均已提供，实际开关及配置见[工具](../../apps/site/content/zh/tools.md)和[设置](../../apps/site/content/zh/settings.md)，不再重复维护为待挂载计划。逐条 Assistant 回复的评分曾由 `dsh-message-feedback` 与 TUI `/rate` 提供，因缺少读取或外发消费方而移除。上游 session 级 `/feedback` 因只有写入、没有读取或外发路径而未挂载。网页搜索与抓取默认走官方 DeepSeek Search/Fetch API（`deepseek-search-api`/`deepseek-fetch-api`），使用上游 `DEEPSEEK_API_KEY`；在 `deepseek-account` 会话中改由共享账户 token 鉴权。Messages 搜索与本地 HTTP 抓取保留为可切换 fallback。DeepSeek 账户路由（`deepseek-account-platform` + `llm-deepseek-account`）既复用 DSH Web/Desktop 已建立的授权，也能从 `/login` 发起浏览器登录：主机挂载 `dsh-host-webserver`，仅监听 `127.0.0.1` 的随机端口并在尝试期间注册 `/oauth/callback`。
 - **Spill 与压缩**：单次工具 spill 会改变写入日志的结果，当前显式 `maxInlineTokens: 50000`；压缩前 pruner 则只裁剪模型上下文，完整结果仍在日志。组合顺序固定为 token meter → tool-result pruner → compaction，不能混淆两者对工具展开的影响。
 - **Workflow**：仅挂 `dsh-workflow-ptc` provider，`dsh-workflow` 保留为依赖；同时挂两个 seam provider 会重复注册 `workflowEngine`。工具保持 `workflow_run` 命名，以兼容已有会话与工具策略；Plan 状态通过上游 `/plan` 命令管理。
-- **提醒**：`dsh-schedule` 挂在 storage-domain 之后，`dsh-tool-schedule` 作为全局工具行，minimal 的 allow 列表自然隐藏，子代理由工具自身拒绝。TUI 提供 `sessionController.resolveAgent`：活会话直接返回，冷会话按记录的 preset 与当前默认模型恢复并常驻，交付只追加 `followup` 并 flush，不激活或替换当前界面。`/schedule` 负责列表、交付记录、改名/改指令与删除，定时修改仍由模型工具完成。真实定时器回归覆盖活会话投递与重启后的冷会话恢复投递。
+- **提醒**：`dsh-schedule` 挂在 storage-domain 之后，`dsh-tool-schedule` 作为全局工具行，minimal 的 allow 列表自然隐藏，子代理由工具自身拒绝。TUI 提供 `sessionController.resolveAgent`：活会话直接返回，冷会话按记录的 preset 与当前默认模型恢复并常驻，交付只追加 `followup` 并 flush，不激活或替换当前界面。`/schedule` 负责列表、分页交付记录、暂停、恢复、立即运行、改名/改指令与删除，定时修改仍由模型工具完成。真实定时器回归覆盖活会话投递与重启后的冷会话恢复投递。
 - **Ralph**：工具行保留但默认禁用，用户显式启用才进入自动循环；不能因升级上游默认组合而自动打开。
 
 ## 隔离子任务
@@ -79,7 +81,7 @@ alpha.2 的可选 Git Worktrees bundle 随产品安装但默认关闭。创建�
 
 升级时比较选定版本走廊的发布产物、exports、peer closure 和组合，不用聚合 release notes 代替 API 核对。工作区成功不证明 npm 消费者拥有同一依赖图；预发布 peer 区间可能吸收较新 cohort，产生同名服务的重复副本。
 
-升级技能的两个[历史案例](../README.md#历史证据)保留了公开 API 迁移与 npm 混装证据。当前升级仍需按 [AGENTS.md](../../AGENTS.md)完成全套依赖和边界验证，并检查两个候选包的 packed manifest 与隔离消费者安装。将本机 macOS 验证、Windows CI 和真实模型请求分别报告，不能相互替代。
+升级技能的[历史案例](../README.md#历史证据)保留了公开 API 迁移与 npm 混装证据。当前升级仍需按 [AGENTS.md](../../AGENTS.md)完成全套依赖和边界验证，并检查两个候选包的 packed manifest 与隔离消费者安装。将本机 macOS 验证、Windows CI 和真实模型请求分别报告，不能相互替代。
 
 2026-10-09 的 alpha.2 适配在 macOS 上通过安装、清除编译缓存后的类型检查、1,973 条测试、构建、Markdown、边界检查、对话及 PTY 冒烟和 `git diff --check`。真实 CLI 回归覆盖工作目录切换后的模型上下文、托管子代理的父级结果回传、Standard/PTC timed 问答、旧会话恢复与 fork，以及 Git Worktree 创建、源改动保留和只读权限拒绝；终端测试覆盖目录补全与 footer、Worktree 创建取消与切换、历史列表只读和迁移确认、外部执行状态和 EOF 等待的卸载取消。该次验证曾包含 translator 回环 HTTP 与 JSONL 缓存测试；产品随后撤销翻译和独立思考阅读入口。外部配置回归验证版本检查、字段筛选与未安装包诊断。lockfile 的 161 个 DSH 包全部为 alpha.2，参考子模块保持干净。两个候选 tarball 共同安装到隔离 npm 消费者，61 个 export/bin 目标均存在，160 个 DSH 运行时包版本一致且 DeepSeek 包没有重复副本；实际安装入口通过版本、组合、Standard/PTC mock 对话、可选 Worktree 创建验证；该次产物还包含随后移除的独立思考原文阅读入口。尚未验证 Windows 实机、付费模型或 Codex/Claude Code 原生运行时与认证。
 

@@ -1,76 +1,67 @@
 ---
-description: Install @agi-fans/oh-my-dsh, run /login, set Agent, Workflow, and Access, then finish a first DeepSeek coding task.
+description: Install omdsh, sign in, select a model, and inspect a project while learning the terminal interface.
 ---
 
 # Complete your first task
 
-By the end of this walkthrough you will have omdsh installed, signed in, and one finished agent task.
+By the end of this walkthrough, you will have a project overview from the agent and know how to read its work. You need Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, a terminal, and a DeepSeek account or API key.
 
-### See the loop
+## Install and open a project
 
-<video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
-
-A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency.
-
-### Install and launch
-
-Install the command globally, or use `npx @agi-fans/oh-my-dsh` to try the current package without a global installation:
+Install omdsh, then start it in the project you want to explore. Replace the example path with your own project directory.
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
-```
-
-Then change into the project you want the agent to understand and start omdsh there:
-
-```sh
 cd /path/to/your/project
 omdsh
 ```
 
-The startup directory becomes the session workspace. If it sits inside a Git repository, the status line picks that repository up.
+You can also run `npx @agi-fans/oh-my-dsh` from the project directory to try it without a global installation. The startup directory becomes the session workspace, and the footer shows its path and Git state when available.
 
-### Sign in securely
+## Sign in and choose a model
 
-Run `/login`. For DeepSeek, choose **DeepSeek account** to continue in your browser: omdsh listens on a loopback callback for the authorization, stores the shared account grant, and adds the `deepseek-account` route to `/model`. Choose the DeepSeek API-key entry to paste a key instead; it is validated and stored under `DEEPSEEK_API_KEY`.
+Run `/login` in the input area marked `🐳`. Choose **DeepSeek account** and complete sign-in in your browser, or choose the DeepSeek API-key entry and paste your key into its prompt. An existing account grant shared with DSH can be reused.
 
-Other mounted providers that registered an authorization flow — for example a browser sign-in — appear in the `/login` list with that flow's methods, and omdsh renders only the notices and prompts the flow asks for.
+Next, run `/model`. If you signed in with an account, choose a model under `deepseek-account`. For an API key, choose the corresponding DeepSeek provider. Press `Enter` to select it and save it as your default. Check that the footer shows the selected model before sending your first request.
 
-Never append a key to the command: `/login <key>` is deliberately rejected so the secret does not enter command history or the transcript.
+Paste keys only into the credential prompt. `/login <key>` is rejected to keep secrets out of command history. Remote-host browser callbacks and other authentication issues are covered in [Troubleshooting](../troubleshooting.md).
 
-An externally managed `DEEPSEEK_API_KEY` remains a supported fallback. A key saved through `/login` is stored under the same `DEEPSEEK_API_KEY` reference and persists across restarts; an environment-owned value cannot be overwritten from `/login`. `/logout` removes the file-stored key or the shared DeepSeek account grant and falls back to the environment when available. An account grant already established by DSH Web/Desktop is reused without a new browser sign-in. On a remote host, forward the loopback port shown by `/login` so the browser callback can reach the TUI.
+## Ask the agent to inspect the project
 
-### Configure the session before the first prompt
-
-omdsh keeps three session controls separate instead of collapsing them into one mode. If you are unsure, keep the defaults for the first task.
-
-| Concept | Command | Choices |
-|---|---|---|
-| Agent | `/agent` | Standard is the full coding agent; PTC defaults to programmatic tool calling; Minimal keeps persistent Bash and `str_replace_editor`; Cordis adds live runtime inspection and plugin experimentation. |
-| Plan mode | `/plan` / `/plan off` | Default works directly; Plan investigates and presents a reviewable plan before implementation. |
-| Access | `/permission` | Read only, Workspace write, or Full access. |
-
-Agent changes what the model can see, so select it before the first prompt; it is locked once model history exists. Each preset owns its tool exposure: PTC uses `run_code` with the generated TypeScript SDK, while Standard, Minimal, and Cordis expose their tools as native functions. A PTC program calls tools from inside its own code, so the calls it makes are recorded as sub-calls: each one has its own content, indented under `run_code`, and is included when `Ctrl+O` opens the completed turn. Plan mode and Access are durable session state and can change later.
-
-### Choose safe Access
-
-Run `/permission` before a task that may change files. The interactive selector offers three policies:
-
-| Mode | Use it when |
-|---|---|
-| Read only | You want inspection without workspace writes; an escalation still requires approval. |
-| Workspace write | The task may edit the current workspace, while wider access still requires approval. |
-| Full access | You trust the workspace and intentionally want unrestricted filesystem access without approval prompts. |
-
-Full access requires a second confirmation. Access is the enforcement boundary; the Plan workflow is guidance and does not replace sandbox or approval policy. The sandbox and approval behavior behind each preset is documented in [Permissions and access](../permissions.md).
-
-### Send a concrete request
-
-Start with an outcome, scope, and verification target. For example:
+Keep the Standard Agent preset for this walkthrough. Run `/permission` and choose **Read only**, then send this request.
 
 ```text
-Find why the user settings are not persisted, fix the smallest responsible module, and run the focused tests. Do not change files under refs/.
+Inspect this project's structure and explain its purpose, main entry points, and how to run and test it. Cite the files you used. Do not change any files or install dependencies.
 ```
 
-While the agent works, `Deep Driving` marks the active turn. Thinking, intermediate replies, and tool previews stay visible until the turn ends, then fold to a duration summary such as `Worked for 16s` and the complete final answer. Failures remain visible. Press `Ctrl+O` to revisit the completed turn's process, and press it again to return to the folded view.
+The agent should read project files and return an overview with supporting paths. Check its run and test instructions against the files it cites. If something is missing, ask a follow-up about that part of the project.
 
-Use the mouse wheel or `PgUp` to read earlier messages in either view. The prompt for the turn you are reading stays at the top once it scrolls out of view. Press `End` or click `Jump to latest message` to return to the live tail. The two-line footer keeps model, workspace, Git state, and token telemetry visible. See [Keyboard and keys](../keyboard.md#transcript) for preview limits, tool-result inspection, search, and mouse behavior.
+Access controls tool permissions, and any escalation still goes through approval. Later, choose Workspace write when you want the agent to edit the project. The available policies are explained in [Permissions and access](../permissions.md).
+
+## Read the interface
+
+<video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
+
+This recording shows a real DeepSeek account turn on v0.22.0, captured before the startup header was simplified. Watch the reply arrive and the finished process fold into a `Worked for …` summary.
+
+| Part of the interface | What to do |
+|---|---|
+| Thinking and tool rows | Press `Ctrl+O` to browse the process, select a row with arrows, and press `Enter` to expand. You can also click its left-hand disclosure arrow. |
+| Finished turn | Read the reply and any failure facts. Expand the duration summary when you want to revisit the work. |
+| Transcript | Scroll with the mouse wheel or `PgUp`. Press `End` or click `Latest · End` to return to the live tail. |
+| Text you want to keep | Drag to select and copy text when TUI mouse handling is active, or use `/copy` for the latest reply. |
+| Input and footer | Write the next prompt while model, workspace, and session telemetry stay visible at the bottom. |
+
+Mouse handling depends on **Settings → Terminal → Mouse interaction**. Auto respects tmux's mouse setting, and Native uses terminal selection. Selection, quoting, full tool results, and navigation are covered in [Keyboard and keys](../keyboard.md#transcript).
+
+## Continue from your first result
+
+You now have a conversation you can build on. Use `/help` to find a command, or `/context` to see context usage and session details. These three controls become useful as you take on larger tasks.
+
+| Control | When to use it |
+|---|---|
+| `/plan` | Investigate a task and review an implementation proposal before proceeding. `/plan off` leaves Plan mode. Access separately controls tool permissions. |
+| `/permission` | Choose the level of access for the work you want to authorize. |
+| `/agent` | Choose a different Harness preset for a new session before its first prompt. The preset is locked once model history exists. |
+
+Next, [tune the working environment](environment.md) to choose appearance, language, and model preferences. If the defaults suit you, go straight to [giving the agent precise context](precise-context.md).

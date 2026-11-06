@@ -1,19 +1,30 @@
 ---
-description: 切换 omdsh 模型与推理强度，添加额外提供方，并设置 Agent 语言与 TUI 偏好。
+description: 切换 omdsh 模型与推理强度，添加额外提供方，并设置界面与回复语言与 TUI 偏好。
 ---
 
 # 调整工作环境
 
-读完本教程，你可以切换模型和推理强度、登录额外提供方、选择 Agent 默认语言，并通过 `/settings` 调整界面。
+读完本教程，你可以切换模型和推理强度、登录额外提供方、选择界面与回复语言，并通过 `/settings` 调整界面。
+
+### 设置语言与界面
+
+运行 `/settings`。`Tab` 和 `Shift+Tab` 在 General、Models、Agent presets、Plugins 和 Terminal 之间切换；插件提供额外字段时还会显示 Advanced。方向键选择和修改值，`Enter` 打开配置表单，直接输入或按 `/` 跨分类搜索。表单显示作用范围和待保存修改，Apply 保存草稿，Cancel 放弃尚未应用的修改。完整选项及持久化规则见[设置](../settings.md)。
+
+General 分开设置**界面语言**和**回复语言**。界面语言的自动选项跟随环境区域设置。回复语言提供跟随界面、自动、简体中文和英语。新配置档案默认跟随界面，在下一回合开始时解析；已有档案保留已保存偏好，自动不添加语言指令。当前任务明确要求的语言优先，代码、命令、日志与文件内容保留原文。
+
+Terminal 中的 Theme 提供 `dark`、`light` 和 `system`，深浅配色以 Catppuccin Mocha 和 Latte 为基础，System 跟随终端报告的颜色。Motion 的 `full` 平滑显示流式文字并提供活动动画，`reduced` 保留平滑文字并弱化活动效果，`off` 直接跟随服务商分块。消息完成或遇到工具边界时立即显示完整内容。
+
+**Terminal → Status line** 控制密度和各项可见性。`minimal` 显示占用，`standard` 增加延迟，`verbose` 在空间允许时增加 Token 与会话累计。选中项目后按 `Space` 显示或隐藏。模型和工作区各有固定位置，遥测指标在终端变窄时按稳定顺序收起。状态栏标签始终使用英文。
+
+运行 `/help` 搜索可用命令，或用 `/help full` 查看当前快捷键。
 
 ### 选择模型与推理强度
 
-运行 `/model` 打开模型选择器：
+运行 `/model`，在同一个可搜索列表中浏览所有活动服务商的模型。各服务商独立加载目录，可用模型会先显示。服务商报错后用 `Alt+R` 刷新，`Alt+F` 收藏或取消收藏，`Alt+A` 在全部模型和收藏之间切换。
 
-1. 当有多家提供方处于活动状态时，先选择提供方。
-2. 选择可用模型；模型支持时还可以继续选择 Reasoning Effort。
+按 `Enter` 选择模型并保存为默认，或按 `Ctrl+D` 选择 **This session only**。切换模型时使用目标模型的默认推理强度，通过 `/model reasoning` 或 `Shift+Tab` 可明确修改；`Ctrl+T` 控制思考内容的显示。当前模型和强度显示在页脚，并随会话持久化。
 
-当前选择会显示在第一行状态栏中，并写入持久化会话状态。
+如果当前模型切换成功、但保存默认值失败，可以选择 **Retry saving default** 重试，或 **Keep for this session** 仅保留当前会话的选择。
 
 ### 登录额外提供方
 
@@ -21,26 +32,7 @@ DeepSeek 本身是第一项：`/login` 可以启动 DeepSeek 账户的浏览器�
 
 若要添加另一家 catalog 提供方，运行 `/login` 并从列表中选择。已注册授权流程的提供方会给出该流程的方法，而不是通用的 API Key 提问；否则粘贴其 API Key。该路由会在下一次模型请求时生效。
 
-选择 `custom` 可以添加 catalog 里没有的网关或本地服务：填写永久 id、Base URL、API 协议、可选 Key，以及一个或多个模型 id。`/logout` 可以停用这条路由，而不会改动环境变量中的凭据。
-
-### 设置 Agent 语言与界面
-
-运行 `/settings` 可以配置 Agent 默认语言、主题、颜色输出、动态效果、终端原生活动提示、可选功能、更新检查、启动时 Release Notes，以及状态栏。每一行、可选值与默认值见[设置](../settings.md)。
-
-`/settings` 内的按键：
-
-- `Up` / `Down` 在行间移动，`Left` / `Right` 修改当前值。
-- `Tab` 和 `Shift+Tab` 在 Interface、Agent、Tools、Status line、Integrations、Advanced 之间切换。
-- 在 Status 项上按 `Space` 可以显示或隐藏它。
-- 按 `Enter` 开始移动 Status 项：`Up` / `Down` 调整顺序，`Left` / `Right` 切换左右栏，再按 `Enter` 或 `Esc` 完成移动。
-
-Agent 分区的 Language 一行可在 `Auto`、`Simplified Chinese` 和 `English` 之间切换。非 Auto 选项会从下一个 turn 开始成为推理与面向用户沟通的默认语言；代码、标识符、命令、Tool 参数、日志、引用和文件内容仍保留准确形式，而用户对当前任务明确提出的语言要求仍然优先。该偏好是用户级设置，因此恢复会话时使用当前值，而不是历史快照。
-
-Interface 分区的 Motion 只控制显示效果。`full` 会平滑揭示流式 Assistant 文本，并为 `Deep Driving` 添加流光；`reduced` 保留平滑流式显示，但不显示流光；`off` 直接跟随 Provider chunk，并使用静态活动标记。Provider 的完整输出仍会立即进入当前会话，遇到 Tool 边界或已完成的 Assistant 消息时，界面也会立即显示完整内容，不会等待动画。
-
-Theme 一行可在 `dark`、`light` 和 `system` 之间切换。Preview 中的每一项（Model、Effort、Path、Git 和各遥测分组）都有自己的颜色、左右栏、显示/隐藏和顺序。Context 默认显示百分比；Context style 还可选择占用条、已用/窗口 Token 数及详细组合，所有样式都会随压力升高切换为警告色和错误色。Telemetry 只隐藏第二行指标，模型与工作区一行仍然显示。输入框顶栏左侧是 🐳，右侧是当前 Access Level；回合运行中标签会让位给当前活动，底栏显示上一步操作的确认。
-
-运行 `/help` 可以查看完整的命令与快捷键目录。命令列表由当前启用的插件共同组成，因此也会包含 Skills 和其他运行时集成贡献的能力。
+选择 `custom` 添加目录外的网关或本地服务，填写永久 ID、Base URL、API 协议、可选密钥及至少一个模型 ID。之后可通过 **Settings → Models → Model providers** 编辑或删除自定义服务商。`/logout` 管理已保存的认证。
 
 ### 诊断本地安装
 
@@ -53,6 +45,10 @@ omdsh doctor --json
 
 Doctor 读取启动环境、Profile、Bundle 补丁、插件入口文件与 DSH peer 要求、Shell 可执行文件、MCP/LSP 配置与可执行文件，以及凭证文档元数据。它不会初始化或改写 Profile、执行配置表达式、导入已配置插件、启动服务器、发送终端探测或发起模型请求。缺少 Profile 时报告产品默认配置；有配置层被拒绝时会明确提示检查覆盖不完整。凭证值和原始解析错误不会输出。
 
-每一项用 `ok` 表示该项明确说明的本地事实成立，用 `failed` 表示发现问题，用 `not-configured` 表示可选配置不存在，用 `not-checked` 表示仍需运行时验证。配置有效、可执行文件可用，不代表认证或连接成功。动态凭证路径需要运行时解析；默认凭证存储会单独检查。按提示修复失败项，再通过 `/model` 或 `/auth` 验证所选模型，并在正常运行流程中验证集成。
+每一项用 `ok` 表示该项明确说明的本地事实成立，用 `failed` 表示发现问题，用 `not-configured` 表示可选配置不存在，用 `not-checked` 表示仍需运行时验证。配置有效、可执行文件可用，不代表认证或连接成功。动态凭证路径需要运行时解析；默认凭证存储会单独检查。按提示修复失败项，再通过 `/model` 或 `/login` 验证所选模型，并在正常运行流程中验证集成。
 
 JSON 包含 `schemaVersion: 1`、`version` 与 `checks` 数组；检查项包含 `id`、`status`、`summary` 和可选的 `remedy`。退出码 `0` 表示没有失败项，即使存在未检查的能力；`1` 表示检查失败；`2` 表示 CLI 参数无效。两种输出格式都不含 ANSI 着色。
+
+### 下一步
+
+接下来学习[提供精确的项目上下文](precise-context.md)，把文件、截图和清楚的请求交给 Agent。

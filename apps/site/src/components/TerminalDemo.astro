@@ -48,13 +48,6 @@ const logoRows = [
         <span class="td-slogan">Into the Unknown</span>
       </div>
     </section>
-    <p class="td-tips">
-      <b>Tips:</b>
-      <span><kbd>/</kbd> commands</span><i>·</i>
-      <span><kbd>@</kbd> files</span><i>·</i>
-      <span><kbd>!</kbd> shell</span><i>·</i>
-      <span><kbd>/help</kbd> all shortcuts</span>
-    </p>
     <div class="td-transcript">
       <div class="td-user-message" data-td-user hidden></div>
       <div class="td-response" data-td-response></div>
@@ -107,7 +100,7 @@ const logoRows = [
       userEl.hidden = false
       userEl.textContent = samplePrompt
       responseEl.innerHTML =
-        `<div class="td-muted">${thinking}</div><div class="td-answer">${answer}</div>`
+        `<div class="td-muted">› Worked for 2s · Ctrl+O to expand</div><div class="td-answer">${answer}</div>`
       caretEl.hidden = true
     }
 
@@ -124,15 +117,14 @@ const logoRows = [
       userEl.hidden = false
       userEl.textContent = promptEl.textContent
       promptEl.textContent = ''
-      responseEl.innerHTML = `<div class="td-muted">${thinking}</div>`
-      later(() => {
-        responseEl.insertAdjacentHTML('beforeend', `<div class="td-answer">${answer}</div>`)
-      }, 850)
+      responseEl.innerHTML = `<div class="td-muted">› Thinking · ${thinking}</div>`
+      later(showSettled, 850)
       later(resetDemo, 6200)
     }
 
     const resetDemo = () => {
       promptEl.textContent = ''
+      caretEl.hidden = false
       userEl.hidden = true
       userEl.textContent = ''
       responseEl.innerHTML = ''
@@ -187,13 +179,7 @@ const logoRows = [
 
 .td-screen { padding: 12px 13px 10px; }
 
-/*
- * The header is the lockup the TUI draws: the mark, then the wordmark and the
- * slogan centred against it, then one hint line. It is deliberately not a card
- * with a border, a tips table and a session list — that panel was thirteen rows
- * of a reader's first screen, and it is gone from the product too.
- * Mirror of `renderWelcome` in packages/tui/omdsh-tui/src/chrome/box.ts.
- */
+/* Startup lockup mirrors renderWelcome in the TUI. */
 .td-header {
   display: flex;
   gap: 3ch;
@@ -244,29 +230,6 @@ const logoRows = [
 }
 
 .td-slogan { color: #8a8c96; }
-
-.td-tips {
-  display: flex;
-  margin: 10px 0 0;
-  gap: 0.5ch;
-  flex-wrap: wrap;
-  color: #8a8c96;
-}
-
-.td-tips b {
-  margin-right: 0.5ch;
-  color: #f0a818;
-}
-
-.td-tips kbd {
-  color: #6d6f79;
-  font: inherit;
-}
-
-.td-tips i {
-  color: #565863;
-  font-style: normal;
-}
 
 .td-transcript {
   min-height: 155px;
@@ -389,10 +352,6 @@ const logoRows = [
 @media (max-width: 430px) {
   .td-chrome { height: 24px; }
   .td-logo { font-size: 7px; }
-  /* The hint line keeps its lead and its first two hints; the rest is what a
-     narrow terminal drops too. */
-  .td-tips i:nth-of-type(n + 3),
-  .td-tips span:nth-of-type(n + 3) { display: none; }
   .td-transcript { min-height: 126px; padding: 14px 0 16px; }
   .td-response { gap: 7px; padding-inline: 8px; }
   .td-footer-row:first-child span:last-child,

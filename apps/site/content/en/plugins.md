@@ -21,7 +21,7 @@ The TUI does not keep a second command, tool, or model registry. After a plugin 
 | Slash command | `dsh-commands` metadata and handler | Appears in `/help`, autocomplete, and the runner |
 | Tool | `ToolDefinition`, including `presentCall` / `presentResult` | Renders a card, or the generic fallback |
 | Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key, run a registered authorization flow, or add a custom profile |
-| Credentials and settings | `ctx.credentials` and `ctx.settings` | Shared with the Profile patch the rest of the tree already reads |
+| Credentials and settings | `ctx.credentials` and `ctx.settings` | Settings use the Profile patch, while secret values use the credential store |
 | Human prompt | `ctx.tui.prompt`, approval, and questions | Terminal selectors own the answer |
 | Skill | Harness skill registry | Appears as `/<skill-name>` |
 | MCP server | One `dsh-mcp-client` row per server | Appears in `/mcp` and `/tools` |
@@ -150,7 +150,7 @@ Walk through [Write a plugin](tutorials/write-a-plugin.md) to build and install 
       name: '@scope/dsh-example'
 ```
 
-Pin `@deepseek-ai/*` and `@agi-fans/dsh-tui` as peers of the same DSH release omdsh ships. Do not nest a second `cordis` or `dsh-*` copy in the bundle's own dependencies. Import only published package exports. Do not reach into `refs/`. Do not assume Host, HTTP, or a Web UI is present.
+Declare Harness packages as peers compatible with omdsh’s pinned DSH and Cordis versions. If the plugin uses TUI services, declare `@agi-fans/dsh-tui` at a compatible product version. Do not nest a second `cordis` or `dsh-*` copy in the bundle's own dependencies. Import only published package exports. Do not reach into `refs/`. Do not assume Host, HTTP, or a Web UI is present.
 
 Prefer existing seams:
 
@@ -160,11 +160,11 @@ Prefer existing seams:
 - store secrets through `ctx.credentials`;
 - ask the user through `ctx.tui.prompt`.
 
-A plugin that needs a custom transcript block, an overlay, a theme pack, or exclusive TTY ownership is outside the first compatibility set. After `ctx.tui.contributions` ships, register a typed card presenter only when `presentCall` / `presentResult` cannot express the card, and publish status segments as projection ids rather than local counters.
+Custom transcript blocks, overlays and theme packs need a separately designed presentation API. Current bundles use the published tool and prompt contracts described in [Plugin internals](plugin-internals.md).
 
 ## Related
 
 - [Architecture](architecture.md) — product composition and TUI ownership
-- [Plugin internals](plugin-internals.md) — the `ctx.tui` surface and the planned contribution layer
+- [Plugin internals](plugin-internals.md) — published interfaces and terminal ownership
 - [Skills and MCP](skills-and-mcp.md) — filesystem Skills and MCP server documents
 - [Write a plugin](tutorials/write-a-plugin.md) — write, install, and publish a bundle

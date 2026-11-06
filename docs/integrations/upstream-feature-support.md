@@ -4,6 +4,10 @@
 
 统计单位是用户能力而不是 npm 包数。一个能力可能由 service、provider、tool 和 UI 多个包组成；已经有一个可用 provider 时，不因没有安装所有替代 provider 而记为整项缺失。产品支持自定义 Profile 与插件组合，因此“未产品化”表示缺少随产品交付、配置、展示和验证的完整路径，不表示底层完全无法挂载。
 
+## 当前基线补充
+
+当前依赖已迁移到 DSH `0.2.2-rc.1` 与 Cordis `4.1.0`。模型选择、native/PTC 执行器、定时提醒编辑与子模型发现均已按发布 API 适配，详见[升级记录](../history/dsh-0.2.2-rc.1-upgrade.md)。下方能力分组与 tarball 检查保留原调查版本和范围，不能视为对当前上游全部包重新验收的结果。当前交互以[命令文档](../../apps/site/content/zh/commands.md)和[设置文档](../../apps/site/content/zh/settings.md)为准。
+
 ## 0.2.1-alpha.2 补充
 
 - 工作目录服务与 `working_directory` 已挂载；文件操作、补全、新终端和状态路径跟随当前目录，原项目、权限和现有进程保持不变。
@@ -43,7 +47,7 @@
 | --- | --- | --- | --- | --- | --- |
 | C01 | 异步问答 timed | 已实现 | timed 默认 120 秒，已接入 claim/倒计时、编辑与 Take time、显式跳过、pending 提示、/questions 和补答转录；legacy 与 -1 保留。 | 已覆盖整批 deadline、排队超时、取消/卸载、重复补答、日志恢复以及 Standard/PTC 真实 CLI；PTC 外层执行预算不随 Take time 暂停，未记录结果的中断问题仍受上游恢复限制。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/interaction/tool-ask-user/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/session/interaction-adapter.ts) |
 | C02 | 运行中的插件管理与 HMR | 已实现 | /plugins 提供运行态条目、bundle 启停与安装/移除，显示阶段、取消及完整诊断路径；已挂 published plugin-manager/HMR。 | CLI 与运行态安装共用 Profile 写锁；待执行脚本显式授权，失败/取消由上游事务恢复文件。已安装代码替换仍要求重启，源码监视需显式指定目录。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/boot/plugin-manager/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/commands/plugins.ts)；[真实入口测试](../../apps/omdsh/src/plugin-management.spec.ts) |
-| C03 | 官方插件配置面板 | 已实现常用配置表单 | /settings 按 Interface、Agent、Tools、Status line、Integrations 收编自带能力，Advanced 保留未收编 live 字段与后装插件；子代理模型白名单默认关闭，并在新会话取样。 | 按路径编辑并校验、显示继承/覆盖、重置、拒绝旧 revision；API-key/ref 配对走 credentials。插件名称使用易读标签，字段显示 schema 帮助；Subagent 允许模型使用可搜索多选目录，其余结构化字段使用 JSON；包含密钥的复合字段保留给 /login 或所属配置入口，普通非 live 选项仍用 Profile。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/settings/settings/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts) |
+| C03 | 官方插件配置面板 | 已实现常用配置表单 | /settings 按 General、Models、Agent presets、Plugins、Terminal 收编自带能力，Advanced 保留未收编 live 字段与后装插件；子代理模型白名单默认关闭，并在新会话取样。 | 按路径编辑并校验、显示继承/覆盖、重置、拒绝旧 revision；API-key/ref 配对走 credentials。插件名称使用易读标签，字段显示 schema 帮助；Subagent 允许模型使用可搜索多选目录，其余结构化字段使用 JSON；包含密钥的复合字段保留给 /login 或所属配置入口，普通非 live 选项仍用 Profile。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/settings/settings/README.md)；[omdsh](../../packages/tui/omdsh-tui/src/runtime/plugin-settings.ts) |
 | C04 | Creator/Cordis 创作与 preset 诊断 | 已实现 | Cordis 加载已发布组合/插件开发 Skills、只读 API 查询与权限门控 plugin_manager；/agent 展示 broken preset，/agent inspect 显示声明、激活/隔离失败及当前会话保留的实际模块。 | 安装复用 C02；已有 Agent 保留原 revision。公开 API 不提供可展示的 revision 编号，因此展示其真实保留组成，不发明编号。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/bundle/web-app/presets/cordis.patch.yml)；[omdsh](../../apps/omdsh/config/presets/cordis.patch.yml)；[诊断](../../packages/tui/omdsh-tui/src/commands/session-configuration.ts) |
 | C05 | 逐条 Assistant 消息反馈 | 已移除 | 曾由 `/rate` 提供：列出 append-origin 的正式 Assistant 消息，记录正面/负面评价、固定分类与可选备注。移除理由：反馈只写入本地 Session 日志，没有读取、导出或外发消费方，读者记录后没有任何路径会用到它，符合 `docs/design/philosophy.md` 范围原则中"不写没人需要的能力"。`dsh-message-feedback` 服务随之从组合中撤下。 | 上游 session 级 `/feedback` 同样因缺少读取/外发消费方而不挂载；若将来接入真正的消费方（如产品统计或 OTel 上报），应连同该消费方一起重新评估。 | [上游](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.1/packages/feedback/message-feedback/README.md)；[组合](../../apps/omdsh/config/cordis.yml) |
 | C06 | 用户可操作的持久终端 | 不提供独立控制台 | `!` 在 composer 中执行一行命令，输出作为卡片流式写入转录并就地定型；`Ctrl+C` 中断。上游 terminals 注册表仍由 composer Shell 复用，保留目录、环境与独占 send。 | 曾经的全屏终端控制台已移除：在 TUI 里再跑一个交互式 TUI 体验差，需要长期观察进程的用户应当直接用自己的终端。原始 PTY 附着、任意全屏程序及 resize 转发因此不再支持。 |

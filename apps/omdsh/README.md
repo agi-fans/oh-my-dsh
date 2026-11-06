@@ -6,7 +6,7 @@
 
 **Into the Unknown**
 
-omdsh is the terminal client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a focused, keyboard-first DeepSeek coding agent built on its plugin architecture, with interaction quality inspired by [oh-my-pi](https://github.com/can1357/oh-my-pi) and the original [Pi](https://github.com/earendil-works/pi) agent harness.
+oh-my-dsh aims to be the best TUI companion for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It brings Harness to the terminal with familiar behavior and interactions, careful visual design, and a focus on making everyday coding feel clear and fluid. Built on the published Harness plugin runtime, it runs as `omdsh`.
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE)
 
@@ -16,7 +16,7 @@ omdsh is the terminal client for [DeepSeek Harness](https://github.com/deepseek-
 
 [![omdsh terminal demo — one real DeepSeek account turn](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/omdsh-demo.gif)](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/site/public/omdsh-demo.mp4)
 
-A real Kaku recording of one DeepSeek account turn: the reply lands, the run folds to `Worked for 2s · Ctrl+O to expand`, and the footer carries the turn's context, cache and latency. Click it for the full-resolution recording.
+A real Kaku recording of one DeepSeek account turn shows the reply, the process folding to `Worked for 2s · Ctrl+O to expand`, and context, cache, and latency in the footer. It was captured on v0.22.0 before the startup header was simplified. Click it for the full-resolution recording.
 
 ## Quick start
 
@@ -27,69 +27,36 @@ npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-Run `/login` once inside omdsh to sign in with a DeepSeek account or save an API key, then start a conversation. To try it without a global installation, run `npx @agi-fans/oh-my-dsh`.
+Inside omdsh, run `/login` to sign in with a DeepSeek account or save an API key, then use `/model` to select your model. Account users choose a model under `deepseek-account`. Send a request to begin. You can also try `npx @agi-fans/oh-my-dsh` without a global installation. The [first-task tutorial](https://omdsh.agi.fans/docs/tutorials/first-task/) walks through sign-in and a project inspection.
 
-## Highlights
+## What makes omdsh different
 
-- **The terminal client for DeepSeek Harness:** a native-scrollback TUI with a docked composer, display-cell layout, and a keyboard path through every flow — built on the published plugin runtime, not a fork.
-- **Durable conversations:** search, pin, rename, and resume sessions in `/resume`; rewind, retry, compact, and export complete transcripts as Markdown or standalone HTML.
-- **DeepSeek-native auth:** sign in from `/login` through the browser or store a key; a DeepSeek account grant shared with DSH is reused, `/logout` signs it out, and web search/fetch use the same credential.
-- **Three real session controls:** choose a Harness Agent preset (Standard, PTC, Minimal, or Cordis), Workflow (Default or Plan), and Access (Read only, Workspace write, or Full access). Each Agent preset owns its tool exposure; PTC uses the generated TypeScript SDK automatically.
-- **Rich terminal input:** mention project files and other sessions with `@`, paste clipboard images, reuse persistent prompt history, edit multiline prompts externally, and retrieve queued follow-ups.
-- **Readable turns:** follow thinking, replies, and tool previews while the agent works. Completed work folds to a duration summary and the full final answer; `Ctrl+O` restores the process view. Scroll through either view, keep the current prompt pinned, and jump back to the latest message with `End`.
-- **Inspectable work:** press `Alt+O` for full tool inputs and results in the current turn, use `/trajectory` for event details, see the files changed by each turn, and let the model search its earlier sessions in the same workspace. Press `↓` on an empty composer to select a child agent in the roster and `Enter` to open its transcript, where a continuable task can be steered.
-- **Live operational context:** see Agent, Workflow, Access, model, reasoning effort, workspace, Git state, context pressure, tokens, TTFT, throughput, cache, timings, turns, and steps without leaving the composer; use `/context` for an inline projection-backed breakdown that remains in the transcript.
-- **Responsive by design:** retain settled transcript layout, coalesce scroll updates, emit row-level terminal diffs, and preserve correct display-cell alignment for CJK text and emoji.
+- **A clear view of the work.** Thinking and tool calls begin as compact rows you can expand with the keyboard or a click on the disclosure arrow. Completed work folds into a duration summary, with replies and failure facts still visible. Full inputs and results are within reach.
+- **Careful terminal design.** Markdown, code, tables, and diffs have deliberate spacing and visual hierarchy. Dark and light palettes adapt Catppuccin Mocha and Latte, with a System option to follow terminal colors. Layout accounts for CJK text and emoji.
+- **Keyboard and mouse together.** Navigate with keys, scroll and open details with the mouse, select and copy text, or quote a selection into your draft. The composer and status footer stay anchored while you read.
+- **Familiar Harness controls.** Sign in with a DeepSeek account or API key, choose a model and reasoning effort, investigate in Plan mode, and set Access for the session. Harness plugins supply the underlying behavior and reusable Skills, MCP tools, and agent presets.
+- **A workflow that lasts beyond one turn.** Attach files and images, queue follow-ups, steer continuable child agents, and search or resume earlier sessions. Rewind, compact, and export as work grows, with native terminal scrollback preserved.
+- **Details when you need them.** Inspect context usage in `/context`, the execution history in `/trajectory`, and changed files in `/diff`. A configurable footer keeps useful telemetry close to the prompt.
 
-## Documentation
+## Find your way through the docs
 
-The full documentation is published at [omdsh.agi.fans](https://omdsh.agi.fans/), and the Markdown under `apps/site/content/` is its source of truth.
+Start with the [tutorial guide](https://omdsh.agi.fans/docs/tutorials/), then follow the route that matches your work.
 
-**Start here**
+| You want to | Start here |
+|---|---|
+| Try omdsh and understand the interface | [Complete your first task](https://omdsh.agi.fans/docs/tutorials/first-task/), then [tune the working environment](https://omdsh.agi.fans/docs/tutorials/environment/) |
+| Use it for everyday coding | [Give precise context](https://omdsh.agi.fans/docs/tutorials/precise-context/), [guide an active turn](https://omdsh.agi.fans/docs/tutorials/guide-a-turn/), and [manage long sessions](https://omdsh.agi.fans/docs/tutorials/long-session/) |
+| Look up a control or diagnose a problem | [Commands](https://omdsh.agi.fans/docs/commands/), [keyboard and mouse](https://omdsh.agi.fans/docs/keyboard/), [settings](https://omdsh.agi.fans/docs/settings/), and [troubleshooting](https://omdsh.agi.fans/docs/troubleshooting/) |
+| Add project knowledge or capabilities | [Skills and MCP](https://omdsh.agi.fans/docs/tutorials/skills-and-mcp/), [language servers](https://omdsh.agi.fans/docs/language-servers/), and [user plugins](https://omdsh.agi.fans/docs/plugins/) |
+| Develop an integration | [Write a plugin](https://omdsh.agi.fans/docs/tutorials/write-a-plugin/), [plugin internals](https://omdsh.agi.fans/docs/plugin-internals/), and [architecture](https://omdsh.agi.fans/docs/architecture/) |
 
-- [Tutorials](https://omdsh.agi.fans/docs/tutorials/) — complete a first task, give the agent precise context, guide queued work, recover long sessions, customize the environment, and write an installable plugin.
-- [Commands](https://omdsh.agi.fans/docs/commands/) — every slash command with its arguments and aliases.
-- [Keyboard and keys](https://omdsh.agi.fans/docs/keyboard/) — editing, transcript, overlay keys, and `keybindings.json`.
+The bilingual Markdown under `apps/site/content/` is the documentation source of truth. To report a problem or suggest an improvement, use the [issue forms](https://github.com/agi-fans/oh-my-dsh/issues/new/choose).
 
-**Reference**
+## How it fits with Harness
 
-- [Sessions and history](https://omdsh.agi.fans/docs/sessions/) — durable logs, the Session Library, and the local data files.
-- [Subagents and delegation](https://omdsh.agi.fans/docs/subagents/) — the three transports, the roster that opens a child's transcript, steering, and background jobs.
-- [Observability](https://omdsh.agi.fans/docs/observability/) — `/trajectory`, `/context`, `/diff`, `/tools`, and `/mcp`.
-- [Settings](https://omdsh.agi.fans/docs/settings/) — appearance, motion, notifications, and the configurable status line.
-- [Permissions and access](https://omdsh.agi.fans/docs/permissions/) — Access presets, sandbox, and approvals.
-- [Command line](https://omdsh.agi.fans/docs/cli/) — flags, subcommands, and environment variables.
-- [Tools](https://omdsh.agi.fans/docs/tools/) — what the model can use, grouped by capability.
-- [Troubleshooting](https://omdsh.agi.fans/docs/troubleshooting/) — exit, color, scrollback, and boot failures.
+DeepSeek Harness supplies the agent runtime and its “everything is a plugin” architecture. omdsh composes those published packages into a community terminal application. Harness owns sessions, models, tools, permissions, and their lifecycle. omdsh owns how you read, navigate, and interact with that work in a terminal.
 
-**Extend and integrate**
-
-- [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/) — reusable instructions and external tools.
-- [Language servers](https://omdsh.agi.fans/docs/language-servers/) — configure read-only code intelligence.
-- [User plugins](https://omdsh.agi.fans/docs/plugins/) — install DSH bundles into the omdsh Profile with `omdsh plugin`.
-- [Plugin internals](https://omdsh.agi.fans/docs/plugin-internals/) — the `ctx.tui` surface and the contribution layer.
-
-**Internals**
-
-- [Architecture](https://omdsh.agi.fans/docs/architecture/) — plugin boundaries and runtime data flow.
-- [Performance](https://omdsh.agi.fans/docs/performance/) — benchmarks, methodology, and rendering optimizations.
-
-[Report a bug or request a feature](https://github.com/agi-fans/oh-my-dsh/issues/new/choose) with a guided form for the version, environment, reproduction steps, and sanitized context.
-
-## Why oh-my-dsh
-
-DeepSeek Harness provides a capable agent runtime and a strong architectural idea: everything is a plugin. oh-my-dsh brings that runtime into a calm, keyboard-driven terminal experience without creating a second agent core or hiding Harness behind a parallel abstraction.
-
-The TUI remains a presentation and interaction layer. Sessions, tools, permissions, models, Skills, MCP servers, commands, and telemetry come from Harness services and plugins; omdsh composes them into a terminal application and adds the interface behavior needed to use them comfortably. `/trajectory` opens a keyboard-driven event ledger with Turn/Step grouping, live following, search, folding, timing, token usage, tool payloads, results, and schemas. `/context` reads the same client-visible Harness projections as the status footer and distinguishes provider-anchored occupancy from heuristic prompt composition.
-
-The project follows four principles:
-
-- **Harness-native:** use published DeepSeek Harness packages as the source of truth for agent behavior, state, and lifecycle.
-- **Real plugin boundaries:** create plugins for independently owned lifecycles and contribution points, not for every source file.
-- **One terminal owner:** keep raw input, cursor state, viewport management, and atomic rendering inside the local TUI Provider.
-- **Progressive disclosure:** keep the default view concise while making tools, telemetry, settings, and session detail discoverable on demand.
-
-Reference checkouts under `refs/` remain read-only research material. Runtime code depends only on published packages and oh-my-dsh workspace packages.
+Alignment means carrying familiar Harness concepts and behavior into the constraints of terminal cells, keyboard input, and native scrollback. omdsh develops its own presentation around those constraints, with progressive disclosure, readable output, and consistent controls as its priorities. Current coverage and limitations are documented in the feature references.
 
 ## Architecture
 
@@ -107,7 +74,7 @@ The TUI package is split into a service definition, local terminal Provider, ses
 
 ## Performance
 
-Performance is part of the TUI architecture: durable sessions replay in linear time, Harness Projections avoid repeated history scans, settled transcript blocks retain formatted layout, and the terminal writer emits row-level diffs. The documented Apple M5 Pro measurements from August 2026 recorded a median 2.62 ms for restoring 10,000 conversation turns, 22.71 ms for 10,000 tool calls, and 0.35 ms per cached frame over a 5,000-turn surface. These are historical measurements, not a benchmark of the latest version.
+Performance work covers session replay, cached transcript layout, streaming Markdown, and long-file readers. In the November 6, 2026 Apple M5 Pro CPU benchmarks, a 10,000-turn lifecycle projection took a median 2.567 ms, scrolling a 109,500-character Markdown preview took 0.383 ms, and horizontal panning in a 10,000-line source reader took 0.212 ms. The measurements isolate local processing and exclude model latency, disk I/O, and terminal drawing.
 
 See the reproducible [TUI performance report](https://omdsh.agi.fans/docs/performance/) or run `pnpm benchmark:tui` locally.
 
@@ -115,7 +82,7 @@ See the reproducible [TUI performance report](https://omdsh.agi.fans/docs/perfor
 
 Run `/login` to configure a provider. DeepSeek opens the official key dashboard, validates the key, and stores it in the shared Harness credential store under `DEEPSEEK_API_KEY`; an environment-owned value is left untouched. A DeepSeek account can be signed in from `/login`: the TUI listens on a loopback callback for the browser flow and reuses any grant already established by DSH Web/Desktop. The account route (`deepseek-account`) then appears in `/model` beside the API-key route; sign-out is available from `/logout` or the same account prompt. When a mounted provider registers a Harness authorization flow, `/login` lists that flow and its methods and the terminal only renders the notices and prompts the flow asks for. The same command can also activate a catalog API-key provider or add a custom provider with its own id, base URL, protocol, and model ids. `/logout` removes only file-stored credentials and falls back to the environment when available.
 
-Model settings and the rest of the plugin config persist into the active Profile's Cordis patch, `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`; a `settings.yaml` left by an earlier release is imported once at startup and renamed to `settings.yaml.imported`. Use `/model favorite` and `/model unfavorite` to maintain a small local cycle list, then use `Ctrl+P`/`Alt+P` to move through it and `Ctrl+T` to change reasoning effort. Skills and MCP configuration are documented in [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/).
+Model settings and the rest of the plugin config persist into the active Profile's Cordis patch, `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`; a `settings.yaml` left by an earlier release is imported once at startup and renamed to `settings.yaml.imported`. Use `/model favorite` and `/model unfavorite` to maintain a small local cycle list, then use `Ctrl+P`/`Alt+P` to move through it and `Shift+Tab` to change reasoning effort (`Ctrl+T` toggles thinking visibility). Skills and MCP configuration are documented in [Skills and MCP](https://omdsh.agi.fans/docs/skills-and-mcp/).
 
 After an upgrade, omdsh can show release notes once at startup. Use `/changelog` for recent entries or `/changelog full` for the complete packaged history. A cached daily npm check reports newer versions without installing anything automatically; both behaviors can be customized in `/settings`. Terminal notifications for completed long turns and human prompts are also configured there and remain off by default. Every setting, its allowed values, and its default are listed in [Settings](https://omdsh.agi.fans/docs/settings/).
 

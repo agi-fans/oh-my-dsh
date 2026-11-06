@@ -4,7 +4,7 @@ description: Add one project Skill and one MCP server to an omdsh workspace, the
 
 # Extend a project with Skills and MCP
 
-By the end of this walkthrough the project has one invocable Skill and one connected MCP server, and you know where to verify both.
+By the end of this walkthrough, you will have a reusable project Skill and an MCP server configuration, and know how to inspect the capabilities omdsh loaded. Skills supply instructions for a task. MCP servers supply tools the agent can call.
 
 ### Add a project Skill
 
@@ -27,7 +27,7 @@ Type `/` and the new Skill’s name in the composer to find it alongside command
 
 ### Add an MCP server
 
-Create `.dsh/mcp.json` in the project and declare the server under `mcpServers`:
+This example assumes you have installed a stdio MCP memory server that provides `mcp-server-memory` on `PATH`. Follow that server’s installation instructions first, or substitute the executable and arguments of a server you already use. Create `.dsh/mcp.json` in the project and declare it under `mcpServers`.
 
 ```json
 {
@@ -42,10 +42,10 @@ Create `.dsh/mcp.json` in the project and declare the server under `mcpServers`:
 
 MCP configuration loads at startup, so restart omdsh if it is already running. A project MCP file can start local programs, so review it before launching omdsh in an unfamiliar repository.
 
-Run `/mcp` to confirm the server is connected, and `/tools` to see its tools beside the native ones.
+Run `/mcp` to inspect the registered MCP tools and available diagnostics, then `/tools` to find them alongside native tools. If they are missing, check the executable and configuration with `omdsh doctor`. Finally, ask the agent to invoke an appropriate tool and inspect its result. A successful call verifies that operation with the current server and credentials.
 
 ### Learn more
 
 [Skills and MCP](../skills-and-mcp.md) covers the complete search priority, `SKILL.md` structure, stdio and HTTP examples, environment expansion, override rules, and current protocol limitations.
 
-Skills and MCP are not plugin bundles. To write and install a command, tool, provider, or auth bundle, continue with [Write a plugin](write-a-plugin.md) and [User plugins](../plugins.md).
+To add a command, tool, provider, or authorization flow through a bundle, continue with [Install the example plugin](install-plugin.md). The bundle contract is in [User plugins](../plugins.md).

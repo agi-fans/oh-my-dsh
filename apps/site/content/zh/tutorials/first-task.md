@@ -1,76 +1,67 @@
 ---
-description: 安装 @agi-fans/oh-my-dsh，运行 /login，设置 Agent、Workflow 和 Access，并完成第一个 DeepSeek 编程任务。
+description: 安装 omdsh、登录 DeepSeek 账户或配置 API Key，选择模型并完成一次项目检查，同时学会阅读思考、工具和回复。
 ---
 
 # 完成第一个任务
 
-读完本教程，你将完成 omdsh 的安装和登录，并跑完第一个 Agent 任务。
+完成本教程后，你会得到一份 Agent 整理的项目概览，并知道如何查看它的工作过程。准备好 Node.js 22.19 或更高的 22.x 版本，或者 Node.js 24 及更高版本，以及一个终端和 DeepSeek 账户或 API Key。
 
-### 先看一轮完整回合
+## 安装并打开项目
 
-<video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
-
-真实的 Kaku 录屏：一轮 DeepSeek 账户回合——回复落地，运行折叠成 `Worked for 2s · Ctrl+O to expand`，页脚给出这一回合的上下文、缓存与延迟。
-
-### 安装并启动
-
-全局安装命令；如果只想临时体验当前版本而不进行全局安装，可以使用 `npx @agi-fans/oh-my-dsh`：
+安装 omdsh，然后在想要探索的项目中启动。将示例路径替换为你自己的项目目录。
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
-```
-
-然后进入希望 Agent 理解的项目目录，再从这里启动 omdsh：
-
-```sh
 cd /path/to/your/project
 omdsh
 ```
 
-启动目录会成为会话工作区。如果目录位于某个 Git 仓库内，状态栏会自动识别该仓库。
+也可以在项目目录中运行 `npx @agi-fans/oh-my-dsh` 临时体验。启动目录会成为会话的工作区，底部状态栏显示它的路径，并在可用时显示 Git 状态。
 
-### 安全登录
+## 登录并选择模型
 
-运行 `/login`。对于 DeepSeek，选择 **DeepSeek account** 会打开浏览器继续授权：omdsh 通过 loopback 回调接收结果、保存共享账户 grant，并把 `deepseek-account` 路由加入 `/model`。也可以选择 DeepSeek 的 API Key 条目，粘贴并在遮罩输入框中提交 Key；校验后会存到 `DEEPSEEK_API_KEY`。
+在标有 `🐳` 的输入区运行 `/login`。选择 **DeepSeek account**，在浏览器中完成登录，或选择 DeepSeek API Key 入口，在专用提示中粘贴 Key。与 DSH 共享的已有账户授权可以复用。
 
-其他已挂载的提供方如果注册了自己的授权流程（例如浏览器登录），会带着该流程的方法出现在 `/login` 列表中，omdsh 只渲染流程要求的通知和提问。
+接着运行 `/model`。如果使用账户登录，选择 `deepseek-account` 下的模型；如果使用 API Key，选择对应 DeepSeek 提供方的模型。按 `Enter` 选用并保存为默认模型。发送第一条请求前，确认底部状态栏已显示所选模型。
 
-不要把 Key 追加到命令后：程序会主动拒绝 `/login <key>`，避免密钥进入命令历史或 Transcript。
+Key 只应粘贴到凭据输入框中。`/login <key>` 会被拒绝，以免密钥进入命令历史。远程主机的浏览器回调和其他登录问题见[故障排查](../troubleshooting.md)。
 
-外部管理的 `DEEPSEEK_API_KEY` 仍然可以作为回退来源。通过 `/login` 保存的 Key 会写入同一个 `DEEPSEEK_API_KEY` 引用，并在重启后保留；由环境变量提供、不可覆盖的值无法通过 `/login` 改写。`/logout` 会删除文件中的 Key，或登出共享的 DeepSeek 账户 grant，并在环境变量可用时回退。DSH Web/Desktop 已建立的账户授权无需重新走浏览器即可复用。在远程主机上，需要把 `/login` 显示的 loopback 端口转发到本机，浏览器回调才能到达 TUI。
+## 请 Agent 检查项目
 
-### 在第一条 Prompt 前配置会话
-
-omdsh 将三项会话控制分别建模，而不是折叠成一个 Mode。如果不确定，第一个任务全部保持默认即可。
-
-| 概念 | 命令 | 选项 |
-|---|---|---|
-| Agent | `/agent` | Standard 是完整 Coding Agent；PTC 默认使用程序化工具调用；Minimal 只保留持久 Bash 与 `str_replace_editor`；Cordis 增加运行时检查与插件实验能力。 |
-| Plan 状态 | `/plan` / `/plan off` | Default 直接工作；Plan 先调查并提交可审阅计划，再进入实现。 |
-| Access | `/permission` | Read only、Workspace write 或 Full access。 |
-
-Agent 会改变模型可见的内容，因此要在第一条 Prompt 前选择；产生模型历史后，它会被锁定。每个 preset 自己决定工具暴露方式：PTC 使用 `run_code` 和生成的 TypeScript SDK，Standard、Minimal 与 Cordis 则将各自的工具暴露为原生函数。PTC 的程序在自己的代码里调用工具，因此这些调用被记为子调用：每个子调用独立展示，缩进在 `run_code` 之下；`Ctrl+O` 展开已完成回合时会一并展示。Plan 状态与 Access 是持久化的会话状态，之后仍可切换。
-
-### 选择安全的 Access
-
-在可能修改文件的任务前运行 `/permission`。交互式选择器提供三种策略：
-
-| 模式 | 适用场景 |
-|---|---|
-| Read only | 只检查而不写入工作区；提权仍然需要审批。 |
-| Workspace write | 允许修改当前工作区，但访问更大范围时仍然需要审批。 |
-| Full access | 你信任当前工作区，并明确需要不经审批的完整文件系统访问。 |
-
-Full access 需要二次确认。Access 才是实际的执行边界；Plan Workflow 只提供工作流指导，不能代替 Sandbox 或审批策略。每个 preset 背后的沙箱与审批行为见[权限与 Access](../permissions.md)。
-
-### 发送具体任务
-
-第一条消息最好同时说明结果、范围和验证方式。例如：
+本教程使用默认的 Standard Agent 预设。运行 `/permission` 并选择 **Read only**，然后发送下面的请求。
 
 ```text
-找出用户设置无法持久化的原因，只修改负责该行为的最小模块，并运行对应测试。不要修改 refs/ 下的文件。
+检查这个项目的结构，介绍它的用途、主要入口，以及如何运行和测试。请引用你依据的文件。不要修改文件或安装依赖。
 ```
 
-Agent 工作时，`Deep Driving` 表示当前回合仍在运行。思考、中途回复和工具预览保留到回合结束，随后折叠为 `Worked for 16s` 这样的耗时摘要和完整的最终答复，失败信息也保持可见。按 `Ctrl+O` 重看已完成回合的处理过程，再按一次回到折叠视图。
+Agent 应当阅读项目文件，返回带有文件路径依据的概览。可以对照它引用的文件，检查运行和测试说明是否准确。还有不清楚的部分，就继续追问。
 
-两种视图中都可以用鼠标滚轮或 `PgUp` 查看早期消息。当前阅读回合的请求滚出视口后，会固定在顶部；按 `End` 或点击 `Jump to latest message` 返回实时底部。两行 footer 持续展示模型、工作区、Git 状态和 Token 遥测。预览限制、工具结果检查、搜索与鼠标行为见[键盘与快捷键](../keyboard.md#转录)。
+Access 控制工具权限，需要提升权限的操作仍会进入审批流程。之后希望 Agent 修改项目时，可以选择 Workspace write。各项策略见[权限与 Access](../permissions.md)。
+
+## 看懂界面
+
+<video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
+
+这段录屏展示了 v0.22.0 的一轮真实 DeepSeek 账户对话，录制后启动页头进行了简化。可以看到回复逐步出现，完成后的过程收起为 `Worked for …` 摘要。
+
+| 界面部分 | 如何使用 |
+|---|---|
+| 思考与工具行 | 按 `Ctrl+O` 浏览过程，用方向键选中一行，再按 `Enter` 展开；也可以点击左侧展开箭头。 |
+| 已完成的回合 | 阅读回复和失败信息，需要回顾过程时展开耗时摘要。 |
+| 对话内容 | 用鼠标滚轮或 `PgUp` 回看，按 `End` 或点击 `Latest · End` 返回实时底部。 |
+| 想保存的文字 | TUI 鼠标处理启用时，拖动选择并复制文字；也可以用 `/copy` 复制最近的回复。 |
+| 输入区和状态栏 | 编写下一条请求时，底部持续显示模型、工作区和会话数据。 |
+
+鼠标行为取决于 **Settings → Terminal → Mouse interaction**。Auto 尊重 tmux 的鼠标设置，Native 使用终端原生选择。选择、引用、完整工具结果与导航操作见[键盘与快捷键](../keyboard.md#转录)。
+
+## 从第一个结果继续
+
+现在可以围绕已有对话继续工作。用 `/help` 查找命令，或用 `/context` 查看上下文占用与会话详情。任务变复杂后，再逐步使用下面三项控制。
+
+| 控制 | 何时使用 |
+|---|---|
+| `/plan` | 先调查任务并审核实施方案，再继续执行。`/plan off` 退出 Plan 模式，工具权限由 Access 单独控制。 |
+| `/permission` | 为希望授权的工作选择访问级别。 |
+| `/agent` | 在新会话的第一条请求之前选择其他 Harness 预设。一旦有模型历史，预设便会锁定。 |
+
+接下来可以[调整工作环境](environment.md)，选择外观、语言和模型偏好。如果默认设置已经合适，可以直接学习[提供精确的项目上下文](precise-context.md)。

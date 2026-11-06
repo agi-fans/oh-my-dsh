@@ -10,7 +10,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 | 工具 | 行为 |
 |---|---|
-| `bash` / `pwsh` | 在宿主对应的受限 shell 中执行一次性命令。调用带有 120 秒超时；模型可以按调用提高限制，或改为后台运行。 |
+| `bash` / `pwsh` | 在宿主对应的受限 shell 中执行一次性命令。随包默认超时为 120 秒。Settings → Plugins → Shell 可调整默认和最大超时，每次调用显式指定的超时受最大值约束。后台命令可在 `/jobs` 查看。 |
 | `terminal_open`、`terminal_send`、`terminal_read`、`terminal_signal`、`terminal_close`、`terminal_list` | 持久终端会话，跨调用保留 cwd、环境与交互式子进程。 |
 
 ## 工作目录
@@ -29,7 +29,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Web
 
-`web_fetch` 抓取公开网页。`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并使用 `/login` 保存的凭据引用。因此抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本地 HTTP 抓取仍保留在组合中，可在 **设置 → Plugins → Web providers** 切换。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
+`web_fetch` 抓取公开网页。`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并使用 `/login` 保存的凭据引用。因此抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本地 HTTP 抓取仍保留在组合中，可在 **设置 → Plugins → Web search and fetch** 切换。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
 
 ## 代码智能
 

@@ -6,10 +6,10 @@ export const tutorialsIndex: NavEntry = { slug: 'tutorials', en: 'Tutorials', zh
 
 export const tutorialEntries: NavEntry[] = [
   { slug: 'tutorials/first-task', en: 'Complete your first task', zh: '完成第一个任务' },
+  { slug: 'tutorials/environment', en: 'Tune the working environment', zh: '调整工作环境' },
   { slug: 'tutorials/precise-context', en: 'Give the agent precise context', zh: '提供精确的项目上下文' },
   { slug: 'tutorials/guide-a-turn', en: 'Guide an active turn', zh: '引导运行中的任务' },
   { slug: 'tutorials/long-session', en: 'Recover and manage a long session', zh: '恢复并管理长会话' },
-  { slug: 'tutorials/environment', en: 'Tune the working environment', zh: '调整工作环境' },
   { slug: 'tutorials/skills-and-mcp', en: 'Extend a project with Skills and MCP', zh: '使用 Skills 与 MCP 扩展项目' },
   { slug: 'tutorials/install-plugin', en: 'Install the example plugin', zh: '安装示例插件' },
   { slug: 'tutorials/write-a-plugin', en: 'Write a plugin', zh: '编写插件' },

@@ -1,6 +1,6 @@
 # Terminal experience implementation
 
-This work keeps the DeepSeek identity, native immutable scrollback, one terminal owner and the published Harness plugin boundaries. Existing Todo, subagent, approval and file readers remain the basis for the new interactions. Nothing is committed or published as part of this work.
+The terminal experience preserves the DeepSeek identity, native immutable scrollback, one terminal owner and published Harness plugin boundaries. This document records implementation contracts and the original acceptance evidence. Test counts and temporary artifact paths below describe those historical runs. Current user behavior is maintained in the [English](../../apps/site/content/en/keyboard.md) and [Chinese](../../apps/site/content/zh/keyboard.md) guides.
 
 ## Requirements and evidence
 
@@ -12,15 +12,15 @@ This work keeps the DeepSeek identity, native immutable scrollback, one terminal
 | 2 | Contextual key hints | A small number of relevant hints reuse existing chrome without moving the bottom anchors or rewriting scrollback; width and discovery tests. |
 | 2 | `!command` Shell execution | Published persistent Shell provider; explicit model-context policy; Access, cancellation and Windows behavior; pasted code never accidentally executes; real CLI and PTY tests. |
 | 2 | `omdsh exec --json` | Separate machine-output ownership, documented/versioned event and final-result contract, exit codes, cancellation, EOF/child draining and resume behavior; no ANSI or incidental logs on stdout. |
-| 3 | `/btw` | Document and implement prefix snapshot, independent side-session records, permissions, charges, cancellation and return to parent; no silent adoption into the parent's context. |
-| 3 | Fine-grained approval rules | Document and implement precise rule preview, scope, persistence, rejection feedback and revocation through Harness permission/authorization seams; no TUI bypass. |
-| 3 | File rollback | Document and implement complete durable snapshots and conservative restoration, including created/deleted/binary files and user changes after the snapshot; explicit confirmation and conflict handling. Existing summary/diff is not a restorable checkpoint. |
+| 3 | `/btw` | Prefix snapshot, independent side-session records, permissions, charges, cancellation and return to parent; no silent adoption into the parent's context. |
+| 3 | Fine-grained approval rules | Precise rule preview, scope, persistence, rejection feedback and revocation through Harness permission/authorization seams; no TUI bypass. |
+| 3 | File rollback | Complete durable snapshots and conservative restoration, including created/deleted/binary files and user changes after the snapshot; explicit confirmation and conflict handling. Existing summary/diff is not a restorable checkpoint. |
 
 ## Verification and limits
 
 Each stage updates English and Chinese product documentation and Unreleased. Focused behavior and fake-TTY tests precede the repository's full verification gates. Native terminal checks use the existing terminal appearance and isolated workspaces. Credentials are never printed and a keyless UI check does not establish provider authentication.
 
-An unavailable public upstream API is recorded with the missing contract and evidence. Independent requirements continue; a workaround must preserve ownership and cannot import reference source or claim a capability it does not actually implement. Goal completion requires every row above to be implemented and verified, or an explicit user decision changing its scope.
+An unavailable public upstream API is recorded with the missing contract and evidence. Independent requirements continue; a workaround must preserve ownership and cannot import reference source or claim a capability it does not actually implement. The requirement audit below records the implemented surfaces and their validation boundaries.
 
 ## Implementation status
 
@@ -34,7 +34,7 @@ Path actions reuse `reviewFiles`, the configured Editor and `Alt+V`. Tool paths 
 
 Path-action verification includes the published Harness filesystem tools in an isolated Kaku/Herdr pane, Changed files preview, configured Vim opening and return, resumed tool references, and the final build's `Ctrl+O` → `Alt+V` → source preview → restored inspection. Relative call and canonical result paths deduplicate to one file. Native ANSI captures preserve terminal output as text evidence. The native screenshot interface currently returns `cgWindowNotFound`, including after rebinding and resetting its session, so no new screenshot or re-rendered image represents these checks; a visual screenshot review remains outstanding.
 
-Composer Shell uses the published owner-scoped terminal registry and the existing terminal reader. Only deliberate, attachment-free input is intercepted; marked short pastes retain literal intent. A separate Shell retains its own cwd and environment within the live Agent and never manufactures model messages, tool events or command exit status. Esc detaches, Ctrl+C interrupts and drains the provider wait, and runner unload cancels pending work. All terminal input and close dialogs yield to approvals. Bash/PowerShell selection remains owned by the mounted backend; the TUI does not spawn an alternative interpreter or elevate Access. Single-line unmarked input is inherently ambiguous. Contextual reader hints prioritize interruption only when the surface exposes that action.
+Composer Shell uses the published owner-scoped terminal registry and streams output into a transcript card. `!command` keeps output local, while `!!command` submits the completed output through Harness. A failed share retains the output for delivery retry. Only deliberate, attachment-free input is intercepted, and folded pastes retain literal intent. The Shell retains its cwd and environment within the live Agent. Ctrl+C interrupts owned execution, runner unload cancels pending work, and human approvals take priority. Bash or PowerShell selection belongs to the mounted backend, and execution remains subject to Access. Contextual hints expose actions available on the current surface.
 
 Built-entry Shell verification confirms retained environment variables across two Composer calls, interruption, clean exit and terminal restoration. The final native Kaku/Herdr flow also verifies a foreground command stopped after the provider wait could settle, the environment remains available afterward, the footer retains zero model turns/steps, and double Ctrl-C prints the resume hint. Evidence is native ANSI text under `/tmp/omdsh-composer-native.e0LPcd`; native screenshot capture still fails with `cgWindowNotFound`. This Shell-only flow uses a synthetic credential and an unreachable loopback model endpoint; it does not establish model-provider authentication.
 
@@ -74,7 +74,7 @@ Native Kaku/Herdr checks in the isolated `omdsh-recovery-native.hvsttq9a` worksp
 
 Contextual hints reuse existing chrome: Shell readers show Ctrl+C only when an interrupt callback exists, source readers add diff hunk navigation only for diffs, and Session Tree/recovery lists show actions only when the service or saved reports are available. These use existing width-aware wrapping and prompt-action rendering. The actual fake-TTY keyboard path covers Alt+R, file selection, retained preview, Cancel-first confirmation and return without changing session events, native scrollback or the composer draft.
 
-The final full repository suite passes 2,207 tests (1,996 TUI, 198 application and 13 site tests), followed by the 18-test transcript suite containing the additional recovery keyboard regression. Installation, typecheck and build pass. Markdown, boundary, happy-smoke and PTY-smoke checks also pass. The dependency audit matches only the boundary auditor’s own search literals; product dependency/source searches and symlink checks have no matches, and all reference worktrees are clean. The recovery pane exited with status zero and unchanged `stty` settings; its owned workspace and mock server were released. No commit, push or publication is authorized.
+The final full repository suite passes 2,207 tests (1,996 TUI, 198 application and 13 site tests), followed by the 18-test transcript suite containing the additional recovery keyboard regression. Installation, typecheck and build pass. Markdown, boundary, happy-smoke and PTY-smoke checks also pass. The dependency audit matches only the boundary auditor’s own search literals; product dependency/source searches and symlink checks have no matches, and all reference worktrees are clean. The recovery pane exited with status zero and unchanged `stty` settings; its owned workspace and mock server were released. This is the original acceptance record; current verification requirements are in [AGENTS.md](../../AGENTS.md).
 
 ## Requirement audit
 

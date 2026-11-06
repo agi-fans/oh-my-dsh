@@ -36,8 +36,8 @@ cd greet-plugin
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5-alpha.1",
-    "@deepseek-ai/dsh-commands": "0.2.1-alpha.2"
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-commands": "0.2.2-rc.1"
   }
 }
 ```
@@ -116,3 +116,7 @@ omdsh --dump-config
 - Git：用 `omdsh plugin add github:<owner>/greet-plugin` 安装。若包在 `prepare` 里构建，而 pnpm 拦截了该脚本，可能需要在 `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml` 里加入 `allowBuilds`。
 
 只导入已发布的软件包导出，不要进入 `refs/`，也不要假定挂载了 Host、HTTP 或 Web UI。[用户插件](../plugins.md) 定义了 bundle 可以依赖的界面。
+
+### 下一步
+
+继续开发集成时，可以通过[用户插件](../plugins.md)查阅 bundle 兼容约定，通过[插件内部机制](../plugin-internals.md)了解公开的终端接口。

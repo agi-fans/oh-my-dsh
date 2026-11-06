@@ -4,7 +4,7 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 # Commands
 
-Command completion prioritizes common tasks and matches names, aliases and description keywords. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` puts common commands first; third-party contributions remain discoverable.
+Command completion prioritizes common tasks and shares localized name, alias, description and task-keyword matching with Help, including common Chinese task words. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` puts common commands first; third-party contributions remain discoverable.
 
 Type `/` in the composer to browse the live catalog with inline argument hints. `/help` opens a filterable command list assembled from active plugins, including Skills and user bundles. Enter inserts the selected command into the composer for review and submission. Choose Keyboard shortcuts or press Alt+K to open the shortcut catalog, starting with essential operations. `/help full` opens that catalog directly, including Diff and file-browser shortcuts. In text readers, the mouse wheel or trackpad scrolls the preview, dragging selects text, and right-click copies the selection. Native mouse mode leaves selection and scrolling to the terminal. `/` searches, Ctrl+N/Ctrl+P move between matches, S chooses a section, and Y copies the current page. Esc returns to the preceding view.
 
@@ -21,6 +21,8 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | `/continue` | Continue an eligible failed model generation without resending the prompt. |
 | `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
+
+The Session Library can load additional content-search matches. A failed resume or cancelled migration returns to the loaded results with the filter and selection preserved.
 
 ## Session configuration
 
@@ -44,6 +46,10 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | `/model reasoning` | Cycle the current model's reasoning effort. |
 | `/model favorite` / `/model unfavorite` | Add or remove the current model from the local favorites list, stored in `$OMDSH_HOME/omdsh/model-favorites.json`. |
 | `/model favorites` | Open the favorite-model picker. `Alt+F` adds or removes the selected favorite, and `Alt+A` switches to all models. Line mode prints the list. |
+
+Model catalogs load independently. Healthy providers stay available while others load or fail; `Alt+R` refreshes the list. A successful live switch remains selected if saving the default fails, with **Retry saving default** and **Keep for this session** actions.
+
+DeepSeek API-key validation and storage failures can be retried in place. Custom-provider setup preserves non-secret fields when stepping back through the form.
 
 ## Turn control
 
@@ -93,6 +99,8 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/tools` | Search the tools visible to the agent, then read a selected tool’s full description. Returning restores the filter and selected row. Line mode prints the catalog. |
 | `/mcp` | Browse MCP registration diagnostics, available tools and the session’s latest ten calls; refresh the snapshot. Live connection and authentication status are unavailable. |
 
+Plugin discovery retains loaded results and the search query, offers **Load more** and retries for failed sources, and permits cancellation while loading. Installation results and diagnostics remain beside the plugin controls.
+
 ### Scheduled reminders
 
 `/schedule` lists reminders involving the current session. The list and task details refresh as tasks change; use the arrow keys and Enter to choose an action, and Esc to go back. **Run now** delivers the instruction without moving the scheduled occurrence. Tasks that are queued or running cannot be edited, paused, resumed, deleted, or triggered again; the page explains minimum run intervals and unavailable archived destinations. Creating reminders and changing their timing or time zone still use the agent's `schedule_*` tools.
@@ -129,9 +137,11 @@ A staged `/attach` draft displays a file marker and byte-count receipt; deleting
 
 | Command | What it does |
 |---|---|
-| `/copy` | Choose what to copy in the composer card: the last assistant reply, its fenced code blocks, the last bash command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
+| `/copy` | Choose what to copy in the composer card: the last assistant reply, its fenced code blocks, the last terminal command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
 | `/export [html\|markdown\|archive] [path]` | Choose a format and destination, then open the exported file or copy its path. Explicit arguments export directly. Existing files require a different destination. Interactive save failures retain the format and editable path for retry. |
 | `/changelog [full]` | Choose a release and browse its categories, or read the complete packaged history with `full`. |
+
+If export succeeds but copying, previewing or opening fails, the result page keeps the saved path and offers retry. A failed `!!` share retains the Shell output and retries delivery without running the command again.
 
 ## Skills
 

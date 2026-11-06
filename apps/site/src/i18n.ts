@@ -5,13 +5,13 @@ export const repoUrl = 'https://github.com/agi-fans/oh-my-dsh'
 export const npmUrl = 'https://www.npmjs.com/package/@agi-fans/oh-my-dsh'
 
 export const descriptions = {
-  en: 'omdsh is a keyboard-first DeepSeek coding agent for the terminal, built on the DeepSeek Harness plugin runtime. The CLI is @agi-fans/oh-my-dsh.',
-  zh: 'omdsh 是一个键盘优先的 DeepSeek 终端编程智能体，构建于 DeepSeek Harness 插件运行时之上。命令行包名为 @agi-fans/oh-my-dsh。',
+  en: 'oh-my-dsh aims to be the best TUI companion for DeepSeek Harness, with familiar interactions, careful visual design, and a fluid terminal coding workflow.',
+  zh: 'oh-my-dsh 致力于成为 DeepSeek Harness 的最佳 TUI 补充，持续对齐使用体验、交互和视觉品质，提供美观、清晰、流畅的终端编程体验。',
 } as const
 
 export const changelogDescriptions = {
-  en: 'Release history for omdsh, the keyboard-first DeepSeek coding agent built on DeepSeek Harness.',
-  zh: 'omdsh 的版本记录：基于 DeepSeek Harness 的键盘优先终端编程智能体。',
+  en: 'Release history for oh-my-dsh, a community TUI companion built on DeepSeek Harness.',
+  zh: 'oh-my-dsh 的版本记录，了解这个基于 DeepSeek Harness 的社区 TUI 项目的更新。',
 } as const
 
 export const keywords = {
@@ -29,6 +29,7 @@ export function pagePath(path: string): string {
 /** Path of the same page in the other locale. */
 export function alternatePath(path: string, locale: Locale): string {
   const normalized = pagePath(path)
+  if (normalized === '/404/') return '/zh/'
   if (locale === 'en') return normalized === '/' ? '/zh/' : `/zh${normalized}`
   const stripped = normalized.replace(/^\/zh(?=\/|$)/u, '')
   return stripped === '' || stripped === '/' ? '/' : pagePath(stripped)

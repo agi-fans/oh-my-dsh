@@ -137,6 +137,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- The website’s terminal illustration follows the compact Header and folded turn presentation, and its performance cards use the November 2026 report.
+
+- The website’s language switch on the 404 page opens the Chinese homepage.
+
 - Shell output sharing confirms accepted delivery, preserves captured output after failure and retries delivery without rerunning the command. Failed and unknown commands restore their input for correction.
 
 - Multi-select questions preserve supplementary text and punctuation in option labels, and restore both choices and text when navigating between questions.

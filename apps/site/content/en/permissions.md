@@ -1,10 +1,10 @@
 ---
-description: "omdsh access presets, sandbox and approval behavior, escalation, shell limits, and how Plan mode keeps edits behind review."
+description: "omdsh access presets, sandbox and approval behavior, escalation, shell limits, and the Plan review flow."
 ---
 
 # Permissions and access
 
-Every session starts with exactly one Access preset. It decides the filesystem and shell sandbox the model runs in, and whether an action outside that sandbox needs your approval. Choose it per session with `/permission`; the deployment default comes from `OMDSH_PERMISSION_MODE`.
+Every session starts with exactly one Access preset. It decides the filesystem and shell sandbox the model runs in, and whether an action outside that sandbox needs your approval. Choose it per session with `/permission`. **Settings → General → Default access** saves the preference for future sessions; restoring inheritance uses the deployment default, which can be set with `OMDSH_PERMISSION_MODE`.
 
 ## Presets
 
@@ -32,11 +32,11 @@ Every automatic decision still passes through the Harness approval service and i
 
 ## Shell limits
 
-One confined shell stack mounts per host — `bash` on POSIX, `pwsh` on Windows — and each call carries a pinned 120-second timeout. The model can raise the limit per call or run the command in the background; `/jobs` then lists it.
+One confined shell stack mounts per host, Bash on POSIX and PowerShell on Windows. The shipped default timeout is 120 seconds. **Settings → Plugins → Shell** configures default and maximum timeouts, output limits, and shutdown grace for new commands. Explicit per-call timeouts are capped by the configured maximum. Background commands can be inspected through `/jobs`.
 
 ## Plan mode
 
-`/plan` asks the model to inspect without mutating and to present a reviewable plan. The tool catalog stays unchanged for request-cache stability, and plan-mode rules override the mutation guidance inside it; implementation begins only after the plan is approved.
+`/plan` guides the model to inspect and submit a reviewable plan. Approve leaves Plan mode and continues execution; Keep planning allows feedback. Access remains the enforcement boundary. See [Plan mode](commands.md#plan-mode) for review and cancellation behavior.
 
 ## Related
 

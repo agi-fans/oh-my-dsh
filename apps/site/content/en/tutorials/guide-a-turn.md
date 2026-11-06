@@ -6,21 +6,20 @@ description: Steer a running omdsh turn with the next-turn queue, Plan mode, tod
 
 By the end of this walkthrough you can queue follow-up messages, enter Plan mode, and read task progress.
 
-### Queue follow-up messages
+### Queue or steer a request
 
-You do not need a special command to continue a running task. By default, Enter during `Deep Driving` places an ordinary message in the next-turn queue, shown immediately above the composer. Settings → Terminal → Input → Enter while running can change Enter to Steer. The composer shows the current action; explicit Queue and Steer shortcuts keep their meaning.
+While the agent is inspecting your project, try one of these actions. Read the delivery label above the composer to see when your message will be used.
 
-To correct a queued message before it runs: with an empty composer, press `Up` to select the newest queued message (press `Up` again for older ones), edit the text, and press `Enter` to return it to the queue. This works without interrupting the current tool call.
+| You want to | Action | Expected result |
+|---|---|---|
+| Ask a follow-up after this task | Type “Next, summarize the test setup” and press `Alt+Enter`. | **Queue · next turn** appears, waiting for the current turn to finish. |
+| Correct the current task | Type “Focus on the startup path first” and press `Alt+S`. | **Steer · next step** appears. Harness delivers it before the next model step, after any current tool call. |
+| Revise the latest queued request | With an empty composer, press `Alt+Up`, edit, then submit again. | The message returns to the composer for editing. |
+| Manage several pending requests | Open `/queue` or press `Alt+Q`. | Select an entry to edit, withdraw, or reorder it. |
 
-To correct the active task instead, type guidance and press `Alt+S`. The Harness receives it before the next model step; it does not interrupt the current tool call. **Steer · next step** remains visible until the message is claimed, while **Queue · next turn** waits for the current Turn to finish. Both delivery modes accept text, images and files, preserving image placement and file order. `Alt+Enter` always queues (Windows also uses `Ctrl+Q`), while `Alt+S` always steers. Delivery is fixed when submitted; changing the preference does not redirect pending messages. A rejected submission returns as an unsent draft without an automatic retry. If the turn ends while attachments are being saved, steering returns to the composer instead of silently starting a new turn. Idle Enter, commands and editing a recalled follow-up keep their existing behavior.
+By default, Enter during an active turn also queues a follow-up. **Settings → Terminal → Input → Enter while running** can change that to Steer. Explicit `Alt+Enter` and `Alt+S` keep their meanings, and both accept images and files with the text.
 
-Press `Ctrl+C` once to interrupt an active turn. A second `Ctrl+C` within the exit window leaves omdsh, so pause before pressing it again if you intend to continue the session.
-
-Open `/queue` or press `Alt+Q` to manage individual pending messages. The live list distinguishes **Steer · next step**, **Queue · next turn**, and **Sending · not yet accepted**. The labels and controls follow the UI language; message text stays literal. Type to filter and use arrows or Tab to select; Enter edits text while keeping its images and file references. While a turn is running, `Alt+S` moves the selected accepted Queue message to Steer with the same text, image and file references. Sending entries and messages already in Steer cannot be promoted. A stopped turn leaves the message queued. `Alt+D` withdraws one entry, and `Alt+↑`/`Alt+↓` move it within its group without crossing plugin-owned queue messages. Esc cancels, preserving the composer draft and accepted input.
-
-The pinned Harness release clears pending inbox messages when its Agent handle is disposed. Normal exit and session-switch cleanup therefore do not preserve the queue for resume. An unclaimed inbox can be replayed from a log that has not been cleared, but this is not a guarantee of recovery after normal exit. Composer drafts and input not yet accepted by Harness are saved separately. On restart, local pending input appears as **Recovered · review before sending** and waits for confirmation. Open `/queue`, select an entry and press `Alt+R` to send it, or recall it into the composer to edit and submit. Entries already recorded as accepted are removed using their Harness message identities. A command or child delivery may have completed before its local confirmation was saved; check the transcript before resending recovered input. Recovery never automatically replays commands or Shell actions.
-
-A tool question takes priority over the queue page. If it interrupts editing, the changed text returns as an unsent composer draft while the queued entry stays unchanged. If the model takes an entry before its edit can be saved, the edit also returns as a draft instead of automatically creating another message. Steer and Queue changes use the Harness’s durable inbox. Input not yet accepted by Harness is saved locally in its original session, including text, attachments, order and delivery intent. If a session switch interrupts an edit, the changed text and attachments are saved as a draft in the original session. A brief composer confirmation appears when Harness takes a pending message for processing; this does not claim the model has answered it.
+To interrupt the task, press `Esc`, or `Ctrl+C` with an empty composer. A second Ctrl+C within the exit window leaves omdsh. Accepted pending messages remain available while the session stays mounted, but normal exit and session-switch cleanup clear the Harness queue. Local input recovered after restart waits for your review before sending. The complete editing, interruption, and recovery rules are in [Sessions and history](../sessions.md#pending-messages-and-recovery).
 
 ### Plan before changing files
 
@@ -29,10 +28,16 @@ Run `/plan` before a task that needs investigation and an implementation proposa
 - `/plan <message>` enters Plan mode and sends the initial planning request together.
 - `/plan off` leaves Plan mode directly.
 
-Composer images travel with `/plan` and `/goal` when those commands accept them; `/plan off` and other image-less subcommands return the drafts to the composer.
+When the plan review opens, read the proposal and choose **Approve** to continue implementation or **Keep planning** to send feedback. Access controls tool permissions throughout the workflow. The review controls are described in [Commands](../commands.md).
+
+Composer images and files travel with `/plan` and `/goal` requests that accept attachments. `/plan off` and other subcommands that reject attachments restore the complete draft for correction.
 
 ### Follow task progress
 
 When the agent records a Todo list, a compact tree appears above the queue and composer. Completed items, the current item, and pending work use distinct states. The tree is the list; there is no command that prints a second, already stale copy of it.
 
 Todo describes the current turn's work, while `/goal <objective>` controls a longer-running goal. Run `/goal` without arguments to inspect its current state and available actions. Delegated children show up in the roster above the composer, where `↓` selects one and `Enter` opens its transcript; [Subagents and delegation](../subagents.md) covers the transports and how to steer a continuable child.
+
+### Next
+
+Next, [recover and manage a long session](long-session.md) to resume work, explore branches, and control context growth.

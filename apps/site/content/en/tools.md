@@ -10,7 +10,7 @@ The mounted tools come from published Harness plugins and from the session's Age
 
 | Tool | Behavior |
 |---|---|
-| `bash` / `pwsh` | One-shot commands in the confined shell for the host. Calls carry a 120-second timeout that the model can raise per call or avoid by running the command in the background. |
+| `bash` / `pwsh` | One-shot commands in the confined shell for the host. The shipped default timeout is 120 seconds. Settings → Plugins → Shell controls default and maximum timeouts; explicit per-call timeouts are capped by that maximum. Background commands appear in `/jobs`. |
 | `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, `terminal_list` | Persistent terminal sessions that retain cwd, environment, and interactive children across calls. |
 
 ## Working directory
@@ -29,7 +29,7 @@ Creation requires Git 2.45 or newer and Node in the same execution environment. 
 
 ## Web
 
-`web_fetch` retrieves public pages. `web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and the credential reference stored by `/login`. Page fetch therefore does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local HTTP fetch providers remain mounted; **Settings → Plugins → Web providers** switches between them. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
+`web_fetch` retrieves public pages. `web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and the credential reference stored by `/login`. Page fetch therefore does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local HTTP fetch providers remain mounted; **Settings → Plugins → Web search and fetch** switches between them. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
 
 ## Code intelligence
 

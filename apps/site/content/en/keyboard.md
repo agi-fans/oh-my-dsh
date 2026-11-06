@@ -89,7 +89,7 @@ Without a text selection, right-click a tool card with declared file locations t
 
 **Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
 
-Full-screen pages temporarily suspend application mouse handling, except `/trajectory` and `/diff`: click a record to inspect it, click a section to switch it, and use the wheel over either pane. Dragging still selects text; copy-on-select and explicit copying follow your settings. Reading views restore the inspected position on close; commands that return transcript text move to the live tail to show their result. In Diff, click file rows to switch files and use Tab to move keyboard focus between the file list and content. A opens secondary actions; ? opens help.
+Text readers, `/context`, `/trajectory`, and `/diff` support mouse-wheel scrolling and text selection. Click rows or section controls to navigate when available; dragging selects text, and copy behavior follows Settings. Native mouse mode delegates mouse input to the terminal. Reading views restore their previous position on close; commands returning transcript text move to the live tail. In Diff, click files and use Tab to switch pane focus. A opens secondary actions and ? opens help.
 
 File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text, `Q` quotes `@path:line` into the composer, and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
 
@@ -103,7 +103,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 | `Ctrl+C` once | Clear the composer, or interrupt the active turn while the composer is empty. |
 | `Ctrl+C` twice | Exit; a durable session prints an `omdsh --resume <session-id>` hint. |
 | `Ctrl+Z` | Suspend to the background. |
-| `Alt+L` | Reset the terminal display. |
+| `Alt+L` | Redraw the live display, preserving native scrollback. |
 | `Ctrl+R` | Search prompt history. |
 | `↓` (empty composer) | Enter the subagent roster; `↑`/`↓` select a child, `Enter` opens its transcript, `Esc` returns to the composer. |
 | `Alt+R` | Continue an eligible failed generation with an empty composer. |
@@ -119,7 +119,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 
 | Overlay | Keys |
 |---|---|
-| Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` change a value or show/hide a status item, `Enter` open configuration, change a value, or start moving a status item, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `/` or typing searches all categories, `Backspace`/`Ctrl+U` edit the query, `Ctrl+R` restores inheritance (status items restore color), `Esc`/`Ctrl+C` clear search, return to browsing, or close. |
+| Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` change a value or show/hide a status item, `Enter` open configuration, change a value, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `/` or typing searches all categories, `Backspace`/`Ctrl+U` edit the query, `Ctrl+R` restores inheritance, `Esc`/`Ctrl+C` clear search, return to browsing, or close. |
 | History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
 | Transcript search (`Ctrl+Shift+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
 | Trajectory (`/trajectory`) | `Enter` opens details; `Tab` switches record/detail focus, `←`/`→` switches sections, and `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` operate on the focused pane. In the list, `End` follows newest records. `Ctrl+N`/`Ctrl+P` selects records; `f` enlarges details and `y` copies section content. `Space` expands context/subcalls, `t` folds turns, `c` folds calls, `e` filters problems, and `s` visits calls by descending duration. `/` searches all records; `n`/`N` steps matches (`Ctrl+N`/`Ctrl+P` while typing). `Esc`/`Ctrl+C` closes details, then the ledger. |

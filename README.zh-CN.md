@@ -4,7 +4,7 @@
 
 **探索未至之境**
 
-omdsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的终端客户端：一个专注、键盘优先的 DeepSeek 编程智能体，构建于其插件架构之上，并受到 [oh-my-pi](https://github.com/can1357/oh-my-pi) 出色交互体验以及最初的 [Pi](https://github.com/earendil-works/pi) Agent Harness 的启发。
+oh-my-dsh 致力于成为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的最佳 TUI 补充，在使用体验、交互和视觉品质上持续对齐 Harness，为终端带来美观、清晰、流畅的编程体验。项目构建于已发布的 Harness 插件运行时之上，以 `omdsh` 命令启动。
 
 [![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
@@ -14,7 +14,7 @@ omdsh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) �
 
 [![omdsh 终端演示 — 一轮真实的 DeepSeek 账户回合](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
 
-真实的 Kaku 录屏：一轮 DeepSeek 账户回合——回复落地，运行折叠成 `Worked for 2s · Ctrl+O to expand`，页脚给出这一回合的上下文、缓存与延迟。点击可看全分辨率录像。
+这段真实的 Kaku 录屏展示了一轮 DeepSeek 账户对话，回复落地后，过程收起为 `Worked for 2s · Ctrl+O to expand`，底部显示上下文、缓存与延迟。录制时使用 v0.22.0，启动页头随后进行了简化。点击可查看全分辨率录像。
 
 ## 快速开始
 
@@ -25,69 +25,36 @@ npm install --global @agi-fans/oh-my-dsh
 omdsh
 ```
 
-进入 omdsh 后运行一次 `/login`，用 DeepSeek 账户登录或保存 API Key，即可开始对话。如果不想全局安装，可以运行 `npx @agi-fans/oh-my-dsh` 临时体验。
+进入 omdsh 后运行 `/login`，用 DeepSeek 账户登录或保存 API Key，再通过 `/model` 选择模型。账户登录请选择 `deepseek-account` 下的模型，随后即可发送请求。也可以用 `npx @agi-fans/oh-my-dsh` 临时体验。[第一个任务教程](https://omdsh.agi.fans/zh/docs/tutorials/first-task/) 会带你完成登录和一次项目检查。
 
-## 功能亮点
+## omdsh 的特色
 
-- **DeepSeek Harness 的终端客户端：** 原生滚动回看、固定 composer、按显示单元格排版的 TUI，每个流程都有键盘路径；构建于已发布插件运行时之上，而不是分叉。
-- **持久化对话：** 在 `/resume` 中搜索、置顶、重命名和恢复会话，并支持回退、重试、压缩，以及将完整对话导出为 Markdown 或独立 HTML。
-- **DeepSeek 原生鉴权：** 在 `/login` 中通过浏览器登录或保存 API Key；与 DSH 共享的 DeepSeek 账户 grant 会被复用，`/logout` 可以登出，网页搜索/抓取使用同一份凭据。
-- **三项真实会话控制：** 选择 Harness Agent preset（Standard、PTC、Minimal 或 Cordis）、Workflow（Default 或 Plan）和 Access（Read only、Workspace write 或 Full access）。每个 Agent preset 自己决定工具暴露方式；PTC 会自动使用生成的 TypeScript SDK。
-- **丰富的终端输入：** 使用 `@` 提及项目文件和其他会话，粘贴剪贴板图片，复用持久输入历史，通过外部编辑器处理多行 Prompt，并取回排队中的后续消息。
-- **清晰的回合展示：** 运行时跟随思考、回复和工具预览，完成后将过程折叠为耗时摘要，保留完整的最终答复；`Ctrl+O` 恢复过程视图。两种视图均可滚动，当前请求固定在顶部，按 `End` 即可回到最新消息。
-- **可检查的工作过程：** 按 `Alt+O` 查看当前回合的完整工具输入和结果，用 `/trajectory` 检查事件详情，查看每个回合改动的文件，并让模型搜索同一工作区的历史会话。Composer 为空时按 `↓` 在名册里选中子智能体，按 `Enter` 打开它的转录，可续写任务在那里跟进。
-- **实时运行上下文：** 无需离开 Composer，即可查看 Agent、Workflow、Access、模型、推理强度、工作区、Git 状态、上下文压力、Token、TTFT、吞吐率、缓存、耗时、轮次和步骤；使用 `/context` 可以在 transcript 中直接查看并保留基于 Projection 的构成明细。
-- **为响应速度而设计：** 复用已完成的 Transcript 布局、合并滚动更新、只输出发生变化的终端行，并正确处理 CJK 文本和 emoji 的显示宽度。
+- **工作过程清楚可读。** 思考和工具调用以紧凑行展示，键盘操作或点击展开箭头即可查看。完成后过程收起为耗时摘要，回复和失败信息继续可见，完整输入与结果也能随时查阅。
+- **认真打磨终端视觉。** Markdown、代码、表格和 Diff 都有明确的留白与阅读层次。深浅配色分别基于 Catppuccin Mocha 和 Latte，并提供跟随终端颜色的 System 选项。排版兼顾中文和 emoji 的显示宽度。
+- **键盘与鼠标配合。** 用按键导航、鼠标滚动与展开详情，选中文字复制，或引用到草稿中。阅读时输入区和状态栏固定在底部。
+- **熟悉的 Harness 控制。** 使用 DeepSeek 账户或 API Key 登录，选择模型与推理强度，通过 Plan 模式调查任务，并为会话设置 Access。底层行为、可复用的 Skills、MCP 工具和 Agent 预设由 Harness 插件提供。
+- **贯穿多轮工作的会话。** 附加文件与图片、排队后续请求、引导可继续的子智能体，搜索并恢复历史会话。随着任务推进，可以回退、压缩和导出，同时保留终端原生滚动历史。
+- **按需查看完整细节。** 用 `/context` 检查上下文占用，`/trajectory` 回顾执行过程，`/diff` 阅读文件变更。可配置状态栏把需要的运行数据放在输入区旁。
 
-## 文档
+## 如何阅读文档
 
-完整文档发布在[官方站点](https://omdsh.agi.fans/zh/)；`apps/site/content/` 下的 Markdown 是它的内容源。
+从[教程导读](https://omdsh.agi.fans/zh/docs/tutorials/)开始，再按你的目标选择路线。
 
-**从这里开始**
+| 你想做什么 | 从这里开始 |
+|---|---|
+| 试用 omdsh 并看懂界面 | [完成第一个任务](https://omdsh.agi.fans/zh/docs/tutorials/first-task/)，再[调整工作环境](https://omdsh.agi.fans/zh/docs/tutorials/environment/) |
+| 用于日常编程 | [提供精确上下文](https://omdsh.agi.fans/zh/docs/tutorials/precise-context/)、[引导运行中的任务](https://omdsh.agi.fans/zh/docs/tutorials/guide-a-turn/)、[管理长会话](https://omdsh.agi.fans/zh/docs/tutorials/long-session/) |
+| 查找操作或排查问题 | [命令](https://omdsh.agi.fans/zh/docs/commands/)、[键盘与鼠标](https://omdsh.agi.fans/zh/docs/keyboard/)、[设置](https://omdsh.agi.fans/zh/docs/settings/)和[故障排查](https://omdsh.agi.fans/zh/docs/troubleshooting/) |
+| 补充项目知识或能力 | [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/tutorials/skills-and-mcp/)、[语言服务器](https://omdsh.agi.fans/zh/docs/language-servers/)和[用户插件](https://omdsh.agi.fans/zh/docs/plugins/) |
+| 开发集成 | [编写插件](https://omdsh.agi.fans/zh/docs/tutorials/write-a-plugin/)、[插件内部机制](https://omdsh.agi.fans/zh/docs/plugin-internals/)和[架构](https://omdsh.agi.fans/zh/docs/architecture/) |
 
-- [教程](https://omdsh.agi.fans/zh/docs/tutorials/) — 完成第一个任务、提供精确的项目上下文、引导排队工作、恢复长会话、调整工作环境，并编写可安装插件。
-- [命令](https://omdsh.agi.fans/zh/docs/commands/) — 每个斜杠命令的参数与别名。
-- [键盘与快捷键](https://omdsh.agi.fans/zh/docs/keyboard/) — 编辑、转录、浮层按键与 `keybindings.json`。
+`apps/site/content/` 下的双语 Markdown 是文档内容源。发现问题或希望改进某项体验，可以通过 [Issue 表单](https://github.com/agi-fans/oh-my-dsh/issues/new/choose)反馈。
 
-**参考**
+## 与 Harness 的关系
 
-- [会话与历史](https://omdsh.agi.fans/zh/docs/sessions/) — 持久日志、Session Library 与本地数据文件。
-- [子智能体与委派](https://omdsh.agi.fans/zh/docs/subagents/) — 三种 transport、打开子会话转录的名册、引导与后台任务。
-- [可观测性](https://omdsh.agi.fans/zh/docs/observability/) — `/trajectory`、`/context`、`/diff`、`/tools` 与 `/mcp`。
-- [设置](https://omdsh.agi.fans/zh/docs/settings/) — 外观、动效、通知与可配置的状态栏。
-- [权限与 Access](https://omdsh.agi.fans/zh/docs/permissions/) — Access preset、沙箱与审批。
-- [命令行](https://omdsh.agi.fans/zh/docs/cli/) — flags、子命令与环境变量。
-- [工具](https://omdsh.agi.fans/zh/docs/tools/) — 模型可用的工具，按能力分组。
-- [故障排查](https://omdsh.agi.fans/zh/docs/troubleshooting/) — 退出、颜色、滚动回看与启动失败。
+DeepSeek Harness 提供 Agent 运行时和“一切皆插件”的架构。omdsh 将这些已发布的软件包组合为社区维护的终端应用。Harness 负责会话、模型、工具、权限及其生命周期，omdsh 负责这些工作在终端中的阅读、导航与交互。
 
-**扩展与集成**
-
-- [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/) — 可复用指令与外部工具。
-- [语言服务器](https://omdsh.agi.fans/zh/docs/language-servers/) — 配置只读代码智能。
-- [用户插件](https://omdsh.agi.fans/zh/docs/plugins/) — 用 `omdsh plugin` 把 DSH bundle 装进 omdsh Profile。
-- [插件内部机制](https://omdsh.agi.fans/zh/docs/plugin-internals/) — `ctx.tui` 表面与贡献层。
-
-**内部实现**
-
-- [架构](https://omdsh.agi.fans/zh/docs/architecture/) — 插件边界与运行时数据流。
-- [性能](https://omdsh.agi.fans/zh/docs/performance/) — Benchmark、测试方法与渲染优化。
-
-使用引导表单[报告问题或提出功能建议](https://github.com/agi-fans/oh-my-dsh/issues/new/choose)，请提供版本、运行环境、复现步骤与脱敏上下文。
-
-## 为什么做 oh-my-dsh
-
-DeepSeek Harness 提供了能力完整的 Agent Runtime，也带来了一条很重要的架构原则：一切皆插件。oh-my-dsh 将这套运行时带入安静、键盘驱动的终端体验，同时不创造第二套 Agent Core，也不使用平行抽象将 Harness 隐藏起来。
-
-TUI 始终只是表现层与交互层。会话、工具、权限、模型、Skills、MCP Server、命令和遥测数据来自 Harness Service 与插件；omdsh 负责将它们组合为终端应用，并补充舒适使用这些能力所需的界面行为。`/trajectory` 会打开键盘驱动的事件账本，提供 Turn/Step 分组、实时跟随、搜索、折叠、耗时、Token 用量以及工具 Payload、Result 和 Schema 检查。`/context` 与状态栏读取同一套客户端可见 Harness Projection，并明确区分由提供方数据锚定的占用量和启发式 Prompt 构成估算。
-
-项目遵循四项原则：
-
-- **原生融入 Harness：** 使用正式发布的 DeepSeek Harness 软件包，并将其作为 Agent 行为、状态与生命周期的事实来源。
-- **建立真实插件边界：** 为拥有独立生命周期和贡献点的能力建立插件，而不是把每个源文件都变成插件。
-- **终端只有一个所有者：** 将 raw input、光标状态、viewport 管理和原子化渲染保留在本地 TUI Provider 中。
-- **渐进式呈现：** 默认界面保持简洁，同时让工具、遥测、设置及会话详情可以按需发现。
-
-`refs/` 下的参考项目始终是只读研究材料。运行时代码只依赖已发布软件包和 oh-my-dsh 自身的 workspace 软件包。
+对齐意味着把熟悉的 Harness 概念与行为带入终端单元格、键盘输入和原生滚动历史的环境。omdsh 围绕这些约束发展自己的呈现方式，重视渐进展开、清晰阅读和一致操作。各功能参考页说明当前支持范围与限制。
 
 ## 架构
 
@@ -105,7 +72,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 ## 性能
 
-性能是 TUI 架构本身的一部分：持久化会话按线性时间回放，Harness Projection 避免重复扫描历史，已完成的 Transcript 区块会保留格式化布局，终端写入器则只输出发生变化的行。2026 年 8 月的 Apple M5 Pro 测量记录中，恢复 10,000 轮对话的中位耗时为 2.62 ms，恢复 10,000 次工具调用为 22.71 ms，在 5,000 轮对话界面上渲染缓存帧的平均耗时为每帧 0.35 ms。这些是历史测量值，不代表最新版本的基准结果。
+性能优化覆盖会话回放、转录布局缓存、流式 Markdown 和长文件阅读。2026 年 11 月 6 日的 Apple M5 Pro CPU 基准中，10,000 轮生命周期投影的中位耗时为 2.567 ms，109,500 字符 Markdown 预览滚动为 0.383 ms，10,000 行源码阅读器横向平移为 0.212 ms。这些测量隔离了本地处理成本，不含模型延迟、磁盘 I/O 和终端绘制。
 
 完整方法与限制请参阅可复现的 [TUI 性能报告](https://omdsh.agi.fans/zh/docs/performance/)，也可以在本地运行 `pnpm benchmark:tui`。
 
@@ -113,7 +80,7 @@ TUI 软件包拆分为 Service Definition、本地终端 Provider、会话与交
 
 运行 `/login` 可以配置一家提供方。DeepSeek 会打开官方 Key 管理页、验证 Key，并把它存入共享的 Harness 凭据库中的 `DEEPSEEK_API_KEY`；由环境变量提供、不可覆盖的值保持不变。可以在 `/login` 中登录 DeepSeek 账户：TUI 通过 loopback 回调接收浏览器授权，也会复用 DSH Web/Desktop 已建立的授权。之后 `deepseek-account` 路由会与 API Key 路由一同出现在 `/model`；登出可以在 `/logout` 或同一个账户入口中完成。当已挂载的提供方注册了 Harness 授权流程时，`/login` 会列出该流程及其方法，终端只渲染流程要求的通知和提问。同一条命令也可以激活 catalog API Key 提供方，或添加自定义提供方（自己的 id、Base URL、协议和模型 id）。`/logout` 只删除存储在文件中的凭据；环境变量可用时会回退到环境变量。
 
-模型设置与其他插件配置都持久化到当前 Profile 的 Cordis 补丁 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 中；更早版本留下的 `settings.yaml` 会在启动时导入一次，并重命名为 `settings.yaml.imported`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Ctrl+T` 切换推理强度。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
+模型设置与其他插件配置都持久化到当前 Profile 的 Cordis 补丁 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 中；更早版本留下的 `settings.yaml` 会在启动时导入一次，并重命名为 `settings.yaml.imported`。使用 `/model favorite` 和 `/model unfavorite` 维护本地快速切换列表，再用 `Ctrl+P`/`Alt+P` 前后切换模型，使用 `Shift+Tab` 切换推理强度（`Ctrl+T` 控制思考内容的显示）。Skills 与 MCP 的配置方式请参阅 [Skills 与 MCP](https://omdsh.agi.fans/zh/docs/skills-and-mcp/)。
 
 升级后，omdsh 可以在启动时只展示一次版本说明。使用 `/changelog` 查看近期条目，或使用 `/changelog full` 查看随包发布的完整历史。程序每天至多执行一次带缓存的 npm 版本检查，只提示新版本而不会自动安装；这两项行为都可以在 `/settings` 中调整。长任务完成和等待人工输入的终端通知也在这里配置，并且默认关闭。每一项设置、可选值与默认值见[设置](https://omdsh.agi.fans/zh/docs/settings/)。
 

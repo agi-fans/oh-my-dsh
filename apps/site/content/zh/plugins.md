@@ -21,7 +21,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 | 斜杠命令 | `dsh-commands` 的元数据与处理器 | 出现在 `/help`、自动补全和 Runner 中 |
 | 工具 | `ToolDefinition`，包括 `presentCall` / `presentResult` | 渲染为卡片，否则使用通用回退 |
 | 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥、运行已注册的授权流程，或添加自定义 profile |
-| 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 与树中其余部分已经读取的 Profile 补丁共用 |
+| 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 设置使用 Profile 补丁，密钥值使用凭据存储 |
 | 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
 | Skill | Harness Skill Registry | 以 `/<skill-name>` 展示 |
 | MCP Server | 每个 Server 对应一行 `dsh-mcp-client` | 出现在 `/mcp` 和 `/tools` 中 |
@@ -150,7 +150,7 @@ CLI 成功添加后重启 omdsh；运行中选择器会单独报告实时应用�
       name: '@scope/dsh-example'
 ```
 
-将 `@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 作为 peer，固定到 omdsh 随包发布的同一 DSH 版本。不要在 bundle 自己的 dependencies 里再嵌一份 `cordis` 或 `dsh-*`。只导入已发布的软件包导出。不要进入 `refs/`。不要假定存在 Host、HTTP 或 Web UI。
+将 Harness 包声明为 peer，与 omdsh 固定的 DSH 和 Cordis 版本兼容。使用 TUI 服务时，为 `@agi-fans/dsh-tui` 声明兼容的产品版本。不要在 bundle 自己的 dependencies 里再嵌一份 `cordis` 或 `dsh-*`。只导入已发布的软件包导出。不要进入 `refs/`。不要假定存在 Host、HTTP 或 Web UI。
 
 优先使用现有缝：
 
@@ -160,11 +160,11 @@ CLI 成功添加后重启 omdsh；运行中选择器会单独报告实时应用�
 - 通过 `ctx.credentials` 存储密钥；
 - 通过 `ctx.tui.prompt` 向用户提问。
 
-需要自定义 Transcript 块、overlay、主题包或独占 TTY 的插件，不在第一批兼容集合内。`ctx.tui.contributions` 发布后，只有 `presentCall` / `presentResult` 表达不了卡片时才注册带类型的卡片 presenter，status segment 发布的是 projection id，而不是本地计数器。
+自定义 Transcript 块、overlay 和主题包需要独立设计展示 API。当前 bundle 使用已发布的工具与 prompt 契约，详见[插件内部机制](plugin-internals.md)。
 
 ## 相关文档
 
 - [架构](architecture.md) — 产品 composition 与 TUI 所有权
-- [插件内部机制](plugin-internals.md) — `ctx.tui` 表面与规划中的贡献层
+- [插件内部机制](plugin-internals.md) — 已发布接口与终端归属
 - [Skills 与 MCP](skills-and-mcp.md) — 文件系统 Skills 与 MCP Server 文档
 - [编写插件](tutorials/write-a-plugin.md) — 编写、安装并发布 bundle
