@@ -193,6 +193,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Removed
 
+- Startup Tips, leaving a compact logo, product name, version and slogan.
+
 - `/session`; current-session information is available in `/context`.
 
 ## [0.22.0] - 2026-10-31

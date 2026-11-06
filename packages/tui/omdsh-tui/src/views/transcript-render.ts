@@ -2572,10 +2572,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     && options.input === '' && (options.inputImages ?? 0) === 0
     ? options.modelReady === false
       ? theme.text('Run /login to connect a model')
-      // `/ commands` and `@ files` are already on the header's hint line, and this
-      // one is the copy that costs every frame: the header's scrolls into history
-      // once the conversation starts, this one does not. A bare prompt is enough
-      // to say the composer is ready for words.
       : (options.sessionControls?.plan?.pending ? !options.sessionControls.plan.active : options.sessionControls?.plan?.active)
         ? theme.text('Describe your task to generate a plan')
         : theme.text('Ask anything')

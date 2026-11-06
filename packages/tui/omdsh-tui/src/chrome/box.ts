@@ -6,7 +6,6 @@
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
 import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped } from './width.ts'
-import { HINT_LABEL, WELCOME_HINTS, type WelcomeHint } from './welcome-tips.ts'
 
 /** Visual state that drives border + fill color. */
 export type BoxState = 'idle' | 'info' | 'running' | 'ok' | 'error' | 'warning'
@@ -100,28 +99,12 @@ export interface WelcomeOptions {
   reasoningEffort?: string
   version: string
   appName: string
-  /** Startup hints; defaults to every entry in the shipped catalog. */
-  hints?: readonly WelcomeHint[]
 }
 
 /** Gap between the mark and the wordmark beside it. */
 const LOCKUP_GAP = 3
 
-/**
- * Startup header: the DeepSeek mark beside the name, its version, and the
- * slogan, then one sampled hint.
- *
- * It is a lockup rather than a card. The previous header was a thirteen-row
- * bordered panel with a tips table, a recent-session list, and a second copy of
- * the model and effort the status footer already shows — most of a screen spent
- * before the reader has typed anything, and its rows were committed to native
- * scrollback where they stay. Nothing here repeats what the composer and footer
- * already say.
- *
- * The mark is the brand, so it stays at its source aspect ratio; below the width
- * that holds the lockup, the wordmark folds underneath rather than the mark
- * shrinking or the slogan being dropped.
- */
+/** Startup logo, name, version and slogan, stacked when the terminal is narrow. */
 export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const width = Math.max(0, options.width)
   if (width < 8) return []
@@ -141,7 +124,6 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
   const lockupWidth = logoWidth + LOCKUP_GAP + markWidth
   const left = ' '.repeat(margin)
 
-  const hints = hintLine(options.hints ?? WELCOME_HINTS, theme)
   if (lockupWidth <= room) {
     // The wordmark sits on the mark's vertical centre. Centring by height is what
     // makes the two read as one lockup; aligning their first rows left the name
@@ -151,15 +133,9 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
       const text = wordmark[row - offset]
       return (left + (text === undefined ? logoRow : logoRow + ' '.repeat(LOCKUP_GAP) + text)).replace(/\s+$/u, '')
     })
-    // One blank row, then the hint. It costs a single row and replaces a whole
-    // tips table, so the header still ends well inside a screen.
-    if (hints !== '') lockup.push('', ...wrapTextStable(left + hints, width).map((line) => line.replace(/\s+$/u, '')))
     return lockup
   }
 
-  const hintRows = hints === ''
-    ? []
-    : ['', ...wrapTextStable(left + hints, width).map((line) => line.replace(/\s+$/u, ''))]
   if (logoWidth <= room) {
     // Too narrow for both: the wordmark goes under the mark, still centred, and
     // the mark keeps its proportions.
@@ -168,34 +144,14 @@ export function renderWelcome(options: WelcomeOptions, theme: Theme): string[] {
       '',
       ...wordmark.flatMap((line) => wrapTextStable(line, room))
         .map((line) => (left + line).replace(/\s+$/u, '')),
-      ...hintRows,
     ]
   }
 
   // Narrower than the mark itself. A cropped logo is not the logo, so the header
-  // falls back to the wordmark alone — the hint still survives, because it is the
-  // only thing here that teaches a reader where to start.
+  // falls back to the wordmark alone.
   return [
     ...wordmark.flatMap((line) => wrapTextStable(line, room)).map((line) => line.replace(/\s+$/u, '')),
-    ...hintRows,
   ]
-}
-
-/**
- * The hint line: a labelled lead, then each key with its words, `·` between.
- *
- * The label earns its two words. Without it the line reads as another row of
- * chrome — a few dim fragments under a logo — and a reader skips it. `Tips:`
- * in the accent ink says "this is advice about what you can do", which is the
- * only thing on the header that a reader has to decide to read.
- */
-function hintLine(hints: readonly WelcomeHint[], theme: Theme): string {
-  if (hints.length === 0) return ''
-  // One space after the label, then `key text` entries joined by a separator
-  // that carries its own spaces — so no entry opens with a second one.
-  const entries = hints.map((hint) => theme.fg('dim', hint.key) + theme.fg('muted', ' ' + theme.text(hint.text)))
-  return theme.bold(theme.fg('accent', theme.text(HINT_LABEL)))
-    + ' ' + entries.join(theme.fg('borderMuted', ' · '))
 }
 
 /** Editor chrome inputs. */

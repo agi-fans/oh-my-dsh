@@ -777,10 +777,13 @@ describe('LocalTui folds against a scrolling terminal', () => {
     const tui = new LocalTui(term, 'm', color)
     try {
       tui.applyStoredPrefs({ theme: 'dark', colors: color, foldDensity: 'verbose' })
-      longTurn(tui, 30, 1)
+      longTurn(tui, 30, 5)
       expect(term.scrollback().filter(row => row.includes('map the project 1'))).toHaveLength(1)
       const frozen = term.scrollback()
-      if (browsing) press(term as never, '\x1b[5~')
+      if (browsing) {
+        press(term as never, '\x1b[5~')
+        expect(term.visible().join('\n')).toContain('Latest · End')
+      }
       tui.applyStoredPrefs({ theme: 'dark', colors: color, foldDensity: 'standard' })
       longTurn(tui, 1, 30, true, 2)
       if (browsing) {
@@ -835,8 +838,8 @@ describe('LocalTui folds against a scrolling terminal', () => {
         expect(term.visible()).toEqual(screen)
         expect(term.scrollback()).toEqual(history)
         if (releasesMouse) expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
-        // The restored frame must still accept wheel input, not only look right.
-        press(term, '\x1b[<64;5;5M')
+        // Scroll down so the check also works when paging reached the top.
+        press(term, '\x1b[<65;5;5M')
         expect(term.visible()).not.toEqual(screen)
         press(term, '\x0f')
         tui.dispose()

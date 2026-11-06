@@ -26,9 +26,7 @@ function composerRows(frame: string): string {
 
 describe('composer empty state', () => {
   it('offers a bare placeholder while idle and empty', () => {
-    // `/ commands` and `@ files` live on the header's hint line. Repeating them
-    // in the composer would cost every frame, since this text is redrawn while
-    // the header's scrolls into history.
+    // Keep the ready composer focused on entering a task.
     const composer = composerRows(screen(''))
     expect(composer).toContain('Ask anything')
     expect(composer).not.toContain('/ commands')

@@ -386,7 +386,14 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('error:'), 'rend
   term.kill()
   process.exit(1)
 }
-term.write('\x1b[<64;10;5M')
+// Keep this fixture scrollable independently of startup header height.
+mark = out.length
+term.resize(80, 20)
+term.write('\x1b[5~')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End'), 'browsing before settings', deadline))) {
+  term.kill()
+  process.exit(1)
+}
 mark = out.length
 term.write('/settings\r')
 if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends transcript mouse tracking', deadline))) {
@@ -399,6 +406,7 @@ if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?
   term.kill()
   process.exit(1)
 }
+term.resize(80, 30)
 mark = out.length
 term.write('\x1b')
 await sleep(100)
@@ -527,12 +535,10 @@ const ok = exitCode === 0
   // invariant — it ends disabled — rather than that one particular surface turned
   // it off on the way out.
   && out.lastIndexOf('\x1b[?1006l\x1b[?1002l\x1b[?1000l') > out.lastIndexOf('\x1b[?1000h\x1b[?1002h\x1b[?1006h')
-  // The header is a lockup now: the mark, its name and version, the slogan, and
-  // one discovery hint. The recent-session list it used to carry is what `/resume`
-  // covers instead, so this asserts the shipped shape rather than a list.
+  // Startup branding stays compact.
   && clean.includes('Into the Unknown')
   && clean.includes('Oh-My-DSH v')
-  && clean.includes(' commands · ')
+  && !clean.includes('/help all shortcuts')
   && !clean.includes('Recent sessions')
   && clean.includes('hi')
   && clean.includes('error:')

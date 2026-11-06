@@ -99,32 +99,6 @@ describe('renderWelcome', () => {
     expect(nameRow).toBeLessThan(logoRows.at(-1) ?? 0)
   })
 
-  it('puts the hint under the lockup, in one row that names its keys', () => {
-    const lines = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
-    const hint = lines.find(line => line.includes('commands')) ?? ''
-    expect(hint).toContain('Tips:')
-    expect(hint).toContain('/')
-    expect(hint).toContain('files')
-    expect(hint).toContain('shell')
-    expect(hint).toContain('/help')
-    expect(hint).toContain(' · ')
-    expect(lines.at(-1)).toBe(hint)
-  })
-
-  it('teaches discovery keys, never the universal ones', () => {
-    // `Esc` and `Enter` are learned once; a header that repeats them is a
-    // permanent line about nothing the reader still needs.
-    const hint = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi).find(line => line.includes('commands')) ?? ''
-    expect(hint).not.toContain('Esc')
-    expect(hint).not.toContain('Enter')
-    expect(hint).not.toContain('Ctrl+C')
-  })
-
-  it('keeps the hint when the wordmark folds under the mark', () => {
-    const lines = renderWelcome({ width: 26, version: '0.1.0', appName: 'omdsh' }, theme).map(stripAnsi)
-    expect(lines.join('\n')).toContain('commands')
-  })
-
   it('never emits a row wider than the terminal', () => {
     for (const width of [140, 92, 60, 46, 40, 26, 18, 12, 8]) {
       for (const line of renderWelcome({ width, version: '0.1.0', appName: 'omdsh' }, theme)) {
@@ -144,7 +118,7 @@ describe('renderWelcome', () => {
     // The header names what this is; the command a reader types stays `omdsh`.
     // A longer name spends more of the row, so the folded layouts are the ones
     // that can regress: below the lockup width the wordmark moves under the mark
-    // and the hint wraps, and every row still has to fit the terminal.
+    // and every row still has to fit the terminal.
     const name = 'Oh-My-DSH'
     for (const width of [140, 100, 92, 80, 64, 52, 40, 36, 30, 24]) {
       const lines = renderWelcome({ width, version: '0.21.0', appName: name }, theme)
@@ -163,7 +137,7 @@ describe('renderWelcome', () => {
     expect(lines.join('\n')).not.toContain('deepseek-v4-pro')
   })
 
-  it('keeps the brand and the hint layered in every shipped theme', () => {
+  it('keeps the brand layered in every shipped theme', () => {
     for (const name of THEME_NAMES) {
       const painted = createTheme(true, true, name)
       const text = renderWelcome({ width: 92, version: '0.1.0', appName: 'omdsh' }, painted).join('\n')

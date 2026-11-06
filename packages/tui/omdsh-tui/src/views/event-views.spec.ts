@@ -24,7 +24,6 @@ const view = (state: TranscriptState, input = '') =>
     input,
     inputCursor: input.length,
     colors: false,
-    welcomeTips: [{ key: '/', text: 'Browse available commands' }],
   })
 
 /**
@@ -1528,7 +1527,6 @@ describe('renderView', () => {
       input: '',
       inputCursor: 0,
       colors: false,
-      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
       subagents: {
         agents: [{
           id: 'child-1',
@@ -1596,7 +1594,6 @@ describe('renderView', () => {
       input: '',
       inputCursor: 0,
       colors: false,
-      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
       subagents: {
         agents: [{
           id: 'child-1',
@@ -1667,7 +1664,6 @@ describe('renderView', () => {
       input: '',
       inputCursor: 0,
       colors: false,
-      welcomeTips: [{ key: '/', text: 'Browse available commands' }],
       scrollStart: 1000,
     })
     expect(frame.lines.length).toBeLessThanOrEqual(24)
@@ -1749,15 +1745,13 @@ describe('renderView', () => {
     // The composer is ruled above and below rather than enclosed in a box.
     expect(text).toContain('🐳')
     expect(text).not.toContain('╭')
-    // The header is a lockup, not a bordered card: one labelled hint line
-    // rather than a tips table and a session list.
-    expect(text).toContain('Tips:')
+    expect(text).not.toContain('/help all shortcuts')
     expect(text).not.toContain('Recent sessions')
     expect(text).not.toMatch(/(^|\n)> /)
     const editorStart = composerStart(frame.lines)
     const editorRows = composerRows(frame.lines, editorStart)
     expect(frame.lines[editorStart + editorRows - 1]).toMatch(/^─+$/u)
-    expect(text).toContain('/ commands')
+    expect(text).not.toContain('/ commands')
   })
 
   it('keeps the whale composer minimal and renders a fixed two-line status footer', () => {
