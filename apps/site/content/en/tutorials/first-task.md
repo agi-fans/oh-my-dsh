@@ -42,7 +42,7 @@ Access controls tool permissions, and any escalation still goes through approval
 
 <video src="/omdsh-demo.mp4" poster="/omdsh-demo-poster.png" controls muted autoplay loop playsinline width="100%"></video>
 
-This 26-second terminal recording shows the agent reading the repository README and replying. The completed process folds into a `Worked for …` summary, then opens again to review the thinking and tool rows. The input and footer stay visible throughout.
+This 26-second terminal recording, captured with v0.22.0, shows the agent reading the repository README and replying. The completed process folds into a `Worked for …` summary, then opens again to review the thinking and tool rows. The input and footer stay visible throughout.
 
 | Part of the interface | What to do |
 |---|---|

@@ -46,9 +46,16 @@ Preserve unrelated user changes. Never reset, discard, stash, or silently includ
 3. Move all `Unreleased` entries into `## [X.Y.Z] - YYYY-MM-DD`, using the current local ISO date. Restore an empty `## [Unreleased]` section.
 4. Update comparison links so `[Unreleased]` compares `vX.Y.Z...HEAD`, `[X.Y.Z]` compares the previous release tag with `vX.Y.Z`, and the first-release link remains a direct release URL.
 5. Update `pnpm-lock.yaml` only if package-manager metadata actually changes. Never hand-edit registry integrity data.
-6. Review the diff for unrelated files, accidental `refs/` changes, stale versions, and Markdown hard wrapping.
+6. Synchronize the documentation demo version using the checks below.
+7. Review the diff for unrelated files, accidental `refs/` changes, stale versions, and Markdown hard wrapping.
 
 Use `apply_patch` for repository file edits. Do not use `npm version` or another command that implicitly creates a tag.
+
+### Synchronize documentation demos
+
+- The English and Chinese homepages' interactive terminal illustration must display the target release version. Keep `apps/site/src/version.ts` sourced from `apps/omdsh/package.json` and pass that value through `Home.astro` to `TerminalDemo.astro`. After building, inspect `apps/site/dist/index.html` and `apps/site/dist/zh/index.html` and verify the version inside `.td-name` equals the target.
+- Check the README pair, the generated npm README, and both first-task tutorials for demo references and captions. Keep the video, GIF, and poster aligned and run `pnpm sync:package-readme` after changing the English README.
+- Native recordings retain the version actually visible in their frames. If a recording predates the version bump, identify its captured version in the visible caption. When footage of the target version is requested or the interaction has changed, use [record-tui-demo](../record-tui-demo/SKILL.md) to capture the built target version and refresh the video, GIF, poster, and bilingual captions together. Preserve a user-selected recording unless replacement is requested; never paint over its version or label older footage as a new capture.
 
 ## Verify source and packages
 

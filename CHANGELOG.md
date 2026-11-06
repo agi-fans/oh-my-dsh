@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-06
+
 ### Added
 
 - Model selection shows ready providers while slower catalogs load, keeps the picker responsive during refresh, and discards results after closing or starting a newer refresh.
@@ -980,7 +982,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.19.0...v0.20.0
