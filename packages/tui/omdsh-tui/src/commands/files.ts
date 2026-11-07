@@ -16,6 +16,7 @@ import { basename, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { TuiService } from '../definition.ts'
 import { logAttachments } from '../views/session-files.ts'
 import { filePreview, openSystemFile, reviewFiles } from '../runtime/file-review.ts'
 import { previewImages } from '../runtime/image-preview.ts'
@@ -72,10 +73,13 @@ async function stageAttachment(ctx: Context, invocation: CommandInvocation, inpu
 
 async function attachments(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   if (ctx.tui.interactive !== true) return listAttachments(ctx, invocation)
+  const abort = new AbortController()
+  invocation = { ...invocation, signal: AbortSignal.any([invocation.signal, abort.signal]) }
+  const prompt: TuiService['prompt'] = request => ctx.tui.prompt({ ...request, signal: invocation.signal, onSuperseded: () => abort.abort() })
   while (!invocation.signal.aborted) {
     // Re-read every pass: adding a file during this loop has to show up in it.
     const refs = logAttachments(invocation.agent.session.snapshotEvents())
-    const answer = await ctx.tui.prompt({
+    const answer = await prompt({
       title: 'Attachments',
       question: ctx.tui.stageFileAttachment === undefined ? 'Choose a stored attachment' : 'Choose a stored attachment, or add a file',
       presentation: 'card', filterable: true, allowCustom: false, signal: invocation.signal,
@@ -89,7 +93,10 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     })
     if (answer === null) break
     if (answer === ADD_CANDIDATE_PREFIX && ctx.tui.stageFileAttachment !== undefined) {
-      const staged = await stageAttachment(ctx, invocation, await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Attach file', question: 'Path to the file', signal: invocation.signal })) ?? '')
+      const input = await prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Attach file', question: 'Path to the file', signal: invocation.signal }))
+      if (invocation.signal.aborted) break
+      if (input === null || input.trim() === '') continue
+      const staged = await stageAttachment(ctx, invocation, input)
       if (staged.kind === 'error') return staged
       // The list the reader just left is now stale; reopen it with the new row.
       continue

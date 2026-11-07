@@ -175,7 +175,10 @@ export function documentLayout(source: TuiDocumentSource, theme: Theme, width: n
     const label = labelAt(at)
     const segments = wrapCode(line, inner)
     for (const [wrap, segment] of segments.entries()) {
-      rows.push((showNumbers ? ' ' + theme.fg('dim', wrap === 0 ? label : ' '.repeat(gutterWidth - 1)) : '') + segment)
+      // Wrapping reopens syntax styles on continuations; close each visual row
+      // before pane padding or the next row's file name inherits those styles.
+      const body = theme.colors ? segment + '\x1b[0m' : segment
+      rows.push((showNumbers ? ' ' + theme.fg('dim', wrap === 0 ? label : ' '.repeat(gutterWidth - 1)) : '') + body)
       sourceRows.push(at)
     }
   }

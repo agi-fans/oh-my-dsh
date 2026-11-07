@@ -17,6 +17,7 @@ import { formatAgentPreset } from '../session/session-configuration.ts'
 import { readSessionLibrary, sortSessionRows, togglePinnedSession, updateSessionLibrary } from '../session/session-library.ts'
 import { contextOverviewDetails, type ContextOverview } from '../session/context-diagnostics.ts'
 import { readReference } from '../runtime/reference-reader.ts'
+import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
@@ -209,7 +210,11 @@ async function findSessions(ctx: Context, invocation: CommandInvocation, cursor?
   let hits: readonly SessionSearchHit[]
   let nextCursor: SessionSearchCursor | undefined
   try {
-    const page = await sessionQuery.searchSessions({ query, limit: SESSION_SEARCH_LIMIT, ...(cursor === undefined ? {} : { cursor }) }, { signal: invocation.signal })
+    const page = await sessionQuery.searchSessions({
+      query, limit: SESSION_SEARCH_LIMIT,
+      sessionFilters: [{ kind: 'cwd', values: [currentWorkingDirectory(ctx, invocation.agent.session)] }],
+      ...(cursor === undefined ? {} : { cursor }),
+    }, { signal: invocation.signal })
     hits = page.items
     nextCursor = page.nextCursor
   } catch (error: unknown) {

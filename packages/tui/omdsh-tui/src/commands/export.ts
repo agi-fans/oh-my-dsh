@@ -12,6 +12,7 @@ import { sessionArchive } from '../runtime/session-archive.ts'
 import { askPrompt, choosePrompt } from '../prompt-intents.ts'
 import { openSystemFile } from '../runtime/file-review.ts'
 import { resolveUiLanguage, uiText } from '../locale/index.ts'
+import { currentWorkingDirectory } from '../session/working-directory.ts'
 
 export const name = 'omdsh-command-export'
 export const inject = ['commands']
@@ -30,6 +31,7 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
   const abort = new AbortController()
   const signal = AbortSignal.any([invocation.signal, abort.signal])
   const input = invocation.rawInput.trim()
+  const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
   const match = /^(html|markdown|archive)(?:\s+|$)/u.exec(input)
   let format = (match?.[1] ?? 'markdown') as ExportFormat
   let pathInput = match === null ? input : input.slice(match[0].length).trim()
@@ -65,7 +67,7 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
       pathInput = answer.trim()
     }
     const unquoted = pathInput.replace(/^(?:"(.*)"|'(.*)')$/u, '$1$2')
-    path = resolve(unquoted === '' ? fallback : unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
+    path = resolve(cwd, unquoted === '' ? fallback : unquoted.startsWith('~/') ? homedir() + unquoted.slice(1) : unquoted)
     if (contents === undefined) {
       try {
         signal.throwIfAborted()

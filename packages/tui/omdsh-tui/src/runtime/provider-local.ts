@@ -654,6 +654,8 @@ export class LocalTui implements TuiService {
    */
   #transientStatus: string | undefined
   #transientTimer: ReturnType<typeof setTimeout> | null = null
+  /** Idle submissions also pass through the inbox, but are not queue gestures. */
+  #directInputIds = new Set<string>()
   /** Aborts the live Shell card, so Ctrl+C interrupts the command it belongs to. */
   #shellAbort: (() => void) | undefined
   /** Turn scopes whose tools stay detailed as new calls arrive during inspection. */
@@ -932,9 +934,19 @@ export class LocalTui implements TuiService {
     }
     if (event.type === 'llm/retry') this.#retryDeadline = Date.now() + event.data.delayMs
     if (event.type === 'llm/retry-started' || event.type === 'turn/end') this.#retryDeadline = undefined
-    const claimedHumanInput = event.type === 'agent/inbox/spliced' && event.data.outcome !== 'canceled'
-      && event.data.inserted.length === 0 && (event.data.target === 'next-step' ? this.#state.nextStepInbox : this.#state.nextTurnInbox)
-        .slice(event.data.start, event.data.start + (event.data.removedCount ?? 0)).some(message => message.source.kind === 'user')
+    let claimedHumanInput = false
+    if (event.type === 'agent/inbox/spliced') {
+      const inbox = event.data.target === 'next-step' ? this.#state.nextStepInbox : this.#state.nextTurnInbox
+      const removed = inbox.slice(event.data.start, event.data.start + (event.data.removedCount ?? 0))
+      claimedHumanInput = event.data.outcome !== 'canceled' && event.data.inserted.length === 0
+        && removed.some(message => message.source.kind === 'user' && !this.#directInputIds.has(message.id))
+      for (const message of removed) this.#directInputIds.delete(message.id)
+      if (event.data.target === 'next-turn' && this.#state.status === 'idle'
+        && !inbox.some(message => message.source.kind === 'user')) {
+        const first = event.data.inserted.find(message => message.source.kind === 'user')
+        if (first !== undefined) this.#directInputIds.add(first.id)
+      }
+    } else if (event.type === 'session/end-seed') this.#directInputIds.clear()
     this.#state = applyEvent(this.#state, event, presentation, workspace)
     if (claimedHumanInput && this.#tty && event.type === 'agent/inbox/spliced') {
       this.#showTransientStatus(event.data.target === 'next-step' ? 'Steer taken for the next step' : 'Queue taken for the next turn')
@@ -1536,6 +1548,10 @@ export class LocalTui implements TuiService {
     }
     this.#trajectory = null
     const state = replayEvents(events, presentations)
+    if (reason === 'refresh') {
+      const pendingIds = new Set<string>(state.nextTurnInbox.map(message => message.id))
+      for (const id of this.#directInputIds) if (!pendingIds.has(id)) this.#directInputIds.delete(id)
+    } else this.#directInputIds.clear()
     // A notice does not turn a blank session into a document that /new needs
     // to separate. Refreshes are the same document.
     const boundary = reason === 'open' || (reason === 'new' && this.#state.blocks.some(block =>

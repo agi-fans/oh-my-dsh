@@ -102,7 +102,7 @@ async function fixture(tty = false, durableRoot?: string, commands = false) {
     const session = ctx.sessions.get(id) ?? ctx.sessions.create(id, { seed: options.seed,
       ...(options.meta === undefined ? {} : { meta: options.meta }),
       ...(options.inheritedEventCount === undefined ? {} : { inheritedEventCount: options.inheritedEventCount }) })
-    const agent = { id, ctx: agentCtx, session, status: 'idle', model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }), inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
+    const agent = { id, ctx: agentCtx, session, status: 'idle', model: stubModel({ provider: 'deepseek', model: 'deepseek-chat' }), inbox: { nextTurn: [], nextStep: [], clear: vi.fn() } } as unknown as Agent
     agents.set(id, agent)
     await options.setup?.(agentCtx, agent)
     return { agent, dispose: async () => undefined } as unknown as AgentHandle
@@ -613,12 +613,100 @@ describe('session transcript boundaries', () => {
   })
 
 
+  it('keeps recent chrome and resume completion in the active directory even when a model catalog fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-session-directory-'))
+    const f = await fixture(false, root, true)
+    try {
+      f.ctx.commands.register({ name: 'resume', description: 'Resume', handler: async () => ({ kind: 'success' }) })
+      const publish = vi.spyOn(f.tui, 'setSession')
+      const catalog = vi.spyOn(f.tui, 'setCommands')
+      await f.runtime.start()
+      f.ctx.provide('llm', { listProviders: () => [{ id: 'broken' }], listModels: async () => { throw new Error('Catalog unavailable') } } as never)
+      for (const [id, cwd] of [['local', process.cwd()], ['other', join(root, 'other')]]) {
+        const session = f.ctx.sessions.create(SessionId(id!), { meta: { cwd: cwd! } })
+        session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: id! }] }), { surfaceOp: 'append' })
+        const handle = await f.ctx.sessionPersistence.create(session.header)
+        await handle.append(session.snapshotEvents())
+        await handle.close()
+      }
+      updateSessionLibrary(f.runtime.sessionLibraryPath, current => ({ ...current, pinned: ['other'] }))
+      await f.runtime.refreshRecent()
+      expect(f.runtime.recentSessions.map(row => row.id)).toEqual(['local'])
+      expect(publish.mock.calls.at(-1)![0].recent.map(row => row.id)).toEqual(['local'])
+      expect(catalog.mock.calls.at(-1)![0].find(command => command.name === 'resume')?.complete?.('')?.map(row => row.value)).toEqual(['local'])
+
+      await f.runtime.resumeSession(f.runtime.agent!, 'other', new AbortController().signal)
+      expect(f.runtime.recentSessions.map(row => row.id)).toEqual(['other'])
+      expect(catalog.mock.calls.at(-1)![0].find(command => command.name === 'resume')?.complete?.('')?.map(row => row.value)).toEqual(['other'])
+
+      f.ctx.provide('workingDirectory', { get: () => process.cwd() } as never)
+      f.runtime.agent!.session.append('working-directory/change', { cwd: process.cwd() })
+      await vi.waitFor(() => {
+        expect(f.runtime.recentSessions.map(row => row.id)).toEqual(['local'])
+        expect(catalog.mock.calls.at(-1)![0].find(command => command.name === 'resume')?.complete?.('')?.map(row => row.value)).toEqual(['local'])
+      })
+    } finally {
+      await f.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes healthy model completions while other catalogs fail or remain pending, and keeps login argument-free', async () => {
+    const f = await fixture(false, undefined, true)
+    let finishSlow!: (models: { id: string }[]) => void
+    const slow = new Promise<{ id: string }[]>(resolve => { finishSlow = resolve })
+    try {
+      for (const name of ['model', 'login']) f.ctx.commands.register({ name, description: name, handler: async () => ({ kind: 'success' }) })
+      await f.runtime.start()
+      const catalog = vi.spyOn(f.tui, 'setCommands')
+      f.ctx.provide('llm', {
+        listProviders: () => [{ id: 'slow' }, { id: 'broken' }, { id: 'healthy' }],
+        listModels: async (id: string) => {
+          if (id === 'slow') return slow
+          if (id === 'broken') throw new Error('Catalog unavailable')
+          return [{ id: 'ready' }]
+        },
+      } as never)
+      await f.runtime.refreshRecent()
+      const choices = () => catalog.mock.calls.at(-1)?.[0].find(command => command.name === 'model')?.complete?.('')?.map(row => row.value)
+      await vi.waitFor(() => expect(choices()).toEqual(['healthy/ready']))
+      expect(catalog.mock.calls.at(-1)?.[0].find(command => command.name === 'login')?.complete).toBeUndefined()
+      finishSlow([{ id: 'late' }])
+      await vi.waitFor(() => expect(choices()).toEqual(['slow/late', 'healthy/ready']))
+    } finally { finishSlow([]); await f.dispose() }
+  })
+
+  it('retains the last successful completion catalog and ignores a superseded refresh', async () => {
+    const f = await fixture(false, undefined, true)
+    let finishOld!: (models: { id: string }[]) => void
+    const old = new Promise<{ id: string }[]>(resolve => { finishOld = resolve })
+    const listModels = vi.fn(async () => [{ id: 'current' }]).mockImplementationOnce(() => old)
+    try {
+      f.ctx.commands.register({ name: 'model', description: 'Model', handler: async () => ({ kind: 'success' }) })
+      await f.runtime.start()
+      const catalog = vi.spyOn(f.tui, 'setCommands')
+      f.ctx.provide('llm', { listProviders: () => [{ id: 'provider' }], listModels } as never)
+      await f.runtime.refreshRecent()
+      await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1))
+      await f.runtime.refreshRecent()
+      const choices = () => catalog.mock.calls.at(-1)?.[0].find(command => command.name === 'model')?.complete?.('')?.map(row => row.value)
+      await vi.waitFor(() => expect(choices()).toEqual(['provider/current']))
+      finishOld([{ id: 'obsolete' }])
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(choices()).toEqual(['provider/current'])
+      listModels.mockRejectedValueOnce(new Error('Catalog temporarily unavailable'))
+      await f.runtime.refreshRecent()
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(choices()).toEqual(['provider/current'])
+    } finally { finishOld([]); await f.dispose() }
+  })
+
   it('keeps archived sessions durable while omitting them from recent-session chrome', async () => {
     const root = mkdtempSync(join(tmpdir(), 'omdsh-session-archive-'))
     const f = await fixture(true, root)
     try {
       await f.runtime.start()
-      const durable = f.ctx.sessions.create(SessionId('archivable'))
+      const durable = f.ctx.sessions.create(SessionId('archivable'), { meta: { cwd: process.cwd() } })
       durable.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Finished work' }] }), { surfaceOp: 'append' })
       const events = durable.snapshotEvents()
       const handle = await f.ctx.sessionPersistence.create(durable.header)

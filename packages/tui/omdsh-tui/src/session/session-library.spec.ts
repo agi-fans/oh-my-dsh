@@ -2,7 +2,26 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readSessionLibrary, setSessionLabel, sortSessionRows, togglePinnedSession, updateSessionLibrary } from './session-library.ts'
+import { readSessionLibrary, sessionArgumentOptions, setSessionLabel, sortSessionRows, togglePinnedSession, updateSessionLibrary } from './session-library.ts'
+
+describe('session argument presentation', () => {
+  it('leads with the title and shows activity time and status instead of an ID column', () => {
+    expect(sessionArgumentOptions([{ id: 'session-12345678-long-id', title: 'omdsh 中文简介', createdAt: 0, updatedAt: 60_000, status: 'done' }], 180_000))
+      .toEqual([{ value: 'session-12345678-long-id', label: 'omdsh 中文简介', description: '2m ago · done' }])
+  })
+
+  it('distinguishes duplicate titles with short IDs and gives untitled sessions a readable label', () => {
+    expect(sessionArgumentOptions([
+      { id: 'session-12345678-a', title: 'Same\n title', createdAt: 0 },
+      { id: 'session-87654321-b', title: 'Same title', createdAt: 0 },
+      { id: 'session-untitled', title: 'session-untitled', createdAt: 0 },
+    ], 0)).toEqual([
+      { value: 'session-12345678-a', label: 'Same title', description: 'just now · 12345678' },
+      { value: 'session-87654321-b', label: 'Same title', description: 'just now · 87654321' },
+      { value: 'session-untitled', label: 'Untitled session', description: 'just now' },
+    ])
+  })
+})
 
 describe('Session Library metadata', () => {
   it('tolerates corrupt input and atomically stores distinct pins', () => {

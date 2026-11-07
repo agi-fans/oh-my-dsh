@@ -42,6 +42,21 @@ it('treats a bare markdown format as the default filename', async () => {
   } finally { cwd.mockRestore(); await h.ctx.fiber.dispose(); await fs.rm(dir, { recursive: true, force: true }) }
 })
 
+it.each([false, true])('exports relative paths in the current session directory (interactive=%s)', async interactive => {
+  const h = await fixture(interactive)
+  const root = await fs.mkdtemp(join(tmpdir(), 'omdsh-export-cwd-'))
+  const launch = join(root, 'launch'), current = join(root, 'current')
+  await fs.mkdir(launch); await fs.mkdir(current)
+  const cwd = vi.spyOn(process, 'cwd').mockReturnValue(launch)
+  h.ctx.provide('workingDirectory', { get: () => current } as never)
+  h.prompt.mockResolvedValueOnce('markdown').mockResolvedValueOnce('report.md').mockResolvedValueOnce('done')
+  try {
+    expect((await h.run(interactive ? '/export' : '/export markdown report.md'))?.result.kind).toBe('success')
+    expect(await fs.readdir(current)).toEqual(['report.md'])
+    expect(await fs.readdir(launch)).toEqual([])
+  } finally { cwd.mockRestore(); await h.ctx.fiber.dispose(); await fs.rm(root, { recursive: true, force: true }) }
+})
+
 it.each(['markdown', 'html'])('exports %s to a quoted path and protects an existing file', async format => {
   const h = await fixture(), dir = await fs.mkdtemp(join(tmpdir(), 'omdsh-export-'))
   const path = join(dir, 'my transcript.txt')

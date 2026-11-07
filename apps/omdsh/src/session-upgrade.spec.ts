@@ -26,6 +26,7 @@ function temp(prefix: string): string {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true })
 })
 
@@ -56,6 +57,10 @@ async function runtimeOver(root: string, stateDir: string, notices: string[]): P
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(JsonlSessionPersistence, { root, compression: 'zstd' })
+  // The historical fixture belongs to its recorded directory, independently
+  // of where this checkout runs (including Windows CI).
+  const snapshot = (await ctx.sessionPersistence.list()).find(row => row.header.id === PARENT_ID)!
+  vi.spyOn(process, 'cwd').mockReturnValue(snapshot.header.cwd!)
   const runtime = new SessionRuntime(ctx, stubTui(notices), { stateDir })
   return { ctx, runtime }
 }

@@ -1,3 +1,4 @@
+import { Terminal } from '@xterm/headless'
 import { describe, expect, it, vi } from 'vitest'
 import type { TuiFileReview } from '../definition.ts'
 import { createTheme } from '../chrome/theme.ts'
@@ -23,6 +24,34 @@ function setup(read?: TuiFileReview['read']) {
 }
 
 describe('file browser', () => {
+  it.each([{ colors: false, language: 'diff' }, { colors: true, language: 'diff' }, { colors: false, language: 'ts' }, { colors: true, language: 'ts' }])('isolates $language preview colors from file names and padding (colors=$colors)', async ({ colors, language }) => {
+    const source = language === 'diff'
+      ? { diff: true, text: '@@ -1 +1 @@\n-' + 'x'.repeat(180) + '\n+' + 'x'.repeat(180) }
+      : { language, text: 'const value = \"' + 'x'.repeat(360) + '\";' }
+    const { browser } = setup(async () => ({ source }))
+    await flush()
+    browser.state.files = Array.from({ length: 18 }, (_, at) => ({ path: `src/f${at}.ts`, label: `src/f${at}.ts`, status: 'M' }))
+    try {
+      for (const mode of ['dark', 'light'] as const) for (const width of [100, 140]) for (const wordWrap of [true, false]) {
+        browser.state.position = { row: 0, wrap: 0, query: '', wordWrap, column: wordWrap ? 0 : 12 }
+        const palette = createTheme(colors, 'truecolor', mode)
+        const frame = renderFileBrowser(browser.state, palette, width, 24)
+        const doc = fileBrowserDocument(browser.state, palette, width, 24)
+        const terminal = new Terminal({ cols: width, rows: 24, allowProposedApi: true })
+        try {
+          await new Promise<void>(resolve => terminal.write(frame.lines.join('\r\n'), resolve))
+          for (let at = 0; at < doc.page; at++) {
+            const row = terminal.buffer.active.getLine(4 + at)!
+            if (at > 0) expect.soft(row.getCell(4)!.isFgDefault(), `file ${at}, width ${width}, wrap ${wordWrap}`).toBe(true)
+            expect.soft(row.getCell(width - 1)!.isFgDefault(), `padding ${at}, width ${width}, wrap ${wordWrap}`).toBe(true)
+            const x = row.translateToString().indexOf('x', doc.left + 1)
+            if (x >= 0) expect(row.getCell(x)!.isFgDefault()).toBe(!colors)
+          }
+        } finally { terminal.dispose() }
+      }
+    } finally { browser.close() }
+  })
+
   it('scrolls cached Markdown while refresh and width changes use a new layout', async () => {
     const { browser, key } = setup(async () => ({ source: { text: '# Preview\n\n' + 'A paragraph 中文🐳 '.repeat(100) } }))
     await flush()

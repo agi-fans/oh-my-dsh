@@ -64,6 +64,7 @@ import type {
   TuiGoalStatus,
   TuiInspectedSubagent,
   TuiRecentSession,
+  TuiArgumentOption,
   TuiService,
   TuiSessionControls,
   TuiSessionStats,
@@ -73,7 +74,7 @@ import type {
   TuiTranscriptReplacement,
 } from '../definition.ts'
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
-import { readRecentRows, writeRecentRows, readSessionLibrary, sessionLibraryPath, setSessionLabel, type SessionRowMemo } from './session-library.ts'
+import { readRecentRows, writeRecentRows, readSessionLibrary, sessionArgumentOptions, sessionLibraryPath, setSessionLabel, type SessionRowMemo } from './session-library.ts'
 import { currentWorkingDirectory } from './working-directory.ts'
 import { SubagentTracker } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
@@ -498,10 +499,11 @@ export class SessionRuntime {
    * Live argument vocabularies, keyed by command.
    *
    * A snapshot rather than a callback into the services: completion runs on every
-   * keystroke and must not await a catalog. It is rebuilt whenever the commands
-   * are pushed, which is also when a model or provider list can have changed.
+   * keystroke and must not await a catalog. Session refreshes publish recent
+   * rows immediately and load each provider independently.
    */
-  #argumentOptions = new Map<string, readonly { value: string; description?: string }[]>()
+  #argumentOptions = new Map<string, readonly TuiArgumentOption[]>()
+  #argumentEpoch = 0
   #started = false
   readonly #retired: AgentHandle[] = []
   // Weak: deduplication must not retain disposed session graphs.
@@ -635,7 +637,10 @@ export class SessionRuntime {
         if (session.id === (this.#inspectedId ?? active.handle.agent.id)) {
           tui.setWorkingDirectory?.(currentWorkingDirectory(ctx, session))
         }
-        if (session === active.handle.agent.session) void this.#refreshSkills().catch(error => { ctx.logger.warn(error) })
+        if (session === active.handle.agent.session) {
+          void this.#refreshSkills().catch(error => { ctx.logger.warn(error) })
+          void this.refreshRecent().catch(error => { ctx.logger.warn(error) })
+        }
       }
       if (session.id === this.#inspectedId) {
         const child = ctx.get('agents')?.get(session.id)
@@ -1282,7 +1287,12 @@ export class SessionRuntime {
       inheritedEventCount: SessionLogOffset(selected.branchIndex),
       agentOptions: { provider: selection.provider, model: selection.model },
       signal,
-      setup: async (agentCtx, agent) => { configured = await setupAgentContext(agentCtx, agent) },
+      setup: async (agentCtx, agent) => {
+        // A pre-turn prefix includes admission but excludes the later inbox claim.
+        // Cancel that inherited work durably before publishing the editable fork.
+        agent.inbox.clear()
+        configured = await setupAgentContext(agentCtx, agent)
+      },
     })
     try {
       this.assertActive(agent)
@@ -1414,34 +1424,38 @@ export class SessionRuntime {
   /**
    * Rebuild the argument vocabularies the composer completes.
    *
-   * A snapshot, because completion runs per keystroke: `/model provider/model`,
-   * `/resume <id>` and `/login <provider>` are all names that already exist in
+   * A snapshot, because completion runs per keystroke. `/model provider/model`
+   * and `/resume <id>` are names that already exist in
    * this process, so the reader types toward them instead of opening a picker.
    */
   async #refreshArgumentOptions(): Promise<void> {
-    const options = new Map<string, { value: string; description?: string }[]>()
+    const epoch = ++this.#argumentEpoch
     const llm = this.#ctx.get('llm')
-    if (llm !== undefined) {
-      const models: { value: string; description?: string }[] = []
-      const providers: { value: string; description?: string }[] = []
-      for (const provider of llm.listProviders()) {
-        providers.push({ value: provider.id, ...(provider.name === undefined ? {} : { description: provider.name }) })
-        for (const model of await llm.listModels(provider.id)) {
-          models.push({
-            value: `${provider.id}/${model.id}`,
-            ...(model.name === undefined ? {} : { description: model.name }),
-          })
-        }
-      }
-      options.set('model', models)
-      options.set('login', providers)
+    const providers = llm?.listProviders() ?? []
+    const previous = this.#argumentOptions.get('model') ?? []
+    const groups = new Map(providers.map(provider => [provider.id, previous.filter(model => model.value.startsWith(`${provider.id}/`))]))
+    const options = new Map<string, readonly TuiArgumentOption[]>([['resume', sessionArgumentOptions(this.#recent)]])
+    const publish = (): void => {
+      if (this.#disposed || epoch !== this.#argumentEpoch) return
+      options.set('model', providers.flatMap(provider => groups.get(provider.id) ?? []))
+      this.#argumentOptions = options
+      this.#pushCommands()
     }
-    options.set('resume', this.#recent.map(row => ({
-      value: row.id,
-      ...(row.title === undefined ? {} : { description: row.title }),
-    })))
-    this.#argumentOptions = options
-    this.#pushCommands()
+    publish()
+    await Promise.all(providers.map(async provider => {
+      try {
+        const models = await llm?.listModels(provider.id) ?? []
+        if (this.#disposed || epoch !== this.#argumentEpoch) return
+        groups.set(provider.id, models.map(model => ({
+          value: `${provider.id}/${model.id}`,
+          ...(model.name === undefined ? {} : { description: model.name }),
+        })))
+      } catch {
+        // Preserve the last successful catalog. The model picker owns diagnostics.
+        return
+      }
+      publish()
+    }))
   }
 
   async refreshRecent(): Promise<void> {
@@ -1459,16 +1473,18 @@ export class SessionRuntime {
         if (!this.#refreshDirty || this.#disposed) break
         this.#refreshDirty = false
       }
-    })().finally(() => { this.#refreshInFlight = null })
+    })().finally(() => {
+      this.#refreshInFlight = null
+      // Completion must read the newly published rows, not the previous
+      // directory's snapshot while persistence.list() is still pending.
+      queueMicrotask(() => { if (!this.#disposed) void this.#refreshArgumentOptions().catch(() => {}) })
+    })
     this.#refreshInFlight = run
     return run
   }
 
   async #refreshRecentNow(): Promise<void> {
     this.#archivedSessions = new Set(readSessionLibrary(this.#libraryPath).archived)
-    // The recent list is what `/resume` completes from, so a refresh of one is a
-    // refresh of the other. Deferred to avoid recursing through #pushCommands.
-    queueMicrotask(() => { void this.#refreshArgumentOptions().catch(() => {}) })
     const persistence = this.#ctx.get('sessionPersistence')
     if (persistence === undefined) {
       this.#recent = []
@@ -1477,6 +1493,8 @@ export class SessionRuntime {
     }
     const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
       .sort((left, right) => right.header.createdAt - left.header.createdAt)
+    const agent = this.agent
+    const cwd = agent === undefined ? process.cwd() : currentWorkingDirectory(this.#ctx, agent.session)
     // A stored row stays valid while its revision holds, so a cold process
     // renders labels for unchanged sessions without reading their logs; only a
     // new or changed session pays a read.
@@ -1494,6 +1512,9 @@ export class SessionRuntime {
     }
     for (const snapshot of snapshots) {
       const header = snapshot.header
+      // Scope before opening logs or consulting shared row caches. Other
+      // directories remain available through an explicit session ID.
+      if (header.cwd !== cwd) continue
       const cached = this.#recentCache.get(header.id)
       if (snapshot.formatStatus === 'migration-required') {
         // Do not open the log merely to browse it. A previous label is a hint;
@@ -2029,11 +2050,12 @@ export class SessionRuntime {
 
 /** Candidates for an argument prefix, matched the way the command list matches. */
 export function matchArgumentOptions(
-  options: readonly { value: string; description?: string }[],
+  options: readonly TuiArgumentOption[],
   prefix: string,
-): readonly { value: string; description?: string }[] {
+): readonly TuiArgumentOption[] {
   const lower = prefix.trim().toLowerCase()
   if (lower === '') return options
   return options.filter(option => option.value.toLowerCase().includes(lower)
+    || (option.label ?? '').toLowerCase().includes(lower)
     || (option.description ?? '').toLowerCase().includes(lower))
 }

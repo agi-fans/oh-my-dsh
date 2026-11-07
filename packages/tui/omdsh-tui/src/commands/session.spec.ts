@@ -1,6 +1,6 @@
 /**
  * `/resume` owns both session paths: a bare call opens the Session Library, a
- * content query searches every durable session, and an explicit id resumes it.
+ * content query searches this directory’s durable sessions, and an explicit id resumes it.
  * The retired `/sessions` entry point must not reappear.
  */
 import { promptBrowserState } from '../runtime/prompt-browser.ts'
@@ -85,6 +85,17 @@ async function harness(options: HarnessOptions = {}) {
 }
 
 describe('/resume library and search', () => {
+  it('scopes content search to the active working directory before pagination', async () => {
+    const h = await harness({ hits: [] })
+    const cwd = join(process.cwd(), 'active-project')
+    h.ctx.provide('workingDirectory', { get: () => cwd } as never)
+    await h.execute('/resume needle')
+    expect(h.searchSessions).toHaveBeenCalledWith({
+      query: 'needle', limit: 20, sessionFilters: [{ kind: 'cwd', values: [cwd] }],
+    }, expect.anything())
+    await h.ctx.fiber.dispose()
+  })
+
   it('searches session content and resumes the chosen hit', async () => {
     const titles = new Map([['session-a', 'Fix the parser'], ['session-b', 'Add export flag']])
     const { execute, prompt, resumeSession, searchSessions } = await harness({
@@ -94,7 +105,7 @@ describe('/resume library and search', () => {
     })
 
     const execution = await execute('/resume needle')
-    expect(searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.objectContaining({ signal: expect.anything() }))
+    expect(searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20, sessionFilters: [{ kind: 'cwd', values: [process.cwd()] }] }, expect.objectContaining({ signal: expect.anything() }))
     expect(prompt).toHaveBeenCalledTimes(1)
     const request = prompt.mock.calls[0]?.[0] as { title: string; options: readonly { label: string; value: string; preview: string }[] }
     expect(request.title).toBe('Session Library · Search')
@@ -250,7 +261,7 @@ describe('Session Library content search', () => {
     const h = await harness({ libraryRows: [{ id: 'session-a', title: 'A', createdAt: 1 }], hits: [hit('session-a', 'needle')] })
     h.prompt.mockResolvedValueOnce('search:').mockResolvedValueOnce('needle').mockResolvedValueOnce('pin:session-a').mockResolvedValueOnce('library:').mockResolvedValueOnce(null)
     await h.execute('/resume')
-    expect(h.searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, expect.anything())
+    expect(h.searchSessions).toHaveBeenCalledWith({ query: 'needle', limit: 20, sessionFilters: [{ kind: 'cwd', values: [process.cwd()] }] }, expect.anything())
     expect(h.prompt.mock.calls[2]![0]).toMatchObject({ title: 'Session Library · Search', actions: expect.arrayContaining([expect.objectContaining({ valuePrefix: 'archive:' }), expect.objectContaining({ valuePrefix: 'library:' })]) })
     expect(h.prompt.mock.calls[4]![0].title).toBe('Session Library')
     expect(h.resumeSession).not.toHaveBeenCalled()
@@ -343,7 +354,7 @@ it('loads more session matches, keeps existing rows on failure and retries the s
   expect(loaded.actions?.some(action => action.valuePrefix === 'more:')).toBe(false)
   expect(promptBrowserState(loaded)).toEqual({ query: 'session', selected: 'session-a' })
   expect(h.searchSessions.mock.calls.slice(1).map(([request]) => request)).toEqual([
-    { query: 'needle', limit: 20, cursor }, { query: 'needle', limit: 20, cursor },
+    { query: 'needle', limit: 20, sessionFilters: [{ kind: 'cwd', values: [process.cwd()] }], cursor }, { query: 'needle', limit: 20, sessionFilters: [{ kind: 'cwd', values: [process.cwd()] }], cursor },
   ])
 })
 

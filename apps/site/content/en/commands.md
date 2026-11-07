@@ -4,7 +4,7 @@ description: Complete omdsh slash-command reference with arguments for sessions,
 
 # Commands
 
-Command completion prioritizes common tasks and shares localized name, alias, description and task-keyword matching with Help, including common Chinese task words. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers, `/resume` lists existing sessions, `/login` lists registered providers — and Enter runs the line as typed. `/help` puts common commands first; third-party contributions remain discoverable.
+Command completion prioritizes common tasks and shares localized name, alias, description and task-keyword matching with Help, including common Chinese task words. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers and `/resume` lists existing sessions. Enter accepts a highlighted completion and runs the resulting command. `/login` opens the provider chooser. `/help` puts common commands first, and third-party contributions remain discoverable.
 
 Type `/` in the composer to browse the live catalog with inline argument hints. `/help` opens a filterable command list assembled from active plugins, including Skills and user bundles. Enter inserts the selected command into the composer for review and submission. Choose Keyboard shortcuts or press Alt+K to open the shortcut catalog, starting with essential operations. `/help full` opens that catalog directly, including Diff and file-browser shortcuts. In text readers, the mouse wheel or trackpad scrolls the preview, dragging selects text, and right-click copies the selection. Native mouse mode leaves selection and scrolling to the terminal. `/` searches, Ctrl+N/Ctrl+P move between matches, S chooses a section, and Y copies the current page. Esc returns to the preceding view.
 
@@ -17,7 +17,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session. |
-| `/resume [session-id\|query]` | Without an argument, open the Session Library; with a query, search durable session content and resume the chosen hit; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
+| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory and resume the chosen hit; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
 | `/continue` | Continue an eligible failed model generation without resending the prompt. |
 | `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |

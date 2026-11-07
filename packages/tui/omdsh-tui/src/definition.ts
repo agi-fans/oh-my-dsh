@@ -45,7 +45,10 @@ export type TuiTranscriptReplacement = 'initial' | 'new' | 'open' | 'refresh'
 
 /** One candidate a command offers for its own argument. */
 export interface TuiArgumentOption {
+  /** Exact argument inserted or submitted when chosen. */
   value: string
+  /** Human-readable row text when the argument is an opaque identifier. */
+  label?: string
   description?: string
 }
 

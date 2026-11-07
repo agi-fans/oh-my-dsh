@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Resume completion leads with conversation titles, activity time, and status instead of long session IDs. Titles and IDs remain searchable; duplicate titles show a short ID for distinction.
+
+### Fixed
+
+- Command completion loads model providers independently, retains the last successful catalog after failures, and updates session candidates without waiting for model catalogs. Superseded results cannot overwrite newer choices.
+- Login no longer offers unsupported provider arguments in completion. `/login` opens the provider chooser.
+- Completing a command or argument with the cursor in the middle replaces its remaining text correctly. Command-name completion preserves existing arguments.
+- Relative export paths resolve from the session's current working directory.
+- Cancelling or leaving an empty path in Add a file returns to the attachment picker.
+- Wrapped diff and source previews no longer leak syntax colors into file names or pane padding.
+- Editing an earlier turn from Session Tree cancels inherited pending input in the new branch, so sending the edited draft runs the revised request directly.
+- Model shortcuts accept the same `provider/model` IDs shown by completion and the picker, including model IDs with slashes or colon tags.
+- Sending a message while idle no longer flashes a queue-consumption notice; queued follow-ups and steering retain their confirmations.
+- Session Library, resume completion, recent-session shortcuts, and content search stay within the current working directory. Explicit session IDs can still resume sessions from other directories.
+
 ## [0.23.0] - 2026-11-06
 
 ### Added

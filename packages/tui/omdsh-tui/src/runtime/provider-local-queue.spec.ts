@@ -263,8 +263,23 @@ describe('local Message Queue controls', () => {
     expect(edit).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])('does not announce an ordinary idle send as queued (refresh=%s)', refresh => {
+    const { tui, term } = fixture()
+    const admission = { type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0,
+      inserted: [{ id: 'direct', source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] }],
+    } } as unknown as SessionEvent
+    tui.event(admission)
+    if (refresh) tui.replaceSession([admission], undefined, 'idle', 'refresh')
+    tui.event({ type: 'turn/start', seq: 2, time: 2, data: { turn: 1 } } as SessionEvent)
+    tui.event({ type: 'agent/inbox/spliced', seq: 3, time: 3, data: {
+      target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+    } } as unknown as SessionEvent)
+    expect(stripAnsi(term.captured)).not.toContain('Queue taken for the next turn')
+  })
+
   it.each(['next-turn', 'next-step'])('announces live consumption but not withdrawal of %s', target => {
     const { tui, term } = fixture()
+    tui.setStatus('running')
     const splice = (data: object, seq: number) => tui.event({ type: 'agent/inbox/spliced', seq, time: seq, data: { target, ...data } } as unknown as SessionEvent)
     const inserted = [{ id: 'a', source: { kind: 'user' }, content: [{ type: 'text', text: 'message' }] }]
     splice({ start: 0, inserted }, 1)
@@ -272,9 +287,27 @@ describe('local Message Queue controls', () => {
     splice({ start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }, 2)
     expect(stripAnsi(term.captured.slice(mark))).not.toContain('taken for')
     splice({ start: 0, inserted }, 3)
+    // A queued follow-up is claimed after the previous turn settles.
+    if (target === 'next-turn') {
+      tui.setStatus('idle')
+      tui.event({ type: 'turn/start', seq: 4, time: 4, data: { turn: 2 } } as SessionEvent)
+    }
     mark = term.captured.length
-    splice({ start: 0, removedCount: 1, inserted: [] }, 4)
+    splice({ start: 0, removedCount: 1, inserted: [] }, 5)
     expect(stripAnsi(term.captured.slice(mark))).toContain(target === 'next-turn' ? 'Queue taken for the next turn' : 'Steer taken for the next step')
+  })
+
+  it('keeps consumption feedback for pending input restored from a session', () => {
+    const { tui, term } = fixture()
+    tui.replaceSession([{ type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0,
+      inserted: [{ id: 'restored', source: { kind: 'user' }, content: [{ type: 'text', text: 'waiting' }] }],
+    } } as unknown as SessionEvent])
+    tui.event({ type: 'turn/start', seq: 2, time: 2, data: { turn: 1 } } as SessionEvent)
+    const mark = term.captured.length
+    tui.event({ type: 'agent/inbox/spliced', seq: 3, time: 3, data: {
+      target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+    } } as unknown as SessionEvent)
+    expect(stripAnsi(term.captured.slice(mark))).toContain('Queue taken for the next turn')
   })
 
   it('aborts the shortcut owner when the provider is disposed', () => {

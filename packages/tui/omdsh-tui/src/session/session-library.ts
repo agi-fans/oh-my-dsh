@@ -1,6 +1,7 @@
 /** Local pins, archives and tree labels; conversation logs remain Harness-owned. */
 
-import type { TuiRecentSession } from '../definition.ts'
+import type { TuiArgumentOption, TuiRecentSession } from '../definition.ts'
+import { formatRelativeAge } from '../chrome/relative-time.ts'
 import { readJsonFile, writeJsonAtomic } from './json-file.ts'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,20 @@ export interface SessionLibraryDocument {
   readonly pinned: readonly string[]
   readonly archived: readonly string[]
   readonly labels: Readonly<Record<string, string>>
+}
+
+/** Titles identify conversations; opaque IDs remain the submitted arguments. */
+export function sessionArgumentOptions(rows: readonly TuiRecentSession[], now = Date.now()): TuiArgumentOption[] {
+  const labels = rows.map(row => row.title === row.id ? 'Untitled session' : row.title.replace(/\s+/gu, ' ').trim() || 'Untitled session')
+  const counts = new Map<string, number>()
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1)
+  return rows.map((row, index) => ({
+    value: row.id,
+    label: labels[index]!,
+    description: [formatRelativeAge(row.updatedAt ?? row.createdAt, now), row.status,
+      ...((counts.get(labels[index]!) ?? 0) > 1 ? [row.id.replace(/^session-/u, '').slice(0, 8)] : []),
+    ].filter(Boolean).join(' · '),
+  }))
 }
 
 export function sessionLibraryPath(stateDir?: string): string {

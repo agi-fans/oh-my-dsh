@@ -95,12 +95,22 @@ function matchesQuery(entry: ModelCatalogEntry, query: string): boolean {
 export function resolveModelQuery(query: string, catalog: readonly ModelCatalogEntry[]): ModelQueryResolution {
   const trimmed = query.trim()
   if (trimmed === '') return { kind: 'exact', matches: [] }
-  const qualifier = /^([^:]+):([^:]+)$/u.exec(trimmed)
+  const lower = trimmed.toLowerCase()
+  // Completion and picker rows use provider/model. Match the full row first,
+  // then bare IDs, which may themselves contain slashes or colon tags.
+  const qualified = catalog.filter(entry => `${entry.provider}/${entry.model}`.toLowerCase() === lower)
+  if (qualified.length > 0) return { kind: 'exact', matches: qualified }
+  const exact = catalog.filter(entry => entry.model.toLowerCase() === lower)
+  if (exact.length > 0) return { kind: 'exact', matches: exact }
+  const qualifier = /^([^/:]+)([/:])(.+)$/u.exec(trimmed)
   if (qualifier !== null) {
     const provider = qualifier[1]!.toLowerCase()
-    const model = qualifier[2]!.toLowerCase()
+    const model = qualifier[3]!.toLowerCase()
     const inProvider = catalog.filter(entry => entry.provider.toLowerCase() === provider)
-    if (inProvider.length === 0) return { kind: 'unknown-provider', provider: qualifier[1]! }
+    if (inProvider.length === 0) {
+      const namespaced = qualifier[2] === '/' ? catalog.filter(entry => matchesQuery(entry, lower)) : []
+      return namespaced.length > 0 ? { kind: 'fuzzy', matches: namespaced } : { kind: 'unknown-provider', provider: qualifier[1]! }
+    }
     const exactId = inProvider.filter(entry => entry.model.toLowerCase() === model)
     if (exactId.length > 0) return { kind: 'exact', matches: exactId }
     const exactName = inProvider.filter(entry => entry.name.toLowerCase() === model)
@@ -110,9 +120,6 @@ export function resolveModelQuery(query: string, catalog: readonly ModelCatalogE
     const fuzzy = inProvider.filter(entry => matchesQuery(entry, model))
     return fuzzy.length > 0 ? { kind: 'fuzzy', matches: fuzzy } : { kind: 'none', closest: closestEntries(model, inProvider) }
   }
-  const lower = trimmed.toLowerCase()
-  const exact = catalog.filter(entry => entry.model.toLowerCase() === lower)
-  if (exact.length > 0) return { kind: 'exact', matches: exact }
   const fuzzy = catalog.filter(entry => matchesQuery(entry, lower))
   if (fuzzy.length > 0) return { kind: 'fuzzy', matches: fuzzy }
   return { kind: 'none', closest: closestEntries(lower, catalog) }

@@ -2,7 +2,6 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { slashSuggestions } from './autocomplete.ts'
 import {
   applySlashCompletion,
   COMMAND_GROUPS,
@@ -21,6 +20,7 @@ import {
 } from './autocomplete.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { visibleWidth, stripAnsi } from '../chrome/width.ts'
+import { matchArgumentOptions } from '../session/session-controller.ts'
 
 const theme = createTheme(false)
 
@@ -134,6 +134,16 @@ describe('buildSlashArgumentCompletions', () => {
 })
 
 describe('applySlashCompletion', () => {
+  it('replaces the complete command name while preserving its arguments', () => {
+    expect(applySlashCompletion('/model demo/alpha', 3, { value: 'model', label: 'model' }))
+      .toEqual({ text: '/model demo/alpha', cursor: 7 })
+  })
+
+  it('replaces the whole argument query including text after the cursor', () => {
+    expect(applySlashCompletion('/resume 项目 中文 简介', 10, { value: 'session-exact-id', label: '项目 中文 简介', kind: 'argument' }))
+      .toEqual({ text: '/resume session-exact-id ', cursor: 25 })
+  })
+
   it('replaces the live token with /name and a trailing space', () => {
     expect(applySlashCompletion('/he', 3, { value: 'help', label: 'help' })).toEqual({
       text: '/help ',
@@ -304,6 +314,26 @@ it('assigns every shipped TUI command to a task group', () => {
 })
 
 describe('argument completion from live state', () => {
+  it('shows and searches a session title but inserts its exact ID, including multiword queries', () => {
+    const option = { value: 'session-12345678-long-id', label: 'omdsh 中文 简介 / API', description: '2h ago · done' }
+    const commands = [{ name: 'resume', description: 'Resume', complete: (prefix: string) => matchArgumentOptions([option], prefix) }]
+    for (const query of ['', '中文 简介', '12345678', '/ API']) {
+      const text = `/resume ${query}`
+      const item = slashSuggestions(text, text.length, commands)?.items[0]
+      expect(item).toMatchObject({ ...option, kind: 'argument' })
+      expect(applySlashCompletion(text, text.length, item!).text).toBe('/resume session-12345678-long-id ')
+    }
+    const items = slashSuggestions('/resume ', 8, commands)!.items
+    for (const colors of [false, true]) {
+      for (const width of [20, 40, 80, 120]) {
+        const lines = renderAutocomplete(items, 0, createTheme(colors), width)
+        expect(lines.every(line => visibleWidth(line) <= width)).toBe(true)
+        expect(stripAnsi(lines.join('\n'))).not.toContain('session-12345678-long-id')
+      }
+    }
+    expect(stripAnsi(renderAutocomplete(items, 0, theme, 100).join('\n'))).toContain('omdsh 中文 简介 / API')
+  })
+
   const commands = [
     { name: 'model', description: 'Pick a model', complete: (prefix: string) => [
       { value: 'deepseek/flash', description: 'DeepSeek Flash' },

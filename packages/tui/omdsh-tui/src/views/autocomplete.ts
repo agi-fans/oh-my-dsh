@@ -1,5 +1,5 @@
 import { uiText, type UiLanguage } from '../locale/index.ts'
-import type { TuiCommand } from '../definition.ts'
+import type { TuiArgumentOption, TuiCommand } from '../definition.ts'
 /**
  * Slash-command autocomplete: OMP-style leading-`/` matching, ranking, and
  * completion apply. Pure — the provider owns popup selection and execution.
@@ -38,7 +38,7 @@ export interface SlashCommand extends TuiCommand {
    * in runtime state — the models on offer, the sessions that exist — so the
    * reader completes the line instead of opening a picker to choose from it.
    */
-  complete?: (prefix: string) => readonly { value: string; description?: string }[]
+  complete?: (prefix: string) => readonly TuiArgumentOption[]
 }
 
 /** One ranked suggestion shown in the popup. */
@@ -269,8 +269,8 @@ export function slashSuggestions(
   const start = findLeadingSlashCommandStart(before)
   if (start === null) return null
   const token = before.slice(start)
-  if (token.slice(1).includes('/')) return null
   const space = token.indexOf(' ')
+  if (token.slice(1, space === -1 ? undefined : space).includes('/')) return null
   if (space === -1) {
     const items = buildSlashCommandCompletions(commands, token.slice(1).toLowerCase(), language)
     if (items.length === 0) return null
@@ -284,10 +284,10 @@ export function slashSuggestions(
   if (command?.complete !== undefined) {
     const items: AutocompleteItem[] = []
     for (const option of command.complete(prefix)) {
-      if (!fuzzyMatch(lower, option.value.toLowerCase())) continue
+      if (![option.value, option.label ?? '', option.description ?? ''].some(text => fuzzyMatch(lower, text.toLowerCase()))) continue
       items.push({
         value: option.value,
-        label: option.value,
+        label: option.label ?? option.value,
         ...(option.description === undefined ? {} : { description: option.description }),
         kind: 'argument',
       })
@@ -301,23 +301,25 @@ export function slashSuggestions(
   return { items, prefix: before }
 }
 
-/** Replace the live command or argument token with the selected completion. */
+/** Replace the command name or complete argument query with the selected completion. */
 export function applySlashCompletion(
   text: string,
   cursor: number,
   item: AutocompleteItem,
 ): { text: string; cursor: number } {
   const before = text.slice(0, cursor)
-  const after = text.slice(cursor)
   const start = findLeadingSlashCommandStart(before)
   if (start === null) return { text, cursor }
   if (item.kind === 'argument') {
-    const space = before.slice(start).lastIndexOf(' ')
+    const space = before.slice(start).indexOf(' ')
     if (space === -1) return { text, cursor }
     const argStart = start + space + 1
     const insert = item.value.endsWith(' ') ? item.value : item.value + ' '
-    return { text: text.slice(0, argStart) + insert + after, cursor: argStart + insert.length }
+    return { text: text.slice(0, argStart) + insert, cursor: argStart + insert.length }
   }
+  const name = text.slice(start + 1)
+  const separator = name.search(/[\s:]/u)
+  const after = separator < 0 ? '' : name.slice(separator).replace(/^[\s:]+/u, '')
   const insert = `/${item.value} `
   return { text: text.slice(0, start) + insert + after, cursor: start + insert.length }
 }

@@ -54,7 +54,7 @@ async function liveBackend(root: string): Promise<{ ctx: Context; persistence: u
 }
 
 /** Append one human message per string to session `id`, creating it when absent. */
-async function writeEvents(persistence: unknown, id: string, texts: readonly string[]): Promise<void> {
+async function writeEvents(persistence: unknown, id: string, texts: readonly string[], cwd = process.cwd()): Promise<void> {
   const service = persistence as {
     list(): Promise<{ header: { id: string } }[]>
     open(id: SessionId, access: 'write'): Promise<{ append(events: readonly SessionEvent[]): Promise<void>, close(): Promise<void> }>
@@ -67,7 +67,7 @@ async function writeEvents(persistence: unknown, id: string, texts: readonly str
       version: SESSION_FORMAT_VERSION,
       id: SessionId(id),
       createdAt: Date.now(),
-      cwd: process.cwd(),
+      cwd,
       isSeeded: false,
     })
   const start = exists ? 1 : 0
@@ -94,9 +94,32 @@ async function launch(persistence: unknown, memoPath: string): Promise<TuiRecent
 }
 
 describe('Session Library row memo', () => {
+  it('lists only this directory without opening other directories, even with cached rows', async () => {
+    const root = temp('omdsh-recent-scope-')
+    const memoPath = temp('omdsh-recent-scope-memo-')
+    const { ctx, persistence } = await liveBackend(root)
+    try {
+      await writeEvents(persistence, 'local', ['Local work'])
+      await writeEvents(persistence, 'other', ['Other work'], join(process.cwd(), '..', 'other-project'))
+      await writeEvents(persistence, 'nested', ['Nested work'], join(process.cwd(), 'nested'))
+      const snapshots = await ctx.sessionPersistence.list()
+      const open = vi.spyOn(ctx.sessionPersistence, 'open')
+      const first = await launch(persistence, memoPath)
+      expect(first.map(row => row.id)).toEqual(['local'])
+      expect(open.mock.calls.every(([id]) => id === 'local')).toBe(true)
+      writeFileSync(join(memoPath, 'recent-sessions.json'), JSON.stringify({ version: 1, rows: Object.fromEntries(snapshots.map(snapshot => [snapshot.header.id, {
+        revision: snapshot.revision, row: { id: snapshot.header.id, title: snapshot.header.id, createdAt: snapshot.header.createdAt },
+      }])) }))
+      expect((await launch(persistence, memoPath)).map(row => row.id)).toEqual(['local'])
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('uses header metadata for historical sessions without opening their logs or writing generations', async () => {
     const root = temp('omdsh-recent-migration-')
-    const snapshots = [{ header: { id: SessionId('old'), createdAt: 1, isSeeded: false }, revision: 'old-revision', formatStatus: 'migration-required' }]
+    const snapshots = [
+      { header: { id: SessionId('old'), createdAt: 1, isSeeded: false, cwd: process.cwd() }, revision: 'old-revision', formatStatus: 'migration-required' },
+      { header: { id: SessionId('unknown-directory'), createdAt: 1, isSeeded: false }, revision: 'unknown-revision', formatStatus: 'migration-required' },
+    ]
     const open = vi.fn(async () => { throw new Error('Browsing must not open historical logs') })
     const rows = await launch({ list: async () => snapshots, open }, root)
     expect(rows).toEqual([{ id: 'old', title: 'old', createdAt: 1, formatStatus: 'migration-required' }])

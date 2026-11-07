@@ -34,6 +34,39 @@ async function harness() {
 }
 
 describe('file attachment admission', () => {
+  it('closes the attachment browser when another prompt supersedes its path input', async () => {
+    const h = await harness()
+    const prompt = vi.fn(async (request: TuiPrompt) => {
+      if (request.title === 'Attachments') return prompt.mock.calls.length === 1 ? 'add:' : null
+      request.onSuperseded?.('report.txt')
+      return null
+    })
+    Object.assign(h.ctx.tui, { prompt })
+    try {
+      expect(await attachFile(h.ctx, { ...h.invocation, rawInput: '', agent: {
+        session: { header: h.invocation.agent.session.header, snapshotEvents: () => [] },
+      } as unknown as Agent })).toMatchObject({ kind: 'success' })
+      expect(prompt).toHaveBeenCalledTimes(2)
+      expect(h.saveFileStream).not.toHaveBeenCalled()
+      expect(h.stageFileAttachment).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it.each([null, '', '   '])('returns to the attachment picker after cancelling or leaving an empty path (%j)', async answer => {
+    const h = await harness()
+    const requests: TuiPrompt[] = []
+    const answers = ['add:', answer, null]
+    Object.assign(h.ctx.tui, { prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } })
+    try {
+      expect(await attachFile(h.ctx, { ...h.invocation, rawInput: '', agent: {
+        session: { header: h.invocation.agent.session.header, snapshotEvents: () => [] },
+      } as unknown as Agent })).toMatchObject({ kind: 'success' })
+      expect(requests.map(request => request.title)).toEqual(['Attachments', 'Attach file', 'Attachments'])
+      expect(h.saveFileStream).not.toHaveBeenCalled()
+      expect(h.stageFileAttachment).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
   it('resolves attachments from the current directory while retaining the original project header', async () => {
     const h = await harness()
     const original = h.invocation.agent.session.header.cwd
@@ -83,7 +116,7 @@ it('previews verified durable image bytes when the provider has no host path', a
     expect(result).toMatchObject({ result: { kind: 'success' } })
     // Without a composer there is nothing to attach to, so the list stays a list.
     expect(requests[0]?.options?.map(option => option.value)).toEqual(['0'])
-    expect(readImage).toHaveBeenCalledWith(ref, abort.signal)
+    expect(readImage).toHaveBeenCalledWith(ref, requests[0]!.signal)
     expect(requests[1]?.documentImage).toMatchObject({ width: 20, height: 10 })
     expect(requests[1]?.options?.map(option => option.value)).toEqual(['close'])
   } finally { await ctx.fiber.dispose() }

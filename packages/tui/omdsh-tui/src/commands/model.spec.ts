@@ -262,6 +262,23 @@ describe('model command', () => {
 })
 
 describe('resolveModelQuery', () => {
+  it.each([
+    ['deepseek-account/deepseek-flash', 'deepseek-account', 'deepseek-flash'],
+    ['magpie/auto/deepseek-v4.1-flash', 'magpie', 'auto/deepseek-v4.1-flash'],
+    ['ollama/model:latest', 'ollama', 'model:latest'],
+    ['ollama:model:latest', 'ollama', 'model:latest'],
+    ['auto/deepseek-v4.1-flash', 'magpie', 'auto/deepseek-v4.1-flash'],
+    ['model:latest', 'ollama', 'model:latest'],
+  ])('resolves the displayed or legacy qualified ID %s', (query, provider, model) => {
+    const entry = { provider, model, name: 'Display name', description: '' }
+    expect(resolveModelQuery(query, [entry])).toEqual({ kind: 'exact', matches: [entry] })
+  })
+
+  it('keeps fuzzy bare model namespaces when the prefix is not a provider', () => {
+    const entry = { provider: 'magpie', model: 'auto/deepseek-v4.1-flash', name: 'Flash', description: '' }
+    expect(resolveModelQuery('auto/deepseek', [entry])).toEqual({ kind: 'fuzzy', matches: [entry] })
+  })
+
   const catalog = [
     { provider: 'deepseek-official', model: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'flagship' },
     { provider: 'deepseek-official', model: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'fast' },
@@ -278,6 +295,8 @@ describe('resolveModelQuery', () => {
     expect(qualified).toMatchObject({ kind: 'fuzzy', matches: [{ provider: 'mock-provider' }] })
     const elsewhere = resolveModelQuery('missing-provider:anything', catalog)
     expect(elsewhere).toEqual({ kind: 'unknown-provider', provider: 'missing-provider' })
+    expect(resolveModelQuery('mock-provider/v4', catalog)).toEqual(qualified)
+    expect(resolveModelQuery('missing-provider/anything', catalog)).toEqual(elsewhere)
   })
 
   it('returns every exact candidate with a case-folded collision', () => {
@@ -363,6 +382,16 @@ describe('model query command', () => {
     expect(call[3]).toEqual({ persist: true })
     expect(env.result.result).toMatchObject({ kind: 'success', text: 'Default model: mock-provider/mirror-pro' })
     await env.dispose()
+  })
+
+  it.each(['', '--session '])('accepts a completion row directly with scope %s', async scope => {
+    const env = await queryEnv(`/model ${scope}deepseek-official/deepseek-v4-flash`)
+    try {
+      expect(env.result.result.kind).toBe('success')
+      expect(env.prompt).not.toHaveBeenCalled()
+      expect(env.selection).toHaveBeenCalledWith(expect.anything(),
+        { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, {}, { persist: scope === '' })
+    } finally { await env.dispose() }
   })
 
   it('switches a unique match without persisting the default for --session', async () => {
