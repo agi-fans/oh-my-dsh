@@ -389,8 +389,16 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('error:'), 'rend
 // Keep this fixture scrollable independently of startup header height.
 mark = out.length
 term.resize(80, 20)
+// Resize reaches the child asynchronously. PageUp must use the new viewport.
+if (!(await waitFor(() => out.length > mark, 'resized transcript before browsing', deadline))) {
+  console.error(cleanOutput(out).slice(-2000))
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
 term.write('\x1b[5~')
 if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End'), 'browsing before settings', deadline))) {
+  console.error(cleanOutput(out).slice(-2000))
   term.kill()
   process.exit(1)
 }
