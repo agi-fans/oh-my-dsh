@@ -23,6 +23,7 @@ describe('TUI row settings', () => {
       mathMode: 'auto',
       mermaidMode: 'auto',
       hideThinking: true,
+      showFileChanges: true,
       editor: 'auto',
       terminalTitle: 'status',
       terminalState: 'auto',
@@ -62,6 +63,10 @@ describe('TUI row settings', () => {
   it('validates durable selection and mouse ownership preferences', () => {
     expect(resolve({ copyOnSelect: false, mouseInteraction: 'native' })).toMatchObject({ copyOnSelect: false, mouseInteraction: 'native' })
     expect(() => RowSettings({ mouseInteraction: 'unknown' })).toThrow()
+  })
+
+  it('retains an explicit disabled file change summary', () => {
+    expect(resolve({ showFileChanges: false })).toMatchObject({ showFileChanges: false })
   })
 
   it('persists formula display and rejects unsupported modes', () => {

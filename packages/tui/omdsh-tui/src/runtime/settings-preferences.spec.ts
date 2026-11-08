@@ -26,3 +26,10 @@ describe('Profile preference edits', () => {
     expect(preferencePaths('unknown')).toBeUndefined()
   })
 })
+
+
+it('persists and restores the file change summary preference independently', () => {
+  const before = { theme: 'dark' as const, colors: true, showFileChanges: true }
+  expect(preferenceChanges(before, { ...before, showFileChanges: false })).toEqual([{ op: 'set', path: ['showFileChanges'], value: false }])
+  expect(preferencePaths('showFileChanges')).toEqual([['showFileChanges']])
+})

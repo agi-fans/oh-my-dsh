@@ -49,7 +49,7 @@ describe('Models provider management', () => {
   it('uses the existing settings entry and keeps a cancelled draft out of settings and credentials', async () => {
     const h = harness(['relay', 'baseURL', 'https://new.example/v1', 'key', 'sk-draft', 'cancel', null])
     try {
-      expect(pluginSettingsEntries(h.ctx).find(row => row.id === 'models:providers')?.section).toBe('models')
+      expect(pluginSettingsEntries(h.ctx).find(row => row.id === 'models:providers')).toMatchObject({ section: 'models', subgroup: 'Connection settings', label: 'Endpoints and model lists' })
       await editSettingsEntry(h.ctx, 'models:providers', h.signal)
       expect(h.mutate).not.toHaveBeenCalled(); expect(h.set).not.toHaveBeenCalled()
       expect(h.describeSettings).toHaveBeenCalledWith({ redactSecrets: true })

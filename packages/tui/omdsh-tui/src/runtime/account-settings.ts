@@ -36,8 +36,8 @@ export function formatAccountBalance(raw: string): string {
 }
 
 export function accountSettingsEntry(ctx: Context) {
-  return ctx.get('deepseekAccount') === undefined ? [] : [{ id: 'account:deepseek', label: 'DeepSeek account', section: 'models' as const, fields: [],
-    description: 'Sign-in, profile and wallet balances. Shared with DSH.', summary: 'Manage' }]
+  return ctx.get('deepseekAccount') === undefined ? [] : [{ id: 'account:deepseek', label: 'DeepSeek account', section: 'models' as const, subgroup: 'Accounts and API keys', fields: [],
+    description: 'Manage DeepSeek sign-in, profile and wallet balances shared with DSH.', summary: 'Manage' }]
 }
 
 function report(ctx: Context, result: CommandResult, signal: AbortSignal): void {

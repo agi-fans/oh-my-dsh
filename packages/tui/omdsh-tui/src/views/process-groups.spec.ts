@@ -605,6 +605,31 @@ describe('a frame says which document rows its body came from', () => {
 
 
 describe('compact trailing process rows', () => {
+  it.each(['append', 'finish-thought'] as const)('keeps collapsed tool and thought spacing stable when a reply arrives (%s)', next => {
+    const blocks: Block[] = [
+      { kind: 'user', text: 'Inspect the project' },
+      { kind: 'assistant', turn: 1, step: 1, text: 'Checking the project.', reasoning: 'Start with the files.', streaming: false },
+      { kind: 'tool', turn: 1, callId: ToolCallId('first'), name: 'read', args: '{"path":"first.ts"}', output: 'ok', status: 'ok' },
+      { kind: 'tool', turn: 1, callId: ToolCallId('second'), name: 'read', args: '{"path":"second.ts"}', output: 'ok', status: 'ok' },
+      { kind: 'assistant', turn: 1, step: 2, text: '', reasoning: 'Review the results.\n\nNext', streaming: true },
+    ]
+    const frames: Block[][] = [blocks, next === 'append'
+      ? [...blocks, { kind: 'assistant', turn: 1, step: 3, text: 'Here is the result.', reasoning: '', streaming: true }]
+      : [...blocks.slice(0, -1), { ...blocks.at(-1)!, text: 'Here is the result.', streaming: true } as Block]]
+    for (const frame of frames) {
+      const state = { ...initialTranscript(), turn: 1, status: 'running' as const, blocks: frame }
+      const lines = renderView(state, { width: 100, height: 40, model: 'm', input: '', inputCursor: 0, colors: false }).lines.map(stripAnsi)
+      const first = lines.findIndex(line => line.includes('first.ts'))
+      const second = lines.findIndex(line => line.includes('second.ts'))
+      const thought = lines.findIndex(line => line.includes('Thinking') && line.includes('Review'))
+      expect(first).toBeGreaterThan(0)
+      expect(second - first).toBe(1)
+      expect(thought - second).toBe(1)
+      const reply = lines.findIndex(line => line.includes('Checking the project.'))
+      expect(first - reply).toBe(2)
+    }
+  })
+
   it('keeps consecutive notices together after prose and retains independent failures when folded', () => {
     const state = {
       ...initialTranscript(), turn: 1, status: 'running' as const,

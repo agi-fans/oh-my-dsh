@@ -188,3 +188,45 @@ it('does not substitute a current file for a missing historical comparison', asy
     expect(source).toMatchObject({ source: { text: 'This content belongs to a later turn' } })
   } finally { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
 })
+
+
+it.each(['command', 'agents'])('binds Changed clicks to the retained turn comparison and cancels on %s unload', async owner => {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(CommandRuntime)
+  const session = ctx.sessions.create(SessionId('click-diff'))
+  session.append('workspace/changes', { turn: 4, cwd: '/snapshot', files: [] } as never)
+  const retained = session.snapshotEvents().at(-1)!
+  session.append('workspace/changes', { turn: 5, cwd: '/later', files: [] } as never)
+  const agent = { id: session.id, session, status: 'idle' } as unknown as Agent
+  const agents = await ctx.plugin((scope: Context) => { scope.provide('agents', { get: (id: string) => id === session.id ? agent : undefined } as never) })
+  let handler: Parameters<NonNullable<import('../definition.ts').TuiService['setWorkspaceReviewHandler']>>[0] | undefined
+  const off = vi.fn()
+  const requests: import('../definition.ts').TuiFileReview[] = []
+  ctx.provide('tui', { interactive: true, notice: () => {}, prompt: vi.fn(),
+    setWorkspaceReviewHandler: (callback: typeof handler) => { handler = callback; return off },
+    reviewFiles: async (request: import('../definition.ts').TuiFileReview) => { requests.push(request) },
+  } as never)
+  const diff = vi.fn(async () => ({ kind: 'text', hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-original', '+recorded'] }] }))
+  ctx.provide('workspaceChanges', { summary: (_id: string, seq: number) => seq === retained.seq ? { turn: 4, cwd: '/snapshot', files: [
+    { path: 'a.ts', display: 'a.ts', added: 1, deleted: 1 }, { path: 'b.ts', display: 'b.ts', added: 1, deleted: 1 },
+  ] } : undefined, diff } as never)
+  const fiber = await ctx.plugin(commandDiff)
+  try {
+    await vi.waitFor(() => expect(handler).toBeTypeOf('function'))
+    const signal = new AbortController().signal
+    await handler!({ sessionId: session.id, turn: 4, file: 1, signal })
+    expect(requests[0]).toMatchObject({ title: 'Turn 4 changes', initial: 1 })
+    expect(await requests[0]!.read(1, 'diff', 100, signal)).toMatchObject({ source: { diff: true, text: expect.stringContaining('+recorded') } })
+    expect(diff.mock.calls[0]).toEqual([session.id, retained.seq, 1, signal])
+    await expect(handler!({ sessionId: session.id, turn: 99, signal })).rejects.toThrow('no retained file comparison')
+    expect((await ctx.commands.execute(agent, '/diff turn 99', [], signal))?.result).toEqual({ kind: 'error', text: 'This turn has no retained file comparison. Use /diff to review the current workspace.' })
+    await expect(handler!({ sessionId: 'missing', turn: 4, signal })).rejects.toThrow('no longer available')
+    const abort = new AbortController(); abort.abort()
+    await expect(handler!({ sessionId: session.id, turn: 4, signal: abort.signal })).rejects.toThrow()
+    await (owner === 'command' ? fiber : agents).dispose()
+    expect(off).toHaveBeenCalledTimes(1)
+    expect(requests[0]!.signal.aborted).toBe(true)
+    await expect(handler!({ sessionId: session.id, turn: 4, signal })).rejects.toThrow()
+  } finally { await ctx.fiber.dispose() }
+})

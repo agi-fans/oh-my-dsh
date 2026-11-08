@@ -32,8 +32,8 @@ const errorText = (error: unknown): string => error instanceof Error ? error.mes
 
 export function modelSettingsEntry(ctx: Context) {
   if (ctx.get('llm') === undefined || !ctx.settings.describe({ redactSecrets: true }).some(section => NAMESPACES.includes(section.ns))) return []
-  return [{ id: MODEL_SETTINGS, label: 'Model providers', section: 'models' as const, fields: [], behavior: ctx.settings.writable ? 'Profile · Apply to save' : 'Profile · Read only',
-    description: 'Manage provider credentials, endpoints and model lists. Keeps the selected model.', summary: 'Configure' }]
+  return [{ id: MODEL_SETTINGS, label: 'Endpoints and model lists', section: 'models' as const, subgroup: 'Connection settings', fields: [], behavior: ctx.settings.writable ? 'Profile · Apply to save' : 'Profile · Read only',
+    description: 'Add or edit providers, API URLs, protocols and model lists.', keywords: ['Model providers', 'baseURL', 'models', 'protocol'], summary: 'Configure' }]
 }
 
 /** Choices come from the mounted adapter schema, including protocols added by later releases. */

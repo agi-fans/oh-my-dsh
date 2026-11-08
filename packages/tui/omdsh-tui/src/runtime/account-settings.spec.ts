@@ -57,7 +57,7 @@ function harness(initial = signedIn, language: 'en' | 'zh-CN' = 'en') {
 describe('account projections and actions', () => {
   it('loads once on entry, displays masked identity and separate wallets, and preserves service strings', async () => {
     const h = harness(), run = h.run(); await flush()
-    expect(accountSettingsEntry(h.ctx)[0]?.section).toBe('models')
+    expect(accountSettingsEntry(h.ctx)[0]).toMatchObject({ section: 'models', subgroup: 'Accounts and API keys' })
     expect(h.detail()).toContain('Test account · a***@example.test')
     expect(h.detail()).toContain('Recharge balance: CNY 1,234.56')
     expect(h.detail()).toContain('Bonus balance: USD <0.01')

@@ -6,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { registerCommands } from './registration.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
-import { pluginRecordOf } from '@deepseek-ai/dsh-session'
+import { SessionId, pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import { changedFiles, fileDocument, gitOutput, reviewFiles } from '../runtime/file-review.ts'
 
@@ -103,6 +103,42 @@ function gitRunner(cwd: string): GitRunner {
   })
 }
 
+async function reviewTurn(ctx: Context, invocation: Pick<CommandInvocation, 'agent' | 'signal'>, turn?: number, initial?: number): Promise<CommandResult> {
+  const tui = ctx.get('tui')
+  if (tui?.interactive !== true || invocation.signal.aborted) return { kind: 'success' }
+  const events = invocation.agent.session.snapshotEvents()
+  const event = events.findLast((event): event is Extract<import('@deepseek-ai/dsh-session').SessionEvent, { type: 'workspace/changes' }> => event.type === 'workspace/changes'
+    && (turn === undefined || event.data.turn === turn))
+  const service = ctx.get('workspaceChanges')
+  let summary = event === undefined ? undefined : service?.summary(invocation.agent.id, event.seq)
+  if (summary === undefined && event !== undefined) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const record = pluginRecordOf(events[index]!)
+      if (record?.type === 'plugin:omdsh/workspace-changes'
+        && typeof record.data === 'object'
+        && record.data !== null
+        && (record.data as { turn?: unknown }).turn === event.data.turn
+        && typeof (record.data as { summary?: unknown }).summary === 'object'
+        && (record.data as { summary?: unknown }).summary !== null) {
+        summary = (record.data as { summary: WorkspaceChangesSummary }).summary
+        break
+      }
+    }
+  }
+  if (event === undefined || summary === undefined) return { kind: 'error', text: 'This turn has no retained file comparison. Use /diff to review the current workspace.' }
+  await reviewFiles(tui, `Turn ${summary.turn} changes`, summary.cwd,
+    summary.files.map(file => ({ path: file.path, label: file.display, description: `+${file.added} −${file.deleted}` })), async (index, signal) => {
+      const diff = await service?.diff(invocation.agent.id, event.seq, index, signal)
+      if (diff === undefined) {
+        return 'This turn comparison is no longer retained. Press V to view the current workspace file; it may differ from this turn.'
+      }
+      if (diff.kind !== 'text') return diff.kind === 'binary' ? 'Binary file; open the original to inspect it.' : 'File exceeds the turn comparison limit.'
+      return { text: diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), diff: true,
+        ...(diff.coarse ? { status: 'Comparison time limit reached; complete replacement shown.' } : {}) }
+    }, invocation.signal, initial)
+  return { kind: 'success' }
+}
+
 async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
   const target = invocation.rawInput.trim()
   const cwd = currentWorkingDirectory(ctx, invocation.agent.session)
@@ -112,36 +148,7 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
     if (tui?.interactive === true) {
       const turn = /^turn(?:\s+(\d+))?$/u.exec(target)
       if (turn !== null) {
-        const events = invocation.agent.session.snapshotEvents()
-        const event = events.findLast((event): event is Extract<import('@deepseek-ai/dsh-session').SessionEvent, { type: 'workspace/changes' }> => event.type === 'workspace/changes'
-          && (turn[1] === undefined || event.data.turn === Number(turn[1])))
-        const service = ctx.get('workspaceChanges')
-        let summary = event === undefined ? undefined : service?.summary(invocation.agent.id, event.seq)
-        if (summary === undefined && event !== undefined) {
-          for (let index = events.length - 1; index >= 0; index -= 1) {
-            const record = pluginRecordOf(events[index]!)
-            if (record?.type === 'plugin:omdsh/workspace-changes'
-              && typeof record.data === 'object'
-              && record.data !== null
-              && (record.data as { turn?: unknown }).turn === event.data.turn
-              && typeof (record.data as { summary?: unknown }).summary === 'object'
-              && (record.data as { summary?: unknown }).summary !== null) {
-              summary = (record.data as { summary: WorkspaceChangesSummary }).summary
-              break
-            }
-          }
-        }
-        if (event === undefined || summary === undefined) return { kind: 'error', text: 'This turn has no retained file comparison. Use /diff to review the current workspace.' }
-        await reviewFiles(tui, `Turn ${summary.turn} changes`, summary.cwd,
-          summary.files.map(file => ({ path: file.path, label: file.display, description: `+${file.added} −${file.deleted}` })), async (index, signal) => {
-            const diff = await service?.diff(invocation.agent.id, event.seq, index, signal)
-            if (diff === undefined) {
-              return 'This turn comparison is no longer retained. Press V to view the current workspace file; it may differ from this turn.'
-            }
-            if (diff.kind !== 'text') return diff.kind === 'binary' ? 'Binary file; open the original to inspect it.' : 'File exceeds the turn comparison limit.'
-            return { text: diff.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join('\n')}`).join('\n'), diff: true,
-              ...(diff.coarse ? { status: 'Comparison time limit reached; complete replacement shown.' } : {}) }
-          }, invocation.signal)
+        return await reviewTurn(ctx, invocation, turn[1] === undefined ? undefined : Number(turn[1]))
       } else {
         // Git's changed-file lists use repository paths, even when the session
         // starts in a subdirectory. Keep diffs and host-file actions on that base.
@@ -191,10 +198,26 @@ async function showDiff(ctx: Context, invocation: CommandInvocation): Promise<Co
 }
 
 export function apply(ctx: Context): void {
+  const closing = new AbortController()
+  ctx.effect(() => () => { closing.abort() })
+  ctx.inject(['tui', 'agents'], ctx => {
+    ctx.effect(() => {
+      const lifetime = new AbortController()
+      const off = ctx.tui.setWorkspaceReviewHandler?.(async request => {
+        const signal = AbortSignal.any([request.signal, lifetime.signal])
+        signal.throwIfAborted()
+        const agent = ctx.agents.get(SessionId(request.sessionId))
+        if (agent === undefined) throw new Error('This session is no longer available.')
+        const result = await reviewTurn(ctx, { agent, signal }, request.turn, request.file)
+        if (result.kind === 'error') throw new Error(result.text)
+      })
+      return () => { lifetime.abort(); off?.() }
+    })
+  })
   registerCommands(ctx, [{
     name: 'diff',
     description: 'Summarize the workspace changes, or show one file',
     input: { hint: '[path|turn [number]]' },
-    handler: invocation => showDiff(ctx, invocation),
+    handler: invocation => showDiff(ctx, { ...invocation, signal: AbortSignal.any([invocation.signal, closing.signal]) }),
   }], 'omdsh workspace commands')
 }

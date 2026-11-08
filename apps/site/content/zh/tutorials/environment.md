@@ -32,7 +32,7 @@ DeepSeek 本身是第一项：`/login` 可以启动 DeepSeek 账户的浏览器�
 
 若要添加另一家 catalog 提供方，运行 `/login` 并从列表中选择。已注册授权流程的提供方会给出该流程的方法，而不是通用的 API Key 提问；否则粘贴其 API Key。该路由会在下一次模型请求时生效。
 
-选择 `custom` 添加目录外的网关或本地服务，填写永久 ID、Base URL、API 协议、可选密钥及至少一个模型 ID。之后可通过 **Settings → Models → Model providers** 编辑或删除自定义服务商。`/logout` 管理已保存的认证。
+选择 `custom` 添加目录外的网关或本地服务，填写永久 ID、Base URL、API 协议、可选密钥及至少一个模型 ID。之后可通过 **Settings → Models → Connection settings → Endpoints and model lists** 编辑或删除自定义服务商。`/logout` 管理已保存的认证。
 
 ### 诊断本地安装
 

@@ -84,6 +84,7 @@ export interface TuiSettings {
   mathMode: Volatile<MathMode>
   mermaidMode: Volatile<MermaidMode>
   hideThinking: Volatile<boolean>
+  showFileChanges: Volatile<boolean>
   editor: Volatile<EditorId>
   terminalTitle: Volatile<TerminalTitleMode>
   terminalState: Volatile<TerminalStateMode>
@@ -157,6 +158,7 @@ export const TUI_SETTINGS_FIELDS = {
   mathMode: z.union([...MATH_MODES]).default('auto').volatile(),
   mermaidMode: z.union([...MERMAID_MODES]).default('auto').volatile(),
   hideThinking: z.boolean().default(true).volatile(),
+  showFileChanges: z.boolean().default(true).volatile(),
   editor: z.union([...EDITOR_IDS]).default('auto').volatile(),
   terminalTitle: z.union([...TERMINAL_TITLE_MODES]).default('status').volatile(),
   terminalState: z.union([...TERMINAL_STATE_MODES]).default('auto').volatile(),

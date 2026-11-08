@@ -146,6 +146,7 @@ describe('tuiSettingItems / applySettingValue', () => {
     const items = tuiSettingItems(prefs)
     expect(items.map((item) => item.id)).toEqual([
       'uiLanguage',
+      'showFileChanges',
       'theme',
       'colors',
       'motion',
@@ -177,9 +178,9 @@ describe('tuiSettingItems / applySettingValue', () => {
       'statusItem:counts',
       'statusReset',
     ])
-    expect(items[1]?.value).toBe('dark')
-    expect(items[2]?.value).toBe('on')
-    expect(items[3]).toMatchObject({ label: 'Motion', value: 'full' })
+    expect(items.find(item => item.id === 'theme')?.value).toBe('dark')
+    expect(items.find(item => item.id === 'colors')?.value).toBe('on')
+    expect(items.find(item => item.id === 'motion')).toMatchObject({ label: 'Motion', value: 'full' })
     expect(items.find(item => item.id === 'checkUpdates')).toMatchObject({ label: 'Update checks', value: 'on' })
     expect(items.find(item => item.id === 'startupChangelog')).toMatchObject({ label: 'Release notes', value: 'summary' })
     expect(items.find(item => item.id === 'statusEnabled')?.value).toBe('on')
@@ -282,7 +283,7 @@ describe('applySettingsEvent', () => {
     expect(cycled).toEqual({
       kind: 'apply',
       domain: 'tui',
-      state: { selected: 1, prefs: { theme: 'light', colors: true } },
+      state: { selected: open.selected, prefs: { theme: 'light', colors: true } },
     })
     const again = applySettingsEvent(cycled.kind === 'apply' ? cycled.state : open, { type: 'text', value: ' ' })
     expect(again.kind === 'apply' && again.state.prefs.theme).toBe('system')
@@ -291,19 +292,19 @@ describe('applySettingsEvent', () => {
   it('moves between rows and closes on escape', () => {
     const open = createSettings(prefs, 'theme')
     const down = applySettingsEvent(open, key('down'))
-    expect(down).toEqual({ kind: 'update', state: { selected: 2, prefs } })
+    expect(down).toEqual({ kind: 'update', state: { selected: open.selected + 1, prefs } })
     const mid = applySettingsEvent(down.kind === 'update' ? down.state : open, key('down'))
-    expect(mid.kind === 'update' && mid.state.selected).toBe(3)
+    expect(mid.kind === 'update' && mid.state.selected).toBe(open.selected + 2)
     const last = applySettingsEvent(mid.kind === 'update' ? mid.state : open, key('down'))
-    expect(last.kind === 'update' && last.state.selected).toBe(4)
+    expect(last.kind === 'update' && last.state.selected).toBe(open.selected + 3)
     const next = applySettingsEvent(last.kind === 'update' ? last.state : open, key('down'))
-    expect(next.kind === 'update' && next.state.selected).toBe(5)
+    expect(next.kind === 'update' && next.state.selected).toBe(open.selected + 4)
     expect(applySettingsEvent(open, key('escape'))).toEqual({ kind: 'close' })
     expect(applySettingsEvent(open, key('ctrl+c'))).toEqual({ kind: 'close' })
   })
 
   it('keeps navigation within a section and tabs between General and Terminal', () => {
-    const general = createSettings(prefs, 'agentLanguage', agent)
+    const general = createSettings(prefs, 'showFileChanges', agent)
     expect(applySettingsEvent(general, key('down'))).toEqual({ kind: 'update', state: general })
     const terminal = applySettingsEvent(general, key('tab'))
     expect(terminal.kind).toBe('update')
@@ -386,7 +387,7 @@ describe('Features section', () => {
     const at = items.findIndex(item => item.id === 'feature:workspace-changes')
     const open = { ...createSettings(prefs, undefined, undefined, features), selected: at }
     const lines = renderSettings(open, theme, 80, 40).lines.join('\n')
-    expect(lines).toContain('Changed-file summary')
+    expect(lines).toContain('Record file changes')
     expect(lines).toContain('Session history tools')
     expect(lines).toContain('Ralph loop')
     expect(lines).toContain('Repeat-tool reminder')
@@ -604,4 +605,118 @@ it.each([32, 80])('shows setting scope at a stable boundary without overflowing 
   expect(frame.lines).toHaveLength(18)
   const language = renderSettings({ ...state, selected: 0 }, theme, width, 18)
   expect(language.lines).toHaveLength(frame.lines.length)
+})
+
+
+it('controls file change summaries from General and localizes the setting', () => {
+  const items = tuiSettingItems(prefs, agent, undefined,
+    [{ id: 'access', label: 'Default access', section: 'general', summary: 'Full access' }], undefined,
+    [{ id: 'command:goal', group: 'General', label: 'Current goal', value: 'Open', values: [], action: 'goal' }])
+  expect(items.slice(0, 6).map(item => item.id)).toEqual([
+    'uiLanguage', 'agentLanguage', 'plugin:access', 'command:goal', 'showFileChanges', 'theme',
+  ])
+  const state = createSettings(prefs, 'showFileChanges')
+  const frame = renderSettings(state, createTheme(false, 'dark'), 100, 24).lines.join('\n')
+  expect(frame).toContain('● General')
+  expect(frame).toContain('File change summary')
+  expect(applySettingsEvent(state, key('right'))).toMatchObject({ kind: 'apply', domain: 'tui', state: { prefs: { showFileChanges: false } } })
+  expect(applySettingsEvent(state, key('ctrl+r'))).toEqual({ kind: 'reset', id: 'showFileChanges', label: 'File change summary' })
+  expect(applySettingValue(prefs, 'showFileChanges', 'off').showFileChanges).toBe(false)
+  const chinese = { ...prefs, uiLanguage: 'zh-CN' as const }
+  expect(renderSettings(createSettings(chinese, 'showFileChanges'), createTheme(false, 'truecolor', 'dark', undefined, 'zh-CN'), 100, 24).lines.join('\n')).toContain('文件变更摘要')
+})
+
+
+it.each(['en', 'zh-CN'] as const)('groups Models by task, searches localized headings and keeps configuration actions reachable (%s)', language => {
+  const plugins = [
+    { id: 'account:deepseek', label: 'DeepSeek account', description: 'Account and balance', section: 'models' as const, subgroup: 'Accounts and API keys', summary: 'Manage' },
+    { id: 'models:providers', label: 'Endpoints and model lists', description: 'API URLs and model lists', section: 'models' as const, subgroup: 'Connection settings', summary: 'Configure' },
+  ]
+  const actions = [
+    { id: 'command:model', label: 'Model and reasoning', description: 'Select a model', group: 'Models', subgroup: 'Model selection', value: 'deepseek-flash', values: [], action: 'model' },
+    { id: 'command:login', label: 'Sign in / add API key', description: 'Sign in', group: 'Models', subgroup: 'Accounts and API keys', value: 'Choose provider', values: [], action: 'login' },
+    { id: 'command:logout', label: 'Sign out / remove key', description: 'Sign out', group: 'Models', subgroup: 'Accounts and API keys', value: 'Choose provider', values: [], action: 'logout' },
+  ]
+  const settings = { ...prefs, uiLanguage: language }
+  const items = tuiSettingItems(settings, undefined, undefined, plugins, undefined, actions)
+  expect(items.filter(item => ['Model selection', 'Accounts and API keys', 'Connection settings'].includes(item.group ?? '')).map(item => item.id)).toEqual([
+    'command:model', 'plugin:account:deepseek', 'command:login', 'command:logout', 'plugin:models:providers',
+  ])
+  const state = createSettings(settings, 'command:model', undefined, undefined, plugins, undefined, actions)
+  const localized = createTheme(false, 'truecolor', 'dark', undefined, language)
+  const screen = renderSettings(state, localized, 100, 24).lines.join('\n')
+  const headings = language === 'en' ? ['Model selection', 'Accounts and API keys', 'Connection settings'] : ['模型选择', '账户与密钥', '连接配置']
+  for (const heading of headings) expect(screen).toContain(heading)
+  const next = applySettingsEvent(state, key('down'))
+  expect(next.kind === 'update' && items[next.state.selected]?.id).toBe('plugin:account:deepseek')
+  for (const [id, entry] of [['plugin:account:deepseek', 'account:deepseek'], ['plugin:models:providers', 'models:providers']]) {
+    const chosen = createSettings(settings, id, undefined, undefined, plugins, undefined, actions)
+    expect(applySettingsEvent(chosen, key('enter'))).toEqual({ kind: 'open-plugin', id: entry })
+    const small = renderSettings(chosen, localized, 40, 12)
+    expect(small.lines).toHaveLength(12)
+    expect(small.lines.every(line => visibleWidth(line) === 40)).toBe(true)
+    expect(small.lines.join('\n')).toContain('❯')
+  }
+  const searched = applySettingsEvent(state, { type: 'text', value: headings[1]! })
+  expect(searched.kind).toBe('update')
+  if (searched.kind === 'update') {
+    expect(renderSettings(searched.state, localized, 100, 24).lines.join('\n')).toContain(language === 'en' ? '3 matches' : '3 项匹配')
+  }
+})
+
+
+it.each(['en', 'zh-CN'] as const)('groups General, presets, plugins and Advanced while keeping item navigation stable (%s)', language => {
+  const plugins = [
+    { id: 'permission', label: 'Default access', description: 'Default', section: 'general' as const, subgroup: 'Session controls' },
+    { id: 'preset', label: 'Default Agent preset', description: 'Default', section: 'presets' as const, subgroup: 'New sessions' },
+    { id: 'shell', label: 'Shell', description: 'Timeouts', section: 'tools' as const },
+    { id: 'subagents', label: 'Subagents', description: 'Children', section: 'agent' as const },
+    { id: 'codex', label: 'Codex', description: 'Integration', section: 'integrations' as const, subgroup: 'Agents' },
+    { id: 'web', label: 'Web search and fetch', description: 'Web', section: 'integrations' as const },
+    { id: 'extra', label: 'Extra runtime', description: 'Extras', section: 'advanced' as const, subgroup: 'Additional fields' },
+    { id: 'custom', label: 'Custom plugin', description: 'Plugin', section: 'advanced' as const },
+  ]
+  const actions = [
+    { id: 'access', label: 'Current session access', description: 'Access', group: 'General', subgroup: 'Session controls', value: 'Full access', values: [], action: 'permission' },
+    { id: 'goal', label: 'Current goal', description: 'Goal', group: 'General', subgroup: 'Session controls', value: 'Open', values: [], action: 'goal' },
+    { id: 'preset', label: 'Current session preset', description: 'Preset', group: 'Agent presets', subgroup: 'Current session', value: 'Standard', values: [], action: 'agent' },
+    { id: 'plugins', label: 'Manage plugins', description: 'Manage', group: 'Plugins', subgroup: 'Plugin management', value: 'Open', values: [], action: 'plugins' },
+  ]
+  const config = { ...prefs, uiLanguage: language }, features = defaultFeatureStates()
+  const items = tuiSettingItems(config, agent, features, plugins, undefined, actions)
+  const targets = [
+    ['uiLanguage', 'Language'], ['access', 'Session controls'], ['showFileChanges', 'Transcript display'],
+    ['plugin:preset', 'New sessions'], ['preset', 'Current session'], ['plugins', 'Plugin management'],
+    ['plugin:shell', 'Tools'], ['plugin:subagents', 'Agents'], ['plugin:codex', 'Agents'], ['plugin:web', 'Integrations'],
+    ['feature:workspace-changes', 'Optional features'], ['plugin:extra', 'Additional fields'], ['plugin:custom', 'Plugin configuration'],
+  ]
+  for (const color of [false, true]) {
+    const localized = createTheme(color, 'truecolor', 'dark', undefined, language)
+    for (const [id, heading] of targets) {
+      const state = createSettings(config, id, agent, features, plugins, undefined, actions)
+      expect(items[state.selected]?.group).toBe(heading)
+      const frame = renderSettings(state, localized, 100, 30)
+      expect(frame.lines.join('\n')).toContain(localized.text(heading!))
+      for (const width of [40, 100]) {
+        const small = renderSettings(state, localized, width, 12)
+        expect(small.lines).toHaveLength(12)
+        expect(small.lines.every(line => visibleWidth(line) === width)).toBe(true)
+      }
+      const end = applySettingsEvent(state, key('end'))
+      expect(end.kind).toBe('update')
+      if (end.kind === 'update') expect(applySettingsEvent(end.state, key('down'))).toEqual(end)
+    }
+  }
+  let state = createSettings(config, 'uiLanguage', agent, features, plugins, undefined, actions)
+  for (const id of ['agentLanguage', 'plugin:permission', 'access', 'goal', 'showFileChanges']) {
+    const moved = applySettingsEvent(state, key('down'))
+    expect(moved.kind).toBe('update')
+    if (moved.kind === 'update') state = moved.state
+    expect(items[state.selected]?.id).toBe(id)
+  }
+  expect(applySettingsEvent(state, key('down'))).toEqual({ kind: 'update', state })
+  const current = createSettings(config, 'preset', agent, features, plugins, undefined, actions)
+  expect(applySettingsEvent(current, key('enter'))).toEqual({ kind: 'open-command', name: 'agent' })
+  const feature = createSettings(config, 'feature:workspace-changes', agent, features, plugins, undefined, actions)
+  expect(applySettingsEvent(feature, key('right'))).toMatchObject({ kind: 'apply', domain: 'features' })
 })

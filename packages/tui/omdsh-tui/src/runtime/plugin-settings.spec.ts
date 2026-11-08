@@ -83,18 +83,25 @@ describe('plugin configuration', () => {
   it('places built-in forms in product categories and preserves unclaimed fields in Advanced', async () => {
     const h = await harness([])
     const descriptors = [
-      { ...h.section, ns: 'tui', schema: z.object({ theme: z.string(), statusBar: z.dict(z.string()), foldDensity: z.string(), future: z.boolean() }).toJSON() },
+      { ...h.section, ns: 'tui', schema: z.object({ theme: z.string(), statusBar: z.dict(z.string()), foldDensity: z.string(), hideThinking: z.boolean(), showFileChanges: z.boolean(), future: z.boolean() }).toJSON() },
       { ...h.section, ns: 'agent-behavior', schema: z.object({ language: z.string() }).toJSON() },
       { ...h.section, ns: 'sample-form', schema: z.object({ mode: z.union(['off', 'one', 'two'] as const), future: z.string() }).toJSON() },
       { ...h.section, ns: 'agent-loop', schema: z.object({ maxParallelToolCalls: z.number() }).toJSON() },
       { ...h.section, ns: 'bash', schema: z.object({ timeoutMs: z.number(), cwd: z.string() }).toJSON() },
+      { ...h.section, ns: 'permission', schema: z.object({ defaultPreset: z.string(), future: z.boolean() }).toJSON() },
+      { ...h.section, ns: 'agent-preset-registry', schema: z.object({ selectedDefault: z.string() }).toJSON() },
       { ...h.section, ns: 'private-page', autoGenerate: false },
       { ...h.section, ns: 'third-party' },
     ]
     h.describe.mockReturnValue(descriptors)
+    h.ctx.provide('pluginManager', {} as never)
     try {
       const entries = config.pluginSettingsEntries(h.ctx)
-      expect(entries.find(entry => entry.id === 'advanced:tui')).toMatchObject({ section: 'advanced', fields: ['future'] })
+      expect(entries.find(entry => entry.id === 'advanced:tui')).toMatchObject({ section: 'advanced', subgroup: 'Plugin configuration', fields: ['future'] })
+      expect(entries.find(entry => entry.id === 'permission')).toMatchObject({ subgroup: 'Session controls' })
+      expect(entries.find(entry => entry.id === 'agent-preset-registry')).toMatchObject({ subgroup: 'New sessions' })
+      expect(entries.find(entry => entry.id === 'advanced:permission')).toMatchObject({ subgroup: 'Additional fields', fields: ['future'] })
+      expect(entries.find(entry => entry.id === 'integration:codex')).toMatchObject({ subgroup: 'Agents' })
       expect(entries.some(entry => entry.id === 'agent-behavior' || entry.id === 'private-page')).toBe(false)
       // A namespace without a product form keeps only its unclaimed fields.
       expect(entries.find(entry => entry.id === 'advanced:sample-form')).toMatchObject({ section: 'advanced', fields: ['mode', 'future'] })

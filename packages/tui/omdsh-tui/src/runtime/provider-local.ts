@@ -629,6 +629,9 @@ export class LocalTui implements TuiService {
   #mermaidMode: import('../chrome/mermaid.ts').MermaidMode = 'auto'
   /** Transcript collapses every thought to one line; Ctrl+T flips it. */
   #hideThinking = true
+  #showFileChanges = true
+  #workspaceReview: Parameters<NonNullable<TuiService['setWorkspaceReviewHandler']>>[0] | undefined
+  #workspacePress: { row: number; column: number; block: number; source: Block; file?: number } | undefined
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
   #disclosurePress: { target: TranscriptDisclosure; row: number; column: number } | undefined
@@ -857,6 +860,7 @@ export class LocalTui implements TuiService {
         // live window so it stays anchored at the bottom.
         this.#selection.clear()
         this.#mouseActionPress = undefined
+        this.#workspacePress = undefined
         this.#jumpPress = undefined
         this.#disclosurePress = undefined
         const repaint = (): void => {
@@ -1088,7 +1092,7 @@ export class LocalTui implements TuiService {
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.needsApproval === inspected?.needsApproval && this.#inspected?.mode === inspected?.mode
       && this.#inspected?.writable === inspected?.writable) return
-    if (this.#inspected?.id !== inspected?.id) { this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
+    if (this.#inspected?.id !== inspected?.id) { this.#workspacePress = undefined; this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
     this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
     this.#drainPendingInput()
@@ -1113,6 +1117,7 @@ export class LocalTui implements TuiService {
 
   async reviewFiles(request: TuiFileReview): Promise<void> {
     if (!this.#tty || this.#disposed || request.signal.aborted) return
+    this.#workspacePress = undefined
     this.#flushPasteBurst(true)
     this.#pasteBurst.clear()
     this.#finishPrompt(null)
@@ -1430,7 +1435,8 @@ export class LocalTui implements TuiService {
     const browserState = promptBrowserState(request)
     request = localizePrompt(request, resolveUiLanguage(this.#uiLanguage))
     // Background approvals take the terminal from a user-opened file reader.
-    if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal) this.#fileReviewAbort.abort()
+    if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal
+      && request.signal !== this.#fileBrowser?.request.signal) this.#fileReviewAbort.abort()
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
     if (this.#prompt !== null) {
       const superseded = this.#prompt.request.onSuperseded
@@ -1452,6 +1458,7 @@ export class LocalTui implements TuiService {
     this.#promptChoicePress = undefined
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
+    this.#workspacePress = undefined
     this.#jumpPress = undefined
     this.#wheelGesture = IDLE_WHEEL
     const savedInput = this.#editor.snapshot()
@@ -1541,6 +1548,7 @@ export class LocalTui implements TuiService {
     status: TuiStatus = 'idle',
     reason: TuiTranscriptReplacement = 'open',
   ): void {
+    this.#workspacePress = undefined
     if (reason !== 'refresh') {
       this.#fileReviewAbort?.abort()
       this.#closeFileBrowser()
@@ -1573,7 +1581,7 @@ export class LocalTui implements TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
-    if (info.id !== this.#sessionId) { this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
+    if (info.id !== this.#sessionId) { this.#workspacePress = undefined; this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
     this.#switchDraft(this.#inspected?.id ?? info.id)
     this.#sessionId = info.id
     this.#drainPendingInput()
@@ -1649,6 +1657,7 @@ export class LocalTui implements TuiService {
       mathMode: this.#mathMode,
       mermaidMode: this.#mermaidMode,
       hideThinking: this.#hideThinking,
+      showFileChanges: this.#showFileChanges,
       editor: this.#externalEditor,
       terminalTitle: this.#terminalTitle,
       terminalState: this.#terminalState,
@@ -1903,6 +1912,16 @@ export class LocalTui implements TuiService {
     const pending = this.#pendingInputs.session(this.#sessionId)
     return pending.queued.length === 0 && pending.sending.size === 0
       && this.#state.nextTurnInbox.length === 0 && !this.#state.nextStepInbox.some(message => message.source.kind === 'user')
+  }
+
+  setWorkspaceReviewHandler(handler: Parameters<NonNullable<TuiService['setWorkspaceReviewHandler']>>[0]): () => void {
+    this.#workspaceReview = handler
+    return () => {
+      if (this.#workspaceReview === handler) {
+        this.#workspaceReview = undefined
+        this.#workspacePress = undefined
+      }
+    }
   }
 
   setGoalHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
@@ -2285,6 +2304,7 @@ export class LocalTui implements TuiService {
         mathMode: this.#mathMode,
         mermaidMode: this.#mermaidMode,
         hideThinking: true,
+        showFileChanges: this.#showFileChanges,
         height: this.#term.height(),
         model: this.#model,
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
@@ -2413,7 +2433,8 @@ export class LocalTui implements TuiService {
   }
 
   #scrollBy(delta: number): void {
-    if (this.#follow && delta > 0) return
+    this.#workspacePress = undefined
+    if (this.#follow && (delta > 0 || this.#maxStart === 0)) return
     if (delta === 0 && this.#maxStart === 0) return
     if (!this.#inspecting && delta > 0 && this.#scrollStart + delta >= this.#maxStart) {
       this.#followTail()
@@ -2475,7 +2496,7 @@ export class LocalTui implements TuiService {
   #setMouseTracking(enabled: boolean): void {
     enabled = enabled && this.#mouseInteraction !== 'native'
       && (this.#mouseInteraction === 'tui' || this.#tmuxMouseEnabled !== false)
-    if (!enabled) { this.#mouseActionPress = undefined; this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
+    if (!enabled) { this.#workspacePress = undefined; this.#mouseActionPress = undefined; this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
     this.#session.setMode('mouse', MOUSE_TRACKING, enabled)
@@ -2784,6 +2805,19 @@ export class LocalTui implements TuiService {
     return undefined
   }
 
+  #fileRegionAt(row: number): { block: number; file?: number } | undefined {
+    const document = this.#renderer.documentRowAt(row)
+    const frame = this.#fileActionFrame
+    const source = frame?.documentRows
+    const region = document === undefined ? undefined : frame?.transcript?.fileRegions?.find(region => document >= region.start && document < region.end)
+    const expected = document === undefined || source === undefined || source === null ? undefined
+      : frame?.lines[source.frameStart + document - source.documentStart]
+    const actual = this.#renderer.viewport()[row]
+    // Committed native history can differ from the live document after a reflow.
+    return expected !== undefined && actual !== undefined
+      && stripAnsi(sanitizeDisplayLine(expected)).trimEnd() === stripAnsi(actual).trimEnd() ? region : undefined
+  }
+
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
     if (this.#trajectory !== null || this.#fileBrowser !== null) { this.#handleTrajectoryMouse(event); return }
@@ -2847,6 +2881,7 @@ export class LocalTui implements TuiService {
       const target = this.#mouseActionAt(event.row, event.column)
       if (event.action === 'release') {
         this.#mouseActionPress = undefined
+        this.#workspacePress = undefined
         if (event.button === 'left' && !event.shift && target?.key === pressedAction.key && target.row === pressedAction.row && target.column === pressedAction.column) {
           if (target.action === 'copy') void this.#copySelection(true)
           else if (target.action === 'quote') this.#quoteSelection()
@@ -2869,20 +2904,13 @@ export class LocalTui implements TuiService {
     const inside = (target: { row: number; column: number; width: number }): boolean =>
       event.row === target.row && event.column >= target.column && event.column < target.column + target.width
     if (event.button === 'right') {
+      this.#workspacePress = undefined
       this.#disclosurePress = undefined
       if (event.action === 'press') {
         if (this.#selection.active) void this.#copySelection(true)
         else {
-          const document = this.#renderer.documentRowAt(event.row)
-          const frame = this.#fileActionFrame
-          const source = frame?.documentRows
-          const region = document === undefined ? undefined : frame?.transcript?.fileRegions?.find(region => document >= region.start && document < region.end)
-          const expected = document === undefined || source === undefined || source === null ? undefined
-            : frame?.lines[source.frameStart + document - source.documentStart]
-          const actual = this.#renderer.viewport()[event.row]
-          // Native-history snapshots may differ from the current document. Do
-          // not reinterpret their old text as another file after a reflow.
-          if (region !== undefined && expected !== undefined && actual !== undefined && stripAnsi(sanitizeDisplayLine(expected)).trimEnd() === stripAnsi(actual).trimEnd()) {
+          const region = this.#fileRegionAt(event.row)
+          if (region !== undefined) {
             const block = this.#state.blocks[region.block]
             const action = block === undefined ? undefined : blockFileAction(block)
             if (action !== undefined) this.#openFileAction(action, region.file)
@@ -2892,6 +2920,10 @@ export class LocalTui implements TuiService {
       return
     }
     if (event.action === 'press') {
+      const region = !event.shift && this.#workspaceReview !== undefined ? this.#fileRegionAt(event.row) : undefined
+      const source = region === undefined ? undefined : this.#state.blocks[region.block]
+      this.#workspacePress = source?.kind === 'workspace' && region !== undefined
+        ? { row: event.row, column: event.column, block: region.block, source, ...(region.file === undefined ? {} : { file: region.file }) } : undefined
       const disclosure = event.shift ? undefined : this.#disclosureAt(event.row, event.column)
       this.#disclosurePress = disclosure === undefined ? undefined : { target: disclosure, row: event.row, column: event.column }
       const target = this.#jumpToLatest
@@ -2907,6 +2939,8 @@ export class LocalTui implements TuiService {
         if (inside(target)) this.#followTail()
       }
     } else if (event.action === 'drag') {
+      const pressed = this.#workspacePress
+      if (pressed !== undefined && (event.shift || event.row !== pressed.row || Math.abs(event.column - pressed.column) > 1)) this.#workspacePress = undefined
       // Motion confined to the empty gutter is click jitter. Once it leaves,
       // selection owns the gesture even if the pointer returns to the arrow.
       if (event.shift || this.#pressedDisclosureAt(event.row, event.column) === undefined) {
@@ -2914,6 +2948,15 @@ export class LocalTui implements TuiService {
         this.#selection.move(event)
       }
     } else {
+      const pressed = this.#workspacePress
+      this.#workspacePress = undefined
+      const region = pressed === undefined ? undefined : this.#fileRegionAt(event.row)
+      if (!event.shift && pressed !== undefined && event.row === pressed.row && Math.abs(event.column - pressed.column) <= 1
+        && region?.block === pressed.block && region.file === pressed.file && this.#state.blocks[pressed.block] === pressed.source) {
+        this.#selection.clear()
+        this.#openWorkspaceReview(pressed.source, pressed.file)
+        return
+      }
       const target = this.#pressedDisclosureAt(event.row, event.column)
       this.#disclosurePress = undefined
       if (!event.shift && target !== undefined) {
@@ -3066,6 +3109,18 @@ export class LocalTui implements TuiService {
     } finally { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined }
   }
 
+  #openWorkspaceReview(block: Block, file?: number): void {
+    const handler = this.#workspaceReview
+    const sessionId = this.#inspected?.id ?? this.#sessionId
+    if (handler === undefined || sessionId === undefined || block.kind !== 'workspace' || !this.#tty || this.#disposed
+      || this.#prompt !== null || this.#fileReviewAbort !== undefined) return
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    void handler({ sessionId, turn: block.turn, ...(file === undefined ? {} : { file }), signal: abort.signal })
+      .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) })
+      .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
+  }
+
   #openFileAction(action: FileAction, initial?: number): void {
     if (!this.#tty || this.#disposed || this.#prompt !== null || this.#fileReviewAbort !== undefined) return
     const abort = new AbortController()
@@ -3109,6 +3164,7 @@ export class LocalTui implements TuiService {
     this.#jumpPress = undefined
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
+    this.#workspacePress = undefined
     if (this.#keyTest !== undefined && this.#prompt?.request.signal === this.#keyTest.signal
       && (event.type === 'text' || event.type === 'paste-start' || event.type === 'paste-end' || event.type === 'key' && !['escape', 'ctrl+c'].includes(event.id))) {
       this.#keyTest.observe(event)
@@ -3847,6 +3903,7 @@ export class LocalTui implements TuiService {
     const previous = options.persist ? this.prefs() : undefined
     const version = this.#prefsVersion
     const previousMotion = this.#motion
+    this.#workspacePress = undefined
     this.#uiLanguage = prefs.uiLanguage ?? 'auto'
     if (this.#prompt !== null) this.#prompt = { ...this.#prompt, request: localizePrompt(this.#prompt.sourceRequest, resolveUiLanguage(this.#uiLanguage)) }
     this.#themeName = prefs.theme
@@ -3864,6 +3921,7 @@ export class LocalTui implements TuiService {
     this.#mathMode = prefs.mathMode ?? 'auto'
     this.#mermaidMode = prefs.mermaidMode ?? 'auto'
     this.#hideThinking = prefs.hideThinking !== false
+    this.#showFileChanges = prefs.showFileChanges !== false
     this.#mouseInteraction = prefs.mouseInteraction ?? 'auto'
     this.#checkUpdates = prefs.checkUpdates ?? true
     this.#startupChangelog = prefs.startupChangelog ?? 'summary'
@@ -4764,17 +4822,17 @@ export class LocalTui implements TuiService {
 
   #settingsActions(): SettingItem[] {
     const runtimeActions = [
-      { id: 'command:model', behavior: 'Session + Profile · Choose scope in Model', group: 'Models', label: 'Model and reasoning', description: 'Open /model; changes the current selection and saves the default route.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
-      { id: 'command:permission', behavior: 'Current session · Applies now', group: 'General', label: 'Current session access', description: 'Changes only this session. Default access controls future sessions.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
-      { id: 'command:agent', behavior: 'Current session · Before the first prompt', group: 'Agent presets', label: 'Current session preset', description: 'Choose before the first prompt; does not change the new-session default.', value: this.#sessionControls?.agentPreset === undefined ? 'Choose' : formatAgentPreset(this.#sessionControls.agentPreset), values: [], action: 'agent' },
-      { id: 'command:login', behavior: 'Provider credentials', group: 'Models', label: 'Provider credentials', description: 'Sign in or configure a provider. Does not change the selected model.', value: 'Configure', values: [], action: 'login' },
-      { id: 'command:logout', behavior: 'Provider credentials', group: 'Models', label: 'Sign out', description: 'Remove saved provider credentials; environment credentials remain available.', value: 'Choose provider', values: [], action: 'logout' },
-      { id: 'command:plugins', group: 'Plugins', label: 'Manage plugins', description: 'Inspect installed entries, enable bundles, discover plugins or start Creator.', value: 'Open', values: [], action: 'plugins' },
+      { id: 'command:model', behavior: 'Session + Profile · Choose scope in Model', group: 'Models', subgroup: 'Model selection', label: 'Model and reasoning', description: 'Choose the current model and reasoning effort. Save as the default or use for this session.', value: [this.#model, this.#reasoningEffort].filter(Boolean).join(' · '), values: [], action: 'model' },
+      { id: 'command:permission', behavior: 'Current session · Applies now', group: 'General', subgroup: 'Session controls', label: 'Current session access', description: 'Changes only this session. Default access controls future sessions.', value: this.#sessionControls?.permission ?? 'Choose', values: [], action: 'permission' },
+      { id: 'command:agent', behavior: 'Current session · Before the first prompt', group: 'Agent presets', subgroup: 'Current session', label: 'Current session preset', description: 'Choose before the first prompt; does not change the new-session default.', value: this.#sessionControls?.agentPreset === undefined ? 'Choose' : formatAgentPreset(this.#sessionControls.agentPreset), values: [], action: 'agent' },
+      { id: 'command:login', behavior: 'Accounts and API keys', group: 'Models', subgroup: 'Accounts and API keys', label: 'Sign in / add API key', description: 'Sign in to a provider account or save an API key.', keywords: ['Provider credentials', 'login', 'API key', 'OAuth'], value: 'Choose provider', values: [], action: 'login' },
+      { id: 'command:logout', behavior: 'Accounts and API keys', group: 'Models', subgroup: 'Accounts and API keys', label: 'Sign out / remove key', description: 'Choose a provider or account to sign out or remove locally saved credentials.', keywords: ['logout', 'credentials'], value: 'Choose provider', values: [], action: 'logout' },
+      { id: 'command:plugins', group: 'Plugins', subgroup: 'Plugin management', label: 'Manage plugins', description: 'Inspect installed entries, enable bundles, discover plugins or start Creator.', value: 'Open', values: [], action: 'plugins' },
     ].filter(item => this.#runtimeCommands.some(command => command.name === item.action))
     const customBindings = Object.entries(this.#keybindings).filter(([key, action]) => DEFAULT_KEYBINDINGS[key] !== action).length
     return [
       ...runtimeActions,
-      ...(this.#goalHandler === undefined ? [] : [{ id: 'action:goal', behavior: 'Current session · Applies now', group: 'General' as const, label: 'Current goal', description: 'Edit, pause, resume or clear this session’s goal.', value: 'Open', values: [], action: 'manage-goal' }]),
+      ...(this.#goalHandler === undefined ? [] : [{ id: 'action:goal', behavior: 'Current session · Applies now', group: 'General' as const, subgroup: 'Session controls', label: 'Current goal', description: 'Edit, pause, resume or clear this session’s goal.', value: 'Open', values: [], action: 'manage-goal' }]),
       ...(this.#keybindingsPath === undefined ? [] : [{
         id: 'action:keybindings',
         label: 'Keybindings',
@@ -5596,6 +5654,7 @@ export class LocalTui implements TuiService {
       toolsExpanded: this.#toolsExpanded,
       expandedOutputs: this.#expandedOutputs,
       hideThinking: true,
+      showFileChanges: this.#showFileChanges,
       expandedTools: this.#detailedToolIds(),
       expandedReasoning: this.#visibleReasoning(),
       ...(this.#openedGroups === undefined ? {} : { openedGroups: this.#openedGroups }),
@@ -5710,6 +5769,7 @@ export function apply(ctx: Context, config: Config): void {
       motion: config.motion.get(),
       mathMode: config.mathMode.get(),
       mermaidMode: config.mermaidMode.get(),
+      showFileChanges: config.showFileChanges.get(),
       editor: config.editor.get(),
       terminalTitle: config.terminalTitle.get(),
       terminalState: config.terminalState.get(),

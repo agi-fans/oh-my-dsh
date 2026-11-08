@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Click a Changed summary to browse its recorded turn comparison, or a file row to select that file directly. Drag selection and composer drafts are preserved.
+- General settings end with a File change summary toggle, enabled by default, that controls summary visibility while retaining recorded comparisons.
+
+### Changed
+
+- General, Agent presets, Plugins and Advanced settings group controls by purpose. Record file changes names the recording feature separately from the File change summary display preference.
+- Models settings group model selection, accounts and API keys, and connection settings under clear headings. Sign-in and sign-out actions name their API key behavior, and provider configuration is labelled Endpoints and model lists.
+
+### Fixed
+
+- Thinking in turns and File change summary no longer repeat in Advanced settings.
+- Scrolling a transcript that fits the viewport keeps its position stable during live updates.
+- Collapsed Thinking and tool rows use consistent spacing as replies stream in, with gaps retained around prose and expanded details.
+
 ## [0.23.1] - 2026-11-07
 
 ### Changed

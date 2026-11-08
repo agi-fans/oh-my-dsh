@@ -14,12 +14,12 @@ description: "omdsh 的全部设置：外观、动效、通知、界面与回复
 
 | 分类 | 配置 |
 |---|---|
-| General | 界面与回复语言、新会话的 Default access，以及明确标注的 Current session access 和 Current goal 操作。 |
-| Models | 当前模型与推理强度、模型服务商管理、服务商登录和登出。模型选择同时保存默认值，除非选择仅当前会话。 |
-| Agent presets | 新会话的 Default Agent preset，以及空白会话的 Current session preset。 |
-| Plugins | 插件管理、Shell 限制、工具并行度、子代理、网页服务、命令 Hooks、原生集成及可选功能。 |
+| General | 按语言、会话控制和转录显示分组。会话控制包括默认权限、当前权限和当前目标。文件变更摘要排在最后。 |
+| Models | 按模型选择、账户与密钥、连接配置分组展示，各组有独立标题。 |
+| Agent presets | “新会话”组设置默认预设，“当前会话”组调整空白会话的预设。 |
+| Plugins | 按插件管理、工具、子代理、集成和可选功能分组。工具包括 Shell、并行度和恢复快照，子代理包括通用设置、Codex 和 Claude Code。 |
 | Terminal | 外观、输入、通知、启动偏好，以及 Status line 分组。 |
-| Advanced | 尚未收编的实时字段，以及没有产品表单的已安装插件；为空时隐藏。 |
+| Advanced | “补充配置”显示已有产品表单的额外字段，“插件配置”显示尚无产品表单的设置。存在条目时才显示此分类。 |
 
 Plugins 中的 Codex 与 Claude Code 提供 Enable／Disable、直接编辑的 Model 与 Permissions、恢复继承值以及 Installation status。概览从 Plugin Manager 读取并显示 Enabled、Disabled、Unavailable 或 Load error。Installation status 检查包注册情况，不验证原生认证，结果页保持打开直到关闭。Provider 激活后才显示模型设置；安装和卸载仍在 `/plugins`，其中的 **Integration settings** 打开同一套表单。原生环境变量覆盖留在 Profile 补丁中，不在通用表单展示。
 
@@ -61,6 +61,18 @@ Apply 按各部分最初读取的版本保存。限制和模型策略分别写�
 
 所选的已发布 bridge 执行其支持的同步 command hooks。Codex 映射 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse 和 Stop；Claude Code 遵循其已发布事件子集。不执行不受支持的 async、prompt 和 agent hooks。阻断决定和失败显示在转录中并保留日志；启用后不会为已有会话补跑 SessionStart。一次只启用一个 bridge。
 
+## Models
+
+Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
+
+| 分组 | 入口 | 用途 |
+|---|---|---|
+| 模型选择 | 模型与推理强度 | 选择当前模型与推理强度，可保存为默认值或仅用于本会话。 |
+| 账户与密钥 | DeepSeek 账户 | 管理共享账户的登录、资料和钱包余额。 |
+| 账户与密钥 | 登录 / 添加 API Key | 选择服务商，登录其账户或保存 API Key。 |
+| 账户与密钥 | 退出登录 / 移除密钥 | 选择账户退出登录，或移除本地保存的服务商凭据。 |
+| 连接配置 | 服务地址与模型列表 | 添加或编辑服务商、API 地址、协议和模型目录。 |
+
 ## DeepSeek 账户
 
 打开**模型 → DeepSeek 账户**，管理登录并查看账户资料和钱包余额。`/login` → **DeepSeek 账户**使用同一页面，未登录时开始浏览器授权。浏览器通过本地回调完成登录；授权可以取消，登录成功后自动返回账户页。退出登录需要确认，会移除共享的本地授权并在后台撤销远端授权，保留 API 密钥和浏览器登录状态。
@@ -71,7 +83,7 @@ Apply 按各部分最初读取的版本保存。限制和模型策略分别写�
 
 ## 模型服务商
 
-打开 **模型 → 模型服务商**，查看已配置的服务商、凭据状态、模型数量和目录诊断。服务商名称在所有界面语言下保持原文。列表响应 Harness 的配置、凭据和适配器事件自动刷新，也可选择**刷新**重新载入。DeepSeek 账户有可用模型时会出现，选择后打开共用账户页。
+打开 **模型 → 连接配置 → 服务地址与模型列表**，查看已配置的服务商、凭据状态、模型数量和目录诊断。服务商名称在所有界面语言下保持原文。列表响应 Harness 的配置、凭据和适配器事件自动刷新，也可选择**刷新**重新载入。DeepSeek 账户有可用模型时会出现，选择后打开共用账户页。
 
 选择服务商后可编辑 API 密钥、基础 URL 和有序的模型 ID 列表。自定义 API 还提供显示名称和协议；服务商 ID 不可更改。修改先保留为草稿，选择**应用**才保存。**取消**或 Esc 放弃尚未应用的修改，经服务商列表返回 Settings 原选中行。已有密钥不会读回输入框，密钥留空保留现有认证。保存、添加或删除服务商均不改变当前模型选择；使用 `/model` 选择可用路由。
 
@@ -138,6 +150,7 @@ Mermaid in replies 用终端字符绘制支持的流程图、时序图、状态�
 |---|---|---|---|
 | 界面语言（UI language） | 自动 / 简体中文 / English | 自动 | 立即切换界面文字。 |
 | 回复语言（Response language） | 跟随界面 / 自动 / 简体中文 / English | 新配置档案默认跟随界面 | 从下一回合开始使用的面向用户沟通语言。 |
+| 文件变更摘要（File change summary） | On / Off | On | 在实时转录中显示 Changed 摘要。点击标题打开该回合保存的差异，点击文件行直接选中该文件。关闭显示后仍可通过 `/diff turn` 查看已记录的比较。 |
 
 **Models → Model and reasoning** 打开 `/model`，修改当前选择并保存默认路由；选择 **This session only** 则仅作用于当前会话。模型选择采用目标模型的默认推理强度，`/model reasoning` 可明确修改强度。**General → Default access** 和 **Agent presets → Default Agent preset** 写入 Harness 的新会话默认设置，不改变现有会话。对应的 **Current session** 操作打开 `/permission` 和 `/agent`；preset 只能在首条提示之前切换。`Ctrl+R` 恢复继承值。Creator 是 `cordis` preset 的用户名称；`/agent creator` 或 **/plugins → Let the agent create a plugin** 进入该模式，不提交提示，也不改变默认 preset。
 
@@ -153,10 +166,12 @@ Shell 提供当前平台的超时与输出限制：POSIX 的 Bash 和 Windows �
 
 | 行 | 默认 | 关闭后 |
 |---|---|---|
-| 改动文件汇总 | 开 | 不再逐回合记录改动文件，也不再在回合起止各做一次 Git 快照。 |
+| 记录文件变更 | 开 | 不再逐回合记录改动文件，也不再在回合起止各做一次 Git 快照。 |
 | 会话历史工具 | 开 | 模型失去 `session_search`、`session_event_search`、`session_trace`、`session_event_trace` 与 `session_event_read`。 |
 | Ralph 循环 | 关 | 该循环工具保持缺席，直到你在这里打开。 |
 | 重复工具提醒 | 开 | 模型不再收到"别重复同一个工具调用"的提醒。 |
+
+**Plugins → 可选功能 → 记录文件变更**控制回合差异的采集。**General → 转录显示 → 文件变更摘要**控制它们在实时转录中的显示。
 
 运行中的 Profile 会监视该补丁，在写入稳定后应用修改；关闭 HMR 的宿主在下次启动生效。`disabled` 是 Loader 选项而非插件配置，settings 服务无法表达它；因此这些行改为写入 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 里一个由注释界定的托管块，那正是 Harness 组装组合树时读取的入口。该块之外你手写的内容不会被改动。
 

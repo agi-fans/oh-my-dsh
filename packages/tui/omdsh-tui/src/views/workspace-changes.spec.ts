@@ -4,7 +4,7 @@ import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import { applyEvent, initialTranscript, replayEvents, withWorkspaceSummary } from './event-views.ts'
-import { blockLines, blockSearchText } from './transcript-render.ts'
+import { blockLines, blockSearchText, renderedBlocks, renderView } from './transcript-render.ts'
 import type { Block } from './transcript-types.ts'
 import { WORKSPACE_COLLAPSED_LINES, workspaceBlockLines } from './workspace-changes.ts'
 
@@ -222,4 +222,21 @@ describe('workspace block search text', () => {
   it('still contributes text when no summary is served', () => {
     expect(blockSearchText({ kind: 'workspace', turn: 4 })).toBe('turn 4')
   })
+})
+
+
+it.each([false, true])('hides summaries, click regions and search hits without dropping recorded blocks (colors %s)', colors => {
+  const state = applyEvent(initialTranscript(), changesEvent(7, 3), undefined, summary())
+  const options = { width: 80, height: 40, model: 'm', input: '', inputCursor: 0, colors }
+  const shown = renderView(state, options)
+  expect(shown.lines.map(stripAnsi).join('\n')).toContain('Changed 2 files')
+  expect(shown.transcript?.fileRegions).toHaveLength(3)
+  const hidden = renderView(state, { ...options, showFileChanges: false })
+  expect(hidden.lines.map(stripAnsi).join('\n')).not.toContain('Changed')
+  expect(hidden.transcript?.fileRegions).toEqual([])
+  expect(hidden.transcript?.foldShape).not.toBe(shown.transcript?.foldShape)
+  expect(renderedBlocks(state, { ...options, showFileChanges: false }).flatMap(block => block.lines)).toEqual([])
+  expect(state.blocks).toHaveLength(1)
+  expect(renderView(state, options).lines).toEqual(shown.lines)
+  expect(renderedBlocks(state, options).flatMap(block => block.lines).join('\n')).toContain('src/a.ts')
 })

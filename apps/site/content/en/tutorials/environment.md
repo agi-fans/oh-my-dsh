@@ -32,7 +32,7 @@ DeepSeek itself is the first entry: `/login` can start a DeepSeek account browse
 
 To add another catalog provider, run `/login` and choose it from the list. A provider that registered an authorization flow offers that flow's methods instead of a generic API-key prompt; otherwise paste its API key. The route becomes live on the next model request.
 
-Choose `custom` to add a gateway or local server outside the catalog. Supply a permanent ID, base URL, API protocol, optional key, and one or more model IDs. Later, open **Settings → Models → Model providers** to edit or delete a custom provider. `/logout` manages stored authentication.
+Choose `custom` to add a gateway or local server outside the catalog. Supply a permanent ID, base URL, API protocol, optional key, and one or more model IDs. Later, open **Settings → Models → Connection settings → Endpoints and model lists** to edit or delete a custom provider. `/logout` manages stored authentication.
 
 ### Diagnose the local installation
 

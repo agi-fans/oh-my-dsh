@@ -663,6 +663,9 @@ export interface TuiService {
   /** Open the current root goal without submitting the composer draft. */
   setGoalHandler?(handler: (signal: AbortSignal) => Promise<void>): () => void
 
+  /** Review a recorded turn's comparisons without submitting the composer draft. */
+  setWorkspaceReviewHandler?(handler: (request: { sessionId: string; turn: number; file?: number; signal: AbortSignal }) => Promise<void>): () => void
+
   /** Open message management through the session owner without submitting the composer. */
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void
   /**

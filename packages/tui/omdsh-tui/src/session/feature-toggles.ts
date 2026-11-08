@@ -42,8 +42,8 @@ export interface FeatureToggle {
 export const FEATURE_TOGGLES: readonly FeatureToggle[] = [
   {
     id: 'workspace-changes',
-    label: 'Changed-file summary',
-    description: 'End every turn with the files it changed and their line counts. Off skips two Git snapshots per turn and the transcript row.',
+    label: 'Record file changes',
+    description: 'Record changed files and per-turn comparisons. Off skips Git snapshots for future turns.',
     enabledByDefault: true,
   },
   {

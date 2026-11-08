@@ -14,12 +14,12 @@ Built-in capabilities appear in the product category that owns the task. Command
 
 | Category | Configuration |
 |---|---|
-| General | UI and response languages, Default access for new sessions, and explicitly labelled Current session access and Current goal actions. |
-| Models | Current model and reasoning, Model providers, provider sign-in, and sign-out. Model selection also saves the default unless the session-only action is used. |
-| Agent presets | Default Agent preset for new sessions and Current session preset for a blank session. |
-| Plugins | Plugin management, Shell limits, tool parallelism, subagents, web providers, command hooks, native integrations and optional feature toggles. |
+| General | Language, Session controls and Transcript display. Session controls include default access, current access and the current goal. File change summary is the last row. |
+| Models | Model selection, Accounts and API keys, and Connection settings, each under its own heading. |
+| Agent presets | New sessions contains the default preset. Current session contains the preset control for a blank session. |
+| Plugins | Plugin management, Tools, Agents, Integrations and Optional features. Tools include Shell limits, parallelism and recovery. Agents include subagent settings, Codex and Claude Code. |
 | Terminal | Appearance, input, notifications, startup preferences and the Status line group. |
-| Advanced | Unclaimed live fields and installed plugins without a product form. It is hidden when empty. |
+| Advanced | Additional fields holds extra fields from built-in product forms. Plugin configuration holds settings without a product form. The category appears when it has entries. |
 
 In Plugins, Codex and Claude Code offer Enable/Disable, direct Model and Permissions editors, restoration of inherited values, and Installation status. Their overview shows Enabled, Disabled, Unavailable or Load error, read from Plugin Manager. Installation status checks package registration rather than native authentication and stays open until dismissed; model settings appear after the provider is active. Installation and uninstallation remain in `/plugins`; its **Integration settings** action opens this same form. Native environment overrides remain in the Profile patch and are not displayed in the generic form.
 
@@ -61,6 +61,18 @@ In **Plugins**, choose **Command hooks**. Set **Configuration file** first, then
 
 The selected published bridge runs its supported synchronous command hooks. Codex maps SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop; Claude Code follows its published event subset. Unsupported async, prompt and agent hooks are not executed. Blocking decisions and failures appear in the transcript and remain in the log. Enabling hooks does not replay SessionStart for an existing session. Only one bridge is active at a time.
 
+## Models
+
+The Models category groups its controls by task. Only controls available in the current profile appear.
+
+| Group | Entry | Use it to |
+|---|---|---|
+| Model selection | Model and reasoning | Choose the current model and reasoning effort, then save as the default or use for this session. |
+| Accounts and API keys | DeepSeek account | Manage shared account sign-in, profile and wallet balances. |
+| Accounts and API keys | Sign in / add API key | Choose a provider, sign in to its account or save an API key. |
+| Accounts and API keys | Sign out / remove key | Choose an account to sign out or remove locally saved provider credentials. |
+| Connection settings | Endpoints and model lists | Add or edit providers, API addresses, protocols and model catalogs. |
+
 ## DeepSeek account
 
 Open **Models → DeepSeek account** for sign-in, profile and wallet balances. `/login` → **DeepSeek account** uses the same page and starts browser authorization when signed out. The browser completes sign-in through the local callback host; authorization can be cancelled, and successful sign-in returns to the account page automatically. Signing out requires confirmation, removes the shared local grant and revokes it in the background; API keys and the browser session are retained.
@@ -71,7 +83,7 @@ Profile and balances load independently. **Refresh** retries failed queries; a b
 
 ## Model providers
 
-Open **Models → Model providers** to browse configured providers, credential status, model counts and catalog diagnostics. Provider names remain literal in every UI language. The list refreshes on Harness configuration, credential and adapter events; **Refresh** also reloads it. DeepSeek Account appears when it has available models and opens the shared account page.
+Open **Models → Connection settings → Endpoints and model lists** to browse configured providers, credential status, model counts and catalog diagnostics. Provider names remain literal in every UI language. The list refreshes on Harness configuration, credential and adapter events; **Refresh** also reloads it. DeepSeek Account appears when it has available models and opens the shared account page.
 
 Choose a provider to edit its API key, base URL and model list. Custom APIs also expose their display name and protocol; their provider ID remains fixed. Changes stay in a draft until **Apply**. **Cancel** or Esc discards unapplied edits and returns through the provider list to the selected Settings row. Stored keys are never read into the input; a blank key keeps existing authentication. Saving, adding or removing a provider does not change the selected model: use `/model` to select an available route.
 
@@ -138,6 +150,7 @@ Mermaid in replies uses terminal characters for supported flowcharts, sequence, 
 |---|---|---|---|
 | UI language | Auto / 简体中文 / English | Auto | Switches interface text immediately. |
 | Response language | Follow UI / Auto / 简体中文 / English | Follow UI for new profiles | Preferred language for user-facing model communication, from the next turn. |
+| File change summary | On / Off | On | Shows Changed summaries in the live transcript. Click the heading to browse that turn’s recorded comparison, or a file row to select that file. Hiding summaries retains the recorded data for `/diff turn`. |
 
 **Models → Model and reasoning** opens `/model`: it changes the current selection and saves the default route, unless you choose **This session only**. Model selection uses the selected model’s default effort; `/model reasoning` changes effort explicitly. **General → Default access** and **Agent presets → Default Agent preset** write Harness settings for new sessions only. Their **Current session** actions open `/permission` and `/agent`; a preset can change only before the first prompt. `Ctrl+R` restores inherited defaults. Creator is the user-facing name of the `cordis` preset; `/agent creator` or **/plugins → Let the agent create a plugin** enters it without submitting a prompt or changing the default preset.
 
@@ -153,10 +166,12 @@ Shell offers the active platform’s timeout and output limits: Bash on POSIX an
 
 | Row | Default | Effect when off |
 |---|---|---|
-| Changed-file summary | On | No per-turn changed-file record, and no Git snapshots at turn start and turn end. |
+| Record file changes | On | No per-turn changed-file record, and no Git snapshots at turn start and turn end. |
 | Session history tools | On | The model loses `session_search`, `session_event_search`, `session_trace`, `session_event_trace` and `session_event_read`. |
 | Ralph loop | Off | The loop tool stays absent until you turn it on here. |
 | Repeat-tool reminder | On | The model gets no nudge out of identical tool-call loops. |
+
+**Plugins → Optional features → Record file changes** controls collection of turn comparisons. **General → Transcript display → File change summary** controls their visibility in the live transcript.
 
 The running profile watches this patch and applies changes after the write settles; a host with HMR disabled applies them on the next launch. `disabled` is a Loader option rather than plugin configuration, so the settings service cannot express it; these rows are written into a managed block in `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` instead, which is the surface the Harness reads while composing the tree. The block is delimited by comments and everything you wrote by hand around it is left alone.
 

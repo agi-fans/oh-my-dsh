@@ -221,6 +221,7 @@ export interface ViewOptions {
    * transcript without inventing a second notion of "open".
    */
   hideThinking?: boolean
+  showFileChanges?: boolean
   /** Process groups the reader opened, keyed by {@link ProcessGroup.key}. */
   openedGroups?: ReadonlySet<string>
   /** Transient activity label that replaces the default working text. */
@@ -875,20 +876,27 @@ function processNoticeLine(block: Extract<Block, { kind: 'notice' }>, theme: The
  */
 const groupMemberCache = new WeakMap<Block, { signature: string; lines: readonly string[] }>()
 
+/** Collapsed process rows share spacing before and after an assistant reply. */
+function compactProcessRow(index: number, context: GroupRenderContext, thoughtOnly = false): boolean {
+  const block = context.blocks[index]
+  const { options } = context
+  if (block?.kind === 'notice') return block.process !== undefined && block.framed !== true
+  if (block?.kind === 'tool') {
+    return options.toolsExpanded !== true && !options.expandedTools?.has(block.callId) && !context.matches.has(index)
+  }
+  return block?.kind === 'assistant' && block.interrupted !== true && (thoughtOnly || block.text === '')
+    && options.hideThinking !== false && !context.openedThoughts.has(reasoningKey(block)) && !context.matches.has(index)
+}
+
 /** Flat chronological content, shared by live and opened turns. */
 function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { lines: string[]; offsets: Map<number, number>; spans: { index: number; start: number; end: number }[] } {
   const lines: string[] = []
   const offsets = new Map<number, number>()
   const spans: { index: number; start: number; end: number }[] = []
   for (const index of groupMembers(group)) {
-    const block = context.blocks[index]!
-    const rows = groupMemberLines(index, context, index === group.answer && group.tookThought)
-    const previous = context.blocks[index - 1]
-    const opened = (item: Block | undefined, at: number): boolean => item?.kind === 'tool'
-      ? context.options.toolsExpanded === true || context.options.expandedTools?.has(item.callId) === true || context.matches.has(at)
-      : item?.kind === 'assistant' && item.reasoning !== '' && (context.options.hideThinking === false || context.openedThoughts.has(reasoningKey(item)))
-    const reply = block.kind === 'assistant' && block.text !== '' && index !== group.answer
-    if (rows.length > 0 && lines.length > 0 && (opened(block, index) || opened(previous, index - 1) || reply || previous?.kind === 'assistant' && previous.text !== '')) lines.push('')
+    const thoughtOnly = index === group.answer && group.tookThought
+    const rows = groupMemberLines(index, context, thoughtOnly)
+    if (rows.length > 0 && lines.length > 0 && (!compactProcessRow(index, context, thoughtOnly) || !compactProcessRow(index - 1, context))) lines.push('')
     offsets.set(index, lines.length)
     if (context.blocks[index]?.kind === 'tool') spans.push({ index, start: lines.length, end: lines.length + rows.length })
     for (const row of rows) lines.push(row)
@@ -1076,6 +1084,7 @@ export function renderedBlocks(state: TranscriptState, options: {
   mermaidMode?: import('../chrome/mermaid.ts').MermaidMode
   toolsExpanded?: boolean
   hideThinking?: boolean
+  showFileChanges?: boolean
   expandedTools?: ReadonlySet<string>
   /** Expanded calls whose raw parameters and results are also visible. */
   rawTools?: ReadonlySet<string>
@@ -1091,14 +1100,14 @@ export function renderedBlocks(state: TranscriptState, options: {
     options.compactLinks,
   )
   const key = [options.width, options.colors, options.colorDepth, options.themeName,
-    options.language, options.compactLinks, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode].join('\0')
+    options.language, options.compactLinks, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode, options.showFileChanges !== false].join('\0')
   const cached = renderedBlockCache.get(state.blocks)?.get(key)
   if (cached !== undefined) return cached
   const blocks: SearchableBlock[] = state.blocks.map((block, index) => ({
     block: index,
     // The source text is the fallback for a block kind the painter does not lay
     // out as rows of its own; matching something is better than matching nothing.
-    lines: renderedRows(block, theme, options).map(stripAnsi),
+    lines: block.kind === 'workspace' && options.showFileChanges === false ? [] : renderedRows(block, theme, options).map(stripAnsi),
   }))
   const byKey = new Map(renderedBlockCache.get(state.blocks) ?? [])
   byKey.set(key, blocks)
@@ -1162,6 +1171,7 @@ interface TranscriptBodyCache {
   rawTools: string
   expandedReasoning: string
   hideThinking: boolean
+  showFileChanges: boolean
   openedGroups: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
@@ -1579,6 +1589,7 @@ function renderTranscriptBody(
   const rawTools = [...(options.rawTools ?? [])].sort().join('\0')
   const expandedReasoning = [...(options.expandedReasoning ?? [])].sort().join('\0')
   const hideThinking = options.hideThinking !== false
+  const showFileChanges = options.showFileChanges !== false
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   // A command output the reader opened paints different rows, so the body cache
   // has to see it; without this the frame is reused and the key looks dead.
@@ -1617,6 +1628,7 @@ function renderTranscriptBody(
     && cached.rawTools === rawTools
     && cached.expandedReasoning === expandedReasoning
     && cached.hideThinking === hideThinking
+    && cached.showFileChanges === showFileChanges
     && cached.openedGroups === openedGroups
     && cached.expandedOutputs === expandedOutputs
     && cached.toolDetailsKey === options.toolDetailsKey
@@ -1715,16 +1727,13 @@ function renderTranscriptBody(
   // Collapsing or revealing every thought reshapes from the top, like the
   // global tool switch above, so it reports the same kind of mark.
   if (hideThinking) foldMarks.push({ key: 'thinking', row: 0 })
+  if (!showFileChanges) foldMarks.push({ key: 'hide-file-changes', row: 0 })
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, depth, width: options.width,
     matches, occurrences, options: { ...options, expandedReasoning: openedThoughts },
     openedThoughts,
     spinnerFrame,
-  }
-  const compactProcessRow = (block: Block | undefined): boolean => {
-    if (block?.kind === 'notice') return block.process !== undefined && block.framed !== true
-    return block?.kind === 'tool' && !toolsExpanded && !options.expandedTools?.has(block.callId)
   }
   // Only a turn's last run is summarized by how long the turn took; an earlier
   // run in the same turn did not take all of it.
@@ -1736,6 +1745,11 @@ function renderTranscriptBody(
   }
   for (let index = 0; index < state.blocks.length; index += 1) {
     const block = state.blocks[index]!
+    if (block.kind === 'workspace' && !showFileChanges) {
+      blockStarts[index] = lines.length
+      blockDrawStarts[index] = lines.length
+      continue
+    }
     const groupIndex = groupOf[index] ?? -1
     if (groupIndex >= 0) {
       // A run is painted whole by its first block: the header, then its rows
@@ -1839,11 +1853,11 @@ function renderTranscriptBody(
         const failed = (trailing?.kind === 'notice' && trailing.level === 'error')
           || (trailing?.kind === 'tool' && trailing.status === 'error')
         if (group.live || opened || failed) {
-          if (lines.length > 0 && !(trailing?.kind === 'notice' && state.blocks[at - 1]?.kind === 'notice')) lines.push('')
-          offsets.set(at, lines.length - bodyRow)
           const rows = !group.live && !opened && trailing?.kind === 'tool'
             ? toolRowLine(trailing, theme, options.width, spinnerFrame)
             : groupMemberLines(at, context)
+          if (rows.length > 0 && lines.length > 0 && (!compactProcessRow(at, context) || !compactProcessRow(at - 1, context))) lines.push('')
+          offsets.set(at, lines.length - bodyRow)
           disclosureAt(at, lines.length)
           regionsAt(at, lines.length, rows.length)
           for (const line of rows) lines.push(line)
@@ -1885,7 +1899,7 @@ function renderTranscriptBody(
       const currentCommand = commandSurfaceName(block)
       if (previousCommand !== undefined && currentCommand !== undefined && previousCommand !== currentCommand) {
         lines.push('', renderCommandSeparator(theme, options.width), '')
-      } else if (!compactProcessRow(block) || !compactProcessRow(state.blocks[index - 1])) {
+      } else if (!compactProcessRow(index, context) || !compactProcessRow(index - 1, context)) {
         lines.push('')
       }
     }
@@ -1950,6 +1964,7 @@ function renderTranscriptBody(
     rawTools,
     expandedReasoning,
     hideThinking,
+    showFileChanges,
     openedGroups,
     expandedOutputs,
     searchKey,

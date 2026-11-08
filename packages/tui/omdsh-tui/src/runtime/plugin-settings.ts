@@ -28,6 +28,7 @@ import { resolveStatusBarConfig } from '../chrome/status-config.ts'
 interface ProductForm {
   label: string
   section: NonNullable<PluginSettingsEntry['section']>
+  subgroup?: string
   fields: Record<string, string>
   inline?: string
   effect?: string
@@ -49,8 +50,8 @@ const SHELL_FORM: ProductForm = { label: 'Shell', section: 'tools', staged: true
 
 // Presentation only: values, validation, inheritance and writes belong to each live schema.
 const PRODUCT_FORMS: Record<string, ProductForm> = {
-  permission: { label: 'Default access', behavior: 'Profile · Saves immediately · New sessions', section: 'general', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
-  'agent-preset-registry': { label: 'Default Agent preset', behavior: 'Profile · Saves immediately · New sessions', section: 'presets', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
+  permission: { label: 'Default access', behavior: 'Profile · Saves immediately · New sessions', section: 'general', subgroup: 'Session controls', fields: { defaultPreset: 'Default access' }, effect: 'Applies to new sessions only. Use /permission to change this session.' },
+  'agent-preset-registry': { label: 'Default Agent preset', behavior: 'Profile · Saves immediately · New sessions', section: 'presets', subgroup: 'New sessions', fields: { selectedDefault: 'Default Agent preset' }, effect: 'Applies to new sessions only. Use /agent to change a blank session.' },
   'agent-loop': { label: 'Tool parallelism', section: 'tools', staged: true, fields: { maxParallelToolCalls: 'Parallel tool calls' },
     help: { maxParallelToolCalls: 'Maximum parallel-safe tool calls in one step. Other calls remain serial. Applies to subsequent tool batches; does not change subagent capacity.' } },
   bash: SHELL_FORM,
@@ -69,7 +70,7 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
 
 // Already represented by dedicated controls, or accepted solely for migration.
 const DEDICATED_FIELDS: Record<string, readonly string[]> = {
-  tui: ['uiLanguage', 'theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'editor', 'terminalTitle', 'terminalState', 'busyEnter', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
+  tui: ['uiLanguage', 'theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'showFileChanges', 'editor', 'terminalTitle', 'terminalState', 'busyEnter', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold', 'statusBar', 'foldDensity', 'expandTools', 'statusPreset'],
   'agent-behavior': ['language'],
   // A deployment without the working-directory service may still set these in
   // its profile; normal sessions always run in the Session's current directory.
@@ -270,16 +271,16 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
     }
     return [
       ...(form === undefined || owned.length === 0 ? [] : [{ id: ns, namespace: ns, label: form.label, section: form.section, fields: owned,
-        ...(inline === undefined ? {} : { inline }), behavior: !ctx.settings.writable ? 'Profile · Read only' : form.behavior ?? (form.staged ? 'Profile · Apply to save' : 'Profile · Saves on confirmation'), summary, keywords: [...owned, ...Object.values(form.fields)],
+        ...(inline === undefined ? {} : { inline }), ...(form.subgroup === undefined ? {} : { subgroup: form.subgroup }), behavior: !ctx.settings.writable ? 'Profile · Read only' : form.behavior ?? (form.staged ? 'Profile · Apply to save' : 'Profile · Saves on confirmation'), summary, keywords: [...owned, ...Object.values(form.fields)],
         description: `${form.effect === undefined ? '' : `${form.effect} `}${field === undefined ? '' : `${fieldDescription(section, field, fields)} · `}${formEffect}` }]),
       ...(advanced.length === 0 ? [] : [{ id: `advanced:${ns}`, namespace: ns,
-        label: String(section.ns).replace(/[-_]+/gu, ' ').replace(/^./u, first => first.toUpperCase()), section: 'advanced' as const, fields: advanced,
+        label: String(section.ns).replace(/[-_]+/gu, ' ').replace(/^./u, first => first.toUpperCase()), section: 'advanced' as const, subgroup: form === undefined ? 'Plugin configuration' : 'Additional fields', fields: advanced,
         behavior: ctx.settings.writable ? 'Profile · Saves on confirmation' : 'Profile · Read only', summary: `${advanced.length} fields`, keywords: advanced, description: `${ns} · ${advanced.length} fields · ${writable}` }]),
     ]
   })
   if (ctx.get('pluginManager') !== undefined) entries.push(...NATIVE_INTEGRATIONS.map(item => {
     const bundle = bundles?.find(bundle => bundle.name === item.bundle)
-    return { id: item.id, label: item.label, section: 'integrations' as const, fields: [],
+    return { id: item.id, label: item.label, section: 'integrations' as const, subgroup: 'Agents', fields: [],
       summary: bundles === undefined ? 'Details' : bundle === undefined || bundle.availability === 'missing' ? 'Unavailable' : bundle.error !== undefined ? 'Load error' : bundle.enabled ? 'Enabled' : 'Disabled',
       description: 'Provider model, permissions and profile enablement. Native login has not been checked; Installation status reports registration.' }
   }))

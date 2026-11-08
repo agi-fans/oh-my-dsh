@@ -63,6 +63,8 @@ export interface SettingItem {
   swatch?: ThemeColor
   hidden?: boolean
   group?: string
+  /** Heading within the owning settings category. */
+  subgroup?: string
   keywords?: readonly string[]
   action?: string
   resettable?: boolean
@@ -75,6 +77,8 @@ export interface PluginSettingsEntry {
   description: string
   behavior?: string
   section?: 'general' | 'models' | 'presets' | 'agent' | 'tools' | 'integrations' | 'advanced'
+  /** Heading within the owning settings category. */
+  subgroup?: string
   namespace?: string
   fields?: readonly string[]
   summary?: string
@@ -98,6 +102,7 @@ export interface TuiPrefs {
   mermaidMode?: MermaidMode
   /** Transcript starts with thinking collapsed to one line. */
   hideThinking?: boolean
+  showFileChanges?: boolean
   editor?: EditorId
   terminalTitle?: TerminalTitleMode
   terminalState?: TerminalStateMode
@@ -305,6 +310,7 @@ function agentSettingItems(agent: TuiAgentBehaviorSettings | undefined): Setting
   if (agent === undefined) return []
   return [{
     id: 'agentLanguage',
+    group: 'Language',
     label: 'Response language',
     description: 'Preferred language for replies, questions and plans',
     value: AGENT_LANGUAGE_LABELS[agent.language],
@@ -346,6 +352,7 @@ function statusSettingItems(prefs: TuiPrefs): SettingItem[] {
 function featureSettingItems(features: FeatureStates): SettingItem[] {
   return FEATURE_TOGGLES.map(feature => ({
     id: `feature:${feature.id}`,
+    group: 'Optional features',
     label: feature.label,
     description: `${feature.description} Saved in profile; applies live when supported.`, behavior: 'Profile · Applies after reload or restart',
     value: features[feature.id] === false ? 'off' : 'on',
@@ -379,6 +386,7 @@ export function applySettingValue(prefs: TuiPrefs, id: string, value: string): T
   if (id === 'mathMode' && MATH_MODES.includes(value as MathMode)) return { ...prefs, mathMode: value as MathMode }
   if (id === 'mermaidMode' && MERMAID_MODES.includes(value as MermaidMode)) return { ...prefs, mermaidMode: value as MermaidMode }
   if (id === 'hideThinking') return { ...prefs, hideThinking: value === 'hidden' }
+  if (id === 'showFileChanges') return { ...prefs, showFileChanges: value === 'on' }
   if (id === 'busyEnter') return { ...prefs, busyEnter: value === 'Steer' ? 'steer' : 'queue' }
   if (id === 'pasteProtection') return { ...prefs, pasteProtection: value === 'on' }
   if (id === 'copyOnSelect') return { ...prefs, copyOnSelect: value === 'on' }
@@ -473,18 +481,51 @@ interface SettingsSection {
   end: number
 }
 
+function groupSettingItems(items: readonly SettingItem[], headings: readonly string[], fallback: string): SettingItem[] {
+  const order = new Map(headings.map((heading, index) => [heading, index]))
+  return items.map(item => ({ ...item, group: item.subgroup ?? item.group ?? fallback }))
+    .sort((a, b) => (order.get(a.group) ?? order.size) - (order.get(b.group) ?? order.size))
+}
+
 function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSection['id']; label: string; items: SettingItem[] }[] {
-  const owned = (section: PluginSettingsEntry['section']): SettingItem[] => (state.plugins ?? [])
+  const owned = (section: PluginSettingsEntry['section'], heading?: string): SettingItem[] => (state.plugins ?? [])
     .filter(entry => (entry.section ?? 'advanced') === section)
-    .map(entry => ({ ...entry, id: `plugin:${entry.id}`, value: entry.inline?.value ?? entry.summary ?? 'Configure',
-      values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0 }))
+    .map(entry => {
+      const group = entry.subgroup ?? heading
+      return { ...entry, id: `plugin:${entry.id}`, value: entry.inline?.value ?? entry.summary ?? 'Configure',
+        values: entry.inline?.choices.map(choice => choice.label) ?? [], resettable: (entry.fields?.length ?? 0) > 0,
+        ...(group === undefined ? {} : { group }) }
+    })
   const actions = (group: string): SettingItem[] => (state.actions ?? []).filter(item => item.group === group)
-    .map(({ group: _category, ...item }) => group === 'Input' ? { ...item, group } : item)
+    .map(({ group: category, ...item }) => {
+      const heading = item.subgroup ?? (category === 'Input' ? category : undefined)
+      return heading === undefined ? item : { ...item, group: heading }
+    })
+  const modelItems = groupSettingItems(
+    [...owned('models'), ...actions('Models'), ...(state.actions ?? []).filter(item => item.group === undefined)],
+    ['Model selection', 'Accounts and API keys', 'Connection settings'], 'Connection settings')
   return [
-    { id: 'general' as const, label: 'General', items: [{ id: 'uiLanguage', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.', behavior: 'Profile · Saves immediately · Applies now', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true }, ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, behavior: 'Profile · Saves immediately · Next turn', description: `${item.description}. Saved in this profile; applies from the next turn.` })), ...owned('general'), ...actions('General')] },
-    { id: 'models' as const, label: 'Models', items: [...actions('Models'), ...owned('models'), ...(state.actions ?? []).filter(item => item.group === undefined)] },
-    { id: 'presets' as const, label: 'Agent presets', items: [...owned('presets'), ...actions('Agent presets')] },
-    { id: 'plugins' as const, label: 'Plugins', items: [...actions('Plugins'), ...owned('tools'), ...owned('agent'), ...owned('integrations'), ...(state.features === undefined ? [] : featureSettingItems(state.features))] },
+    {
+      id: 'general' as const,
+      label: 'General',
+      items: [
+        ...groupSettingItems([
+          { id: 'uiLanguage', group: 'Language', label: 'UI language', description: 'Changes interface text immediately. Auto follows the terminal locale.',
+            behavior: 'Profile · Saves immediately · Applies now', value: state.prefs.uiLanguage ?? 'auto', values: ['auto', 'zh-CN', 'en'], resettable: true },
+          ...agentSettingItems(state.agent).map(item => ({ ...item, resettable: true, behavior: 'Profile · Saves immediately · Next turn',
+            description: `${item.description}. Saved in this profile; applies from the next turn.` })),
+          ...owned('general'), ...actions('General'),
+        ], ['Language', 'Session controls', 'Other settings'], 'Other settings'),
+        { id: 'showFileChanges', group: 'Transcript display', label: 'File change summary', description: 'Show changed-file summaries. Click a summary or file to review its turn.',
+          behavior: 'Profile · Saves immediately · Applies now', value: state.prefs.showFileChanges !== false ? 'on' : 'off', values: COLOR_VALUES, resettable: true },
+      ],
+    },
+    { id: 'models' as const, label: 'Models', items: modelItems },
+    { id: 'presets' as const, label: 'Agent presets', items: groupSettingItems([...owned('presets'), ...actions('Agent presets')],
+      ['New sessions', 'Current session', 'Other settings'], 'Other settings') },
+    { id: 'plugins' as const, label: 'Plugins', items: groupSettingItems(
+      [...actions('Plugins'), ...owned('tools', 'Tools'), ...owned('agent', 'Agents'), ...owned('integrations', 'Integrations'), ...(state.features === undefined ? [] : featureSettingItems(state.features))],
+      ['Plugin management', 'Tools', 'Agents', 'Integrations', 'Other settings', 'Optional features'], 'Other settings') },
     { id: 'terminal' as const, label: 'Terminal', items: [...generalSettingItems(state.prefs, state.editors).map(item => ({ ...item,
       behavior: ['checkUpdates', 'startupChangelog'].includes(item.id) ? 'Profile · Saves immediately · Next launch' : 'Profile · Saves immediately',
       resettable: true, group: ['theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'terminalTitle', 'terminalState'].includes(item.id) ? 'Appearance'
@@ -493,7 +534,7 @@ function settingGroups(state: Omit<SettingsState, 'selected'>): { id: SettingsSe
     })), ...actions('Input')].sort((a, b) => ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(a.group ?? '') - ['Appearance', 'Input', 'Notifications', 'Startup'].indexOf(b.group ?? '')).concat(
       statusSettingItems(state.prefs).map(item => ({ ...item, behavior: 'Profile · Saves immediately · Applies now', resettable: true, group: 'Status line' })),
       [{ id: 'statusReset', label: 'Restore layout', value: 'Restore', values: [], resettable: true, group: 'Status line', description: 'Restore inherited density and item visibility. Confirmation shows what will be restored.' }]) },
-    { id: 'advanced' as const, label: 'Advanced', items: owned('advanced') },
+    { id: 'advanced' as const, label: 'Advanced', items: groupSettingItems(owned('advanced'), ['Additional fields', 'Plugin configuration'], 'Plugin configuration') },
   ].filter(group => group.items.length > 0)
 }
 
@@ -517,7 +558,12 @@ interface SettingsMatch { item: SettingItem; index: number; section: string }
 function settingsMatches(state: SettingsState): readonly SettingsMatch[] {
   let index = 0
   const rows = settingGroups(state).flatMap(group => group.items.map(item => ({ item, index: index++, section: group.label })))
-  return rankSearchResults(rows, state.search ?? '', row => [row.item.label, row.item.description, row.section, row.item.group ?? '', uiText(resolveUiLanguage(state.prefs.uiLanguage), row.item.label), uiText(resolveUiLanguage(state.prefs.uiLanguage), row.section), ...row.item.keywords ?? []])
+  const language = resolveUiLanguage(state.prefs.uiLanguage)
+  return rankSearchResults(rows, state.search ?? '', row => [
+    row.item.label, row.item.description, row.section, row.item.group ?? '',
+    uiText(language, row.item.group ?? ''), uiText(language, row.item.label), uiText(language, row.section),
+    ...(row.item.keywords ?? []).flatMap(word => [word, uiText(language, word)]),
+  ])
 }
 
 function searchSettings(state: SettingsState, query: string): SettingsState {

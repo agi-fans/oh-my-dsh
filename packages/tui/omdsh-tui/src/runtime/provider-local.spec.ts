@@ -305,6 +305,91 @@ it('previews the clicked Changed files row, preserves right-click copying, and r
   } finally { await tui.dispose(); await input; rmSync(root, { recursive: true, force: true }) }
 })
 
+it.each([false, true])('opens turn Diff from Changed clicks and restores the draft and reading position (colors=%s)', async colors => {
+  const term = new ScrollingTerminal(120, 24), tui = new LocalTui(term, 'm', colors, 'dark', async () => {})
+  const input = tui.readInput()
+  const review = vi.spyOn(tui, 'reviewFiles')
+  const handler = vi.fn(async (request: { sessionId: string; turn: number; file?: number; signal: AbortSignal }) => {
+    const signal = AbortSignal.any([request.signal, new AbortController().signal])
+    await tui.reviewFiles({ title: `Turn ${request.turn} changes`, files: [{ path: 'a.ts', label: 'a.ts' }, { path: 'b.ts', label: 'b.ts' }],
+      ...(request.file === undefined ? {} : { initial: request.file }), signal, canEdit: false, canQuote: false,
+      read: async index => ({ source: { text: `@@ -1 +1 @@\n-before ${index}\n+after ${index}`, diff: true } }), action: () => {} })
+  })
+  const off = tui.setWorkspaceReviewHandler(handler)
+  try {
+    tui.setSession({ id: 'clicked-session', recent: [] })
+    for (let i = 0; i < 15; i++) tui.notice(`Earlier line ${i}`)
+    tui.event(ev('workspace/changes', { turn: 4 }, 1), undefined, { turn: 4, cwd: '/repo', total: 2, added: 2, deleted: 0,
+      files: [{ path: 'a.ts', display: 'a.ts', added: 1, deleted: 0 }, { path: 'b.ts', display: 'b.ts', added: 1, deleted: 0 }] } as WorkspaceChangesSummary)
+    for (let i = 0; i < 5; i++) tui.notice(`Later line ${i}`)
+    press(term, 'keep draft')
+    // Scroll away from the tail while keeping the summary visible.
+    press(term, '\x1b[<64;4;6M')
+    const before = term.visible(), history = term.scrollback()
+    const click = (label: string): void => {
+      const row = term.visible().findIndex(line => line.includes(label))
+      expect(row).toBeGreaterThanOrEqual(0)
+      press(term, `\x1b[<0;9;${row + 1}M\x1b[<0;9;${row + 1}m`)
+    }
+    click('Changed 2 files')
+    await vi.waitFor(() => expect(review).toHaveBeenCalledTimes(1))
+    expect(handler.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'clicked-session', turn: 4 })
+    expect(handler.mock.calls[0]?.[0].file).toBeUndefined()
+    press(term, '\x1b[27u'); await flushAsyncPaste()
+    expect(term.visible()).toEqual(before)
+    expect(term.scrollback()).toEqual(history)
+    click('b.ts')
+    await vi.waitFor(() => expect(review).toHaveBeenCalledTimes(2))
+    expect(handler.mock.calls[1]?.[0]).toMatchObject({ turn: 4, file: 1 })
+    expect(review.mock.calls[1]?.[0].initial).toBe(1)
+    expect(term.visible().join('\n')).toContain('after 1')
+    const image = tui.prompt({ title: 'Current file image', question: 'Preview', options: [{ label: 'Back', value: 'back' }],
+      allowCustom: false, notify: false, signal: review.mock.calls[1]![0].signal })
+    expect(handler.mock.calls[1]![0].signal.aborted).toBe(false)
+    press(term, '\r'); expect(await image).toBe('back')
+    expect(term.visible().join('\n')).toContain('Turn 4 changes')
+    press(term, '\x1b[27u'); await flushAsyncPaste()
+    expect(term.visible()).toEqual(before)
+    press(term, '\r')
+    expect(await input).toEqual({ text: 'keep draft', images: [] })
+  } finally { off(); await tui.dispose(); await input }
+})
+
+it('keeps Changed drag selection, native mouse mode, hidden summaries and stale clicks from opening Diff', async () => {
+  const term = new ScrollingTerminal(100, 40), copy = vi.fn(async () => {})
+  const tui = new LocalTui(term, 'm', false, 'dark', copy), handler = vi.fn(async () => {})
+  const input = tui.readline()
+  const off = tui.setWorkspaceReviewHandler(handler)
+  try {
+    tui.setSession({ id: 's', recent: [] })
+    tui.event(ev('workspace/changes', { turn: 2 }, 1), undefined, { turn: 2, cwd: '/repo', total: 1, added: 1, deleted: 0,
+      files: [{ path: 'a.ts', display: 'a.ts', added: 1, deleted: 0 }] } as WorkspaceChangesSummary)
+    const row = term.visible().findIndex(line => line.includes('Changed 1 file'))
+    press(term, `\x1b[<0;3;${row + 1}M\x1b[<32;13;${row + 1}M\x1b[<0;13;${row + 1}m`)
+    await vi.waitFor(() => expect(copy).toHaveBeenCalled())
+    expect(handler).not.toHaveBeenCalled()
+    press(term, '\x1b[27u')
+    tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'native' })
+    press(term, `\x1b[<0;9;${row + 1}M\x1b[<0;9;${row + 1}m`)
+    expect(handler).not.toHaveBeenCalled()
+    tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+    press(term, `\x1b[<0;9;${row + 1}M`)
+    tui.applyStoredPrefs({ ...tui.prefs(), showFileChanges: false })
+    expect(term.visible().join('\n')).not.toContain('Changed 1 file')
+    press(term, `\x1b[<0;9;${row + 1}m`)
+    expect(handler).not.toHaveBeenCalled()
+    tui.applyStoredPrefs({ ...tui.prefs(), showFileChanges: true })
+    expect(term.visible().join('\n')).toContain('Changed 1 file')
+    press(term, `\x1b[<0;9;${row + 1}M`)
+    tui.setSession({ id: 'other-session', recent: [] })
+    press(term, `\x1b[<0;9;${row + 1}m`)
+    expect(handler).not.toHaveBeenCalled()
+    off()
+    press(term, `\x1b[<0;9;${row + 1}M\x1b[<0;9;${row + 1}m`)
+    expect(handler).not.toHaveBeenCalled()
+  } finally { off(); await tui.dispose(); await input }
+})
+
 it('lets an approval supersede a file preview without reopening a picker over the approval', async () => {
   const root = mkdtempSync(join(tmpdir(), 'omdsh-file-priority-'))
   writeFileSync(join(root, 'a.ts'), 'file contents')
@@ -730,6 +815,24 @@ describe('LocalTui folds against a scrolling terminal', () => {
       }
       press(term as never, '\x1b[<65;10;5M'.repeat(12))
       expect(term.visible()).toEqual(before)
+      expect(term.scrollback()).toEqual(history)
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('keeps a fitting live transcript stationary when scrolling up (colors=%s)', colors => {
+    const term = new ScrollingTerminal(180, 60)
+    const tui = new LocalTui(term, 'm', colors)
+    try {
+      longTurn(tui, 2, 0, false)
+      const before = term.visible()
+      const history = term.scrollback()
+      expect(before.findIndex(row => row.includes('map the project 1'))).toBeGreaterThan(15)
+      for (const key of ['\x1b[<64;10;5M', '\x1b[5~', '\x1b[1;2A']) {
+        press(term, key)
+        expect(term.visible(), `scroll ${JSON.stringify(key)}`).toEqual(before)
+        tui.setStatus('running')
+        expect(term.visible(), 'next live repaint').toEqual(before)
+      }
       expect(term.scrollback()).toEqual(history)
     } finally { tui.dispose() }
   })
@@ -3511,7 +3614,7 @@ describe('LocalTui (tty)', () => {
       await flushAsyncPaste()
       press(term, '\x1b[27u')
       await flushAsyncPaste()
-      expect(term.visible().join('\n')).toContain('❯ ' + providerLabel)
+      expect(term.visible().join('\n')).toContain('❯ ' + (language === 'en' ? 'Endpoints and model lists' : '服务地址与模型列表'))
       expect(mutate).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled()
       press(term, '\x1b[27u')
       press(term, 'next prompt\r')
@@ -3638,7 +3741,7 @@ describe('LocalTui (tty)', () => {
       press(term, '/settings\r\t\x1b[C'); await flushAsyncPaste()
       expect(term.visible().join('\n')).toContain('Feature toggles were not saved')
       press(term, '\x1b[27u'); await flushAsyncPaste()
-      expect(term.visible().find(row => row.includes('Changed-file summary'))).toMatch(/\bon\b/u)
+      expect(term.visible().find(row => row.includes('Record file changes'))).toMatch(/\bon\b/u)
     } finally { await tui.dispose(); rmSync(directory, { recursive: true, force: true }) }
   })
 
@@ -3868,6 +3971,7 @@ describe('LocalTui (tty)', () => {
       mathMode: 'auto',
       mermaidMode: 'auto',
       hideThinking: true,
+      showFileChanges: true,
       editor: 'auto',
       terminalTitle: 'status',
       terminalState: 'auto',
@@ -5165,7 +5269,7 @@ it('persists the selected editor and uses it for both file and prompt editing', 
   const pending = tui.readline()
   try {
     press(term, '/settings\r')
-    press(term, '\t' + '\x1b[B'.repeat(tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'editor') - 1) + '\r')
+    press(term, '\t' + '\x1b[B'.repeat(tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'editor') - tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'theme')) + '\r')
     expect(persist.mock.calls[0]?.[0].editor).toBe('code')
     press(term, '\x1b')
     tui.openFileInEditor('/workspace/a.ts')
@@ -5627,7 +5731,7 @@ it('persists Mermaid source mode and refreshes the live reply after leaving Sett
     expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).not.toContain('-->')
     press(term, '/settings\r')
     const row = tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'mermaidMode')
-    press(term, '\t' + '\x1b[B'.repeat(row - 1) + '\r')
+    press(term, '\t' + '\x1b[B'.repeat(row - tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'theme')) + '\r')
     expect(persist.mock.calls[0]?.[0].mermaidMode).toBe('source')
     press(term, '\x1b')
     await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('A[First] --> B[Second]'))
@@ -5776,6 +5880,26 @@ it('recalls the latest queued submission into the composer on Alt+Up and guards 
     vi.useRealTimers()
     await tui.dispose()
   }
+})
+
+it.each([
+  ['Model and reasoning', '/model'],
+  ['Sign in / add API key', '/login'],
+  ['Sign out / remove key', '/logout'],
+])('keeps the grouped Models action %s connected to %s', async (label, command) => {
+  const term = new ScrollingTerminal(110, 24), tui = new LocalTui(term, 'm', false)
+  tui.setCommands(['model', 'login', 'logout'].map(name => ({ name, description: name })))
+  const pending = tui.readline()
+  try {
+    press(term, '/settings\r\t')
+    const screen = term.visible().join('\n')
+    expect(screen).toContain('Model selection')
+    expect(screen).toContain('Accounts and API keys')
+    expect(screen.indexOf('Model and reasoning')).toBeLessThan(screen.indexOf('Sign in / add API key'))
+    expect(screen.indexOf('Sign in / add API key')).toBeLessThan(screen.indexOf('Sign out / remove key'))
+    press(term, label + '\r')
+    await expect(pending).resolves.toBe(command)
+  } finally { await tui.dispose(); await pending }
 })
 
 it('returns to /settings with refreshed action values after opening a sub-command dialog', async () => {
