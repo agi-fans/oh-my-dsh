@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Linux CI stays on Ubuntu 24.04 while file-recovery sandbox tests on Ubuntu 26.04 are investigated.
+
 ## [0.24.1] - 2026-11-09
 
 ### Changed
