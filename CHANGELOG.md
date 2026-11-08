@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.24.1]
+
 ### Changed
 
 - Collapsed file-edit summaries color added and removed line counts with the active Diff palette.
@@ -1032,7 +1034,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.1...HEAD
+[0.24.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.23.1...v0.24.0
 [0.23.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.22.0...v0.23.0
