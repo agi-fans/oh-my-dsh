@@ -239,7 +239,6 @@ import { formatEssentialHotkeysText, formatHotkeysText, keysForAction } from '..
 import {
   imagePathCandidates,
   splitComposerAttachmentMarkers,
-  stripComposerImageMarkers,
   readImageFile,
   readImageFromClipboard,
   readMacClipboardFiles,
@@ -532,6 +531,7 @@ export class LocalTui implements TuiService {
   #paste = false
   #pasteBuf = ''
   #pasteInFlight = 0
+  #pasteAbort: AbortController | undefined
   #deferredPasteEvents: KeyEvent[] = []
   readonly #images = new ComposerImages({
     editor: this.#editor,
@@ -1116,6 +1116,7 @@ export class LocalTui implements TuiService {
   }
 
   async reviewFiles(request: TuiFileReview): Promise<void> {
+    this.#cancelPaste()
     if (!this.#tty || this.#disposed || request.signal.aborted) return
     this.#workspacePress = undefined
     this.#flushPasteBurst(true)
@@ -1445,6 +1446,7 @@ export class LocalTui implements TuiService {
       this.#finishPrompt(null)
       try { superseded(input) } catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
     }
+    this.#cancelPaste()
     this.#flushPasteBurst(true)
     this.#pasteBurst.clear()
     if (request.notify !== false) {
@@ -1786,8 +1788,8 @@ export class LocalTui implements TuiService {
       let existing = current ? this.#captureDraft() : target === undefined ? undefined : this.#unsavedDrafts.get(target)
       try { if (target !== undefined) existing ??= this.#draftStore?.load(target) } catch (error) { this.#reportDraftError('restore', error) }
       if (existing !== undefined) {
-        images.replace({ text: existing.editor.text, images: existing.images })
         editor.restore(existing.editor)
+        images.restoreSnapshot(existing.images)
         files.restoreSnapshot(existing.files)
       }
       images.restore(submission, files.adopt(submission.files ?? []))
@@ -1994,6 +1996,7 @@ export class LocalTui implements TuiService {
     this.#flushDraft()
     this.#pendingInputs.flush(this.#pendingScope())
     this.#disposed = true
+    this.#cancelPaste()
     this.#imagePreviewAbort?.abort()
     this.#fileReviewAbort?.abort()
     this.#closeFileBrowser()
@@ -2186,12 +2189,12 @@ export class LocalTui implements TuiService {
   #captureDraft(): ComposerDraft {
     if (this.#historyIndex > 0 && this.#historyDraft !== undefined) return this.#historyDraft
     const editor = this.#prompt?.savedInput ?? this.#editor.snapshot()
-    return { editor, images: this.#images.copies(), files: this.#files.snapshot(editor.text), literal: this.#literalInput }
+    return { editor, images: this.#images.copies(editor), files: this.#files.snapshot(editor.text), literal: this.#literalInput }
   }
 
   #restoreDraft(draft: ComposerDraft): void {
-    this.#images.replace({ text: draft.editor.text, images: draft.images })
     this.#editor.restore(draft.editor)
+    this.#images.restoreSnapshot(draft.images)
     this.#files.restoreSnapshot(draft.files)
     this.#literalInput = draft.literal
   }
@@ -2248,6 +2251,7 @@ export class LocalTui implements TuiService {
 
   #switchDraft(id: string | undefined): void {
     if (id === this.#draftScope) return
+    this.#cancelPaste()
     this.#goalAbort?.abort()
     this.#goalAbort = undefined
     this.#queueHotkeyAbort?.abort()
@@ -2620,13 +2624,25 @@ export class LocalTui implements TuiService {
     for (const event of this.#pasteBurst.flush(Date.now(), force)) this.#deliverPasteEmission(event)
   }
 
-  #startAsyncPaste(operation: Promise<void>): void {
-    this.#pasteInFlight += 1
-    void operation.catch((error: unknown) => {
-      this.notice('Paste failed: ' + (error instanceof Error ? error.message : String(error)), { level: 'error' })
+  #cancelPaste(): void {
+    this.#pasteAbort?.abort()
+    this.#pasteAbort = undefined
+    this.#pasteInFlight = 0
+    this.#deferredPasteEvents = []
+    this.#paste = false
+    this.#pasteBuf = ''
+  }
+
+  #startAsyncPaste(operation: (signal: AbortSignal) => Promise<void>): void {
+    const abort = new AbortController()
+    this.#pasteAbort = abort
+    this.#pasteInFlight = 1
+    void operation(abort.signal).catch((error: unknown) => {
+      if (!abort.signal.aborted) this.notice('Paste failed: ' + (error instanceof Error ? error.message : String(error)), { level: 'error' })
     }).finally(() => {
-      this.#pasteInFlight = Math.max(0, this.#pasteInFlight - 1)
-      if (this.#pasteInFlight !== 0 || this.#deferredPasteEvents.length === 0) return
+      if (this.#pasteAbort !== abort) return
+      this.#pasteAbort = undefined
+      this.#pasteInFlight = 0
       const deferred = this.#deferredPasteEvents.splice(0)
       for (let index = 0; index < deferred.length; index += 1) {
         this.#dispatch(deferred[index] as KeyEvent)
@@ -2637,7 +2653,9 @@ export class LocalTui implements TuiService {
     })
   }
 
-  async #acceptPastedText(text: string): Promise<void> {
+  async #acceptPastedText(text: string, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return
+    text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
     if (this.#fileBrowser !== null) { this.#applyFileBrowserInput({ type: 'text', value: text }); return }
     if (this.#prompt !== null) {
       const prompt = this.#prompt
@@ -2661,31 +2679,27 @@ export class LocalTui implements TuiService {
     }
     const paths = imagePathCandidates(text)
     if (paths.length > 0) {
-      const images = await Promise.all(paths.map(path => this.#readImagePath(path)))
-      if (images.every((image): image is TuiInputImage => image !== null)) {
-        let inserted = false
-        for (const image of images) {
-          if (await this.#images.admit(image)) {
-            this.#images.insert(image)
-            inserted = true
-          }
+      const images = await Promise.all(paths.map(async path => {
+        try { return await this.#readImagePath(path) }
+        catch { return null }
+      }))
+      if (signal.aborted) return
+      let inserted = false
+      for (const [index, image] of images.entries()) {
+        if (image === null) {
+          this.notice(uiText(resolveUiLanguage(this.#uiLanguage), 'Could not read image {path}', { path: paths[index]! }), { level: 'error' })
+          continue
         }
-        if (inserted) {
-          this.#refreshAutocomplete()
-          this.#render()
+        const admitted = await this.#images.admit(image, signal)
+        if (signal.aborted) return
+        if (admitted) {
+          this.#images.insert(image)
+          inserted = true
         }
-        return
       }
-      // Screenshot tools sometimes paste a transient cache path and remove
-      // it before Node reads it. OMP falls back to the still-live clipboard
-      // image instead of leaking that stale path into the prompt.
-      const clipboardImage = await this.#readClipboardImage()
-      if (clipboardImage !== null) {
-        this.#images.insert(clipboardImage)
-        this.#refreshAutocomplete()
-        this.#render()
-        return
-      }
+      if (inserted) this.#refreshAutocomplete()
+      this.#render()
+      return
     }
     this.#literalInput ||= this.#editor.cursor === 0 && text.startsWith('!')
     this.#editor.paste(text)
@@ -2693,11 +2707,14 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
-  async #pasteClipboard(): Promise<void> {
-    if (this.#search === null && this.#settings === null) {
+  async #pasteClipboard(signal: AbortSignal): Promise<void> {
+    if (this.#prompt === null && this.#search === null && this.#settings === null) {
       const image = await this.#readClipboardImage()
+      if (signal.aborted) return
       if (image !== null) {
-        if (await this.#images.admit(image)) {
+        const admitted = await this.#images.admit(image, signal)
+        if (signal.aborted) return
+        if (admitted) {
           this.#images.insert(image)
           this.#refreshAutocomplete()
           this.#render()
@@ -2705,28 +2722,15 @@ export class LocalTui implements TuiService {
         return
       }
       const files = await this.#readClipboardFiles()
+      if (signal.aborted) return
       const imagePaths = files.filter(path => imagePathCandidates(path).length === 1)
       if (imagePaths.length > 0) {
-        const images = (await Promise.all(imagePaths.map(path => this.#readImagePath(path))))
-          .filter((candidate): candidate is TuiInputImage => candidate !== null)
-        if (images.length > 0) {
-          let inserted = false
-          for (const candidate of images) {
-            if (await this.#images.admit(candidate)) {
-              this.#images.insert(candidate)
-              inserted = true
-            }
-          }
-          if (inserted) {
-            this.#refreshAutocomplete()
-            this.#render()
-          }
-          return
-        }
+        await this.#acceptPastedText(imagePaths.join('\n'), signal)
+        return
       }
     }
     const text = await this.#readClipboard()
-    if (text !== '') await this.#acceptPastedText(text)
+    if (text !== '' && !signal.aborted) await this.#acceptPastedText(text, signal)
   }
 
   /** Resolve one bounded tmux probe without overwriting an explicit preference. */
@@ -3209,6 +3213,7 @@ export class LocalTui implements TuiService {
     // Clipboard image inspection is asynchronous. Preserve the exact key
     // order so a fast Ctrl+V, Enter submits the finished image draft rather
     // than an empty prompt.
+    if (this.#pasteInFlight > 0 && event.type === 'key' && (event.id === 'ctrl+c' || event.id === 'escape')) this.#cancelPaste()
     if (this.#pasteInFlight > 0) {
       this.#deferredPasteEvents.push(event)
       return
@@ -3218,7 +3223,7 @@ export class LocalTui implements TuiService {
         this.#paste = false
         const text = this.#pasteBuf.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
         this.#pasteBuf = ''
-        if (text !== '') this.#startAsyncPaste(this.#acceptPastedText(text))
+        if (text !== '') this.#startAsyncPaste(signal => this.#acceptPastedText(text, signal))
         return
       }
       if (event.type === 'text') this.#pasteBuf += event.value
@@ -4465,11 +4470,19 @@ export class LocalTui implements TuiService {
   #buildSubmission(text: string): { submission: TuiSubmission; historyText: string } {
     const images = this.#images.copies()
     const files = this.#files.copies()
-    const typedText = this.#files.text(images.length > 0 ? text.trim() : text)
+    const markers = this.#files.snapshot(this.#editor.text).entries.map(item => item.marker)
+    const ranges = this.#images.ranges()
+    for (const [index, marker] of markers.entries()) {
+      const start = text.indexOf(marker)
+      if (start < 0) continue
+      const end = start + marker.length
+      ranges.push({ kind: 'file', index, start: start > 0 && text[start - 1] === ' ' ? start - 1 : start,
+        end: text[end] === ' ' ? end + 1 : end })
+    }
     const segments = images.length === 0 && files.length === 0 ? []
-      : splitComposerAttachmentMarkers(text.trim(), images, this.#files.snapshot(text).entries.map(item => item.marker))
-    // Stripping a marker that sat on its own line leaves that line break behind.
-    const submittedText = images.length > 0 ? stripComposerImageMarkers(typedText, images).trim() : typedText
+      : splitComposerAttachmentMarkers(text, images, markers, images.length > 0 && text === this.#editor.expandedText ? ranges : undefined)
+    const submittedText = images.length === 0 ? this.#files.text(text)
+      : segments.flatMap(segment => segment.kind === 'text' ? [segment.text] : []).join('')
     const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
     const historyText = submittedText.replace(/[ \t]{2,}/gu, ' ').trim()
     return {
@@ -4681,6 +4694,7 @@ export class LocalTui implements TuiService {
   #finishPrompt(answer: string | null, kind: 'text' | 'selection' | 'action' = 'text'): void {
     const pending = this.#prompt
     if (pending === null) return
+    this.#cancelPaste()
     const draft = structuredPromptAnswer(pending, this.#editor.expandedText)
     try { pending.request.onAnswerDraft?.(draft) }
     catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
@@ -4815,6 +4829,7 @@ export class LocalTui implements TuiService {
     }
     this.#search = null
     this.#ac = null
+    this.#cancelPaste()
     this.#settings = createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, this.#pluginSettings?.entries(), discoverEditors(this.#externalEditor), this.#settingsActions())
     this.#refreshSettingsCatalog()
     this.#render()
@@ -5175,7 +5190,7 @@ export class LocalTui implements TuiService {
       return true
     }
     if (action === 'paste-clipboard') {
-      this.#startAsyncPaste(this.#pasteClipboard())
+      this.#startAsyncPaste(signal => this.#pasteClipboard(signal))
       return true
     }
     // Explicit queue delivery is independent of the busy-Enter preference.
@@ -5189,7 +5204,8 @@ export class LocalTui implements TuiService {
       this.#handTerminal(() => {
         this.#literalInput ||= this.#editor.startsWithPaste
         const text = editExternally(this.#editor.expandedText, this.#externalEditor)
-        this.#editor.setText(text)
+        while (this.#editor.expandPaste()) { /* Keep marker positions aligned with expanded source. */ }
+        this.#editor.replaceText(text)
         this.#images.reconcile()
       })
     } catch (error: unknown) {

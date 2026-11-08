@@ -31,7 +31,23 @@ function editorSnapshot(value: unknown): EditorSnapshot | undefined {
       || typeof atom.content !== 'string' || !/^\[Pasted #\d+: \d+ (?:lines|chars)\]$/u.test(value.text.slice(atom.start, atom.end))) return undefined
     pastes.push({ start: atom.start, end: atom.end, content: atom.content }); end = atom.end
   }
-  return { text: value.text, cursor: value.cursor, pastes }
+  const markers: NonNullable<EditorSnapshot['markers']> = []
+  if (value.markers !== undefined) {
+    if (!Array.isArray(value.markers)) return undefined
+    const ids = new Set<string>()
+    let end = 0
+    for (const marker of value.markers) {
+      if (!object(marker) || typeof marker.id !== 'string' || !/^image:[1-9]\d*$/u.test(marker.id) || ids.has(marker.id)
+        || !integer(Number(marker.id.slice('image:'.length)))
+        || !integer(marker.start) || !integer(marker.end) || marker.start < end || marker.end <= marker.start || marker.end > value.text.length
+        || !/^\s*\[Image #\d+(?:, \d+x\d+)?\]\s*$/u.test(value.text.slice(marker.start, marker.end))) return undefined
+      const { start, end: markerEnd } = marker
+      if (pastes.some(atom => start < atom.end && markerEnd > atom.start)) return undefined
+      markers.push({ id: marker.id, start: marker.start, end: marker.end })
+      ids.add(marker.id); end = marker.end
+    }
+  }
+  return { text: value.text, cursor: value.cursor, pastes, ...(markers.length === 0 ? {} : { markers }) }
 }
 
 function fileSnapshot(value: unknown, text: string): ComposerDraft['files'] | undefined {
@@ -77,6 +93,10 @@ export class ComposerDraftStore {
         ...(record.width === undefined ? {} : { width: record.width as number }), ...(record.height === undefined ? {} : { height: record.height as number }) })
     }
     if (images.some((image, at) => !editor.text.includes(imageMarker(at, image)))) throw new Error('Saved composer image marker is missing.')
+    if (editor.markers !== undefined && (editor.markers.length !== images.length
+      || editor.markers.some((marker, index) => editor.text.slice(marker.start, marker.end).trim() !== imageMarker(index, images[index]!)))) {
+      throw new Error('Saved composer image marker is invalid.')
+    }
     return { editor, files, images, literal: raw.literal }
   }
 

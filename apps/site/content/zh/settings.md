@@ -134,7 +134,7 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 
 Terminal title 和 Terminal status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Terminal status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。原先单独启用的 OSC 9 忙碌/空闲提示已移除：它用更弱的协议重复了 Terminal status 已经报告的内容。
 
-深浅配色以 [Catppuccin Mocha 和 Latte](https://catppuccin.com/palette/) 为基础，用蓝色标识交互，并加强终端文字的对比度。设置仍只有 `dark`、`light` 和 `system`。普通回复正文和页面背景继续由终端控制：浅色终端选 `light`，深色终端选 `dark`，或用 `system` 跟随终端报告的颜色。工具详情使用中性底色，四周保留内边距。用户消息和工具卡片的背景有配套文字色；终端色数有限、底色合并时，状态文字和符号仍可辨认。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
+深浅配色以 [Catppuccin Mocha 和 Latte](https://catppuccin.com/palette/) 为基础，用蓝色标识交互，并加强终端文字的对比度。设置仍只有 `dark`、`light` 和 `system`。普通回复正文和页面背景继续由终端控制：浅色终端选 `light`，深色终端选 `dark`，或用 `system` 跟随终端报告的颜色。工具详情以底色区分进行中、成功和失败，四周保留内边距。用户消息和工具卡片的背景有配套文字色；终端色数有限、底色合并时，状态文字和符号仍可辨认。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 
 Editor 列出已安装的 VS Code、Cursor、VSCodium、Neovim、Vim、Nano 和 Vi。Auto 兼容已有的 `$VISUAL` 或 `$EDITOR` 配置，否则优先使用探测到的图形代码编辑器，再选择终端编辑器。即使命令不在 PATH 中，也会检查 macOS 应用包和 Windows 的标准安装位置。手动选择立即生效，并在下次启动时保留；保存并关闭打开的文件即可返回。已保存但不再可用的编辑器会标为 unavailable，方便重新选择；若未发现编辑器，安装后重新打开 Settings 即可。
 

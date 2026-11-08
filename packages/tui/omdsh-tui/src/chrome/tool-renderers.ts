@@ -2,7 +2,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FileDiff, ToolCallView, ToolResultView, WebSource } from '@deepseek-ai/dsh-tools'
-import { alignFileDiffs, countDiffStats, formatDiffRows, formatDiffStats } from './diff-render.ts'
+import { alignFileDiffs, countDiffStats, formatDiffRows, formatDiffStats, type DiffStats } from './diff-render.ts'
 import {
   TOOL_ARG_FIELDS,
   TOOL_ARG_INTENT_FIELDS,
@@ -32,6 +32,7 @@ export interface ToolRenderInput {
 export interface ToolPresentation {
   title?: string
   summary?: string
+  diffStats?: DiffStats
   /** Human- or tool-authored call input, retained after the result settles. */
   input: readonly string[]
   /** Result content, kept separate so the view can render an Output section. */
@@ -359,12 +360,13 @@ function contentLines(content: readonly ContentBlock[] | undefined): string[] {
   return lines
 }
 
-function presentDiffs(diffs: readonly FileDiff[]): { lines: string[]; summary?: string } {
+function presentDiffs(diffs: readonly FileDiff[]): { lines: string[]; summary?: string; diffStats: DiffStats } {
   const rows = alignFileDiffs(diffs)
   const stats = countDiffStats(rows)
   const summary = formatDiffStats(stats.added, stats.removed)
   return {
     lines: formatDiffRows(rows),
+    diffStats: stats,
     ...(summary === undefined ? {} : { summary }),
   }
 }
@@ -377,6 +379,7 @@ function sourceLine(source: WebSource): string {
 interface PartialToolPresentation {
   title?: string
   summary?: string
+  diffStats?: DiffStats
   lines?: readonly string[]
   outputPreview?: 'head' | 'tail'
   /** When set, skip durable output text because the summary already carries it. */
@@ -409,6 +412,7 @@ function callPresentation(view: ToolCallView | undefined, fallbackTitle: string)
         const presented = presentDiffs(view.diffs)
         return {
           title: view.title,
+          diffStats: presented.diffStats,
           ...(presented.summary === undefined ? {} : { summary: presented.summary }),
           lines: presented.lines,
         }
@@ -441,6 +445,7 @@ function resultPresentation(view: ToolResultView | undefined): PartialToolPresen
         return {
           ...(view.title === undefined ? {} : { title: view.title }),
           ...(presented.summary === undefined ? {} : { summary: presented.summary }),
+          diffStats: presented.diffStats,
           lines: presented.lines,
         }
       }
@@ -510,9 +515,11 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   )
   const duplicateDiff = input.presentation?.call?.card === 'diff' && input.presentation.result?.card === 'diff'
   const summary = result.summary ?? call.summary ?? fallback?.summary
+  const diffStats = input.presentation?.result === undefined ? call.diffStats : result.diffStats
   return {
     title: result.title ?? call.title ?? fallback?.title ?? input.name,
     ...(summary === undefined || summary === '' ? {} : { summary }),
+    ...(diffStats === undefined ? {} : { diffStats }),
     input: duplicateDiff ? [] : callLines,
     output: outputLines,
     outputPreview: call.outputPreview ?? 'head',

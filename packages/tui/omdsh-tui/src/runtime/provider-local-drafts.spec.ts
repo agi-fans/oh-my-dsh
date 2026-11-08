@@ -349,7 +349,7 @@ it('recovers waiting input and in-flight attachment delivery without sending aut
   expect(entries.map(row => row.recovered)).toEqual([true, true])
   expect(entries[0]?.submission).toEqual(sending)
   expect(entries[0]?.submission).toMatchObject({ delivery: 'steer', literal: true, images: [image], files: [file],
-    segments: [{ kind: 'text', text: 'first' }, { kind: 'image', index: 0 }, { kind: 'file', index: 0 }, { kind: 'text', text: 'last' }] })
+    segments: [{ kind: 'text', text: 'first ' }, { kind: 'image', index: 0 }, { kind: 'file', index: 0 }, { kind: 'text', text: 'last' }] })
   expect(stripAnsi(next.term.captured)).toContain('Recovered')
   const pending = next.tui.readInput()
   const resolved = vi.fn()

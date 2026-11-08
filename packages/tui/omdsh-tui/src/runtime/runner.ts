@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { TuiService } from '../definition.ts'
-import { looksLikeSlashCommand, stripComposerImageMarkers } from '../input/image-paste.ts'
+import { looksLikeSlashCommand, submissionCommandText } from '../input/image-paste.ts'
 import type {} from './session-runtime.ts'
 import type {} from './startup-notices.ts'
 import { composerShellCommand, composerShellShare, runComposerShell } from './composer-shell.ts'
@@ -117,14 +117,14 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           shellActive = false
           operation = undefined
         }
-      } else if (!submission.literal && looksLikeSlashCommand(submission.text, submission.images)) {
+      } else if (!submission.literal && looksLikeSlashCommand(submission.text, submission.images, submission.segments)) {
         operation = new AbortController()
         try {
           const handled = await controller.execute(submission, operation.signal)
           if (handled) tui.pendingInputs?.acknowledge?.(submission)
           if (!handled) {
             tui.restoreInput(submission, sessionId)
-            const command = stripComposerImageMarkers(submission.text, submission.images).trim()
+            const command = submissionCommandText(submission).trim()
             tui.notice(`Unknown command: ${command.split(/\s/u, 1)[0] ?? command}`, { level: 'error' })
           }
         } catch (error: unknown) {

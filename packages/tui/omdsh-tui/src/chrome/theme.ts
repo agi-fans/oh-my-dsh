@@ -758,7 +758,7 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   const pending = toHex(liftedToLuminance(background, target('pending')))
   const successRgb = tintAtLuminance(background, successInk, target('success'))
   const success = toHex(successRgb)
-  // Expanded detail uses a neutral surface with the terminal's own hue.
+  // Supplementary neutral surfaces retain the terminal's own hue.
   const alt = toHex(liftedToLuminance(background, swatchLuminance('toolAltBg')))
   const errorCard = stateCard(error, target('error'))
   const cardFills: readonly Rgb[] = [pending, success, alt, errorCard].map(hexToRgb).map(([r, g, b]) => ({ r, g, b }))

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Collapsed file-edit summaries color added and removed line counts with the active Diff palette.
+- Expanded tool details use distinct pending, successful, and failed background surfaces in formatted and raw views.
+
+### Fixed
+
+- Multiline and wrapped user messages keep consistent left and right padding while preserving indentation and blank lines.
+- Restored long pastes and image drafts retain their payloads and positions through repeated marker labels, editing, undo, and saved drafts.
+- Image pastes cancel when the session or prompt changes, including Enter keys waiting for the cancelled paste.
+- Image path batches retain readable files, report unreadable ones, and check each loaded image through Harness admission.
+- Clipboard text normalizes CRLF and CR line endings, and mixed image messages preserve original indentation and whitespace.
+
 ## [0.24.0] - 2026-11-08
 
 ### Added

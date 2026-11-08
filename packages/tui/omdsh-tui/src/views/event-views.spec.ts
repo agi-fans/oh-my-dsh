@@ -2418,6 +2418,32 @@ describe('whether a list takes the screen', () => {
 })
 
 describe('user text in the transcript', () => {
+  it.each([false, true])('aligns every line of a submitted multiline message (colors=%s)', colors => {
+    const text = '1. 没问题\n2. 往后方\n3. 可以直接开工'
+    const state = applyEvent(initialTranscript(), ev('user/message', {
+      source: { kind: 'user' }, content: [{ type: 'text', text }],
+    }, 1))
+    expect(state.blocks[0]).toMatchObject({ kind: 'user', text })
+    const rows = blockLines(state.blocks[0]!, createTheme(colors), 40).map(stripAnsi)
+    expect(rows.slice(1, -1).map(row => row.trimEnd())).toEqual([
+      '  1. 没问题', '  2. 往后方', '  3. 可以直接开工',
+    ])
+    expect(rows.every(row => visibleWidth(row) === 40)).toBe(true)
+  })
+
+  it.each([false, true])('pads wrapped rows and preserves explicit indentation, blank lines and mentions (colors=%s)', colors => {
+    const theme = createTheme(colors)
+    for (const width of [20, 40]) {
+      const text = '中文🐳é'.repeat(20) + '\n    indented\n\n@src/very-long-file-name.ts'
+      const rows = blockLines({ kind: 'user', text }, theme, width).map(stripAnsi)
+      expect(rows.every(row => visibleWidth(row) === width)).toBe(true)
+      expect(rows.every(row => row.startsWith('  ') && row.endsWith('  '))).toBe(true)
+      expect(rows.some(row => row.trimEnd() === '      indented')).toBe(true)
+      expect(rows.slice(1, -1).some(row => row.trim() === '')).toBe(true)
+      expect(rows.map(row => row.trim()).join('')).toBe(text.replaceAll(/\s/gu, ''))
+    }
+  })
+
   it('draws a pasted credential masked and keeps the words around it', () => {
     // A terminal is shown to other people. The stored message keeps the key —
     // the model still needs it — so only the drawn form is masked.

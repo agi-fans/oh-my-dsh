@@ -85,7 +85,7 @@ import { reviewFileRecovery } from '../runtime/file-recovery-review.ts'
 import {
   isBlankSession,
 } from './session-configuration.ts'
-import { stripComposerImageMarkers } from '../input/image-paste.ts'
+import { submissionCommandText } from '../input/image-paste.ts'
 import type { ContextDiagnostics } from './context-diagnostics.ts'
 
 interface ActiveSession {
@@ -978,9 +978,8 @@ export class SessionRuntime {
     images: readonly TuiInputImage[] = [],
   ): Promise<boolean> {
     const submission: TuiSubmission = typeof input === 'string' ? { text: input, images } : input
-    const { text: line } = submission
     images = submission.images
-    const commandLine = stripComposerImageMarkers(line, images)
+    const commandLine = submissionCommandText(submission)
     const parsed = parseControl(commandLine)
     if (parsed === undefined) return false
     const commands = this.#ctx.get('commands')

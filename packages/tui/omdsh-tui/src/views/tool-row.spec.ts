@@ -11,6 +11,25 @@ const render = (block: Tool, width = 80, colors = false, full = false) => blockL
 const text = (block: Tool, full = false) => render(block, 80, false, full).map(stripAnsi).join('\n')
 
 describe('tool content', () => {
+  it.each(THEME_NAMES)('%s colors added and removed counts in collapsed edit summaries', name => {
+    for (const colors of [false, true]) {
+      const theme = createTheme(colors, true, name)
+      const block = tool({ name: 'edit', args: '{"path":"src/service.py"}', presentation: { result: {
+        card: 'diff', diffs: [{ path: 'src/service.py', oldText: 'old1\nold2\nold3\nold4', newText: 'new1\nnew2\nnew3\nnew4\nnew5\nnew6' }],
+      } } })
+      for (const width of [24, 80, 160]) {
+        const rows = blockLines(block, theme, width, { processDisclosure: true })
+        const text = rows.join('\n')
+        expect(stripAnsi(text)).toContain('+6/-4')
+        if (colors) {
+          expect(text).toContain(theme.fg('toolDiffAdded', '+6'))
+          expect(text).toContain(theme.fg('toolDiffRemoved', '-4'))
+        } else expect(text).not.toContain('\x1b')
+        expect(rows.every(row => visibleWidth(row) === width)).toBe(true)
+      }
+    }
+  })
+
   it.each(THEME_NAMES)('%s restores card ink and fill after terminal output resets', name => {
     const theme = createTheme(true, true, name)
     const rows = blockLines(tool({ output: '\x1b[31mcolored\x1b[0;39;49m ordinary' }), theme, 80)
@@ -189,12 +208,25 @@ describe('readable tool detail spacing and source columns', () => {
     processDisclosure: true, toolsExpanded: true, rawTool: raw,
   })
 
-  it.each([false, true])('pads the top and bottom of expanded content (raw=%s)', raw => {
-    const rows = details(tool({ args: '{"command":"pwd"}', output: 'workspace' }), 60, raw)
-    const blank = paintSurface(theme, 'toolAltBg', 'toolOutput', ' '.repeat(60))
-    expect(rows[1]).toBe(blank)
-    expect(rows.at(-1)).toBe(blank)
-    expect(rows.every(row => visibleWidth(row) === 60)).toBe(true)
+  it.each([
+    ['running', 'toolPendingBg'], ['ok', 'toolSuccessBg'], ['error', 'toolErrorBg'],
+  ] as const)('uses the %s state surface throughout expanded details', (status, background) => {
+    for (const name of THEME_NAMES) for (const colors of [false, true]) for (const trueColor of [false, true]) {
+      const theme = createTheme(colors, trueColor, name)
+      const block = tool({ status, args: '{"command":"pwd"}', output: '中文🐳é '.repeat(8) + (colors ? '\x1b[0;39;49m' : '') + 'END' })
+      for (const raw of [false, true]) for (const width of [20, 60]) {
+        const rows = blockLines(block, theme, width, { processDisclosure: true, toolsExpanded: true, rawTool: raw })
+        const blank = paintSurface(theme, background, 'toolOutput', ' '.repeat(width))
+        expect(rows[1]).toBe(blank)
+        expect(rows.at(-1)).toBe(blank)
+        expect(rows.every(row => visibleWidth(row) === width)).toBe(true)
+        if (colors) {
+          expect(rows.slice(1).every(row => row.startsWith(theme.getBgAnsi(background)))).toBe(true)
+          expect(rows.slice(1).every(row => row.endsWith('\x1b[39m\x1b[49m'))).toBe(true)
+          expect(rows.join('\n')).toContain('\x1b[0;39;49m' + theme.getFgAnsi('toolOutput') + theme.getBgAnsi(background) + 'END')
+        } else expect(rows.join('\n')).not.toContain('\x1b')
+      }
+    }
   })
 
   it.each([false, true])('does not syntax-color terminal output as shell source (raw=%s)', raw => {
@@ -242,5 +274,21 @@ describe('readable tool detail spacing and source columns', () => {
     const line = rows.find(row => stripAnsi(row).includes('const value'))!
     expect(line).toContain(theme.getFgAnsi('syntaxNumber'))
     expect(stripAnsi(line)).toMatch(/^    1  const value/)
+  })
+
+  it('preserves Diff ink on every state surface in formatted and raw details', () => {
+    for (const status of ['running', 'ok', 'error'] as const) for (const raw of [false, true]) {
+      const rows = details(tool({ name: 'edit', status, args: '{"path":"source.ts"}', presentation: { result: {
+        card: 'diff', diffs: [{ path: 'source.ts', oldText: 'const value = 1', newText: 'const value = 2' }],
+      } } }), 60, raw)
+      const removed = rows.find(row => stripAnsi(row).includes('const value = 1'))!
+      const added = rows.find(row => stripAnsi(row).includes('const value = 2'))!
+      const background = theme.getBgAnsi(status === 'running' ? 'toolPendingBg' : status === 'error' ? 'toolErrorBg' : 'toolSuccessBg')
+      expect(removed.startsWith(background)).toBe(true)
+      expect(added.startsWith(background)).toBe(true)
+      expect(removed).toContain(theme.getFgAnsi('toolDiffRemoved'))
+      expect(added).toContain(theme.getFgAnsi('toolDiffAdded'))
+      expect(rows.slice(1).every(row => row.endsWith('\x1b[39m\x1b[49m'))).toBe(true)
+    }
   })
 })

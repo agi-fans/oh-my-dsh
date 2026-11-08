@@ -46,6 +46,12 @@ describe('image paste', () => {
     expect(looksLikeSlashCommand('/goal   keep   spacing', [])).toBe(true)
   })
 
+  it('keeps literal labels in ordered submissions when detecting commands', () => {
+    const image = { data: PNG_1X1, mediaType: 'image/png' as const, width: 1, height: 1 }
+    const text = '[Image #1, 1x1] /goal literal'
+    expect(looksLikeSlashCommand(text, [image], [{ kind: 'text', text }, { kind: 'image', index: 0 }])).toBe(false)
+  })
+
   it('strips only attached imageMarker values and TUI separator spaces', () => {
     const image = { data: PNG_1X1, mediaType: 'image/png' as const, width: 1, height: 1 }
     const images = [image]

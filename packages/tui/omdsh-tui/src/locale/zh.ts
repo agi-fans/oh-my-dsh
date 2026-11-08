@@ -1,5 +1,6 @@
 /** Simplified Chinese for terminal-owned interface text. */
 export const zh = {
+  "Could not read image {path}": "无法读取图片 {path}",
   "Plugin configuration": "插件配置",
   "Additional fields": "补充配置",
   "Optional features": "可选功能",

@@ -48,6 +48,7 @@ import type {
 } from '../definition.ts'
 import {
   alignFileDiffs,
+  paintDiffStats,
   wrapPaintedDiffRows,
 } from '../chrome/diff-render.ts'
 import { workspaceBlockLines, WORKSPACE_COLLAPSED_LINES } from './workspace-changes.ts'
@@ -349,10 +350,10 @@ function assistantMarkdown(
  * everything else, so nothing on the screen is held off by a gutter.
  */
 function userBubble(text: string, theme: Theme, width: number): string[] {
-  const gutter = '  '
+  const gutter = width > ASSISTANT_PADDING_X * 2 ? ' '.repeat(ASSISTANT_PADDING_X) : ''
   // Drawn masked, stored plain: the key still reaches the model and the copy
   // action still returns what the reader sent, but a shared screen shows stars.
-  const wrapped = renderPathMentionRows(maskSecrets(text), Math.max(1, width - gutter.length), theme)
+  const wrapped = renderPathMentionRows(maskSecrets(text), Math.max(1, width - gutter.length * 2), theme)
   const rows = ['', ...wrapped, '']
   // The padding rows share the prompt's tint, so the prompt is one slab that
   // opens the turn. Unpainted, they were two blank rows of their own on top of
@@ -361,7 +362,7 @@ function userBubble(text: string, theme: Theme, width: number): string[] {
   return rows.map((row, index) => {
     if (row === '') return paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth('', width))
     const promptMark = index === 1 && theme.colors ? '\x1b]133;A\x07' : ''
-    const content = padToWidth((index === 1 ? promptMark + gutter : '') + row, width)
+    const content = padToWidth(promptMark + gutter + row, width)
     return paintSurface(theme, 'userMessageBg', 'userMessageText', content)
   })
 }
@@ -477,7 +478,9 @@ function toolRowLine(
   const text = labelText + (detailText === '' ? '' : (descriptionLed ? '' : ROW_JOIN) + detailText) + (tailText === '' ? '' : ROW_JOIN)
   // A failure is the one line in a run that has to stay findable while scrolling
   // past, so its fact carries the error colour rather than the row's dim.
-  const tail = tailText === '' ? '' : block.status === 'error' ? theme.fg('error', tailText) : theme.dim(tailText)
+  const tail = tailText === '' ? '' : block.status === 'error' ? theme.fg('error', tailText)
+    : presentation.diffStats === undefined ? theme.dim(tailText)
+      : truncateToWidth(paintDiffStats(presentation.diffStats.added, presentation.diffStats.removed, theme), factRoom)
   return [padToWidth(truncateToWidth(head + theme.fg('muted', text) + tail, Math.max(1, width - 2)), width)]
 }
 
@@ -562,7 +565,6 @@ function toolBlockLines(
   width: number,
   mode: 'preview' | 'full' | 'details' = 'preview',
   detailsKey = 'Alt+O',
-  surface: 'toolSuccessBg' | 'toolAltBg' = 'toolSuccessBg',
   showTitle = true,
 ): string[] {
   const full = mode !== 'preview'
@@ -666,7 +668,7 @@ function toolBlockLines(
       `Job ${block.job.id} · ${block.job.detail ?? block.job.status}`,
     ), room))
   }
-  const bg = !showTitle ? 'toolAltBg' : block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : surface
+  const bg = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
   return ['', ...rows, ''].map(row => paintSurface(theme, bg, 'toolOutput', padToWidth(' '.repeat(padding + nest) + row, width)))
 }
 
@@ -701,7 +703,7 @@ function reasoningSummaryRow(block: Extract<Block, { kind: 'assistant' }>, theme
 /** A disclosure header stays small; complete tool payloads are laid out only on demand. */
 function toolDisclosureLines(block: Extract<Block, { kind: 'tool' }>, theme: Theme, width: number, open: boolean, detailsKey = 'Alt+O', spinnerFrame = 0, raw = false): string[] {
   const rows = toolRowLine(block, theme, width, spinnerFrame, open)
-  if (open) rows.push(...toolBlockLines(block, theme, width, raw ? 'details' : 'full', detailsKey, 'toolAltBg', false))
+  if (open) rows.push(...toolBlockLines(block, theme, width, raw ? 'details' : 'full', detailsKey, false))
   return rows
 }
 

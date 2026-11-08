@@ -167,7 +167,21 @@ export function stripComposerImageMarkers(text: string, images: readonly TuiInpu
 }
 
 /** Split only markers backed by this draft, in their visible order. */
-export function splitComposerAttachmentMarkers(text: string, images: readonly TuiInputImage[], files: readonly string[] = []): SubmissionSegment[] {
+export interface ComposerAttachmentRange { start: number; end: number; kind: 'image' | 'file'; index: number }
+
+export function splitComposerAttachmentMarkers(text: string, images: readonly TuiInputImage[], files: readonly string[] = [], ranges?: readonly ComposerAttachmentRange[]): SubmissionSegment[] {
+  if (ranges !== undefined) {
+    const segments: SubmissionSegment[] = []
+    let cursor = 0
+    for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
+      if (range.start < cursor && text.slice(range.start, cursor).trim() !== '') continue
+      if (range.start > cursor) segments.push({ kind: 'text', text: text.slice(cursor, range.start) })
+      segments.push({ kind: range.kind, index: range.index })
+      cursor = range.end
+    }
+    if (cursor < text.length) segments.push({ kind: 'text', text: text.slice(cursor) })
+    return segments
+  }
   const markers = [...images.map((image, index) => ({ marker: imageMarker(index, image), kind: 'image' as const, index })),
     ...files.map((marker, index) => ({ marker, kind: 'file' as const, index }))]
   const segments: SubmissionSegment[] = []
@@ -201,41 +215,78 @@ export function splitComposerAttachmentMarkers(text: string, images: readonly Tu
  */
 export function submissionDraftText(submission: Pick<TuiSubmission, 'text' | 'images' | 'files' | 'segments'>,
   fileMarkers = (submission.files ?? []).map((file, index) => fileMarker(file, index + 1))): string {
+  return submissionDraft(submission, fileMarkers).text
+}
+
+/** Reconstruct markers together with their owned ranges, preserving literal lookalikes. */
+export function submissionDraft(submission: Pick<TuiSubmission, 'text' | 'images' | 'files' | 'segments'>,
+  fileMarkers: readonly string[] = (submission.files ?? []).map((file, index) => fileMarker(file, index + 1))): { text: string; ranges: ComposerAttachmentRange[] } {
   const { images, segments } = submission
-  if (images.length === 0 && fileMarkers.length === 0) return submission.text
-  const parts: string[] = []
+  if (images.length === 0 && fileMarkers.length === 0) return { text: submission.text, ranges: [] }
+  const parts: { text: string; kind?: 'image' | 'file'; index?: number }[] = []
   const placed = new Set<number>()
   const placedFiles = new Set<number>()
   if (segments !== undefined && segments.length > 0) {
     for (const segment of segments) {
-      if (segment.kind === 'text') { parts.push(segment.text); continue }
+      if (segment.kind === 'text') { parts.push({ text: segment.text }); continue }
       if (segment.kind === 'file') {
         const marker = fileMarkers[segment.index]
-        if (marker !== undefined && !placedFiles.has(segment.index)) { parts.push(marker); placedFiles.add(segment.index) }
+        if (marker !== undefined && !placedFiles.has(segment.index)) { parts.push({ text: marker, kind: 'file', index: segment.index }); placedFiles.add(segment.index) }
         continue
       }
       const image = images[segment.index]
       if (image === undefined || placed.has(segment.index)) continue
       placed.add(segment.index)
-      parts.push(imageMarker(segment.index, image))
+      parts.push({ text: imageMarker(segment.index, image), kind: 'image', index: segment.index })
     }
   } else if (submission.text !== '') {
-    parts.push(submission.text)
+    parts.push({ text: submission.text })
   }
   // Older submissions (and ones built outside the composer) may still carry
   // their markers in the text; never add a second copy of one.
-  const written = parts.join(' ')
+  const written = parts.map(part => part.text).join(' ')
   const missing = images.flatMap((image, index) => {
     const marker = imageMarker(index, image)
-    return placed.has(index) || written.includes(marker) ? [] : [marker]
+    return placed.has(index) || written.includes(marker) ? [] : [{ text: marker, kind: 'image' as const, index }]
   })
-  const missingFiles = fileMarkers.filter((marker, index) => !placedFiles.has(index) && !written.includes(marker))
-  return [...missing, ...parts, ...missingFiles].filter(part => part !== '').join(' ')
+  const missingFiles = fileMarkers.flatMap((marker, index) => placedFiles.has(index) || written.includes(marker) ? [] : [{ text: marker, kind: 'file' as const, index }])
+  let text = ''
+  const ranges: ComposerAttachmentRange[] = []
+  let previous: ComposerAttachmentRange | undefined
+  for (const part of [...missing, ...parts, ...missingFiles]) {
+    if (part.text === '') continue
+    const start = text.length
+    if (text !== '' && !/\s$/u.test(text) && !/^\s/u.test(part.text)) {
+      text += ' '
+      if (previous !== undefined) previous.end++
+    }
+    const markerStart = previous === undefined ? start : text.length
+    text += part.text
+    previous = part.kind === undefined ? undefined : { start: markerStart, end: text.length, kind: part.kind, index: part.index! }
+    if (previous !== undefined) ranges.push(previous)
+  }
+  // Legacy submissions can contain their markers in text without ordered segments.
+  if (segments === undefined || segments.length === 0) for (const [index, image] of images.entries()) {
+    if (ranges.some(range => range.kind === 'image' && range.index === index)) continue
+    const marker = imageMarker(index, image)
+    const start = text.indexOf(marker)
+    if (start >= 0) {
+      const end = start + marker.length
+      ranges.push({ start: start > 0 && text[start - 1] === ' ' ? start - 1 : start,
+        end: text[end] === ' ' ? end + 1 : end, kind: 'image', index })
+    }
+  }
+  return { text, ranges }
 }
 
-/** True when composer text is a slash command after dropping attached image markers. */
-export function looksLikeSlashCommand(text: string, images: readonly TuiInputImage[]): boolean {
-  return stripComposerImageMarkers(text, images).trimStart().startsWith('/')
+/** Ordered submissions already carry plain text; legacy inputs may contain image labels. */
+export function submissionCommandText(submission: { text: string; images: readonly TuiInputImage[]; segments?: readonly SubmissionSegment[] }): string {
+  return submission.segments === undefined ? stripComposerImageMarkers(submission.text, submission.images) : submission.text
+}
+
+/** True when the submitted text starts a slash command. */
+export function looksLikeSlashCommand(text: string, images: readonly TuiInputImage[], segments?: readonly SubmissionSegment[]): boolean {
+  return submissionCommandText({ text, images, ...(segments === undefined ? {} : { segments }) }).trimStart().startsWith('/')
 }
 
 /** Load a supported local image without exposing its path beyond the TUI boundary. */

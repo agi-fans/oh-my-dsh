@@ -5607,7 +5607,7 @@ it.each(['kitty', 'none'] as const)('previews a draft then restores text, image 
     if (protocol === 'kitty') expect(term.captured).toContain('a=d,d=I')
     expect(term.raw).toBe(true)
     press(term, '\r')
-    expect(await pending).toMatchObject({ text: 'draft', images: [{ data, mediaType: 'image/png' }] })
+    expect(await pending).toMatchObject({ text: 'draft ', images: [{ data, mediaType: 'image/png' }] })
   } finally { tui.dispose() }
   expect(term.raw).toBe(false)
   expect(term.captured).not.toContain('\x1b[3J')

@@ -25,11 +25,13 @@ export type EditorCommand =
   | { kind: 'ignored' }
 
 interface PasteAtom { start: number; end: number; content: string }
+export interface EditorMarker { id: string; start: number; end: number }
 
 interface Snapshot {
   text: string
   cursor: number
   pastes: PasteAtom[]
+  markers?: EditorMarker[]
 }
 
 export type EditorSnapshot = Snapshot
@@ -120,6 +122,7 @@ function moveLine(text: string, cursor: number, dir: -1 | 1): number | undefined
  */
 export class InputEditor {
   #pastes: PasteAtom[] = []
+  #markers: EditorMarker[] = []
   #pasteId = 0
   #text = ''
   #revision = 0
@@ -165,7 +168,45 @@ export class InputEditor {
       if (atom.start >= end) return [{ ...atom, start: atom.start + delta, end: atom.end + delta }]
       return []
     })
+    this.#markers = this.#markers.flatMap(marker => {
+      if (marker.end <= start) return [marker]
+      if (marker.start >= end) return [{ ...marker, start: marker.start + delta, end: marker.end + delta }]
+      return []
+    })
     this.#text = this.#text.slice(0, start) + text + this.#text.slice(end)
+  }
+
+  /** Apply an exact edit without guessing which repeated text owns a payload. */
+  splice(start: number, end: number, text: string, cursor = start + text.length): void {
+    this.#pushUndo()
+    this.#replaceRange(start, end, text)
+    this.#cursor = this.#snapCursor(cursor)
+    this.#last = 'none'
+  }
+
+  mark(id: string, start: number, end: number): void {
+    this.#markers = this.#markers.filter(marker => marker.id !== id)
+    this.#markers.push({ id, start, end })
+    this.#markers.sort((left, right) => left.start - right.start)
+    this.#revision++
+  }
+
+  markers(): EditorMarker[] { return this.#markers.map(marker => ({ ...marker })) }
+
+  /** Marker payloads must remain available while an undo snapshot refers to them. */
+  retainedMarkerIds(): Set<string> {
+    return new Set([...this.#markers, ...this.#undo.flatMap(snapshot => snapshot.markers ?? [])].map(marker => marker.id))
+  }
+
+  /** Relabel a marker as part of the preceding edit, preserving its undo entry. */
+  rewriteMarker(id: string, text: string): void {
+    const marker = this.#markers.find(marker => marker.id === id)
+    if (marker === undefined) return
+    const cursor = this.#cursor
+    this.#replaceRange(marker.start, marker.end, text)
+    this.mark(id, marker.start, marker.start + text.length)
+    this.#cursor = this.#snapCursor(cursor <= marker.start ? cursor : cursor >= marker.end
+      ? cursor + text.length - (marker.end - marker.start) : marker.start + text.length)
   }
 
   /** Admit one paste as a single undoable edit, compacting large payloads. */
@@ -202,28 +243,37 @@ export class InputEditor {
   }
 
   snapshot(): Snapshot {
-    return { text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })) }
+    return { text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })),
+      ...(this.#markers.length === 0 ? {} : { markers: this.markers() }) }
   }
 
   restore(snapshot: Snapshot): void {
     this.setText(snapshot.text, snapshot.cursor)
     this.#pastes = snapshot.pastes.map(atom => ({ ...atom }))
+    this.#markers = (snapshot.markers ?? []).map(marker => ({ ...marker }))
+    this.#cursor = this.#snapCursor(snapshot.cursor)
     for (const atom of this.#pastes) this.#pasteId = Math.max(this.#pasteId,
       Number(/\[Pasted #(\d+):/u.exec(snapshot.text.slice(atom.start, atom.end))?.[1] ?? 0))
   }
 
   /** Replace visible text during completion or attachment edits, retaining live pastes. */
   replaceText(text: string, cursor = text.length): void {
-    if (this.#pastes.length === 0) { this.setText(text, cursor); return }
+    if (this.#pastes.length === 0 && this.#markers.length === 0) { this.setText(text, cursor); return }
     const pastes: PasteAtom[] = []
+    const markers: EditorMarker[] = []
     let oldAt = 0
     let newAt = 0
-    // Completion and image renumbering can alter several disjoint spans.
+    // Completion and external editing can alter several disjoint spans.
     for (const change of diffChars(this.#text, text)) {
       if (!change.added && !change.removed) {
         for (const atom of this.#pastes) {
           if (atom.start >= oldAt && atom.end <= oldAt + change.value.length) {
             pastes.push({ ...atom, start: newAt + atom.start - oldAt, end: newAt + atom.end - oldAt })
+          }
+        }
+        for (const marker of this.#markers) {
+          if (marker.start >= oldAt && marker.end <= oldAt + change.value.length) {
+            markers.push({ ...marker, start: newAt + marker.start - oldAt, end: newAt + marker.end - oldAt })
           }
         }
       }
@@ -232,6 +282,7 @@ export class InputEditor {
     }
     this.setText(text, cursor)
     this.#pastes = pastes
+    this.#markers = markers
     this.#cursor = this.#snapCursor(this.#cursor)
   }
 
@@ -239,6 +290,7 @@ export class InputEditor {
   setText(text: string, cursor = text.length): void {
     this.#revision++
     this.#pastes = []
+    this.#markers = []
     this.#text = text
     this.#cursor = this.#snapCursor(Math.max(0, Math.min(cursor, text.length)))
     this.#undo = []
@@ -260,6 +312,7 @@ export class InputEditor {
     this.#pushUndo()
     this.#text = ''
     this.#pastes = []
+    this.#markers = []
     this.#cursor = 0
     this.#last = 'none'
   }
@@ -393,13 +446,13 @@ export class InputEditor {
 
   /** Snap a UTF-16 offset to the grapheme boundary it belongs to (forward). */
   #snapCursor(cursor: number, backward = false): number {
-    const range = this.#pastes.find(item => item.start < cursor && item.end > cursor)
+    const range = [...this.#pastes, ...this.#markers].find(item => item.start < cursor && item.end > cursor)
     if (range !== undefined) return backward ? range.start : range.end
     return snapToGraphemeBoundary(this.#text, cursor)
   }
 
   #pushUndo(): void {
-    this.#undo.push({ text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })) })
+    this.#undo.push(this.snapshot())
     if (this.#undo.length > MAX_UNDO) this.#undo.shift()
   }
 
@@ -506,6 +559,7 @@ export class InputEditor {
     const snap = this.#undo.pop()
     if (snap === undefined) return
     this.#pastes = snap.pastes.map(atom => ({ ...atom }))
+    this.#markers = (snap.markers ?? []).map(marker => ({ ...marker }))
     this.#revision++
     this.#text = snap.text
     this.#cursor = snap.cursor

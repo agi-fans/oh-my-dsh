@@ -6,6 +6,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { InputEditor } from '../input/editor.ts'
 import { fileMarker } from '../input/composer-files.ts'
 import { imageMarker } from '../input/image-paste.ts'
+import { ComposerImages } from '../runtime/composer-images.ts'
 import { ComposerDraftStore, type ComposerDraft } from './composer-drafts.ts'
 
 const directories: string[] = []
@@ -55,6 +56,25 @@ describe('ComposerDraftStore', () => {
     expect(store.load('a')).toBeUndefined()
     expect(existsSync(dirname(store.path('a')))).toBe(false)
     expect(store.load('b')?.editor.text).toBe('two')
+  })
+
+  it('retains owned image ranges and rejects a range rebound to another image', () => {
+    const store = fixture()
+    const editor = new InputEditor()
+    const images = new ComposerImages({ editor, notice: () => {} })
+    images.insert({ data: new Uint8Array([1]), mediaType: 'image/png', width: 1, height: 1 })
+    images.insert({ data: new Uint8Array([2]), mediaType: 'image/png', width: 2, height: 2 })
+    const value: ComposerDraft = { editor: editor.snapshot(), images: images.copies(), files: { entries: [], next: 0 }, literal: false }
+    store.save('a', value)
+    expect(store.load('a')).toEqual(value)
+    const path = store.path('a')
+    const raw = JSON.parse(readFileSync(path, 'utf8'))
+    const start = raw.editor.text.length
+    const label = imageMarker(0, value.images[0]!)
+    raw.editor.text += label
+    raw.editor.markers = [raw.editor.markers[1], { id: 'image:1', start, end: start + label.length }]
+    writeFileSync(path, JSON.stringify(raw))
+    expect(() => store.load('a')).toThrow('marker is invalid')
   })
 
   it('hashes opaque identifiers and rejects records for a different session', () => {

@@ -211,7 +211,7 @@ describe('opened turns use the live presentation', () => {
       })
       const at = frame.lines.findIndex(row => stripAnsi(row).trim() === 'workspace')
       expect(at).toBeGreaterThan(0)
-      expect(frame.lines[at]).toContain(theme.getBgAnsi('toolAltBg'))
+      expect(frame.lines[at]).toContain(theme.getBgAnsi('toolSuccessBg'))
       expect(frame.lines[at]).toContain(theme.getFgAnsi('toolOutput'))
       expect(frame.lines.map(stripAnsi).join('\n')).toContain('▾ Run command · pwd')
     }

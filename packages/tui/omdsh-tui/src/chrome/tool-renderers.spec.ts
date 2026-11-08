@@ -23,6 +23,7 @@ describe('renderTool', () => {
     })).toEqual({
       title: 'Updated a.ts',
       summary: '+1/-1',
+      diffStats: { added: 1, removed: 1 },
       input: [],
       output: ['a.ts', '- a', '+ b'],
       outputPreview: 'head',
