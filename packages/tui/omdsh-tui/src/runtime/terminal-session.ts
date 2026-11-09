@@ -67,6 +67,7 @@ export class TerminalSession {
   get colors(): TerminalColors { return this.#colors }
   get keyboardProtocol(): KeyboardProtocol | undefined { return this.#keyboardProtocol }
   get settled(): boolean { return this.#settled }
+  get handedOff(): boolean { return this.#modes.handedOff }
 
   /** Write the one-time capability query and arm its deadline. */
   start(): void {

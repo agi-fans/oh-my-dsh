@@ -232,6 +232,8 @@ export interface TuiPrompt {
   presentation?: 'card' | 'tree' | 'plan-review' | 'document' | 'progress'
   /** Suppress attention notifications for user-initiated browsing surfaces. */
   notify?: boolean
+  /** The Harness interaction that is waiting for the reader. */
+  attentionKind?: 'permission' | 'question' | 'auth'
   /** Refresh a human-owned document while it is open; stopped on dismissal or abort. */
   refreshDocument?: () => string
   /** Refresh a source reader; false requests a stable paused snapshot. */

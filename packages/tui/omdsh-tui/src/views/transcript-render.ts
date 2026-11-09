@@ -359,10 +359,9 @@ function userBubble(text: string, theme: Theme, width: number): string[] {
   // opens the turn. Unpainted, they were two blank rows of their own on top of
   // the gap between blocks, and the prompt floated in twice the space of
   // anything else on the screen.
-  return rows.map((row, index) => {
+  return rows.map(row => {
     if (row === '') return paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth('', width))
-    const promptMark = index === 1 && theme.colors ? '\x1b]133;A\x07' : ''
-    const content = padToWidth(promptMark + gutter + row, width)
+    const content = padToWidth(gutter + row, width)
     return paintSurface(theme, 'userMessageBg', 'userMessageText', content)
   })
 }

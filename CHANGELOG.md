@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Terminals receive the active session directory, indeterminate progress, paused and failed states, and permission, question, or sign-in waiting reasons.
+
 ### Fixed
 
+- Transcript repaints preserve terminal activity, and suspension, external editors, and emergency exits release owned terminal metadata before handing control back.
+- Native lifecycle notifications and terminal notices share notification preferences, focus checks, and event coalescing to prevent duplicate or stale alerts.
 - Submitted and resumed image messages use numbered image labels with available dimensions, matching the composer format across image conversions and mixed content.
 - Copies inside Herdr reach the attached terminal and its clipboard confirmation even after a successful local clipboard write.
 - Automatic selection copies show delivery feedback in the transcript and document, Diff, and Trajectory readers, with Copy and Quote actions alongside feedback when space permits.

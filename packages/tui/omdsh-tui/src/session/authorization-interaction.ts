@@ -24,7 +24,7 @@ export function formatAuthorizationNotice(notice: AuthorizationNotice): string {
 
 /** Map one Harness authorization prompt onto the existing TUI selector. */
 export function authorizationPromptRequest(prompt: AuthorizationPrompt, title: string): TuiPrompt {
-  const signal = prompt.signal === undefined ? {} : { signal: prompt.signal }
+  const metadata = { attentionKind: 'auth' as const, ...(prompt.signal === undefined ? {} : { signal: prompt.signal }) }
   if (prompt.kind === 'select') {
     return {
       title,
@@ -35,7 +35,7 @@ export function authorizationPromptRequest(prompt: AuthorizationPrompt, title: s
         ...(option.description === undefined ? {} : { description: option.description }),
       })),
       allowCustom: false,
-      ...signal,
+      ...metadata,
     }
   }
   return {
@@ -44,7 +44,7 @@ export function authorizationPromptRequest(prompt: AuthorizationPrompt, title: s
     ...(prompt.placeholder === undefined ? {} : { detail: prompt.placeholder }),
     allowCustom: true,
     secret: prompt.kind === 'secret',
-    ...signal,
+    ...metadata,
   }
 }
 

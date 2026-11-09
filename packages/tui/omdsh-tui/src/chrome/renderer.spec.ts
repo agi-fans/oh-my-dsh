@@ -13,8 +13,8 @@ describe('sanitizeDisplayLine', () => {
     )
   })
 
-  it('preserves OSC 8 hyperlinks and OSC 133 semantic prompt markers while stripping arbitrary OSC escapes', () => {
+  it('preserves hyperlinks while stripping shell prompt markers and arbitrary OSC escapes', () => {
     const line = '\x1b]133;A\x07\x1b]8;;file:///repo/a.ts\x07a.ts\x1b]8;;\x07\x1b]52;c;ZHVtbXk=\x07'
-    expect(sanitizeDisplayLine(line)).toBe('\x1b]133;A\x07\x1b]8;;file:///repo/a.ts\x07a.ts\x1b]8;;\x07')
+    expect(sanitizeDisplayLine(line)).toBe('\x1b]8;;file:///repo/a.ts\x07a.ts\x1b]8;;\x07')
   })
 })

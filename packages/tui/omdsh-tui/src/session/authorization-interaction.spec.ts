@@ -23,6 +23,7 @@ describe('authorizationPromptRequest', () => {
     expect(authorizationPromptRequest({ kind: 'text', message: 'Paste the code', placeholder: 'code' }, 'Login'))
       .toEqual({
         title: 'Login',
+        attentionKind: 'auth',
         question: 'Paste the code',
         detail: 'code',
         allowCustom: true,
@@ -31,6 +32,7 @@ describe('authorizationPromptRequest', () => {
     expect(authorizationPromptRequest({ kind: 'secret', message: 'API key' }, 'Login'))
       .toEqual({
         title: 'Login',
+        attentionKind: 'auth',
         question: 'API key',
         allowCustom: true,
         secret: true,
@@ -44,6 +46,7 @@ describe('authorizationPromptRequest', () => {
       ],
     }, 'Login')).toEqual({
       title: 'Login',
+      attentionKind: 'auth',
       question: 'Choose a method',
       options: [
         { label: 'Browser', value: 'oauth', description: 'Open a page' },

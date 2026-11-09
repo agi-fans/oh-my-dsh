@@ -734,7 +734,7 @@ export const zh = {
   "With this off, use Alt+C, Enter, or right-click to copy.": "关闭后可使用 Alt+C、Enter 或右键复制。",
   "Status and session, session only, status and workspace, or Off.": "可显示状态与会话、仅会话、状态与工作区，或关闭。",
   "Changes the terminal tab title.": "更改终端标签页标题。",
-  "Auto reports the root Agent lifecycle once the terminal answers an OSC 7501 capability query; On reports regardless; Off clears reports.": "“自动”在终端确认支持 OSC 7501 后报告主 Agent 状态；“开启”始终报告；“关闭”清除状态。",
+  "Show activity and progress in the terminal. Auto detects lifecycle support, On forces it, and Off clears both.": "在终端显示活动状态和进度。“自动”检测生命周期支持，“开启”强制报告，“关闭”清除两者。",
   "Check npm once a day and notify when a newer release is available": "每天检查一次 npm，有新版本时提示",
   "Show new release notes once after an upgrade": "升级后显示一次新版本说明",
   "Notify when a long turn finishes or input is required.": "长回合结束或需要输入时通知。",

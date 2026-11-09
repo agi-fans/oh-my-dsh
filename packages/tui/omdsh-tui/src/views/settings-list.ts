@@ -280,7 +280,7 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
       id: 'terminalTitle', label: 'Terminal title', description: 'Status and session, session only, status and workspace, or Off. Changes the terminal tab title.', value: prefs.terminalTitle ?? 'status', values: TERMINAL_TITLE_MODES,
     },
     {
-      id: 'terminalState', label: 'Terminal status', description: 'Auto reports the root Agent lifecycle once the terminal answers an OSC 7501 capability query; On reports regardless; Off clears reports.', value: prefs.terminalState ?? 'auto', values: TERMINAL_STATE_MODES,
+      id: 'terminalState', label: 'Terminal status', description: 'Show activity and progress in the terminal. Auto detects lifecycle support, On forces it, and Off clears both.', value: prefs.terminalState ?? 'auto', values: TERMINAL_STATE_MODES,
     },
     {
       id: 'checkUpdates',

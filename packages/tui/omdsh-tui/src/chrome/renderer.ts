@@ -176,7 +176,7 @@ export function sanitizeDisplayLine(value: string): string {
   for (const match of value.matchAll(DISPLAY_ESCAPE)) {
     output += plain(value.slice(cursor, match.index))
     const sequence = match[0]
-    if ((sequence.startsWith('\x1b[') && sequence.endsWith('m')) || sequence.startsWith('\x1b]8;') || sequence.startsWith('\x1b]133;')) {
+    if ((sequence.startsWith('\x1b[') && sequence.endsWith('m')) || sequence.startsWith('\x1b]8;')) {
       output += sequence
     }
     cursor = match.index + sequence.length

@@ -2310,16 +2310,16 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('never writes the retired OSC 9 progress sequences', () => {
+  it('clears terminal progress when the root finishes', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.applyStoredPrefs({ theme: 'dark', colors: false, motion: 'off', expandTools: false })
     tui.event(ev('turn/start', { turn: 1 }, 1))
     tui.setStatus('running')
     tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
-    // The busy/idle indicator used to duplicate what Program status already
-    // reports, so the OSC 9 progress channel is gone rather than quiet.
-    expect(term.captured).not.toContain('\x1b]9;4;')
+    tui.setStatus('idle', { root: true, outcome: 'completed' })
+    expect(term.captured).toContain('\x1b]9;4;3\x07')
+    expect(term.captured).toContain('\x1b]9;4;0\x07')
     tui.dispose()
   })
 
@@ -5146,7 +5146,7 @@ describe('document and file interaction', () => {
       const document = tui.prompt({ title: 'File', question: 'File', presentation: 'document', notify: false, options: [{ label: 'Files' }] })
       press(term, '\r')
       await document
-      expect(term.captured.slice(before)).not.toContain('\x1b]9;')
+      expect(term.captured.slice(before)).not.toMatch(/\x1b\]9;(?!4;)/u)
       const question = tui.prompt({ title: 'Question', question: 'Input required', options: [{ label: 'Yes' }] })
       await new Promise(resolve => setTimeout(resolve, 40))
       expect(term.captured.slice(before)).toContain('\x1b]9;')
@@ -5447,13 +5447,13 @@ describe('focus-aware notifications', () => {
       tui.event(ev('turn/start', { turn: 1 }, 100))
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 200))
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured).not.toContain('\x1b]9;')
+      expect(term.captured).not.toMatch(/\x1b\]9;(?!4;)/u)
       press(term, '\x1b[O')
       const question = tui.prompt({ question: 'Approval required', options: [{ label: 'Yes' }] })
       tui.event(ev('turn/start', { turn: 2 }, 300))
       tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 400))
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+      expect(term.captured.match(/\x1b\]9;(?!4;)/gu)).toHaveLength(1)
       expect(term.captured).toContain('omdsh needs attention: Input required')
       press(term, '\r')
       await question
@@ -5471,7 +5471,7 @@ describe('focus-aware notifications', () => {
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
       press(term, '\x1b[I')
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured).not.toContain('\x1b]9;')
+      expect(term.captured).not.toMatch(/\x1b\]9;(?!4;)/u)
       press(term, '\x1b[O')
       tui.event(ev('turn/start', { turn: 2 }, 3))
       tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 4))
@@ -5492,7 +5492,7 @@ describe('focus-aware notifications', () => {
       expect(term.captured).toContain('\x1b[?1004h')
       const question = tui.prompt({ question: 'Input', options: [{ label: 'Yes' }] })
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+      expect(term.captured.match(/\x1b\]9;(?!4;)/gu)).toHaveLength(1)
       press(term, '\r')
       await question
 
@@ -5503,13 +5503,13 @@ describe('focus-aware notifications', () => {
       tui.event(ev('turn/start', { turn: 1 }, 1))
       tui.event(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 2))
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(1)
+      expect(term.captured.match(/\x1b\]9;(?!4;)/gu)).toHaveLength(1)
 
       tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
       tui.event(ev('turn/start', { turn: 2 }, 3))
       tui.event(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }, 4))
       await vi.advanceTimersByTimeAsync(30)
-      expect(term.captured.match(/\x1b\]9;/gu)).toHaveLength(2)
+      expect(term.captured.match(/\x1b\]9;(?!4;)/gu)).toHaveLength(2)
     } finally { tui.dispose(); vi.useRealTimers() }
   })
 })
@@ -5767,8 +5767,10 @@ it.each([false, true])('retains checked models across filtering and saves an exp
 })
 
 it('detects program-status support, reports root outcomes, preserves editor input and clears on exit', async () => {
+  vi.useFakeTimers()
   const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
   try {
+    tui.applyStoredPrefs({ theme: 'dark', colors: false, notifications: 'always' })
     tui.setSession({ id: 'root', title: 'Fix parser', recent: [] })
     expect(term.captured).toContain('\x1b]7501;?\x1b\\')
     expect(term.captured).not.toContain('state=idle:app=omdsh')
@@ -5777,10 +5779,15 @@ it('detects program-status support, reports root outcomes, preserves editor inpu
     tui.setStatus('running', { root: true })
     expect(term.captured).toContain('state=working:app=omdsh')
     const question = tui.prompt({ title: 'Approval required', question: 'private body', options: [{ label: 'Allow' }] })
+    await vi.advanceTimersByTimeAsync(30)
     expect(term.captured).toContain('state=blocked:app=omdsh')
+    tui.event(ev('turn/start', { turn: 1 }, 1))
     tui.setStatus('idle', { root: true, outcome: 'error' })
     press(term, '\x1b')
+    await vi.advanceTimersByTimeAsync(100)
     await expect(question).resolves.toBeNull()
+    tui.event(ev('turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'test', message: 'private error' } } }, 2))
+    await vi.advanceTimersByTimeAsync(30)
     expect(term.captured).toContain('state=error:app=omdsh')
     const input = tui.readline()
     press(term, 'normal input\r')
@@ -5789,7 +5796,7 @@ it('detects program-status support, reports root outcomes, preserves editor inpu
     expect(term.captured).toContain('state=idle:app=omdsh')
     tui.applyStoredPrefs({ theme: 'dark', colors: false, terminalTitle: 'off', terminalState: 'off' })
     expect(term.captured).toContain('state=clear:app=omdsh')
-  } finally { await tui.dispose() }
+  } finally { await tui.dispose(); vi.useRealTimers() }
 })
 
 it.each([[false, true], [true, false]])('emits no terminal protocol when stdin TTY=%s and stdout TTY=%s', async (inputTTY, outputTTY) => {
@@ -5821,8 +5828,9 @@ it('keeps unsupported terminals quiet and supports explicit state enablement and
   tui.setStatus('idle')
   expect(term.captured).not.toContain('state=idle:app=omdsh')
   tui.setStatus('idle', { root: true, outcome: 'completed' })
-  expect(term.captured).toContain('state=done:app=omdsh')
-  const completedAt = term.captured.lastIndexOf('state=done:app=omdsh')
+  expect(term.captured).toContain('Done ·')
+  expect(term.captured).not.toContain('state=done:app=omdsh')
+  const completedAt = term.captured.lastIndexOf('Done ·')
   tui.setStatus('running')
   expect(term.captured.slice(completedAt)).not.toContain('state=working:app=omdsh')
   await tui.dispose()

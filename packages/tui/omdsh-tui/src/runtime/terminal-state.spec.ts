@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { AgentActivityController, programStatusSequence, terminalTitle } from './terminal-state.ts'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { AgentActivityController, programStatusSequence, terminalTitle, workingDirectorySequence } from './terminal-state.ts'
 
 describe('terminal lifecycle', () => {
   it('shares root activity with Herdr and restores nested prompt state after dismissal', () => {
     const activity = new AgentActivityController()
     activity.setRunning(true)
-    activity.prompt('Outer')
+    activity.prompt('Outer', 'permission')
     activity.prompt('Inner')
     activity.settled('error')
     activity.setRunning(false)
-    expect(activity.program).toEqual({ state: 'blocked', message: 'Inner' })
+    expect(activity.program).toEqual({ state: 'blocked', kind: 'question', message: 'Inner' })
     activity.promptResolved()
-    expect(activity.program).toEqual({ state: 'blocked', message: 'Outer' })
+    expect(activity.program).toEqual({ state: 'blocked', kind: 'permission', message: 'Outer' })
     activity.promptResolved()
     expect(activity.current).toEqual({ state: 'idle' })
     expect(activity.program).toEqual({ state: 'error' })
@@ -34,6 +36,15 @@ describe('terminal lifecycle', () => {
     expect([...decoded].length).toBeLessThanOrEqual(240)
     expect(sequence).toContain('state=blocked:app=omdsh')
     expect(programStatusSequence('clear')).toContain('state=clear')
+  })
+  it('encodes directory names without letting control characters enter OSC payloads', () => {
+    const cwd = join(tmpdir(), '中文 🐳 # %\x07\x1b')
+    const sequence = workingDirectorySequence(cwd)
+    const payload = sequence.slice(2, -2)
+    expect(payload).not.toMatch(/[\x00-\x1f\x7f]/u)
+    const url = new URL(payload.slice(2))
+    expect(url.protocol).toBe('file:')
+    expect(decodeURIComponent(url.pathname)).toContain('中文 🐳 # %\x07\x1b')
   })
   it('supports status, session, workspace and off without exporting prompt bodies', () => {
     const status = { state: 'blocked' as const, message: 'private question' }

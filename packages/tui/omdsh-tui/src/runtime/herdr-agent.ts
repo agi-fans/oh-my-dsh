@@ -14,7 +14,7 @@
  */
 
 import { connect, type Socket } from 'node:net'
-import { AgentActivityController, type TerminalProgramStatus } from './terminal-state.ts'
+import { AgentActivityController, type TerminalAttentionKind, type TerminalProgramStatus } from './terminal-state.ts'
 export { AgentActivityController as HerdrAgentStatusController } from './terminal-state.ts'
 
 /** Stable, integration-unique source namespace Herdr requires for custom reports. */
@@ -125,8 +125,8 @@ export class HerdrAgentReporter {
     this.#report(this.#controller.setRunning(running))
   }
 
-  prompt(message?: string): void {
-    this.#report(this.#controller.prompt(message))
+  prompt(message?: string, kind?: TerminalAttentionKind): void {
+    this.#report(this.#controller.prompt(message, kind))
   }
 
   promptResolved(): void {

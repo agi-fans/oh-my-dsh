@@ -119,7 +119,7 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
 | Mermaid in replies | auto / source | auto | 绘制能够完整容纳的图形，或显示 Mermaid 源码。 |
 | Terminal title | status / session / workspace / off | status | 显示根 Agent 状态与会话名、仅保留会话名、显示状态与工作区及 Git 分支，或停止设置标题。 |
-| Terminal status | auto / on / off | auto | 向支持的终端报告根 Agent 生命周期；Auto 等待能力响应，On 强制报告，Off 关闭。 |
+| Terminal status | auto / on / off | auto | 报告根 Agent 生命周期和进度。Auto 等待能力响应后发送生命周期报告，On 强制报告，Off 关闭生命周期和进度报告。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动、点击展开与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
@@ -130,9 +130,11 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
 | Notifications | off / unfocused / always | off | 回合结束或需要输入时通知。`unfocused` 等到终端失去焦点才通知；`always` 无论焦点都通知。 |
 
-通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。在 `unfocused` 模式下，待发通知送出前回到终端会取消该通知。不足三十秒的回合不会通知：这条界线只决定到达的通知是不是噪音，因此固定而不再可配。
+通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。在 `unfocused` 模式下，待发通知送出前回到终端会取消该通知。该模式还要求回合持续至少三十秒才报告结束。`always` 会报告每个结束的回合。支持的终端通过原生生命周期通道接收一次通知，其余情况回退到 OSC 9 通知。桌面通知的具体呈现由终端控制。
 
-Terminal title 和 Terminal status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态；完成和失败保留到开始新工作或切换会话。查看子 Agent 不会替换根状态。Terminal status 使用 OSC 7501，可选元数据仅包含会话名，不包含提问正文、工具参数或错误。设置立即生效，退出时清除自己写入的元数据；输入或输出被重定向时不发送终端控制序列。原先单独启用的 OSC 9 忙碌/空闲提示已移除：它用更弱的协议重复了 Terminal status 已经报告的内容。
+Terminal title 和 Terminal status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态，查看子 Agent 时仍以根状态为准。OSC 7501 报告生命周期状态，并区分等待授权、回答问题和登录。可选文本元数据包含会话名。通知设置也约束可能触发原生提醒的生命周期状态。静默的等待与失败状态通过标题和 OSC 9;4 进度提示呈现。进度显示运行中、暂停等待输入或失败，完成后清除。已发送的完成和失败通知保留到开始新工作或切换会话。
+
+OSC 7 将终端目录同步到当前查看的会话，方便新标签页和分屏继承目录。设置立即生效。挂起、外部编辑器和退出会清除自己写入的标题、生命周期和进度元数据，并恢复启动目录。恢复运行时重新同步当前会话的元数据。输入或输出被重定向时不发送终端控制序列。
 
 深浅配色以 [Catppuccin Mocha 和 Latte](https://catppuccin.com/palette/) 为基础，用蓝色标识交互，并加强终端文字的对比度。设置仍只有 `dark`、`light` 和 `system`。普通回复正文和页面背景继续由终端控制：浅色终端选 `light`，深色终端选 `dark`，或用 `system` 跟随终端报告的颜色。工具详情以底色区分进行中、成功和失败，四周保留内边距。用户消息和工具卡片的背景有配套文字色；终端色数有限、底色合并时，状态文字和符号仍可辨认。回合采用统一展示方式，详见[键盘与快捷键](keyboard.md#转录)，不再提供转录密度设置。旧的 `foldDensity` 和 `expandTools` 配置仍可读取，但不再影响视图。
 

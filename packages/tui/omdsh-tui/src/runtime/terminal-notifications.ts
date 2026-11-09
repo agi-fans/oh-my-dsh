@@ -1,4 +1,5 @@
 import { uiText, type UiLanguage } from '../locale/index.ts'
+import { settledProgramState, type TerminalProgramState } from './terminal-state.ts'
 /** Opt-in terminal notifications kept outside the transcript renderer. */
 
 export type TerminalNotificationPolicy = 'off' | 'unfocused' | 'always'
@@ -10,6 +11,7 @@ export interface TerminalNotificationOptions {
 }
 
 export interface TerminalNotification {
+  readonly programState?: TerminalProgramState
   readonly attention?: boolean
   readonly title: string
   readonly body: string
@@ -79,6 +81,7 @@ export class TerminalNotificationController {
     const language = this.#options.language ?? 'en'
     const attention = !!event.reason && !['complete', 'completed'].includes(event.reason)
     return {
+      programState: settledProgramState(event.reason),
       attention,
       title: uiText(language, event.reason && event.reason !== 'complete' && event.reason !== 'completed' ? 'omdsh needs attention' : 'omdsh finished'),
       body: notificationBody(event.reason, elapsedMs, language),
@@ -87,7 +90,7 @@ export class TerminalNotificationController {
 
   humanPrompt(label = 'Input required'): TerminalNotification | undefined {
     if (this.#options.policy === 'off') return undefined
-    return { attention: true, title: uiText(this.#options.language ?? 'en', 'omdsh needs attention'), body: uiText(this.#options.language ?? 'en', label) }
+    return { programState: 'blocked', attention: true, title: uiText(this.#options.language ?? 'en', 'omdsh needs attention'), body: uiText(this.#options.language ?? 'en', label) }
   }
 }
 
@@ -100,7 +103,9 @@ export class TerminalNotificationQueue {
     this.#pending = notification
   }
 
-  clear(): void { this.#pending = undefined }
+  clear(state?: TerminalProgramState): void {
+    if (state === undefined || this.#pending?.programState === state) this.#pending = undefined
+  }
 
   /** Drain the coalesced event. Whether it should be delivered is the caller's policy. */
   take(): TerminalNotification | undefined {

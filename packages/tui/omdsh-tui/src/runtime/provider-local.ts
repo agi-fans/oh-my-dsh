@@ -29,7 +29,11 @@ import {
   TerminalNotificationQueue,
   terminalNotificationSequence,
 } from './terminal-notifications.ts'
-import { PROGRAM_STATUS_QUERY, programStatusSequence, terminalTitle, type TerminalTitleMode, type TerminalStateMode } from './terminal-state.ts'
+import {
+  PROGRAM_STATUS_QUERY, programStatusNeedsAttention, programStatusSequence,
+  terminalProgressSequence, terminalTitle, workingDirectorySequence,
+  type TerminalProgramState, type TerminalTitleMode, type TerminalStateMode,
+} from './terminal-state.ts'
 import { TerminalSession } from './terminal-session.ts'
 import {
   BRACKETED_PASTE, FOCUS_REPORTING, MOUSE_TRACKING,
@@ -592,6 +596,10 @@ export class LocalTui implements TuiService {
   #compactionStartedAt: number | undefined
   readonly #readImageInput: ((ref: ImageAttachmentRef, signal: AbortSignal) => Promise<TuiInputImage | undefined>) | undefined
   #writtenProgramState: string | undefined
+  #writtenDirectory: string | undefined
+  readonly #launchDirectory = process.cwd()
+  #writtenProgress: string | undefined
+  #progressTimer: ReturnType<typeof setInterval> | undefined
   #checkUpdates = true
   #startupChangelog: StartupChangelogMode = 'summary'
   #notifications = new TerminalNotificationController()
@@ -878,14 +886,7 @@ export class LocalTui implements TuiService {
       if (process.platform !== 'win32') {
         const resume = (): void => {
           if (this.#disposed) return
-          this.#terminalFocused = undefined
-          this.#writtenWindowTitle = undefined
-          this.#writtenProgramState = undefined
-          this.#programQuerySent = false
-          this.#programSupported = false
-          this.#syncWindowTitle()
-          this.#session.takeBack()
-          this.#renderer.reset()
+          this.#takeBackTerminal()
           this.#render()
         }
         process.on('SIGCONT', resume)
@@ -952,6 +953,7 @@ export class LocalTui implements TuiService {
       }
     } else if (event.type === 'session/end-seed') this.#directInputIds.clear()
     this.#state = applyEvent(this.#state, event, presentation, workspace)
+    if (event.type === 'turn/start' && this.#herdr.programStatus.state !== 'blocked') this.#notificationQueue.clear()
     if (claimedHumanInput && this.#tty && event.type === 'agent/inbox/spliced') {
       this.#showTransientStatus(event.data.target === 'next-step' ? 'Steer taken for the next step' : 'Queue taken for the next turn')
     }
@@ -1451,7 +1453,7 @@ export class LocalTui implements TuiService {
     this.#pasteBurst.clear()
     if (request.notify !== false) {
       this.#emitNotification(this.#notifications.humanPrompt())
-      this.#herdr.prompt(request.title)
+      this.#herdr.prompt(request.title, request.attentionKind)
       this.#syncWindowTitle()
     }
     if (this.#tty && request.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
@@ -1583,7 +1585,13 @@ export class LocalTui implements TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
-    if (info.id !== this.#sessionId) { this.#workspacePress = undefined; this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
+    if (info.id !== this.#sessionId) {
+      this.#workspacePress = undefined
+      this.#fileReviewAbort?.abort()
+      this.#closeFileBrowser()
+      this.#notificationQueue.clear()
+      this.#notifications.reset()
+    }
     this.#switchDraft(this.#inspected?.id ?? info.id)
     this.#sessionId = info.id
     this.#drainPendingInput()
@@ -1606,9 +1614,11 @@ export class LocalTui implements TuiService {
   }
 
   /** Only the foreground terminal owner emits title and program-state sequences. */
-  #syncWindowTitle(): void {
-    if (!this.#tty || this.#disposed) return
+  #syncWindowTitle(notify = false): void {
+    if (!this.#tty || this.#disposed || this.#session.handedOff) return
     const status = this.#herdr.programStatus
+    this.#writeWorkingDirectory(this.#cwd)
+    this.#syncProgress(status.state)
     const title = terminalTitle(this.#terminalTitle, status, this.#sessionTitle, this.#cwd, this.#branch)
     if (title !== this.#writtenWindowTitle && !(this.#terminalTitle === 'off' && this.#writtenWindowTitle === undefined)) {
       this.#writtenWindowTitle = title
@@ -1618,17 +1628,70 @@ export class LocalTui implements TuiService {
       this.#programQuerySent = true
       this.#term.output.write(PROGRAM_STATUS_QUERY)
     }
-    const enabled = this.#terminalState === 'on' || this.#terminalState === 'auto' && this.#programSupported
-    if (!enabled) {
+    if (!this.#reportsProgramState) {
       if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
       this.#writtenProgramState = undefined
       return
     }
     // Only the session name is exported as metadata; prompt bodies and errors stay in the TUI.
-    const sequence = programStatusSequence({ state: status.state, ...(this.#sessionTitle === undefined ? {} : { message: this.#sessionTitle }) })
+    const sequence = programStatusSequence({ state: status.state,
+      ...(status.kind === undefined ? {} : { kind: status.kind }),
+      ...(this.#sessionTitle === undefined ? {} : { message: this.#sessionTitle }),
+    })
+    // Supporting terminals can turn these states into desktop notifications.
+    // New attention reports use the same coalescing and focus gate as OSC 9.
+    if (programStatusNeedsAttention(status.state)
+      && (this.#notificationPolicy === 'off' || !notify && sequence !== this.#writtenProgramState)) {
+      if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
+      this.#writtenProgramState = undefined
+      return
+    }
     if (sequence === this.#writtenProgramState) return
     this.#writtenProgramState = sequence
     this.#term.output.write(sequence)
+  }
+
+  get #reportsProgramState(): boolean {
+    return this.#terminalState === 'on' || this.#terminalState === 'auto' && this.#programSupported
+  }
+
+  #writeWorkingDirectory(cwd: string): void {
+    const sequence = workingDirectorySequence(cwd)
+    if (sequence === this.#writtenDirectory) return
+    this.#term.output.write(sequence)
+    this.#writtenDirectory = sequence
+  }
+
+  #syncProgress(state: TerminalProgramState): void {
+    const sequence = this.#terminalState === 'off' ? terminalProgressSequence('clear') : terminalProgressSequence(state)
+    const active = sequence !== terminalProgressSequence('clear')
+    if (sequence !== this.#writtenProgress && (active || this.#writtenProgress !== undefined)) this.#term.output.write(sequence)
+    this.#writtenProgress = active ? sequence : undefined
+    if (this.#progressTimer !== undefined && (state !== 'working' || this.#terminalState === 'off')) {
+      clearInterval(this.#progressTimer)
+      this.#progressTimer = undefined
+    }
+    // Some terminals expire indeterminate progress without a heartbeat.
+    if (state === 'working' && this.#terminalState !== 'off' && this.#progressTimer === undefined) {
+      this.#progressTimer = setInterval(() => {
+        if (!this.#disposed && !this.#session.handedOff && this.#writtenProgress !== undefined) this.#term.output.write(this.#writtenProgress)
+      }, 1000)
+      this.#progressTimer.unref?.()
+    }
+  }
+
+  /** Give shell/editor ownership back without retaining omdsh metadata. */
+  #releaseTerminalMetadata(): void {
+    if (this.#progressTimer !== undefined) clearInterval(this.#progressTimer)
+    this.#progressTimer = undefined
+    if (this.#writtenProgress !== undefined) this.#term.output.write(terminalProgressSequence('clear'))
+    this.#writtenProgress = undefined
+    if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
+    this.#writtenProgramState = undefined
+    if (this.#writtenWindowTitle !== undefined && this.#writtenWindowTitle !== '') this.#term.output.write('\x1b]2;\x07')
+    this.#writtenWindowTitle = undefined
+    if (this.#writtenDirectory !== undefined) this.#writeWorkingDirectory(this.#launchDirectory)
+    this.#writtenDirectory = undefined
   }
 
   /**
@@ -1986,7 +2049,9 @@ export class LocalTui implements TuiService {
   #restoreTerminalOnExit(): void {
     if (this.#disposed || !this.#tty) return
     try { this.#renderer.finish() } catch { /* best effort while exiting */ }
+    this.#releaseTerminalMetadata()
     this.#session.release()
+    this.#term.input.setRawMode?.(false)
     this.#term.output.write('\x1b[?25h')
   }
 
@@ -2042,13 +2107,7 @@ export class LocalTui implements TuiService {
       // prompt does not overwrite the transcript. Disable bracketed paste
       // and restore the cursor.
       this.#renderer.finish()
-      // Clear the session title we owned so the shell's own title returns.
-      if (this.#writtenWindowTitle !== undefined && this.#writtenWindowTitle !== '') {
-        this.#term.output.write('\x1b]2;\x07')
-        this.#writtenWindowTitle = undefined
-      }
-      if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
-      this.#writtenProgramState = undefined
+      this.#releaseTerminalMetadata()
       this.#offExit?.()
       this.#offExit = undefined
       this.#session.dispose()
@@ -2509,20 +2568,32 @@ export class LocalTui implements TuiService {
   /** Give every terminal mode back before the terminal is lent out (Ctrl+Z, external editor). */
   #handOffTerminal(): void {
     this.#setMouseTracking(false)
+    this.#releaseTerminalMetadata()
     this.#session.handOff()
+    this.#term.input.setRawMode?.(false)
+  }
+
+  #takeBackTerminal(): void {
+    this.#session.takeBack()
+    this.#term.input.setRawMode?.(true)
+    this.#terminalFocused = undefined
+    this.#writtenWindowTitle = undefined
+    this.#writtenProgramState = undefined
+    this.#writtenDirectory = undefined
+    this.#programQuerySent = false
+    this.#programSupported = false
+    this.#syncWindowTitle()
+    this.#renderer.reset()
   }
 
   /** Run `run` with the terminal handed off; take it back and repaint afterwards. */
   #handTerminal<T>(run: () => T): T {
     this.#handOffTerminal()
-    this.#term.input.setRawMode?.(false)
     try {
       return run()
     } finally {
       if (!this.#disposed) {
-        this.#term.input.setRawMode?.(true)
-        this.#session.takeBack()
-        this.#renderer.reset()
+        this.#takeBackTerminal()
       }
     }
   }
@@ -3923,7 +3994,6 @@ export class LocalTui implements TuiService {
     this.#externalEditor = prefs.editor ?? 'auto'
     this.#terminalTitle = prefs.terminalTitle ?? 'status'
     this.#terminalState = prefs.terminalState ?? 'auto'
-    this.#syncWindowTitle()
     this.#copyOnSelect = prefs.copyOnSelect ?? true
     this.#mathMode = prefs.mathMode ?? 'auto'
     this.#mermaidMode = prefs.mermaidMode ?? 'auto'
@@ -3935,6 +4005,7 @@ export class LocalTui implements TuiService {
     this.#notificationPolicy = resolveNotificationMode(prefs.notifications, prefs.notificationFocus)
     if (this.#notificationPolicy === 'off') this.#notificationQueue.clear()
     this.#configureNotifications()
+    this.#syncWindowTitle()
     this.#statusBar = resolveStatusBarConfig(prefs.statusBar, prefs.statusPreset)
     if (options.forceToolsSync) this.#toolsExpanded = false
     if (previousMotion !== this.#motion) {
@@ -4377,7 +4448,10 @@ export class LocalTui implements TuiService {
     }
     // The shell that takes over gets every mode back; SIGCONT takes them again.
     this.#handOffTerminal()
-    try { process.kill(process.pid, 'SIGTSTP') } catch { /* no controlling tty */ }
+    try { process.kill(process.pid, 'SIGTSTP') } catch {
+      this.#takeBackTerminal()
+      this.#render()
+    }
   }
 
   #historyPrev(): void {
@@ -4715,6 +4789,7 @@ export class LocalTui implements TuiService {
     this.#wheelGesture = IDLE_WHEEL
     if (pending.request.notify !== false) {
       this.#herdr.promptResolved()
+      if (this.#herdr.programStatus.state !== 'blocked') this.#notificationQueue.clear('blocked')
       this.#syncWindowTitle()
     }
     pending.offAbort?.()
@@ -4918,9 +4993,15 @@ export class LocalTui implements TuiService {
       this.#notificationTimer = undefined
       const pending = this.#notificationQueue.take()
       if (pending === undefined || this.#disposed || this.#notificationPolicy === 'off') return
+      if (this.#session.handedOff) return
       // Re-read focus at delivery time: the reader may have come back inside the
       // coalescing window, and a turn finishing while they watch is not news.
       if (this.#notificationPolicy === 'unfocused' && this.#terminalFocused === true) return
+      if (pending.programState !== undefined && pending.programState !== this.#herdr.programStatus.state) return
+      if (this.#reportsProgramState && programStatusNeedsAttention(this.#herdr.programStatus.state)) {
+        this.#syncWindowTitle(true)
+        return
+      }
       const sequence = terminalNotificationSequence(pending)
       if (sequence !== '') this.#term.output.write(sequence)
     }, 25)

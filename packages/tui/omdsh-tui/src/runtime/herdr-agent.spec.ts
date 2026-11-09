@@ -76,7 +76,7 @@ describe('HerdrAgentStatusController', () => {
     expect(controller.start()).toEqual({ state: 'idle' })
     expect(controller.setRunning(true)).toEqual({ state: 'working' })
     expect(controller.setRunning(true)).toBeUndefined()
-    expect(controller.prompt('Approval required')).toEqual({ state: 'blocked', message: 'Approval required' })
+    expect(controller.prompt('Approval required')).toEqual({ state: 'blocked', kind: 'question', message: 'Approval required' })
     expect(controller.setRunning(false)).toBeUndefined()
     expect(controller.promptResolved()).toEqual({ state: 'idle' })
     expect(controller.promptResolved()).toBeUndefined()
@@ -86,20 +86,20 @@ describe('HerdrAgentStatusController', () => {
     const controller = new HerdrAgentStatusController()
     controller.setRunning(true)
     controller.prompt('Question')
-    expect(controller.prompt('Approval required')).toEqual({ state: 'blocked', message: 'Approval required' })
+    expect(controller.prompt('Approval required')).toEqual({ state: 'blocked', kind: 'question', message: 'Approval required' })
     // Resolving the nested prompt restores the earlier prompt's message.
-    expect(controller.promptResolved()).toEqual({ state: 'blocked', message: 'Question' })
+    expect(controller.promptResolved()).toEqual({ state: 'blocked', kind: 'question', message: 'Question' })
     expect(controller.promptResolved()).toEqual({ state: 'working' })
   })
 
   it('normalizes prompt text and drops an empty one', () => {
     const controller = new HerdrAgentStatusController()
     expect(controller.prompt('  Approve\n\nrm -rf build/\t ')).toEqual({
-      state: 'blocked',
+      state: 'blocked', kind: 'question',
       message: 'Approve rm -rf build/',
     })
     expect(controller.promptResolved()).toEqual({ state: 'idle' })
-    expect(controller.prompt('\u0007\u0007')).toEqual({ state: 'blocked' })
+    expect(controller.prompt('\u0007\u0007')).toEqual({ state: 'blocked', kind: 'question' })
   })
 
   it('caps a prompt message at the protocol limit', () => {

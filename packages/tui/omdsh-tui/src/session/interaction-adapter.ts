@@ -253,6 +253,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
   // The action and its reason are the detail of a decision, so they belong on
   // the card that carries the decision rather than on a page of their own.
   const raw = await tui.prompt({
+    attentionKind: 'permission',
     localize: true, title: agentLabel === undefined ? 'Approval required' : `${agentLabel} · ${t('Approval required')}`,
     question: t('Allow {tool} once?', { tool: request.toolName }),
     armMs: 500,

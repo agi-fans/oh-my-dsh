@@ -438,7 +438,7 @@ describe('renderSettings', () => {
     expect(lines).not.toContain('Transcript')
     const terminalStatus = renderSettings(createSettings(prefs, 'terminalState'), theme, 40, 12).lines.join('\n')
     expect(terminalStatus).toContain('Terminal status')
-    expect(terminalStatus).toContain('Auto reports the root Agent')
+    expect(terminalStatus).toContain('Show activity and progress')
     const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
     expect(status).toContain('Status line')
     expect(status).toContain('Show session metrics')

@@ -20,6 +20,7 @@ describe('TerminalNotificationController', () => {
     notifications.event({ type: 'turn/start', time: 40_000 })
     expect(notifications.event({ type: 'turn/end', time: 70_000, reason: 'complete' })).toEqual({
       attention: false,
+      programState: 'done',
       title: 'omdsh finished',
       body: 'Turn completed in 30s',
     })
@@ -31,6 +32,7 @@ describe('TerminalNotificationController', () => {
     notifications.event({ type: 'turn/start', time: 1_000 })
     expect(notifications.event({ type: 'turn/end', time: 1_500, reason: 'complete' })).toEqual({
       attention: false,
+      programState: 'done',
       title: 'omdsh finished',
       body: 'Turn completed in 1s',
     })
@@ -48,6 +50,7 @@ describe('TerminalNotificationController', () => {
     notifications.event({ type: 'turn/start', time: 1_000 })
     expect(notifications.event({ type: 'turn/end', time: 2_000, reason })).toEqual({
       attention: true,
+      programState: ['interrupted', 'aborted'].includes(reason) ? 'idle' : 'error',
       title: 'omdsh needs attention',
       body,
     })
@@ -72,6 +75,7 @@ describe('TerminalNotificationController', () => {
     notifications.configure({ policy: 'always', thresholdMs: 30_000 })
     expect(notifications.humanPrompt('Approve tool execution')).toEqual({
       attention: true,
+      programState: 'blocked',
       title: 'omdsh needs attention',
       body: 'Approve tool execution',
     })
