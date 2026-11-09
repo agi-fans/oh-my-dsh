@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
-## [0.25.0]
+## [0.25.0] - 2026-11-09
 
 ### Added
 
