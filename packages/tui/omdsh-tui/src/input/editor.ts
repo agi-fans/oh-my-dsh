@@ -376,9 +376,11 @@ export class InputEditor {
         return this.#moveTo(moveGraphemeRight(this.#text, this.#cursor))
       case 'home':
       case 'ctrl+a':
+      case 'super+left':
         return this.#moveTo(lineStart(this.#text, this.#cursor))
       case 'end':
       case 'ctrl+e':
+      case 'super+right':
         return this.#moveTo(lineEnd(this.#text, this.#cursor))
       case 'alt+left':
       case 'ctrl+left':
@@ -404,6 +406,7 @@ export class InputEditor {
         this.#deleteWordForward()
         return { kind: 'changed', edited: true }
       case 'ctrl+u':
+      case 'super+backspace':
         this.#deleteToLineStart()
         return { kind: 'changed', edited: true }
       case 'ctrl+k':
@@ -417,6 +420,7 @@ export class InputEditor {
         return { kind: 'changed', edited: true }
       case 'ctrl+-':
       case 'ctrl+_':
+      case 'super+z':
         this.#applyUndo()
         return { kind: 'changed', edited: true }
       case 'ctrl+]':

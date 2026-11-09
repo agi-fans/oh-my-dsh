@@ -257,8 +257,8 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
     },
     {
       id: 'busyEnter',
-      label: 'Enter while running',
-      description: 'Queue waits for the next turn; Steer guides the next model step. Explicit Queue and Steer shortcuts keep their meaning.',
+      label: 'Send behavior while busy',
+      description: 'What Enter does while the agent is running: Queue waits for the next turn; Steer guides the next model step. Cmd/Ctrl+Enter uses the other behavior. Explicit Queue and Steer shortcuts keep their meaning.',
       value: prefs.busyEnter === 'steer' ? 'Steer' : 'Queue',
       values: ['Queue', 'Steer'],
     },

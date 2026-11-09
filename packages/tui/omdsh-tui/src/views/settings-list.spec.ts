@@ -586,6 +586,21 @@ describe('renderSettings', () => {
 
 })
 
+it.each([
+  ['en', 'Send behavior while busy'],
+  ['zh-CN', '繁忙时的发送行为'],
+] as const)('finds the busy-send preference by its DeepSeek label (%s)', (language, label) => {
+  const state = createSettings({ ...prefs, uiLanguage: language })
+  const result = applySettingsEvent(state, { type: 'text', value: label })
+  expect(result.kind).toBe('update')
+  if (result.kind !== 'update') return
+  const frame = renderSettings(result.state, createTheme(false, 'truecolor', 'dark', undefined, language), 100, 20)
+  expect(frame.lines.join('\n')).toContain(label)
+  expect(applySettingsEvent(result.state, key('right'))).toMatchObject({
+    kind: 'apply', domain: 'tui', state: { prefs: { busyEnter: 'steer' } },
+  })
+})
+
 it('persists paste protection and the notification mode', () => {
   expect(applySettingValue(prefs, 'busyEnter', 'Steer')).toMatchObject({ busyEnter: 'steer' })
   expect(applySettingValue(prefs, 'busyEnter', 'Queue')).toMatchObject({ busyEnter: 'queue' })

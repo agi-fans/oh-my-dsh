@@ -7,6 +7,16 @@
 
 import { parseOscColorReply, type OscColorReply } from '../chrome/terminal-colors.ts'
 
+/** Normalize configuration spellings to the decoder's modifier order and names. */
+export function normalizeKeyId(value: string): string {
+  const key = value.trim().toLowerCase()
+  const prefix = /^(?:(?:ctrl|control|shift|alt|option|super|cmd|command)\+)+/u.exec(key)?.[0]
+  if (prefix === undefined) return key
+  const modifiers = new Set(prefix.slice(0, -1).split('+').map(part =>
+    part === 'control' ? 'ctrl' : part === 'option' ? 'alt' : part === 'cmd' || part === 'command' ? 'super' : part))
+  return ['ctrl', 'shift', 'alt', 'super'].filter(part => modifiers.has(part)).join('+') + '+' + key.slice(prefix.length)
+}
+
 /** One decoded input event. */
 export type KeyEvent =
   | { type: 'key'; id: string }
@@ -92,6 +102,7 @@ const ALT_SPECIAL: Record<string, string> = {
   '\r': 'alt+enter',
   '\n': 'alt+enter',
   '\x1d': 'ctrl+alt+]',
+  '\x16': 'ctrl+alt+v',
 }
 
 /** Build `ctrl+shift+alt+name` from a CSI modifier parameter (1 = none). */

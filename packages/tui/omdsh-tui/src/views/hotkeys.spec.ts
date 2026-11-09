@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_KEYBINDINGS } from '../input/keybindings-config.ts'
+import { useWindowsKeybindings } from '../input/key-platform.ts'
 import { HISTORY_SEARCH_HOTKEYS } from './history-search.ts'
 import { PROMPT_SELECTOR_HOTKEYS } from './prompt-selector.ts'
 import { SETTINGS_HOTKEYS } from './settings-list.ts'
@@ -109,10 +110,12 @@ describe('formatHotkeysText', () => {
 
   it('keeps the default help subset compact and honors the paste binding', () => {
     const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
-    expect(text.split('\n')).toHaveLength(15)
+    expect(text.split('\n')).toHaveLength(16)
+    expect(text).toContain('Send with the other behavior while busy')
     expect(text).toContain('Alt+M')
     expect(text).toContain('Alt+O')
-    expect(text).toContain('Ctrl+V / Ctrl+G')
+    expect(text).toContain(useWindowsKeybindings() ? 'Ctrl+V / Ctrl+Alt+V / Ctrl+G'
+      : process.platform === 'darwin' ? 'Ctrl+V / Cmd+V / Ctrl+G' : 'Ctrl+V / Ctrl+G')
     expect(text).toContain('Esc twice')
     expect(text).toContain('Show or hide thinking')
     expect(text).not.toContain('Ctrl+A')
@@ -134,6 +137,14 @@ describe('formatHotkeysText', () => {
     expect(text).not.toContain('Ctrl+R')
     expect(text).not.toContain('PgUp')
     expect(text).toContain('Search the current transcript')
+  })
+
+  it('orders newline hints by terminal support and hides overridden editor keys', () => {
+    expect(formatEssentialHotkeysText(DEFAULT_KEYBINDINGS, false)).toContain('Ctrl+J / Shift+Enter')
+    expect(formatEssentialHotkeysText(DEFAULT_KEYBINDINGS, true)).toContain('Shift+Enter / Ctrl+J')
+    const remapped = { ...DEFAULT_KEYBINDINGS, 'ctrl+j': 'retry', 'super+left': 'tool-actions' } as const
+    expect(formatHotkeysText(remapped, false)).toContain('`Shift+Enter` | Insert a new line')
+    expect(formatHotkeysText(remapped)).toContain('`Ctrl+A / Home` | Move to the start of the line')
   })
 
   it('lists the transcript search under the chord it now teaches', () => {

@@ -17,7 +17,7 @@ While the agent is inspecting your project, try one of these actions. Read the d
 | Revise the latest queued request | With an empty composer, press `Alt+Up`, edit, then submit again. | The message returns to the composer for editing. |
 | Manage several pending requests | Open `/queue` or press `Alt+Q`. | Select an entry to edit, withdraw, or reorder it. |
 
-By default, Enter during an active turn also queues a follow-up. **Settings → Terminal → Input → Enter while running** can change that to Steer. Explicit `Alt+Enter` and `Alt+S` keep their meanings, and both accept images and files with the text.
+By default, Enter during an active turn also queues a follow-up. **Settings → Terminal → Input → Send behavior while busy** can change that to Steer. Cmd/Ctrl+Enter uses the other behavior. Explicit `Alt+Enter` and `Alt+S` keep their meanings, and both accept images and files with the text.
 
 To interrupt the task, press `Esc`, or `Ctrl+C` with an empty composer. A second Ctrl+C within the exit window leaves omdsh. Accepted pending messages remain available while the session stays mounted, but normal exit and session-switch cleanup clear the Harness queue. Local input recovered after restart waits for your review before sending. The complete editing, interruption, and recovery rules are in [Sessions and history](../sessions.md#pending-messages-and-recovery).
 

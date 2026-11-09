@@ -52,6 +52,13 @@ describe('composer empty state', () => {
     expect(running).toContain('Enter: Queue · Alt+S: Steer')
   })
 
+  it.each(['queue', 'steer'] as const)('teaches the effective alternate-send key with %s preference', busyEnter => {
+    const hint = busyEnter === 'queue' ? 'Enter: Queue · F6: Steer' : 'Enter: Steer · F6: Queue'
+    expect(screen('', 'running', true, { busyEnter, alternateSendKey: 'F6' })).toContain(hint)
+    expect(screen('', 'running', true, { busyEnter, alternateSendKey: 'F6',
+      inspected: { id: 'child', label: 'Child', phase: 'running', writable: true } })).toContain(hint)
+  })
+
   it.each([false, true].flatMap(colors => (['queue', 'steer'] as const).flatMap(busyEnter =>
     [false, true].map(child => ({ colors, busyEnter, child }))),
   ))('shows busy hints only for empty drafts (colors=$colors, enter=$busyEnter, child=$child)', ({ colors, busyEnter, child }) => {

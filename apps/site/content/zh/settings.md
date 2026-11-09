@@ -123,7 +123,7 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
 | Mouse interaction | auto / tui / native | auto | 需要时接管滚动、点击展开与选择；Auto 尊重 tmux 的 mouse off，也可将鼠标交给终端。 |
-| 运行时 Enter 行为 | 排队 / 插话 | 排队 | 选择 Enter 是等待下一回合还是指导下一次模型步骤。排队与插话快捷键含义固定；空闲发送和命令不受影响。 |
+| 繁忙时的发送行为 | 排队 / 插话 | 排队 | 选择 Enter 是等待下一回合还是指导下一次模型步骤。Cmd/Ctrl+Enter 使用另一行为。排队与插话快捷键含义固定；空闲发送和命令不受影响。 |
 | Paste protection | on / off | on | 识别未标记的多行粘贴和快速按键流，避免其中的 Enter 提交消息。 |
 | Copy on select | on / off | on | 松开鼠标时复制；关闭后用 `Alt+C`、`Enter` 或右键复制。 |
 | Update checks | on / off | on | 每天检查一次 npm，有新版本时通知。 |

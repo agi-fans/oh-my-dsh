@@ -5370,7 +5370,7 @@ describe('composer paste and steering', () => {
     const persist = vi.fn()
     tui.setPrefsPersist(persist)
     try {
-      press(term, '/settings\rEnter while running\x1b[C')
+      press(term, '/settings\rSend behavior while busy\x1b[C')
       await flushAsyncPaste()
       expect(tui.prefs().busyEnter).toBe('steer')
       expect(persist).toHaveBeenCalledWith(expect.objectContaining({ busyEnter: 'steer' }), [{ op: 'set', path: ['busyEnter'], value: 'steer' }])
@@ -5416,6 +5416,120 @@ describe('composer paste and steering', () => {
       press(term, '\r')
       expect(await tui.readInput()).toEqual({ text: 'keep my text', images: [] })
     } finally { tui.dispose() }
+  })
+
+  it.each((['queue', 'steer'] as const).flatMap(busyEnter =>
+    ['\x1b[13;5u', '\x1b[13;9u', '\x1b[27;5;13~'].map(chord => ({ busyEnter, chord })),
+  ))('sends the opposite mode with modified Enter ($busyEnter, $chord)', async ({ busyEnter, chord }) => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter })
+      tui.setStatus('running')
+      press(term, 'ordinary\r')
+      expect(await tui.readInput()).toMatchObject({ text: 'ordinary', delivery: busyEnter })
+      press(term, 'other mode' + chord)
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: busyEnter === 'queue' ? 'steer' : 'queue' })
+      expect(await tui.readInput()).toMatchObject({ text: 'other mode', delivery: busyEnter === 'queue' ? 'steer' : 'queue' })
+    } finally { tui.dispose() }
+  })
+
+  it.each(['\x1b[13;5u', '\x1b[13;9u'])('uses ordinary idle sends and preserves multiline editing (%s)', async chord => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: 'steer' })
+      press(term, chord)
+      expect(tui.pendingInputs.list()).toHaveLength(0)
+      press(term, 'first\x1b[13;2usecond\nthird' + chord)
+      expect(await tui.readInput()).toEqual({ text: 'first\nsecond\nthird', images: [] })
+    } finally { tui.dispose() }
+  })
+
+  it.each([false, true])('honors alternate-send remapping and unbinding (remapped=%s)', async remapped => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-alternate-keys-')), path = join(root, 'keybindings.json')
+    writeFileSync(path, JSON.stringify({ 'ctrl+enter': null, 'command+enter': null, ...(remapped ? { f6: 'alternate-send' } : {}) }))
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { keybindingsPath: path })
+    try {
+      tui.setStatus('running')
+      expect(stripAnsi(term.captured)).toContain(`Enter: Queue · ${remapped ? 'F6' : 'Alt+S'}: Steer`)
+      press(term, 'retained\x1b[13;5u')
+      press(term, remapped ? '\x1b[17~' : '\r')
+      expect(await tui.readInput()).toMatchObject({ text: 'retained\n', delivery: remapped ? 'steer' : 'queue' })
+    } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
+  })
+
+  it('retains commands, attachment order, queue edits, and prompt ownership with alternate send', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    const files = [{ attachmentId: AttachmentId('alternate-file'), name: '中文.txt', bytes: 1 }]
+    try {
+      tui.setCommands([{ name: 'example', description: 'Example command' }])
+      tui.setStatus('running')
+      press(term, '/example arg\x1b[13;5u')
+      expect(await tui.readInput()).toEqual({ text: '/example arg', images: [] })
+      press(term, '!echo hello\x1b[13;9u')
+      expect(await tui.readInput()).toEqual({ text: '!echo hello', images: [] })
+      const segments = [{ kind: 'file' as const, index: 0 }, { kind: 'text' as const, text: 'describe' }, { kind: 'image' as const, index: 0 }]
+      tui.restoreInput({ text: 'describe', images: [{ data: PNG_1X1, mediaType: 'image/png' }], files, segments })
+      press(term, '\x1b[13;5u')
+      expect(await tui.readInput()).toMatchObject({ text: 'describe', delivery: 'steer', files, segments, images: [{ data: PNG_1X1 }] })
+      tui.applyStoredPrefs({ theme: 'dark', colors: false, busyEnter: 'steer' })
+      press(term, 'queued\x1b\r\x1b[A edited\x1b[13;5u')
+      expect(await tui.readInput()).toMatchObject({ text: 'queued edited', delivery: 'queue' })
+      const pending = tui.readInput(), received = vi.fn()
+      void pending.then(received)
+      const answer = tui.prompt({ question: 'Choose', options: [{ label: 'Yes' }] })
+      press(term, '\x1b[13;5u\x1b[13;9u')
+      await flushAsyncPaste()
+      expect(received).not.toHaveBeenCalled()
+      press(term, '\r')
+      expect(await answer).toBe('Yes')
+      press(term, 'after prompt\r')
+      expect(await pending).toMatchObject({ text: 'after prompt', delivery: 'steer' })
+    } finally { tui.dispose() }
+  })
+
+  it('prefers established busy keys until modified Enter can be distinguished', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    term.columns = 120
+    try {
+      tui.setStatus('running')
+      expect(stripAnsi(term.captured)).toContain('Enter: Queue · Alt+S: Steer')
+      expect(stripAnsi(term.captured)).not.toContain('Ctrl+Enter: Steer')
+      press(term, '\x1b[?0u\x1b[?1;2c')
+      tui.setStatus('idle'); tui.setStatus('running')
+      expect(stripAnsi(term.captured)).toContain('Enter: Queue · Ctrl+Enter: Steer')
+      expect(stripAnsi(term.captured)).not.toContain('Cmd+Enter: Steer')
+      press(term, '\x1b[13;9u')
+      if (process.platform === 'darwin') expect(stripAnsi(term.captured)).toContain('Cmd+Enter / Ctrl+Enter: Steer')
+      press(term, 'forwarded\x1b[13;9u')
+      expect(await tui.readInput()).toMatchObject({ text: 'forwarded', delivery: 'steer' })
+    } finally { tui.dispose() }
+  })
+
+  it('accepts forwarded Command editing and restores a cleared draft with Command undo', async () => {
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+    try {
+      const original = '保留 🐳e\u0301\n删除 中文'
+      const files = [{ attachmentId: AttachmentId('command-edit'), name: 'a.txt', bytes: 1 }]
+      tui.restoreInput({ text: original, images: [], files })
+      press(term, '\x1b[1;9D\x1b[1;9C\x1b[127;9u\x1b[122;9u\x03\x1b[122;9u\r')
+      expect(await tui.readInput()).toMatchObject({ text: original, files })
+    } finally { tui.dispose() }
+  })
+
+  it('runs user overrides ahead of forwarded Command editing and decodes legacy clipboard alternatives', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-command-overrides-')), path = join(root, 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'cmd+left': 'paste-clipboard', 'control+option+v': 'paste-clipboard' }))
+    const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, {
+      keybindingsPath: path, readClipboard: async () => 'clipboard text', readClipboardImage: async () => null, readClipboardFiles: async () => [],
+    })
+    try {
+      press(term, '\x1b[1;9D')
+      await flushAsyncPaste()
+      press(term, '\x1b\x16')
+      await flushAsyncPaste()
+      press(term, '\r')
+      expect(await tui.readInput()).toMatchObject({ text: 'clipboard textclipboard text' })
+    } finally { tui.dispose(); rmSync(root, { recursive: true, force: true }) }
   })
 
   it('keeps selectors isolated and sends attachments through the normal submission reader', async () => {
@@ -6470,15 +6584,18 @@ it.each(['queue', 'steer'] as const)('targets all child submission keys with %s 
     tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'running', writable: true })
     tui.setStatus('running')
     press(term, 'default\r')
+    press(term, 'alternate control\x1b[13;5u')
+    press(term, 'alternate command\x1b[13;9u')
     press(term, '/literal guidance\x1bs')
     press(term, 'next task\x1b\r')
     expect(submitted.mock.calls.map(([message]) => [message.text, message.delivery])).toEqual([
-      ['default', busyEnter], ['/literal guidance', 'steer'], ['next task', 'queue'],
+      ['default', busyEnter], ['alternate control', busyEnter === 'queue' ? 'steer' : 'queue'],
+      ['alternate command', busyEnter === 'queue' ? 'steer' : 'queue'], ['/literal guidance', 'steer'], ['next task', 'queue'],
     ])
     tui.setInspectedSubagent({ id: 'readonly', label: 'Read only', phase: 'running', writable: false })
     tui.restoreInput({ text: 'keep this', images: [] })
-    press(term, '\x1b\r\x1bs\r')
-    expect(submitted).toHaveBeenCalledTimes(3)
+    press(term, '\x1b\r\x1bs\x1b[13;5u\x1b[13;9u\r')
+    expect(submitted).toHaveBeenCalledTimes(5)
   } finally { tui.dispose() }
   expect(await parent).toBeNull()
 })

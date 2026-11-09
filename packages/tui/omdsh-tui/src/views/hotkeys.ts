@@ -43,7 +43,7 @@ export function displayKey(key: string): string {
     if (normalized === 'ctrl') return 'Ctrl'
     if (normalized === 'alt') return 'Alt'
     if (normalized === 'shift') return 'Shift'
-    if (normalized === 'super') return 'Super'
+    if (normalized === 'super') return process.platform === 'darwin' ? 'Cmd' : 'Super'
     if (normalized === 'escape') return 'Esc'
     if (normalized === 'pageup') return 'PgUp'
     if (normalized === 'pagedown') return 'PgDn'
@@ -55,8 +55,8 @@ export function displayKey(key: string): string {
  * Human-readable effective keys, or `Disabled` when no binding names the action.
  *
  * A migration alias still resolves, but a hint that printed it would teach a
- * chord the interface no longer wants used, so only shipped primaries and the
- * user's own chords are shown.
+ * chord the interface no longer wants used, so shipped primaries and the user's
+ * own chords lead. When only aliases remain, show them as the available keys.
  */
 export function keysForAction(bindings: HotkeyBindings, action: TuiAction): string {
   const shipped = primaryKeysOf(action)
@@ -83,14 +83,23 @@ function keysForActions(bindings: HotkeyBindings, ...actions: TuiAction[]): stri
   return actions.map(action => keysForAction(bindings, action)).join(' / ')
 }
 
-function hotkeySections(bindings: HotkeyBindings): readonly HotkeySection[] {
+function editorKeys(bindings: HotkeyBindings, ...keys: string[]): string {
+  const available = keys.filter(key => bindings[key] === undefined).map(displayKey)
+  return available.length === 0 ? 'Disabled' : available.join(' / ')
+}
+
+function newlineKeys(bindings: HotkeyBindings, enhancedKeys: boolean): string {
+  return editorKeys(bindings, ...(enhancedKeys ? ['shift+enter', 'ctrl+j'] : ['ctrl+j', 'shift+enter']))
+}
+
+function hotkeySections(bindings: HotkeyBindings, enhancedKeys: boolean): readonly HotkeySection[] {
   return [
     {
       title: 'Navigation',
       rows: [
         { keys: 'Arrow keys', action: 'Move the cursor / browse history when the editor is empty' },
-        { keys: 'Ctrl+A / Home', action: 'Move to the start of the line' },
-        { keys: 'Ctrl+E / End', action: 'Move to the end of the line' },
+        { keys: editorKeys(bindings, 'ctrl+a', 'home', ...(process.platform === 'darwin' ? ['super+left'] : [])), action: 'Move to the start of the line' },
+        { keys: editorKeys(bindings, 'ctrl+e', 'end', ...(process.platform === 'darwin' ? ['super+right'] : [])), action: 'Move to the end of the line' },
         { keys: 'Alt+B / Alt+Left', action: 'Move one word left' },
         { keys: 'Alt+F / Alt+Right', action: 'Move one word right' },
         { keys: 'Ctrl+] then character', action: 'Jump forward to a character' },
@@ -101,15 +110,16 @@ function hotkeySections(bindings: HotkeyBindings): readonly HotkeySection[] {
       title: 'Editing',
       rows: [
         { keys: 'Enter', action: 'Send the message' },
-        { keys: 'Shift+Enter / Ctrl+J', action: 'Insert a new line' },
+        { keys: keysForAction(bindings, 'alternate-send'), action: 'Send with the other behavior while busy' },
+        { keys: newlineKeys(bindings, enhancedKeys), action: 'Insert a new line' },
         { keys: keysForAction(bindings, 'follow-up'), action: 'Queue the draft for after the active turn' },
         { keys: 'Ctrl+W / Alt+Backspace', action: 'Delete the previous word' },
         { keys: 'Alt+D', action: 'Delete the next word' },
-        { keys: 'Ctrl+U', action: 'Delete to the start of the line' },
+        { keys: editorKeys(bindings, 'ctrl+u', ...(process.platform === 'darwin' ? ['super+backspace'] : [])), action: 'Delete to the start of the line' },
         { keys: 'Ctrl+K', action: 'Delete to the end of the line' },
         { keys: 'Ctrl+Y', action: 'Yank deleted text' },
         { keys: 'Alt+Y', action: 'Cycle the yank ring' },
-        { keys: 'Ctrl+-', action: 'Undo the last edit or restore a cleared draft' },
+        { keys: editorKeys(bindings, 'ctrl+-', ...(process.platform === 'darwin' ? ['super+z'] : [])), action: 'Undo the last edit or restore a cleared draft' },
         { keys: keysForAction(bindings, 'dequeue'), action: 'Recall the latest queued message into the composer' },
         { keys: keysForAction(bindings, 'stash-draft'), action: 'Stash or restore the current composer draft' },
         { keys: keysForAction(bindings, 'paste-clipboard'), action: 'Paste clipboard text or an image' },
@@ -169,14 +179,15 @@ function tableCell(value: string): string {
 
 /** Number of shortcut rows in the catalog. */
 export function hotkeyCount(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): number {
-  return hotkeySections(bindings).reduce((total, section) => total + section.rows.length, 0)
+  return hotkeySections(bindings, false).reduce((total, section) => total + section.rows.length, 0)
 }
 
 /** Short, high-frequency subset shown by the default `/help` view. */
-export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): string {
+export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS, enhancedKeys = false): string {
   const rows: readonly HotkeyRow[] = [
     { keys: 'Enter', action: 'Send the message' },
-    { keys: 'Shift+Enter / Ctrl+J', action: 'Insert a new line' },
+    { keys: keysForAction(bindings, 'alternate-send'), action: 'Send with the other behavior while busy' },
+    { keys: newlineKeys(bindings, enhancedKeys), action: 'Insert a new line' },
     { keys: keysForAction(bindings, 'follow-up'), action: 'Queue the draft for after the active turn' },
     { keys: `${keysForAction(bindings, 'interrupt')} twice`, action: 'Browse conversation turns and branches' },
     { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Clear the composer, then exit' },
@@ -195,8 +206,8 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DI
 }
 
 /** Markdown tables embedded in the `/help` transcript panel. */
-export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS): string {
-  return hotkeySections(bindings).flatMap((section, index) => [
+export function formatHotkeysText(bindings: HotkeyBindings = DEFAULT_DISPLAY_BINDINGS, enhancedKeys = false): string {
+  return hotkeySections(bindings, enhancedKeys).flatMap((section, index) => [
     ...(index === 0 ? [] : ['']),
     `## ${section.title}`,
     '| Shortcut | Action |',

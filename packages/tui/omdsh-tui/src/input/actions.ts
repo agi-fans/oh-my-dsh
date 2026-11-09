@@ -10,6 +10,8 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { useWindowsKeybindings } from './key-platform.ts'
+
 /** Where an action applies, so an overlay can present only what it owns. */
 export type TuiActionScope = 'composer' | 'turn' | 'transcript' | 'session'
 
@@ -29,7 +31,7 @@ export type TuiAction =
   | 'reset-display'
   // Composer
   | 'external-editor' | 'stash-draft' | 'paste-clipboard' | 'expand-paste' | 'preview-images'
-  | 'copy-prompt' | 'copy-line' | 'follow-up' | 'dequeue' | 'steer-turn' | 'manage-queue' | 'manage-goal' | 'retry'
+  | 'copy-prompt' | 'copy-line' | 'alternate-send' | 'follow-up' | 'dequeue' | 'steer-turn' | 'manage-queue' | 'manage-goal' | 'retry'
   // Model and thinking
   | 'select-model' | 'cycle-model-forward' | 'cycle-model-backward' | 'cycle-thinking' | 'toggle-thinking'
   // Transcript
@@ -37,6 +39,7 @@ export type TuiAction =
   | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down'
 
 const WINDOWS = process.platform === 'win32'
+const WINDOWS_KEYS = useWindowsKeybindings()
 
 export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'interrupt', primary: ['escape'], label: 'Cancel, interrupt, or leave the current surface', scope: 'turn' },
@@ -54,15 +57,22 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   // primary, so neither habit becomes a hidden alias.
   { id: 'external-editor', primary: ['ctrl+x', 'ctrl+g'], label: 'Edit the prompt in the selected editor', scope: 'composer' },
   { id: 'stash-draft', primary: ['ctrl+s'], label: 'Stash or restore the composer draft', scope: 'composer' },
-  { id: 'paste-clipboard', primary: ['ctrl+v'], label: 'Paste clipboard text or an image', scope: 'composer' },
+  { id: 'paste-clipboard', primary: WINDOWS_KEYS ? ['ctrl+v', 'ctrl+alt+v'] : process.platform === 'darwin' ? ['ctrl+v', 'super+v'] : ['ctrl+v'], label: 'Paste clipboard text or an image', scope: 'composer' },
   { id: 'expand-paste', primary: ['alt+i'], label: 'Expand a pasted block for editing', scope: 'composer' },
   { id: 'preview-images', primary: ['alt+m'], label: 'Preview draft images', scope: 'composer' },
   { id: 'copy-prompt', primary: ['alt+c'], label: 'Copy the selection or current prompt', scope: 'composer' },
   { id: 'copy-line', primary: ['ctrl+alt+c'], label: 'Copy the current line', scope: 'composer' },
   {
+    id: 'alternate-send',
+    primary: process.platform === 'darwin' ? ['super+enter', 'ctrl+enter'] : ['ctrl+enter'],
+    aliases: process.platform === 'darwin' ? [] : ['super+enter'],
+    label: 'Send with the other behavior while busy',
+    scope: 'composer',
+  },
+  {
     id: 'follow-up',
-    primary: [WINDOWS ? 'ctrl+q' : 'alt+enter'],
-    aliases: WINDOWS ? ['alt+enter'] : [],
+    primary: [WINDOWS_KEYS ? 'ctrl+q' : 'alt+enter'],
+    aliases: WINDOWS_KEYS ? ['alt+enter'] : [],
     label: 'Queue the draft for after the active turn',
     scope: 'composer',
   },
@@ -76,8 +86,8 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'cycle-model-forward', primary: ['ctrl+p'], label: 'Cycle to the next favorite model', scope: 'session' },
   {
     id: 'cycle-model-backward',
-    primary: ['ctrl+shift+p'],
-    aliases: ['alt+p'],
+    primary: [WINDOWS_KEYS ? 'alt+p' : 'ctrl+shift+p'],
+    aliases: [WINDOWS_KEYS ? 'ctrl+shift+p' : 'alt+p'],
     label: 'Cycle to the previous favorite model',
     scope: 'session',
   },

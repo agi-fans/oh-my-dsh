@@ -123,7 +123,7 @@ Rows are grouped under Appearance, Input, Notifications and Startup.
 | Editor | Auto / detected editors | Auto | App used by file previews and `Ctrl+X` prompt editing. |
 | Keybindings | Default / custom count | Default | Open the shortcut remapping picker, save to `keybindings.json`, and apply immediately. |
 | Mouse interaction | auto / tui / native | auto | Handle scrolling, disclosure clicks and selection when needed, respect tmux mouse off in Auto, or leave mouse input to the terminal. |
-| Enter while running | Queue / Steer | Queue | Choose whether Enter waits for the next turn or guides the next model step. Explicit Queue and Steer shortcuts stay fixed; idle sends and commands are unchanged. |
+| Send behavior while busy | Queue / Steer | Queue | Choose whether Enter waits for the next turn or guides the next model step. Cmd/Ctrl+Enter uses the other behavior. Explicit Queue and Steer shortcuts stay fixed; idle sends and commands are unchanged. |
 | Paste protection | on / off | on | Detect unmarked multiline pastes and rapid key streams so embedded Enter keys do not submit a message. |
 | Copy on select | on / off | on | Copy on mouse release; when off, use `Alt+C`, `Enter`, or right-click. |
 | Update checks | on / off | on | Check npm once a day and notify when a newer release is available. |

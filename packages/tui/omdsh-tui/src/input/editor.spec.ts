@@ -33,6 +33,24 @@ describe('word and line geometry', () => {
 })
 
 describe('InputEditor', () => {
+  it('accepts forwarded Command line editing without changing terminal controls', () => {
+    const editor = new InputEditor()
+    const original = '保留 🐳e\u0301\n删除 中文'
+    editor.handle(text(original))
+    editor.handle(key('super+left'))
+    expect(editor.cursor).toBe(original.indexOf('\n') + 1)
+    editor.handle(key('super+right'))
+    expect(editor.cursor).toBe(original.length)
+    editor.handle(key('super+backspace'))
+    expect(editor.text).toBe('保留 🐳e\u0301\n')
+    editor.handle(key('super+z'))
+    expect(editor.text).toBe(original)
+    expect(editor.handle(key('ctrl+z'))).toEqual({ kind: 'ignored' })
+    editor.handle(key('super+backspace'))
+    editor.handle(key('ctrl+y'))
+    expect(editor.text).toBe(original)
+  })
+
   it('applies emacs line motion and word motion', () => {
     const editor = new InputEditor()
     editor.handle(text('hello world'))

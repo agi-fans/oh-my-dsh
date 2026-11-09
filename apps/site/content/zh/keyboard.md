@@ -6,13 +6,19 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 
 `/help` 打开可筛选的命令列表。选择“键盘快捷键”或按 Alt+K 显示快捷键目录，`/help full` 可直接打开。目录先列出常用操作，并显示当前实际生效的绑定。按 S 选择章节（包含 Diff 与文件浏览器），按 `/` 搜索。应用级绑定可以通过 `keybindings.json` 覆盖，编辑器本身保留一套固定的类 Vi 按键。
 
+下文按终端实际收到的修饰键命名：macOS 上的 `Ctrl` 仍是 Control，`Cmd` 不会统一替代 Ctrl。Mac 键盘上的 `Alt` 对应 Option，需要让终端发送 Alt/Meta，而非组合字符。可在**设置 → 终端 → 输入 → 快捷键 → 测试按键**中查看实际输入。带修饰键的 Enter 和 `Ctrl+Shift` 组合依赖终端支持；`Ctrl+J` 是兼容传统终端的默认换行键，`Alt+P` 也可切换到上一个收藏模型。
+
+Windows 和本地 WSL 默认用 `Ctrl+Q` 排队、`Alt+P` 切换到上一个收藏模型，同时保留 `Alt+Enter`、`Ctrl+Shift+P`。剪贴板输入在 `Ctrl+V` 之外提供 `Ctrl+Alt+V`，`Alt+V` 仍用于预览文件。macOS 和其他 Linux 终端保留统一基础键位。`Ctrl+Z` 在 macOS 和 Linux（包括 WSL）上挂起进程，Windows 不支持。SSH 会话不会根据 WSL 环境变量推断客户端键盘。`/help` 显示实际生效的绑定。
+
+终端发送可区分的按键序列时，macOS 的 Cmd+Enter 和各平台的 Ctrl+Enter 使用另一种繁忙发送行为。Ctrl+Enter 改为发送，换行请使用 Shift+Enter 或 Ctrl+J。运行中的输入框在协议协商确认或收到相应按键后提示带修饰键的 Enter，否则提示固定的排队或插话键。Cmd+Enter 在实际收到后才出现在提示中，因为协议支持不代表终端会转发 Command。帮助列出所有绑定，并在传统终端优先显示 Ctrl+J。收到的 Cmd+左右移到行首或行尾，Cmd+Backspace 删除到行首，Cmd+Z 撤销编辑或恢复刚清空的草稿。macOS 也接受收到的 Cmd+V；终端可能自行处理原生粘贴。
+
 ## 光标导航
 
 | 快捷键 | 作用 |
 |---|---|
 | 方向键 | 移动光标；composer 为空时浏览输入历史。 |
-| `Ctrl+A` / `Home` | 移到行首。 |
-| `Ctrl+E` / `End` | 移到行尾。 |
+| `Ctrl+A` / `Home` / `Cmd+Left` | 移到行首。 |
+| `Ctrl+E` / `End` / `Cmd+Right` | 移到行尾。 |
 | `Alt+B` / `Alt+Left` | 左移一个词。 |
 | `Alt+F` / `Alt+Right` | 右移一个词。 |
 | `Ctrl+]` 后接一个字符 | 向前跳到该字符。 |
@@ -23,16 +29,17 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | 快捷键 | 作用 |
 |---|---|
 | `Enter` | 发送消息。 |
+| `Cmd+Enter`（macOS）/ `Ctrl+Enter` | 繁忙时使用另一行为发送，空闲时正常发送。 |
 | `Shift+Enter` / `Ctrl+J` | 插入换行。 |
 | `Ctrl+W` / `Alt+Backspace` | 删除前一个词。 |
 | `Alt+D` | 删除后一个词。 |
-| `Ctrl+U` | 删除到行首。 |
+| `Ctrl+U` / `Cmd+Backspace` | 删除到行首。 |
 | `Ctrl+K` | 删除到行尾。 |
 | `Ctrl+Y` | 粘贴回已删除的文本。 |
 | `Alt+Y` | 在删除环中循环。 |
-| `Ctrl+-` | 撤销上一次编辑，或恢复刚清空的草稿。 |
+| `Ctrl+-` / `Cmd+Z` | 撤销上一次编辑，或恢复刚清空的草稿。 |
 | `Ctrl+D` | 向后删除；composer 为空时退出。 |
-| `Ctrl+V` | 粘贴剪贴板文本或图片。 |
+| `Ctrl+V` / `Cmd+V`（macOS）/ `Ctrl+Alt+V`（Windows/本地 WSL） | 粘贴剪贴板文本或图片。 |
 | `Alt+M` | 预览 composer 图片，不发送消息；没有草稿图片时，打开会话中最新的一张图片。 |
 | `Alt+I` | 展开折叠的粘贴内容进行编辑。 |
 | `Alt+Up` | composer 为空时，撤回最近一条排队消息以便编辑；Enter 会重新提交。 |
@@ -40,7 +47,7 @@ description: omdsh 键盘参考：composer 编辑、转录导航、会话生命�
 | `Alt+Q` | 打开消息队列，保留 composer 中的草稿。 |
 | `Ctrl+S` | 暂存或恢复当前 composer 草稿；发送一条消息后会自动恢复暂存的草稿。 |
 | `Alt+S` | 将草稿连同图片和文件送到当前 Turn 的下一次模型步骤。 |
-| `Alt+Enter` | 把当前草稿排到活动回合之后，不受运行时 Enter 行为设置影响。 |
+| `Alt+Enter`（macOS/其他 Linux）、`Ctrl+Q`（Windows/本地 WSL） | 把当前草稿排到活动回合之后，不受繁忙时的发送行为设置影响。 |
 | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `Ctrl+Alt+C` | 复制当前行。 |
 | `Ctrl+X` / `Ctrl+G` | 在 Settings 选定的编辑器中编辑提示。 |
@@ -147,7 +154,7 @@ Diff 中点击文件行切换文件，Tab 在列表与内容之间切换键盘�
 }
 ```
 
-key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名键用小写拼写（`pageup`、`pagedown`、`escape`、`left`、`right`、`up`、`down`）。值必须是下表中的 action id，或用 `null` 解除默认按键绑定；无法识别的 action 或格式错误的文件只会让对应条目保留出厂绑定。`/help` 会显示实际生效的按键。
+key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），也接受 `control`、`option`、`cmd`/`command` 别名，并统一修饰键顺序。例如 `cmd+enter` 对应 `super+enter`。用户覆盖最后应用，包括对已转发编辑别名的重绑。具名键用小写拼写（`pageup`、`pagedown`、`escape`、`left`、`right`、`up`、`down`）。值必须是下表中的 action id，或用 `null` 解除默认按键绑定；无法识别的 action 或格式错误的文件只会让对应条目保留出厂绑定。`/help` 会显示实际生效的按键。
 
 快捷键中的 **测试按键** 显示终端实际发送的文本或按键序列，以及已绑定的应用操作。测试不会执行快捷键、修改草稿或保存绑定；`Esc` 或 `Ctrl+C` 返回。支持 `F1`–`F12` 的标准终端编码及修饰键，例如 `"f6": "tool-actions"`。终端或操作系统可能在 omdsh 收到按键前将其拦截。macOS 的 Option 也可能输入 `å`、`¥` 等字符；它们仍是普通文本。可换一个绑定，或调整终端的 Option/Alt 设置后再测试。
 
@@ -157,15 +164,17 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），具名�
 | `expand-paste` | `Alt+I` | 展开粘贴块进行编辑。 |
 | `manage-goal` | `Alt+G` | 编辑、暂停、继续或清除当前目标。 |
 | `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
+| `alternate-send` | `Cmd+Enter`（macOS）/ `Ctrl+Enter` | 繁忙时使用另一行为发送，空闲时正常发送。 |
+| `follow-up` | `Alt+Enter`（macOS/其他 Linux）、`Ctrl+Q`（Windows/本地 WSL） | 把草稿排到下一回合，不受繁忙发送偏好影响。 |
 | `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |
 | `stash-draft` | `Ctrl+S` | 暂存或恢复当前 composer 草稿。 |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 输入框为空时，继续可恢复的失败生成。 |
-| `paste-clipboard` | `Ctrl+V` | 粘贴剪贴板文本或图片。 |
+| `paste-clipboard` | `Ctrl+V` / `Cmd+V`（macOS）/ `Ctrl+Alt+V`（Windows/本地 WSL） | 粘贴剪贴板文本或图片。 |
 | `copy-prompt` | `Alt+C` | 复制选中文字；没有选区时复制当前提示。 |
 | `copy-line` | `Ctrl+Alt+C` | 复制当前行。 |
 | `cycle-model-forward` | `Ctrl+P` | 切换到下一个收藏模型。 |
-| `cycle-model-backward` | `Ctrl+Shift+P` | 切换到上一个收藏模型（`Alt+P` 等效）。 |
+| `cycle-model-backward` | `Ctrl+Shift+P`（macOS/其他 Linux）、`Alt+P`（Windows/本地 WSL） | 切换到上一个收藏模型（`Alt+P` 等效）。 |
 | `cycle-thinking` | `Shift+Tab` | 循环切换当前模型的推理强度。 |
 | `toggle-thinking` | `Ctrl+T` | 显示或折叠整个转录中的思考。 |
 | `toggle-tools` | `Ctrl+O` | 浏览运行中或已完成回合：↑/↓ 选择、Enter 展开、←/→ 收起或展开、Home 回到标题、Esc 返回。再按一次回到实时底部；在工具目录上切换描述详略。 |

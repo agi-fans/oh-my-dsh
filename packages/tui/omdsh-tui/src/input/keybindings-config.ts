@@ -9,6 +9,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { normalizeKeyId } from './keys.ts'
 import {
   DEFAULT_KEYBINDINGS,
   isPrimaryKey,
@@ -34,7 +35,7 @@ export function loadKeybindings(path: string | undefined): Record<string, TuiAct
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
     if (typeof parsed !== 'object' || parsed === null) return result
     for (const [key, action] of Object.entries(parsed)) {
-      const normalized = key.toLowerCase()
+      const normalized = normalizeKeyId(key)
       if (action === null) delete result[normalized]
       else if (typeof action === 'string' && TUI_ACTIONS.includes(action as TuiAction)) result[normalized] = action as TuiAction
     }
@@ -44,16 +45,16 @@ export function loadKeybindings(path: string | undefined): Record<string, TuiAct
 
 /** Persist user keybinding overrides relative to {@link DEFAULT_KEYBINDINGS}. */
 export function saveKeybindings(path: string, bindings: Readonly<Record<string, TuiAction>>): void {
+  const normalizedBindings = Object.fromEntries(Object.entries(bindings).map(([key, action]) => [normalizeKeyId(key), action]))
   const overrides: Record<string, TuiAction | null> = {}
   for (const [key, defaultAction] of Object.entries(DEFAULT_KEYBINDINGS)) {
-    const current = bindings[key]
+    const current = normalizedBindings[key]
     if (current === undefined) overrides[key] = null
     else if (current !== defaultAction) overrides[key] = current
   }
-  for (const [key, action] of Object.entries(bindings)) {
-    const normalized = key.toLowerCase()
-    if (!(normalized in DEFAULT_KEYBINDINGS) && TUI_ACTIONS.includes(action)) {
-      overrides[normalized] = action
+  for (const [key, action] of Object.entries(normalizedBindings)) {
+    if (!(key in DEFAULT_KEYBINDINGS) && TUI_ACTIONS.includes(action)) {
+      overrides[key] = action
     }
   }
   mkdirSync(dirname(path), { recursive: true })
@@ -67,14 +68,18 @@ export function saveKeybindings(path: string, bindings: Readonly<Record<string, 
  * that printed `Ctrl+F / Ctrl+Shift+F` for one action would be telling the user
  * about a chord the interface does not want them to learn. Only chords that are
  * a shipped primary for their action survive, so an override that deliberately
- * moves an action is still printed and a straggler alias is not.
+ * moves an action is still printed and a straggler alias is not. When only an
+ * alias remains, show it so an active action does not appear disabled.
  */
 export function displayBindings(bindings: Readonly<Record<string, TuiAction>>): Record<string, TuiAction> {
+  const preferred = new Set(Object.entries(bindings)
+    .filter(([key, action]) => isPrimaryKey(action, key) || DEFAULT_KEYBINDINGS[key] !== action)
+    .map(([, action]) => action))
   const shown: Record<string, TuiAction> = {}
   for (const [key, action] of Object.entries(bindings)) {
-    // Shipped primary: always shown. Shipped alias for this same action: hidden.
+    // Shipped primary: always shown. Aliases stay hidden while a preferred key remains.
     // Any key the catalog does not give this action — a user override — is theirs to see.
-    if (isPrimaryKey(action, key) || DEFAULT_KEYBINDINGS[key] !== action) shown[key] = action
+    if (isPrimaryKey(action, key) || DEFAULT_KEYBINDINGS[key] !== action || !preferred.has(action)) shown[key] = action
   }
   return shown
 }

@@ -6,13 +6,19 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 
 `/help` opens a filterable command list. Choose Keyboard shortcuts or press Alt+K to show the shortcut catalog, and `/help full` opens it directly. The catalog starts with essential operations and uses the current effective bindings. Press S for sections, including Diff and the file browser, or `/` to search. Application bindings are overridable through `keybindings.json`, while the editor keeps a fixed Vi-like key set.
 
+The shortcuts below use literal terminal modifiers: `Ctrl` stays `Ctrl` on macOS; `Cmd` is not a global substitute. `Alt` is the Option key on a Mac keyboard and must reach the terminal as Alt/Meta rather than a composed character. Use **Settings → Terminal → Input → Keybindings → Test keys** to inspect what arrives. Modified Enter and `Ctrl+Shift` chords depend on terminal support; `Ctrl+J` is the portable newline default, and `Alt+P` also selects the previous favorite model.
+
+Windows and local WSL use `Ctrl+Q` for Queue and `Alt+P` for the previous favorite model, retaining `Alt+Enter` and `Ctrl+Shift+P` as alternatives. They also offer `Ctrl+Alt+V` alongside `Ctrl+V` for clipboard input; `Alt+V` keeps its file-preview meaning. macOS and other Linux terminals retain the shared defaults. `Ctrl+Z` suspends on macOS and Linux, including WSL, and is unavailable on Windows. SSH sessions do not use WSL environment variables to infer the client keyboard. `/help` shows the effective bindings.
+
+Cmd+Enter on macOS and Ctrl+Enter use the other busy-send behavior when the terminal forwards a distinct key sequence. Ctrl+Enter sends instead of inserting a newline; use Shift+Enter or Ctrl+J for newlines. The running composer advertises modified Enter after keyboard negotiation or receipt of that key; otherwise it advertises the fixed Queue or Steer shortcut. Cmd+Enter is advertised after it is received, since protocol support alone does not prove the terminal forwards Command. Help lists all bindings and puts Ctrl+J first for legacy terminals. Forwarded Cmd+Left/Right move to line edges, Cmd+Backspace deletes to line start, and Cmd+Z undoes, including a cleared draft. macOS also accepts forwarded Cmd+V; the terminal may handle native paste itself.
+
 ## Navigation
 
 | Shortcut | Action |
 |---|---|
 | Arrow keys | Move the cursor, or browse history when the composer is empty. |
-| `Ctrl+A` / `Home` | Move to the start of the line. |
-| `Ctrl+E` / `End` | Move to the end of the line. |
+| `Ctrl+A` / `Home` / `Cmd+Left` | Move to the start of the line. |
+| `Ctrl+E` / `End` / `Cmd+Right` | Move to the end of the line. |
 | `Alt+B` / `Alt+Left` | Move one word left. |
 | `Alt+F` / `Alt+Right` | Move one word right. |
 | `Ctrl+]` then a character | Jump forward to that character. |
@@ -23,16 +29,17 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | Shortcut | Action |
 |---|---|
 | `Enter` | Send the message. |
+| `Cmd+Enter` (macOS) / `Ctrl+Enter` | Send with the other behavior while busy; send normally while idle. |
 | `Shift+Enter` / `Ctrl+J` | Insert a new line. |
 | `Ctrl+W` / `Alt+Backspace` | Delete the previous word. |
 | `Alt+D` | Delete the next word. |
-| `Ctrl+U` | Delete to the start of the line. |
+| `Ctrl+U` / `Cmd+Backspace` | Delete to the start of the line. |
 | `Ctrl+K` | Delete to the end of the line. |
 | `Ctrl+Y` | Yank deleted text. |
 | `Alt+Y` | Cycle the yank ring. |
-| `Ctrl+-` | Undo the last edit or restore a cleared draft. |
+| `Ctrl+-` / `Cmd+Z` | Undo the last edit or restore a cleared draft. |
 | `Ctrl+D` | Delete forward, or exit when the composer is empty. |
-| `Ctrl+V` | Paste clipboard text or an image. |
+| `Ctrl+V` / `Cmd+V` (macOS) / `Ctrl+Alt+V` (Windows/local WSL) | Paste clipboard text or an image. |
 | `Alt+M` | Preview composer images without sending them; with no draft image, open the newest image in the conversation. |
 | `Alt+I` | Expand a folded pasted block for editing. |
 | `Alt+Up` | Withdraw the latest queued message into the empty composer for editing; Enter submits it again. |
@@ -40,7 +47,7 @@ description: "Keyboard reference for omdsh: composer editing, transcript navigat
 | `Alt+Q` | Open Message Queue without submitting the composer draft. |
 | `Ctrl+S` | Stash or restore the current composer draft; a stashed draft returns automatically after you send a message. |
 | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
-| `Alt+Enter` | Queue the draft for after the active turn, regardless of the Enter while running setting. |
+| `Alt+Enter` (macOS/other Linux), `Ctrl+Q` (Windows/local WSL) | Queue the draft for after the active turn, regardless of the Send behavior while busy setting. |
 | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `Ctrl+Alt+C` | Copy the current line. |
 | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
@@ -145,7 +152,7 @@ Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back 
 }
 ```
 
-Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below, or `null` to unbind a default key; an unknown action or a malformed file leaves the shipped binding in place for that entry. `/help` shows the effective keys.
+Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`); `control`, `option`, and `cmd`/`command` are accepted aliases, and modifier order is normalized. For example, `cmd+enter` addresses `super+enter`. User overrides apply after platform defaults, including forwarded editor aliases. Spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below, or `null` to unbind a default key; an unknown action or a malformed file leaves the shipped binding in place for that entry. `/help` shows the effective keys.
 
 **Test keys** in Keybindings shows the text or key sequence the terminal actually sends and any assigned application action. Testing does not run shortcuts, edit the draft, or save bindings; `Esc` or `Ctrl+C` returns. Standard terminal encodings for `F1`–`F12`, including modifiers, are supported (for example, `"f6": "tool-actions"`). A terminal or OS shortcut may intercept a key before omdsh sees it. On macOS, Option may produce characters such as `å` or `¥`; these remain ordinary text. Use a different binding or configure Option/Alt in the terminal, then test again.
 
@@ -155,15 +162,17 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`) and spell name
 | `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
 | `manage-goal` | `Alt+G` | Edit, pause, resume or clear the current goal. |
 | `manage-queue` | `Alt+Q` | Manage individual pending messages. |
+| `alternate-send` | `Cmd+Enter` (macOS) / `Ctrl+Enter` | Send with the other behavior while busy; send normally while idle. |
+| `follow-up` | `Alt+Enter` (macOS/other Linux), `Ctrl+Q` (Windows/local WSL) | Queue the draft for the next turn, independently of the busy-send preference. |
 | `steer-turn` | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
 | `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
 | `retry` | `Alt+R` | Continue an eligible failed generation with an empty composer. |
-| `paste-clipboard` | `Ctrl+V` | Paste clipboard text or an image. |
+| `paste-clipboard` | `Ctrl+V` / `Cmd+V` (macOS) / `Ctrl+Alt+V` (Windows/local WSL) | Paste clipboard text or an image. |
 | `copy-prompt` | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
 | `copy-line` | `Ctrl+Alt+C` | Copy the current line. |
 | `cycle-model-forward` | `Ctrl+P` | Cycle to the next favorite model. |
-| `cycle-model-backward` | `Ctrl+Shift+P` | Cycle to the previous favorite model (`Alt+P` is equivalent). |
+| `cycle-model-backward` | `Ctrl+Shift+P` (macOS/other Linux), `Alt+P` (Windows/local WSL) | Cycle to the previous favorite model (`Alt+P` is equivalent). |
 | `cycle-thinking` | `Shift+Tab` | Cycle the current model's reasoning effort. |
 | `toggle-thinking` | `Ctrl+T` | Show or hide thinking across the transcript. |
 | `toggle-tools` | `Ctrl+O` | Browse the running or completed turn: ↑/↓ select, Enter toggles, ←/→ close/open, Home returns to the title, Esc returns. Press again to return to the live tail. On the tool catalog, toggle descriptions. |

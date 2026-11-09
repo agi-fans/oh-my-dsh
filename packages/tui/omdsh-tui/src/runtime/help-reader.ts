@@ -17,8 +17,8 @@ export function helpOptions(commands: readonly SlashCommand[], language: UiLangu
   })
 }
 
-export async function browseHelp(tui: Pick<TuiService, 'prompt' | 'copyText' | 'insertText'>, commands: readonly SlashCommand[], bindings: HotkeyBindings, language: UiLanguage, full: boolean, signal: AbortSignal): Promise<void> {
-  const shortcuts = `# Keyboard Shortcuts\n\n## Essential\n\n${formatEssentialHotkeysText(bindings)}\n\n${formatHotkeysText(bindings)}`
+export async function browseHelp(tui: Pick<TuiService, 'prompt' | 'copyText' | 'insertText'>, commands: readonly SlashCommand[], bindings: HotkeyBindings, language: UiLanguage, full: boolean, signal: AbortSignal, enhancedKeys = false): Promise<void> {
+  const shortcuts = `# Keyboard Shortcuts\n\n## Essential\n\n${formatEssentialHotkeysText(bindings, enhancedKeys)}\n\n${formatHotkeysText(bindings, enhancedKeys)}`
   if (full) { await readReference(tui, 'Help · Shortcuts', shortcuts, signal); return }
   const options = helpOptions(commands, language)
   const byValue = new Map(options.map(option => [option.value, option]))

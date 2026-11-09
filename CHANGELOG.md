@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Keyboard defaults account for local WSL, retain terminal lifecycle controls, and offer clipboard alternatives without taking over file-preview shortcuts. Forwarded Command keys support line editing, undo and macOS clipboard input; custom bindings accept Command/Option names. Busy-send hints use confirmed keyboard support and retain fixed Queue/Steer fallbacks.
+- Busy sending matches DeepSeek Harness: the setting is named “Send behavior while busy”, and Cmd/Ctrl+Enter uses the other Queue/Steer mode. Ctrl+Enter now sends instead of inserting a newline; Shift+Enter and Ctrl+J retain newlines, and existing Queue/Steer shortcuts keep their meaning.
+
 ## [0.25.0] - 2026-11-09
 
 ### Added

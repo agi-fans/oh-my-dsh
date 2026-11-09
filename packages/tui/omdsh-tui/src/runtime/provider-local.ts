@@ -193,7 +193,7 @@ import {
   streamingAssistantKey,
   streamingAssistantUnits,
 } from '../views/streaming-reveal.ts'
-import { flushPending, parseKeys, type KeyEvent } from '../input/keys.ts'
+import { flushPending, normalizeKeyId, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { sanitizeDisplayLine, type Frame, type FoldMark, type TranscriptDisclosure, type RenderSink } from '../chrome/renderer.ts'
 import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
@@ -508,6 +508,7 @@ export class LocalTui implements TuiService {
   #resumeHintRequested = false
   #lastSigintTime = 0
   #lastEscapeTime = 0
+  readonly #receivedModifiedEnter = new Set<string>()
   #inspectEscapeFenceUntil = 0
   #interrupts = new Set<() => void>()
   #queueEdits = new Set<(request?: TuiQueueEditRequest) => void>()
@@ -2355,6 +2356,11 @@ export class LocalTui implements TuiService {
     // Rows committed to scrollback are immutable; the first real paint waits for the probe so it already uses the reported colors.
     if (this.#probeGate) return
     const width = this.#term.width()
+    const alternateSendKey = keysForAction(Object.fromEntries(Object.entries(this.#keybindings).filter(([key]) => {
+      if (key === 'super+enter') return this.#receivedModifiedEnter.has(key)
+      if (key === 'ctrl+enter') return this.#session.keyboardProtocol === 'kitty' || this.#receivedModifiedEnter.has(key)
+      return true
+    })), 'alternate-send')
     const renderState = this.#reveal === undefined
       ? this.#state
       : revealStreamingAssistant(this.#state, this.#reveal.revealed)
@@ -2414,6 +2420,7 @@ export class LocalTui implements TuiService {
         toolDetailsKey: keysForAction(this.#keybindings, 'toggle-tool-details'),
         turnDetailsKey: keysForAction(this.#keybindings, 'toggle-tools'),
         busyEnter: this.#queueEditNewer !== null || this.#queueEditPending ? 'queue' : this.#busyEnter,
+        ...(this.#queueEditNewer !== null || this.#queueEditPending || alternateSendKey === 'Disabled' ? {} : { alternateSendKey }),
         steerKey: keysForAction(this.#keybindings, 'steer-turn'),
         queueKey: keysForAction(this.#keybindings, 'follow-up'),
         openedGroups: this.#openedGroups,
@@ -3227,6 +3234,9 @@ export class LocalTui implements TuiService {
     }
     if (event.type === 'program-status-support') { this.#programSupported = true; this.#syncWindowTitle(); return }
     if (this.#session.handle(event)) return
+    if (!this.#paste && event.type === 'key' && (event.id === 'ctrl+enter' || event.id === 'super+enter')) {
+      this.#receivedModifiedEnter.add(event.id)
+    }
     if (event.type === 'focus') {
       this.#terminalFocused = event.focused
       if (event.focused && this.#notificationPolicy === 'unfocused') this.#notificationQueue.clear()
@@ -3389,7 +3399,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    if (event.type === 'key' && (event.id === 'ctrl+-' || event.id === 'ctrl+_')
+    if (event.type === 'key' && (event.id === 'ctrl+-' || event.id === 'ctrl+_' || event.id === 'super+z')
       && this.#clearedDraft !== undefined && this.#clearedDraft.revision === this.#editor.revision
       && !this.#hasComposerContent()) {
       const cleared = this.#clearedDraft.draft
@@ -4589,7 +4599,12 @@ export class LocalTui implements TuiService {
     this.#pendingInputs.flush(this.#pendingScope())
   }
 
-  #submit(text: string, delivery?: 'queue' | 'steer'): void {
+  #resolveDelivery(delivery?: 'queue' | 'steer' | 'alternate'): 'queue' | 'steer' {
+    if (delivery === 'alternate') return this.#busyEnter === 'queue' ? 'steer' : 'queue'
+    return delivery ?? this.#busyEnter
+  }
+
+  #submit(text: string, delivery?: 'queue' | 'steer' | 'alternate'): void {
     if (this.#prompt !== null) {
       if (this.#prompt.request.presentation === 'progress') return
       const answer = this.#prompt.request.preserveWhitespace === true ? text : text.trim()
@@ -4608,7 +4623,7 @@ export class LocalTui implements TuiService {
     if (delivery === 'steer') submission.literal = true
     const command = !submission.literal && (submittedText.trimStart().startsWith('/') || (images.length === 0 && files.length === 0 && submittedText.startsWith('!')))
     if (!command && this.#state.status === 'running') {
-      submission.delivery = queueEditNewer !== null || this.#queueEditPending ? 'queue' : delivery ?? this.#busyEnter
+      submission.delivery = queueEditNewer !== null || this.#queueEditPending ? 'queue' : this.#resolveDelivery(delivery)
     }
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
       this.#history.push(historyText)
@@ -4647,12 +4662,12 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
-  #submitInspect(text: string, delivery?: 'queue' | 'steer'): void {
+  #submitInspect(text: string, delivery?: 'queue' | 'steer' | 'alternate'): void {
     if (this.#inspected?.writable !== true) return
     const { submission, historyText } = this.#buildSubmission(text)
     const newer = this.#queueEditNewer
     if (delivery === 'steer') submission.literal = true
-    submission.delivery = newer !== null || this.#queueEditPending ? 'queue' : this.#state.status === 'running' ? delivery ?? this.#busyEnter : 'queue'
+    submission.delivery = newer !== null || this.#queueEditPending || this.#state.status !== 'running' ? 'queue' : this.#resolveDelivery(delivery)
     const { images, files = [], literal = false, text: submittedText } = submission
     if (historyText !== '' && this.#history[this.#history.length - 1] !== historyText) {
       this.#history.push(historyText)
@@ -5008,10 +5023,11 @@ export class LocalTui implements TuiService {
   }
 
   #runHelp(full: boolean): void {
+    const enhancedKeys = this.#session.keyboardProtocol === 'kitty'
     if (!this.#tty) {
-      this.commandOutput('help', ['Help', '', '## Essential Shortcuts', '', formatEssentialHotkeysText(this.#keybindings),
+      this.commandOutput('help', ['Help', '', '## Essential Shortcuts', '', formatEssentialHotkeysText(this.#keybindings, enhancedKeys),
         '', formatHelpText(this.#commands(), resolveUiLanguage(this.#uiLanguage)),
-        ...(full ? ['', formatHotkeysText(this.#keybindings)] : ['', 'Use `/help full` to view every keyboard shortcut.'])].join('\n'))
+        ...(full ? ['', formatHotkeysText(this.#keybindings, enhancedKeys)] : ['', 'Use `/help full` to view every keyboard shortcut.'])].join('\n'))
       return
     }
     if (this.#fileReviewAbort !== undefined || this.#prompt !== null) return
@@ -5022,7 +5038,7 @@ export class LocalTui implements TuiService {
       copyText: (text: string, label?: string) => this.copyText(text, label),
       insertText: (text: string) => this.insertText(text),
     }
-    void browseHelp(surface, this.#commands(), this.#keybindings, resolveUiLanguage(this.#uiLanguage), full, abort.signal)
+    void browseHelp(surface, this.#commands(), this.#keybindings, resolveUiLanguage(this.#uiLanguage), full, abort.signal, enhancedKeys)
       .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.notice(String(error), { level: 'error' }) })
       .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
   }
@@ -5069,6 +5085,14 @@ export class LocalTui implements TuiService {
     // interpret Escape itself — a settings search clears before the overlay
     // closes. Claiming it here would skip that layering.
     if (action === 'interrupt') return false
+    if (action === 'alternate-send') {
+      if (this.#settings !== null || this.#search !== null) return false
+      if (this.#inspected !== undefined && !this.#inspected.writable) return true
+      if (this.#handleAutocomplete({ type: 'key', id: 'enter' })) return true
+      if (this.#hasComposerContent()) this.#submit(this.#editor.expandedText, 'alternate')
+      else this.#render()
+      return true
+    }
     if (action === 'clear-composer') return this.#runClearComposer()
     if (action === 'quit') {
       if (this.#hasComposerContent() || this.#editor.text !== '') return false
@@ -5469,7 +5493,7 @@ export class LocalTui implements TuiService {
         notify: false,
       })
       if (entered === null || this.#disposed) continue
-      const normalized = entered.trim().toLowerCase()
+      const normalized = normalizeKeyId(entered)
       if (normalized === '') continue
       const next: Record<string, TuiAction> = { ...this.#keybindings }
       for (const [key, bound] of Object.entries(next)) {

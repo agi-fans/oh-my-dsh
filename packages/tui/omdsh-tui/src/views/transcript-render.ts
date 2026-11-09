@@ -88,6 +88,7 @@ export interface ViewOptions {
   language?: import('../locale/index.ts').UiLanguage
   /** Running composer delivery and its explicit shortcut hints. */
   busyEnter?: 'queue' | 'steer'
+  alternateSendKey?: string
   queueKey?: string
   steerKey?: string
   /** Terminal width in columns. */
@@ -2606,15 +2607,15 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         ?? placeholder
         ?? (emptyDraft && state.status === 'running' && options.steerKey !== undefined
           ? options.busyEnter === 'steer'
-            ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
-            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey })
+            ? theme.text('Enter: Steer · {key}: Queue', { key: options.alternateSendKey ?? options.queueKey ?? 'Alt+Enter' })
+            : theme.text('Enter: Queue · {key}: Steer', { key: options.alternateSendKey ?? options.steerKey })
           : null)
       : options.inspected.writable
         ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? (emptyDraft
           ? state.status === 'running'
             ? options.busyEnter === 'steer'
-              ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
-              : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey ?? 'Alt+S' })
+              ? theme.text('Enter: Steer · {key}: Queue', { key: options.alternateSendKey ?? options.queueKey ?? 'Alt+Enter' })
+              : theme.text('Enter: Queue · {key}: Steer', { key: options.alternateSendKey ?? options.steerKey ?? 'Alt+S' })
             : theme.text('Enter to send')
           : null)
         : theme.text('Read-only · Esc to return')

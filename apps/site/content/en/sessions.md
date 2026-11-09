@@ -102,7 +102,7 @@ File recovery snapshots and receipts are profile-local and are not included in p
 
 ## Pending messages and recovery
 
-You do not need a special command to continue a running task. By default, Enter during `Deep Driving` places an ordinary message in the next-turn queue, shown immediately above the composer. Settings → Terminal → Input → Enter while running can change Enter to Steer. The composer shows the current action; explicit Queue and Steer shortcuts keep their meaning.
+You do not need a special command to continue a running task. By default, Enter during `Deep Driving` places an ordinary message in the next-turn queue, shown immediately above the composer. Settings → Terminal → Input → Send behavior while busy can change Enter to Steer. Cmd/Ctrl+Enter uses the other behavior while running. The composer shows the current action; explicit Queue and Steer shortcuts keep their meaning.
 
 With an empty composer, press `Alt+Up` to withdraw the latest queued message for editing, then `Enter` to submit it again. To edit an older entry, open `/queue` or press `Alt+Q` and select it. These actions keep the current tool call running.
 

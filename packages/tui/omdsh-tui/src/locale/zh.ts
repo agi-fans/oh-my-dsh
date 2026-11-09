@@ -551,8 +551,9 @@ export const zh = {
   "{count} stopped": "{count} 个已停止",
   "{count} need approval": "{count} 个需要审批",
 
-  "Enter while running": "运行时 Enter 行为",
-  "Queue waits for the next turn; Steer guides the next model step. Explicit Queue and Steer shortcuts keep their meaning.": "排队会等待下一回合；插话会指导下一次模型步骤。排队和插话快捷键的含义保持固定。",
+  "Send with the other behavior while busy": "繁忙时使用另一种行为发送",
+  "Send behavior while busy": "繁忙时的发送行为",
+  "What Enter does while the agent is running: Queue waits for the next turn; Steer guides the next model step. Cmd/Ctrl+Enter uses the other behavior. Explicit Queue and Steer shortcuts keep their meaning.": "智能体运行时 Enter 键的行为：排队发送等待下一回合；插话发送指导下一次模型步骤。Cmd/Ctrl+Enter 使用另一行为。排队和插话快捷键的含义保持固定。",
   "Enter: Steer · {key}: Queue": "Enter：插话 · {key}：排队",
   "steer next step": "转为插话",
   "Select an accepted Queue message to steer.": "请选择已接收的排队消息，再转为插话。",

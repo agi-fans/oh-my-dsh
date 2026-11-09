@@ -3,10 +3,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { keysForAction } from '../views/hotkeys.ts'
-import { reportBindingConflicts } from './actions.ts'
+import { reportBindingConflicts, TUI_ACTION_CATALOG } from './actions.ts'
 import { loadKeybindings, saveKeybindings } from './keybindings-config.ts'
 
 describe('loadKeybindings', () => {
+  it('assigns each shipped chord to exactly one action', () => {
+    const owners = new Map<string, string>()
+    for (const action of TUI_ACTION_CATALOG) {
+      for (const key of [...action.primary, ...action.aliases ?? []]) {
+        expect(owners.get(key), key).toBeUndefined()
+        owners.set(key, action.id)
+      }
+    }
+  })
+
   it('merges valid user bindings and ignores unknown actions', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
     writeFileSync(path, JSON.stringify({ 'ctrl+e': 'external-editor', bad: 'launch-missiles' }))
@@ -46,6 +56,9 @@ describe('loadKeybindings', () => {
     const bindings = loadKeybindings(undefined)
     expect(bindings['alt+i']).toBe('expand-paste')
     expect(bindings['alt+s']).toBe('steer-turn')
+    expect(bindings['ctrl+enter']).toBe('alternate-send')
+    expect(bindings['super+enter']).toBe('alternate-send')
+    expect(keysForAction(bindings, 'alternate-send')).toBe(process.platform === 'darwin' ? 'Cmd+Enter / Ctrl+Enter' : 'Ctrl+Enter')
     expect(bindings['ctrl+s']).toBe('stash-draft')
     expect(bindings['ctrl+o']).toBe('toggle-tools')
     expect(bindings['alt+o']).toBe('toggle-tool-details')
@@ -64,6 +77,24 @@ describe('loadKeybindings', () => {
     // A user row replaces the shipped chord for the same key id.
     expect(bindings['ctrl+o']).toBe('retry')
     expect(bindings['ctrl+s']).toBeUndefined()
+  })
+
+  it('normalizes Mac names and modifier order before applying and saving overrides', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'Command+Enter': null, 'Option+Shift+Control+K': 'retry', 'Cmd+Left': 'tool-actions' }))
+    const loaded = loadKeybindings(path)
+    expect(loaded['super+enter']).toBeUndefined()
+    expect(loaded['ctrl+shift+alt+k']).toBe('retry')
+    expect(loaded['super+left']).toBe('tool-actions')
+    expect(loaded['cmd+left']).toBeUndefined()
+    saveKeybindings(path, { ...loaded, 'Option+X': 'external-editor' })
+    expect(loadKeybindings(path)).toEqual({ ...loaded, 'alt+x': 'external-editor' })
+  })
+
+  it('shows an active Command binding when the other Enter shortcut is unbound', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'omdsh-keys-')), 'keys.json')
+    writeFileSync(path, JSON.stringify({ 'ctrl+enter': null, 'cmd+enter': 'alternate-send' }))
+    expect(keysForAction(loadKeybindings(path), 'alternate-send')).toBe(process.platform === 'darwin' ? 'Cmd+Enter' : 'Super+Enter')
   })
 
   it('persists custom keybindings and unbinds removed defaults via saveKeybindings', () => {
