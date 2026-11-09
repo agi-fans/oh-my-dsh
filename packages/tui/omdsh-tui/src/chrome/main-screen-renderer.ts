@@ -607,8 +607,8 @@ export class MainScreenRenderer {
    * opened, or a call or thought was opened.
    *
    * The frozen boundary is a row index, and a fold moves every row after it.
-   * A reshape below the boundary is ordinary: those rows were never frozen, and
-   * the next paint commits them in their new shape. A reshape above it moved
+   * A reshape below the boundary can bring frozen rows back into view when the
+   * live tail shrinks. A reshape above it moved
    * rows the terminal already holds, so the index stops naming the row it
    * froze — a shrink showed only the rows past the stale index over a blank
    * screen, a larger one read as a replaced document and replayed the whole
@@ -1069,10 +1069,10 @@ export class MainScreenRenderer {
     }
     const viewStart = Math.max(0, next.length - this.#height)
     const candidatePhysical = livePinned ? Math.min(liveStart, viewStart) : viewStart
-    // A fold can start exactly at the frozen boundary: its unchanged prefix
-    // remains in history, but now fits in the live viewport again.
+    // Even a fold below the frozen boundary can bring its unchanged prefix
+    // back into view. Top padding may also move the fold's frame coordinate.
     const reshaped = this.#reflowFrom !== undefined && (this.#reflowFrom < this.#physical
-      || (this.#reflowFrom === this.#physical && candidatePhysical < this.#physical))
+      || candidatePhysical < this.#physical)
     let effectiveStart = viewStart
     let target = this.#target(next, effectiveStart, 'bottom')
     let body = ''

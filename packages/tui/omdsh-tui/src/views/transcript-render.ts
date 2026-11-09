@@ -2516,11 +2516,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const motion = options.motion ?? 'full'
   const spinnerFrame = motion === 'off' ? -1 : options.spinnerFrame ?? 0
   if (options.fileBrowser !== undefined) {
-    const browser = renderFileBrowser(options.fileBrowser, theme, width, height)
+    const browser = renderFileBrowser(options.transientStatus === undefined ? options.fileBrowser
+      : { ...options.fileBrowser, notice: options.transientStatus }, theme, width, height)
     return { ...browser, lines: fitFrame(browser.lines, width), documentRows: null }
   }
   if (options.trajectory !== undefined) {
-    const trajectory = renderTrajectory(options.trajectory, theme, width, height)
+    const trajectory = renderTrajectory(options.transientStatus === undefined ? options.trajectory
+      : { ...options.trajectory, notice: options.transientStatus }, theme, width, height)
     return {
       lines: fitFrame(trajectory.lines, width),
       cursor: trajectory.cursor,
@@ -2541,7 +2543,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
   if (options.promptSelector?.renderDocument === undefined && (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document')) {
     const review = options.promptSelector.request.documentImage === undefined ? renderPlanReviewPage(
-      options.promptSelector,
+      options.transientStatus === undefined ? options.promptSelector : { ...options.promptSelector, notice: options.transientStatus },
       theme,
       width,
       height,
@@ -2585,8 +2587,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       : undefined
   const working: string[] = []
   const statusBar = resolveStatusBarConfig(options.statusBar, options.statusPreset)
+  const emptyDraft = options.input === '' && (options.inputImages ?? 0) === 0
   const placeholder = options.inspected === undefined && state.status === 'idle'
-    && options.input === '' && (options.inputImages ?? 0) === 0
+    && emptyDraft
     ? options.modelReady === false
       ? theme.text('Run /login to connect a model')
       : (options.sessionControls?.plan?.pending ? !options.sessionControls.plan.active : options.sessionControls?.plan?.active)
@@ -2602,16 +2605,19 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : options.inspected === undefined
       ? slashInlineHint(options.input, options.inputCursor, options.commands)
         ?? placeholder
-        ?? (state.status === 'running' && !options.input.startsWith('!') && options.steerKey !== undefined
-          ? (options.input === '' ? '' : '  ') + (options.busyEnter === 'steer'
-            ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
-            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey })) : null)
-      : options.inspected.writable
-        ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? (state.status === 'running'
+        ?? (emptyDraft && state.status === 'running' && options.steerKey !== undefined
           ? options.busyEnter === 'steer'
             ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
-            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey ?? 'Alt+S' })
-          : theme.text('Enter to send'))
+            : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey })
+          : null)
+      : options.inspected.writable
+        ? slashInlineHint(options.input, options.inputCursor, options.commands) ?? (emptyDraft
+          ? state.status === 'running'
+            ? options.busyEnter === 'steer'
+              ? theme.text('Enter: Steer · {key}: Queue', { key: options.queueKey ?? 'Alt+Enter' })
+              : theme.text('Enter: Queue · {key}: Steer', { key: options.steerKey ?? 'Alt+S' })
+            : theme.text('Enter to send')
+          : null)
         : theme.text('Read-only · Esc to return')
   const statusFooter = renderStatusFooter({
     model: options.model,
@@ -2633,7 +2639,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // Drop whole buttons on narrow terminals; never expose a clipped click target.
   while (selectionLabels.length > 0 && visibleWidth(selectionLabels.map(item => item.label).join(' ')) + 4 > width) selectionLabels.pop()
   const selectionNote = selectionLabels.map(item => item.label).join(' ')
-  const selectionHint = selectionNote + ' · ' + uiText(options.language ?? 'en', 'Esc cancel')
+  const selectionHint = selectionNote + ' · ' + (options.transientStatus ?? uiText(options.language ?? 'en', 'Esc cancel'))
+  const editorNote = selectionNote === '' ? options.transientStatus
+    : visibleWidth(selectionHint) + 4 <= width ? selectionHint : options.transientStatus ?? selectionNote
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
@@ -2657,8 +2665,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
       : {}),
     ...(inlineHint !== null ? { inlineHint } : {}),
-    ...(options.transientStatus !== undefined ? { note: options.transientStatus } : selectionNote === '' ? {}
-      : { note: visibleWidth(selectionHint) + 4 <= width ? selectionHint : selectionNote }),
+    ...(editorNote === undefined ? {} : { note: truncateToWidth(editorNote, Math.max(0, width - 4)) }),
     ...(activityLabelText === undefined ? {} : {
       activity: {
         frame: motion === 'off' ? SYMBOL.running : SPINNER[Math.max(0, spinnerFrame) % SPINNER.length] ?? SYMBOL.running,
@@ -2689,7 +2696,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     )
   let promptVisibleRows = Math.max(3, Math.min(10, height - working.length - 14))
   const documentPanel = options.promptSelector?.renderDocument === undefined ? undefined : renderPlanReviewPage(
-    options.promptSelector, theme, width,
+    options.transientStatus === undefined ? options.promptSelector : { ...options.promptSelector, notice: options.transientStatus }, theme, width,
     Math.max(10, Math.min(height - working.length - 4, options.promptSelector.renderDocument(theme, Math.max(1, width - 6)).length + 8)),
     options.input, options.inputCursor, appName,
   )
@@ -2901,7 +2908,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     })
   }
   const selectionActions: NonNullable<Frame['selectionActions']>[number][] = []
-  if (!hasOverlay && editor !== undefined && options.transientStatus === undefined) {
+  if (!hasOverlay && editor !== undefined) {
     const row = editorStart + inputLines.length - 1 + topPad
     const painted = stripAnsi(trimmed[row] ?? '')
     for (const item of selectionLabels) {

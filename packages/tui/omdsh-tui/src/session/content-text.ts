@@ -2,6 +2,14 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 
+/** Number an image in message order, including dimensions when available. */
+export function imageMarker(index: number, image: { width?: number; height?: number }): string {
+  const dimensions = image.width === undefined || image.height === undefined
+    ? ''
+    : `, ${image.width}x${image.height}`
+  return `[Image #${index + 1}${dimensions}]`
+}
+
 export interface ContentTextOptions {
   /** Block `type` values whose `text` contributes; defaults to `['text']`. */
   readonly kinds?: readonly ContentBlock['type'][]

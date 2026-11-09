@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Submitted and resumed image messages use numbered image labels with available dimensions, matching the composer format across image conversions and mixed content.
+- Copies inside Herdr reach the attached terminal and its clipboard confirmation even after a successful local clipboard write.
+- Automatic selection copies show delivery feedback in the transcript and document, Diff, and Trajectory readers, with Copy and Quote actions alongside feedback when space permits.
+- Queue, Steer, and send placeholders hide when the composer contains text or images, including writable subagent drafts.
+- Completed turns refill the live viewport with earlier replies when Thinking and tool calls fold.
 - Linux CI stays on Ubuntu 24.04 while file-recovery sandbox tests on Ubuntu 26.04 are investigated.
 
 ## [0.24.1] - 2026-11-09

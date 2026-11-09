@@ -68,7 +68,7 @@ async function copyThroughTmux(text: string, pane: string, spawnCmd: typeof spaw
   await runCommand(['tmux', 'load-buffer', '-w', '-t', client, '-'], text, spawnCmd)
 }
 
-/** Copy locally, and forward to the user's terminal in remote or tmux sessions. */
+/** Copy locally, and forward to the attached terminal in Herdr, remote, or tmux sessions. */
 export async function copyToClipboard(
   text: string,
   spawnCmd: typeof spawn = spawn,
@@ -87,7 +87,7 @@ export async function copyToClipboard(
   if (cmd !== undefined) {
     try { await runCommand(cmd, text, spawnCmd); confirmed = true } catch { /* Try terminal forwarding. */ }
   }
-  const forwardingNeeded = remote || Boolean(env.TMUX || env.TMUX_PANE) || !confirmed
+  const forwardingNeeded = env.HERDR_ENV === '1' || remote || Boolean(env.TMUX || env.TMUX_PANE) || !confirmed
   if (!forwardingNeeded) return 'confirmed'
   const bytes = Buffer.byteLength(text, 'utf8')
   if (bytes > 100_000) {
@@ -103,8 +103,12 @@ export async function copyToClipboard(
     throw new Error('no clipboard available')
   }
   const sequence = `\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`
-  output.write(env.TMUX || env.TMUX_PANE
-    ? `\x1bPtmux;${sequence.replaceAll('\x1b', '\x1b\x1b')}\x1b\\` : sequence)
+  try {
+    output.write(env.TMUX || env.TMUX_PANE
+      ? `\x1bPtmux;${sequence.replaceAll('\x1b', '\x1b\x1b')}\x1b\\` : sequence)
+  } catch (error) {
+    if (!confirmed || remote) throw error
+  }
   return confirmed && !remote ? 'confirmed' : 'requested'
 }
 

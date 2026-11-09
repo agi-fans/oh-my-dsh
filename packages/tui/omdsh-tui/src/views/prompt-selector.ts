@@ -16,6 +16,7 @@ import { renderListRow, type ListRow } from './list-view.ts'
 /** Presentation state owned by the terminal while a human prompt is active. */
 export interface PromptSelectorState {
   request: TuiPrompt
+  notice?: string
   /** Terminal-owned document formatting, shared by rendering and search. */
   renderDocument?: (theme: Theme, width: number) => string[]
   selected: number
@@ -608,7 +609,7 @@ export function renderPlanReviewPage(
       ? `[${shortcuts} · / find · Ctrl+N/P match]`
       : `[${shortcuts}]`
     const hints = renderedReader ? renderedHints : source === undefined ? [pageHint] : readerHints
-    lines.push(...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)))
+    lines.push(...hints.map((hint, index) => pageRow(theme, theme.fg('dim', index === hints.length - 1 ? state.notice ?? hint : hint), width)))
     lines.push(pageBottom(theme, width))
   }
 
@@ -726,7 +727,10 @@ export function renderPromptSelector(
     dismiss === undefined ? navigation : navigation.replace(formatOverlayHint([HOTKEY_CANCEL], 'lowercase', theme.language), `${formatHotkeyKeys(HOTKEY_CANCEL)} ${dismiss.toLowerCase()}`),
     ...(state.request.skippable === true ? [formatOverlayHint([HOTKEY_SKIP], 'lowercase', theme.language)] : []),
   ]
-  body.push('', theme.fg('dim', theme.text(hints.join(' · '))))
+  const hintRows = wrapTextStable(theme.text(hints.join(' · ')), contentWidth)
+  const noticeRows = state.notice === undefined ? hintRows
+    : [truncateToWidth(state.notice, contentWidth), ...Array.from({ length: hintRows.length - 1 }, () => '')]
+  body.push('', ...noticeRows.map(line => theme.fg('dim', line)))
   if (state.request.options !== undefined) {
     const buttons = [...(options.length === 0 ? [] : [{ key: 'enter', label: submit }]), ...(state.request.actions ?? []).filter(action => options.length > 0 || action.scope === 'list')]
     let line = ''
@@ -787,7 +791,7 @@ export function renderPromptSelector(
       ...(displayInput !== '' || state.request.question === '' ? {} : { inlineHint: state.request.question }),
       // The keys live on the bottom rule so the frame says how to answer without
       // spending a row on it.
-      ...(hints.length === 0 ? {} : { note: theme.text(hints.join(' · ')) }),
+      ...(hints.length === 0 && state.notice === undefined ? {} : { note: state.notice ?? theme.text(hints.join(' · ')) }),
       border: 'accent',
     }, theme)
     return { lines: editor.lines, cursor: editor.cursor, cursorVisible: true }

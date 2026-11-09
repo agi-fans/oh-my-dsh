@@ -11,7 +11,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import type { TuiToolPresentation } from '../chrome/tool-renderers.ts'
-import { blocksText } from '../session/content-text.ts'
+import { blocksText, imageMarker } from '../session/content-text.ts'
 
 export type TodoItem = Extract<SessionEvent, { type: 'todo/write' }>['data']['todos'][number]
 
@@ -219,20 +219,17 @@ export function initialTranscript(): TranscriptState {
 /**
  * Extract plain text from text blocks, naming other block kinds.
  *
- * The name is deliberately bare, the way Pi and oh-my-pi name one: the picture
- * itself is the content, so the text only says what kind of thing sits at this
- * point. Dimensions, byte counts and the full MIME string belong in the tool
- * that produced the file, not in every message that carries it.
+ * Image labels use the composer's numbering and dimension format in content order.
  */
 export function contentToText(content: readonly ContentBlock[]): string {
   let text = ''
+  let imageIndex = 0
   for (const block of content) {
     if (block.type === 'text') { text += block.text; continue }
     if (block.type !== 'image' && block.type !== 'file') continue
     if (text !== '' && !/\s$/u.test(text)) text += ' '
     if (block.type === 'image') {
-      const ref = block.attachment
-      text += `[Image: ${ref.mediaType}]`
+      text += imageMarker(imageIndex++, block.attachment)
     } else {
       const ref = block.attachment
       text += `[File: ${ref.name}]`

@@ -5,6 +5,9 @@ import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { LocalTui } from './provider-local.ts'
 import { stripAnsi } from '../chrome/width.ts'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { createSubmissionMessage } from '../session/session-controller.ts'
+import { applyEvent, initialTranscript, replayEvents } from '../views/event-views.ts'
 import * as externalEditor from '../input/external-editor.ts'
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve))
@@ -150,6 +153,18 @@ it('preserves source indentation and trailing newlines alongside an image', asyn
     const modelText = sent?.segments?.filter(segment => segment.kind === 'text').map(segment => segment.text).join('')
     expect(modelText).toBe(source)
     expect(sent?.text).toBe(source)
+    const attachment = { attachmentId: AttachmentId('attachment:paste'), mediaType: 'image/webp' as const,
+      name: 'clipboard.webp', width: 1, height: 1, bytes: data.length }
+    const message = await createSubmissionMessage(sent!, { saveImages: async inputs => {
+      expect(inputs[0]?.data).toEqual(data)
+      return [attachment]
+    } })
+    expect(message.content.filter(part => part.type === 'text').map(part => part.text).join('')).toBe(source)
+    expect(message.content.at(-1)).toEqual({ type: 'image', attachment })
+    const event = { type: 'user/message' as const, seq: 1, time: 1, data: message }
+    const state = applyEvent(initialTranscript(), event)
+    expect(state.blocks[0]).toMatchObject({ kind: 'user', text: source + '[Image #1, 1x1]', image: attachment })
+    expect(replayEvents([event]).blocks).toEqual(state.blocks)
   } finally { tui.dispose() }
 })
 it('cancels an image read before a question takes ownership of input', async () => {

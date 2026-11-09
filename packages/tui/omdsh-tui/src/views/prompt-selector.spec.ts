@@ -3,6 +3,17 @@ import { togglePromptSelection, selectedPromptAnswer, selectedFilteredPromptAnsw
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
+it.each([false, true])('shows document copy feedback in full pages and narrow cards (colors=%s)', colors => {
+  const state: PromptSelectorState = { request: { title: 'Reader', question: '', presentation: 'document', detail: 'Selected text',
+    options: [{ label: 'Close' }], allowCustom: false }, selected: 0, checked: new Set() }
+  for (const width of [20, 40, 80]) {
+    const before = renderPlanReviewPage(state, createTheme(colors), width, 24, '', 0, 'omdsh')
+    const after = renderPlanReviewPage({ ...state, notice: 'Copied selection' }, createTheme(colors), width, 24, '', 0, 'omdsh')
+    expect(after.lines.map(stripAnsi).join('\n')).toContain('Copied selection')
+    expect(after.lines).toHaveLength(before.lines.length)
+  }
+})
+
 function reviewState(overrides: Partial<PromptSelectorState> = {}): PromptSelectorState {
   return {
     request: {

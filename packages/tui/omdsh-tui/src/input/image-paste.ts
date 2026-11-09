@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { SubmissionSegment, TuiInputImage, TuiSubmission } from '../definition.ts'
 import { fileMarker } from './composer-files.ts'
+import { imageMarker } from '../session/content-text.ts'
+
+export { imageMarker } from '../session/content-text.ts'
 
 const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
   '.png': 'image/png',
@@ -117,14 +120,6 @@ export function probeImageDimensions(
     }
   }
   return undefined
-}
-
-/** Compact, stable composer placeholder matching OMP's image draft label. */
-export function imageMarker(index: number, image: TuiInputImage): string {
-  const dimensions = image.width === undefined || image.height === undefined
-    ? ''
-    : `, ${image.width}x${image.height}`
-  return `[Image #${index + 1}${dimensions}]`
 }
 
 /**

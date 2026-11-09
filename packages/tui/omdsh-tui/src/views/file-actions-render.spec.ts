@@ -47,6 +47,7 @@ it.each([false, true])('shows one selected tool menu button and cell-safe select
       expect(frame.lines[target.row]).toContain(target.action === 'copy' ? 'Copy' : 'Quote')
     }
     const feedback = renderView(initialTranscript(), { ...options, width, selectionActions: 'copy-quote', transientStatus: 'Copied' })
-    expect(feedback.selectionActions).toEqual([])
+    expect(feedback.lines.join('\n')).toContain('Copied')
+    expect(feedback.selectionActions).toHaveLength(width >= 40 ? 2 : 0)
   }
 })

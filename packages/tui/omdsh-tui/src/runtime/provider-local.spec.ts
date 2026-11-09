@@ -6242,9 +6242,11 @@ describe('text reader pointer interaction', () => {
       press(term, `\x1b[<0;${column + 1};${row + 1}M\x1b[<32;${column + 7};${row + 1}M\x1b[<0;${column + 7};${row + 1}m`)
       await flushAsyncPaste()
       expect(copy).toHaveBeenCalledTimes(copyOnSelect ? 1 : 0)
+      if (copyOnSelect) expect(term.visible().join('\n')).toContain('Copied selection')
       press(term, `\x1b[<2;${column + 1};${row + 1}M`)
       await flushAsyncPaste()
       expect(copy).toHaveBeenLastCalledWith('ROW_001')
+      expect(term.visible().join('\n')).toContain('Copied selection')
       press(term, wheelDown)
       const calls = copy.mock.calls.length
       press(term, `\x1b[<0;${column + 7};${row + 1}m`)
@@ -6928,6 +6930,54 @@ describe('current tool actions and selected quotes', () => {
     } finally { tui.dispose() }
   })
 
+  it.each(['confirmed', 'requested', 'failure'] as const)('shows automatic selection copy feedback (%s) and retains Quote', async delivery => {
+    const term = new ScrollingTerminal(120, 32), copy = vi.fn(async () => {
+      if (delivery === 'failure') throw new Error('unavailable')
+      return delivery
+    })
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      twoTools(tui)
+      tui.event(ev('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', content: [{ type: 'text', text: 'SELECT_THIS' }] } }, 9))
+      tui.restoreInput({ text: 'keep draft', images: [] })
+      const row = term.visible().findIndex(line => line.includes('SELECT_THIS'))
+      const col = term.visible()[row]!.indexOf('SELECT_THIS')
+      const history = term.scrollback()
+      pointer(term, row, col, 'press'); pointer(term, row, col + 11, 'drag'); pointer(term, row, col + 11, 'release')
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('SELECT_THIS')
+      const text = term.visible().join('\n')
+      expect(text).toContain(delivery === 'failure' ? 'Copy failed' : delivery === 'requested' ? 'Selection sent to terminal clipboard' : 'Copied selection')
+      expect(text).toContain('[Copy]')
+      expect(text).toContain('[Quote]')
+      expect(term.scrollback()).toEqual(history)
+      clickLabel(term, '[Quote]')
+      expect(term.visible().join('\n')).toContain('Quoted in composer')
+      expect(term.visible().join('\n')).toContain('keep draft')
+    } finally { tui.dispose() }
+  })
+
+  it.each(['escape', 'session'] as const)('drops delayed selection feedback after %s', async ending => {
+    let complete!: () => void
+    const pending = new Promise<void>(resolve => { complete = resolve })
+    const term = new ScrollingTerminal(120, 32), copy = vi.fn(async () => { await pending })
+    const tui = new LocalTui(term, 'm', false, 'dark', copy)
+    try {
+      twoTools(tui)
+      tui.event(ev('assistant/message', { turn: 1, step: 3, message: { role: 'assistant', content: [{ type: 'text', text: 'SELECT_THIS' }] } }, 9))
+      const row = term.visible().findIndex(line => line.includes('SELECT_THIS'))
+      const col = term.visible()[row]!.indexOf('SELECT_THIS')
+      pointer(term, row, col, 'press'); pointer(term, row, col + 11, 'drag'); pointer(term, row, col + 11, 'release')
+      await flushAsyncPaste()
+      expect(copy).toHaveBeenCalledWith('SELECT_THIS')
+      if (ending === 'session') tui.replaceSession([])
+      else press(term, '\x1b[27u')
+      complete()
+      await flushAsyncPaste()
+      expect(term.visible().join('\n')).not.toContain('Copied selection')
+    } finally { complete(); tui.dispose() }
+  })
+
   it.each(['copy', 'quote', 'failure'] as const)('uses the selection %s button without losing the draft', async action => {
     const term = new ScrollingTerminal(120, 32), copy = vi.fn(async () => { if (action === 'failure') throw new Error('unavailable') })
     const tui = new LocalTui(term, 'm', false, 'dark', copy)
@@ -7205,6 +7255,7 @@ describe('Trajectory pointer ownership', () => {
       press(term, '\r')
       await flushAsyncPaste()
       expect(copy).toHaveBeenCalledWith('result-line-0')
+      expect(term.visible().join('\n')).toContain('Copied selection')
       // One escape clears selection, one closes details, one closes Trajectory.
       press(term, '\x1b[27u\x1b[27u\x1b[27u')
       expect(term.visible()).toEqual(before)
@@ -7261,6 +7312,7 @@ it('copies file-review text without switching files or disturbing native history
     expect(copy).not.toHaveBeenCalled()
     press(term, '\r'); await flushAsyncPaste()
     expect(copy).toHaveBeenCalledWith('selectable-content')
+    expect(term.visible().join('\n')).toContain('Copied selection')
     press(term, '\x1b[27u')
     expect(term.visible().join('\n')).toContain('selectable-content')
     press(term, '\x1b[27u'); await review

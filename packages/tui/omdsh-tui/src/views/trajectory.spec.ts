@@ -15,6 +15,15 @@ import {
   trajectorySearch,
 } from './trajectory.ts'
 
+it.each([false, true])('keeps copy confirmation visible before navigation hints at narrow widths (colors=%s)', colors => {
+  for (const width of [40, 80, 120]) {
+    const state = { ...createTrajectory([]), notice: 'Copied selection' }
+    const frame = renderTrajectory(state, createTheme(colors), width, 24)
+    expect(frame.lines.map(stripAnsi).join('\n')).toContain('Copied selection')
+    expect(frame.lines.every(line => visibleWidth(line) <= width)).toBe(true)
+  }
+})
+
 function event(seq: number, type: string, data: unknown, time = seq * 100): SessionEvent {
   return { seq, type, data, time } as unknown as SessionEvent
 }

@@ -2334,9 +2334,9 @@ export class LocalTui implements TuiService {
         themeName: this.#themeName,
         terminal: this.#terminalColors,
         ...(workingLabel === undefined ? {} : { workingLabel }),
+        ...(this.#selection.active ? { selectionActions: this.#canQuoteSelection() ? 'copy-quote' as const : 'copy' as const } : {}),
         ...(this.#transientStatus !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), this.#transientStatus) }
-          : this.#selection.active ? { selectionActions: this.#canQuoteSelection() ? 'copy-quote' as const : 'copy' as const }
-          : this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return', { key: keysForAction(this.#keybindings, 'tool-actions') }) } : {}),
+          : !this.#selection.active && this.#processSelection !== undefined ? { transientStatus: uiText(resolveUiLanguage(this.#uiLanguage), 'Process · ↑↓ select · Enter toggle · {key} actions · Home title · Esc return', { key: keysForAction(this.#keybindings, 'tool-actions') }) } : {}),
         scrollStart: this.#follow ? Number.POSITIVE_INFINITY : this.#scrollStart,
         ...(this.#focusBlock === undefined ? {} : { focusBlock: this.#focusBlock, focusBlockEdge: this.#focusBlockEdge ?? 'start', ...(this.#focusBlockOffset === undefined ? {} : { focusBlockOffset: this.#focusBlockOffset }) }),
         ...(this.#transcriptSearch === null ? {} : {
@@ -2887,7 +2887,7 @@ export class LocalTui implements TuiService {
         this.#mouseActionPress = undefined
         this.#workspacePress = undefined
         if (event.button === 'left' && !event.shift && target?.key === pressedAction.key && target.row === pressedAction.row && target.column === pressedAction.column) {
-          if (target.action === 'copy') void this.#copySelection(true)
+          if (target.action === 'copy') void this.#copySelection()
           else if (target.action === 'quote') this.#quoteSelection()
           else {
             const block = this.#state.blocks[target.block!]
@@ -2911,7 +2911,7 @@ export class LocalTui implements TuiService {
       this.#workspacePress = undefined
       this.#disclosurePress = undefined
       if (event.action === 'press') {
-        if (this.#selection.active) void this.#copySelection(true)
+        if (this.#selection.active) void this.#copySelection()
         else {
           const region = this.#fileRegionAt(event.row)
           if (region !== undefined) {
@@ -2976,7 +2976,7 @@ export class LocalTui implements TuiService {
 
   #handleTrajectoryMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (event.button === 'right') {
-      if (event.action === 'press' && this.#selection.active) void this.#copySelection(true)
+      if (event.action === 'press' && this.#selection.active) void this.#copySelection()
       return
     }
     if (event.action === 'press') {
@@ -3031,16 +3031,18 @@ export class LocalTui implements TuiService {
     return task
   }
 
-  async #copySelection(explicit = false): Promise<void> {
+  async #copySelection(): Promise<void> {
     if (!this.#selection.valid(this.#renderer.viewport())) { this.#selection.clear(); return }
     const text = this.#selection.text()
     if (text === undefined) return
     try {
       const delivery = await this.#deliverCopy(text)
-      if (explicit && !this.#disposed) { this.#showTransientStatus(delivery === 'requested' ? 'Selection sent to terminal clipboard' : 'Copied selection'); this.#render() }
+      if (!this.#disposed && this.#selection.text() === text) {
+        this.#showTransientStatus(delivery === 'requested' ? 'Selection sent to terminal clipboard' : 'Copied selection')
+      }
     }
     catch {
-      if (!this.#disposed) { this.#showTransientStatus('Copy failed'); this.#render() }
+      if (!this.#disposed && this.#selection.text() === text) this.#showTransientStatus('Copy failed')
     }
   }
 
@@ -3177,7 +3179,7 @@ export class LocalTui implements TuiService {
     if (this.#selection.active) {
       if (event.type === 'key' && this.#boundAction(event.id) === 'quote-selection') { this.#quoteSelection(); return }
       if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
-        void this.#copySelection(true)
+        void this.#copySelection()
         return
       }
       this.#selection.clear()

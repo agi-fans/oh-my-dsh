@@ -6,6 +6,7 @@ import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import { createTheme, THEME_NAMES } from '../chrome/theme.ts'
 import type { TranscriptState } from './transcript-types.ts'
 import { mergeJobSettlement } from '../session/job-notice.ts'
+import { imageMarker } from '../input/image-paste.ts'
 
 const event = (type: string, data: unknown, time: number): SessionEvent => ({ type, data, time, seq: time }) as SessionEvent
 const start = () => applyEvent(initialTranscript(), event('turn/start', { turn: 1 }, 1000))
@@ -165,6 +166,7 @@ describe('live content followed by a completed turn summary', () => {
     }, 1200))
     const block = state.blocks.find(entry => entry.kind === 'user')
     expect(block?.kind === 'user' ? block.image?.attachmentId : undefined).toBe('abcdefghijkl')
+    expect(block?.kind === 'user' ? block.text : '').toContain(imageMarker(0, attachment))
     const base = { width: 80, height: 40, colors: true, colorDepth: 'truecolor', themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
     expect(renderView(state, base).lines).toEqual(renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines)
     expect(renderView(state, { ...base, imageProtocol: 'kitty' as const }).image).toBeUndefined()
@@ -178,7 +180,26 @@ describe('live content followed by a completed turn summary', () => {
     }, 1200))
     const base = { width: 80, height: 40, colors: true, colorDepth: 'truecolor', themeName: 'dark' as const, model: 'm', input: '', inputCursor: 0 }
     const screen = renderView(state, { ...base, imageProtocol: 'kitty' as const }).lines.map(stripAnsi).join('\n')
-    expect(screen).toContain('看这个 [Image: image/jpeg]怎么样')
+    expect(screen).toContain('看这个 [Image #1, 800x600]怎么样')
+  })
+
+  it('numbers actual image blocks through mixed content and legacy metadata', () => {
+    const attachment = { attachmentId: 'abcdefghijkl', mediaType: 'image/webp', bytes: 4096, name: 'clipboard.webp' }
+    const message = event('user/message', { source: { kind: 'user' }, content: [
+      { type: 'text', text: 'literal [Image #9]\n' },
+      { type: 'image', attachment },
+      { type: 'text', text: '\ncompare\n' },
+      { type: 'image', attachment: { ...attachment, attachmentId: 'other', width: 800, height: 600 } },
+      { type: 'text', text: '\nend' },
+    ] }, 1200)
+    const state = applyEvent(start(), message)
+    const block = state.blocks.find(entry => entry.kind === 'user')
+    expect(block?.kind === 'user' ? block.text : '').toBe('literal [Image #9]\n[Image #1]\ncompare\n[Image #2, 800x600]\nend')
+    for (const colors of [false, true]) for (const width of [24, 80]) {
+      const rows = view(state, colors, width).lines.map(stripAnsi)
+      expect(rows.join('\n')).not.toContain('image/webp')
+      expect(rows.every(row => visibleWidth(row) <= width)).toBe(true)
+    }
   })
   it('does not fold an earlier part of the same live turn around an ordinary notice', () => {
     let state = result(call(start(), 'c', 'read', { path: 'README.md' }), 'c', 'first tool content')

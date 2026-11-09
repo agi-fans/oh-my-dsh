@@ -1704,11 +1704,11 @@ export function renderTrajectory(
     body = ledgerRows(state, theme, safeWidth, bodyHeight)
   }
   while (body.length < bodyHeight) body.push('')
-  const footerText = state.searching
-    ? ` Search: ${state.query}`
-    : state.details
-      ? ` ↑↓ / PgUp PgDn scroll · y Copy section · Esc Back${state.notice ? ' · ' + state.notice : ''}`
-      : ` ↑↓ Select · Enter Inspect · End Follow · Esc Close${state.notice ? ' · ' + state.notice : ''}`
+  const navigation = state.details
+    ? ' ↑↓ / PgUp PgDn scroll · y Copy section · Esc Back'
+    : ' ↑↓ Select · Enter Inspect · End Follow · Esc Close'
+  const footerText = state.searching ? ` Search: ${state.query}`
+    : state.notice ? ` ${state.notice} ·${navigation}` : navigation
   const footer = truncateToWidth(theme.fg(state.searching ? 'accent' : 'dim', footerText), safeWidth)
   const lines = [header, toolbar, divider, ...(overview ?? []), ...body.slice(0, bodyHeight), footer].slice(0, safeHeight)
   while (lines.length < safeHeight) lines.push('')

@@ -51,6 +51,27 @@ describe('clipboard delivery', () => {
     expect(output.write).toHaveBeenCalledWith(`\x1b]52;c;${Buffer.from('hello 中').toString('base64')}\x07`)
   })
 
+  it('forwards successful local copies through Herdr so the client can show clipboard feedback', async () => {
+    const helper = helpers([{ code: 0 }])
+    const output = { isTTY: true, write: vi.fn() }
+    expect(await copyToClipboard('hello 中🐳', helper.run, { platform: 'darwin', env: { HERDR_ENV: '1' }, output })).toBe('confirmed')
+    expect(output.write).toHaveBeenCalledWith(`\x1b]52;c;${Buffer.from('hello 中🐳').toString('base64')}\x07`)
+  })
+
+  it('retains confirmed local delivery if Herdr terminal forwarding is unavailable', async () => {
+    for (const output of [{ isTTY: false, write: vi.fn() }, { isTTY: true, write: vi.fn(() => { throw new Error('closed') }) }]) {
+      const helper = helpers([{ code: 0 }])
+      expect(await copyToClipboard('hello', helper.run, { platform: 'darwin', env: { HERDR_ENV: '1' }, output })).toBe('confirmed')
+    }
+  })
+
+  it('bounds Herdr terminal payloads and retains confirmed large local copies', async () => {
+    const helper = helpers([{ code: 0 }])
+    const output = { isTTY: true, write: vi.fn() }
+    expect(await copyToClipboard('中'.repeat(40_000), helper.run, { platform: 'darwin', env: { HERDR_ENV: '1' }, output })).toBe('confirmed')
+    expect(output.write).not.toHaveBeenCalled()
+  })
+
   it('uses tmux clipboard integration for the most active client of this pane’s session', async () => {
     const helper = helpers([
       { stdout: 'external\n' }, { stdout: '$1\n' },
