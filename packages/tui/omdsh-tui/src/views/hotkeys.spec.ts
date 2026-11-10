@@ -108,17 +108,20 @@ describe('formatHotkeysText', () => {
     expect(text).toContain('Alt+R / Ctrl+G')
   })
 
-  it('keeps the default help subset compact and honors the paste binding', () => {
-    const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard' })
+  it.each([false, true])('keeps the help subset compact with an extra Alt paste binding=%s', extraAltPaste => {
+    const text = formatEssentialHotkeysText({ ...DEFAULT_KEYBINDINGS, 'ctrl+g': 'paste-clipboard', ...(extraAltPaste ? { 'ctrl+alt+v': 'paste-clipboard' } : {}) })
     expect(text.split('\n')).toHaveLength(16)
     expect(text).toContain('Send with the other behavior while busy')
     expect(text).toContain('Alt+M')
     expect(text).toContain('Alt+O')
-    expect(text).toContain(useWindowsKeybindings() ? 'Ctrl+V / Ctrl+Alt+V / Ctrl+G'
-      : process.platform === 'darwin' ? 'Ctrl+V / Cmd+V / Ctrl+G' : 'Ctrl+V / Ctrl+G')
+    const paste = text.split('\n').find(line => line.includes('Paste clipboard'))!
+    expect(paste).toContain('Ctrl+V')
+    expect(paste).toContain('Ctrl+G')
+    if (useWindowsKeybindings() || extraAltPaste) expect(paste).toContain('Ctrl+Alt+V')
+    if (!useWindowsKeybindings() && process.platform === 'darwin') expect(paste).toContain('Cmd+V')
     expect(text).toContain('Esc twice')
     expect(text).toContain('Show or hide thinking')
-    expect(text).not.toContain('Ctrl+A')
+    expect(text).not.toMatch(/(?:`| \/ )Ctrl\+A(?:`| \/ )/u)
   })
 
   it('names the effective bindings rather than fixed keys', () => {

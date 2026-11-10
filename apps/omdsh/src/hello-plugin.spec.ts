@@ -1,4 +1,4 @@
-import { spawnPnpm, spawnTool } from './test-support/pnpm.ts'
+import { runTool } from './test-support/pnpm.ts'
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -22,14 +22,13 @@ const appManifest = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'
   dependencies?: Record<string, string>
 }
 
-function packedArchive(cwd: string, packDir: string): string {
+async function packedArchive(cwd: string, packDir: string): Promise<string> {
   if (!existsSync(join(cwd, 'lib'))) {
-    const built = spawnPnpm(['run', 'build'], {
+    await runTool('pnpm', ['run', 'build'], {
       cwd,
       encoding: 'utf8',
       timeout: 60_000,
     })
-    expect(built.status, built.stderr + built.stdout).toBe(0)
   }
   const manifest = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>
@@ -45,12 +44,11 @@ function packedArchive(cwd: string, packDir: string): string {
     const from = join(cwd, name)
     if (existsSync(from)) cpSync(from, join(stage, name), { recursive: true })
   }
-  const packed = spawnTool('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
+  const packed = await runTool('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
     cwd: stage,
     encoding: 'utf8',
     timeout: 60_000,
   })
-  expect(packed.status, packed.stderr + packed.stdout).toBe(0)
   return join(packDir, basename(packed.stdout.trim().split('\n').at(-1) ?? ''))
 }
 
@@ -113,13 +111,12 @@ describe('examples/hello bundle', () => {
       write: () => undefined,
     })
     expect(added).toBe(0)
-    const result = spawnPnpm(['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
+    const result = await runTool('pnpm', ['exec', 'tsx', 'src/bin.ts', '--dump-config'], {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
       timeout: 30_000,
     })
-    expect(result.status).toBe(0)
     expect(result.stdout).toContain(exampleName)
     expect(result.stdout).toContain('id: omdsh-hello')
     expect(result.stdout).not.toContain('Into the Unknown')
@@ -129,35 +126,32 @@ describe('examples/hello bundle', () => {
     expect(appManifest.dependencies?.['node-addon-require-builtin']).toBe('^0.1.9')
   })
 
-  it('boots a Profile-installed command from the packed application', () => {
+  it('boots a Profile-installed command from the packed application', async () => {
     const packDir = temp('omdsh-hello-pack-')
     const installDir = temp('omdsh-hello-install-')
     const home = temp('omdsh-hello-packed-home-')
-    const tuiArchive = packedArchive(tuiDir, packDir)
-    const appArchive = packedArchive(appDir, packDir)
+    const tuiArchive = await packedArchive(tuiDir, packDir)
+    const appArchive = await packedArchive(appDir, packDir)
     // A cold Windows runner installs the packed dependency tree well past the
     // POSIX budget, so this step gets its own generous bound.
-    const installed = spawnTool('npm', ['install', '--no-audit', '--no-fund', '--prefix', installDir, appArchive, tuiArchive], {
+    await runTool('npm', ['install', '--no-audit', '--no-fund', '--prefix', installDir, appArchive, tuiArchive], {
       encoding: 'utf8',
       timeout: 420_000,
     })
-    expect(installed.status, installed.stderr + installed.stdout).toBe(0)
     const bin = join(installDir, 'node_modules', '.bin', process.platform === 'win32' ? 'omdsh.cmd' : 'omdsh')
-    const added = spawnTool(bin, ['plugin', 'add', exampleDir], {
+    await runTool(bin, ['plugin', 'add', exampleDir], {
       cwd: repoRoot,
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
       timeout: 60_000,
     })
-    expect(added.status, added.stderr + added.stdout).toBe(0)
-    const launched = spawnTool(bin, [], {
+    const launched = await runTool(bin, [], {
       cwd: repoRoot,
       input: '/hello\n',
       encoding: 'utf8',
       env: { ...process.env, OMDSH_HOME: home },
       timeout: 60_000,
     })
-    expect(launched.status, launched.stderr + launched.stdout).toBe(0)
     expect(launched.stdout).toContain('Hello from @agi-fans/omdsh-plugin-hello.')
   }, 600_000)
 })

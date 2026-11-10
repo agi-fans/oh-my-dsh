@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.26.0]
+
 ### Added
 
 - Click composer text to position the caret and click or scroll completions without sending. Ctrl+Shift+Up/Down jumps between prompts while preserving the draft.
@@ -14,7 +16,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Keyboard defaults account for local WSL, retain terminal lifecycle controls, and offer clipboard alternatives without taking over file-preview shortcuts. Forwarded Command keys support line editing, undo and macOS clipboard input; custom bindings accept Command/Option names. Busy-send hints use confirmed keyboard support and retain fixed Queue/Steer fallbacks.
-- Busy sending matches DeepSeek Harness: the setting is named “Send behavior while busy”, and Cmd/Ctrl+Enter uses the other Queue/Steer mode. Ctrl+Enter now sends instead of inserting a newline; Shift+Enter and Ctrl+J retain newlines, and existing Queue/Steer shortcuts keep their meaning.
+- **Breaking:** Ctrl+Enter now sends instead of inserting a newline. Shift+Enter and Ctrl+J retain newlines, and existing Queue/Steer shortcuts keep their meaning. The setting “Send behavior while busy” follows DeepSeek Harness, with Cmd/Ctrl+Enter selecting the other Queue/Steer mode.
 
 ### Fixed
 
@@ -23,6 +25,7 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Prompt jumps move from the current reading position, respect history-search input ownership and reset their anchor after other navigation.
 - Clicking composer text refreshes completions and returns keyboard focus from transcript search, process browsing and the subagent roster.
 - File-reader selection quoting respects search, help and action-menu input ownership and is disabled in read-only child views.
+- Release validation stays responsive during slow package installs and recognizes the Windows paste shortcut correctly.
 
 ## [0.25.0] - 2026-11-09
 
@@ -1069,7 +1072,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.1...v0.25.0
 [0.24.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.23.1...v0.24.0
