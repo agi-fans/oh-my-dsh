@@ -104,6 +104,9 @@ export interface DocumentRows {
 
 /** One display frame: exact lines plus an optional final cursor position. */
 export interface Frame {
+  /** Composer source offsets and completion indexes in the painted frame. */
+  inputRows?: readonly { row: number; column: number; text: string; start: number; end: number }[]
+  autocompleteRows?: readonly { row: number; index: number }[]
   /** Selection buttons on the composer rule; row is relative to the full frame. */
   selectionActions?: readonly { row: number; column: number; width: number; action: 'copy' | 'quote' }[]
 

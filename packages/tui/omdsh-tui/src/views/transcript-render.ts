@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { FileDiff, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { AutocompleteItem, SlashCommand } from './autocomplete.ts'
-import { leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
+import { autocompleteVisibleRange, leadingSlashCommandNameRange, renderAutocomplete, slashInlineHint } from './autocomplete.ts'
 import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearch } from './history-search.ts'
 import { DEEP_DRIVING_LABEL, renderEditor, renderFramedBlock, renderWelcome } from '../chrome/box.ts'
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
@@ -2619,19 +2619,25 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
             : theme.text('Enter to send')
           : null)
         : theme.text('Read-only · Esc to return')
+  const viewed = options.inspected
+  const model = viewed === undefined ? options.model : viewed.model ?? '—'
+  const reasoningEffort = viewed === undefined ? options.reasoningEffort : viewed.reasoningEffort
+  const sessionTitle = viewed === undefined ? options.sessionTitle : viewed.label
+  const controls = viewed === undefined ? options.sessionControls : viewed.controls
+  const stats = viewed === undefined ? options.sessionStats : viewed.stats
   const statusFooter = renderStatusFooter({
-    model: options.model,
-    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
-    ...(options.sessionTitle === undefined || options.sessionTitle === '' ? {} : { sessionTitle: options.sessionTitle }),
-    ...(options.sessionControls === undefined ? {} : { controls: options.sessionControls }),
-    ...(options.loopStatus === undefined ? {} : { loop: options.loopStatus }),
+    model,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    ...(sessionTitle === undefined || sessionTitle === '' ? {} : { sessionTitle }),
+    ...(controls === undefined ? {} : { controls }),
+    ...(viewed !== undefined || options.loopStatus === undefined ? {} : { loop: options.loopStatus }),
     ...(pwd === '' ? {} : { pwd }),
     ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
-    ...(options.sessionStats === undefined ? {} : { stats: options.sessionStats }),
+    ...(stats === undefined ? {} : { stats }),
     config: statusBar,
     width,
   }, theme)
-  const permissionBadge = renderPermissionBadge(options.sessionControls?.permission, theme)
+  const permissionBadge = renderPermissionBadge(controls?.permission, theme)
   const selectionLabels = options.selectionActions === undefined ? [] : [
     { action: 'copy' as const, label: '[' + uiText(options.language ?? 'en', 'Copy') + ']' },
     ...(options.selectionActions === 'copy' ? [] : [{ action: 'quote' as const, label: '[' + uiText(options.language ?? 'en', 'Quote') + ']' }]),
@@ -2918,6 +2924,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
   return {
     lines: trimmed,
+    ...(!hasOverlay && editor !== undefined && options.inspected?.writable !== false ? {
+      inputRows: editor.inputRows.map(row => ({ ...row, row: row.row + editorStart + topPad })),
+      autocompleteRows: options.autocomplete === undefined ? [] : (() => {
+        const { start, end } = autocompleteVisibleRange(options.autocomplete.items.length, options.autocomplete.selected)
+        return options.autocomplete.items.slice(start, end).flatMap((item, offset) => item.kind === 'heading' ? [] : [{ row: editorStart + inputLines.length + topPad + offset, index: start + offset }])
+      })(),
+    } : {}),
     selectionActions,
     stickyHeaders,
     ...(jumpToLatest === undefined ? {} : { jumpToLatest: { ...jumpToLatest, row: jumpToLatest.row + topPad } }),

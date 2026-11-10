@@ -493,6 +493,16 @@ export interface IndexedLine {
   end: number
 }
 
+/** Source offset at a display cell; clicks inside a wide grapheme select its start. */
+export function indexAtCell(text: string, cell: number): number {
+  let column = 0
+  for (const span of clusterSpans(text)) {
+    column += graphemeWidth(span.cluster)
+    if (cell < column) return span.index
+  }
+  return text.length
+}
+
 /**
  * Wrap plain `text` (no ANSI) to `width`, carrying source offsets so a cursor
  * index can be mapped to (row, column).

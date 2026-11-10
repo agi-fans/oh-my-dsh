@@ -137,6 +137,7 @@ function hotkeySections(bindings: HotkeyBindings, enhancedKeys: boolean): readon
       rows: [
         { keys: keysForActions(bindings, 'scroll-page-up', 'scroll-page-down'), action: 'Scroll one page' },
         { keys: keysForActions(bindings, 'scroll-fast-up', 'scroll-fast-down'), action: 'Scroll quickly' },
+        { keys: keysForActions(bindings, 'previous-turn', 'next-turn'), action: 'Jump to the previous or next prompt' },
         { keys: 'End / click jump label', action: 'Return to the latest message while browsing' },
         { keys: keysForAction(bindings, 'toggle-tools'), action: 'Toggle completed turn details or tool descriptions' },
         { keys: keysForAction(bindings, 'toggle-tool-details'), action: 'Toggle full tool inputs and results for the current turn' },

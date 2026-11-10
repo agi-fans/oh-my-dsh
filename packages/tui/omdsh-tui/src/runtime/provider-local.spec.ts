@@ -1512,14 +1512,14 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('does not emit any mouse mode sequence from startup through disposal', () => {
+  it('owns composer mouse input at startup and releases it on disposal', () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     tui.dispose()
-    expect(term.captured).not.toContain('\x1b[?1000h')
-    expect(term.captured).not.toContain('\x1b[?1006h')
-    expect(term.captured).not.toContain('\x1b[?1000l')
-    expect(term.captured).not.toContain('\x1b[?1006l')
+    expect(term.captured).toContain('\x1b[?1000h')
+    expect(term.captured).toContain('\x1b[?1006h')
+    expect(term.captured).toContain('\x1b[?1000l')
+    expect(term.captured).toContain('\x1b[?1006l')
     expect(term.captured).toContain('\x1b[?2004l')
     expect(term.raw).toBe(false)
     expect(term.destroyed).toBe(true)
@@ -1542,10 +1542,8 @@ describe('LocalTui (tty)', () => {
   it.each(['close', 'tail', 'clear', 'dispose'])('keeps mouse ownership correct when leaving inspection via %s', (exit) => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
-    // Long enough that the transcript still scrolls once it folds: the fold
-    // collapses the whole run to one row, so a turn sized against the old
-    // thirteen-row header now fits the viewport and mouse tracking is released
-    // for the right reason rather than the one under test.
+    // Keep the transcript scrollable after folding; the composer also owns
+    // mouse input after clearing or returning to the live tail.
     longTurn(tui, 30, 1, false)
     expect(term.captured).toContain('\x1b[?1000h')
     press(term, '\x0f')
@@ -1555,7 +1553,7 @@ describe('LocalTui (tty)', () => {
     else if (exit === 'tail') press(term, '\x1b[6~'.repeat(6))
     else if (exit === 'clear') press(term, '/clear\r')
     else tui.dispose()
-    if (exit === 'dispose' || exit === 'clear') expect(term.captured.slice(mark)).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
+    if (exit === 'dispose') expect(term.captured.slice(mark)).toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
     else expect(term.captured.slice(mark)).not.toContain('\x1b[?1006l\x1b[?1002l\x1b[?1000l')
     tui.dispose()
   })
@@ -5950,6 +5948,42 @@ it('keeps unsupported terminals quiet and supports explicit state enablement and
   await tui.dispose()
   expect(term.captured).toContain('\x1b]2;\x07')
   expect(term.captured).toContain('state=clear:app=omdsh')
+})
+
+it.each(['status', 'workspace'] as const)('keeps the %s title on the root directory while child completion follows the inspected directory', async terminalTitle => {
+  const directory = mkdtempSync(join(tmpdir(), 'omdsh-inspected-title-'))
+  const root = join(directory, 'root-workspace')
+  const child = join(directory, 'child-workspace')
+  const moved = join(directory, 'moved-root')
+  for (const path of [root, child, moved]) mkdirSync(path)
+  const term = new FakeTerminal()
+  const listed: string[] = []
+  const tui = new LocalTui(term, 'm', false, 'dark', async () => {}, { cwd: root, listDir: dir => { listed.push(dir); return [] } })
+  const title = () => term.captured.match(/\x1b\]2;[^\x07]*\x07/g)?.at(-1)
+  try {
+    tui.applyStoredPrefs({ terminalTitle })
+    tui.setSession({ id: 'root', recent: [] })
+    tui.setWorkingDirectory(root, { root: true })
+    tui.setStatus('running', { root: true })
+    const rootTitle = title()
+    tui.setWorkingDirectory(child, { root: false })
+    expect(title()).toBe(rootTitle)
+    tui.setInspectedSubagent({ id: 'child', label: 'Child', phase: 'waiting', writable: true })
+    tui.setStatus('idle')
+    expect(title()).toBe(rootTitle)
+    tui.setWorkingDirectory(moved, { root: true })
+    expect(title()).toContain('Working · moved-root · omdsh')
+    const input = tui.readline()
+    press(term, '@./')
+    expect(listed.at(-1)).toBe(child)
+    expect(title()).not.toContain('child-workspace')
+    press(term, '\x03')
+    tui.setInspectedSubagent(undefined)
+    press(term, '@./')
+    expect(listed.at(-1)).toBe(moved)
+    press(term, '\x03\x03')
+    await input
+  } finally { await tui.dispose(); rmSync(directory, { recursive: true, force: true }) }
 })
 
 it('restores a Ctrl+C cleared draft with Ctrl+- and stashes/restores drafts with Ctrl+S across a submission', async () => {

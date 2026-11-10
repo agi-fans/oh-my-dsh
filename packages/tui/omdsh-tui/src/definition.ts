@@ -379,6 +379,11 @@ export interface TuiInspectedSubagent {
   readonly mode?: 'one-shot' | 'continuable' | 'external'
   /** Continuable children accept composer follow-ups; one-shot runs stay read-only. */
   readonly writable: boolean
+  /** Viewed-session metadata; absent values must not inherit the parent's. */
+  readonly model?: string
+  readonly reasoningEffort?: string
+  readonly stats?: TuiSessionStats
+  readonly controls?: TuiSessionControls
 }
 
 /** Lightweight durable session row used by the resume UI. */
@@ -524,8 +529,8 @@ export interface TuiService {
     signal: AbortSignal
     onSuperseded(): void
   }): Promise<string | null>
-  /** Effective directory supplied by the viewed Session's Harness projection. */
-  setWorkingDirectory?(cwd: string): void
+  /** Session directory projection. Root updates own the title and preserve an inspected child's directory. */
+  setWorkingDirectory?(cwd: string, options?: { root?: boolean }): void
   /** Hand the terminal to the configured editor, then restore the live viewport. */
   openFileInEditor?(path: string): void
   /** Insert text at the composer cursor while preserving existing draft text and attachments. */
@@ -626,6 +631,8 @@ export interface TuiService {
     status?: TuiStatus,
     reason?: TuiTranscriptReplacement,
   ): void
+  /** Find text in the current transcript after its initial history paint. */
+  searchTranscript?(query: string): void
   /** Update session identity, recent rows, projected controls, and aggregate figures. */
   setSession(info: {
     id: string

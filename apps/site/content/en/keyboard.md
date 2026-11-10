@@ -75,6 +75,7 @@ When earlier messages are in view, a `↓ Latest · End` label appears above the
 | Shortcut | Action |
 |---|---|
 | `PgUp` / `PgDn` | Scroll one page. |
+| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to the previous or next prompt without changing the session or draft. |
 | `Shift+Up` / `Shift+Down` | Scroll quickly. |
 | Mouse wheel | Scroll the transcript from the live tail or while inspecting a turn; expanding a turn is not required. |
 | `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
@@ -86,7 +87,7 @@ When earlier messages are in view, a `↓ Latest · End` label appears above the
 | `Ctrl+Shift+F` | Search the current transcript; `n`/`N` step across matches. `Ctrl+F` does the same when the composer is empty, and moves the caret otherwise. |
 | `Ctrl+T` | Show or hide thinking across the transcript. |
 
-When the transcript can scroll or contains disclosure arrows or actionable files, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. With a writable composer, `Alt+Y` appends the selection as a Markdown blockquote, preserving the draft and attachments without sending. The quote is one undoable edit; long quotes fold like pasted text. Scrolling, resizing, typing, or changed selected rows clears the selection.
+When TUI mouse handling is active, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. With a writable composer, `Alt+Y` appends the selection as a Markdown blockquote, preserving the draft and attachments without sending. The quote is one undoable edit; long quotes fold like pasted text. Scrolling, resizing, typing, or changed selected rows clears the selection.
 
 Click a process row’s left-hand arrow to open or close its content; click a completed turn’s arrow to browse its process. The left gutter, including the arrow and surrounding blank cells before the title, is clickable. Small movements within that gutter and preview updates do not cancel a click. Titles and paths remain selectable; dragging out of the gutter selects text without toggling, even if the pointer returns. Shift-click keeps extending the selection. Keyboard navigation continues from the clicked item.
 
@@ -96,11 +97,15 @@ For Read results with a retained contiguous range, **Copy source** copies that r
 
 Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` opens the same files for the tool under the reading position, and a completed Turn summary does not make hidden tool cards clickable. Search tools list each declared match by file and line, with its matching text; choosing a match opens that line, including multiple matches in the same file. The reader loads enough text to reach the line within its 4 MiB preview limit; files may have changed since the search. `Alt+A` also offers these files alongside copy actions for the current tool. Closing the menu or reader retains the draft and transcript reading position. Reviewing a turn’s changes is `/diff`. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
 
+Click a composer text row to move its caret; wrapped text, CJK and emoji use their displayed positions. Clicking inside a folded paste or attachment marker moves to its boundary. Dragging still selects text for copying. Click a completion to insert it without sending, or use the wheel over the popup to change its selection.
+
 **Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
 
 Text readers, `/context`, `/trajectory`, and `/diff` support mouse-wheel scrolling and text selection. Click rows or section controls to navigate when available; dragging selects text, and copy behavior follows Settings. Native mouse mode delegates mouse input to the terminal. Reading views restore their previous position on close; commands returning transcript text move to the live tail. In Diff, click files and use Tab to switch pane focus. A opens secondary actions and ? opens help.
 
 File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text, `Q` quotes `@path:line` into the composer, and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
+
+In the Diff browser, select text in a comparison or current-file view and press `Alt+Y` or `Q` to append it as a Markdown quote to the draft and return to the composer. The draft and attachments remain unsent. Without a selection, `Q` keeps its file-line reference behavior. Approval and question dialogs retain their own input.
 
 Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. Background-job output uses the same reading keys.
 
@@ -180,6 +185,8 @@ Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`); `control`, `o
 | `tool-actions` | `Alt+A` | Copy or open the current tool’s content. |
 | `quote-selection` | `Alt+Y` | Quote selected text in the composer. |
 | `review-changes` | `Alt+V` | Preview the files the tool under the viewport declared. |
+| `previous-turn` | `Ctrl+Shift+Up` | Jump to the previous prompt. |
+| `next-turn` | `Ctrl+Shift+Down` | Jump to the next prompt. |
 | `scroll-page-up` | `PgUp` | Scroll one page up. |
 | `scroll-page-down` | `PgDn` | Scroll one page down. |
 | `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |

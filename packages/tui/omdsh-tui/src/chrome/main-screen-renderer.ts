@@ -418,6 +418,7 @@ export class MainScreenRenderer {
   #screenRows: readonly string[] = []
   /** Document row each physical row of the last frame showed, if any. */
   #screenRowSource: (number | undefined)[] = []
+  #screenFrameRows: number[] = []
   /**
    * Blank padding rows the previous frame showed above its content. The
    * terminal pushes padding up when the window shrinks, and a pushed blank row
@@ -692,6 +693,11 @@ export class MainScreenRenderer {
 
   /** Canonical physical rows, including viewport-only prompt headers. */
   viewport(): readonly string[] { return [...(this.#altActive ? this.#altScreen : this.#screen)] }
+
+  /** Last painted frame row, including chrome; alternate overlays own their input. */
+  frameRowAt(row: number): number | undefined {
+    return this.#altActive ? undefined : this.#screenFrameRows[row]
+  }
 
   /** Physical transcript rows only; chrome, sticky labels and alternate overlays have no source. */
   documentRowAt(row: number): number | undefined {
@@ -1532,6 +1538,7 @@ export class MainScreenRenderer {
    */
   #recordSource(frame: Frame, target: ScreenTarget): void {
     if (this.#altActive) return
+    this.#screenFrameRows = target.rows.map((_, row) => target.start + row - target.offset)
     const range = frame.documentRows
     if (range === null) {
       this.#screenSource = null

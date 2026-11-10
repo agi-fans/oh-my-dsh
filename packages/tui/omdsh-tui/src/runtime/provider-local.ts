@@ -197,7 +197,7 @@ import { flushPending, normalizeKeyId, parseKeys, type KeyEvent } from '../input
 import { sanitizeDisplayLine, type Frame, type FoldMark, type TranscriptDisclosure, type RenderSink } from '../chrome/renderer.ts'
 import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
-import { stripAnsi } from '../chrome/width.ts'
+import { indexAtCell, stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { supportsHyperlinks } from './terminal-probe.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
@@ -426,6 +426,8 @@ export class LocalTui implements TuiService {
   #keyTest: { signal: AbortSignal; observe: (event: KeyEvent) => void } | undefined
   #mouseActionPress: MouseActionTarget | undefined
   #fileActionFrame: Frame | undefined
+  #inputFrame: Frame | undefined
+  #inputPress: { row: number; column: number; text: string; cursor?: number; completion?: AutocompleteItem } | undefined
   #imageTemporary = new Set<string>()
   readonly #terminalProfile: 'direct' | 'multiplexer' | 'conpty'
   readonly #resizeDebounceMs: number
@@ -447,7 +449,7 @@ export class LocalTui implements TuiService {
     append: marker => { this.#editor.setCursor(this.#editor.text.length); this.#editor.handle({ type: 'text', value: (this.#editor.text === '' ? '' : ' ') + marker }) } })
 
   insertText(text: string): void {
-    if (text === '') return
+    if (text === '' || this.#inspected?.writable === false) return
     const before = this.#editor.text.slice(0, this.#editor.cursor)
     const after = this.#editor.text.slice(this.#editor.cursor)
     const prefix = before !== '' && !/\s$/u.test(before) ? ' ' : ''
@@ -655,6 +657,8 @@ export class LocalTui implements TuiService {
   #expandedReasoning = new Set<string>()
   #expandedToolRows = new Set<string>()
   #processSelection: number | undefined
+  #promptAnchor: Block | undefined
+  #transcriptScopeChanged = false
   #closedReasoning = new Set<string>()
   /**
    * The last action's confirmation, drawn on the composer's bottom border.
@@ -724,6 +728,7 @@ export class LocalTui implements TuiService {
   readonly #keybindingsPath: string | undefined
   #keybindings: Record<string, TuiAction>
   #cwd: string
+  #rootDirectory: { cwd: string; branch: string | undefined }
   #projectRoot: string
   readonly #home: string
   readonly #listDir: DirReader
@@ -818,6 +823,7 @@ export class LocalTui implements TuiService {
     this.#cwd = paths.cwd ?? fallback.cwd
     this.#readImagePath = paths.readImagePath ?? (path => readImageFile(path, this.#cwd))
     const project = resolveProjectContext(this.#cwd)
+    this.#rootDirectory = { cwd: this.#cwd, branch: project.gitLabel }
     this.#projectRoot = paths.projectRoot ?? project.root
     this.#home = paths.home ?? fallback.home
     this.#listDir = paths.listDir ?? fallback.listDir
@@ -869,6 +875,7 @@ export class LocalTui implements TuiService {
         // live window so it stays anchored at the bottom.
         this.#selection.clear()
         this.#mouseActionPress = undefined
+        this.#inputPress = undefined
         this.#workspacePress = undefined
         this.#jumpPress = undefined
         this.#disclosurePress = undefined
@@ -909,22 +916,36 @@ export class LocalTui implements TuiService {
   }
 
   /** Follow the viewed Session without replacing its transcript or native history. */
-  setWorkingDirectory(cwd: string): void {
-    if (cwd === this.#cwd && cwd === this.#projectRoot) return
-    this.#cwd = cwd
+  setWorkingDirectory(cwd: string, options: { root?: boolean } = {}): void {
+    const root = options.root ?? this.#inspected === undefined
     const project = resolveProjectContext(cwd)
+    if (root) {
+      this.#rootDirectory = { cwd, branch: project.gitLabel }
+      this.#syncWindowTitle()
+      if (this.#inspected !== undefined) return
+    }
+    if (cwd === this.#cwd && cwd === this.#projectRoot) return
+    this.#setViewedDirectory(cwd)
+    this.#syncWindowTitle()
+    if (this.#tty) this.#render()
+  }
+
+  #setViewedDirectory(cwd: string): void {
+    const project = resolveProjectContext(cwd)
+    this.#cwd = cwd
     this.#projectRoot = cwd
     this.#pwd = shortenPath(cwd)
     this.#branch = project.gitLabel
     this.#refreshAutocomplete()
-    this.#syncWindowTitle()
-    if (this.#tty) this.#render()
   }
 
   /** Refresh Git metadata without changing the Session's effective directory. */
   #refreshProjectContext(): void {
     const branch = refreshProjectContext(this.#cwd).gitLabel
-    if (branch === this.#branch) return
+    const rootBranch = this.#rootDirectory.cwd === this.#cwd ? branch : refreshProjectContext(this.#rootDirectory.cwd).gitLabel
+    const rootChanged = rootBranch !== this.#rootDirectory.branch
+    if (rootChanged) this.#rootDirectory = { ...this.#rootDirectory, branch: rootBranch }
+    if (branch === this.#branch && !rootChanged) return
     this.#branch = branch
     this.#syncWindowTitle()
     if (this.#tty) this.#render()
@@ -1077,6 +1098,7 @@ export class LocalTui implements TuiService {
       const current = this.#subagents?.agents.find(agent => agent.id === inspected.id)
       if (current !== undefined) {
         this.#inspected = {
+          ...inspected,
           id: current.id,
           label: current.label,
           phase: current.phase,
@@ -1094,10 +1116,21 @@ export class LocalTui implements TuiService {
   setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.needsApproval === inspected?.needsApproval && this.#inspected?.mode === inspected?.mode
-      && this.#inspected?.writable === inspected?.writable) return
-    if (this.#inspected?.id !== inspected?.id) { this.#workspacePress = undefined; this.#fileReviewAbort?.abort(); this.#closeFileBrowser() }
-    this.#switchDraft(inspected?.id ?? this.#sessionId)
+      && this.#inspected?.writable === inspected?.writable && this.#inspected?.model === inspected?.model
+      && this.#inspected?.reasoningEffort === inspected?.reasoningEffort && this.#inspected?.stats === inspected?.stats
+      && this.#inspected?.controls === inspected?.controls) return
+    if (this.#inspected?.id !== inspected?.id) {
+      this.#transcriptScopeChanged = true
+      this.#workspacePress = undefined
+      this.#fileReviewAbort?.abort()
+      this.#closeFileBrowser()
+      this.#transcriptSearch = null
+      this.#followTail()
+    }
+    const leaving = this.#inspected !== undefined && inspected === undefined
     this.#inspected = inspected === undefined ? undefined : { ...inspected }
+    if (leaving) { this.#setViewedDirectory(this.#rootDirectory.cwd); this.#syncWindowTitle() }
+    this.#switchDraft(inspected?.id ?? this.#sessionId)
     this.#drainPendingInput()
     if (inspected !== undefined) {
       this.#inspectEscapeFenceUntil = 0
@@ -1131,7 +1164,7 @@ export class LocalTui implements TuiService {
     this.#settings = null
     this.#search = null
     this.#ac = null
-    const browser = new FileBrowser(request, () => { if (!this.#disposed) this.#render() }, () => {
+    const browser = new FileBrowser({ ...request, canQuote: request.canQuote && (this.#inspected === undefined || this.#inspected.writable) }, () => { if (!this.#disposed) this.#render() }, () => {
       if (this.#fileBrowser === browser) this.#fileBrowser = null
       if (this.#promptDisplaced?.kind === 'fileBrowser' && this.#promptDisplaced.browser === browser) this.#promptDisplaced = null
       this.#selection.clear()
@@ -1569,10 +1602,21 @@ export class LocalTui implements TuiService {
     // to separate. Refreshes are the same document.
     const boundary = reason === 'open' || (reason === 'new' && this.#state.blocks.some(block =>
       block.kind !== 'notice'))
-    const blocks = boundary ? [transcriptSeam('session-opened'), ...state.blocks] : state.blocks
+    const refreshing = reason === 'refresh' && !this.#transcriptScopeChanged
+    this.#transcriptScopeChanged = false
+    const seam = refreshing && this.#state.blocks[0]?.kind === 'notice' && this.#state.blocks[0].boundary === true
+      ? this.#state.blocks[0] : undefined
+    const blocks = boundary ? [transcriptSeam('session-opened'), ...state.blocks] : seam === undefined ? state.blocks : [seam, ...state.blocks]
     this.#state = { ...state, status, compactCommandId: undefined, blocks }
     this.#plain.resetPrinted()
-    this.#followTail()
+    this.#promptAnchor = undefined
+    if (!refreshing) {
+      this.#transcriptSearch = null
+      this.#followTail()
+    } else if (this.#transcriptSearch !== null) {
+      const match = this.#searchOccurrences()[this.#transcriptSearch.focus]
+      if (match !== undefined) this.#focusSearchMatch(match)
+    }
     this.#deferInitialRender = false
     this.#renderer.startEpoch({ replay: reason === 'refresh' ? 'viewport' : status === 'idle' ? 'full' : 'pinned' })
     if (this.#tty) this.#render()
@@ -1587,6 +1631,7 @@ export class LocalTui implements TuiService {
     controls?: TuiSessionControls
   }): void {
     if (info.id !== this.#sessionId) {
+      this.#transcriptScopeChanged = true
       this.#workspacePress = undefined
       this.#fileReviewAbort?.abort()
       this.#closeFileBrowser()
@@ -1620,7 +1665,7 @@ export class LocalTui implements TuiService {
     const status = this.#herdr.programStatus
     this.#writeWorkingDirectory(this.#cwd)
     this.#syncProgress(status.state)
-    const title = terminalTitle(this.#terminalTitle, status, this.#sessionTitle, this.#cwd, this.#branch)
+    const title = terminalTitle(this.#terminalTitle, status, this.#sessionTitle, this.#rootDirectory.cwd, this.#rootDirectory.branch)
     if (title !== this.#writtenWindowTitle && !(this.#terminalTitle === 'off' && this.#writtenWindowTitle === undefined)) {
       this.#writtenWindowTitle = title
       this.#term.output.write(`\x1b]2;${title}\x07`)
@@ -2149,6 +2194,18 @@ export class LocalTui implements TuiService {
     this.#render()
   }
 
+  searchTranscript(query: string): void {
+    if (!this.#tty || this.#disposed || query.trim() === '') return
+    // Commit the resumed document before moving its live viewport into history.
+    this.#render()
+    this.#transcriptSearch = { query, editing: false, focus: 0 }
+    this.#promptAnchor = undefined
+    this.#ac = null
+    const match = this.#searchOccurrences()[0]
+    if (match !== undefined) this.#focusSearchMatch(match)
+    this.#render()
+  }
+
   #busy(): boolean {
     if (this.#state.status !== 'idle') return true
     if (this.#state.blocks.some((block) => block.kind === 'tool' && block.status === 'running')) return true
@@ -2456,7 +2513,8 @@ export class LocalTui implements TuiService {
     this.#syncScroll(frame.transcript)
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
-    this.#setMouseTracking(this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+    this.#inputFrame = frame.inputRows === undefined ? undefined : frame
+    this.#setMouseTracking(this.#inputFrame !== undefined || this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
       && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
@@ -2504,6 +2562,7 @@ export class LocalTui implements TuiService {
 
   #scrollBy(delta: number): void {
     this.#workspacePress = undefined
+    this.#promptAnchor = undefined
     if (this.#follow && (delta > 0 || this.#maxStart === 0)) return
     if (delta === 0 && this.#maxStart === 0) return
     if (!this.#inspecting && delta > 0 && this.#scrollStart + delta >= this.#maxStart) {
@@ -2525,6 +2584,7 @@ export class LocalTui implements TuiService {
   }
 
   #followTail(): void {
+    this.#promptAnchor = undefined
     this.#follow = true
     this.#scrollStart = this.#maxStart
     this.#endInspection()
@@ -2610,6 +2670,7 @@ export class LocalTui implements TuiService {
    * or go back to the live tail once nothing is open any more.
    */
   #inspect(target: number | undefined): void {
+    this.#promptAnchor = undefined
     const open = this.#toolsExpanded || this.#openedGroups.size > 0 || this.#expandedOutputs.size > 0
     if (!open) {
       this.#inspecting = false
@@ -2903,6 +2964,37 @@ export class LocalTui implements TuiService {
   #handleMouse(event: Extract<KeyEvent, { type: 'mouse' }>): void {
     if (!this.#mouseTracking || this.#paste || this.#pasteInFlight > 0) return
     if (this.#trajectory !== null || this.#fileBrowser !== null) { this.#handleTrajectoryMouse(event); return }
+    const frameRow = this.#renderer.frameRowAt(event.row)
+    const inputRow = this.#inputFrame?.inputRows?.find(row => row.row === frameRow)
+    const completionRow = this.#inputFrame?.autocompleteRows?.find(row => row.row === frameRow)
+    if (event.button === 'left') {
+      const pressed = this.#inputPress
+      if (event.action === 'press' && !event.shift && (inputRow !== undefined || completionRow !== undefined)) {
+        const completion = completionRow === undefined ? undefined : this.#ac?.items[completionRow.index]
+        this.#inputPress = { row: event.row, column: event.column, text: this.#editor.text,
+          ...(inputRow === undefined ? {} : { cursor: inputRow.start + indexAtCell(inputRow.text, Math.max(0, event.column - inputRow.column)) }),
+          ...(completion === undefined ? {} : { completion }) }
+      } else if (event.action === 'drag') this.#inputPress = undefined
+      else if (event.action === 'release') {
+        this.#inputPress = undefined
+        if (pressed !== undefined && !event.shift && pressed.row === event.row && pressed.column === event.column && pressed.text === this.#editor.text) {
+          this.#selection.clear()
+          this.#processSelection = undefined
+          this.#subagentSelection = undefined
+          this.#transcriptSearch = null
+          if (pressed.completion !== undefined && this.#ac !== null && completionRow !== undefined && this.#ac.items[completionRow.index] === pressed.completion) {
+            this.#ac.selected = completionRow.index
+            this.#applySelectedCompletion()
+          } else if (pressed.cursor !== undefined && inputRow !== undefined
+            && pressed.cursor === inputRow.start + indexAtCell(inputRow.text, Math.max(0, event.column - inputRow.column))) {
+            this.#editor.setCursor(pressed.cursor)
+            this.#refreshAutocomplete()
+          }
+          this.#render()
+          return
+        }
+      }
+    }
     const promptAction = this.#promptActions.find(action => event.row === action.row && event.column >= action.column && event.column < action.column + action.width)
     if (this.#promptActionPress !== undefined) {
       const pressed = this.#promptActionPress
@@ -3125,8 +3217,13 @@ export class LocalTui implements TuiService {
   }
 
   #canQuoteSelection(): boolean {
-    return this.#prompt === null && this.#settings === null && this.#trajectory === null && this.#fileBrowser === null && this.#search === null
+    return this.#prompt === null && this.#settings === null && this.#trajectory === null && (this.#fileBrowser === null || this.#fileBrowser.state.canQuote && !this.#fileBrowserOwnsInput()) && this.#search === null
       && this.#transcriptSearch === null && (this.#inspected === undefined || this.#inspected.writable === true)
+  }
+
+  #fileBrowserOwnsInput(): boolean {
+    const state = this.#fileBrowser?.state
+    return state !== undefined && (state.editing !== undefined || state.help || state.menu !== undefined)
   }
 
   #quoteSelection(): void {
@@ -3134,6 +3231,7 @@ export class LocalTui implements TuiService {
     const text = this.#selection.valid(this.#renderer.viewport()) ? this.#selection.text() : undefined
     this.#selection.clear()
     if (text !== undefined) {
+      this.#closeFileBrowser()
       this.#appendQuote(text.split('\n').map(line => '> ' + line).join('\n'))
     }
     this.#render()
@@ -3252,14 +3350,16 @@ export class LocalTui implements TuiService {
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
     this.#workspacePress = undefined
+    this.#inputPress = undefined
     if (this.#keyTest !== undefined && this.#prompt?.request.signal === this.#keyTest.signal
       && (event.type === 'text' || event.type === 'paste-start' || event.type === 'paste-end' || event.type === 'key' && !['escape', 'ctrl+c'].includes(event.id))) {
       this.#keyTest.observe(event)
       return
     }
     if (this.#selection.active) {
-      if (event.type === 'key' && this.#boundAction(event.id) === 'quote-selection') { this.#quoteSelection(); return }
-      if (event.type === 'key' && (['super+c', 'enter'].includes(event.id) || this.#boundAction(event.id) === 'copy-prompt')) {
+      if (event.type === 'key' && this.#boundAction(event.id) === 'quote-selection' && this.#canQuoteSelection()) { this.#quoteSelection(); return }
+      if (this.#fileBrowser !== null && event.type === 'text' && event.value.toLowerCase() === 'q' && this.#canQuoteSelection()) { this.#quoteSelection(); return }
+      if (event.type === 'key' && (event.id === 'super+c' || event.id === 'enter' && !this.#fileBrowserOwnsInput() || this.#boundAction(event.id) === 'copy-prompt')) {
         void this.#copySelection()
         return
       }
@@ -3273,6 +3373,11 @@ export class LocalTui implements TuiService {
     if (event.type === 'wheel') {
       if (this.#fileBrowser !== null) { this.#applyFileBrowserInput(event); return }
       if (this.#trajectory !== null) { this.#applyTrajectoryInput(event); return }
+      if (this.#ac !== null && this.#inputFrame?.autocompleteRows?.some(row => row.row === this.#renderer.frameRowAt(event.row ?? -1))) {
+        this.#ac.selected = nextSelectableAutocompleteIndex(this.#ac.items, this.#ac.selected + (event.direction === 'up' ? -1 : 1), event.direction === 'up' ? -1 : 1)
+        this.#render()
+        return
+      }
       this.#jumpPress = undefined
       if (this.#mouseTracking && !this.#paste && this.#pasteInFlight === 0) {
         const step = wheelStep(this.#wheelGesture, Date.now(), event.direction === 'up' ? -1 : 1, !this.#wheelAccelerates)
@@ -5224,6 +5329,30 @@ export class LocalTui implements TuiService {
       this.#scrollBy(-this.#pageSize())
       return true
     }
+    if (action === 'previous-turn' || action === 'next-turn') {
+      if (this.#search !== null) return false
+      const prompts = this.#state.blocks.flatMap((block, index) => block.kind === 'user' ? [index] : [])
+      const anchor = this.#promptAnchor === undefined ? -1 : this.#state.blocks.indexOf(this.#promptAnchor)
+      const top = this.#follow
+        ? this.#renderer.viewport().map((_, row) => this.#renderer.documentRowAt(row)).find(row => row !== undefined) ?? this.#scrollStart
+        : this.#scrollStart
+      const target = action === 'previous-turn'
+        ? prompts.findLast(index => anchor >= 0 ? index < anchor : (this.#blockStarts[index] ?? 0) < top)
+        : prompts.find(index => anchor >= 0 ? index > anchor : (this.#blockStarts[index] ?? 0) > top)
+      this.#processSelection = undefined
+      this.#ac = null
+      if (target === undefined) {
+        if (action === 'next-turn') this.#followTail()
+      } else {
+        this.#promptAnchor = this.#state.blocks[target]
+        this.#inspecting = true
+        this.#follow = false
+        this.#focusBlock = target
+        this.#focusBlockEdge = 'start'
+      }
+      this.#render()
+      return true
+    }
     if (action === 'scroll-page-down') {
       if (this.#search !== null) return false
       this.#scrollBy(this.#pageSize())
@@ -5619,6 +5748,7 @@ export class LocalTui implements TuiService {
       return true
     }
     if (event.id === 'home') {
+      this.#promptAnchor = undefined
       const current = this.#fileActionFrame?.transcript?.disclosures?.findLast(target =>
         target.detailEnd !== undefined && this.#scrollStart > target.row && this.#scrollStart < target.detailEnd)
       this.#processSelection = current?.block ?? selected
@@ -5628,6 +5758,7 @@ export class LocalTui implements TuiService {
       return true
     }
     if (event.id === 'up' || event.id === 'down') {
+      this.#promptAnchor = undefined
       const rows = this.#processRows()
       const at = Math.max(0, rows.indexOf(selected))
       const next = rows[Math.max(0, Math.min(rows.length - 1, at + (event.id === 'up' ? -1 : 1)))]
@@ -5796,11 +5927,17 @@ export class LocalTui implements TuiService {
       return
     }
     this.#transcriptSearch = command.state
-    if (command.kind === 'focus') {
-      this.#focusBlock = command.match.block
-      this.#focusBlockEdge = 'start'
-    }
+    if (command.kind === 'focus') this.#focusSearchMatch(command.match)
     this.#render()
+  }
+
+  #focusSearchMatch(match: TranscriptSearchMatch): void {
+    this.#promptAnchor = undefined
+    this.#processSelection = undefined
+    this.#inspecting = true
+    this.#follow = false
+    this.#focusBlock = match.block
+    this.#focusBlockEdge = 'start'
   }
 }
 

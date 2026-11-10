@@ -273,10 +273,10 @@ function renderSplitRow(left: string, right: string, width: number): string {
 
 function sessionConfigurationStatus(controls: TuiSessionControls | undefined): { text: string; tone: ThemeColor } | undefined {
   if (controls === undefined) return undefined
-  const agent = formatAgentPreset(controls.agentPreset ?? 'standard').toLowerCase()
-  const parts = [agent]
+  const parts = controls.agentPreset === undefined ? [] : [formatAgentPreset(controls.agentPreset).toLowerCase()]
   if (controls.plan?.pending === true) parts.push(controls.plan.active ? 'plan off…' : 'plan…')
   else if (controls.plan?.active === true) parts.push('plan')
+  if (parts.length === 0) return undefined
   return {
     text: parts.join(' · '),
     tone: controls.plan?.pending === true ? 'warning' : 'accent',

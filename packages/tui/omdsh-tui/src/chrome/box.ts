@@ -201,6 +201,7 @@ export interface EditorActivity {
 export interface EditorFrame {
   lines: string[]
   cursor: { row: number; column: number }
+  inputRows: { row: number; column: number; text: string; start: number; end: number }[]
 }
 
 /** The pieces {@link topBorderWithActivity} composes, already painted. */
@@ -337,6 +338,7 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
   return {
     lines,
     cursor: { row: 1 + caret.row, column: 1 + caret.column },
+    inputRows: rows.map((line, index) => ({ ...line, row: index + 1, column: padX })),
   }
 }
 

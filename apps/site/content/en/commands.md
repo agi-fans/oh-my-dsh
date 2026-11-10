@@ -17,7 +17,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session. |
-| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory and resume the chosen hit; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
+| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory, resume the chosen hit, and open transcript search with the same query; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
 | `/continue` | Continue an eligible failed model generation without resending the prompt. |
 | `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |

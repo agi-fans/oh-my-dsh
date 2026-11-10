@@ -6,10 +6,23 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Click composer text to position the caret and click or scroll completions without sending. Ctrl+Shift+Up/Down jumps between prompts while preserving the draft.
+- Selected text in the Diff browser's comparison and current-file views can be quoted into the composer with Alt+Y or Q.
+
 ### Changed
 
 - Keyboard defaults account for local WSL, retain terminal lifecycle controls, and offer clipboard alternatives without taking over file-preview shortcuts. Forwarded Command keys support line editing, undo and macOS clipboard input; custom bindings accept Command/Option names. Busy-send hints use confirmed keyboard support and retain fixed Queue/Steer fallbacks.
 - Busy sending matches DeepSeek Harness: the setting is named “Send behavior while busy”, and Cmd/Ctrl+Enter uses the other Queue/Steer mode. Ctrl+Enter now sends instead of inserting a newline; Shift+Enter and Ctrl+J retain newlines, and existing Queue/Steer shortcuts keep their meaning.
+
+### Fixed
+
+- Subagent inspection shows the viewed child's model, statistics and Access rather than the parent's; unavailable values remain unspecified. Activity totals exclude inherited parent history, window titles retain the root session's workspace, and returning restores its directory and completions.
+- Resuming a content-search result opens the same query in the transcript after preserving native history, including when the Session Library refresh fails. Search positions survive redraws, tool-catalog refreshes, resizing and closing the search.
+- Prompt jumps move from the current reading position, respect history-search input ownership and reset their anchor after other navigation.
+- Clicking composer text refreshes completions and returns keyboard focus from transcript search, process browsing and the subagent roster.
+- File-reader selection quoting respects search, help and action-menu input ownership and is disabled in read-only child views.
 
 ## [0.25.0] - 2026-11-09
 

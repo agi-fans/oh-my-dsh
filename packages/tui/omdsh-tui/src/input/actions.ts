@@ -37,6 +37,7 @@ export type TuiAction =
   // Transcript
   | 'tool-actions' | 'quote-selection' | 'toggle-tools' | 'toggle-tool-details' | 'review-changes' | 'search-history' | 'search-transcript'
   | 'scroll-page-up' | 'scroll-page-down' | 'scroll-fast-up' | 'scroll-fast-down'
+  | 'previous-turn' | 'next-turn'
 
 const WINDOWS = process.platform === 'win32'
 const WINDOWS_KEYS = useWindowsKeybindings()
@@ -108,6 +109,8 @@ export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
     scope: 'transcript',
   },
   { id: 'scroll-page-up', primary: ['pageup'], label: 'Scroll the transcript up one page', scope: 'transcript' },
+  { id: 'previous-turn', primary: ['ctrl+shift+up'], label: 'Jump to the previous prompt', scope: 'transcript' },
+  { id: 'next-turn', primary: ['ctrl+shift+down'], label: 'Jump to the next prompt', scope: 'transcript' },
   { id: 'scroll-page-down', primary: ['pagedown'], label: 'Scroll the transcript down one page', scope: 'transcript' },
   { id: 'scroll-fast-up', primary: ['shift+up'], label: 'Scroll the transcript up quickly', scope: 'transcript' },
   { id: 'scroll-fast-down', primary: ['shift+down'], label: 'Scroll the transcript down quickly', scope: 'transcript' },

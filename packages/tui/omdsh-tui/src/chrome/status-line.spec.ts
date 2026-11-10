@@ -521,7 +521,8 @@ describe('session status line', () => {
       config: statusBar(),
       width: 48,
     }, createTheme(false))
-    expect(leaving[0]).toContain('standard · plan off…')
+    expect(leaving[0]).toContain('m · plan off…')
+    expect(leaving[0]).not.toContain('standard')
     expect(leaving[0]).not.toContain('default')
     expect(leaving[0]).not.toContain('native')
     expect(leaving[0]).not.toContain('full access')
@@ -616,7 +617,8 @@ describe('session status line', () => {
     // Turning telemetry off reclaims the row instead of leaving a blank line
     // under the metadata.
     expect(minimal).toHaveLength(1)
-    expect(minimal[0]).toContain('m · standard · plan')
+    expect(minimal[0]).toContain('m · plan')
+    expect(minimal[0]).not.toContain('standard')
     expect(minimal[0]).not.toContain('native')
     expect(minimal[0]).not.toContain('Read only')
   })

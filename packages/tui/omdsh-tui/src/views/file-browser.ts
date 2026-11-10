@@ -82,6 +82,7 @@ export const FILE_BROWSER_HOTKEYS = [
   { keys: 'G / [ / ]', action: 'Jump to new-file line / previous / next hunk' },
   { keys: 'W / Alt+← / Alt+→', action: 'Wrap / horizontal scroll' },
   { keys: 'O / E / Q / M / I', action: 'Open / editor / quote / Markdown / image' },
+  { keys: 'Alt+Y / Q with a selection', action: 'Quote selected text and return to composer' },
   { keys: 'L / R / A / ?', action: 'Load more / refresh / actions / help' },
   { keys: 'Click / Drag / Right-click', action: 'Select file / select text / copy' },
 ] as const

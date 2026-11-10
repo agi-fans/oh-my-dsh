@@ -528,6 +528,7 @@ export class SessionRuntime {
   readonly #descendantApprovals = new Map<AbortController, Agent>()
   #activationEpoch = 0
   #inspectedId: string | undefined
+  #inspectedEvents: readonly SessionEvent[] = []
 
   constructor(ctx: Context, tui: TuiService, options: { stateDir?: string } = {}) {
     this.#ctx = ctx
@@ -634,8 +635,8 @@ export class SessionRuntime {
       const active = this.#active
       if (active === undefined) return
       if (event.type === 'working-directory/change') {
-        if (session.id === (this.#inspectedId ?? active.handle.agent.id)) {
-          tui.setWorkingDirectory?.(currentWorkingDirectory(ctx, session))
+        if (session === active.handle.agent.session || session.id === this.#inspectedId) {
+          tui.setWorkingDirectory?.(currentWorkingDirectory(ctx, session), { root: session === active.handle.agent.session })
         }
         if (session === active.handle.agent.session) {
           void this.#refreshSkills().catch(error => { ctx.logger.warn(error) })
@@ -646,6 +647,7 @@ export class SessionRuntime {
         const child = ctx.get('agents')?.get(session.id)
         tui.event(event, child === undefined ? undefined : ctx.get('tuiToolPresentation')?.event(child, event))
         this.#tracker.noteEvent(session, event)
+        if (shouldRefreshSessionInfoAfter(event)) tui.setInspectedSubagent(this.#inspectView(session.id))
         return
       }
       if (session === active.handle.agent.session) {
@@ -699,6 +701,11 @@ export class SessionRuntime {
     const projections = ctx.get('sessionProjections')
     if (projections !== undefined) {
       this.#off.push(projections.onChanged((session, key) => {
+        if (session.id === this.#inspectedId) {
+          if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure' || key === 'plan'
+            || key === 'permissions' || key === 'agentPreset' || key === 'modelSelection') this.#tui.setInspectedSubagent(this.#inspectView(session.id))
+          return
+        }
         if (session !== this.#active?.handle.agent.session) return
         if (key === 'sessionStats' || key === 'tokenUsage' || key === 'contextPressure' || key === 'contextBreakdown'
           || key === 'plan' || key === 'permissions' || key === 'goal' || key === 'userQuestions') this.#pushSessionInfo()
@@ -1706,6 +1713,7 @@ export class SessionRuntime {
     const agent = active.handle.agent
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
+    this.#inspectedEvents = []
     this.#tui.setInspectedSubagent(undefined)
     this.#tui.setStatus(agent.status)
     this.#tracker.sync()
@@ -1818,13 +1826,33 @@ export class SessionRuntime {
   #inspectView(id: string, fallbackPhase: TuiInspectedSubagent['phase'] = 'waiting'): TuiInspectedSubagent {
     const view = this.#tracker.snapshot()?.agents.find(agent => agent.id === id)
     const mode = view?.mode
-    return {
+    const descriptor: TuiInspectedSubagent = {
       id,
       label: view?.label ?? id,
       phase: view?.phase ?? fallbackPhase,
       needsApproval: view?.needsApproval === true,
       ...(mode === undefined ? {} : { mode }),
       writable: isSteerableSubagent(mode),
+    }
+    if (id !== this.#inspectedId) return descriptor
+    const session = this.#lookupSession(id)
+    const events = session?.ownEvents() ?? this.#inspectedEvents
+    this.#inspectedEvents = events
+    const projection = session === undefined ? undefined : this.#ctx.get('sessionProjections')?.snapshot(session).values
+    const child = this.#ctx.get('agents')?.get(SessionId(id))
+    const selection = child?.model.current()
+    // Whole-log totals include a seeded parent's history. Child activity
+    // shares the transcript's own-event window; context pressure still
+    // describes the complete model context, including inherited messages.
+    const statsProjection = session !== undefined && session.inheritedEventCount > 0
+      ? projection?.contextPressure === undefined ? undefined : { contextPressure: projection.contextPressure }
+      : projection
+    return {
+      ...descriptor,
+      ...(selection === undefined ? {} : modelStatus(selection)),
+      stats: sessionStats(events, undefined, statsProjection),
+      controls: { ...sessionControls(projection, child === undefined ? undefined : this.#ctx.get('planMode')?.get(child)),
+        ...(session?.header.agentPreset === undefined ? {} : { agentPreset: session.header.agentPreset }) },
     }
   }
 
@@ -1847,7 +1875,7 @@ export class SessionRuntime {
   }
 
   #replaceTranscript(agent: Agent, reason: TuiTranscriptReplacement = 'refresh'): void {
-    this.#tui.setWorkingDirectory?.(currentWorkingDirectory(this.#ctx, agent.session))
+    this.#tui.setWorkingDirectory?.(currentWorkingDirectory(this.#ctx, agent.session), { root: true })
     const events = agent.session.snapshotEvents()
     this.#tui.pendingInputs?.reconcile?.(agent.id, new Set(events.flatMap(event =>
       event.type === 'agent/inbox/spliced' ? event.data.inserted.map(message => message.id) : [])))
@@ -1877,6 +1905,7 @@ export class SessionRuntime {
     this.#workflowAbort?.abort()
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
+    this.#inspectedEvents = []
     this.#tui.setInspectedSubagent(undefined)
     const agent = this.#active?.handle.agent
     if (agent === undefined) return
@@ -1908,6 +1937,7 @@ export class SessionRuntime {
         events = log.events.slice(log.inheritedEventCount)
         const change = log.events.findLast(event => event.type === 'working-directory/change')
         cwd = change?.type === 'working-directory/change' ? change.data.cwd : log.header.cwd
+        cwd ??= this.#active === undefined ? process.cwd() : currentWorkingDirectory(this.#ctx, this.#active.handle.agent.session)
       } catch {
         if (request === this.#inspectEpoch) {
           this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })
@@ -1924,8 +1954,13 @@ export class SessionRuntime {
     this.#tui.pendingInputs?.reconcile?.(id, new Set(events.flatMap(event =>
       event.type === 'agent/inbox/spliced' ? event.data.inserted.map(message => message.id) : [])))
     this.#inspectedId = id
-    if (cwd !== undefined) this.#tui.setWorkingDirectory?.(cwd)
+    this.#inspectedEvents = events
+    if (cwd !== undefined) this.#tui.setWorkingDirectory?.(cwd, { root: false })
     const child = this.#ctx.get('agents')?.get(SessionId(id))
+    this.#tui.setInspectedSubagent(this.#inspectView(
+      id,
+      child?.status === 'running' ? 'running' : 'waiting',
+    ))
     this.#tui.replaceSession(
       events,
       child === undefined ? undefined : this.#ctx.get('tuiToolPresentation')?.session(child, events),
@@ -1933,10 +1968,6 @@ export class SessionRuntime {
       'refresh',
     )
     this.#replayLivePrefix(id)
-    this.#tui.setInspectedSubagent(this.#inspectView(
-      id,
-      child?.status === 'running' ? 'running' : 'waiting',
-    ))
     this.#tui.setStatus(child?.status ?? 'idle')
   }
 

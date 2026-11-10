@@ -85,6 +85,39 @@ async function harness(options: HarnessOptions = {}) {
 }
 
 describe('/resume library and search', () => {
+  it('opens the original query after resume without a command result pulling focus back to the tail', async () => {
+    const h = await harness({ hits: [hit('session-found', 'needle near the beginning')], promptAnswer: 'session-found' })
+    const searchTranscript = vi.fn()
+    Object.assign(h.ctx.tui, { searchTranscript })
+    const execution = await h.execute('/resume needle')
+    expect(execution?.result).toEqual({ kind: 'success' })
+    expect(searchTranscript).toHaveBeenCalledWith('needle')
+    expect(h.resumeSession.mock.invocationCallOrder[0]).toBeLessThan(searchTranscript.mock.invocationCallOrder[0]!)
+    await h.ctx.fiber.dispose()
+  })
+  it('retains the resume receipt in line mode when a provider also exposes transcript search', async () => {
+    const h = await harness({ hits: [hit('session-found', 'needle')], promptAnswer: 'session-found', interactive: false })
+    const searchTranscript = vi.fn()
+    Object.assign(h.ctx.tui, { searchTranscript })
+    expect((await h.execute('/resume needle'))?.result).toEqual({ kind: 'success', text: 'Resumed session-found.' })
+    expect(searchTranscript).not.toHaveBeenCalled()
+    await h.ctx.fiber.dispose()
+  })
+  it('keeps the query and avoids a focused receipt when resume succeeds but the library refresh fails', async () => {
+    const h = await harness({ hits: [hit('session-found', 'needle')], promptAnswer: 'session-found' })
+    const searchTranscript = vi.fn()
+    Object.assign(h.ctx.tui, { searchTranscript })
+    h.resumeSession.mockImplementationOnce(async () => {
+      Object.assign(h.ctx.omdshSession, { agent: { id: SessionId('session-found') } })
+      throw new Error('directory unavailable')
+    })
+    try {
+      expect((await h.execute('/resume needle'))?.result).toEqual({ kind: 'success' })
+      expect(searchTranscript).toHaveBeenCalledWith('needle')
+      expect(h.ctx.tui.notice).toHaveBeenCalledWith(expect.stringContaining('Session Library refresh failed: directory unavailable'), { level: 'error' })
+      expect(h.output).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
   it('scopes content search to the active working directory before pagination', async () => {
     const h = await harness({ hits: [] })
     const cwd = join(process.cwd(), 'active-project')

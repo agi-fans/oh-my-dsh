@@ -164,17 +164,17 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       }
       selectedId = answer
       if (answer === invocation.agent.id) { searchDiagnostic = 'That session is already active.'; continue }
-      const resumed = await resumeStoredSession(ctx, invocation, answer, prompt)
-      if (resumed.kind === 'success' && resumed.text !== undefined) return resumed
-      searchDiagnostic = resumed.text ?? ''
+      const resumed = await resumeStoredSession(ctx, invocation, answer, prompt, search?.query)
+      if (resumed.opened) return resumed.result
+      searchDiagnostic = resumed.result.text ?? ''
     }
     return { kind: 'success' }
   }
   if (id === invocation.agent.id) return { kind: 'success', text: 'That session is already active.' }
-  return resumeStoredSession(ctx, invocation, id, prompt)
+  return (await resumeStoredSession(ctx, invocation, id, prompt)).result
 }
 
-async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string, prompt: TuiService['prompt']): Promise<CommandResult> {
+async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string, prompt: TuiService['prompt'], query?: string): Promise<{ result: CommandResult; opened: boolean }> {
   try {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
@@ -186,14 +186,26 @@ async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, 
         cancelLabel: null,
         signal: invocation.signal,
       })
-      if (!migrate || invocation.signal.aborted) return { kind: 'success' }
+      if (!migrate || invocation.signal.aborted) return { result: { kind: 'success' }, opened: false }
     }
     await ctx.omdshSession.resumeSession(invocation.agent, id, invocation.signal)
-    return { kind: 'success', text: `Resumed ${id}.` }
+    if (query !== undefined && ctx.tui.interactive === true && ctx.tui.searchTranscript !== undefined) {
+      ctx.tui.searchTranscript(query)
+      return { result: { kind: 'success' }, opened: true }
+    }
+    return { result: { kind: 'success', text: `Resumed ${id}.` }, opened: true }
   } catch (error: unknown) {
-    if (ctx.omdshSession.agent?.id === id) return { kind: 'success', text: `Resumed ${id}. Session Library refresh failed: ${error instanceof Error ? error.message : String(error)}` }
-    if (invocation.signal.aborted) return { kind: 'error', text: 'Resume cancelled.' }
-    return { kind: 'error', text: 'Resume failed: ' + (error instanceof Error ? error.message : String(error)) }
+    if (ctx.omdshSession.agent?.id === id) {
+      const text = `Resumed ${id}. Session Library refresh failed: ${error instanceof Error ? error.message : String(error)}`
+      if (query !== undefined && ctx.tui.interactive === true && ctx.tui.searchTranscript !== undefined) {
+        ctx.tui.notice(text, { level: 'error' })
+        ctx.tui.searchTranscript(query)
+        return { result: { kind: 'success' }, opened: true }
+      }
+      return { result: { kind: 'success', text }, opened: true }
+    }
+    if (invocation.signal.aborted) return { result: { kind: 'error', text: 'Resume cancelled.' }, opened: false }
+    return { result: { kind: 'error', text: 'Resume failed: ' + (error instanceof Error ? error.message : String(error)) }, opened: false }
   }
 }
 

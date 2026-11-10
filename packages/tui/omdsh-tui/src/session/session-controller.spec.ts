@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { queueHostSubagentPrompt, steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
@@ -521,7 +521,7 @@ describe('SessionRuntime.execute', () => {
 })
 
 describe('SessionRuntime inspected-subagent delivery', () => {
-  it.each(['queue', 'steer', 'cancel-upload', 'accepted-before-close', 'rejected', 'ordered-upload'] as const)('routes %s delivery through the host and restores only unaccepted drafts', async mode => {
+  it.each(['queue', 'steer', 'cancel-upload', 'accepted-before-close', 'rejected', 'ordered-upload', 'seeded'] as const)('routes %s delivery through the host and restores only unaccepted drafts', async mode => {
     vi.mocked(queueHostSubagentPrompt).mockClear()
     vi.mocked(steerHostSubagentPrompt).mockClear()
     const rootId = SessionId('session-steer-root')
@@ -529,10 +529,16 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const rootSession = ctx.sessions.create(rootId)
+    if (mode === 'seeded') {
+      rootSession.append('step/end', { turn: 1, step: 1 })
+      rootSession.append('step/end', { turn: 2, step: 1 })
+    }
+    const seed = mode === 'seeded' ? rootSession.snapshotEvents() : []
     const childSession = ctx.sessions.create(childId, {
+      seed, inheritedEventCount: SessionLogOffset(seed.length),
       meta: {
         parentSession: rootId,
-        isSeeded: false,
+        isSeeded: mode === 'seeded',
         origin: 'subagent',
         delegationDepth: 1,
       },
@@ -573,12 +579,30 @@ describe('SessionRuntime inspected-subagent delivery', () => {
       listChildren: async () => [],
       sendMessage: vi.fn(async () => 'sent-1'),
     }
+    const childAgent = { id: childId, session: childSession, status: 'running',
+      model: stubModel({ provider: 'child-provider', model: 'child-model', reasoningEffort: ReasoningEffortId('low') }) } as unknown as Agent
+    let childPermission = 'read-only'
+    let childLoaded = true
+    let otherAgent: Agent | undefined
+    let projectionChanged: ((session: typeof childSession, key: 'permissions') => void) | undefined
+    ctx.provide('sessionProjections', {
+      snapshot: (session: typeof childSession) => ({ values: {
+        permissions: { currentValue: session.id === childId ? childPermission : 'workspace-write', options: [] },
+        ...(mode === 'seeded' ? {
+          sessionStats: sessionStats(session.snapshotEvents()),
+          tokenUsage: { uncachedInputTokens: 900, outputTokens: 200, cacheReadTokens: 100, cacheWriteTokens: 0 },
+          contextPressure: { projectedTokens: 2048, contextWindow: 8192 },
+        } : {}),
+      } }),
+      onChanged: (listener: typeof projectionChanged) => { projectionChanged = listener; return () => {} },
+    } as never)
     ctx.provide('agents', {
       create: async (options: { setup?: (context: typeof agentCtx, agent: Agent) => Promise<void> }) => {
         await options.setup?.(agentCtx, rootAgent)
         return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
       },
-      get: () => undefined,
+      get: (id: string) => id === rootId ? rootAgent : id === childId ? childLoaded ? childAgent : undefined : id === otherAgent?.id ? otherAgent : undefined,
+      isOwnedBy: () => true,
     })
     ctx.provide('agentDefaultModel', {
       currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
@@ -593,7 +617,10 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     const restoreInput = vi.fn()
     const notice = vi.fn()
     const setStatus = vi.fn()
-    const tui = new Proxy({ restoreInput, notice, setStatus }, {
+    const setInspectedSubagent = vi.fn()
+    const setSession = vi.fn()
+    const setWorkingDirectory = vi.fn()
+    const tui = new Proxy({ restoreInput, notice, setStatus, setInspectedSubagent, setSession, setWorkingDirectory }, {
       get(target: Record<string, unknown>, prop: string) {
         if (prop in target) return target[prop]
         if (prop === 'onInspectSubagent') {
@@ -617,10 +644,64 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     try {
       await runtime.start()
       expect(inspectCallbacks).toHaveLength(1)
+      expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: true })
       await inspectCallbacks[0]?.(childId)
+      expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: false })
+      expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({
+        id: childId, model: 'child-model', reasoningEffort: 'low', stats: expect.objectContaining({ turns: 0 }),
+        controls: expect.objectContaining({ permission: 'read-only' }),
+      }))
+      childPermission = 'workspace-write'
+      projectionChanged?.(childSession, 'permissions')
+      expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ controls: expect.objectContaining({ permission: 'workspace-write' }) }))
+      childSession.append('step/end', { turn: 1, step: 1 })
+      expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ stats: expect.objectContaining({ turns: 1 }) }))
+      if (mode === 'seeded') {
+        const expected = { turns: 1, steps: 1, inputTokens: 0, outputTokens: 0 }
+        expect(setInspectedSubagent.mock.lastCall?.[0].stats).toMatchObject({ ...expected, contextTokens: 2048, contextWindow: 8192 })
+        closeInspect()
+        const getSession = ctx.sessions.get.bind(ctx.sessions)
+        const hidden = vi.spyOn(ctx.sessions, 'get').mockImplementation(id => id === childId ? undefined : getSession(id))
+        childLoaded = false
+        ctx.provide('sessionPersistence', { open: async () => ({
+          header: { ...childSession.header, cwd: undefined }, inheritedEventCount: childSession.inheritedEventCount,
+          read: async () => ({ events: childSession.snapshotEvents() }), close: async () => {},
+        }) } as never)
+        try {
+          await inspectCallbacks[0]?.(childId)
+          await vi.waitFor(() => expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ id: childId })))
+          expect(notice.mock.calls).toEqual([])
+          expect(setInspectedSubagent.mock.lastCall?.[0].stats).toMatchObject(expected)
+          expect(setWorkingDirectory).toHaveBeenLastCalledWith(process.cwd(), { root: false })
+        } finally { hidden.mockRestore(); childLoaded = true }
+        await inspectCallbacks[0]?.(childId)
+        expect(setInspectedSubagent.mock.lastCall?.[0].stats).toMatchObject(expected)
+      }
+      if (mode === 'queue') {
+        rootSession.append('working-directory/change', { cwd: process.cwd() })
+        expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: true })
+        childSession.append('working-directory/change', { cwd: process.cwd() })
+        expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: false })
+        const other = ctx.sessions.create(SessionId('session-other-child'), { meta: { parentSession: rootId, origin: 'subagent', delegationDepth: 1 } })
+        otherAgent = { id: other.id, session: other, status: 'running', model: stubModel({ provider: 'other', model: 'other-model' }) } as unknown as Agent
+        childLoaded = false
+        const getSession = ctx.sessions.get.bind(ctx.sessions)
+        const hidden = vi.spyOn(ctx.sessions, 'get').mockImplementation(id => id === childId ? undefined : getSession(id))
+        try {
+          const approval = runtime.beginSubagentApproval(otherAgent)
+          expect(approval).toBeDefined()
+          projectionChanged?.(childSession, 'permissions')
+          expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ id: childId, stats: expect.objectContaining({ turns: 1 }) }))
+          expect(setInspectedSubagent.mock.lastCall?.[0].model).toBeUndefined()
+          approval?.finish()
+        } finally { hidden.mockRestore(); childLoaded = true }
+      }
       setStatus.mockClear()
       ctx.emit('agent/status', { agent: rootAgent, status: 'idle' })
       expect(setStatus).toHaveBeenCalledWith('idle', { root: true })
+      expect(setSession.mock.calls.every(([info]) => info.id === rootId)).toBe(true)
+      projectionChanged?.(childSession, 'permissions')
+      expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'child-model' }))
       if (mode === 'rejected') vi.mocked(queueHostSubagentPrompt).mockRejectedValueOnce(new Error('delivery refused'))
       const accepted = Promise.withResolvers<Awaited<ReturnType<typeof queueHostSubagentPrompt>>>()
       if (mode === 'accepted-before-close') vi.mocked(queueHostSubagentPrompt).mockImplementationOnce(() => accepted.promise)
