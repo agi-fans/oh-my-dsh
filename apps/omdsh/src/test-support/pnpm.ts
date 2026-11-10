@@ -11,7 +11,7 @@ import { execFile, spawnSync, type ExecFileOptions, type SpawnSyncOptions, type 
 export function runTool(command: string, args: readonly string[], options: ExecFileOptions & { input?: string } = {}): Promise<{ stdout: string; stderr: string }> {
   const { input, ...config } = options
   return new Promise((resolve, reject) => {
-    const child = execFile(command, [...args], { ...config, shell: process.platform === 'win32', encoding: 'utf8' }, (error, stdout, stderr) => {
+    const child = execFile(command, [...args], { ...config, shell: process.platform === 'win32' && !command.toLowerCase().endsWith('.exe'), encoding: 'utf8' }, (error, stdout, stderr) => {
       if (error !== null) reject(Object.assign(error, { stdout, stderr }))
       else resolve({ stdout, stderr })
     })

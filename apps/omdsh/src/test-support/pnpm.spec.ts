@@ -15,3 +15,9 @@ it('rejects a failed process while retaining its diagnostic output', async () =>
   await expect(runTool(process.execPath, ['-e', 'process.stdout.write("before failure"); process.stderr.write("failed"); process.exit(7)']))
     .rejects.toMatchObject({ code: 7, stdout: 'before failure', stderr: 'failed' })
 })
+
+it('passes executable arguments literally without command-shell interpretation', async () => {
+  const literal = 'a & b > c "d"'
+  const result = await runTool(process.execPath, ['-e', 'process.stdout.write(process.argv[1])', literal])
+  expect(result.stdout).toBe(literal)
+})
