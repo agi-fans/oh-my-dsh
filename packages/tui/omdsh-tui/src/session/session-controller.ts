@@ -652,6 +652,21 @@ export class SessionRuntime {
       }
       if (session === active.handle.agent.session) {
         if (event.type === 'turn/end') tui.setStatus(active.handle.agent.status, { root: true, outcome: event.data.reason.kind })
+        else if (this.#inspectedId !== undefined && event.type === 'compaction/start') {
+          tui.setStatus(active.handle.agent.status, {
+            root: true,
+            compaction: { phase: 'start', id: event.data.compactionId },
+          })
+        } else if (this.#inspectedId !== undefined && event.type === 'compaction/end') {
+          tui.setStatus(active.handle.agent.status, {
+            root: true,
+            compaction: {
+              phase: 'end',
+              id: event.data.compactionId,
+              ...(event.data.error === undefined ? {} : { error: event.data.error }),
+            },
+          })
+        }
         if (this.#workflows.apply(event)) tui.setSubagents(this.#workflows.roster(this.#tracker.snapshot()))
         if (this.#inspectedId === undefined) {
           tui.event(event, ctx.get('tuiToolPresentation')?.event(active.handle.agent, event))

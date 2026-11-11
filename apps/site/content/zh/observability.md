@@ -41,7 +41,7 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 ## Herdr 面板集成
 
-在 Herdr 面板中运行时，omdsh 会注册为一个一等 agent：侧边栏跟随它的 `working`、`idle` 与 `blocked` 状态（blocked 时会指出待处理的审批或问题），可恢复的会话 id 会被上报，omdsh 退出时面板会被释放。在 Herdr 之外，该集成保持静止。
+在 Herdr 面板中运行时，omdsh 通过本地 socket 注册为一等 agent（在回合与压缩期间报告 `working`，以及 `idle` 和指明待处理审批或问题的 `blocked`），上报可恢复的会话 id，并在退出时释放面板；嵌套启动的 omdsh 子进程保持静止，不会覆盖父面板状态。在基于 `herdr-core` 的终端（包括 Herdr App）中，omdsh 通过 OSC 7501 实时上报 `idle`、`working`、`blocked`、`done`、`error` 生命周期状态与会话标题，并在挂起、调用外部编辑器或退出时清除状态。
 
 ## 相关
 

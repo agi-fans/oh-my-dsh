@@ -87,7 +87,8 @@ export async function copyToClipboard(
   if (cmd !== undefined) {
     try { await runCommand(cmd, text, spawnCmd); confirmed = true } catch { /* Try terminal forwarding. */ }
   }
-  const forwardingNeeded = env.HERDR_ENV === '1' || remote || Boolean(env.TMUX || env.TMUX_PANE) || !confirmed
+  const herdr = env.HERDR_ENV === '1' || Boolean(env.HC_TERMINAL_ID?.trim())
+  const forwardingNeeded = herdr || remote || Boolean(env.TMUX || env.TMUX_PANE) || !confirmed
   if (!forwardingNeeded) return 'confirmed'
   const bytes = Buffer.byteLength(text, 'utf8')
   if (bytes > 100_000) {

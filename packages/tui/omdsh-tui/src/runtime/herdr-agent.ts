@@ -56,7 +56,7 @@ export interface HerdrEnvironment {
  * never detection evidence on their own.
  */
 export function herdrEnvironment(env: NodeJS.ProcessEnv = process.env): HerdrEnvironment | undefined {
-  if (env.HERDR_ENV !== '1') return undefined
+  if (env.HERDR_ENV !== '1' || env.OMDSH === '1') return undefined
   const paneId = env.HERDR_PANE_ID?.trim()
   const socketPath = env.HERDR_SOCKET_PATH?.trim()
   if (paneId === undefined || paneId === '' || socketPath === undefined || socketPath === '') return undefined
@@ -123,6 +123,14 @@ export class HerdrAgentReporter {
 
   setRunning(running: boolean): void {
     this.#report(this.#controller.setRunning(running))
+  }
+
+  compactionStart(id?: string): void {
+    this.#report(this.#controller.compactionStart(id))
+  }
+
+  compactionEnd(id?: string, error?: string): void {
+    this.#report(this.#controller.compactionEnd(id, error))
   }
 
   prompt(message?: string, kind?: TerminalAttentionKind): void {

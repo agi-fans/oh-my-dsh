@@ -12,9 +12,9 @@ omdsh 在自己的 Herdr pane 内通过自定义 lifecycle 上报，不需要 `h
 
 | 项目 | 行为 |
 | --- | --- |
-| 环境 | 本地 provider 仅在输入、输出均为 TTY，且 `HERDR_ENV=1`、`HERDR_PANE_ID`、`HERDR_SOCKET_PATH` 均有效时激活；后台管道运行不认领 pane，smoke 子终端不继承调用者的 Herdr 环境 |
+| 环境 | 本地 provider 仅在输入、输出均为 TTY，未处于嵌套 `OMDSH=1` 子进程，且 `HERDR_ENV=1`、`HERDR_PANE_ID`、`HERDR_SOCKET_PATH` 均有效时激活；后台管道运行与嵌套子进程不认领 pane，smoke 与 exec 测试子进程剥离继承的 `HERDR_*`、`HC_*` 与 `OMDSH` 环境 |
 | 身份 | `source: custom:omdsh`，`agent: omdsh`，不借用 `herdr:pi` 等官方 source |
-| 状态 | 主 Agent running → working，否则 idle；未解决的人工 prompt 覆盖为 blocked，并携带清理后的标题 |
+| 状态 | 主 Agent running 或上下文压缩期间 → working，否则 idle；未解决的人工 prompt 覆盖为 blocked，并携带清理后的标题 |
 | 多个 prompt | 引用计数，最后一个解除后才回到 running/idle 状态 |
 | 去重 | 状态与 message 相同不重复上报；启动强制播种一次 |
 | Inspector | pane 持续跟随 root 状态，子 Agent 的 running/idle 只更新检视画面；root 的变化不覆盖子会话画面 |
@@ -23,7 +23,7 @@ omdsh 在自己的 Herdr pane 内通过自定义 lifecycle 上报，不需要 `h
 | 退出 | dispose 先同步恢复终端，再等待 `pane.release_agent`；release 阻止后续 report，总等待不超过 1100ms |
 | 传输 | 串行短连接请求，匹配成功响应才确认投递；单次 500ms 超时，失败静默并在 1 秒后重试最新状态；Windows 映射为命名管道 |
 
-blocked 来自真实人工交互，不从屏幕文字猜测。Herdr 的 done 是服务端从 idle 与未查看状态推导，reporter 不发送 done。
+blocked 来自真实人工交互，不从屏幕文字猜测。Herdr TUI 的 done 由服务端从 idle 与未查看状态推导，socket reporter 不发送 done。对于基于 `herdr-core` 的终端（如 Herdr App），当地面终端应答 `OSC 7501;?` 能力查询后，omdsh 通过 OSC 7501 立即发送 `idle`、`working`、`blocked`、`done`、`error` 状态与 `title` 会话名（不与通知静音或焦点门控耦合），并在挂起、外部编辑器或退出时发送 `clear`；检测到 `HC_TERMINAL_ID` 时，本地剪贴板复制同样附带 OSC 52 转发。
 
 ## 传输与恢复边界
 
@@ -46,7 +46,7 @@ Herdr `0.9.0` 的独立 headless session/socket 实测确认：自定义上报�
 | 消息协议 | `[herdr-msg reply-to:… task:…]` 是 skill 层约定，不是当前产品入站协议；接入需明确解析、上下文与回复授权 |
 | Native start/restore | 需要核对 Herdr 对自定义 kind 的启动与恢复能力，lifecycle 上报本身不足以提供 |
 
-主屏渲染使用 DEC 2026 synchronized output，未做 DECRQM 探测。若将来增加探测，应重新核对 Herdr VTE 的响应与实际支持，不能把“未识别”的响应直接当作不支持。图片预览在直连兼容终端使用 Kitty 或 iTerm2 协议；Herdr 环境回退为图片信息与外部打开，不发送图像协议。
+主屏渲染使用 DEC 2026 synchronized output，未做 DECRQM 探测。若将来增加探测，应重新核对 Herdr VTE 的响应与实际支持，不能把“未识别”的响应直接当作不支持。图片预览在直连兼容终端与 Herdr / Ghostty 环境中使用 Kitty 协议，不兼容环境回退为图片信息与外部打开。
 
 ## 验证入口与一手资料
 

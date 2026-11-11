@@ -25,7 +25,9 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function launch(cwd: string, home: string, baseURL: string, args: readonly string[], stdin = '') {
   const env = { ...process.env, OMDSH_HOME: home, NO_COLOR: '1', DEEPSEEK_API_KEY: 'sk-mock', DEEPSEEK_BASE_URL: baseURL + '/v1',
     NODE_PATH: join(repo, 'node_modules/.pnpm/node_modules') }
-  for (const key of Object.keys(env)) if (key.startsWith('HERDR_')) delete (env as Record<string, unknown>)[key]
+  for (const key of Object.keys(env)) {
+    if (key === 'OMDSH' || key.startsWith('HERDR_') || key.startsWith('HC_')) delete (env as Record<string, unknown>)[key]
+  }
   const child = spawn(process.execPath, ['--import', loader, join(repo, 'apps/omdsh/src/bin.ts'), 'exec', '--json', ...args], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
   child.stdout.on('data', chunk => { stdout += String(chunk) })

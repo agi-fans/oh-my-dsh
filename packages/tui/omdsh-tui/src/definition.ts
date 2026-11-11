@@ -564,7 +564,14 @@ export interface TuiService {
   /** Fold one live `agent/assistant-stream` chunk into the transcript. */
   streamDelta(delta: StreamDelta): void
   /** Update status liveness; root signals also update pane lifecycle while inspecting a child. */
-  setStatus(status: TuiStatus, options?: { root?: boolean; outcome?: string }): void
+  setStatus(
+    status: TuiStatus,
+    options?: {
+      root?: boolean
+      outcome?: string
+      compaction?: { phase: 'start' | 'end'; id?: string; error?: string }
+    },
+  ): void
   /** Update the model and effective reasoning effort shown in the composer. */
   setModel(model: string, reasoningEffort?: string): void
   /** Update the optional process-local Loop indicator in the fixed footer. */

@@ -118,7 +118,7 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 | Motion | full / reduced / off | full | `full` 带平滑流式与工作微光；`reduced` 保留平滑流式、去掉微光；`off` 直接跟随 provider 分块并使用静态活动标记。 |
 | Math in replies | auto / source | auto | 将支持的公式排版为终端文字，或保留 LaTeX 分隔符和命令。 |
 | Mermaid in replies | auto / source | auto | 绘制能够完整容纳的图形，或显示 Mermaid 源码。 |
-| Terminal title | status / session / workspace / off | status | 显示根 Agent 状态与会话名、仅保留会话名、显示状态与工作区及 Git 分支，或停止设置标题。 |
+| Terminal title | status / session / workspace / off | status | 显示根 Agent 状态与会话名（原生生命周期报告生效时仅保留会话名）、仅保留会话名、显示工作区及 Git 分支，或停止设置标题。 |
 | Terminal status | auto / on / off | auto | 报告根 Agent 生命周期和进度。Auto 等待能力响应后发送生命周期报告，On 强制报告，Off 关闭生命周期和进度报告。 |
 | Editor | Auto / 已探测到的编辑器 | Auto | 文件预览与 `Ctrl+X` 提示编辑使用的应用。 |
 | Keybindings | Default / 自定义数量 | Default | 打开快捷键重绑选择器，保存到 `keybindings.json` 并立即生效。 |
@@ -130,9 +130,9 @@ Models 分类按任务组织设置，只显示当前 Profile 可用的入口。
 | Release notes | summary / expanded / hidden | summary | 升级后展示一次新版本说明。 |
 | Notifications | off / unfocused / always | off | 回合结束或需要输入时通知。`unfocused` 等到终端失去焦点才通知；`always` 无论焦点都通知。 |
 
-通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。在 `unfocused` 模式下，待发通知送出前回到终端会取消该通知。该模式还要求回合持续至少三十秒才报告结束。`always` 会报告每个结束的回合。支持的终端通过原生生命周期通道接收一次通知，其余情况回退到 OSC 9 通知。桌面通知的具体呈现由终端控制。
+通知会合并短时间内的事件，问题、审批和失败优先于成功完成提醒。在 `unfocused` 模式下，待发通知送出前回到终端会取消该通知。该模式还要求回合持续至少三十秒才报告结束。`always` 会报告每个结束的回合。启用 OSC 7501 生命周期报告的终端直接根据实时程序状态处理提醒，其余终端接收 OSC 9 通知。桌面通知的具体呈现由终端控制。
 
-Terminal title 和 Terminal status 与 Herdr 共用根 Agent 生命周期。等待用户输入优先于运行状态，查看子 Agent 时仍以根状态为准。OSC 7501 报告生命周期状态，并区分等待授权、回答问题和登录。可选文本元数据包含会话名。通知设置也约束可能触发原生提醒的生命周期状态。静默的等待与失败状态通过标题和 OSC 9;4 进度提示呈现。进度显示运行中、暂停等待输入或失败，完成后清除。已发送的完成和失败通知保留到开始新工作或切换会话。
+Terminal title 和 Terminal status 与 Herdr 共用包含上下文压缩在内的根 Agent 生命周期。等待用户输入优先于运行状态，查看子 Agent 时仍以根状态为准。OSC 7501 立即报告 `idle`、`working`、`blocked`、`done` 与 `error` 实时状态，区分等待授权、回答问题和登录，并通过 `title` 字段导出会话名。OSC 7501 生效时，`status` 和 `workspace` 标题会省略终端已原生展示的状态与应用名。OSC 9;4 进度显示运行中、暂停等待输入或失败，完成后清除。
 
 OSC 7 将终端目录同步到当前查看的会话，方便新标签页和分屏继承目录。设置立即生效。挂起、外部编辑器和退出会清除自己写入的标题、生命周期和进度元数据，并恢复启动目录。恢复运行时重新同步当前会话的元数据。输入或输出被重定向时不发送终端控制序列。
 

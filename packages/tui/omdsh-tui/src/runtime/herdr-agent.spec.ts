@@ -36,6 +36,7 @@ describe('herdrEnvironment', () => {
     expect(herdrEnvironment({ HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p2' })).toBeUndefined()
     expect(herdrEnvironment({ HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr.sock' })).toBeUndefined()
     expect(herdrEnvironment({ HERDR_ENV: '1', HERDR_PANE_ID: '  ', HERDR_SOCKET_PATH: '/tmp/herdr.sock' })).toBeUndefined()
+    expect(herdrEnvironment({ HERDR_ENV: '1', OMDSH: '1', HERDR_PANE_ID: 'w1:p2', HERDR_SOCKET_PATH: '/tmp/herdr.sock' })).toBeUndefined()
   })
 
   it('treats pane identity without HERDR_ENV as client-side state, not detection evidence', () => {

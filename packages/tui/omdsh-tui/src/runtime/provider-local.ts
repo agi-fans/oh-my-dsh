@@ -982,7 +982,11 @@ export class LocalTui implements TuiService {
     const compacting = this.#state.status === 'compacting'
     if (compacting && this.#compactionStartedAt === undefined) this.#compactionStartedAt = Date.now()
     else if (!compacting) this.#compactionStartedAt = undefined
-    if (event.type === 'turn/end' && this.#inspected === undefined) { this.#herdr.settled(event.data.reason.kind); this.#syncWindowTitle() }
+    if (this.#inspected === undefined) {
+      if (event.type === 'compaction/start') { this.#herdr.compactionStart(event.data.compactionId); this.#syncWindowTitle() }
+      else if (event.type === 'compaction/end') { this.#herdr.compactionEnd(event.data.compactionId, event.data.error); this.#syncWindowTitle() }
+      else if (event.type === 'turn/end') { this.#herdr.settled(event.data.reason.kind); this.#syncWindowTitle() }
+    }
     this.#emitNotification(this.#notifications.event({
       type: event.type,
       time: event.time,
@@ -1034,10 +1038,22 @@ export class LocalTui implements TuiService {
     }
   }
 
-  setStatus(status: TuiStatus, options: { root?: boolean; outcome?: string } = {}): void {
+  setStatus(
+    status: TuiStatus,
+    options: {
+      root?: boolean
+      outcome?: string
+      compaction?: { phase: 'start' | 'end'; id?: string; error?: string }
+    } = {},
+  ): void {
     // Parent lifecycle remains authoritative while the child owns the visible view.
     if (options.root === true || this.#inspected === undefined) {
       this.#herdr.setRunning(status === 'running')
+      if (options.compaction?.phase === 'start') {
+        this.#herdr.compactionStart(options.compaction.id)
+      } else if (options.compaction?.phase === 'end') {
+        this.#herdr.compactionEnd(options.compaction.id, options.compaction.error)
+      }
       if (options.outcome !== undefined) this.#herdr.settled(options.outcome)
       this.#syncWindowTitle()
     }
@@ -1486,9 +1502,9 @@ export class LocalTui implements TuiService {
     this.#flushPasteBurst(true)
     this.#pasteBurst.clear()
     if (request.notify !== false) {
-      this.#emitNotification(this.#notifications.humanPrompt())
       this.#herdr.prompt(request.title, request.attentionKind)
       this.#syncWindowTitle()
+      this.#emitNotification(this.#notifications.humanPrompt())
     }
     if (this.#tty && request.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
     this.#selection.clear()
@@ -1660,13 +1676,14 @@ export class LocalTui implements TuiService {
   }
 
   /** Only the foreground terminal owner emits title and program-state sequences. */
-  #syncWindowTitle(notify = false): void {
+  #syncWindowTitle(): void {
     if (!this.#tty || this.#disposed || this.#session.handedOff) return
     const status = this.#herdr.programStatus
     this.#writeWorkingDirectory(this.#cwd)
     this.#syncProgress(status.state)
-    const title = terminalTitle(this.#terminalTitle, status, this.#sessionTitle, this.#rootDirectory.cwd, this.#rootDirectory.branch)
-    if (title !== this.#writtenWindowTitle && !(this.#terminalTitle === 'off' && this.#writtenWindowTitle === undefined)) {
+    const nativeStatus = this.#reportsProgramState
+    const title = terminalTitle(this.#terminalTitle, status, this.#sessionTitle, this.#rootDirectory.cwd, this.#rootDirectory.branch, nativeStatus)
+    if (title !== this.#writtenWindowTitle && !(title === '' && this.#writtenWindowTitle === undefined)) {
       this.#writtenWindowTitle = title
       this.#term.output.write(`\x1b]2;${title}\x07`)
     }
@@ -1674,7 +1691,7 @@ export class LocalTui implements TuiService {
       this.#programQuerySent = true
       this.#term.output.write(PROGRAM_STATUS_QUERY)
     }
-    if (!this.#reportsProgramState) {
+    if (!nativeStatus) {
       if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
       this.#writtenProgramState = undefined
       return
@@ -1682,16 +1699,8 @@ export class LocalTui implements TuiService {
     // Only the session name is exported as metadata; prompt bodies and errors stay in the TUI.
     const sequence = programStatusSequence({ state: status.state,
       ...(status.kind === undefined ? {} : { kind: status.kind }),
-      ...(this.#sessionTitle === undefined ? {} : { message: this.#sessionTitle }),
+      ...(this.#sessionTitle === undefined ? {} : { title: this.#sessionTitle }),
     })
-    // Supporting terminals can turn these states into desktop notifications.
-    // New attention reports use the same coalescing and focus gate as OSC 9.
-    if (programStatusNeedsAttention(status.state)
-      && (this.#notificationPolicy === 'off' || !notify && sequence !== this.#writtenProgramState)) {
-      if (this.#writtenProgramState !== undefined) this.#term.output.write(programStatusSequence('clear'))
-      this.#writtenProgramState = undefined
-      return
-    }
     if (sequence === this.#writtenProgramState) return
     this.#writtenProgramState = sequence
     this.#term.output.write(sequence)
@@ -5106,6 +5115,7 @@ export class LocalTui implements TuiService {
 
   #emitNotification(notification: ReturnType<TerminalNotificationController['humanPrompt']>): void {
     if (notification === undefined || !this.#tty || this.#disposed) return
+    if (this.#reportsProgramState && notification.programState !== undefined && programStatusNeedsAttention(notification.programState)) return
     if (this.#notificationPolicy === 'unfocused' && this.#terminalFocused === true) return
     this.#notificationQueue.offer(notification)
     if (this.#notificationTimer !== undefined) return
@@ -5118,10 +5128,7 @@ export class LocalTui implements TuiService {
       // coalescing window, and a turn finishing while they watch is not news.
       if (this.#notificationPolicy === 'unfocused' && this.#terminalFocused === true) return
       if (pending.programState !== undefined && pending.programState !== this.#herdr.programStatus.state) return
-      if (this.#reportsProgramState && programStatusNeedsAttention(this.#herdr.programStatus.state)) {
-        this.#syncWindowTitle(true)
-        return
-      }
+      if (this.#reportsProgramState && pending.programState !== undefined && programStatusNeedsAttention(pending.programState)) return
       const sequence = terminalNotificationSequence(pending)
       if (sequence !== '') this.#term.output.write(sequence)
     }, 25)
@@ -5982,7 +5989,15 @@ export function apply(ctx: Context, config: Config): void {
       },
       terminalProfile,
       alternateScreenOverlays: terminalProfile === 'direct',
-      herdrReporter: new HerdrAgentReporter({ interactive: term.input.isTTY === true && term.output.isTTY === true }),
+      herdrReporter: (() => {
+        const interactive = term.input.isTTY === true && term.output.isTTY === true
+        const reporter = new HerdrAgentReporter({ interactive })
+        if (interactive && process.env.OMDSH === undefined) {
+          process.env.OMDSH = '1'
+          ctx.effect(() => () => { if (process.env.OMDSH === '1') delete process.env.OMDSH })
+        }
+        return reporter
+      })(),
       historyPath: config.historyPath ?? join(dshHome, 'omdsh', 'history.jsonl'),
       draftsPath: join(config.dshHome ?? dshHome, 'omdsh', 'drafts'),
       keybindingsPath: config.keybindingsPath ?? join(dshHome, 'omdsh', 'keybindings.json'),

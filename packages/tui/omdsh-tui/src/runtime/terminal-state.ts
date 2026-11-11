@@ -7,7 +7,12 @@ export type AgentActivityState = 'idle' | 'working' | 'blocked'
 export type TerminalAttentionKind = 'permission' | 'question' | 'auth'
 export interface AgentActivityStatus { readonly state: AgentActivityState; readonly message?: string; readonly kind?: TerminalAttentionKind }
 export type TerminalProgramState = AgentActivityState | 'done' | 'error'
-export interface TerminalProgramStatus { readonly state: TerminalProgramState; readonly message?: string; readonly kind?: TerminalAttentionKind }
+export interface TerminalProgramStatus {
+  readonly state: TerminalProgramState
+  readonly title?: string
+  readonly message?: string
+  readonly kind?: TerminalAttentionKind
+}
 export const TERMINAL_TITLE_MODES = ['status', 'session', 'workspace', 'off'] as const
 export type TerminalTitleMode = typeof TERMINAL_TITLE_MODES[number]
 export const TERMINAL_STATE_MODES = ['auto', 'on', 'off'] as const
@@ -23,9 +28,10 @@ function clean(value: string | undefined, limit: number): string | undefined {
 /** Status protocol carries titles only, never prompts, tool input or error payloads. */
 export function programStatusSequence(status: TerminalProgramStatus | 'clear'): string {
   if (status === 'clear') return '\x1b]7501;state=clear:app=omdsh\x1b\\'
+  const title = clean(status.title, 240)
   const message = clean(status.message, 240)
   const kind = status.state === 'blocked' && status.kind !== undefined ? `:kind=${status.kind}` : ''
-  return `\x1b]7501;state=${status.state}:app=omdsh${kind}${message === undefined ? '' : `:msg=${Buffer.from(message).toString('base64')}`}\x1b\\`
+  return `\x1b]7501;state=${status.state}:app=omdsh${kind}${title === undefined ? '' : `:title=${Buffer.from(title).toString('base64')}`}${message === undefined ? '' : `:msg=${Buffer.from(message).toString('base64')}`}\x1b\\`
 }
 
 export function workingDirectorySequence(cwd: string): string {
@@ -55,22 +61,34 @@ export function settledProgramState(reason = 'completed'): 'idle' | 'done' | 'er
 }
 
 const STATE_LABELS: Record<TerminalProgramState, string> = { idle: 'Ready', working: 'Working', blocked: 'Needs input', done: 'Done', error: 'Failed' }
-export function terminalTitle(mode: TerminalTitleMode, status: TerminalProgramStatus, session: string | undefined, cwd: string, branch?: string): string {
+export function terminalTitle(
+  mode: TerminalTitleMode,
+  status: TerminalProgramStatus,
+  session: string | undefined,
+  cwd: string,
+  branch?: string,
+  nativeStatus = false,
+): string {
   if (mode === 'off') return ''
-  if (mode === 'session') return clean(session, 120) ?? ''
-  const subject = mode === 'workspace' ? [basename(cwd), branch].filter(Boolean).join(' · ') : session ?? basename(cwd)
+  if (mode === 'session' || (mode === 'status' && nativeStatus)) return clean(session, 120) ?? ''
+  const workspace = [basename(cwd), branch].filter(Boolean).join(' · ')
+  if (nativeStatus) return clean(workspace, 120) ?? ''
+  const subject = mode === 'workspace' ? workspace : session ?? basename(cwd)
   return clean([STATE_LABELS[status.state], subject, 'omdsh'].filter(Boolean).join(' · '), 120) ?? ''
 }
 
 export class AgentActivityController {
   #running = false
+  #compacting: string | undefined
   #prompts: { message?: string; kind: TerminalAttentionKind }[] = []
   #last: string | undefined
   #result: 'idle' | 'done' | 'error' = 'idle'
 
   get current(): AgentActivityStatus {
     const prompt = this.#prompts.at(-1)
-    return prompt === undefined ? { state: this.#running ? 'working' : 'idle' } : { state: 'blocked', ...prompt }
+    return prompt === undefined
+      ? { state: this.#running || this.#compacting !== undefined ? 'working' : 'idle' }
+      : { state: 'blocked', ...prompt }
   }
   get program(): TerminalProgramStatus {
     const current = this.current
@@ -78,12 +96,23 @@ export class AgentActivityController {
   }
   start(): AgentActivityStatus { return this.#publish(true)! }
   setRunning(running: boolean): AgentActivityStatus | undefined {
-    if (running && !this.#running) this.#result = 'idle'
+    if (running && !this.#running && this.#compacting === undefined) this.#result = 'idle'
     this.#running = running
     return this.#publish()
   }
+  compactionStart(id = ''): AgentActivityStatus | undefined {
+    if (!this.#running && this.#compacting === undefined) this.#result = 'idle'
+    this.#compacting = id
+    return this.#publish()
+  }
+  compactionEnd(id?: string, error?: string): AgentActivityStatus | undefined {
+    if (this.#compacting === undefined || (id !== undefined && this.#compacting !== id)) return undefined
+    this.#compacting = undefined
+    if (!this.#running) this.#result = error === undefined ? 'done' : 'error'
+    return this.#publish()
+  }
   settled(reason: string): void { this.#result = settledProgramState(reason) }
-  resetResult(): void { this.#result = 'idle' }
+  resetResult(): void { this.#result = 'idle'; this.#compacting = undefined }
   prompt(message?: string, kind: TerminalAttentionKind = 'question'): AgentActivityStatus | undefined {
     const text = clean(message, 240)
     this.#prompts.push({ kind, ...(text === undefined ? {} : { message: text }) })

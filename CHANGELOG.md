@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- OSC 7501 lifecycle reporting emits live `done`, `blocked`, and `error` states immediately instead of clearing program status when turns finish or notifications are muted, keeping completed sessions visible in Herdr App. Session names use the OSC 7501 `title` field, context compaction reports `working`, native-status terminals omit duplicate state and app labels from window titles, clipboard copies forward over OSC 52 in `herdr-core` terminals, and nested `omdsh` processes no longer claim a parent Herdr pane.
+
 ## [0.26.0] - 2026-11-10
 
 ### Added

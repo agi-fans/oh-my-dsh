@@ -32,7 +32,7 @@ export function omdshCommand() {
 export function smokeEnv(home, extra = {}) {
   const inherited = { ...process.env }
   for (const key of Object.keys(inherited)) {
-    if (key.startsWith('HERDR_')) delete inherited[key]
+    if (key === 'OMDSH' || key.startsWith('HERDR_') || key.startsWith('HC_')) delete inherited[key]
   }
   return { ...inherited, OMDSH_HOME: home, NO_COLOR: '1', ...extra }
 }

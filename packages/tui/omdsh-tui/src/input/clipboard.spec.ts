@@ -51,11 +51,13 @@ describe('clipboard delivery', () => {
     expect(output.write).toHaveBeenCalledWith(`\x1b]52;c;${Buffer.from('hello 中').toString('base64')}\x07`)
   })
 
-  it('forwards successful local copies through Herdr so the client can show clipboard feedback', async () => {
-    const helper = helpers([{ code: 0 }])
-    const output = { isTTY: true, write: vi.fn() }
-    expect(await copyToClipboard('hello 中🐳', helper.run, { platform: 'darwin', env: { HERDR_ENV: '1' }, output })).toBe('confirmed')
-    expect(output.write).toHaveBeenCalledWith(`\x1b]52;c;${Buffer.from('hello 中🐳').toString('base64')}\x07`)
+  it('forwards successful local copies through Herdr and herdr-core so clients receive clipboard updates', async () => {
+    for (const env of [{ HERDR_ENV: '1' }, { HC_TERMINAL_ID: 't1' }]) {
+      const helper = helpers([{ code: 0 }])
+      const output = { isTTY: true, write: vi.fn() }
+      expect(await copyToClipboard('hello 中🐳', helper.run, { platform: 'darwin', env, output })).toBe('confirmed')
+      expect(output.write).toHaveBeenCalledWith(`\x1b]52;c;${Buffer.from('hello 中🐳').toString('base64')}\x07`)
+    }
   })
 
   it('retains confirmed local delivery if Herdr terminal forwarding is unavailable', async () => {

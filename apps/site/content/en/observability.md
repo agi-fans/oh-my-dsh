@@ -41,7 +41,7 @@ Every completed turn ends with a record of the files that turn changed, with the
 
 ## Herdr pane integration
 
-Inside a Herdr pane, omdsh registers as a first-class agent: the sidebar follows its `working`, `idle`, and `blocked` state (a block names the pending approval or question), the resumable session id is reported, and the pane is released when omdsh exits. The integration stays inert outside Herdr.
+Inside a Herdr pane, omdsh registers as a first-class agent over the local socket (`working` during turns and compaction, `idle`, and `blocked` with the pending approval or question), reports the resumable session id, and releases the pane on exit; nested omdsh child processes stay inert so they do not overwrite the parent pane. In terminals driven by `herdr-core` (including Herdr App), omdsh reports live `idle`, `working`, `blocked`, `done`, and `error` lifecycle states and session titles over OSC 7501 and clears them on suspend, external editors, or exit.
 
 ## Related
 
