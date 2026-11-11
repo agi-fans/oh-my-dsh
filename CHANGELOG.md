@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-12
+
 ### Fixed
 
 - OSC 7501 lifecycle reporting emits live `done`, `blocked`, and `error` states immediately instead of clearing program status when turns finish or notifications are muted, keeping completed sessions visible in Herdr App. Session names use the OSC 7501 `title` field, context compaction reports `working`, native-status terminals omit duplicate state and app labels from window titles, clipboard copies forward over OSC 52 in `herdr-core` terminals, and nested `omdsh` processes no longer claim a parent Herdr pane.
@@ -1076,7 +1078,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...HEAD
+[0.26.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.1...v0.25.0
 [0.24.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.0...v0.24.1
