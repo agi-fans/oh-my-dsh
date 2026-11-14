@@ -107,7 +107,7 @@ Agent Hub 曾是三项里被反复讨论的「该不该统一」之一。结论�
 `@deepseek-ai/dsh-subagent-codex` 与 `@deepseek-ai/dsh-subagent-claude-code` 随包安装（`availability: installation`），但**默认 `enabled: false`**，只能由读者在 `/plugins → Bundles` 显式开启。这不是保守，是三个具体事实的结果：
 
 1. **Codex 那条钉死在自己的载荷上。** 插件 `resolve` 自己的依赖 `@openai/codex`，不读 PATH，也没有宿主 CLI 回退（README：「no host-CLI fallback」）。它钉的是 **0.153.4**，而同期上游 CLI 已到 0.166.0——相差十余个版本。插件 README 写明换掉它需要「重新生成上游 schema 证据并重跑带凭据的 nonce 测试」。
-2. **这条钉法不随 DSH 版本变化。** `0.2.1-rc.5` 与 `0.2.2-rc.1` 的 `lib/index.js` 逐字节相同（SHA-256 一致），同一个 Codex 版本声明，同一句协议基线。升级 DSH 不会移动它。
+2. **这条钉法不随 DSH 版本变化。** `0.2.1-rc.5`、`0.2.2-rc.1` 与 `0.2.2-rc.3` 的 `lib/index.js` 逐字节相同（SHA-256 `68dfa5d6…`），同一个 Codex 版本声明，同一句协议基线。升级 DSH 不会移动它。
 3. **它没有人类审批通道。** 已知的审批请求直接拒绝，未知的服务器请求 fail closed（同上 README）。需要批准才能完成的任务在 Codex 子代理里必然失败，而失败只回一句安全诊断。
 
 所以默认关闭的理由是**适配性风险**，不是偏好：开启它等于把一个自己钉住协议版本、且无法接受审批的外部代理放进会话。Claude Code 那条没有这个问题（走 `@anthropic-ai/claude-agent-sdk`，不钉 CLI 版本），但两条保持同一个默认值，因为开启它们是同一种决定——把一个外部进程接进来。

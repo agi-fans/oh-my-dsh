@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-14
+
 ### Changed
 
+- Upgraded the pinned DeepSeek Harness cohort from `0.2.2-rc.1` to `0.2.2-rc.3`. The unified `@deepseek-ai/dsh-deepseek-account` now owns browser sign-in, profile, balance, and account notifications; the retired `dsh-deepseek-account-platform` is no longer installed.
+- Subagent follow-ups now deliver through the published host prompt API and accept text and images; a draft that contains files is rejected with a notice. A continuable child can receive a follow-up even when its parent is no longer live.
+- The `cordis` preset now exposes the published `dsh-doc` authoring skill, which replaces the four previous Creator skills.
 - Releases publish both npm packages from GitHub Actions through npm trusted publishing (OIDC) with provenance when a `vX.Y.Z` tag is pushed, and the GitHub Release is created from `CHANGELOG.md` after both packages publish.
 
 ## [0.26.1] - 2026-11-12
@@ -1082,7 +1087,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.24.1...v0.25.0

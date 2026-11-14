@@ -8,36 +8,36 @@ describe('runner managed children on EOF', () => {
     const ctx = new Context()
     const pending = Promise.withResolvers<void>()
     const whenIdle = vi.fn(() => pending.promise)
-    const waitForChildren = vi.fn(() => pending.promise)
+    const waitForTreeWork = vi.fn(() => pending.promise)
     const exit = vi.fn()
     const off = () => () => {}
     ctx.provide('tui', { interactive: true, readInput: async () => null, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
     ctx.provide('omdshSession', { start: async () => {}, agent: { whenIdle } } as never)
     ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
-    ctx.provide('subagents', { waitForChildren } as never)
+    ctx.provide('subagents', { waitForTreeWork } as never)
     ctx.provide('appExit', exit)
     try {
       await ctx.plugin(runner)
       await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
       expect(whenIdle).not.toHaveBeenCalled()
-      expect(waitForChildren).not.toHaveBeenCalled()
+      expect(waitForTreeWork).not.toHaveBeenCalled()
     } finally { pending.resolve(); await ctx.fiber.dispose() }
   })
 
   it('releases an unloaded runner while children are pending without exiting the surviving host', async () => {
     const ctx = new Context()
     const settlement = Promise.withResolvers<boolean>()
-    const waitForChildren = vi.fn(() => settlement.promise)
+    const waitForTreeWork = vi.fn(() => settlement.promise)
     const exit = vi.fn()
     const off = () => () => {}
     ctx.provide('tui', { readInput: async () => null, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
     ctx.provide('omdshSession', { start: async () => {}, agent: { whenIdle: async () => {} } } as never)
     ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
-    ctx.provide('subagents', { waitForChildren } as never)
+    ctx.provide('subagents', { waitForTreeWork } as never)
     ctx.provide('appExit', exit)
     try {
       const fiber = await ctx.plugin(runner)
-      await vi.waitFor(() => { expect(waitForChildren).toHaveBeenCalledOnce() })
+      await vi.waitFor(() => { expect(waitForTreeWork).toHaveBeenCalledOnce() })
       await fiber.dispose()
       // The runner owns no resend loop any more, so unloading only has to
       // release the reader and leave the host alive.
@@ -54,23 +54,23 @@ describe('runner managed children on EOF', () => {
     const order: string[] = []
     const releaseChild = Promise.withResolvers<boolean>()
     const agent = { whenIdle: async () => { order.push('idle') } }
-    const waitForChildren = vi.fn().mockImplementationOnce(() => { order.push('children'); return releaseChild.promise }).mockResolvedValue(false)
+    const waitForTreeWork = vi.fn().mockImplementationOnce(() => { order.push('children'); return releaseChild.promise }).mockResolvedValue(false)
     const exit = vi.fn()
     const off = () => () => {}
     ctx.provide('tui', { readInput: async () => null, onInterrupt: off, onQueueEdit: off, onRewind: off } as never)
     ctx.provide('omdshSession', { start: async () => {}, agent } as never)
     ctx.provide('omdshStartup', { afterSessionStart: async () => {} } as never)
     ctx.provide('omdshLoop', { disable: () => {} } as never)
-    ctx.provide('subagents', { waitForChildren } as never)
+    ctx.provide('subagents', { waitForTreeWork } as never)
     ctx.provide('appExit', exit)
     try {
       await ctx.plugin(runner)
-      await vi.waitFor(() => { expect(waitForChildren).toHaveBeenCalledOnce() })
+      await vi.waitFor(() => { expect(waitForTreeWork).toHaveBeenCalledOnce() })
       expect(exit).not.toHaveBeenCalled()
       releaseChild.resolve(true)
       await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
       expect(order).toEqual(['idle', 'children', 'idle'])
-      expect(waitForChildren).toHaveBeenCalledTimes(2)
+      expect(waitForTreeWork).toHaveBeenCalledTimes(2)
     } finally { releaseChild.resolve(false); await ctx.fiber.dispose() }
   })
 })

@@ -77,9 +77,8 @@ describe('preset tool presentation on the wire', () => {
     expect(turn.status, turn.output.slice(-2000)).toBe(0)
     expect(requestToolNames(turn.bodies[0])).toContain('plugin_manager')
     const body = JSON.stringify(turn.bodies[0])
-    expect(body).toContain('cordis-plugin-development')
-    expect(body).toContain('editing-cordis-compositions')
-    expect(body).toContain('cordis-composition-reference')
+    expect(body).toContain('dsh-doc')
+    expect(body).not.toContain('cordis-plugin-development')
     expect(turn.output).not.toContain('did not activate')
   }, 180_000)
 

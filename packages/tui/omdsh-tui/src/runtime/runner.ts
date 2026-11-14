@@ -161,7 +161,7 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
           while (!cancelled.aborted) {
             await Promise.race([agent.whenIdle(), stopped.promise])
             if (cancelled.aborted) break
-            const joined = await Promise.race([ctx.get('subagents')?.waitForChildren(agent), stopped.promise])
+            const joined = await Promise.race([ctx.get('subagents')?.waitForTreeWork(agent), stopped.promise])
             if (!joined) break
           }
         } finally { cancelled.removeEventListener('abort', stop) }

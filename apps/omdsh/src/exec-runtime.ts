@@ -50,7 +50,11 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
     stopped.abort(new Error('Execution requires human input.'))
   }
   off.push(ctx.on('agent/created', ({ agent }): undefined => {
-    if ([...owned].some(owner => agents.isOwnedBy(agent.id, owner))) owned.add(agent)
+    // Runtime tree membership publishes after the created edge, so follow the
+    // durable creator link the child already carries; unrelated roots stay out.
+    const parentId = agent.session.header.parentSession
+    if (parentId === undefined) return
+    if (parentId === root?.id || [...owned].some(owner => owner.id === parentId)) owned.add(agent)
   }))
   off.push(ctx.on('agent/disposed', ({ agent }) => { if (agent !== root) owned.delete(agent) }))
   off.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
@@ -124,7 +128,7 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
       let joined: boolean | undefined
       try {
         if (lifetime.aborted) break
-        joined = await Promise.race([ctx.get('subagents')?.waitForChildren(agent), interrupted.promise])
+        joined = await Promise.race([ctx.get('subagents')?.waitForTreeWork(agent), interrupted.promise])
       } finally { lifetime.removeEventListener('abort', onAbort) }
       if (!joined) break
     }

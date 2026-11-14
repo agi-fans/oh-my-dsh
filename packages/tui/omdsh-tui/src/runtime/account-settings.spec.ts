@@ -30,7 +30,7 @@ function harness(initial = signedIn, language: 'en' | 'zh-CN' = 'en') {
       listeners.add(changed); signal.addEventListener('abort', changed, { once: true })
       try {
         while (!signal.aborted) {
-          if (dirty) { dirty = false; yield state }
+          if (dirty) { dirty = false; yield { type: 'snapshot', state } }
           else await new Promise<void>(resolve => { wake = resolve })
         }
       } finally { listeners.delete(changed); signal.removeEventListener('abort', changed) }

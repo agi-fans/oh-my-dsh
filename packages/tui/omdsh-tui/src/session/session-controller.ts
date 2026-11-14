@@ -28,6 +28,7 @@ import {
   type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { PromptContentPart } from '@deepseek-ai/dsh-attachment/types'
 import { CommandAttachments, encodeCommandAttachments } from './command-attachments.ts'
 export { encodeCommandAttachments } from './command-attachments.ts'
 import type {} from '@deepseek-ai/dsh-attachment'
@@ -50,7 +51,7 @@ import type {} from '@deepseek-ai/dsh-goal'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import type { UserQuestionProjectionView } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { queueHostSubagentPrompt, steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
+import type { SubagentDescendantListEntry, SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
 import type { StreamDelta } from '../views/event-views.ts'
 import { firstVisibleStreamTime } from '../views/stream-time.ts'
 import { LiveAttemptTracker } from './live-attempt-tracker.ts'
@@ -76,7 +77,7 @@ import type {
 import { descendantDepth, isSteerableSubagent } from './subagent-roster.ts'
 import { readRecentRows, writeRecentRows, readSessionLibrary, sessionArgumentOptions, sessionLibraryPath, setSessionLabel, type SessionRowMemo } from './session-library.ts'
 import { currentWorkingDirectory } from './working-directory.ts'
-import { SubagentTracker } from './subagent-tracker.ts'
+import { SubagentTracker, type SubagentTrackerChild } from './subagent-tracker.ts'
 import type {} from '../runtime/tool-presentation.ts'
 import { commandPermission } from '../commands/permission.ts'
 import { configureAgentContext } from '../runtime/agent-profile.ts'
@@ -442,6 +443,41 @@ export async function createSubmissionMessage(
   return createUserMessage({ content, source: { kind: 'user' } })
 }
 
+/**
+ * Build the host prompt parts for a subagent continuation. Unlike an ordinary
+ * Session prompt, the subagent Host admits browser images itself, so the draft
+ * crosses the seam as encoded bytes and files are refused here.
+ */
+function submissionPromptContent(submission: TuiSubmission): PromptContentPart[] {
+  const imagePart = (image: TuiSubmission['images'][number]): PromptContentPart => ({
+    type: 'image',
+    mediaType: image.mediaType,
+    data: Buffer.from(image.data).toString('base64'),
+    ...(image.name === undefined ? {} : { name: image.name }),
+  })
+  const rejectFiles = (): never => {
+    throw new Error('Subagent follow-up does not accept files.')
+  }
+  const parts: PromptContentPart[] = []
+  if (submission.segments === undefined || submission.segments.length === 0) {
+    if (submission.text !== '') parts.push({ type: 'text', text: submission.text })
+    for (const image of submission.images) parts.push(imagePart(image))
+    if ((submission.files?.length ?? 0) > 0) rejectFiles()
+    return parts
+  }
+  for (const segment of submission.segments) {
+    if (segment.kind === 'text') {
+      if (segment.text !== '') parts.push({ type: 'text', text: segment.text })
+    } else if (segment.kind === 'image') {
+      const image = submission.images[segment.index]
+      if (image !== undefined) parts.push(imagePart(image))
+    } else {
+      rejectFiles()
+    }
+  }
+  return parts
+}
+
 /** Rehydrate one durable human inbox message into an editable composer draft. */
 export async function restoreSubmissionMessage(
   message: UserMessage,
@@ -548,7 +584,14 @@ export class SessionRuntime {
       },
       agentStatus: id => this.#ctx.get('agents')?.get(SessionId(id))?.status,
       sessions: () => this.#ctx.get('sessions')?.list() ?? [],
-      listChildren: rootId => this.#ctx.get('subagents')?.listChildren(SessionId(rootId)),
+      listChildren: rootId => this.#ctx.get('subagents')?.listDescendants(SessionId(rootId))
+        .then(entries => entries
+          .filter((entry): entry is Extract<SubagentDescendantListEntry, { kind: 'child' }> => entry.kind === 'child' && entry.depth === 1)
+          .map((entry): SubagentTrackerChild => ({
+            id: entry.id,
+            mode: entry.mode,
+            ...(entry.label === undefined ? {} : { label: entry.label }),
+          }))),
       publish: (roster) => {
         this.#tui.setSubagents(this.#workflows.roster(roster))
         if (this.#inspectedId === undefined) return
@@ -750,18 +793,16 @@ export class SessionRuntime {
   }
 
   #isOwnedDescendant(agent: Agent, root: Agent): boolean {
+    if (agent === root) return false
     const agents = this.#ctx.get('agents')
-    if (agents?.get(agent.id) !== agent
-      || descendantDepth(agent.session, root.id, this.#lookupSession) === undefined) return false
-    // Durable lineage alone also matches an independently resumed runtime root.
-    let child = agent
-    while (child !== root) {
-      const parentId = child.session.header.parentSession
-      const parent = parentId === undefined ? undefined : agents.get(parentId)
-      if (parent === undefined || !agents.isOwnedBy(child.id, parent)) return false
-      child = parent
+    if (agents?.get(agent.id) !== agent || agents.get(root.id) !== root) return false
+    try {
+      // Runtime tree membership replaced registry ownership; durable lineage
+      // alone still matches an independently resumed runtime root.
+      return this.#ctx.get('subagents')?.rootOf(agent) === root
+    } catch {
+      return false
     }
-    return true
   }
 
   /** Accept only live descendants of the active root for shared approval prompts. */
@@ -1999,18 +2040,10 @@ export class SessionRuntime {
       this.#tui.notice('This subagent is a completed run and cannot take more messages.')
       return
     }
-    const live = this.#ctx.get('sessions')?.get(SessionId(childId))
-    const rosterParent = this.#tracker.snapshot()?.agents.find(agent => agent.id === childId)?.parentId
-    const parentId = live?.header.parentSession ?? rosterParent
-    const parent = parentId === undefined || parentId === root.id
-      ? root
-      : this.#ctx.get('agents')?.get(SessionId(parentId))
     const subagents = this.#ctx.get('subagents')
-    if (parent === undefined || subagents === undefined) {
+    if (subagents === undefined) {
       this.#tui.restoreInput(submission, childId)
-      this.#tui.notice(parent === undefined
-        ? 'The parent of this subagent is not live, so it cannot take a follow-up.'
-        : 'Subagent follow-up is unavailable in this composition.')
+      this.#tui.notice('Subagent follow-up is unavailable in this composition.')
       return
     }
     const previous = this.#inspectDeliveryTail
@@ -2018,31 +2051,30 @@ export class SessionRuntime {
     this.#inspectDeliveryTail = new Promise<void>(resolve => { release = resolve })
     const delivery = new AbortController()
     this.#inspectDeliveries.add(delivery)
-    let cancelUpload: () => void = () => {}
+    let cancelWait: () => void = () => {}
     const cancelled = new Promise<never>((_resolve, reject) => {
-      cancelUpload = () => { reject(delivery.signal.reason) }
-      delivery.signal.addEventListener('abort', cancelUpload, { once: true })
+      cancelWait = () => { reject(delivery.signal.reason) }
+      delivery.signal.addEventListener('abort', cancelWait, { once: true })
     })
     try {
       // Recalled messages can include attachments; admission must retain submission order.
       await Promise.race([previous, cancelled])
       delivery.signal.throwIfAborted()
-      // Attachment storage need not support cancellation; release the draft now
-      // and ignore a later upload result before crossing Harness admission.
-      const message = await Promise.race([createSubmissionMessage(submission, this.#ctx.get('attachments')), cancelled])
-      delivery.signal.removeEventListener('abort', cancelUpload)
-      delivery.signal.throwIfAborted()
       if (this.#inspectedId !== childId || this.#active?.handle.agent !== root) throw new Error('The viewed session changed before delivery.')
-      const send = submission.delivery === 'steer' ? steerHostSubagentPrompt : queueHostSubagentPrompt
-      const messageId = await send(subagents, parent, SessionId(childId), message.content,
-        { kind: 'user' }, delivery.signal)
+      const content = submissionPromptContent(submission)
+      const messageId = (await subagents.prompt({
+        requestId: randomUUID() as SubagentPromptRequestId,
+        childSessionId: SessionId(childId),
+        delivery: submission.delivery === 'steer' ? 'steer' : 'queue',
+        content,
+      }, delivery.signal)).messageId
       this.#tui.pendingInputs?.prepare?.(submission, messageId)
       this.#tui.pendingInputs?.acknowledge?.(submission)
     } catch (error: unknown) {
       this.#tui.restoreInput(submission, childId)
       if (!delivery.signal.aborted) this.#tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
     } finally {
-      delivery.signal.removeEventListener('abort', cancelUpload)
+      delivery.signal.removeEventListener('abort', cancelWait)
       this.#inspectDeliveries.delete(delivery)
       release()
     }

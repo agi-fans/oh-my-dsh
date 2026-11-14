@@ -1,4 +1,9 @@
-/** Registration projection missing from Harness 0.2.2-rc.1; execution stays upstream. */
+/**
+ * Adds the per-provider `available()` snapshot to the published WebRuntime
+ * registry. Registration, listing, duplicate rejection, and
+ * `web/providers-changed` stay upstream; the settings surface still needs the
+ * availability flag, which `listProviders()` does not carry.
+ */
 import type { Context } from '@deepseek-ai/cordis'
 import WebRuntime, { type WebRuntimeConfig, type WebSearchProvider, type WebFetchProvider } from '@deepseek-ai/dsh-web'
 import type { WebSettingsProvider } from '@agi-fans/dsh-tui'

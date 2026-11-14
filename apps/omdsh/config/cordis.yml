@@ -211,7 +211,7 @@
   # DeepSeek account grant over the shared credential store. Browser sign-in
   # returns through the loopback webServer; DSH Web/Desktop can share the grant.
   - id: deepseek-account
-    name: '@deepseek-ai/dsh-deepseek-account-platform'
+    name: '@deepseek-ai/dsh-deepseek-account'
 
   # Dormant multi-provider twin: zero extra picker routes until a `llm-pi-ai:`
   # settings section supplies profiles. /login writes those profiles; /model

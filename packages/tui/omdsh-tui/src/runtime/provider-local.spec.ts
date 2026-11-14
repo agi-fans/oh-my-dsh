@@ -3481,7 +3481,7 @@ describe('LocalTui (tty)', () => {
     const getBalance = vi.fn(async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '1234.567' }], bonusWallets: [] }))
     ctx.provide('deepseekAccount', {
       getState: async () => state,
-      watch: async function* () { yield state },
+      watch: async function* () { yield { type: 'snapshot', state } },
       getProfile: async () => ({ status: 'ready', value: { name: '账户 Test 🐳', contact: 'a***@test.example' } }),
       getBalance,
     } as never)

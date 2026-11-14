@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentRoster } from '../definition.ts'
-import { SubagentTracker, type SubagentTrackerDeps } from './subagent-tracker.ts'
+import { SubagentTracker, type SubagentTrackerChild, type SubagentTrackerDeps } from './subagent-tracker.ts'
 
 function ev(type: string, data: unknown, seq = 1): SessionEvent {
   return { type, seq, time: seq, data } as unknown as SessionEvent
@@ -114,14 +113,14 @@ describe('SubagentTracker.observeCatalog/sync', () => {
   })
 
   it('restores an external catalog entry as completed without treating it as a waiting local conversation', async () => {
-    const { tracker } = make({ listChildren: async () => [{ id: SessionId('external'), mode: 'external', createdAt: 1 }] })
+    const { tracker } = make({ listChildren: async () => [{ id: SessionId('external'), mode: 'external' }] })
     tracker.sync()
     await tick()
     expect(tracker.snapshot()?.agents[0]).toMatchObject({ mode: 'external', phase: 'completed' })
   })
 
   it('retains an observed external activation when rebuilding the same root catalog', async () => {
-    const entry: SubagentCatalogEntry = { id: SessionId('external'), mode: 'external', createdAt: 1 }
+    const entry: SubagentTrackerChild = { id: SessionId('external'), mode: 'external' }
     const { tracker } = make({ listChildren: async () => [entry] })
     tracker.observeCatalog(fakeSession('root'), [ev('subagent/catalog', { version: 2, childId: entry.id, mode: 'external' })])
     tracker.noteExternalRun({ runId: 'run-1', id: entry.id, provider: 'codex', local: false } as Parameters<SubagentTracker['noteExternalRun']>[0])
@@ -140,9 +139,9 @@ describe('SubagentTracker.observeCatalog/sync', () => {
   })
 
   it('rebuilds from sessions then merges the durable child listing', async () => {
-    const entries: SubagentCatalogEntry[] = [
-      { id: SessionId('cold-1'), createdAt: 1, mode: 'one-shot', label: 'Cold task' },
-      { id: SessionId('cold-2'), createdAt: 2, mode: 'continuable', label: 'Cold worker' },
+    const entries: SubagentTrackerChild[] = [
+      { id: SessionId('cold-1'), mode: 'one-shot', label: 'Cold task' },
+      { id: SessionId('cold-2'), mode: 'continuable', label: 'Cold worker' },
     ]
     const { tracker, published, sessions } = make({
       listChildren: () => Promise.resolve(entries),
@@ -160,7 +159,7 @@ describe('SubagentTracker.observeCatalog/sync', () => {
   })
 
   it('drops a stale listing when the root changed mid-flight', async () => {
-    const entries: SubagentCatalogEntry[] = [{ id: SessionId('cold-1'), createdAt: 1, mode: 'unknown' }]
+    const entries: SubagentTrackerChild[] = [{ id: SessionId('cold-1'), mode: 'unknown' }]
     const { tracker, published } = make({ listChildren: () => Promise.resolve(entries) })
     tracker.sync()
     tracker.reset()

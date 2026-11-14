@@ -113,9 +113,10 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
     void (async () => {
       let initial = true
       try {
-        for await (const next of account.watch(live)) {
+        for await (const update of account.watch(live)) {
           if (live.aborted) break
           // watch includes an initial snapshot; do not query details twice just for subscribing.
+          const next = update.state
           const sameInitial = initial && JSON.stringify(next) === initialSnapshot
           initial = false
           if (!sameInitial) accept(next)
@@ -181,8 +182,9 @@ export function bindAccountNotices(ctx: Context): void {
     ]
     void (async () => {
       try {
-        for await (const state of account.watch(lifetime.signal)) {
+        for await (const update of account.watch(lifetime.signal)) {
           if (lifetime.signal.aborted) break
+          const state = update.state
           if (state.status === 'credential-stored' && previous === 'signed-out') notified = false
           previous = state.status
         }

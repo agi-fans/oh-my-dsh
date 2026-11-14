@@ -1,13 +1,13 @@
 # DeepSeek Harness 集成与兼容
 
-当前工作区为 omdsh `0.22.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.1`，下表依据 manifest 与 lockfile 核对。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
+当前工作区为 omdsh `0.27.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.3`，下表依据 manifest 与 lockfile 核对。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
 
 ## 依赖基线
 
 | 层 | 当前版本与来源 |
 | --- | --- |
-| omdsh 根、CLI、TUI | `0.22.0`，保持同步，后续行为变更记录在 Unreleased |
-| 直接 DSH 运行时依赖 | npm `0.2.2-rc.1`，精确 pin，lockfile 保持单一 DSH cohort |
+| omdsh 根、CLI、TUI | `0.27.0`，保持同步，后续行为变更记录在 Unreleased |
+| 直接 DSH 运行时依赖 | npm `0.2.2-rc.3`，精确 pin，lockfile 保持单一 DSH cohort |
 | Cordis / Loader / Timer / Schemastery | `4.1.0` / `1.1.0` / `1.2.0` / `3.19.0`，Cosmokit 为 `1.9.0` |
 | pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.5.0` |
 
@@ -22,6 +22,8 @@
 2026-10-18 迁移至 [DSH `0.2.1-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.2)，同步 Cordis 稳定线（`4.0.5` / `1.0.6` / `1.1.7` / `3.18.5`），并把 `node-addon-require-builtin` 提到 `^0.1.9`，满足 loader `1.0.6` 的新 peer。插件兼容判断改用 app-boot 导出的 `evaluatePluginCompatibility`：声明 `engines.dsh` 时只按该区间判定，否则才看 DSH peer；`/plugins` 相应展示 `requirements` 与 `restartReason`，不再自行推导 peer 规则。`dsh-session-persistence-jsonl` 不再默认导出持久化类，改为 Cordis 插件；YAML 组合不变，直接挂载它的测试改用命名空间。子代理能力声明移除 `toolFilter`/`persona`、新增 `agentPreset`，产品本来就不传这两个字段。headless 凭据优先级变化只发生在上游 `headless` profile 的组合里，`omdsh exec` 使用自己的 profile，仍读取已保存凭据。Session 格式仍为 v4，token 投影的公开形状未变。完整证据见[升级记录](../history/dsh-0.2.1-rc.2-upgrade.md)。
 
 2026-11-04 升级至 `0.2.2-rc.1`，模型选择改由 `agent.model` 与 Session 持久投影拥有，工具执行使用独立 native/PTC 执行器，定时提醒通过 `schedule.edit` 更新，子模型选择和发现分别配置。发布产物检查、兼容适配和验证范围见[升级记录](../history/dsh-0.2.2-rc.1-upgrade.md)。
+
+2026-11-14 升级至 `0.2.2-rc.3`。上游把 DeepSeek 账户与浏览器登录合并进 `dsh-deepseek-account`，`dsh-deepseek-account-platform` 不再发布；子代理的 live lineage 与 host prompt 入口移入 `dsh-subagent`，`AgentRegistry.roots()`/`isOwnedBy()` 与 `@deepseek-ai/dsh-subagent/internal` 被移除；账户 `watch()` 改为返回 `AccountUpdate`；Creator 的四个 skill 合并为 `dsh-doc`。适配与验证范围见[升级记录](../history/dsh-0.2.2-rc.3-upgrade.md)。
 
 ## 工作目录
 
@@ -43,7 +45,7 @@ Codex/Claude Code bundle 作为 CLI 的精确 npm 依赖默认安装，初始未
 
 `/settings` 按用户任务收编自带设置，Advanced 遵守自动表单策略，并按字段去重；现有 terminal provider 消费公开 settings descriptor 生成表单，只编辑 live 字段，带 revision 按路径写入。API-key/ref 配对使用 credentials；包含密钥的复合字段不通过 JSON 重写。子代理模型选择由已发布 `model-selection-settings` 服务拥有，默认关闭；omdsh 的 preset consumer 沿用全局委派行的配置，在 Standard/PTC/Cordis 的会话 scope 内接入上游取样与清理。Minimal 保持双工具，fork 继续继承父路由。
 
-Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理工具，不读运行时 `refs/`。`/agent inspect` 对照当前声明和当前 Agent 保留的实际模块；公开接口没有 revision 编号，不另造计数。配置、安装及隔离诊断复用上游，不复制 Web 页面模型。真实安装、启停、移除、监视与配置冲突验证见 [plugin-management.spec.ts](../../apps/omdsh/src/plugin-management.spec.ts)，模型侧工具/Skills 见 [presentation-mode.spec.ts](../../apps/omdsh/src/presentation-mode.spec.ts)。
+Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理工具，不读运行时 `refs/`。rc.3 起上游把 Creator 的四个 skill 合并为 `dsh-doc`，产品只展示上游目录，不复制 skill 内容。`/agent inspect` 对照当前声明和当前 Agent 保留的实际模块；公开接口没有 revision 编号，不另造计数。配置、安装及隔离诊断复用上游，不复制 Web 页面模型。真实安装、启停、移除、监视与配置冲突验证见 [plugin-management.spec.ts](../../apps/omdsh/src/plugin-management.spec.ts)，模型侧工具/Skills 见 [presentation-mode.spec.ts](../../apps/omdsh/src/presentation-mode.spec.ts)。
 
 ## 产品组合决策
 
@@ -51,7 +53,7 @@ Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理
 - **Preset**：产品自己的 preset 声明拥有 persona 和工具呈现配置。PTC 是运行时 preset 的真实配置，不由 TUI 根据名字伪装；TUI 只展示 Harness 投影。
 - **会话检索**：人类与模型侧检索都已提供。SQLite 索引按 `first-search` 延迟打开，持久路径为 home 下的 `sessions-query.sqlite`；JSONL 日志仍是事实来源。模型侧只读工具的跨会话访问要求 cwd 匹配。旧文档中的 `openAt: never`、内存索引或“模型检索未挂载”已失效。
 - **LSP/MCP**：`apps/omdsh` 拥有配置到组合的适配。LSP 仅在配置服务器时挂载，不内置服务器或自动探测；MCP 提供工具与资源能力。配置方式见[语言服务器](../../apps/site/content/zh/language-servers.md)和 [Skills 与 MCP](../../apps/site/content/zh/skills-and-mcp.md)。
-- **Web Search 与反馈**：均已提供，实际开关及配置见[工具](../../apps/site/content/zh/tools.md)和[设置](../../apps/site/content/zh/settings.md)，不再重复维护为待挂载计划。逐条 Assistant 回复的评分曾由 `dsh-message-feedback` 与 TUI `/rate` 提供，因缺少读取或外发消费方而移除。上游 session 级 `/feedback` 因只有写入、没有读取或外发路径而未挂载。网页搜索与抓取默认走官方 DeepSeek Search/Fetch API（`deepseek-search-api`/`deepseek-fetch-api`），使用上游 `DEEPSEEK_API_KEY`；在 `deepseek-account` 会话中改由共享账户 token 鉴权。Messages 搜索与本地 HTTP 抓取保留为可切换 fallback。DeepSeek 账户路由（`deepseek-account-platform` + `llm-deepseek-account`）既复用 DSH Web/Desktop 已建立的授权，也能从 `/login` 发起浏览器登录：主机挂载 `dsh-host-webserver`，仅监听 `127.0.0.1` 的随机端口并在尝试期间注册 `/oauth/callback`。
+- **Web Search 与反馈**：均已提供，实际开关及配置见[工具](../../apps/site/content/zh/tools.md)和[设置](../../apps/site/content/zh/settings.md)，不再重复维护为待挂载计划。逐条 Assistant 回复的评分曾由 `dsh-message-feedback` 与 TUI `/rate` 提供，因缺少读取或外发消费方而移除。上游 session 级 `/feedback` 因只有写入、没有读取或外发路径而未挂载。网页搜索与抓取默认走官方 DeepSeek Search/Fetch API（`deepseek-search-api`/`deepseek-fetch-api`），使用上游 `DEEPSEEK_API_KEY`；在 `deepseek-account` 会话中改由共享账户 token 鉴权。Messages 搜索与本地 HTTP 抓取保留为可切换 fallback。DeepSeek 账户路由（`deepseek-account` + `llm-deepseek-account`）既复用 DSH Web/Desktop 已建立的授权，也能从 `/login` 发起浏览器登录：主机挂载 `dsh-host-webserver`，仅监听 `127.0.0.1` 的随机端口并在尝试期间注册 `/oauth/callback`。
 - **Spill 与压缩**：单次工具 spill 会改变写入日志的结果，当前显式 `maxInlineTokens: 50000`；压缩前 pruner 则只裁剪模型上下文，完整结果仍在日志。组合顺序固定为 token meter → tool-result pruner → compaction，不能混淆两者对工具展开的影响。
 - **Workflow**：仅挂 `dsh-workflow-ptc` provider，`dsh-workflow` 保留为依赖；同时挂两个 seam provider 会重复注册 `workflowEngine`。工具保持 `workflow_run` 命名，以兼容已有会话与工具策略；Plan 状态通过上游 `/plan` 命令管理。
 - **提醒**：`dsh-schedule` 挂在 storage-domain 之后，`dsh-tool-schedule` 作为全局工具行，minimal 的 allow 列表自然隐藏，子代理由工具自身拒绝。TUI 提供 `sessionController.resolveAgent`：活会话直接返回，冷会话按记录的 preset 与当前默认模型恢复并常驻，交付只追加 `followup` 并 flush，不激活或替换当前界面。`/schedule` 负责列表、分页交付记录、暂停、恢复、立即运行、改名/改指令与删除，定时修改仍由模型工具完成。真实定时器回归覆盖活会话投递与重启后的冷会话恢复投递。

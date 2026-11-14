@@ -2,7 +2,7 @@
   "name": "oh-my-dsh",
   "private": true,
   "description": "omdsh: a TUI coding agent on the DeepSeek Harness core runtime",
-  "version": "0.26.1",
+  "version": "0.27.0",
   "license": "MIT",
   "homepage": "https://omdsh.agi.fans/",
   "repository": {
@@ -36,7 +36,7 @@
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
-    "@deepseek-ai/dsh-llm-mock-server": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm-mock-server": "0.2.2-rc.3",
     "@types/node": "^22.10.0",
     "lefthook": "2.1.10",
     "node-pty": "^1.1.0",

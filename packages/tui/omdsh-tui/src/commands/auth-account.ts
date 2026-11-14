@@ -117,8 +117,9 @@ export async function loginDeepSeekAccount(ctx: Context, invocation: Pick<Comman
   let completed: AccountView | undefined
   void (async () => {
     try {
-      for await (const next of account.watch(browserSignal)) {
+      for await (const update of account.watch(browserSignal)) {
         if (browserSignal.aborted) break
+        const next = update.state
         if (next.attempt?.id !== attempt.id || next.status === 'credential-stored' || accountFailure(next.attempt)) {
           completed = next
           browser.abort()

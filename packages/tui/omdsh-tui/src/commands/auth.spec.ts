@@ -157,7 +157,7 @@ async function authHarness(options: AuthHarnessOptions = {}): Promise<AuthHarnes
     getState: vi.fn(async () => accountState),
     getProfile: vi.fn(async () => ({ status: 'failed' })),
     getBalance: vi.fn(async () => ({ status: 'failed' })),
-    watch: async function* () { yield { ...accountState } },
+    watch: async function* () { yield { type: 'snapshot', state: { ...accountState } } },
     startSignIn: vi.fn(async () => {
       accountState.attempt = { id: 'attempt-1', phase: 'waiting-browser', authorizeUrl: 'https://platform.test/authorize' }
       return accountState

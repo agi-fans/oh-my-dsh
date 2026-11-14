@@ -627,7 +627,7 @@ describe('upstream capability adaptation rows', () => {
   it('mounts the DeepSeek account route beside the API-key route', () => {
     const rows = productRows()
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
-    expect(rows.find(entry => entry.id === 'deepseek-account')?.name).toBe('@deepseek-ai/dsh-deepseek-account-platform')
+    expect(rows.find(entry => entry.id === 'deepseek-account')?.name).toBe('@deepseek-ai/dsh-deepseek-account')
     expect(rows.find(entry => entry.id === 'llm-deepseek-account')?.name).toBe('@deepseek-ai/dsh-llm-deepseek-account')
     expect(index('authorization')).toBeLessThan(index('deepseek-account'))
     expect(index('llm-deepseek')).toBeLessThan(index('llm-deepseek-account'))

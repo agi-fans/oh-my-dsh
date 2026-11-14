@@ -5,17 +5,12 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { queueHostSubagentPrompt, steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
 import { mcpCatalogText } from '../commands/integrations.ts'
 import type { TuiService, TuiSubmission } from '../definition.ts'
 
-vi.mock('@deepseek-ai/dsh-subagent/internal', () => ({
-  queueHostSubagentPrompt: vi.fn(async () => 'message-id-1'),
-  steerHostSubagentPrompt: vi.fn(async () => 'message-id-2'),
-}))
 import {
   conversationTurns,
   createSubmissionMessage,
@@ -521,9 +516,7 @@ describe('SessionRuntime.execute', () => {
 })
 
 describe('SessionRuntime inspected-subagent delivery', () => {
-  it.each(['queue', 'steer', 'cancel-upload', 'accepted-before-close', 'rejected', 'ordered-upload', 'seeded'] as const)('routes %s delivery through the host and restores only unaccepted drafts', async mode => {
-    vi.mocked(queueHostSubagentPrompt).mockClear()
-    vi.mocked(steerHostSubagentPrompt).mockClear()
+  it.each(['queue', 'steer', 'abort-delivery', 'accepted-before-close', 'rejected', 'ordered', 'files', 'seeded'] as const)('routes %s delivery through the host and restores only unaccepted drafts', async mode => {
     const rootId = SessionId('session-steer-root')
     const childId = SessionId('session-steer-child')
     const ctx = new Context()
@@ -575,12 +568,17 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     agentCtx.provide('tools', { presentAs: () => () => undefined })
     agentCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
 
-    const subagents = {
-      listChildren: async () => [],
-      sendMessage: vi.fn(async () => 'sent-1'),
-    }
     const childAgent = { id: childId, session: childSession, status: 'running',
       model: stubModel({ provider: 'child-provider', model: 'child-model', reasoningEffort: ReasoningEffortId('low') }) } as unknown as Agent
+    const promptRequest = vi.fn(async (_request: unknown, _signal: AbortSignal) => ({ messageId: 'message-id-1' }))
+    const subagents = {
+      listDescendants: async () => [],
+      prompt: promptRequest,
+      rootOf: (agent: Agent) => agent.id === rootId || agent.session.header.parentSession === rootId
+        ? rootAgent
+        : (() => { throw new Error('UNAUTHORIZED') })(),
+      sendMessage: vi.fn(async () => 'sent-1'),
+    }
     let childPermission = 'read-only'
     let childLoaded = true
     let otherAgent: Agent | undefined
@@ -602,7 +600,6 @@ describe('SessionRuntime inspected-subagent delivery', () => {
         return { agent: rootAgent, dispose: async () => undefined } as unknown as AgentHandle
       },
       get: (id: string) => id === rootId ? rootAgent : id === childId ? childLoaded ? childAgent : undefined : id === otherAgent?.id ? otherAgent : undefined,
-      isOwnedBy: () => true,
     })
     ctx.provide('agentDefaultModel', {
       currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
@@ -612,15 +609,16 @@ describe('SessionRuntime inspected-subagent delivery', () => {
     const inspectCallbacks: Array<(id: string) => void> = []
     const submitCallbacks: Array<(submission: TuiSubmission) => void> = []
     let closeInspect = () => {}
-    const upload = Promise.withResolvers<never[]>()
-    if (mode === 'cancel-upload' || mode === 'ordered-upload') ctx.provide('attachments', { saveImages: () => upload.promise, validateImage: async () => {} } as never)
     const restoreInput = vi.fn()
     const notice = vi.fn()
+    const pendingPrepare = vi.fn()
+    const pendingAcknowledge = vi.fn()
     const setStatus = vi.fn()
     const setInspectedSubagent = vi.fn()
     const setSession = vi.fn()
     const setWorkingDirectory = vi.fn()
-    const tui = new Proxy({ restoreInput, notice, setStatus, setInspectedSubagent, setSession, setWorkingDirectory }, {
+    const tui = new Proxy({ restoreInput, notice, pendingInputs: { prepare: pendingPrepare, acknowledge: pendingAcknowledge },
+      setStatus, setInspectedSubagent, setSession, setWorkingDirectory }, {
       get(target: Record<string, unknown>, prop: string) {
         if (prop in target) return target[prop]
         if (prop === 'onInspectSubagent') {
@@ -702,46 +700,68 @@ describe('SessionRuntime inspected-subagent delivery', () => {
       expect(setSession.mock.calls.every(([info]) => info.id === rootId)).toBe(true)
       projectionChanged?.(childSession, 'permissions')
       expect(setInspectedSubagent).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'child-model' }))
-      if (mode === 'rejected') vi.mocked(queueHostSubagentPrompt).mockRejectedValueOnce(new Error('delivery refused'))
-      const accepted = Promise.withResolvers<Awaited<ReturnType<typeof queueHostSubagentPrompt>>>()
-      if (mode === 'accepted-before-close') vi.mocked(queueHostSubagentPrompt).mockImplementationOnce(() => accepted.promise)
-      const submission: TuiSubmission = { text: 'Keep going.', images: mode === 'cancel-upload' || mode === 'ordered-upload' ? [{ data: new Uint8Array([1]), mediaType: 'image/png' }] : [], delivery: mode === 'steer' ? 'steer' : 'queue' }
+      promptRequest.mockClear()
+      if (mode === 'rejected') promptRequest.mockRejectedValueOnce(new Error('delivery refused'))
+      const accepted = Promise.withResolvers<{ messageId: string }>()
+      if (mode === 'accepted-before-close') promptRequest.mockImplementationOnce(() => accepted.promise)
+      if (mode === 'abort-delivery') promptRequest.mockImplementationOnce((_request: unknown, signal: AbortSignal) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      }))
+      const ordered = Promise.withResolvers<{ messageId: string }>()
+      if (mode === 'ordered') promptRequest.mockImplementationOnce(() => ordered.promise)
+      const submission: TuiSubmission = mode === 'files'
+        ? { text: 'See file.', images: [], files: [{ attachmentId: 'file:test' as never, name: 'a.txt', bytes: 5 }],
+          segments: [{ kind: 'file', index: 0 }, { kind: 'text', text: 'See file.' }] }
+        : { text: 'Keep going.', images: mode === 'queue' ? [{ data: new Uint8Array([1]), mediaType: 'image/png' }] : [], delivery: mode === 'steer' ? 'steer' : 'queue' }
       submitCallbacks[0]?.(submission)
-      if (mode === 'ordered-upload') {
+      if (mode === 'files') {
+        await new Promise(resolve => { setTimeout(resolve, 0) })
+        expect(promptRequest).not.toHaveBeenCalled()
+        expect(restoreInput).toHaveBeenCalledWith(submission, childId)
+        expect(notice).toHaveBeenCalledWith('Subagent follow-up does not accept files.', { level: 'error' })
+        expect(subagents.sendMessage).not.toHaveBeenCalled()
+        return
+      }
+      if (mode === 'abort-delivery' || mode === 'accepted-before-close') {
+        await vi.waitFor(() => { expect(promptRequest).toHaveBeenCalledOnce() })
+        closeInspect()
+      }
+      if (mode === 'abort-delivery') await vi.waitFor(() => { expect(restoreInput).toHaveBeenCalledWith(submission, childId) })
+      if (mode === 'accepted-before-close') {
+        accepted.resolve({ messageId: 'accepted-id' })
+        await vi.waitFor(() => { expect(pendingAcknowledge).toHaveBeenCalledWith(submission) })
+      }
+      if (mode === 'ordered') {
         submitCallbacks[0]?.({ text: 'Second without an image.', images: [], delivery: 'queue' })
         await new Promise(resolve => { setTimeout(resolve, 0) })
-        expect(queueHostSubagentPrompt).not.toHaveBeenCalled()
-        upload.resolve([])
-      }
-      if (mode === 'cancel-upload') {
-        closeInspect()
-        await vi.waitFor(() => expect(restoreInput).toHaveBeenCalledWith(submission, childId))
-        await inspectCallbacks[0]?.(childId)
-        upload.resolve([])
-      }
-      if (mode === 'accepted-before-close') {
-        await vi.waitFor(() => expect(queueHostSubagentPrompt).toHaveBeenCalledOnce())
-        closeInspect()
-        accepted.resolve('accepted-id' as Awaited<ReturnType<typeof queueHostSubagentPrompt>>)
+        expect(promptRequest).toHaveBeenCalledOnce()
+        ordered.resolve({ messageId: 'ordered-id' })
+        await vi.waitFor(() => { expect(promptRequest).toHaveBeenCalledTimes(2) })
       }
       await new Promise(resolve => { setTimeout(resolve, 0) })
-      if (mode === 'cancel-upload') {
-        expect(queueHostSubagentPrompt).not.toHaveBeenCalled()
-        expect(steerHostSubagentPrompt).not.toHaveBeenCalled()
+      if (mode === 'abort-delivery' || mode === 'rejected') {
+        expect(restoreInput).toHaveBeenCalledWith(submission, childId)
+      } else if (mode === 'accepted-before-close') {
+        expect(restoreInput).not.toHaveBeenCalled()
       } else {
-        const send = mode === 'steer' ? steerHostSubagentPrompt : queueHostSubagentPrompt
-        expect(send).toHaveBeenCalledTimes(mode === 'ordered-upload' ? 2 : 1)
-        if (mode === 'ordered-upload') expect(vi.mocked(send).mock.calls.map(call => call[3].filter(block => block.type === 'text').map(block => block.text).join(''))).toEqual(['Keep going.', 'Second without an image.'])
-        expect(send).toHaveBeenCalledWith(
-          subagents, rootAgent, childId,
-          expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'Keep going.' })]),
-          { kind: 'user' }, expect.any(AbortSignal),
-        )
+        const calls = promptRequest.mock.calls.map(call => call[0] as {
+          childSessionId: string
+          delivery: string
+          content: readonly { type: string, text?: string, mediaType?: string, data?: string }[]
+        })
+        expect(calls).toHaveLength(mode === 'ordered' ? 2 : 1)
+        expect(calls[0]).toMatchObject({ childSessionId: childId, delivery: mode === 'steer' ? 'steer' : 'queue' })
+        expect(calls[0]?.content).toContainEqual({ type: 'text', text: 'Keep going.' })
+        if (mode === 'queue') expect(calls[0]?.content).toContainEqual({ type: 'image', mediaType: 'image/png', data: 'AQ==' })
+        else expect(calls[0]?.content).toEqual([{ type: 'text', text: 'Keep going.' }])
+        if (mode === 'ordered') expect(calls[1]?.content).toEqual([{ type: 'text', text: 'Second without an image.' }])
+        expect(restoreInput).not.toHaveBeenCalled()
+        expect(notice).not.toHaveBeenCalled()
+        expect(pendingPrepare).toHaveBeenCalled()
+        expect(pendingAcknowledge).toHaveBeenCalled()
       }
-      if (mode === 'cancel-upload' || mode === 'rejected') expect(restoreInput).toHaveBeenCalledWith(submission, childId)
-      else expect(restoreInput).not.toHaveBeenCalled()
+      if (mode === 'abort-delivery') expect(notice).not.toHaveBeenCalled()
       if (mode === 'rejected') expect(notice).toHaveBeenCalledWith('delivery refused', { level: 'error' })
-      else expect(notice).not.toHaveBeenCalled()
       expect(subagents.sendMessage).not.toHaveBeenCalled()
     } finally {
       await runtime.dispose()
@@ -802,7 +822,7 @@ describe('SessionRuntime subagent catalog restore', () => {
     ctx.provide('agentDefaultModel', {
       currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
     })
-    ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
+    ctx.provide('subagents', { listDescendants: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
 
     const rosters: unknown[] = []
     // Activation touches far more of the TuiService than one roster assertion
@@ -875,7 +895,7 @@ describe('SessionRuntime workspace claim', () => {
     ctx.provide('agentDefaultModel', {
       currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
     })
-    ctx.provide('subagents', { listChildren: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
+    ctx.provide('subagents', { listDescendants: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
     if (registry !== undefined) ctx.provide('workspaceRegistry', registry)
     const calls: string[] = []
     const tui = new Proxy({ ...stubTui(), setModel: () => { calls.push('model') }, replaceSession: vi.fn(() => { calls.push('transcript') }) } as unknown as Record<string, unknown>, {

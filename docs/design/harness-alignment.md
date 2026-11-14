@@ -1,6 +1,6 @@
 # Harness 交互对齐契约
 
-omdsh 以已发布 Harness 的产品语义为基线，以终端的输入、布局和原生历史契约决定呈现方式。官方基线为 `0.2.2-rc.1`，参考 checkout 为 `fcc0ad4621`；上游源码只用于研究，运行时仍使用 npm 包。
+omdsh 以已发布 Harness 的产品语义为基线，以终端的输入、布局和原生历史契约决定呈现方式。官方基线为 `0.2.2-rc.3`，参考 checkout 为 `fcc0ad4621`，另以 `dsh-v0.2.2-rc.3` 标签做只读比对；上游源码只用于研究，运行时仍使用 npm 包。
 
 ## 已落实的对应关系
 
@@ -69,7 +69,7 @@ Settings → Models 的模型服务商入口由现有 settings consumer 提供�
 
 Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek-api.count` 和旧版 `web-search-deepseek` 的密钥、地址、`maxUses`。其他字段进入 Advanced。列表区分未加载与注册但不可用的服务商，保留已保存的未知 ID，注册变化刷新，读取失败保留上次目录并允许重试。默认仍为 DeepSeek Search API／Fetch API，托管抓取规避本地 fake-IP DNS；Direct fetch 保持可选，这一默认值差异是产品选择。
 
-参考源码已提供 `web.listProviders()`，但当前已发布 `0.2.2-rc.1` 没有此 API。宿主的 `web-runtime` 适配插件继承已发布 WebRuntime，仅通过公开注册方法投影 ID、可用状态和卸载事件，向 TUI 提供只读目录；请求执行、认证、选择和重复 ID 拒绝仍由上游实现。服务商卸载清理投影，事件观察者失败不影响注册；不读取私有注册表，不修改参考仓库。未来采用含目录接口的发布版本时应移除此适配层。当前包未公开服务商标题和说明，官方说明由 TUI 拥有，第三方显示原始 ID 并引导其插件设置。
+`0.2.2-rc.3` 已发布 `web.listProviders()` 与 `web/providers-changed`，注册、目录、重复 ID 拒绝和事件都由上游拥有。宿主的 `web-runtime` 适配插件仍然保留，但只补一项上游目录没有的信息：每个已注册服务商的 `available()` 快照。它通过公开注册方法跟踪 provider 对象，服务商卸载时清理，事件观察者失败不影响注册；不读取私有注册表，不修改参考仓库。上游目录项只含 id、title 和 description，不判断可用性，因此设置页的不可用标记仍由适配层读取 provider。
 
 草稿按 namespace 保留 revision，Apply 先校验所有待写部分，再按参数、凭据、选择的顺序写入。部分成功后只保留剩余草稿供重试；取消不回滚成功写入。切换服务商保留隐藏参数草稿，但切离旧版搜索丢弃密钥；凭据引用变更也丢弃密钥草稿。已有明文密钥先尝试移除本地覆盖，仍由部署提供时拒绝声称引用密钥已生效。选择部署默认服务商使用 unset，部署未指定时才提供 Automatic。
 

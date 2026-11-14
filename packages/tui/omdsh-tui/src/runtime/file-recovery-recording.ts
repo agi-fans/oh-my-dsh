@@ -21,7 +21,7 @@ export class TurnRecoveryRecording {
   constructor(ctx: Context, private readonly provider: LocalFileRecovery) {
     ctx.on('agent/pre-step', async (payload, next) => {
       const decision = await next()
-      if (decision.kind === 'reject' || !ctx.get('agents')!.roots().includes(payload.agent) || payload.agent.session.header.agentPreset === BTW_PRESET) return decision
+      if (decision.kind === 'reject' || payload.agent.session.header.origin === 'subagent' || payload.agent.session.header.agentPreset === BTW_PRESET) return decision
       const current = this.active.get(payload.agent)
       if (payload.step === 1 && current?.record.turn !== payload.turn) {
         if (current !== undefined) await this.finish(current)

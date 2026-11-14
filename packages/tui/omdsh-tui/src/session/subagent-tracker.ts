@@ -7,10 +7,17 @@
  * session list, durable children) and owns where the snapshot lands.
  */
 
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { SubagentCatalogEntry, SubagentRunInfo, SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SubagentRunInfo, SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { TuiSubagentActivity, TuiSubagentRoster } from '../definition.ts'
 import { SubagentRoster } from './subagent-roster.ts'
+
+/** The durable direct-child facts the roster needs from a catalog listing. */
+export interface SubagentTrackerChild {
+  readonly id: SessionId
+  readonly mode: 'one-shot' | 'continuable' | 'external' | 'unknown'
+  readonly label?: string
+}
 
 export interface SubagentTrackerDeps {
   /** Id of the active root agent's session, if a session is active. */
@@ -22,7 +29,7 @@ export interface SubagentTrackerDeps {
   /** Loaded sessions, consulted on a full resync. */
   sessions(): readonly Session[]
   /** Durable children of the root, when the subagents runtime is mounted. */
-  listChildren(rootId: string): Promise<readonly SubagentCatalogEntry[]> | undefined
+  listChildren(rootId: string): Promise<readonly SubagentTrackerChild[]> | undefined
   /** Publish the latest roster snapshot after the dedup check passes. */
   publish(roster: TuiSubagentRoster | undefined): void
 }

@@ -1,12 +1,12 @@
 # Harness inbox lifecycle: preservation on release
 
-Assessment date: 2026-11-05. Scope: the published `0.2.2-rc.1` Harness cohort used by omdsh, including `dsh-agent`, `dsh-agent-loop`, session persistence and attachment storage. No dependency versions, package sources or upstream files are changed by this assessment.
+Assessment date: 2026-11-05, rechecked against `0.2.2-rc.3` on 2026-11-14. Scope: the published `0.2.2-rc.3` Harness cohort used by omdsh, including `dsh-agent`, `dsh-agent-loop`, session persistence and attachment storage. No dependency versions, package sources or upstream files are changed by this assessment.
 
 ## Result
 
 Normal disposal cancels accepted, unclaimed messages in both inboxes. `agent.cancel({ kind: 'user' }, { keepInbox: true })` preserves them, but a later `AgentHandle.dispose()` or unload of the owning Cordis fiber clears them durably. Resume therefore sees empty queues. The image and file blobs remain readable; their queued messages have been canceled, rather than their attachment bytes lost.
 
-As of the assessment, npm's `next` tag for `@deepseek-ai/dsh-agent-loop` is `0.2.2-rc.1`; its `latest` tag is the older `0.1.0-rc.6`. No newer published release was available. The public GitHub default branch still exposes `dispose(): Promise<void>` without a preservation option. This is a blocked capability, not a reason to downgrade to `latest` or mix release cohorts.
+As of the recheck, npm's `next` tag for `@deepseek-ai/dsh-agent-loop` is `0.2.2-rc.3`; its `latest` tag is the older `0.1.0-rc.6`. The published `AgentHandle.dispose()` still exposes no preservation option, so the blocked capability is unchanged. This is not a reason to downgrade to `latest` or mix release cohorts.
 
 ## Reproduce against published packages
 
@@ -53,7 +53,7 @@ await handle.agent.whenIdle()
 // Both messages are still pending here.
 await handle.dispose()
 const resumed = await ctx.agents.resume(resumeOptions)
-// Both inboxes are empty on 0.2.2-rc.1.
+// Both inboxes are empty on 0.2.2-rc.3.
 ```
 
 ## Proposed upstream issue

@@ -51,12 +51,17 @@ async function fixture() {
       return { agent: root, dispose: async () => undefined } as unknown as AgentHandle
     },
     get: (id: string) => [root, ...children].find(agent => agent.id === id),
-    isOwnedBy: (id: string, owner: Agent) => owner === root && children.some(agent => agent.id === id),
   })
   ctx.provide('agentDefaultModel', {
     currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
   })
-  ctx.provide('subagents', { listChildren: async () => [] })
+  ctx.provide('subagents', {
+    listDescendants: async () => [],
+    rootOf: (agent: Agent) => {
+      if (agent === root || children.some(child => child.id === agent.id)) return root
+      throw new Error('UNAUTHORIZED')
+    },
+  })
   let inspect: (id: string) => void = () => {}
   let closeInspect: () => void = () => {}
   const calls = { prompt: vi.fn<(request: TuiPrompt) => Promise<string | null>>().mockResolvedValue(null), restoreInput: vi.fn(), notice: vi.fn(), pendingInputs: { list: vi.fn(() => []), update: vi.fn(() => false) }, setSubagents: vi.fn(), streamDelta: vi.fn(), replaceSession: vi.fn(), setInspectedSubagent: vi.fn(), event: vi.fn() }
@@ -159,7 +164,7 @@ it('projects concurrent approval requests only for exact live descendants and cl
     f.ctx.emit('agent/disposed', { agent: child })
     expect(third.signal.aborted).toBe(true)
     third.finish()
-    Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+    Object.assign(f.ctx.subagents, { rootOf: () => { throw new Error('UNAUTHORIZED') } })
     expect(f.runtime.beginSubagentApproval(child)).toBeUndefined()
   } finally { await f.dispose() }
 })
@@ -253,7 +258,7 @@ describe('inspected subagent queue ownership', () => {
       if (kind === 'readonly') child.session.append('subagent/descriptor', { version: 2, mode: 'one-shot', provider: 'spawn', label: 'Read only' })
       f.inspect(child.id)
       if (kind === 'cold') Object.assign(f.ctx.agents, { get: (id: string) => id === f.root.id ? f.root : undefined })
-      if (kind === 'unowned') Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+      if (kind === 'unowned') Object.assign(f.ctx.subagents, { rootOf: () => { throw new Error('UNAUTHORIZED') } })
       await expect(f.runtime.openQueue(new AbortController().signal)).rejects.toThrow(kind === 'cold' ? 'not loaded locally' : kind === 'readonly' ? 'read-only' : 'no longer active')
       expect(inbox.remove).not.toHaveBeenCalled()
       expect(f.calls.prompt).not.toHaveBeenCalled()
@@ -367,7 +372,7 @@ describe('workflow member navigation', () => {
       if (kind === 'settled') f.root.session.append('tool-workflow/agent-end', { runId: id, seq: 1, outcome: 'completed' })
       if (kind === 'idle') Object.assign(child, { status: 'idle' })
       if (kind === 'unloaded') Object.assign(f.ctx.agents, { get: (id: string) => [f.root, ...f.children.slice(1)].find(agent => agent.id === id) })
-      if (kind === 'unowned') Object.assign(f.ctx.agents, { isOwnedBy: () => false })
+      if (kind === 'unowned') Object.assign(f.ctx.subagents, { rootOf: () => { throw new Error('UNAUTHORIZED') } })
       await f.runtime.openWorkflow(id)
       const row = f.calls.prompt.mock.calls[0]?.[0].options?.find(row => row.value === 'member:1')
       expect(row).toMatchObject({ label: 'Member 0', disabled: true })
