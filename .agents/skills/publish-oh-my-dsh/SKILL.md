@@ -1,11 +1,11 @@
 ---
 name: publish-oh-my-dsh
-description: Prepare, hand off, finalize, or audit oh-my-dsh releases across npm and GitHub. Use for version bumps, release readiness, Keep a Changelog updates, human-assisted publication of @agi-fans/dsh-tui and @agi-fans/oh-my-dsh, creating or repairing Git tags and GitHub Releases, and verifying or recovering a partially completed release.
+description: Prepare, publish, finalize, or audit oh-my-dsh releases across npm and GitHub. Use for version bumps, release readiness, Keep a Changelog updates, tag-triggered CI publication of @agi-fans/dsh-tui and @agi-fans/oh-my-dsh through npm trusted publishing, creating or repairing Git tags and GitHub Releases, and verifying or recovering a partially completed release.
 ---
 
 # Publish oh-my-dsh
 
-Release oh-my-dsh without drifting the two public packages, the repository version, npm, Git tags, or GitHub Releases out of sync. Treat every phase as resumable: inspect existing state first, perform only authorized writes, and skip work that is already correct. Always hand npm publication to the user because npm may require an interactive one-time password; the agent owns preparation and post-publication verification but never invokes a publish command.
+Release oh-my-dsh without drifting the two public packages, the repository version, npm, Git tags, or GitHub Releases out of sync. Treat every phase as resumable: inspect existing state first, perform only authorized writes, and skip work that is already correct. npm publication runs in GitHub Actions through npm trusted publishing (OIDC) when a `vX.Y.Z` tag is pushed. The agent prepares, verifies, and audits the release; it never runs a publish command, handles an npm token, or asks for a one-time password.
 
 ## Establish scope
 
@@ -16,10 +16,10 @@ Release oh-my-dsh without drifting the two public packages, the repository versi
 Classify the request before writing anything:
 
 - **Prepare:** Update versions and Changelog, verify, and optionally commit. Do not publish, push, tag, or create a GitHub Release.
-- **Publish npm:** Prepare and verify the requested packages, then give the user exact dependency-ordered commands to run in an interactive terminal. Resume with registry verification after the user finishes. Do not infer permission to push or create GitHub state.
-- **Finalize GitHub:** Push the requested commit or branch, create and push the tag, and create the GitHub Release. Do not infer permission to publish npm.
-- **End-to-end release:** Run all applicable phases only when the user explicitly asks to release, publish and finalize, or otherwise clearly authorizes all external writes. Pause at the mandatory human npm checkpoint, then continue the already-authorized GitHub phase after the user confirms publication and registry verification succeeds.
-- **Audit or recovery:** Inspect npm, Git, and GitHub; perform only the missing operations explicitly requested.
+- **Publish npm:** Prepare and verify the requested packages, then push the branch and the annotated tag when authorized. The tag run publishes both packages; resume by watching it and auditing the registry. Do not publish from a local terminal.
+- **Finalize GitHub:** Push the requested commit or branch and create and push the tag. The tag run creates the GitHub Release from `CHANGELOG.md`; create it manually only when that job cannot.
+- **End-to-end release:** Run all applicable phases only when the user explicitly asks to release, publish and finalize, or otherwise clearly authorizes all external writes. The tag run is the publication step; wait for it to succeed instead of pausing for a human npm checkpoint.
+- **Audit or recovery:** Inspect npm, Git, GitHub, and the tag run; perform only the missing operations explicitly requested.
 
 ## Inspect release state
 
@@ -33,9 +33,10 @@ git tag --sort=-version:refname
 npm view @agi-fans/dsh-tui version
 npm view @agi-fans/oh-my-dsh version
 gh release list --limit 10
+gh run list --workflow publish.yml --limit 5
 ```
 
-Also inspect the three manifest versions, `CHANGELOG.md`, the latest release tag, and the commits since that tag. Confirm that `origin` is the intended `agi-fans/oh-my-dsh` repository before any push or GitHub write.
+Also inspect the three manifest versions, `CHANGELOG.md`, the latest release tag, and the commits since that tag. Confirm that `origin` is the intended `agi-fans/oh-my-dsh` repository before any push or GitHub write. The publish workflow depends on a one-time Trusted Publisher entry for both npm packages; [`docs/releases.md`](../../../docs/releases.md) records the exact configuration.
 
 Preserve unrelated user changes. Never reset, discard, stash, or silently include them. Stop if overlapping dirty changes make a release commit unsafe. Treat an already-published package version, existing tag, or existing GitHub Release as state to verify and reuse, not as an error to overwrite.
 
@@ -101,49 +102,64 @@ chore(release): prepare X.Y.Z
 
 Record the exact release commit SHA. If the correct release commit already exists, reuse it instead of creating an empty or duplicate commit. Require a clean worktree after the commit, apart from unrelated changes that were deliberately excluded and are safe to leave present.
 
-## Hand off npm publication
+## Publish from the tag run
 
-npm publication is always a human checkpoint, including during an explicitly requested end-to-end release. Never invoke `npm publish`, `pnpm publish`, or another command that writes a package to npm. Never supply an OTP flag, ask the user to paste a token or one-time password into chat, or try to automate the interactive challenge. The agent prepares, audits, and verifies; the user performs the registry write in their own interactive terminal.
+Publication is a tag-triggered GitHub Actions run, not a local command. Never invoke `npm publish`, `pnpm publish`, or any command that writes a package to npm; never supply or request an npm token or one-time password. The `publish` job exchanges its OIDC identity for a short-lived credential, publishes `@agi-fans/dsh-tui` and then `@agi-fans/oh-my-dsh` with provenance, and the `release` job creates the GitHub Release only after both publishes succeed. [`docs/releases.md`](../../../docs/releases.md) documents the pipeline and the one-time npm configuration.
 
-1. Run `npm whoami` and inspect package access when useful so authentication or ownership problems are found before handoff. These read-only checks do not authorize an npm write.
-2. Query each exact target version before publishing:
+1. Confirm both exact target versions are absent or already published:
 
 ```sh
 npm view @agi-fans/dsh-tui@X.Y.Z version
 npm view @agi-fans/oh-my-dsh@X.Y.Z version
 ```
 
-3. Skip any package whose exact target version is already present. For each missing version, give the user these exact commands in dependency order and clearly label them as commands for the user to run, not commands for the agent:
+Do not work around a missing version locally. The workflow skips a package whose exact version already exists, so a partial release resumes by re-running the failed jobs.
+
+2. Push the release commit to `main`. The workflow refuses a tag whose commit is not an ancestor of `origin/main`.
+
+3. Create the annotated tag at the exact release commit and push only that tag (see the next section). The tag push is the publication request.
+
+4. Wait for the run and record its conclusion:
 
 ```sh
-pnpm --filter @agi-fans/dsh-tui publish --access public --no-git-checks
-pnpm --filter @agi-fans/oh-my-dsh publish --access public --no-git-checks
+gh run list --workflow publish.yml --limit 1
+gh run watch <run-id> --exit-status
 ```
 
-Tell the user to publish the TUI dependency first, confirm its own publish output reports success, and then publish the CLI. Tell them **not** to wait for a registry read to show the new version before publishing the CLI: a read that still reports the previous version is expected for `@agi-fans/dsh-tui` and does not mean the write failed. The user must enter any OTP only in that terminal.
+5. If the run fails, read the failing job log. Fix configuration or the environment and re-run only the failed jobs:
 
-4. Pause the workflow after recording the target version, release commit SHA, completed preparation checks, already-published packages, and remaining commands. This is an expected handoff, not a failure or blocked release. Do not perform GitHub release writes while npm publication is pending.
-5. When the user reports that publication is complete, take that report as authoritative and continue with any GitHub finalization already authorized by the original end-to-end request. Do not re-derive publish status from registry reads, do not treat a stale read as a failure, and do not ask the user to publish again — publication belongs to the user, whose terminal showed the publish result.
-6. Re-read both exact versions and their `latest` dist-tags with `npm view` to record the released state, but treat a mismatch as propagation lag rather than a defect. If it still disagrees after the GitHub phases are done, note the residual lag in the final report and move on.
+```sh
+gh run rerun <run-id> --failed
+```
 
-### Registry reads for `@agi-fans/dsh-tui` lag behind the publish
+When the original run cannot be re-run, dispatch the workflow on the same tag instead:
 
-A publish of `@agi-fans/dsh-tui` can report success in the user's terminal while every read endpoint still serves the previous version. Observed on 0.15.0: `npm view … version`, the full and abbreviated registry documents, and the exact-version manifest URL all reported the prior version and a stale `modified` timestamp, and `npm view '@agi-fans/dsh-tui@^X.Y.Z' version` answered `E404`, roughly four minutes after the publish reported `✅ Published package @agi-fans/dsh-tui@X.Y.Z`. The registry caught up on its own with no further action.
+```sh
+gh workflow run publish.yml --ref vX.Y.Z
+```
 
-Treat the user's publish result as the write-side fact and a registry read as an eventually-consistent view:
+Never delete, move, or re-create the tag to retry, and never publish the same version from a local terminal as a workaround.
 
-- A `404` or a stale `latest` immediately after a reported publish is **not** evidence that the publish failed, and it is **not** a reason to withhold the tag or GitHub Release the user already authorized.
-- Never conclude "the package was not published" from reads alone, and never tell the user their publish did not happen. If the state matters, say only what the read showed and that reads lag writes.
-- Never request a re-publish to "fix" a stale read. The version may already be live, and re-publishing an existing version is exactly what this skill forbids.
-- Do not open a database of caches to hunt for the discrepancy: check the registry configuration once (a stray `.npmrc` registry override is worth ruling out), then proceed.
+6. If the failure is an OIDC or authentication error (`ENEEDAUTH`, 403, or a trusted-publishing handshake message), the Trusted Publisher entry is missing or names a different repository or workflow. Ask the user to verify it at npmjs.com and re-run the workflow; do not ask for a token. The repository has no long-lived npm credential to repair.
 
-Verification that both packages carry the target version remains part of the final audit, and it is expected to succeed by the time the GitHub phases finish.
+The workflow publishes `@agi-fans/dsh-tui` first and waits up to 15 minutes for the registry to expose it before publishing `@agi-fans/oh-my-dsh`. The wait timing out is a warning, not a failure.
 
-Never attempt to republish an existing npm version. Do not bump the version merely to conceal a recoverable partial release. If both exact target versions were already published before the workflow began, no human npm checkpoint is necessary; verify them and continue with the authorized remaining phases.
+### Registry reads lag behind a successful publish
 
-## Push, tag, and create the GitHub Release
+A publish can report success while every read endpoint still serves the previous version. Observed for `@agi-fans/dsh-tui` on 0.15.0: `npm view … version`, the full and abbreviated registry documents, and the exact-version manifest URL all reported the prior version and a stale `modified` timestamp, and `npm view '@agi-fans/dsh-tui@^X.Y.Z' version` answered `E404`, roughly four minutes after the publish reported `✅ Published package @agi-fans/dsh-tui@X.Y.Z`. The registry caught up on its own with no further action.
 
-Perform these writes only when explicitly authorized. Keep the tag and GitHub Release behind successful npm verification for an end-to-end release so GitHub does not announce packages that failed to publish.
+Treat the workflow's publish step and its log output as the write-side fact and a registry read as an eventually-consistent view:
+
+- A `404` or a stale `latest` immediately after a successful publish step is not evidence that the publish failed and is not a reason to re-run the job or withhold the GitHub Release.
+- Never conclude "the package was not published" from reads alone. If the state matters, say only what the read showed and that reads lag writes.
+- Never re-publish or bump the version to "fix" a stale read; the version may already be live.
+- The workflow waits for the TUI package before publishing the CLI. If that wait times out, the run continues and the lag is recorded as residual lag in the final report.
+
+Verification that both packages carry the target version remains part of the final audit. Never attempt to publish an existing npm version. If both exact target versions were already published before the tag was pushed, the run still creates the GitHub Release; only the publish steps are skipped.
+
+## Push and tag
+
+Perform these writes only when explicitly authorized. The tag is the publication request, so push the verified release commit first and keep the tag as the last write.
 
 1. Confirm the release commit is the intended `HEAD` and the target tag is absent locally and remotely. If the tag exists, require it to resolve to the exact release commit; never move or replace a published release tag.
 2. Push the intended branch without force:
@@ -159,13 +175,14 @@ git tag -a vX.Y.Z RELEASE_COMMIT_SHA -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-4. Extract only the target version section from `CHANGELOG.md` into a temporary notes file. Create the release from the existing tag:
+4. Do not create the GitHub Release by hand for a normal release: the `release` job creates it from the matching `CHANGELOG.md` section with `gh release create --verify-tag`. Use this manual command only to recover a release whose job could not create it:
 
 ```sh
+node scripts/release-notes.mjs X.Y.Z > RELEASE_NOTES_FILE
 gh release create vX.Y.Z --verify-tag --title "vX.Y.Z" --notes-file RELEASE_NOTES_FILE
 ```
 
-5. If the release already exists, inspect it with `gh release view`; do not create a duplicate. Edit it only when the user explicitly asks to correct metadata.
+Add `--prerelease` when the version contains a hyphen. If the release already exists, inspect it with `gh release view`; do not create a duplicate. Edit it only when the user explicitly asks to correct metadata.
 
 Never force-push, delete a remote tag, retag a different commit, or rewrite a published GitHub Release without explicit user authorization and a clear recovery reason.
 
@@ -176,17 +193,22 @@ Verify all release surfaces independently:
 ```sh
 npm view @agi-fans/dsh-tui@X.Y.Z version dist-tags.latest
 npm view @agi-fans/oh-my-dsh@X.Y.Z version dist-tags.latest
+npm view @agi-fans/dsh-tui@X.Y.Z dist.attestations --json
+npm view @agi-fans/oh-my-dsh@X.Y.Z dist.attestations --json
 git ls-remote --tags origin refs/tags/vX.Y.Z refs/tags/vX.Y.Z^{}
 gh release view vX.Y.Z
+gh run list --workflow publish.yml --limit 1
 git status --short --branch
 ```
 
 Confirm that:
 
-- Both npm packages expose the target version. A registry read that still shows the previous version for `@agi-fans/dsh-tui` is propagation lag, not a failed release: record it as residual lag and never let it hold up the tag, the Release, or the report.
+- Both npm packages expose the target version. A registry read that still shows the previous version for `@agi-fans/dsh-tui` is propagation lag, not a failed release: record it as residual lag and never let it hold up the report.
+- Both packages carry a provenance attestation (`dist.attestations.provenance`), proving the GitHub Actions build.
+- The publish run succeeded and its `release` job created the GitHub Release.
 - The annotated remote tag dereferences to the recorded release commit.
 - The GitHub Release is published at the same tag and contains the intended Changelog notes.
 - The local branch is synchronized with its upstream.
 - No generated tarballs, release-note files, build outputs, or reference-repository modifications remain.
 
-Report the version, release commit, npm package results, tag result, GitHub Release URL, verification result, and any intentionally deferred phase. At the human npm checkpoint, report the exact commands, dependency order, OTP safety instruction, and resumable state. When blocked for another reason, report the exact completed state so another run can resume without repeating irreversible operations.
+Report the version, release commit, npm package results, provenance, tag result, publish-run result, GitHub Release URL, verification result, and any intentionally deferred phase. When blocked, report the exact completed state so another run can resume without repeating irreversible operations.

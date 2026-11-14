@@ -72,6 +72,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 - Do not create a dated version section before that version is actually released. When releasing, move the accumulated `Unreleased` entries into `## [X.Y.Z] - YYYY-MM-DD`, restore an empty `Unreleased` section, and update the comparison links at the bottom of the file.
 - Keep the versions of the root manifest, `@agi-fans/oh-my-dsh`, and `@agi-fans/dsh-tui` synchronized unless the repository explicitly adopts independent package versioning.
 - Choose version increments by public impact: after `1.0.0`, incompatible behavior or API changes require a major increment, backward-compatible functionality requires a minor increment, and backward-compatible fixes require a patch increment. During the initial `0.y.z` development series, use a minor increment for compatibility breaks and document them prominently; use a patch increment only for backward-compatible fixes.
+- Publish from GitHub Actions, never from a local terminal. Pushing an annotated `vX.Y.Z` tag runs `.github/workflows/publish.yml`, which publishes `@agi-fans/dsh-tui` and then `@agi-fans/oh-my-dsh` through npm trusted publishing (OIDC) with provenance, and creates the GitHub Release from `CHANGELOG.md` only after both packages publish. One-time npm setup and recovery steps are in [`docs/releases.md`](docs/releases.md).
 
 ## Implementation Practices
 

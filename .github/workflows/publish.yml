@@ -1,0 +1,173 @@
+name: Publish
+
+# A vX.Y.Z tag is the release request. This workflow publishes both public
+# packages through npm trusted publishing (OIDC) with provenance, and creates
+# the GitHub Release from CHANGELOG.md only after both packages publish.
+# The one-time npm setup and the recovery steps live in docs/releases.md.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish npm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve and verify the release version
+        id: release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "::error::Publish runs only for vX.Y.Z tags, got '$TAG'."
+              exit 1
+              ;;
+          esac
+
+          version="${TAG#v}"
+          for manifest in package.json packages/tui/omdsh-tui/package.json apps/omdsh/package.json; do
+            found="$(node -p "require('./${manifest}').version")"
+            if [ "$found" != "$version" ]; then
+              echo "::error::${manifest} declares ${found}, but tag ${TAG} expects ${version}."
+              exit 1
+            fi
+          done
+
+          case "$version" in
+            *-*)
+              echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the CHANGELOG section
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: node scripts/release-notes.mjs "${VERSION}" > /dev/null
+
+      - name: Require the release commit on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that is not on origin/main."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the published packages
+        run: pnpm --filter @agi-fans/oh-my-dsh... typecheck
+
+      - name: Test the published packages
+        run: pnpm --filter @agi-fans/oh-my-dsh... test
+
+      - name: Build the published packages
+        run: pnpm --filter @agi-fans/oh-my-dsh... build
+
+      - name: Check Markdown and package READMEs
+        run: pnpm check:md
+
+      - name: Check dependency boundaries
+        run: pnpm check:boundaries
+
+      # npm trusted publishing: the job's id-token is exchanged for a
+      # short-lived publish credential, so no npm token is stored. The package's
+      # Trusted Publisher entry must name this repository and workflow.
+      - name: Publish @agi-fans/dsh-tui
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+        run: |
+          if npm view "@agi-fans/dsh-tui@${VERSION}" version >/dev/null 2>&1; then
+            echo "@agi-fans/dsh-tui@${VERSION} is already published; skipping."
+            exit 0
+          fi
+          pnpm --filter @agi-fans/dsh-tui publish --access public --no-git-checks --provenance --tag "${DIST_TAG}"
+
+      - name: Wait for @agi-fans/dsh-tui on the registry
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          deadline=$((SECONDS + 900))
+          until npm view "@agi-fans/dsh-tui@${VERSION}" version >/dev/null 2>&1; do
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "::warning::@agi-fans/dsh-tui@${VERSION} is still not readable after 15 minutes; publishing the CLI and carrying the propagation lag into the release audit."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "@agi-fans/dsh-tui@${VERSION} is readable from the registry."
+
+      - name: Publish @agi-fans/oh-my-dsh
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+        run: |
+          if npm view "@agi-fans/oh-my-dsh@${VERSION}" version >/dev/null 2>&1; then
+            echo "@agi-fans/oh-my-dsh@${VERSION} is already published; skipping."
+            exit 0
+          fi
+          pnpm --filter @agi-fans/oh-my-dsh publish --access public --no-git-checks --provenance --tag "${DIST_TAG}"
+
+  release:
+    name: create GitHub Release
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create GitHub Release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists; leaving it untouched."
+            exit 0
+          fi
+          if ! git rev-parse --quiet --verify "refs/tags/${TAG}" >/dev/null; then
+            git fetch --no-tags --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          fi
+          notes="${RUNNER_TEMP}/release-notes.md"
+          node scripts/release-notes.mjs "${TAG#v}" > "$notes"
+          case "${TAG#v}" in
+            *-*) gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes" --prerelease ;;
+            *) gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes" ;;
+          esac

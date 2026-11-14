@@ -1,6 +1,6 @@
 # 内部设计与集成记录
 
-本目录保留维护 omdsh 时需要的设计约束、兼容决策和调查证据。用户使用说明以[中文站点文档](../apps/site/content/zh/)和[英文站点文档](../apps/site/content/en/)为准；发布变化见 [CHANGELOG](../CHANGELOG.md)，开发与验证规则见 [AGENTS.md](../AGENTS.md)。
+本目录保留维护 omdsh 时需要的设计约束、兼容决策和调查证据。用户使用说明以[中文站点文档](../apps/site/content/zh/)和[英文站点文档](../apps/site/content/en/)为准；发布变化见 [CHANGELOG](../CHANGELOG.md)，发布流程见[发布](releases.md)，开发与验证规则见 [AGENTS.md](../AGENTS.md)。
 
 当前工作区的产品版本为 `0.22.0`，直接 DSH 依赖固定为 `0.2.2-rc.1`。设计文档描述当前实现，具体依赖以 manifest、lockfile 和组合配置为准；历史记录保留各自的验证日期与范围。
 
@@ -19,6 +19,12 @@
 | [终端体验](design/terminal-experience.md) | 终端协议、输入、滚动与外部编辑器 |
 | [Harness Inbox 生命周期](integrations/harness-inbox-lifecycle.md) | Queue、Steer、清理和恢复约定 |
 | [Herdr 集成](integrations/herdr.md) | 已实现的 lifecycle reporter、传输限制与尚未验证的集成面 |
+
+## 发布
+
+| 文档 | 内容 |
+| --- | --- |
+| [发布流程](releases.md) | 标签触发的 CI 授信发布、一次性 npm 配置与失败恢复 |
 
 ## 历史证据
 

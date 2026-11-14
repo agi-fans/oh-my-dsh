@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Releases publish both npm packages from GitHub Actions through npm trusted publishing (OIDC) with provenance when a `vX.Y.Z` tag is pushed, and the GitHub Release is created from `CHANGELOG.md` after both packages publish.
+
 ## [0.26.1] - 2026-11-12
 
 ### Fixed
