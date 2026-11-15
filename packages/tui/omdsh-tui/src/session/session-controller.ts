@@ -579,19 +579,32 @@ export class SessionRuntime {
     this.#tracker = new SubagentTracker({
       rootId: () => this.#active?.handle.agent.id,
       depth: (session) => {
-        const rootId = this.#active?.handle.agent.id
-        return rootId === undefined ? undefined : descendantDepth(session, rootId, this.#lookupSession)
+        const root = this.#active?.handle.agent
+        if (root === undefined || session === root.session) return undefined
+        const direct = descendantDepth(session, root.id, this.#lookupSession) ?? this.#tracker.depthOf(session.id)
+        if (direct !== undefined) return direct
+        const live = this.#ctx.get('agents')?.get(session.id)
+        if (live !== undefined && this.#isOwnedDescendant(live, root)) {
+          return Math.max(1, (session.header.delegationDepth ?? 1) - (root.session.header.delegationDepth ?? 0))
+        }
+        return undefined
       },
       agentStatus: id => this.#ctx.get('agents')?.get(SessionId(id))?.status,
       sessions: () => this.#ctx.get('sessions')?.list() ?? [],
       listChildren: rootId => this.#ctx.get('subagents')?.listDescendants(SessionId(rootId))
         .then(entries => entries
-          .filter((entry): entry is Extract<SubagentDescendantListEntry, { kind: 'child' }> => entry.kind === 'child' && entry.depth === 1)
-          .map((entry): SubagentTrackerChild => ({
-            id: entry.id,
-            mode: entry.mode,
-            ...(entry.label === undefined ? {} : { label: entry.label }),
-          }))),
+          .filter((entry): entry is Extract<SubagentDescendantListEntry, { kind: 'child' }> => entry.kind === 'child')
+          .map((entry): SubagentTrackerChild => {
+            const entryName = entry.path ?? ('name' in entry ? entry.name : undefined)
+            return {
+              id: entry.id,
+              parentId: entry.parentId,
+              depth: entry.depth,
+              ...(entryName === undefined ? {} : { name: entryName }),
+              mode: entry.mode,
+              ...(entry.label === undefined ? {} : { label: entry.label }),
+            }
+          })),
       publish: (roster) => {
         this.#tui.setSubagents(this.#workflows.roster(roster))
         if (this.#inspectedId === undefined) return
@@ -668,7 +681,16 @@ export class SessionRuntime {
     this.#off.push(ctx.on('session/created', (session) => {
       this.#tracker.noteSession(session)
     }))
-    this.#off.push(ctx.on('subagent/start', info => { this.#tracker.noteExternalRun(info) }))
+    this.#off.push(ctx.on('subagent/start', info => {
+      if (info.local) {
+        const session = this.#lookupSession(info.id)
+        if (session !== undefined) {
+          this.#tracker.noteStatus(session, this.#ctx.get('agents')?.get(info.id)?.status ?? 'running')
+        }
+        return
+      }
+      this.#tracker.noteExternalRun(info)
+    }))
     this.#off.push(ctx.on('subagent/end', info => { this.#tracker.noteExternalRun(info) }))
     this.#off.push(ctx.on('subagent/external-activity', info => { this.#tracker.noteExternalActivity(info.id, info.activity) }))
     this.#off.push(ctx.on('session/disposed', (session) => {
@@ -690,6 +712,7 @@ export class SessionRuntime {
         const child = ctx.get('agents')?.get(session.id)
         tui.event(event, child === undefined ? undefined : ctx.get('tuiToolPresentation')?.event(child, event))
         this.#tracker.noteEvent(session, event)
+        if (event.type === 'subagent/catalog' && this.#tracker.owns(session.id)) this.#tracker.observeCatalog(session, [event])
         if (shouldRefreshSessionInfoAfter(event)) tui.setInspectedSubagent(this.#inspectView(session.id))
         return
       }
@@ -721,6 +744,7 @@ export class SessionRuntime {
         return
       }
       this.#tracker.noteEvent(session, event)
+      if (event.type === 'subagent/catalog' && this.#tracker.owns(session.id)) this.#tracker.observeCatalog(session, [event])
     }))
     // Format v2 moved live assistant increments off the session log. The
     // durable `session/event` firehose now carries only settlements; chunk
@@ -976,7 +1000,7 @@ export class SessionRuntime {
     const canOpen = (run: NonNullable<ReturnType<WorkflowProjection['get']>>, member: typeof run.members[number]): boolean => {
       const child = this.#ctx.get('agents')?.get(SessionId(member.childId))
       return workflowMemberStatus(run, member) === 'open' && child?.status === 'running'
-        && child.session.header.parentSession === root.id && this.#isOwnedDescendant(child, root) && this.#tracker.owns(child.id)
+        && this.#isOwnedDescendant(child, root) && this.#tracker.owns(child.id)
     }
     try {
       let lastRun: ReturnType<WorkflowProjection['get']>
@@ -1546,7 +1570,10 @@ export class SessionRuntime {
   }
 
   async #refreshRecentNow(): Promise<void> {
-    this.#archivedSessions = new Set(readSessionLibrary(this.#libraryPath).archived)
+    this.#archivedSessions = new Set([
+      ...readSessionLibrary(this.#libraryPath).archived,
+      ...(this.#ctx.get('workspaceRegistry')?.archivedSessionIds ?? []),
+    ])
     const persistence = this.#ctx.get('sessionPersistence')
     if (persistence === undefined) {
       this.#recent = []
@@ -1884,6 +1911,7 @@ export class SessionRuntime {
     const mode = view?.mode
     const descriptor: TuiInspectedSubagent = {
       id,
+      ...(view?.name === undefined ? {} : { name: view.name }),
       label: view?.label ?? id,
       phase: view?.phase ?? fallbackPhase,
       needsApproval: view?.needsApproval === true,

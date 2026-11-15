@@ -12,6 +12,7 @@ import type { PluginSettingsEntry } from '../views/settings-list.ts'
 import { editSettingsDraft } from './settings-draft.ts'
 import { BTW_PRESET } from './btw-policy.ts'
 import { accountSettingsEntry, openAccountSettings } from './account-settings.ts'
+import { MCP_MANAGER_NS, MCP_SETTINGS_ID, mcpSettingsEntry, openMcpSettings } from './mcp-settings.ts'
 import { modelSettingsEntry, openModelSettings } from './model-settings.ts'
 import { SUBAGENT_SETTINGS_FIELDS, openSubagentSettings, subagentSettingsEntry } from './subagent-settings.ts'
 import { WEB_SETTINGS_FIELDS, openWebSettings, webSettingsEntry } from './web-settings.ts'
@@ -57,12 +58,17 @@ const PRODUCT_FORMS: Record<string, ProductForm> = {
   bash: SHELL_FORM,
   pwsh: SHELL_FORM,
   'file-recovery': { label: 'File recovery snapshots', behavior: 'Profile · Saves immediately · Next turn', section: 'tools', fields: { enabled: 'Snapshots' }, inline: 'enabled', effect: 'Keeps private file contents. Changes apply to the next Turn; existing snapshots remain readable.' },
+  worktree: { label: 'Keep worktrees when archiving', behavior: 'Profile · Saves immediately · Applies now', section: 'tools', fields: { retainOnArchive: 'Keep worktrees when archiving' }, inline: 'retainOnArchive',
+    effect: 'When off, archiving a session removes its clean, unreferenced Git worktree checkout while keeping the branch.' },
+  'tmux-context': { label: 'Tmux location context', behavior: 'Profile · Saves immediately · Next turn', section: 'tools',
+    fields: { enabled: 'Tmux location context', refreshIntervalMs: 'Minimum refresh interval' }, inline: 'enabled',
+    effect: 'When enabled inside a real tmux pane, appends session, window, pane and layout context when the pane layout changes.' },
   'hook-settings': { label: 'Command hooks', section: 'integrations', fields: { bridge: 'Hook compatibility', configPath: 'Configuration file' }, inline: 'bridge' },
   web: { label: 'Web providers', section: 'integrations', fields: { searchProvider: 'Search provider', fetchProvider: 'Fetch provider' },
     effect: 'Default: deepseek-search-api and deepseek-fetch-api. Fallbacks: deepseek-official (Messages) and http (local). With more than one provider installed, an empty value is ambiguous.' },
   'web-deepseek-api': { label: 'Web search · API', section: 'integrations',
-    fields: { apiKey: 'API key', apiKeyEnv: 'API key reference', baseURL: 'Endpoint', count: 'Results per search', sendOriginalQuestion: 'Send original question' },
-    effect: 'Default search and fetch provider: one direct DeepSeek API request without an auxiliary model turn. /login stores the official key under this reference.' },
+    fields: { count: 'Results per search', searchBilling: 'Search billing', fetchBilling: 'Fetch billing', searchRequestsPerSecond: 'Search rate limit', sendOriginalQuestion: 'Send original question', searchBaseURL: 'Search endpoint', searchApiKeyEnv: 'Search API key reference', fetchBaseURL: 'Fetch endpoint', fetchApiKeyEnv: 'Fetch API key reference' },
+    effect: 'Default search and fetch provider: one direct DeepSeek API request without an auxiliary model turn, billed to the selected account or API key.' },
   'web-search-deepseek': { label: 'Web search · Messages', section: 'integrations',
     fields: { maxTokens: 'Token limit', maxUses: 'Search limit', apiKey: 'API key', apiKeyEnv: 'API key reference', baseURL: 'Endpoint', model: 'Model', apiVersion: 'API version' },
     effect: 'Fallback search provider: one auxiliary Messages turn. Select it under Web providers.' },
@@ -76,6 +82,7 @@ const DEDICATED_FIELDS: Record<string, readonly string[]> = {
   // its profile; normal sessions always run in the Session's current directory.
   bash: ['cwd'],
   pwsh: ['cwd'],
+  [MCP_MANAGER_NS]: ['servers'],
   'subagent-codex': ['model', 'permissionMode', 'env'],
   'subagent-claude-code': ['model', 'permissionMode', 'env'],
 }
@@ -284,7 +291,7 @@ export function pluginSettingsEntries(ctx: Context, bundles?: readonly BundleInf
       summary: bundles === undefined ? 'Details' : bundle === undefined || bundle.availability === 'missing' ? 'Unavailable' : bundle.error !== undefined ? 'Load error' : bundle.enabled ? 'Enabled' : 'Disabled',
       description: 'Provider model, permissions and profile enablement. Native login has not been checked; Installation status reports registration.' }
   }))
-  return [...entries, ...accountSettingsEntry(ctx), ...modelSettingsEntry(ctx), ...webEntries, ...subagentEntries]
+  return [...entries, ...accountSettingsEntry(ctx), ...modelSettingsEntry(ctx), ...mcpSettingsEntry(ctx), ...webEntries, ...subagentEntries]
 }
 
 /** Write the displayed snapshot's revision; a concurrent change must never be silently overwritten. */
@@ -306,6 +313,7 @@ export async function setSettingsEntry(ctx: Context, entry: PluginSettingsEntry,
 export async function editSettingsEntry(ctx: Context, id: string, signal: AbortSignal, resetOnly = false): Promise<void> {
   if (id === 'subagents:settings') { await openSubagentSettings(ctx, signal, resetOnly); return }
   if (id === 'web:settings') { await openWebSettings(ctx, signal); return }
+  if (id === MCP_SETTINGS_ID) { await openMcpSettings(ctx, signal, resetOnly); return }
   if (id === 'account:deepseek') { await openAccountSettings(ctx, signal); return }
   if (id === 'models:providers') { await openModelSettings(ctx, signal); return }
   const native = NATIVE_INTEGRATIONS.find(item => item.id === id)

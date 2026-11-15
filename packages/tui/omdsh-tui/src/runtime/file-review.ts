@@ -150,7 +150,7 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
       action: async (action, index, source, position) => {
         const file = files[index]!
         if (action === 'editor') tui.openFileInEditor?.(resolve(cwd, file.path))
-        else if (action === 'open') await openSystemFile(resolve(cwd, file.path))
+        else if (action === 'open') await openSystemFile(resolve(cwd, file.path), signal)
         else if (action === 'image') {
           const image = await imageFile(resolve(cwd, file.path), signal)
           if (image !== undefined) await tui.prompt({ title: file.label, question: 'Current file', documentImage: image,
@@ -250,7 +250,7 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
           tui.openFileInEditor?.(resolve(cwd, file.path))
           feedback = 'Editor command completed.'
         } else if (action === 'open') {
-          await openSystemFile(resolve(cwd, file.path))
+          await openSystemFile(resolve(cwd, file.path), signal)
           feedback = 'Opened in the default application.'
         }
       } catch (error) {

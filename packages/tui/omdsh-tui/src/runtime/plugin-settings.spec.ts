@@ -354,14 +354,42 @@ describe('plugin configuration', () => {
   it('keeps DeepSeek Search API settings in one primary form', async () => {
     const h = await harness([])
     h.section.ns = 'web-deepseek-api'
-    h.section.schema = z.object({ apiKey: z.string().role('secret'), apiKeyEnv: z.string(), baseURL: z.string(), count: z.number(), sendOriginalQuestion: z.boolean() }).toJSON()
+    h.section.schema = z.object({
+      count: z.number(),
+      searchRequestsPerSecond: z.number(),
+      sendOriginalQuestion: z.boolean(),
+      searchBilling: z.union(['auto', 'account', 'api-key']),
+      fetchBilling: z.union(['auto', 'account', 'api-key']),
+      searchBaseURL: z.string(),
+      searchApiKeyEnv: z.string(),
+      fetchBaseURL: z.string(),
+      fetchApiKeyEnv: z.string(),
+    }).toJSON()
     h.describe.mockReturnValue([h.section])
     try {
       expect(config.pluginSettingsEntries(h.ctx)).toMatchObject([
         { id: 'web-deepseek-api', label: 'Web search · API', section: 'integrations',
-          fields: ['apiKey', 'apiKeyEnv', 'baseURL', 'count', 'sendOriginalQuestion'] },
+          fields: ['count', 'searchRequestsPerSecond', 'sendOriginalQuestion', 'searchBilling', 'fetchBilling', 'searchBaseURL', 'searchApiKeyEnv', 'fetchBaseURL', 'fetchApiKeyEnv'] },
       ])
       expect(config.pluginSettingsEntries(h.ctx).some(entry => entry.section === 'advanced')).toBe(false)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('exposes worktree archive retention under Tools without generating Advanced clutter', async () => {
+    const h = await harness([])
+    h.section.ns = 'worktree'
+    h.section.autoGenerate = false
+    h.section.schema = z.object({ retainOnArchive: z.boolean().default(false), directory: z.string().default('.agents/worktrees') }).toJSON()
+    h.section.value = { retainOnArchive: true, directory: '.agents/worktrees' }
+    h.describe.mockReturnValue([h.section])
+    try {
+      const entries = config.pluginSettingsEntries(h.ctx)
+      expect(entries).toMatchObject([
+        { id: 'worktree', label: 'Keep worktrees when archiving', section: 'tools', fields: ['retainOnArchive'], inline: { path: ['retainOnArchive'], value: 'On' } },
+      ])
+      expect(entries.some(entry => entry.section === 'advanced')).toBe(false)
+      await config.setSettingsEntry(h.ctx, entries[0]!, 'false', new AbortController().signal)
+      expect(h.mutate).toHaveBeenCalledWith('worktree', [{ op: 'set', path: ['retainOnArchive'], value: false }], 7)
     } finally { await h.ctx.fiber.dispose() }
   })
 

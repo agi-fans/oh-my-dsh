@@ -210,6 +210,72 @@ describe('account projections and actions', () => {
     h.abort.abort(); pending.resolve(signedOut); await run
     expect(h.account.startSignIn).not.toHaveBeenCalled()
   })
+
+  it('displays non-expired account notifications, fetches localized content, and reports displayed/cta/dismissed events', async () => {
+    const h = harness()
+    const getNotifications = vi.fn(async () => ({
+      nextPollAfterSeconds: 60,
+      notifications: [
+        {
+          id: 'notice-active' as never,
+          createdAt: '2026-01-01T00:00:00Z',
+          displayUntil: null,
+          title: 'Low balance reminder',
+          body: 'Summary copy',
+          actions: [
+            { label: 'View account', style: 'primary' as const, target: { type: 'app_route' as const, name: 'account' as const } },
+            { label: 'Dismiss', style: 'secondary' as const, target: { type: 'dismiss' as const } },
+          ],
+        },
+        {
+          id: 'notice-expired' as never,
+          createdAt: '2025-01-01T00:00:00Z',
+          displayUntil: '2025-01-02T00:00:00Z',
+          title: 'Expired promotion',
+          body: 'Should not appear',
+          actions: [],
+        },
+      ],
+    }))
+    const getNotificationContent = vi.fn(async () => ({
+      id: 'notice-active' as never,
+      createdAt: '2026-01-01T00:00:00Z',
+      displayUntil: null,
+      title: 'Low balance reminder',
+      body: 'Full localized notification body.',
+      actions: [
+        { label: 'View account', style: 'primary' as const, target: { type: 'app_route' as const, name: 'account' as const } },
+        { label: 'Dismiss', style: 'secondary' as const, target: { type: 'dismiss' as const } },
+      ],
+    }))
+    const reportNotificationEvent = vi.fn(async () => true)
+    Object.assign(h.account, { getNotifications, getNotificationContent, reportNotificationEvent })
+
+    const run = h.run(); await flush()
+    expect(h.detail()).toContain('Notifications (1):')
+    expect(h.detail()).toContain('- Low balance reminder')
+    expect(h.detail()).not.toContain('Expired promotion')
+    expect(h.options()).toContainEqual(expect.objectContaining({ value: 'notifications', label: 'Notifications (1)' }))
+
+    h.answer('notifications'); await flush()
+    expect(getNotificationContent).toHaveBeenCalledWith('notice-active', expect.objectContaining({ locale: 'en' }))
+    expect(reportNotificationEvent).toHaveBeenCalledWith('notice-active', 'displayed', expect.objectContaining({ locale: 'en' }))
+    expect(h.request().detail).toBe('Full localized notification body.')
+
+    // Clicking the CTA reports cta_clicked and surfaces platform links transiently.
+    h.answer('action:0'); await flush()
+    expect(reportNotificationEvent).toHaveBeenCalledWith('notice-active', 'cta_clicked', expect.objectContaining({ locale: 'en' }))
+    expect(h.notice).toHaveBeenCalledWith(expect.stringContaining('https://example.test/top_up'), { transient: true })
+
+    // Re-opening does not re-report displayed, and dismissing hides the notification locally.
+    h.answer('notifications'); await flush()
+    expect(reportNotificationEvent.mock.calls.filter(call => call[1] === 'displayed')).toHaveLength(1)
+    h.answer('action:1'); await flush()
+    expect(reportNotificationEvent).toHaveBeenCalledWith('notice-active', 'dismissed', expect.objectContaining({ locale: 'en' }))
+    expect(h.detail()).not.toContain('Low balance reminder')
+
+    h.answer(null); await run
+  })
 })
 
 describe('wallet display precision', () => {

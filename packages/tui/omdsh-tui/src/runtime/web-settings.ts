@@ -18,16 +18,16 @@ const text = (ctx: Context, source: string): string => uiText(resolveUiLanguage(
 const describe = (ctx: Context, ns: string): SettingsDescriptor | undefined => ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === ns)
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error)
 const metadata: Record<string, { label: string; description: string }> = {
-  'deepseek-search-api': { label: 'DeepSeek Search API', description: 'Uses the conversation’s DeepSeek account or the configured API key. Calls the hosted Search API without an auxiliary model turn; service charges may apply.' },
+  'deepseek-search-api': { label: 'DeepSeek Search API', description: 'Uses the DeepSeek account or API key chosen under Search billing. Calls the hosted Search API without an auxiliary model turn; service charges may apply.' },
   'deepseek-official': { label: 'DeepSeek (legacy)', description: 'Uses the conversation’s DeepSeek account or the configured API key. Runs an auxiliary Messages model turn with web search; model charges apply.' },
-  http: { label: 'Direct fetch', description: 'Fetches from this computer without a model or DeepSeek credential. Local DNS and network access apply; private addresses are blocked and content is bounded.' },
-  'deepseek-fetch-api': { label: 'DeepSeek Fetch API', description: 'Uses the conversation’s DeepSeek account or the configured API key. Fetches through DeepSeek without an auxiliary model turn or local DNS lookup; service charges and content limits apply.' },
+  http: { label: 'Direct fetch', description: 'Fetches from this computer without a model or DeepSeek credential. Local DNS and network access apply, including intranet and local addresses; content is bounded.' },
+  'deepseek-fetch-api': { label: 'DeepSeek Fetch API', description: 'Uses the DeepSeek account or API key chosen under Fetch billing. Fetches through DeepSeek without an auxiliary model turn or local DNS lookup; service charges and content limits apply.' },
 }
 
 /** Only fields served by the combined editor leave their generic forms. */
 export const WEB_SETTINGS_FIELDS: Record<string, readonly string[]> = {
   web: ['searchProvider', 'fetchProvider'],
-  'web-deepseek-api': ['count'],
+  'web-deepseek-api': ['count', 'searchBilling', 'fetchBilling'],
   'web-search-deepseek': ['maxUses', 'baseURL', 'apiKey'],
 }
 
@@ -85,10 +85,12 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
   }
   const providerLabel = (id: string): string => id === '' ? text(ctx, 'Automatic') : !Object.hasOwn(metadata, id) ? id : text(ctx, metadata[id]!.label)
   const providerDescription = (id: string): string => id === '' ? text(ctx, 'Use the deployment or environment selection; multiple usable providers can be ambiguous.') : !Object.hasOwn(metadata, id) ? text(ctx, 'Configure this provider in its plugin settings.') : text(ctx, metadata[id]!.description)
+  const billingLabel = (value: unknown): string => value === 'account' ? text(ctx, 'DeepSeek account') : value === 'api-key' ? text(ctx, 'API key') : value === 'auto' ? text(ctx, 'Automatic') : String(value ?? text(ctx, 'Inherited'))
+  const formatField = (field: string, value: unknown): string => field === 'searchBilling' || field === 'fetchBilling' ? billingLabel(value) : String(value ?? text(ctx, 'Inherited'))
   const fieldSummary = (ns: string, field: string): string => {
     const draft = drafts.get(ns)!
     const origin = draft.changes.has(field) ? 'Draft' : Object.hasOwn(object(draft.section.user), field) ? 'Profile override' : 'Inherited'
-    return String(effective(ns, field) ?? text(ctx, 'Inherited')) + ' · ' + text(ctx, origin)
+    return formatField(field, effective(ns, field)) + ' · ' + text(ctx, origin)
   }
   const selectionSummary = (kind: 'search' | 'fetch'): string => {
     const id = selected(kind), provider = catalog[kind].find(row => row.id === id)
@@ -170,12 +172,35 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
       } catch (cause) { error = errorText(cause) }
     }
   }
+  const chooseBilling = async (field: 'searchBilling' | 'fetchBilling', label: string): Promise<void> => {
+    const draft = drafts.get('web-deepseek-api')
+    if (draft === undefined) return
+    const hasOverride = draft.changes.has(field) ? draft.changes.get(field) !== undefined : Object.hasOwn(object(draft.section.user), field)
+    const current = String(effective('web-deepseek-api', field) ?? 'auto')
+    const answer = await ctx.tui.prompt({ ...list, title: 'Web search and fetch', question: label,
+      initialValue: current,
+      options: [
+        { label: text(ctx, 'Automatic'), value: 'auto', description: text(ctx, 'Follow the conversation’s model provider, falling back to the other DeepSeek credential when available.') },
+        { label: text(ctx, 'DeepSeek account'), value: 'account', description: text(ctx, 'Bill only the signed-in DeepSeek account; never fall back to an API key.') },
+        { label: text(ctx, 'API key'), value: 'api-key', description: text(ctx, 'Bill only the DeepSeek API key; never fall back to the signed-in account.') },
+        ...(hasOverride ? [{ label: text(ctx, 'Restore inheritance'), value: '@inherit', description: text(ctx, 'Restoring inheritance changes the draft. Apply saves it.') }] : []),
+      ], signal })
+    if (answer === null) return
+    if (answer === '@inherit') {
+      if (Object.hasOwn(object(draft.section.user), field)) draft.changes.set(field, undefined)
+      else draft.changes.delete(field)
+      return
+    }
+    new z(draft.section.schema as Partial<z>).dict?.[field]?.(answer)
+    draft.changes.set(field, answer)
+  }
   try {
     while (!signal.aborted) {
       refresh()
       const writable = ctx.settings.writable
       const legacy = selected('search') === 'deepseek-official' && describe(ctx, 'web-search-deepseek') !== undefined
-      const api = selected('search') === 'deepseek-search-api' && describe(ctx, 'web-deepseek-api') !== undefined
+      const apiSearch = selected('search') === 'deepseek-search-api' && describe(ctx, 'web-deepseek-api') !== undefined
+      const apiFetch = selected('fetch') === 'deepseek-fetch-api' && describe(ctx, 'web-deepseek-api') !== undefined
       let credential = ''
       if (legacy) {
         try {
@@ -189,7 +214,13 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
         options: [
           { label: text(ctx, 'Search provider'), value: 'search', description: selectionSummary('search'), preview: providerDescription(selected('search')), disabled: !writable || !!diagnostic },
           { label: text(ctx, 'Fetch provider'), value: 'fetch', description: selectionSummary('fetch'), preview: providerDescription(selected('fetch')), disabled: !writable || !!diagnostic },
-          ...(api ? [{ label: text(ctx, 'Results per search'), value: 'count', description: fieldSummary('web-deepseek-api', 'count'), disabled: !writable }] : []),
+          ...(apiSearch ? [
+            { label: text(ctx, 'Results per search'), value: 'count', description: fieldSummary('web-deepseek-api', 'count'), disabled: !writable },
+            { label: text(ctx, 'Search billing'), value: 'searchBilling', description: fieldSummary('web-deepseek-api', 'searchBilling'), disabled: !writable },
+          ] : []),
+          ...(apiFetch ? [
+            { label: text(ctx, 'Fetch billing'), value: 'fetchBilling', description: fieldSummary('web-deepseek-api', 'fetchBilling'), disabled: !writable },
+          ] : []),
           ...(legacy ? [
             { label: text(ctx, 'API key'), value: 'key', description: text(ctx, key ? 'New key ready to save' : credential), disabled: !writable },
             { label: text(ctx, 'Base URL'), value: 'baseURL', description: fieldSummary('web-search-deepseek', 'baseURL'), disabled: !writable },
@@ -208,9 +239,9 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
             const latest = describe(ctx, ns)
             if (latest === undefined) throw new Error('These settings are no longer available. Cancel and reopen Settings.')
             const result = await rebaseSettingsDraft(ctx, draft.section, latest, draft.changes, [...draft.changes.keys()].map(field => ({
-              key: field, label: ({ count: 'Results per search', maxUses: 'Maximum searches per request', baseURL: 'Base URL', searchProvider: 'Search provider', fetchProvider: 'Fetch provider' } as Record<string, string>)[field] ?? field,
+              key: field, label: ({ count: 'Results per search', searchBilling: 'Search billing', fetchBilling: 'Fetch billing', maxUses: 'Maximum searches per request', baseURL: 'Base URL', searchProvider: 'Search provider', fetchProvider: 'Fetch provider' } as Record<string, string>)[field] ?? field,
               defaultValue: new z(latest.schema as Partial<z>).dict?.[field]?.meta.default,
-              format: (value: unknown) => String(value ?? text(ctx, 'Inherited')),
+              format: (value: unknown) => formatField(field, value),
             })), signal)
             if (result === undefined) break
             rebased.set(ns, result)
@@ -222,7 +253,9 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
           continue
         }
         if (answer === 'search' || answer === 'fetch') { if (!diagnostic) await chooseProvider(answer); continue }
-        if (answer === 'count' && api) { await editField('web-deepseek-api', 'count', 'Results per search'); diagnostic = ''; continue }
+        if (answer === 'count' && apiSearch) { await editField('web-deepseek-api', 'count', 'Results per search'); diagnostic = ''; continue }
+        if (answer === 'searchBilling' && apiSearch) { await chooseBilling('searchBilling', 'Search billing'); diagnostic = ''; continue }
+        if (answer === 'fetchBilling' && apiFetch) { await chooseBilling('fetchBilling', 'Fetch billing'); diagnostic = ''; continue }
         if ((answer === 'baseURL' || answer === 'maxUses') && legacy) {
           await editField('web-search-deepseek', answer, answer === 'baseURL' ? 'Base URL' : 'Maximum searches per request'); diagnostic = ''; continue
         }

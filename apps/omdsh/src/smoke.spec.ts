@@ -16,6 +16,16 @@ import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../../..', import.meta.url))
 
+function smokeEnv(omdshHome: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    LC_ALL: 'en_US.UTF-8',
+    LANG: 'en_US.UTF-8',
+    OMDSH_HOME: omdshHome,
+    DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke',
+  }
+}
+
 function findSessionIds(home: string): string[] {
   const sessions = join(home, 'sessions')
   if (!existsSync(sessions)) return []
@@ -39,7 +49,7 @@ describe('omdsh smoke', () => {
         input: 'hi\n',
         encoding: 'utf8',
         timeout: 180_000,
-        env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' },
+        env: smokeEnv(omdshHome),
       },
     )
     rmSync(omdshHome, { recursive: true, force: true })
@@ -53,7 +63,7 @@ describe('omdsh smoke', () => {
 
   it('creates a session that stock DSH persistence can load', async () => {
     const omdshHome = mkdtempSync(join(tmpdir(), 'omdsh-resume-tools-'))
-    const env = { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' }
+    const env = smokeEnv(omdshHome)
     // The shipped entry, not a rebuild.
     const created = spawnPnpm(['--dir', 'apps/omdsh', 'omdsh'], {
       cwd: root,
@@ -111,7 +121,7 @@ describe('omdsh smoke', () => {
         input: '',
         encoding: 'utf8',
         timeout: 180_000,
-        env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' },
+        env: smokeEnv(omdshHome),
       },
     )
     rmSync(omdshHome, { recursive: true, force: true })
@@ -130,7 +140,7 @@ describe('omdsh smoke', () => {
         input: '/permission\n1\n',
         encoding: 'utf8',
         timeout: 180_000,
-        env: { ...process.env, OMDSH_HOME: omdshHome, DEEPSEEK_API_KEY: 'sk-invalid-key-for-smoke' },
+        env: smokeEnv(omdshHome),
       },
     )
     rmSync(omdshHome, { recursive: true, force: true })

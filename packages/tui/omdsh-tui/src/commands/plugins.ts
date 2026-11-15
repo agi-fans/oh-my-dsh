@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { BundleInfo, ChangeResult, PluginInfo, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager'
+import type { BundleInfo, ChangeResult, PluginInfo, PluginInstallRequestId, PluginUpdateResult } from '@deepseek-ai/dsh-plugin-manager'
 // The market service declares itself on Context; the type import is what makes
 // `ctx.get('pluginMarket')` typed, and it is what keeps the dependency honest.
 import type PluginMarket from '@deepseek-ai/dsh-plugin-market'
@@ -55,9 +55,23 @@ export function changeText(result: ChangeResult): string {
 /** Keep the observed outcome beside the operation, with full logs on demand. */
 function changeFeedback(result: ChangeResult | undefined): Pick<TuiPrompt, 'detail' | 'actions'> {
   if (result === undefined) return {}
+  const restoreNote = result.warnings?.find(item => item.startsWith('Restored ') || item.startsWith('Could not restore '))
   return {
-    detail: changeSummary(result),
+    detail: [changeSummary(result), restoreNote].filter(Boolean).join(' · '),
     actions: [{ key: 'Alt+D', label: 'details', valuePrefix: 'result:', scope: 'list' }],
+  }
+}
+
+function mergeUpdateOutcome(outcome: PluginUpdateResult): ChangeResult {
+  const summary = `Update ${outcome.from} → ${outcome.to} (${outcome.step})`
+  const restoreNote = outcome.restore === undefined ? undefined
+    : outcome.restore.application === 'applied' || outcome.restore.application === 'restart-required'
+      ? `Restored ${outcome.from}`
+      : `Could not restore ${outcome.from} (${outcome.restore.application})`
+  const restoreLog = outcome.restore?.packageResult === undefined ? [] : [`Restore log (${outcome.from}): ${outcome.restore.packageResult.logPath}`]
+  return {
+    ...outcome.result,
+    warnings: [summary, ...(restoreNote === undefined ? [] : [restoreNote]), ...(outcome.result.warnings ?? []), ...(outcome.restore?.warnings ?? []), ...restoreLog],
   }
 }
 
@@ -91,7 +105,7 @@ async function install(ctx: Context, spec: string, signal: AbortSignal, approved
   const requestId = randomUUID() as PluginInstallRequestId
   const promptAbort = new AbortController()
   let detail = 'Installing into this profile. Esc or Ctrl+C cancels; applying a finished installation cannot be cancelled.'
-  const cancel = (): void => { void ctx.pluginManager.cancelInstall(requestId).catch(() => {}) }
+  const cancel = (): void => { void Promise.resolve(ctx.get('pluginManager')?.cancelInstall(requestId)).catch(() => {}) }
   signal.addEventListener('abort', cancel, { once: true })
   const off = ctx.on('plugin-manager/install-state', progress => {
     if (progress.requestId !== requestId) return
@@ -137,6 +151,127 @@ async function confirmInstall(ctx: Context, spec: string, signal: AbortSignal, s
     if (approved && !signal.aborted) result = await install(ctx, spec, signal, result.pendingBuilds, saveExact)
   }
   return result
+}
+
+async function update(
+  ctx: Context,
+  name: string,
+  version: string,
+  options: { registry?: string | null; spec?: string },
+  signal: AbortSignal,
+): Promise<ChangeResult> {
+  signal.throwIfAborted()
+  const requestId = randomUUID() as PluginInstallRequestId
+  const promptAbort = new AbortController()
+  let cancelledByUser = false
+  let detail = 'Updating bundle in this profile. Esc or Ctrl+C cancels while the target version is installing.'
+  const cancel = (): void => { void Promise.resolve(ctx.get('pluginManager')?.cancelInstall(requestId)).catch(() => {}) }
+  const onAbort = (): void => { cancelledByUser = true; cancel() }
+  signal.addEventListener('abort', onAbort, { once: true })
+  const offUpdate = ctx.on('plugin-manager/update-state', progress => {
+    if (progress.requestId !== requestId) return
+    if (cancelledByUser && progress.step === 'installing') { cancel(); return }
+    detail = `Update ${progress.step} · ${name} → ${version}\n\nEsc or Ctrl+C cancels while installing.`
+  })
+  const offInstall = ctx.on('plugin-manager/install-state', progress => {
+    if (progress.requestId !== requestId) return
+    if (cancelledByUser && progress.phase === 'installing') { cancel(); return }
+    const attempt = progress.attempt
+    detail = `Plugin ${progress.phase}${attempt === undefined ? '' : ` · ${attempt.index}/${attempt.total} · ${attempt.registry ?? 'configured registry'}`}\n\nEsc or Ctrl+C cancels.`
+    if (progress.phase === 'applying') promptAbort.abort()
+  })
+  const operation = ctx.pluginManager.updateBundle(name, version, { ...options, requestId })
+  const prompt = ctx.tui.prompt({ localize: true,
+    title: 'Update bundle', question: `${name} → ${version}`, presentation: 'progress',
+    detail, refreshDocument: () => detail, notify: false,
+    allowCustom: false, signal: AbortSignal.any([signal, promptAbort.signal]),
+  }).then(
+    () => { if (!promptAbort.signal.aborted) { cancelledByUser = true; cancel() } },
+    () => { if (!promptAbort.signal.aborted) { cancelledByUser = true; cancel() } },
+  )
+  try { return mergeUpdateOutcome(await operation) }
+  finally { promptAbort.abort(); await prompt; offUpdate(); offInstall(); signal.removeEventListener('abort', onAbort) }
+}
+
+async function confirmUpdate(
+  ctx: Context,
+  name: string,
+  from: string | undefined,
+  version: string,
+  options: { registry?: string | null; spec?: string },
+  signal: AbortSignal,
+): Promise<ChangeResult | undefined> {
+  const t = (text: string) => uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), text)
+  const consent = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],
+    title: 'Update bundle',
+    question: from === undefined ? `${name} → ${version}` : `${name} (${from} → ${version})`,
+    detail: t('Installed Host code runs with your user permissions and affects all sessions in this profile.'),
+    acceptLabel: 'Update',
+    cancelLabel: null,
+    signal,
+  })
+  if (!consent || signal.aborted) return
+  return update(ctx, name, version, options, signal)
+}
+
+async function chooseBundleUpdate(ctx: Context, row: BundleInfo, signal: AbortSignal): Promise<ChangeResult | undefined> {
+  const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
+  const t = (text: string) => uiText(language, text)
+  if (row.update === 'registry') {
+    const listed = await ctx.pluginManager.listVersions(row.name, undefined, signal)
+    if (signal.aborted) return
+    if (listed.status === 'refused') {
+      await readReference(ctx.tui, `${row.name} · ${t('Update')}`, listed.reason, signal)
+      return
+    }
+    if (listed.versions.length === 0) {
+      await readReference(ctx.tui, `${row.name} · ${t('Update')}`, t('No newer versions are published.'), signal)
+      return
+    }
+    const target = await ctx.tui.prompt({ localize: ['title', 'question', 'actions'], ...list,
+      title: 'Update bundle',
+      question: 'Choose a newer version',
+      detail: [
+        `${t('Current')}: ${listed.installed}`,
+        ...(listed.omitted > 0 ? [t('{count} older versions omitted.').replace('{count}', String(listed.omitted))] : []),
+      ].join(' · '),
+      options: listed.versions.map(item => ({
+        label: item.version,
+        value: item.version,
+        disabled: !item.bundle || item.incompatible !== undefined,
+        description: [
+          ...item.tags,
+          item.prerelease ? t('Prerelease') : '',
+          item.deprecated === undefined ? '' : t('Deprecated'),
+          !item.bundle ? t('Not a bundle') : '',
+          item.incompatible === undefined ? '' : t('Incompatible'),
+        ].filter(Boolean).join(' · '),
+        ...(item.deprecated !== undefined ? { preview: item.deprecated }
+          : item.incompatible !== undefined ? { preview: `${item.incompatible.name}@${item.incompatible.version}: DSH ${item.incompatible.runtimeVersion} rejects ${JSON.stringify(item.incompatible.requirements)}` } : {}),
+      })),
+      signal,
+    })
+    if (target === null || signal.aborted) return
+    return confirmUpdate(ctx, row.name, listed.installed, target, { registry: listed.registry }, signal)
+  }
+  if (row.update === 'git') {
+    const spec = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+      title: 'Update bundle',
+      question: 'Git URL pinned to the target commit',
+      ...(row.source === undefined ? {} : { detail: `${t('Current')}: ${row.source}`, initialInput: row.source }),
+      signal,
+    }))
+    if (spec === null || spec.trim() === '' || signal.aborted) return
+    const version = await ctx.tui.prompt(askPrompt({ localize: ['title', 'question', 'actions'],
+      title: 'Update bundle',
+      question: 'Target package version',
+      ...(row.version === undefined ? {} : { detail: `${t('Current')}: ${row.version}` }),
+      signal,
+    }))
+    if (version === null || version.trim() === '' || signal.aborted) return
+    return confirmUpdate(ctx, row.name, row.version, version.trim(), { spec: spec.trim() }, signal)
+  }
+  return undefined
 }
 
 /** Index text in the reader's language when the index offers one. */
@@ -241,10 +376,16 @@ async function discover(ctx: Context, signal: AbortSignal, onSuperseded: () => v
       detail: [count, diagnostic, feedback.detail].filter(Boolean).join('\n'), emptyText: t('No matching plugins.'),
       options: entries.map(({ page, entry }) => {
         const version = entry.versions.find(item => item.version === entry.defaultVersion) ?? entry.versions[0]
+        const installStatus = entry.installation.status === 'installed' ? t('Installed')
+          : entry.installation.status === 'update-available'
+            ? (entry.installation.installedVersion === undefined ? t('Update available') : `${t('Update available')} (${entry.installation.installedVersion})`)
+            : entry.installation.status === 'different-version'
+              ? (entry.installation.installedVersion === undefined ? t('Installed') : `${t('Installed')} (${entry.installation.installedVersion})`)
+              : entry.installation.status === 'provided' ? t('Included with omdsh') : ''
         return {
           label: entry.name, value: JSON.stringify([page.url, entry.name]),
           description: [entry.defaultVersion ?? '', marketText(page.title),
-            entry.installation.status === 'installed' ? t('Installed') : '',
+            installStatus,
             version?.compatibility.compatible === false ? t('Incompatible') : '',
           ].filter(Boolean).join(' · '),
           ...(entry.description === undefined ? {} : { preview: marketText(entry.description) }),
@@ -273,13 +414,49 @@ async function discover(ctx: Context, signal: AbortSignal, onSuperseded: () => v
     if (chosen === 'retry:') { await load('retry'); continue }
     const picked = entries.find(({ page, entry }) => JSON.stringify([page.url, entry.name]) === chosen)
     if (picked === undefined) continue
+    if (picked.entry.installation.status === 'provided') {
+      diagnostic = t('{name} is included with omdsh. Open /plugins → Bundles to enable or disable it.').replace('{name}', picked.entry.name)
+      continue
+    }
     const version = picked.entry.versions.find(item => item.version === picked.entry.defaultVersion) ?? picked.entry.versions[0]
     if (version === undefined) { diagnostic = `${picked.entry.name} lists no version.`; continue }
+    if (picked.entry.installation.status === 'installed') {
+      diagnostic = t('{name} {version} is already installed. Open /plugins → Bundles to manage it.').replace('{name}', picked.entry.name).replace('{version}', version.version)
+      continue
+    }
     if (version.compatibility.compatible === false) {
       diagnostic = `${picked.entry.name} ${version.version} requires ${Object.entries(version.compatibility.requirements).map(([key, value]) => `${key} ${value}`).join(', ')}.`
       continue
     }
+    if (picked.entry.installation.status === 'different-version') {
+      diagnostic = t('{name} is installed at {current}. Uninstall it in /plugins → Bundles before installing {target}.')
+        .replace('{name}', picked.entry.name)
+        .replace('{current}', picked.entry.installation.installedVersion ?? t('another version'))
+        .replace('{target}', version.version)
+      continue
+    }
     try {
+      if (picked.entry.installation.status === 'update-available') {
+        if (typeof ctx.pluginManager.updateBundle !== 'function') {
+          diagnostic = t('{name} cannot be updated automatically from this source. Reinstall it from /plugins → Bundles.').replace('{name}', picked.entry.name)
+          continue
+        }
+        const gitUpdate = version.source?.type === 'git'
+        if (gitUpdate && !version.update) {
+          diagnostic = t('{name} cannot be updated automatically from this source. Reinstall it from /plugins → Bundles.').replace('{name}', picked.entry.name)
+          continue
+        }
+        const change = await confirmUpdate(
+          ctx,
+          picked.entry.name,
+          picked.entry.installation.installedVersion,
+          version.version,
+          gitUpdate ? { spec: version.install.spec } : version.install.registry === undefined ? {} : { registry: version.install.registry },
+          signal,
+        )
+        if (change !== undefined) { result = change; await load() }
+        continue
+      }
       const change = await confirmInstall(ctx, version.install.spec, signal, true)
       if (change !== undefined) { result = change; await load() }
     } catch (error) { diagnostic = error instanceof Error ? error.message : String(error) }
@@ -347,23 +524,43 @@ async function browseBundles(ctx: Context, signal: AbortSignal, configurationCtx
         : row.installed ? 'Installed in this profile. Uninstall unloads the bundle and removes its package from this profile.' : undefined
       const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
       const detail = [ownership, externalAgentSummary(row.name, language) ?? row.description].filter(Boolean).join('\n\n')
+      const canReadDetail = integration === undefined && typeof ctx.pluginManager.readBundleDetail === 'function'
+        && (row.availability !== 'missing' || row.installTarget !== undefined)
+      const canUpdate = row.readOnlyReason === undefined && row.update !== undefined && typeof ctx.pluginManager.updateBundle === 'function'
       choice = await ctx.tui.prompt({ localize: true, title: row.name, question: 'Manage bundle', ...changeFeedback(result),
         detail: [detail, row.readOnlyReason, changeFeedback(result).detail].filter(Boolean).join('\n\n'),
         ...(choice === null ? {} : { initialValue: choice }),
-        options: row.readOnlyReason === undefined ? [
-          ...(guide === undefined || row.availability !== 'missing' && integration !== undefined ? [] : [{ label: 'Check profile status', value: 'check' }]),
-          ...(integration === undefined || row.availability === 'missing' ? [] : [{ label: 'Integration settings', value: 'settings' }]),
-          ...(row.installTarget === undefined || row.availability === 'installation' ? [] : [{ label: row.availability === 'missing' ? 'Install' : 'Reinstall', value: 'install' }]),
-          ...(integration !== undefined || row.availability === 'missing' || row.error !== undefined && !row.enabled ? [] : [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }]),
-          ...(row.removable ? [{ label: row.installed ? 'Uninstall' : 'Remove from profile', value: 'remove' }] : []),
-          ...(guide === undefined || row.availability !== 'missing' ? [] : [{ label: 'Usage notes', value: 'guide' }]),
-        ] : [], allowCustom: false, notify: false, signal })
+        options: [
+          ...(canReadDetail ? [{ label: 'Details', value: 'detail' }] : []),
+          ...(row.readOnlyReason === undefined ? [
+            ...(guide === undefined || row.availability !== 'missing' && integration !== undefined ? [] : [{ label: 'Check profile status', value: 'check' }]),
+            ...(integration === undefined || row.availability === 'missing' ? [] : [{ label: 'Integration settings', value: 'settings' }]),
+            ...(row.installTarget === undefined || row.availability === 'installation' ? [] : [{ label: row.availability === 'missing' ? 'Install' : 'Reinstall', value: 'install' }]),
+            ...(canUpdate ? [{ label: 'Update', value: 'update' }] : []),
+            ...(integration !== undefined || row.availability === 'missing' || row.error !== undefined && !row.enabled ? [] : [{ label: row.enabled ? 'Disable' : 'Enable', value: 'toggle' }]),
+            ...(row.removable ? [{ label: row.installed ? 'Uninstall' : 'Remove from profile', value: 'remove' }] : []),
+            ...(guide === undefined || row.availability !== 'missing' ? [] : [{ label: 'Usage notes', value: 'guide' }]),
+          ] : []),
+        ], allowCustom: false, notify: false, signal })
       if (signal.aborted || choice === null) break
       if (choice === 'result:') { await readChangeDetails(ctx, result, signal); continue }
+      if (choice === 'detail' && canReadDetail) {
+        try {
+          const doc = await ctx.pluginManager.readBundleDetail(row.name, language)
+          if (signal.aborted) break
+          const markdown = doc.status === 'found' ? doc.markdown : uiText(language, 'No README or detail document is available for this bundle.')
+          await readReference(ctx.tui, `${row.name} · ${uiText(language, 'Details')}`, markdown, signal)
+        } catch (error) {
+          if (signal.aborted) break
+          await readReference(ctx.tui, `${row.name} · ${uiText(language, 'Details')}`, error instanceof Error ? error.message : String(error), signal)
+        }
+        continue
+      }
       if (choice === 'check' && guide !== undefined) await showIntegrationStatus(ctx, row.name, signal)
       if (choice === 'guide' && guide !== undefined) await readReference(ctx.tui, `${row.name} · ${uiText(language, 'Usage notes')}`, guide, signal)
       if (choice === 'settings' && integration !== undefined) await editSettingsEntry(configurationCtx ?? ctx, integration, signal)
       if (choice === 'install' && row.installTarget !== undefined) result = await confirmInstall(ctx, row.installTarget.spec, signal, true) ?? result
+      if (choice === 'update' && canUpdate) result = await chooseBundleUpdate(ctx, row, signal) ?? result
       if (choice === 'toggle') result = await ctx.pluginManager.setBundleEnabled(row.name, !row.enabled)
       if (choice === 'remove' && row.removable) {
         const consent = await confirmPrompt(request => ctx.tui.prompt(request), { localize: ['title', 'options', 'actions'],

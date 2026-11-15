@@ -95,6 +95,25 @@ describe('trajectory ledger', () => {
       summary: 'Explore auth',
       result: 'session-child\nExplore auth\ncontinuable',
     })
+
+    const named = createTrajectory([
+      event(1, 'turn/start', { turn: 1 }),
+      event(2, 'subagent/catalog', {
+        version: 3,
+        childId: 'session-child',
+        childCreatedAt: 10,
+        name: 'reviewer',
+        mode: 'continuable',
+        label: 'Explore auth',
+      }),
+    ])
+    expect(named.ledger.records[0]).toMatchObject({
+      type: 'subagent/catalog',
+      label: 'SUBAGENT',
+      turn: 1,
+      summary: 'reviewer · Explore auth',
+      result: 'session-child\nreviewer\nExplore auth\ncontinuable',
+    })
   })
 
   it('correlates an interleaved compaction lifecycle by its durable id', () => {

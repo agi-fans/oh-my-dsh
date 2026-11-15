@@ -1613,6 +1613,12 @@ describe('renderView', () => {
     expect(renderInspectBanner({
       id: 'child-1', label: 'Explore auth', phase: 'completed', writable: false,
     }, createTheme(false), 60)[0]).toContain('Read-only')
+    expect(renderInspectBanner({
+      id: 'grand-1', name: 'reviewer/checker', label: 'Run tests', phase: 'running', writable: true,
+    }, createTheme(false), 80)[0]).toContain('reviewer/checker · Run tests')
+    expect(renderSubagents({
+      agents: [{ id: 'grand-1', depth: 2, name: 'reviewer/checker', label: 'Run tests', phase: 'waiting', activity: [] }],
+    }, createTheme(false), 80).join('\n')).toContain('  reviewer/checker · Run tests · Ready')
     const readonlyFrame = renderView(initialTranscript(), {
       width: 60,
       height: 24,

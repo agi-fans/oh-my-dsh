@@ -40,7 +40,7 @@ Review the current diff, run focused tests, and report findings by severity.
 }
 ```
 
-MCP 配置在启动时加载，如果 omdsh 已在运行，请重启。项目 MCP 文件可以启动本地程序，在不熟悉的仓库中启动 omdsh 前请先检查它。
+静态 `mcp.json` 文件在启动时加载，如果 omdsh 已在运行，请重启（若要免重启实时添加或管理用户级服务器，可使用 `/mcp` 或 `/settings` → **Plugins → Integrations → MCP servers**）。项目 MCP 文件可以启动本地程序，在不熟悉的仓库中启动 omdsh 前请先检查它。
 
 运行 `/mcp` 查看已注册的 MCP 工具与可用诊断，再用 `/tools` 在工具列表中找到它们。如果缺失，可以用 `omdsh doctor` 检查可执行程序与配置。最后请 Agent 调用一个合适的工具，并查看结果；调用成功可以验证当前服务器与凭据下的这项操作。
 

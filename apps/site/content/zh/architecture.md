@@ -45,7 +45,7 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - 命令插件通过 `dsh-commands` 注册元数据和处理器；Runner 不维护第二份命令注册表。
 - 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
 - Harness Projection 插件负责 token、上下文、耗时、标题和会话统计；状态栏只负责格式化这些输出。
-- `session-runtime` 把带 `origin: subagent` 的后代会话投影为 Composer 上方的实时名册，并可以把视口切换到其中一个孩子的 Transcript。可续写的孩子通过 subagent 宿主队列（`@deepseek-ai/dsh-subagent/internal` 的 `queueHostSubagentPrompt`）接收 Composer 的后续消息，保留用户署名与 FIFO 轮次顺序；一次性运行保持只读。子会话日志留在各自的 Session 中，不会回放到父 Transcript。
+- `session-runtime` 把各委派深度上带 `origin: subagent` 的后代会话投影为 Composer 上方的实时名册，并可以把视口切换到其中一个孩子的 Transcript。可续写的孩子通过公开的 subagent 宿主接口（`@deepseek-ai/dsh-subagent` 的 `SubagentRuntime.prompt`）接收 Composer 的后续文本与图片消息，支持队列与插话投递以及冷子会话恢复，保留用户署名与轮次顺序；一次性运行保持只读。子会话日志留在各自的 Session 中，不会回放到父 Transcript。
 - 三种委托 transport 并存，按次选择而非常量配置。两个进程内后端（`subagent`、`subagent_fork`）在 TUI 自己的事件循环上运行子 Agent，并支持全部由父级强制的启动能力。进程外后端（`subagent_isolated`，基于 `dsh-subagent-acp`）改为派生一整个子运行时，把重负载委托的 CPU 移出该事件循环；它不声明任何启动期能力、也不实现可续写运行，因此这样的孩子在派发后无法被 steering。
 - 人机交互适配器将审批和提问 Service 连接到终端选择器，而不把这些领域迁入终端 Provider。
 
@@ -60,11 +60,11 @@ TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们
 - DeepSeek 账户 grant 及其仅 loopback 的 OAuth 回调宿主，以及官方 DeepSeek Search/Fetch API Provider 与 Messages/本地 HTTP fallback；
 - 持久化 JSONL 会话、Checkpoint、查询、文件引用与跨会话引用、标题、统计与 Token Projection；
 - 本地附件、文件系统、子进程、Sandbox 和权限 Provider，以及每台主机唯一的一套 Shell 栈（POSIX 上是 `bash`，Windows 上是 `pwsh`）及其对应的模型工具；
-- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合（Standard、PTC、Cordis 含上游时钟上下文），以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问和 Subagent；
-- 文件系统 Skill 发现以及项目级和用户级 MCP Server Adapter；
+- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合（Standard、PTC、Cordis 含上游时钟上下文与交付物行号引用指引；POSIX tmux 窗格在启用时注入窗格布局上下文），以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问、Subagent 和按会话开启的 Agent Teams；
+- 文件系统 Skill 发现、实时 Profile MCP 服务器管理，以及静态项目级／用户级 MCP 与 LSP Server Adapter；
 - 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
 
-Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。`omdsh plugin add` 装入的用户 bundle、Profile 的 `cordis.patch.yml`，以及可选的 `$OMDSH_HOME/cordis.patch.yml` 会在启动时叠加在这棵 composition 之上；`omdsh --dump-config` 打印结果。[`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) 是可安装的编写样例。见 [`plugins.md`](plugins.md)。
+Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。新建或升级的 Profile 会预置默认启用的 `@deepseek-ai/dsh-experimental-tool-worktree` 与 `@deepseek-ai/dsh-experimental-auto-review` bundle；`omdsh plugin add` 装入的用户 bundle、Profile 的 `cordis.patch.yml`，以及可选的 `$OMDSH_HOME/cordis.patch.yml` 会在启动时叠加在这棵 composition 之上，`omdsh --dump-config` 打印结果。[`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) 是可安装的编写样例。见 [`plugins.md`](plugins.md)。
 
 ## 数据与交互流
 

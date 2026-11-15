@@ -70,7 +70,7 @@ export const COMMAND_GROUPS: readonly { label: string; names: readonly string[] 
   { label: 'Session', names: ['new', 'resume', 'continue', 'retry', 'clear'] },
   { label: 'Model and access', names: ['model', 'plan', 'permission', 'agent', 'login', 'logout'] },
   { label: 'Files and output', names: ['diff', 'attach', 'copy', 'export'] },
-  { label: 'Tasks', names: ['queue', 'btw', 'questions', 'jobs', 'goal', 'compact', 'schedule'] },
+  { label: 'Tasks', names: ['queue', 'btw', 'questions', 'jobs', 'goal', 'team', 'compact', 'schedule'] },
   { label: 'Settings and integrations', names: ['settings', 'mcp', 'plugins'] },
   { label: 'Diagnostics', names: ['context', 'trajectory', 'tools', 'changelog'] },
   { label: 'Application', names: ['help', 'quit'] },

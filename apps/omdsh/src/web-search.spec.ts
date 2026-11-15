@@ -25,7 +25,7 @@ describe('DeepSeek hosted web search', () => {
     expect(rows[index('web-search-deepseek')]?.name).toBe('@deepseek-ai/dsh-web-search-deepseek')
     expect(rows[index('web-search-deepseek')]?.config).toMatchObject({ apiKeyEnv: 'DEEPSEEK_API_KEY', maxUses: 5 })
     expect(rows[index('web-deepseek-api')]?.name).toBe('@deepseek-ai/dsh-web-deepseek-api')
-    expect(rows[index('web-deepseek-api')]?.config).toMatchObject({ apiKeyEnv: 'DEEPSEEK_API_KEY' })
+    expect(rows[index('web-deepseek-api')]?.config).toBeUndefined()
     expect(rows[index('web')]?.config).toMatchObject({ searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' })
     expect(index('web-search-deepseek')).toBeLessThan(index('web-fetch-http'))
     expect(rows[index('tool-web')]?.config).toMatchObject({ search: true, fetch: true, searchTimeoutMs: 60000 })

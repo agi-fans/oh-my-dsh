@@ -26,7 +26,7 @@ Every delegation returns an activation id while the Harness runtime owns executi
 
 Codex and Claude Code bundles ship disabled with omdsh and can be enabled and configured in `/settings → Plugins` or `/plugins → Bundles`. They use their own pinned runtimes and native login/settings, expose global `subagent_codex` and `subagent_claude_code` tools to every preset, and run fresh text-only tasks without continuation. Model and Permissions edits their native policies, independently of the parent’s Access. Installation status reports registration only; successful authentication and payload startup require a real delegation. See [Plugins](plugins.md).
 
-While children run, a roster sits above the queue and composer with task names and lifecycle states. Ready means a continuable child can receive another message; Stopped is separate from Failed. On an empty composer, press `↓` to select a row, `↑`/`↓` to move, and `Enter` to open that child's live transcript. Selection stays with the same child when the roster reorders. Historical one-shot transcripts remain read-only; external executions have no local transcript and return their results to the parent.
+While children run, a roster sits above the queue and composer with delegated names (or slash-separated paths across deeper delegation levels), task descriptions, and lifecycle states, including cold descendants on resumed sessions. Ready means a continuable child can receive another message; Stopped is separate from Failed. Model-side coordination uses `send_message`, `wait_agent`, and `list_agents`, while `interrupt_agent` ships disabled so human `Ctrl+C` owns interruption unless an overlay opts in. On an empty composer, press `↓` to select a row, `↑`/`↓` to move, and `Enter` to open that child's live transcript. Selection stays with the same child when the roster reorders. Historical one-shot transcripts remain read-only; external executions have no local transcript and return their results to the parent.
 
 While inspecting a child, the footer and Access badge describe that child. Activity counts and token totals cover its own events; context usage includes inherited conversation context. Unavailable model or permission data stays unspecified. Returning restores the parent’s metadata and directory; terminal titles and lifecycle notifications continue to follow the root session.
 
@@ -40,10 +40,11 @@ A normal turn ending does not stop a background workflow. An unfinished run is s
 
 ## Orchestration tools
 
-The mounted Harness composition adds two orchestration tools on top of plain delegation:
+The mounted Harness composition adds orchestration and shared-task tools on top of plain delegation:
 
 - `workflow_run` takes a JavaScript script that fans work out across delegated children with phases and structured results. The script runs on a worker thread rather than the host event loop, so a large fan-out does not stall the interface.
 - `ralph` iterates fresh agents toward one objective until a worker reports completion or a blocker. It ships disabled, matching the upstream base bundle: its tool description already restricts it to runs you asked for explicitly, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false` on its row.
+- `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` coordinate a shared Compare-and-Set task board (`@deepseek-ai/dsh-agent-team`, up to 256 tasks per session tree) across the root agent and its continuable in-process subagents, tracking `blockedBy` dependencies, task owners, and advisory `writeScopes` overlap warnings. Team mode starts disabled for each session; run `/team on` (or `/team` to open the interactive task board) to expose `team_task_*` and collaboration guidance on subsequent steps, and `/team off` to hide the tools while keeping recorded tasks in the session log.
 
 The `code` (PTC) preset denies `workflow_run`, because PTC presents the registry as a generated SDK over `run_code` and would otherwise expose a second model-authored orchestration surface.
 

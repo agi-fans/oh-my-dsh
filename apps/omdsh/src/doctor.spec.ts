@@ -36,6 +36,8 @@ describe('doctor', () => {
     expect(report.schemaVersion).toBe(1)
     expect(report.checks.find(check => check.id === 'profile')?.status).toBe('not-configured')
     expect(report.checks.find(check => check.id === 'bundle:0')?.status).toBe('ok')
+    expect(report.checks.find(check => check.id === 'bundle:1')?.status).toBe('ok')
+    expect(report.checks.find(check => check.id === 'bundle:2')?.status).toBe('ok')
     expect(report.checks.filter(check => check.id.startsWith('plugin:')).length).toBeGreaterThan(20)
     expect(report.checks.filter(check => check.status === 'failed')).toEqual([])
     expect(report.checks.find(check => check.id === 'model-auth')?.status).toBe('not-checked')

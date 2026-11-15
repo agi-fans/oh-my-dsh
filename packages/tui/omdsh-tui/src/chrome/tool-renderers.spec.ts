@@ -126,6 +126,82 @@ describe('renderTool', () => {
       summary: 'session-abc',
       input: ['Also check logout.'],
     })
+
+    expect(renderTool({
+      name: 'send_message',
+      arguments: '{"agent":"reviewer/checker","message":"Re-run validation."}',
+      output: 'message delivered to agent reviewer/checker',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Message',
+      summary: 'reviewer/checker',
+      input: ['Re-run validation.'],
+    })
+
+    expect(renderTool({
+      name: 'subagent',
+      arguments: '{"name":"reviewer","description":"Explore auth","prompt":"Find the login path."}',
+      output: 'started subagent reviewer',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'reviewer · Explore auth',
+      summary: 'started subagent reviewer',
+      input: ['Find the login path.'],
+      output: [],
+    })
+
+    expect(renderTool({
+      name: 'interrupt_agent',
+      arguments: '{"agent":"reviewer"}',
+      output: 'interrupted agent reviewer',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Interrupt',
+      summary: 'reviewer',
+      input: [],
+    })
+
+    expect(renderTool({
+      name: 'wait_agent',
+      arguments: '{"timeout_ms":30000}',
+      output: '',
+      status: 'running',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Wait',
+      summary: '30s',
+      input: [],
+      output: [],
+    })
+
+    expect(renderTool({
+      name: 'wait_agent',
+      arguments: '{"timeout_ms":30000}',
+      output: '{"timedOut":false}',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Wait',
+      summary: 'ready',
+      input: [],
+      output: [],
+    })
+
+    expect(renderTool({
+      name: 'wait_agent',
+      arguments: '{}',
+      output: '{"timedOut":true}',
+      status: 'ok',
+      expanded: false,
+    })).toMatchObject({
+      title: 'Wait',
+      summary: 'timed out',
+      input: [],
+      output: [],
+    })
   })
 
   it('lists presented deliverables instead of raw present arguments', () => {
@@ -320,5 +396,93 @@ describe('renderTool MCP fallback', () => {
       presentation: { call: { card: 'generic', title: 'Create issue', kind: 'write' } },
     })
     expect(card.title).toBe('Create issue')
+  })
+})
+
+describe('Agent Teams task-board fallback presentation', () => {
+  it('renders team_task_create, team_task_list, team_task_get, and team_task_update without raw JSON dumps', () => {
+    const created = renderTool({
+      name: 'team_task_create',
+      arguments: JSON.stringify({ subject: 'Split parser', description: 'Extract lexer.', write_scopes: ['src/lexer.ts'] }),
+      output: JSON.stringify({
+        id: '1',
+        revision: 1,
+        subject: 'Split parser',
+        description: 'Extract lexer.',
+        status: 'pending',
+        blockedBy: [],
+        writeScopes: ['src/lexer.ts'],
+        ready: true,
+        writeScopeWarnings: [],
+      }),
+    })
+    expect(created).toMatchObject({
+      title: 'Create task · Split parser',
+      summary: '#1 · pending · rev 1',
+      input: ['Extract lexer.', 'Write scopes: src/lexer.ts'],
+      output: [],
+    })
+
+    const listed = renderTool({
+      name: 'team_task_list',
+      arguments: '{}',
+      output: JSON.stringify({
+        tasks: [
+          { id: '1', revision: 2, subject: 'Split parser', description: 'Extract lexer.', status: 'in_progress', owner: 'worker-a', blockedBy: [], writeScopes: [], ready: true, writeScopeWarnings: [] },
+        ],
+      }),
+    })
+    expect(listed).toMatchObject({
+      title: 'Team tasks',
+      summary: '1 task',
+      input: [],
+      output: ['#1 [in_progress] worker-a · Split parser'],
+    })
+
+    const fetched = renderTool({
+      name: 'team_task_get',
+      arguments: JSON.stringify({ task_id: '1' }),
+      output: JSON.stringify({
+        id: '1',
+        revision: 2,
+        subject: 'Split parser',
+        description: 'Extract lexer.',
+        status: 'in_progress',
+        owner: 'worker-a',
+        blockedBy: ['0'],
+        writeScopes: ['src/lexer.ts'],
+        ready: true,
+        writeScopeWarnings: [],
+      }),
+    })
+    expect(fetched).toMatchObject({
+      title: 'Task #1 · Split parser',
+      summary: 'in_progress · worker-a · rev 2',
+      input: [],
+      output: ['Extract lexer.', 'Blocked by: #0', 'Write scopes: src/lexer.ts'],
+    })
+
+    const updated = renderTool({
+      name: 'team_task_update',
+      arguments: JSON.stringify({ task_id: '1', expected_revision: 2, action: 'complete' }),
+      output: JSON.stringify({
+        id: '1',
+        revision: 3,
+        subject: 'Split parser',
+        description: 'Extract lexer.',
+        status: 'completed',
+        owner: 'worker-a',
+        blockedBy: [],
+        writeScopes: [],
+        ready: true,
+        writeScopeWarnings: [],
+      }),
+    })
+    expect(updated).toMatchObject({
+      title: 'Complete task #1',
+      summary: 'completed · worker-a · rev 3',
+      input: [],
+      output: [],
+    })
   })
 })

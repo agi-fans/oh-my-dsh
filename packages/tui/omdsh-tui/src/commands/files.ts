@@ -108,7 +108,7 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
       const stored = await ctx.attachments.readImage(ref, invocation.signal)
       const path = ctx.attachments.imageHostPath(ref)
       await previewImages(ctx.tui, [{ ...ref, data: stored.data }], invocation.signal,
-        path === undefined ? undefined : () => openSystemFile(path))
+        path === undefined ? undefined : () => openSystemFile(path, invocation.signal))
       continue
     }
     else for await (const chunk of ctx.attachments.readFileStream(ref, invocation.signal)) { void chunk }

@@ -1,6 +1,6 @@
-/** Opt-in Worktree bundle through the real CLI and a local Git repository. */
+/** Default-enabled Worktree bundle through the real CLI and a local Git repository. */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,10 +18,6 @@ function fixture() {
   git('-c', 'user.name=omdsh test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'Fixture')
   writeFileSync(join(cwd, 'hello.txt'), 'uncommitted\n')
   writeFileSync(join(cwd, 'untracked.txt'), 'stay here\n')
-  const dir = join(home, 'profiles', 'omdsh')
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-omdsh', private: true,
-    dsh: { profile: { bundles: ['@agi-fans/oh-my-dsh', '@deepseek-ai/dsh-experimental-tool-worktree'] } } }))
   return { cwd, home, git }
 }
 
@@ -32,6 +28,7 @@ describe('shipped Worktree integration', () => {
     const turn = await bootTuiTurn({ cwd, home, preset: 'standard', toolCall: { name: 'create_worktree', arguments: JSON.stringify({ name: 'feature', from: 'HEAD' }) } })
     expect(turn.status, turn.output.slice(-2500)).toBe(0)
     expect(requestToolNames(turn.bodies[0])).toContain('create_worktree')
+    expect(readFileSync(join(home, 'profiles', 'omdsh', 'cordis.patch.yml'), 'utf8')).toContain('retainOnArchive: true')
     const checkout = join(cwd, '.agents', 'worktrees', 'feature')
     expect(existsSync(checkout), JSON.stringify(turn.bodies.at(-1))).toBe(true)
     expect(readFileSync(join(checkout, 'hello.txt'), 'utf8').replaceAll('\r\n', '\n')).toBe('committed\n')

@@ -4,7 +4,7 @@ description: Configure omdsh Skills and MCP servers through DeepSeek Harness dis
 
 # Skills and MCP
 
-omdsh keeps both capabilities behind DeepSeek Harness interfaces. Skills are discovered by the Harness skill registry and filesystem provider; MCP servers are adapted into one `@deepseek-ai/dsh-mcp-client` plugin instance per server. The TUI does not implement either protocol.
+omdsh keeps both capabilities behind DeepSeek Harness interfaces. Skills are discovered by the Harness skill registry and filesystem provider; MCP servers run either as live Profile entries managed by `@deepseek-ai/dsh-mcp-manager` or as static per-server `@deepseek-ai/dsh-mcp-client` entries loaded from `mcp.json`. The TUI does not implement either protocol.
 
 ## Skills
 
@@ -34,7 +34,9 @@ Type `/` and a skill name, such as `/code-review`, to find it alongside commands
 
 ## MCP
 
-omdsh reads MCP configuration from:
+omdsh supports both live Profile-managed MCP servers and static file-backed `mcp.json` definitions. Live servers can be added, enabled or disabled, probed, restarted, or removed in `/mcp` or `/settings` → **Plugins → Integrations → MCP servers**, saving to the active Profile's `mcp-manager` section and reconciling immediately without restarting omdsh. Both `stdio` and `streamable-http` transports are supported, and string values accept `${NAME}`, `${NAME:-default}`, and `${credential:NAME}` templates so secrets stay in the Harness credential store or environment rather than plain configuration.
+
+Static file-backed MCP configuration continues to load alongside managed servers from:
 
 1. `$OMDSH_HOME/mcp.json`, `$DSH_HOME/mcp.json`, or `~/.dsh/mcp.json`
 2. `<project>/.dsh/mcp.json`
@@ -74,6 +76,6 @@ A Streamable HTTP server:
 
 Supported optional fields are `enabled`, `timeout` (or `toolCallTimeoutMs`), `failOnStartupError`, and the Harness `reconnect` object. Stdio entries additionally accept `cwd`; HTTP entries accept `headers`. String values support `${NAME}` and `${NAME:-default}` environment expansion, so credentials do not need to be stored directly in the JSON file. An unresolved placeholder without a default remains literal.
 
-Discovered tools use `mcp__<server>__<tool>` names and enter the normal Harness tool registry. `/mcp` opens a keyboard-selectable diagnostic page with plugin registration and startup errors, available tools grouped by server, and the latest ten MCP tool calls in the current session, including programmatic sub-calls. Historical errors remain readable after resume and do not establish a current connection failure. Refresh reloads the snapshot without restarting servers; a failed refresh retains the last loaded state and marks it stale. The published Harness version does not expose live connection or authentication status. `/tools` shows MCP tools alongside native tools, and tool-list changes after a reconnect update the catalog automatically.
+Discovered tools use `mcp__<server>__<tool>` names and enter the normal Harness tool registry. `/mcp` opens a keyboard-selectable management and diagnostic page with live connection status (`connected`, `connecting`, `waiting for credentials`, `reconnecting`, `disabled`, or `failed`) for both managed servers and mounted `mcp.json` entries, one-shot `probe` diagnostics that verify transport and list tools without disturbing a live connection, `restart` to reset retry budgets, available tools grouped by server, and the latest ten MCP tool calls in the current session, including programmatic sub-calls. Historical call errors remain readable after resume and do not establish a current connection failure. Refresh reloads the snapshot without restarting servers; a failed refresh retains the last loaded state and marks it stale. `/tools` shows MCP tools alongside native tools, and tool-list changes after a reconnect update the catalog automatically.
 
 With at least one server configured, the model can also list and read that server's resources through the shared `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource` tools, each named for the server it queries. Resource text enters the conversation history; binary payloads stay available to programmatic callers. MCP prompt templates remain unsupported.

@@ -30,7 +30,7 @@ async function harness(answers: readonly (string | null)[], settings?: unknown, 
   const manager = { listPlugins, setPluginEnabled, listBundles, setBundleEnabled, removeBundle, inspect: vi.fn(async () => ({ status: 'accepted', kind: 'registry', name: 'demo', bundle: true, registry: null })), installBundle, cancelInstall }
   const commandOutput = vi.fn()
   ctx.provide('pluginManager', manager as never)
-  ctx.provide('tui', { prompt, commandOutput, notice: vi.fn() } as unknown as TuiService)
+  ctx.provide('tui', { prompt, commandOutput, notice: vi.fn(), prefs: () => ({ uiLanguage: 'en' }) } as unknown as TuiService)
   const settingsProvider = settings === undefined ? undefined : await ctx.plugin({ name: 'test-profile-settings', apply(provider: Context) {
     provider.provide('settings', settings as never)
   } })
@@ -250,6 +250,43 @@ describe('native plugin management', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
+  it('reads bundle details and updates a registry bundle while surfacing restoration outcomes', async () => {
+    const h = await harness(['bundles', 'third-party', 'detail', null, 'update', '1.3.0', 'accept', null, null, null])
+    const readBundleDetail = vi.fn(async () => ({ status: 'found', origin: 'readme', path: 'README.md', markdown: '# Third-party bundle' }))
+    const listVersions = vi.fn(async () => ({
+      status: 'listed',
+      installed: '1.1.0',
+      registry: 'https://registry.example',
+      attempts: [{ registry: 'https://registry.example' }],
+      versions: [
+        { version: '1.4.0', tags: [], prerelease: false, bundle: false },
+        { version: '1.3.0', tags: ['latest'], prerelease: false, bundle: true },
+      ],
+      omitted: 2,
+    }))
+    const updateBundle = vi.fn(async () => ({
+      from: '1.1.0',
+      to: '1.3.0',
+      step: 'install',
+      result: { ...changed, target: 'third-party', stage: 'install', application: 'failed' },
+      restore: { ...changed, target: 'third-party', stage: 'install', application: 'applied', packageResult: { exitCode: 0, output: 'restored', truncated: false, logPath: '/tmp/restore.log' } },
+    }))
+    Object.assign(h.manager, { readBundleDetail, listVersions, updateBundle })
+    h.manager.listBundles.mockResolvedValue([{ name: 'third-party', version: '1.1.0', availability: 'profile', installed: true, enabled: true, removable: true, update: 'registry', rows: [], overrides: [] }] as never)
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      expect(readBundleDetail).toHaveBeenCalledWith('third-party', 'en')
+      expect(h.prompt.mock.calls[3]![0]).toMatchObject({ presentation: 'document', title: 'third-party · Details', detail: '# Third-party bundle' })
+      const picker = h.prompt.mock.calls[5]![0]
+      expect(picker).toMatchObject({ title: 'Update bundle', question: 'Choose a newer version', detail: 'Current: 1.1.0 · 2 older versions omitted.' })
+      expect(picker.options?.[0]).toMatchObject({ value: '1.4.0', disabled: true, description: 'Not a bundle' })
+      expect(picker.options?.[1]).toMatchObject({ value: '1.3.0', disabled: false, description: 'latest' })
+      expect(updateBundle).toHaveBeenCalledWith('third-party', '1.3.0', expect.objectContaining({ registry: 'https://registry.example' }))
+      const after = h.prompt.mock.calls.filter(([request]) => request.title === 'third-party').at(-1)![0]
+      expect(after.detail).toContain('third-party: failed · Restored 1.1.0')
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
   it('keeps terminal owners read-only and refuses management during a turn', async () => {
     expect(plugins.pluginReadOnly({ ...row, moduleName: '@agi-fans/dsh-tui/runner' })).toBe('terminal-required')
     expect(plugins.pluginReadOnly({ ...row, patchId: 'working-directory' })).toBe('terminal-required')
@@ -333,7 +370,7 @@ describe('Discover', () => {
       inspect: vi.fn(async () => ({ status: 'accepted', name: entry.name, version: '1.2.0' })),
       installBundle: vi.fn(async () => ({ ...changed, target: entry.name, stage: 'install', enabled: true })), cancelInstall: vi.fn() }
     ctx.provide('pluginManager', manager as never)
-    ctx.provide('tui', { prompt, commandOutput, notice } as unknown as TuiService)
+    ctx.provide('tui', { prompt, commandOutput, notice, prefs: () => ({ uiLanguage: 'en' }) } as unknown as TuiService)
     await ctx.plugin(plugins)
     const session = ctx.sessions.create(SessionId('market-test'))
     const agent = { id: session.id, session, status: 'idle', inbox: { nextTurn: [], nextStep: [] } } as unknown as Agent
@@ -513,6 +550,47 @@ describe('Discover', () => {
       expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Discover plugins', question: 'example', detail: expect.stringContaining('requires dsh 99.0.0') })
       expect(h.manager.inspect).not.toHaveBeenCalled()
       expect(h.commandOutput).not.toHaveBeenCalled()
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('routes update-available entries through updateBundle and guards provided or different-version entries', async () => {
+    const updatable = {
+      ...entry,
+      name: 'dsh-plugin-updatable',
+      defaultVersion: '1.3.0',
+      versions: [{ version: '1.3.0', publishTimestamp: 1, source: { type: 'npm' as const, registry: 'https://registry.example' }, engines: {}, install: { spec: 'dsh-plugin-updatable@1.3.0', registry: 'https://registry.example' }, compatibility: { compatible: true as const }, update: false }],
+      installation: { status: 'update-available' as const, installedVersion: '1.1.0' },
+    }
+    const provided = {
+      ...entry,
+      name: '@deepseek-ai/dsh-experimental-tool-worktree',
+      installation: { status: 'provided' as const, installedVersion: '0.2.2-rc.3' },
+    }
+    const h = await discoverHarness({ indexes: [{ url: 'https://market.test/index.json' }], entries: [updatable, provided] as never })
+    const updateBundle = vi.fn(async () => ({
+      from: '1.1.0',
+      to: '1.3.0',
+      step: 'install',
+      result: { ...changed, target: updatable.name, stage: 'install', enabled: true },
+    }))
+    Object.assign(h.manager, { updateBundle })
+    h.prompt
+      .mockResolvedValueOnce('discover')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(JSON.stringify(['https://market.test/index.json', provided.name]))
+      .mockResolvedValueOnce(JSON.stringify(['https://market.test/index.json', updatable.name]))
+      .mockResolvedValueOnce('accept')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    try {
+      await h.ctx.commands.execute(h.agent, '/plugins', [], new AbortController().signal)
+      const listPrompt = h.prompt.mock.calls[2]![0]
+      expect(listPrompt.options?.[0]?.description).toContain('Update available (1.1.0)')
+      expect(listPrompt.options?.[1]?.description).toContain('Included with omdsh')
+      expect(h.prompt.mock.calls[3]![0].detail).toContain('included with omdsh')
+      expect(h.prompt.mock.calls[4]![0]).toMatchObject({ title: 'Update bundle', question: 'dsh-plugin-updatable (1.1.0 → 1.3.0)' })
+      expect(updateBundle).toHaveBeenCalledWith('dsh-plugin-updatable', '1.3.0', expect.objectContaining({ registry: 'https://registry.example' }))
+      expect(h.manager.installBundle).not.toHaveBeenCalled()
     } finally { await h.ctx.fiber.dispose() }
   })
 })

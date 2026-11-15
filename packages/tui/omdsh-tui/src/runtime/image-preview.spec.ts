@@ -74,7 +74,7 @@ it('opens original draft bytes through a private temporary file retained until t
   try {
     await previewImages({ prompt } as unknown as TuiService, [image], signal(), undefined, directory => { retained.push(directory) })
     expect(retained).toHaveLength(1)
-    expect(openSystemFile).toHaveBeenLastCalledWith(join(retained[0]!, 'original.jpg'))
+    expect(openSystemFile).toHaveBeenLastCalledWith(join(retained[0]!, 'original.jpg'), expect.any(AbortSignal))
     expect(await readFile(join(retained[0]!, 'original.jpg'))).toEqual(Buffer.from(image.data))
   } finally { for (const directory of retained) await rm(directory, { recursive: true, force: true }) }
 })

@@ -71,11 +71,14 @@ export async function bootTuiTurn(options: {
   const args = options.cwd !== undefined ? ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, fileURLToPath(new URL('../bin.ts', import.meta.url))] : process.platform === 'win32'
     ? ['/d', '/s', '/c', 'pnpm', '--dir', 'apps/omdsh', 'omdsh']
     : ['--dir', 'apps/omdsh', 'omdsh']
+  const inheritedEnv: NodeJS.ProcessEnv = { ...process.env }
+  delete inheritedEnv.TMUX
+  delete inheritedEnv.TMUX_PANE
   const child = spawn(command, args, {
     cwd: options.cwd ?? repoRoot,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
-      ...process.env,
+      ...inheritedEnv,
       OMDSH_HOME: options.home,
       NO_COLOR: '1',
       DEEPSEEK_BASE_URL: server.baseURL + '/v1',

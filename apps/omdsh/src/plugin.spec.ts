@@ -14,7 +14,7 @@ import {
   resolveFilesystemSpec,
   runPlugin,
 } from './plugin.ts'
-import { PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
+import { DEFAULT_PROFILE_BUNDLES, PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 
 const roots: string[] = []
@@ -132,7 +132,7 @@ describe('omdsh plugin', () => {
     expect(forwarded).toEqual(['add', join(repoRoot, 'examples', 'hello')])
     expect(lines.join('')).toContain('is missing; using')
     expect(profileManifest(resolveProfileDir(PROFILE_NAME, home)).dsh?.profile?.bundles)
-      .toEqual([PRODUCT_BUNDLE, '@agi-fans/omdsh-plugin-hello'])
+      .toEqual([...DEFAULT_PROFILE_BUNDLES, '@agi-fans/omdsh-plugin-hello'])
   })
 
   it('rejects a missing filesystem spec before calling pnpm', async () => {
@@ -177,7 +177,7 @@ describe('omdsh plugin', () => {
     })
     expect(code).toBe(0)
     expect(lines.join('')).toContain(`initialized profile ${PROFILE_NAME}`)
-    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE, '@scope/dsh-example'])
+    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES, '@scope/dsh-example'])
   })
 
   it('installs a plain library without adding it as a layer', async () => {
@@ -198,7 +198,7 @@ describe('omdsh plugin', () => {
       },
     })).toBe(0)
     expect(lines.join('')).toContain('declares no dsh.bundle')
-    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
+    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES])
   })
 
   it('removes a user bundle and keeps the product bundle', async () => {
@@ -232,7 +232,7 @@ describe('omdsh plugin', () => {
         return { status: 0 }
       },
     })).toBe(0)
-    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
+    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES])
   })
 
   it('rejects an incompatible DSH peer and rolls back a failed add', async () => {
@@ -267,7 +267,7 @@ describe('omdsh plugin', () => {
     expect(lines.join('')).toMatch(/requires @deepseek-ai\/dsh-agent@\^0\.0\.1/u)
     expect(verbs).toEqual([['add', '@scope/old-bundle'], ['remove', '@scope/old-bundle']])
     expect(profileManifest(dir).dependencies ?? {}).toEqual({})
-    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
+    expect(profileManifest(dir).dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES])
   })
 
   it('prints usage from the bin without starting a session', () => {

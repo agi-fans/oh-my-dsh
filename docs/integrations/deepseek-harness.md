@@ -23,7 +23,7 @@
 
 2026-11-04 升级至 `0.2.2-rc.1`，模型选择改由 `agent.model` 与 Session 持久投影拥有，工具执行使用独立 native/PTC 执行器，定时提醒通过 `schedule.edit` 更新，子模型选择和发现分别配置。发布产物检查、兼容适配和验证范围见[升级记录](../history/dsh-0.2.2-rc.1-upgrade.md)。
 
-2026-11-14 升级至 `0.2.2-rc.3`。上游把 DeepSeek 账户与浏览器登录合并进 `dsh-deepseek-account`，`dsh-deepseek-account-platform` 不再发布；子代理的 live lineage 与 host prompt 入口移入 `dsh-subagent`，`AgentRegistry.roots()`/`isOwnedBy()` 与 `@deepseek-ai/dsh-subagent/internal` 被移除；账户 `watch()` 改为返回 `AccountUpdate`；Creator 的四个 skill 合并为 `dsh-doc`。适配与验证范围见[升级记录](../history/dsh-0.2.2-rc.3-upgrade.md)。
+2026-11-14 升级至 `0.2.2-rc.3`。上游把 DeepSeek 账户与浏览器登录合并进 `dsh-deepseek-account`，`dsh-deepseek-account-platform` 不再发布；子代理的 live lineage 与 host prompt 入口移入 `dsh-subagent`，`AgentRegistry.roots()`/`isOwnedBy()` 与 `@deepseek-ai/dsh-subagent/internal` 被移除；账户 `watch()` 改为返回 `AccountUpdate`；Creator 的四个 skill 合并为 `dsh-doc`。随后在 Unreleased 中补齐 `0.2.2-rc.3` 细粒度对齐与新能力接入：移除未使用的 `dsh-command-feedback` 与 `dsh-message-feedback` 运行时依赖，清理 `web-deepseek-api` 行上的无效 `apiKeyEnv` 配置并补入 `searchBilling`/`fetchBilling` 设置，`subagent-control` 显式配置 `interrupt: false` 并适配 `{ agent }`/`{ name }`/`wait_agent` 卡片与全深度后代名册，默认启用 `dsh-experimental-tool-worktree` 并一次性写入 `retainOnArchive: true` 且 `/resume` 归档操作同步 `workspaceRegistry`，`/plugins` 增加 bundle `Details`、`Update` 与 Discover 就地更新，系统级文件打开切换为 `dsh-native-command`（`openNativePath`），默认挂载 `dsh-deliverable-file-references` 补充交付物与 `#L…` 文件引用提示，默认启用 `dsh-experimental-auto-review`（会话级 `Auto review` 风险确认、警告徽标与 `displayReason` 本地化展示，默认会话权限仍为 `workspace-write`），将默认会话自动标题切换为 `dsh-session-title-all-prompts-llm`（`maxOutputTokens: 4096`），同时挂载运行态 `dsh-mcp-manager`（`/mcp` 与 Settings → Integrations）、默认开启并带 `$TMUX_PANE` 守卫的 `dsh-tmux-context`（Settings → Plugins → Tools）、按会话开启的 `dsh-agent-team` + `dsh-tool-agent-team`（`/team` 与 `team_task_*` 卡片），并在 DeepSeek 账户页接入通知阅读、动作与忽略上报。适配与初始验证范围见[升级记录](../history/dsh-0.2.2-rc.3-upgrade.md)。
 
 ## 工作目录
 
@@ -52,7 +52,7 @@ Cordis 加载 `dsh-agent-preset` 发布产物中的 Skills 和权限门控管理
 - **DeepSeek 路由**：API-key provider 是 `dsh-llm-deepseek-api-key`；Profile 行 id 保持 `llm-deepseek`，以延续已有用户 patch。`dsh-llm-deepseek` 是 transport library，不能把历史 provider 包名直接恢复到挂载行。
 - **Preset**：产品自己的 preset 声明拥有 persona 和工具呈现配置。PTC 是运行时 preset 的真实配置，不由 TUI 根据名字伪装；TUI 只展示 Harness 投影。
 - **会话检索**：人类与模型侧检索都已提供。SQLite 索引按 `first-search` 延迟打开，持久路径为 home 下的 `sessions-query.sqlite`；JSONL 日志仍是事实来源。模型侧只读工具的跨会话访问要求 cwd 匹配。旧文档中的 `openAt: never`、内存索引或“模型检索未挂载”已失效。
-- **LSP/MCP**：`apps/omdsh` 拥有配置到组合的适配。LSP 仅在配置服务器时挂载，不内置服务器或自动探测；MCP 提供工具与资源能力。配置方式见[语言服务器](../../apps/site/content/zh/language-servers.md)和 [Skills 与 MCP](../../apps/site/content/zh/skills-and-mcp.md)。
+- **LSP/MCP**：`apps/omdsh` 拥有配置到组合的适配。LSP 仅在配置服务器时挂载，不内置服务器或自动探测；MCP 同时支持 `dsh-mcp-manager` 实时 Profile 托管服务器（`/mcp` 与 `/settings → Plugins → Integrations → MCP servers`）和基于 `mcp.json` 的静态条目，提供工具与资源能力。配置方式见[语言服务器](../../apps/site/content/zh/language-servers.md)和 [Skills 与 MCP](../../apps/site/content/zh/skills-and-mcp.md)。
 - **Web Search 与反馈**：均已提供，实际开关及配置见[工具](../../apps/site/content/zh/tools.md)和[设置](../../apps/site/content/zh/settings.md)，不再重复维护为待挂载计划。逐条 Assistant 回复的评分曾由 `dsh-message-feedback` 与 TUI `/rate` 提供，因缺少读取或外发消费方而移除。上游 session 级 `/feedback` 因只有写入、没有读取或外发路径而未挂载。网页搜索与抓取默认走官方 DeepSeek Search/Fetch API（`deepseek-search-api`/`deepseek-fetch-api`），使用上游 `DEEPSEEK_API_KEY`；在 `deepseek-account` 会话中改由共享账户 token 鉴权。Messages 搜索与本地 HTTP 抓取保留为可切换 fallback。DeepSeek 账户路由（`deepseek-account` + `llm-deepseek-account`）既复用 DSH Web/Desktop 已建立的授权，也能从 `/login` 发起浏览器登录：主机挂载 `dsh-host-webserver`，仅监听 `127.0.0.1` 的随机端口并在尝试期间注册 `/oauth/callback`。
 - **Spill 与压缩**：单次工具 spill 会改变写入日志的结果，当前显式 `maxInlineTokens: 50000`；压缩前 pruner 则只裁剪模型上下文，完整结果仍在日志。组合顺序固定为 token meter → tool-result pruner → compaction，不能混淆两者对工具展开的影响。
 - **Workflow**：仅挂 `dsh-workflow-ptc` provider，`dsh-workflow` 保留为依赖；同时挂两个 seam provider 会重复注册 `workflowEngine`。工具保持 `workflow_run` 命名，以兼容已有会话与工具策略；Plan 状态通过上游 `/plan` 命令管理。
@@ -71,13 +71,13 @@ ACP 工具必须使用 `maxDepth: provider-managed`，不设置 `agentOptions`�
 
 完整覆盖清单见[上游功能支持盘点](upstream-feature-support.md)，区分核心交互与平台缺口、可选扩展、替代 Provider 和独立宿主；按用户能力统计，不按缺少的包数统计。
 
-Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；time-context 已在 Standard/PTC/Cordis 默认挂载、Minimal 不挂，tmux context 与 skill-badge 当前未由产品默认挂载。它们不是依赖版本遗漏：接入前需有明确用户场景，核对已发布 API、权限与生命周期，再决定产品默认值和最小交互面；上游 base 挂载不等于 omdsh 必须挂载。
+Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；time-context 与 deliverable-file-references 已在 Standard/PTC/Cordis 默认挂载、Minimal 不挂，`tmux-context` 已默认开启（仅在真实 POSIX `$TMUX_PANE` 窗格挂载，可在 Settings → Plugins → Tools 关闭），skill-badge 当前未由产品默认挂载。它们不是依赖版本遗漏：接入前需有明确用户场景，核对已发布 API、权限与生命周期，再决定产品默认值和最小交互面；上游 base 挂载不等于 omdsh 必须挂载。
 
 `/plugins` 查看实际激活状态与安装事务；`omdsh --dump-config` 查看组合声明，两者不互相替代。冷会话投影缓存或 turn 大纲也应由实际加载瓶颈触发，先确认产品消费路径能使用该缓存，不能为了包名齐全而挂载。
 
 ## 升级证据与验证
 
-alpha.2 的可选 Git Worktrees bundle 随产品安装但默认关闭。创建走公开 `worktrees.create()`，通过执行 provider 在当前 Access 下读取 Git 的 NUL porcelain registry，并使用 `workingDirectory.set()` 切换或返回；不复制 service 内部实现，不清理 checkout 或分支。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
+Git Worktrees bundle（`@deepseek-ai/dsh-experimental-tool-worktree`）在 alpha.2 初次随产品安装时默认关闭，自 `0.2.2-rc.3` 起改为默认启用（与默认启用的 `@deepseek-ai/dsh-experimental-auto-review` 一并随新建／升级 Profile 预置）。启用时 omdsh 会向 Profile 补丁单次写入 `worktree.retainOnArchive: true`（在 `/settings → Plugins → Tools` 公开为 **Keep worktrees when archiving**），使 `/resume` 归档会话时默认保留已创建的 worktree；创建走公开 `create_worktree` 工具与 `worktrees.create()`，通过执行 provider 在当前 Access 下读取 Git 的 NUL porcelain registry，并使用 `working_directory`（`workingDirectory.set()`）切换或返回，`/resume` 归档与恢复同步通知 `workspaceRegistry`。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
 
 思考沿用 Turn 中的原有展示和过程展开。产品不挂载独立思考阅读命令、translator 或翻译设置；已有 Session plugin records 保留在日志中。
 

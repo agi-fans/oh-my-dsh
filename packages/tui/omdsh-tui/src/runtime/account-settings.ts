@@ -1,14 +1,28 @@
 /** Account UI consumes safe Harness projections; grants and request lifetimes stay in the provider. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { AccountDetails, AccountView } from '@deepseek-ai/dsh-deepseek-account'
+import type {
+  AccountDetails,
+  AccountNotification,
+  AccountNotificationId,
+  AccountView,
+} from '@deepseek-ai/dsh-deepseek-account'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { TuiPrompt } from '../definition.ts'
 import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { accountClientMetadata, loginDeepSeekAccount, logoutDeepSeekAccount } from '../commands/auth-account.ts'
 import { openModelPicker } from '../commands/model.ts'
 
-const text = (ctx: Context, source: string): string => uiText(resolveUiLanguage(ctx.tui.prefs().uiLanguage), source)
-const running = (state: AccountView | undefined): boolean => ['initializing', 'waiting-browser', 'exchanging', 'committing'].includes(state?.attempt?.phase ?? '')
+const text = (ctx: Context, source: string, values?: Record<string, string | number>): string =>
+  uiText(resolveUiLanguage(ctx.tui.prefs().uiLanguage), source, values)
+const running = (state: AccountView | undefined): boolean =>
+  ['initializing', 'waiting-browser', 'exchanging', 'committing'].includes(state?.attempt?.phase ?? '')
+
+function isActiveNotification(item: AccountNotification, dismissed: ReadonlySet<string>, now = Date.now()): boolean {
+  if (dismissed.has(String(item.id))) return false
+  if (item.displayUntil === null) return true
+  const deadline = Date.parse(item.displayUntil)
+  return Number.isNaN(deadline) || deadline > now
+}
 
 /** Decimal arithmetic keeps Platform precision, including scientific notation and sub-cent balances. */
 export function formatAccountBalance(raw: string): string {
@@ -37,11 +51,115 @@ export function formatAccountBalance(raw: string): string {
 
 export function accountSettingsEntry(ctx: Context) {
   return ctx.get('deepseekAccount') === undefined ? [] : [{ id: 'account:deepseek', label: 'DeepSeek account', section: 'models' as const, subgroup: 'Accounts and API keys', fields: [],
-    description: 'Manage DeepSeek sign-in, profile and wallet balances shared with DSH.', summary: 'Manage' }]
+    description: 'Manage DeepSeek sign-in, profile, wallet balances and account notices shared with DSH.', summary: 'Manage' }]
 }
 
 function report(ctx: Context, result: CommandResult, signal: AbortSignal): void {
   if (!signal.aborted && result.text) ctx.tui.notice(text(ctx, result.text), { level: result.kind === 'error' ? 'error' : 'info', transient: true })
+}
+
+async function inspectAccountNotifications(
+  ctx: Context,
+  items: readonly AccountNotification[],
+  dismissed: Set<string>,
+  displayed: Set<string>,
+  links: AccountView['links'] | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  const account = ctx.get('deepseekAccount')
+  if (account === undefined) return
+  const t = (source: string, values?: Record<string, string | number>): string => text(ctx, source, values)
+
+  while (!signal.aborted) {
+    const visible = items.filter(item => isActiveNotification(item, dismissed))
+    if (visible.length === 0) return
+
+    let selectedId: string | null
+    if (visible.length === 1) {
+      selectedId = String(visible[0]!.id)
+    } else {
+      const choice = await ctx.tui.prompt({
+        title: t('Account notifications'),
+        question: t('Select a notification to read'),
+        options: [
+          ...visible.map(item => ({
+            label: item.title,
+            value: `item:${item.id}`,
+            description: item.body.replace(/\s+/gu, ' ').trim().slice(0, 96),
+          })),
+          { label: t('Back'), value: 'back' },
+        ],
+        allowCustom: false,
+        notify: false,
+        signal,
+      })
+      if (choice === null || choice === 'back' || signal.aborted) return
+      selectedId = choice.startsWith('item:') ? choice.slice(5) : null
+    }
+    if (selectedId === null) return
+
+    const fallback = visible.find(item => String(item.id) === selectedId)
+    if (fallback === undefined) continue
+    const client = accountClientMetadata(ctx)
+    const content = (await account.getNotificationContent?.(fallback.id, client).catch(() => null)) ?? fallback
+    if (signal.aborted) return
+
+    const idKey = String(content.id)
+    if (!displayed.has(idKey)) {
+      displayed.add(idKey)
+      void account.reportNotificationEvent?.(content.id, 'displayed', client).catch(() => false)
+    }
+
+    const hasDismissAction = content.actions.some(action => action.target.type === 'dismiss')
+    const actionOptions: NonNullable<TuiPrompt['options']> = [
+      ...content.actions.map((action, index) => ({
+        label: action.label,
+        value: `action:${index}`,
+      })),
+      ...(!hasDismissAction ? [{ label: t('Dismiss notification'), value: 'dismiss' }] : []),
+      { label: t('Back'), value: 'back' },
+    ]
+
+    const answer = await ctx.tui.prompt({
+      title: content.title,
+      question: t('Account notification'),
+      detail: content.body,
+      options: actionOptions,
+      allowCustom: false,
+      notify: false,
+      signal,
+    })
+    if (answer === null || answer === 'back' || signal.aborted) {
+      if (visible.length === 1) return
+      continue
+    }
+
+    const reportClient = accountClientMetadata(ctx)
+    if (answer === 'dismiss') {
+      dismissed.add(idKey)
+      await account.reportNotificationEvent?.(content.id as AccountNotificationId, 'dismissed', reportClient).catch(() => false)
+      if (visible.length === 1) return
+      continue
+    }
+    if (answer.startsWith('action:')) {
+      const action = content.actions[Number(answer.slice(7))]
+      if (action === undefined) continue
+      if (action.target.type === 'dismiss') {
+        dismissed.add(idKey)
+        await account.reportNotificationEvent?.(content.id, 'dismissed', reportClient).catch(() => false)
+        if (visible.length === 1) return
+      } else {
+        await account.reportNotificationEvent?.(content.id, 'cta_clicked', reportClient).catch(() => false)
+        if (links !== undefined && !signal.aborted) {
+          ctx.tui.notice(
+            `${t('Platform links')} · ${t('Top up')}: ${links.topUpUrl} · ${t('Usage')}: ${links.usageUrl}`,
+            { transient: true },
+          )
+        }
+        return
+      }
+    }
+  }
 }
 
 export async function openAccountSettings(ctx: Context, signal: AbortSignal, config: { signIn?: boolean; openBrowser?: boolean } = {}): Promise<void> {
@@ -51,20 +169,28 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
   const live = AbortSignal.any([signal, lifetime.signal])
   let state: AccountView | undefined, stateFailed = false, generation = 0
   let profile: AccountDetails['profile'] | null | undefined, balance: AccountDetails['balance'] | null | undefined
+  let notifications: readonly AccountNotification[] | undefined
+  const dismissedNotifications = new Set<string>()
+  const displayedNotifications = new Set<string>()
   let cachedOptions: NonNullable<TuiPrompt['options']> = [], optionsKey = ''
+  const visibleNotifications = (): AccountNotification[] =>
+    (notifications ?? []).filter(item => isActiveNotification(item, dismissedNotifications))
   const accept = (next: AccountView): void => {
     const version = ++generation
-    state = next; stateFailed = false; profile = undefined; balance = undefined
+    state = next; stateFailed = false; profile = undefined; balance = undefined; notifications = undefined
     if (next.status !== 'credential-stored') return
     const client = accountClientMetadata(ctx)
     const current = (): boolean => !live.aborted && version === generation
-    // Independent outcomes keep a slow balance request from hiding the profile.
+    // Independent outcomes keep slow balance or notification queries from hiding the profile.
     void account.getProfile(client).catch(() => ({ status: 'failed' as const })).then(value => { if (current()) profile = value })
     void account.getBalance(client).catch(() => ({ status: 'failed' as const })).then(value => { if (current()) balance = value })
+    void account.getNotifications?.(client).catch(() => null).then(batch => {
+      if (current()) notifications = batch?.notifications ?? []
+    })
   }
   const reload = async (): Promise<void> => {
     const version = ++generation
-    profile = undefined; balance = undefined
+    profile = undefined; balance = undefined; notifications = undefined
     try {
       const next = await account.getState()
       if (!live.aborted && version === generation) accept(next)
@@ -73,7 +199,7 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
     }
   }
   const details = (): string => {
-    const t = (source: string): string => text(ctx, source)
+    const t = (source: string, values?: Record<string, string | number>): string => text(ctx, source, values)
     if (stateFailed) return t('Could not read the shared DeepSeek account state.')
     if (state === undefined) return t('Loading account…')
     if (state.status !== 'credential-stored') return t(running(state) ? 'Browser authorization is in progress.' : 'Signed out')
@@ -86,16 +212,27 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
         ...balance.bonusWallets.map(wallet => `${t('Bonus balance')}: ${wallet.currency} ${formatAccountBalance(wallet.balance)}`),
         ...(balance.value.length + balance.bonusWallets.length === 0 ? [t('No wallets returned.')] : []),
       ] : [t('Could not load balances. Refresh to retry.')]
-    return [t('Signed in · shared with DSH'), identity, ...wallets].join('\n')
+    const activeNotices = visibleNotifications()
+    const noticeLines = activeNotices.length === 0 ? [] : [
+      t('Notifications ({count}):', { count: activeNotices.length }),
+      ...activeNotices.map(item => `- ${item.title}`),
+    ]
+    return [t('Signed in · shared with DSH'), identity, ...wallets, ...noticeLines].join('\n')
   }
   const options = (): NonNullable<TuiPrompt['options']> => {
-    const t = (source: string): string => text(ctx, source)
-    const key = `${resolveUiLanguage(ctx.tui.prefs().uiLanguage)}:${state?.status}:${running(state)}`
+    const t = (source: string, values?: Record<string, string | number>): string => text(ctx, source, values)
+    const activeNotices = state?.status === 'credential-stored' ? visibleNotifications() : []
+    const key = `${resolveUiLanguage(ctx.tui.prefs().uiLanguage)}:${state?.status}:${running(state)}:${activeNotices.map(item => item.id).join(',')}`
     if (key === optionsKey) return cachedOptions
     optionsKey = key
     cachedOptions = [
       ...(state?.status === 'credential-stored' ? [
         { label: t('Use account route'), value: 'use', description: t('Choose an account model') },
+        ...(activeNotices.length > 0 ? [{
+          label: `${t('Notifications')} (${activeNotices.length})`,
+          value: 'notifications',
+          description: activeNotices[0]!.title,
+        }] : []),
         { label: t('Sign out'), value: 'out' },
       ] : state === undefined ? [] : running(state) ? [
         { label: t('Continue sign-in'), value: 'in' },
@@ -122,7 +259,7 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
           if (!sameInitial) accept(next)
         }
       } catch {
-        if (!live.aborted) { ++generation; state = undefined; profile = undefined; balance = undefined; stateFailed = true }
+        if (!live.aborted) { ++generation; state = undefined; profile = undefined; balance = undefined; notifications = undefined; stateFailed = true }
       } finally { watching = false }
     })()
   }
@@ -140,6 +277,12 @@ export async function openAccountSettings(ctx: Context, signal: AbortSignal, con
         detail: details(), refreshDocument: details, options: options(), refreshOptions: options, allowCustom: false, notify: false, signal: live })
       if (action == null || action === 'back' || live.aborted) return
       if (action === 'refresh') { await reload(); subscribe(); continue }
+      if (action === 'notifications') {
+        await inspectAccountNotifications(ctx, visibleNotifications(), dismissedNotifications, displayedNotifications, state?.links, live)
+        await reload()
+        subscribe()
+        continue
+      }
       try {
         // Recheck the service before acting on a row whose displayed snapshot may be stale.
         const latest = await account.getState()

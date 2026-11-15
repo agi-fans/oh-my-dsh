@@ -25,6 +25,7 @@ async function permissionHarness(answers: readonly (string | null)[]): Promise<P
     { value: 'read-only', name: 'Read only', description: 'Inspect without writing.' },
     { value: 'workspace-write', name: 'Workspace write', description: 'Write inside the workspace.' },
     { value: 'danger-full-access', name: 'Full access', description: 'No sandbox or approval prompts.' },
+    { value: 'auto', name: 'auto' },
   ]
   ctx.provide('tui', { prompt } as unknown as TuiService)
   ctx.provide('permissionPresets', {
@@ -92,6 +93,7 @@ describe('permission command', () => {
         { label: 'Read only', value: 'read-only' },
         { label: 'Workspace write', value: 'workspace-write', description: expect.stringContaining('Current') },
         { label: 'Full access', value: 'danger-full-access' },
+        { label: 'Auto review', value: 'auto', description: expect.stringContaining('same-model review') },
       ],
     })
     expect(switched).toHaveBeenCalledWith(expect.objectContaining({ rawInput: ' read-only' }))
@@ -119,13 +121,36 @@ describe('permission command', () => {
     await scope.dispose()
     await ctx.fiber.dispose()
   })
+  it('requires a fixed-choice confirmation before auto review and labels the confirmed switch', async () => {
+    const cancelled = await permissionHarness(['auto', 'cancel'])
+    const cancelResult = await cancelled.ctx.commands.execute(cancelled.agent, '/permission', [], new AbortController().signal)
+    expect(cancelled.prompt).toHaveBeenCalledTimes(3)
+    expect(cancelled.prompt.mock.calls[1]?.[0]).toMatchObject({
+      title: 'Auto review',
+      initialValue: 'cancel',
+      allowCustom: false,
+    })
+    expect(cancelled.switched).not.toHaveBeenCalled()
+    expect(cancelResult?.result).toEqual({ kind: 'success' })
+    await cancelled.scope.dispose()
+    await cancelled.ctx.fiber.dispose()
+
+    const accepted = await permissionHarness(['auto', 'accept'])
+    const acceptResult = await accepted.ctx.commands.execute(accepted.agent, '/permission', [], new AbortController().signal)
+    expect(accepted.switched).toHaveBeenCalledWith(expect.objectContaining({ rawInput: ' auto' }))
+    expect(acceptResult?.result).toEqual({ kind: 'success', text: 'Access: Auto review' })
+    await accepted.scope.dispose()
+    await accepted.ctx.fiber.dispose()
+  })
 })
 
 it.each([
   { answers: ['rules'], changes: false },
   { answers: ['danger-full-access', 'cancel'], changes: false },
+  { answers: ['auto', 'cancel'], changes: false },
   { answers: ['workspace-write'], changes: false },
   { answers: ['danger-full-access', 'accept'], changes: true },
+  { answers: ['auto', 'accept'], changes: true },
   { answers: ['read-only'], changes: true },
 ])('closes the composer Shell only for a confirmed Access change ($answers)', async ({ answers, changes }) => {
   const h = await permissionHarness(answers)

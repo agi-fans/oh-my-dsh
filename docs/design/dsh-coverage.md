@@ -38,10 +38,10 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-workflow-run` | 名册中的 Workflow 树、成员导航与 `/jobs <id>` 的输出观察 |
 | `ui-subagent` | 转录里的子 Agent 行与检查 |
 | `ui-model-selection` | `/model`（列表与参数补全） |
-| `ui-permission-presets` | `/permission` |
+| `ui-permission-presets` `dsh-experimental-auto-review` | `/permission`（默认启用 bundle，含会话级 `Auto review` 确认与警告徽标） |
 | `ui-agent-preset` | `/agent` |
 | `ui-trajectory` | `/trajectory` |
-| `ui-deliverables` | Changed files 卡与 `/diff` |
+| `ui-deliverables` `dsh-deliverable-file-references` | `present` 工具卡、Changed files 卡、`/diff` 与交付物／`#L…` 引用提示 |
 | `ui-attachment` | `/attach` 与消息图片 |
 | `ui-reference` `ui-input-trigger` `ui-skill` | `@` 补全、内联提示、`/<skill-name>` |
 | `ui-commands` | 斜杠补全与参数补全 |
@@ -49,21 +49,24 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-sidebar-documentpreview` | 文档阅读器 |
 | `ui-sidebar-files` | `@` 补全与 `/diff` 文件列表 |
 | `ui-sidebar-terminal` | `!cmd`、`!!cmd` 原地 Shell 卡片；不提供独立终端控制台 |
-| `ui-workspace` | `/resume`（含搜索、pin、archive、fork） |
+| `ui-workspace` `dsh-session-title-all-prompts-llm` `dsh-experimental-tool-worktree` | `/resume`（含搜索、pin、archive／恢复同步 `workspaceRegistry`、fork、默认开启的多轮自动标题刷新，以及默认启用 `create_worktree` 与归档保留 worktree 设置） |
 | `ui-schedule` | `/schedule` |
 | `ui-secret-mask` | 转录里绘制的用户消息；凭证尾部打码 |
 | `ui-theme` | `/settings → Terminal → Theme` |
-| `ui-open-in-app` | 阅读器的 Open 与 Editor |
+| `ui-open-in-app` `dsh-native-command` | 阅读器、图片预览、`/attach` 与 `/export` 的 Open（`openNativePath`）及 Editor |
 | `ui-settings` | `/settings` |
 | `ui-settings-general` | `/settings → General` |
 | `ui-settings-models` | `/login` 与 `/settings → Models` |
-| `ui-settings-account` | `/login` 与 `/settings → Models → DeepSeek account` |
+| `ui-settings-account` | `/login` 与 `/settings → Models → DeepSeek account`（含账户通知阅读、动作与忽略上报） |
+| `ui-settings-mcp` `dsh-mcp-manager` | `/mcp` 与 `/settings → Plugins → Integrations → MCP servers`（实时增删、启停、`probe` 探测、`restart` 重连，与静态 `mcp.json` 并存） |
+| `dsh-agent-team` `dsh-tool-agent-team` | `/team [on\|off\|status]` 与 `team_task_*` 工具卡（按会话开启的 CAS 共享任务面板） |
+| `dsh-tmux-context` | `/settings → Plugins → Tools → Tmux location context`（默认开启，真实 POSIX tmux 窗格下自动挂载并注入布局上下文，非 tmux 零开销） |
 | `ui-settings-shell` | `/settings → Plugins` |
-| `ui-settings-web-search` | `/settings → Plugins` |
+| `ui-settings-web-search` | `/settings → Plugins`（含 Search/Fetch `billing` 模式切换） |
 | `ui-settings-agent-loop` | `/settings → Plugins → Tool parallelism` |
 | `ui-settings-subagent` | `/settings → Plugins` |
-| `ui-plugin-manager` | `/plugins` |
-| `ui-plugin-market` | `/plugins → Discover`（`dsh-plugin-market` Host 服务只做呈现） |
+| `ui-plugin-manager` | `/plugins`（含 bundle `Details`、`Update` 版本选择／Git 更新与回滚展示） |
+| `ui-plugin-market` | `/plugins → Discover`（`dsh-plugin-market` Host 服务呈现安装／可更新／内置状态，可更新项走 `updateBundle`） |
 | `ui-settings-plugins` `ui-settings-plugin-inventory` | `/plugins` 与 `/settings → Plugins` |
 
 ## 四、缺口

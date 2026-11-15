@@ -11,7 +11,7 @@ import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { dumpOmdshConfig } from './composition.ts'
 import { runPlugin } from './plugin.ts'
-import { PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
+import { DEFAULT_PROFILE_BUNDLES, PROFILE_NAME } from './profile.ts'
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const exampleDir = join(repoRoot, 'examples', 'hello')
@@ -97,7 +97,7 @@ describe('examples/hello bundle', () => {
     }
     const dump = dumpOmdshConfig(temp('omdsh-hello-dump-cwd-'), { OMDSH_HOME: home })
     expect(code, lines.join('')).toBe(0)
-    expect(manifest.dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE, exampleName])
+    expect(manifest.dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES, exampleName])
     expect(manifest.dependencies?.[exampleName]).toMatch(/examples\/hello/u)
     expect(dump).toContain(exampleName)
     expect(dump).toContain('id: omdsh-hello')

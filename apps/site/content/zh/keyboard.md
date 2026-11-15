@@ -103,8 +103,6 @@ Read 结果保留连续源码范围时，**复制源码** 会复制该范围，�
 
 文本阅读器、`/context`、`/trajectory` 和 `/diff` 支持滚轮阅读与文字选择。可点击的记录或分区控件用于导航，拖动选择文字，复制行为遵循设置。Native 鼠标模式将鼠标输入交给终端。阅读界面关闭后恢复原位置，返回转录文本的命令则跳到实时底部。在 Diff 中，点击文件切换内容，Tab 切换面板焦点，A 打开更多操作，? 显示帮助。
 
-Diff 中点击文件行切换文件，Tab 在列表与内容之间切换键盘焦点，A 打开次要操作菜单，? 打开帮助。
-
 文件和 Diff 的源码阅读器用 `/` 或 `Ctrl+F` 搜索已加载文本，`Ctrl+N`／`Ctrl+P` 循环跳转匹配行，`G` 或 `Ctrl+G` 跳到文件行号。`[`／`]` 切换 Diff 变更块；提供相应按钮时，`L` 加载更多文本，`Q` 将 `@path:line` 插入 composer，`M` 切换 Markdown 渲染。Enter 应用搜索或行号输入，Esc 先取消输入，再返回文件列表。预览上限和视图行为见[文件命令](commands.md)。
 
 在 Diff 浏览器的比较或当前文件视图中选中文字，按 `Alt+Y` 或 `Q`，即可把选区作为 Markdown 引用追加到草稿并返回 composer；草稿与附件不会自动发送。没有选区时，`Q` 仍插入文件行号引用。审批和问答对话框保留各自的输入。
@@ -171,7 +169,7 @@ key id 用 `+` 连接修饰键（`ctrl`、`alt`、`shift`、`super`），也接�
 | `manage-queue` | `Alt+Q` | 逐条管理待处理消息。 |
 | `alternate-send` | `Cmd+Enter`（macOS）/ `Ctrl+Enter` | 繁忙时使用另一行为发送，空闲时正常发送。 |
 | `follow-up` | `Alt+Enter`（macOS/其他 Linux）、`Ctrl+Q`（Windows/本地 WSL） | 把草稿排到下一回合，不受繁忙发送偏好影响。 |
-| `steer-turn` | `Alt+S` | 向当前 Turn 的下一次模型步骤发送文本纠正消息。 |
+| `steer-turn` | `Alt+S` | 将草稿连同图片和文件送到当前 Turn 的下一次模型步骤。 |
 | `stash-draft` | `Ctrl+S` | 暂存或恢复当前 composer 草稿。 |
 | `external-editor` | `Ctrl+X` / `Ctrl+G` | 在 Settings 选定的编辑器中编辑提示。 |
 | `retry` | `Alt+R` | 输入框为空时，继续可恢复的失败生成。 |

@@ -482,17 +482,21 @@ export class TrajectoryLedger {
       return
     }
     if (eventType === 'subagent/catalog') {
+      const name = string(data['name'])
       const label = string(data['label'])
       const childId = string(data['childId'])
       const mode = string(data['mode'])
+      const headline = name !== undefined && label !== undefined && name !== label
+        ? `${name} · ${label}`
+        : name ?? label ?? childId ?? ''
       const record = this.#base(
         event,
         'tool',
         'SUBAGENT',
-        compact(label ?? childId ?? '', 'Subagent catalogued'),
+        compact(headline, 'Subagent catalogued'),
         data,
       )
-      record.result = [childId, label, mode].filter((value): value is string => value !== undefined).join('\n')
+      record.result = [childId, name, label, mode].filter((value): value is string => value !== undefined).join('\n')
       this.#push(record)
       return
     }

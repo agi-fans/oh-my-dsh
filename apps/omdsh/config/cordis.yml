@@ -66,17 +66,17 @@
       fallbackMaxBytes: 80
       maxTitleBytes: 120
 
-  # LLM title provider over the first prompt — the row the harness base ships,
-  # so omdsh sessions get a summarized title instead of the deterministic
-  # fallback (first words or the cwd basename) that the recent-session list
-  # and the web sidebar currently show.
+  # LLM title provider across user prompts — summarizes the first prompt and
+  # refreshes automatic titles only when later messages materially shift topic,
+  # leaving manual renames intact. maxOutputTokens matches dsh-base (4096) so
+  # reasoning models whose thinking tokens count against the cap do not truncate.
   - id: session-title-llm
-    name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+    name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
     config:
       targetWords: 5
       targetCjkCharacters: 10
       maxInputBytes: 4096
-      maxOutputTokens: 64
+      maxOutputTokens: 4096
       timeoutMs: 60000
 
   - id: session-stats
@@ -172,6 +172,9 @@
     name: '@agi-fans/dsh-tui/hook-settings'
     config:
       dshHome: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
+
+  - id: tmux-context
+    name: '@agi-fans/dsh-tui/tmux-settings'
 
   # User settings and credential sources (inherited env, managed
   # .credentials.yaml, project/user .env) — the same rows the harness base
@@ -492,6 +495,9 @@
   - id: tool-present
     name: '@deepseek-ai/dsh-tool-present'
 
+  - id: deliverable-file-references
+    name: '@deepseek-ai/dsh-deliverable-file-references'
+
   # Hosted search and fetch avoid local fake-IP resolution and auxiliary model
   # turns. Direct HTTP and Messages search remain selectable alternatives.
   # The adapter projects public provider registrations for the settings list;
@@ -507,8 +513,6 @@
 
   - id: web-deepseek-api
     name: '@deepseek-ai/dsh-web-deepseek-api'
-    config:
-      apiKeyEnv: DEEPSEEK_API_KEY
 
   - id: web-search-deepseek
     name: '@deepseek-ai/dsh-web-search-deepseek'
@@ -525,6 +529,13 @@
       search: true
       fetch: true
       searchTimeoutMs: 60000
+
+  # Live MCP server fleet managed through /mcp and Settings → Integrations,
+  # coexisting alongside static `.dsh/mcp.json` and `$OMDSH_HOME/mcp.json` rows.
+  - id: mcp-manager
+    name: '@deepseek-ai/dsh-mcp-manager'
+    inject:
+      - credentials
 
   # MCP resources: the three shared list/read tools appear only for callers whose
   # scope has a connected MCP server, so a profile with no `mcp.json` pays no
@@ -584,6 +595,16 @@
   - id: subagent
     name: '@deepseek-ai/dsh-subagent'
 
+  # Opt-in shared Compare-and-Set task board over the session's continuable
+  # subagent tree (`defaultEnabled: false`). Toggled per session via `/team`.
+  - id: agent-team
+    name: '@deepseek-ai/dsh-agent-team'
+    config:
+      maxTasks: 256
+
+  - id: tool-agent-team
+    name: '@deepseek-ai/dsh-tool-agent-team'
+
   - id: btw
     name: '@agi-fans/dsh-tui/btw'
     config:
@@ -636,10 +657,13 @@
         OMDSH_HOME: !!js process.env.OMDSH_HOME || process.env.DSH_HOME || undefined
         DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY || undefined
 
-  # One row now registers send_message, interrupt_agent, and list_agents; the
-  # former `/list-agents` subpath is no longer an entry point.
+  # One row registers send_message, wait_agent, and list_agents; model-initiated
+  # interrupt_agent stays off by default so human Ctrl+C owns subagent cancellation
+  # unless a profile or preset opts in.
   - id: subagent-control
     name: '@deepseek-ai/dsh-tool-subagent-control'
+    config:
+      interrupt: false
 
   - id: tool-subagent
     name: '@deepseek-ai/dsh-tool-subagent'
@@ -759,6 +783,9 @@
 
   - id: tui-command-integrations
     name: '@agi-fans/dsh-tui/command-integrations'
+
+  - id: tui-command-team
+    name: '@agi-fans/dsh-tui/command-team'
 
   - id: tui-command-jobs
     name: '@agi-fans/dsh-tui/command-jobs'

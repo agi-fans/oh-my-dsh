@@ -338,6 +338,7 @@ function buildMetaParts(
 
 function permissionTone(permission: string): ThemeColor {
   if (permission === 'danger-full-access' || permission === 'custom') return 'error'
+  if (permission === 'auto') return 'warning'
   if (permission === 'read-only') return 'accent'
   return 'success'
 }
@@ -347,6 +348,7 @@ export function formatPermission(permission: string): string {
   if (permission === 'danger-full-access') return 'Full access'
   if (permission === 'workspace-write') return 'Workspace write'
   if (permission === 'read-only') return 'Read only'
+  if (permission === 'auto') return 'Auto review'
   return permission === 'custom' ? 'Custom access' : permission
 }
 

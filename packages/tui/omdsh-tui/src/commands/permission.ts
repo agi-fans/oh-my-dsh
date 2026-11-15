@@ -21,13 +21,27 @@ function titleCase(value: string): string {
     .join(' ')
 }
 
+const AUTO_REVIEW_DESCRIPTION = 'Run without a sandbox after an experimental same-model review of every native tool call and PTC inner call.'
+
 async function confirmFullAccess(prompt: TuiService['prompt'], invocation: CommandInvocation): Promise<boolean> {
-  return confirmPrompt(prompt, { localize: ['title', 'options', 'actions'],
+  return confirmPrompt(prompt, { localize: ['title', 'question', 'detail', 'options', 'actions'],
     title: 'Full access',
     question: 'Allow unrestricted filesystem access without approval prompts?',
     detail: 'Only enable this permission for a workspace and task you trust.',
     acceptLabel: 'Enable full access',
     acceptDescription: 'Disable sandbox and approval protection.',
+    cancelDescription: 'Keep the current permission.',
+    signal: invocation.signal,
+  })
+}
+
+async function confirmAutoReview(prompt: TuiService['prompt'], invocation: CommandInvocation): Promise<boolean> {
+  return confirmPrompt(prompt, { localize: ['title', 'question', 'detail', 'options', 'actions'],
+    title: 'Auto review',
+    question: 'Enable experimental model-reviewed access without a sandbox?',
+    detail: 'Before every native tool call and PTC inner call, the current model reviews whether to allow it; denied calls ask you. Auto review can falsely allow or deny actions and uses extra tokens.',
+    acceptLabel: 'Enable auto review',
+    acceptDescription: 'Disable sandbox and review every tool call with the current model.',
     cancelDescription: 'Keep the current permission.',
     signal: invocation.signal,
   })
@@ -45,20 +59,25 @@ async function selectAccess(
   const browse = createPromptBrowser(prompt)
   let initialValue = ctx.permissionPresets.current(invocation.agent.session)
   while (!invocation.signal.aborted) {
+    const language = ctx.tui.prefs === undefined ? 'en' : resolveUiLanguage(ctx.tui.prefs().uiLanguage)
+    const t = (source: string): string => uiText(language, source)
     const current = ctx.permissionPresets.current(invocation.agent.session)
     const options = ctx.permissionPresets.names.map((value) => {
       const option = ctx.permissionPresets.optionOf(value)
+      const isBuiltInAuto = value === 'auto' && option.name === 'auto'
+      const label = isBuiltInAuto ? t('Auto review') : option.name
+      const summary = option.description ?? (isBuiltInAuto ? t(AUTO_REVIEW_DESCRIPTION) : titleCase(value))
       return {
-        label: option.name,
+        label,
         value,
-        description: `${value === current ? 'Current · ' : ''}${option.description ?? titleCase(value)}`,
+        description: `${value === current ? `${t('Current')} · ` : ''}${summary}`,
       }
     })
     if (options.length === 0) return { kind: 'error', text: 'No permissions are configured.' }
     const selected = await browse(choosePrompt({ localize: ['title', 'question', 'actions'],
       title: 'Access',
       question: 'Choose how omdsh may access your workspace',
-      options: [...options, ...(ctx.get('omdshApprovalRules') === undefined ? [] : [{ label: 'Approval rules', value: 'rules', description: 'Inspect and revoke remembered decisions' }])],
+      options: [...options, ...(ctx.get('omdshApprovalRules') === undefined ? [] : [{ label: t('Approval rules'), value: 'rules', description: t('Inspect and revoke remembered decisions') }])],
       initialValue,
       submitLabel: 'apply',
       signal: invocation.signal,
@@ -75,6 +94,9 @@ async function selectAccess(
     if (selected === 'danger-full-access' && !await confirmFullAccess(prompt, invocation)) {
       continue
     }
+    if (selected === 'auto' && !await confirmAutoReview(prompt, invocation)) {
+      continue
+    }
 
     invocation.signal.throwIfAborted()
     // A persistent composer Shell pins Access until a confirmed switch closes it.
@@ -87,7 +109,8 @@ async function selectAccess(
     const switched = await switchPreset({ ...invocation, rawInput: ` ${selected}` })
     if (switched.kind === 'error') return switched
     const option = ctx.permissionPresets.optionOf(selected)
-    return { kind: 'success', text: `Access: ${option.name}` }
+    const label = selected === 'auto' && option.name === 'auto' ? 'Auto review' : option.name
+    return { kind: 'success', text: `Access: ${label}` }
   }
   return { kind: 'success' }
 }

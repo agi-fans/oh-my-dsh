@@ -16,9 +16,11 @@ Every session starts with exactly one Access preset. It decides the filesystem a
 
 Workspace write is the default. The preset applies to both the filesystem seam and the shell: a mutation outside the workspace returns the shared sandbox denial instead of failing per tool, and the model may retry it once at a wider mode after approval. A retry that asks for the mode already in force runs without a prompt, while a narrower target still fails before anything executes. The composer's Access badge always reports the mode actually in force, so an approved widening is visible.
 
+`@deepseek-ai/dsh-experimental-auto-review` ships enabled by default (and can be disabled in `/plugins` → Bundles), adding **Auto review** (`auto`) in `/permission` for the current session (it is not offered under **Default access**, where Workspace write remains the default). Selecting it asks for confirmation because tools run without a filesystem sandbox (`danger-full-access`) while mutating or external tool calls pass through a pre-execution model review that prompts you when flagged; direct Node effects inside PTC `run_code` are not covered by inner-tool review, and review checks incur extra model requests.
+
 ## Approval prompts
 
-When an action needs approval, the prompt shows the tool card the session already streamed — the command, path, or diff summary for the pending call — followed by the asker's own reason. A human prompt displaces any open overlay (such as `/trajectory` or settings) and restores it when settled, so a confirmation cannot be accepted behind a stale screen.
+When an action needs approval, the prompt shows the tool card the session already streamed — the command, path, or diff summary for the pending call — followed by the asker's own reason (localized for the UI language when available, while remembered rules still match the underlying language-invariant reason). A human prompt displaces any open overlay (such as `/trajectory` or settings) and restores it when settled, so a confirmation cannot be accepted behind a stale screen.
 
 Questions and approvals belong to the session that requested them. Replacing the active session cancels its visible and queued prompts, including approvals from its local children. Cancelled prompts cannot subsequently approve an action, send a rejection note, or save a remembered rule. Concurrent child approvals are shown one at a time with the requesting child’s label.
 

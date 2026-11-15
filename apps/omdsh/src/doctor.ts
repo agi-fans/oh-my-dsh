@@ -12,7 +12,7 @@ import {
 import { CREDENTIALS_FILENAME, parseCredentialsDocument } from '@deepseek-ai/dsh-credentials-local'
 import { imageProtocol } from '@agi-fans/dsh-tui'
 import { omdshHome } from './config-paths.ts'
-import { INSTALL_ANCHOR, NAME, PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
+import { DEFAULT_PROFILE_BUNDLES, INSTALL_ANCHOR, NAME, PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
 import { loadLspPatches } from './lsp-config.ts'
 import { loadMcpPatches } from './mcp-config.ts'
 
@@ -103,6 +103,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   let bundles: string[] = []
   let profileReadable = true
   if (!existsSync(join(dir, 'package.json'))) {
+    bundles = [...DEFAULT_PROFILE_BUNDLES]
     add('profile', 'not-configured', 'Profile is not initialized; shipped defaults are inspected.', 'Start omdsh to initialize the Profile.')
   } else {
     try {

@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { initProfile, loadOptionalPatches, PROFILE_PATCH_FILENAME } from '@deepseek-ai/dsh-app-boot'
 import {
+  AUTO_REVIEW_BUNDLE,
   composeLaunch,
+  DEFAULT_PROFILE_BUNDLES,
   ensureOmdshProfile,
   ensureProductBundleFirst,
   prepareProfile,
@@ -27,14 +29,14 @@ afterEach(() => {
 })
 
 describe('omdsh profile', () => {
-  it('initializes the omdsh profile with the product bundle first', () => {
+  it('initializes the omdsh profile with the shipped default bundles and product first', () => {
     const home = temp('omdsh-profile-init-')
     const dir = ensureOmdshProfile(home)
     expect(dir).toBe(join(home, 'profiles', PROFILE_NAME))
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
       dsh?: { profile?: { bundles?: string[] } }
     }
-    expect(manifest.dsh?.profile?.bundles).toEqual([PRODUCT_BUNDLE])
+    expect(manifest.dsh?.profile?.bundles).toEqual([...DEFAULT_PROFILE_BUNDLES])
     expect(existsSync(join(dir, PROFILE_PATCH_FILENAME))).toBe(true)
   })
 
@@ -110,7 +112,7 @@ describe('omdsh profile', () => {
     // Agent presets ship as product-bundle patch entries, so the launch has no
     // layer above the Profile patch except the MCP inserts then the LSP ones.
     expect(composed.layers.map(layer => layer.label)).toEqual([
-      PRODUCT_BUNDLE,
+      ...DEFAULT_PROFILE_BUNDLES,
       PROFILE_PATCH_LABEL,
       'mcp.json',
       'lsp.json',
@@ -148,6 +150,45 @@ describe('omdsh profile', () => {
     expect(composed.patches).toEqual(expect.arrayContaining([
       expect.objectContaining({ insert: [expect.objectContaining({ id: 'example', name: '@scope/dsh-example' })] }),
     ]))
+  })
+
+  it('seeds shipped default bundles and retainOnArchive once without overriding user opt-outs', () => {
+    const home = temp('omdsh-profile-worktree-')
+    const dir = join(home, 'profiles', PROFILE_NAME)
+    const bundleDir = join(dir, 'node_modules', '@scope', 'dsh-example')
+    mkdirSync(bundleDir, { recursive: true })
+    writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
+      name: '@scope/dsh-example',
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }, undefined, 2) + '\n')
+    writeFileSync(join(bundleDir, 'cordis.patch.yml'), '- insert:\n    - id: example\n      name: \'@scope/dsh-example\'\n')
+    initProfile(dir, [PRODUCT_BUNDLE, '@scope/dsh-example'])
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: agent-behavior\n  config:\n    language: follow-ui\n')
+
+    prepareProfile(home)
+    const readBundles = () => (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh?: { profile?: { bundles?: string[] } }
+    }).dsh?.profile?.bundles
+    expect(readBundles()).toEqual([...DEFAULT_PROFILE_BUNDLES, '@scope/dsh-example'])
+    const patchPath = join(dir, PROFILE_PATCH_FILENAME)
+    expect(loadOptionalPatches('omdsh', patchPath)).toEqual([
+      { id: 'agent-behavior', config: { language: 'follow-ui' } },
+      { id: 'worktree', name: '@deepseek-ai/dsh-experimental-worktree', config: { retainOnArchive: true } },
+    ])
+
+    // Disabling a shipped default bundle or resetting retainOnArchive stays intact on subsequent launches.
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-omdsh',
+      private: true,
+      dependencies: { '@scope/dsh-example': '1.0.0' },
+      dsh: { profile: { bundles: [PRODUCT_BUNDLE, AUTO_REVIEW_BUNDLE, '@scope/dsh-example'] } },
+    }, undefined, 2) + '\n')
+    writeFileSync(patchPath, '- id: agent-behavior\n  config:\n    language: follow-ui\n')
+    prepareProfile(home)
+    expect(readBundles()).toEqual([PRODUCT_BUNDLE, AUTO_REVIEW_BUNDLE, '@scope/dsh-example'])
+    expect(loadOptionalPatches('omdsh', patchPath)).toEqual([
+      { id: 'agent-behavior', config: { language: 'follow-ui' } },
+    ])
   })
 
   it('places the profile under OMDSH_HOME rather than DSH_HOME', () => {

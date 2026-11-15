@@ -6,8 +6,11 @@ import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { readExecPrompt } from './exec.ts'
+import { executeAgent } from './exec-runtime.ts'
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url))
 const loader = pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href
@@ -55,6 +58,86 @@ describe('exec prompt input', () => {
     const bytes = Buffer.from('第一行 🐳\n/clear\n!echo literal')
     input.write(bytes.subarray(0, 5)); input.end(bytes.subarray(5))
     expect(await reading).toBe('第一行 🐳\n/clear\n!echo literal')
+  })
+})
+
+describe('executeAgent descendant ownership', () => {
+  it('streams events for a cold-resumed depth-2 grandchild whose intermediate parent was never loaded', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const rootSession = ctx.sessions.create(SessionId('session-exec-root'))
+    const grandSession = ctx.sessions.create(SessionId('session-exec-grand'), {
+      meta: { parentSession: SessionId('session-exec-cold-mid'), origin: 'subagent', delegationDepth: 2 },
+    })
+    const live = new Map<string, Record<string, unknown>>()
+    const rootAgent = {
+      id: rootSession.id,
+      session: rootSession,
+      status: 'idle',
+      model: { current: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) },
+      cancel: () => undefined,
+      followup: () => {
+        const grandAgent = {
+          id: grandSession.id,
+          session: grandSession,
+          status: 'running',
+        }
+        // Cold grandchild resume: agent/created fires before resident tree membership,
+        // then subagent/start fires once rootOf(grandAgent) === rootAgent holds.
+        ctx.emit('agent/created', { agent: grandAgent as never })
+        live.set(grandSession.id, grandAgent)
+        ctx.emit('subagent/start', { runId: 'run-grand', id: grandSession.id, parentSessionId: SessionId('session-exec-cold-mid'), provider: 'spawn', local: true } as never)
+        grandSession.append('assistant/message', {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'grandchild reply' }] },
+        } as never, { surfaceOp: 'append' })
+        rootSession.append('turn/start', { turn: 1 } as never)
+        rootSession.append('assistant/message', {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'root final' }] },
+        } as never, { surfaceOp: 'append' })
+        rootSession.append('turn/end', { turn: 1, reason: { kind: 'completed' } } as never)
+      },
+      whenIdle: async () => undefined,
+    }
+    live.set(rootSession.id, rootAgent)
+    ctx.provide('agents', {
+      get: (id: string) => live.get(id),
+      resume: async (options: { setup?: (agentCtx: Context, agent: never) => Promise<void> }) => {
+        const childCtx = new Context()
+        childCtx.provide('agentPresets', {
+          defaultId: 'standard',
+          presetForSession: () => undefined,
+          mount: async () => ({ id: 'standard' }),
+        })
+        childCtx.provide('sessionProjections', {})
+        childCtx.provide('permissionPresets', { names: [], optionOf: () => undefined, current: () => undefined })
+        await options.setup?.(childCtx, rootAgent as never)
+        return { agent: rootAgent, dispose: async () => undefined }
+      },
+    } as never)
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) } as never)
+    ctx.provide('agentPresets', { presetForSession: () => undefined, resolve: async () => ({ id: 'standard' }) } as never)
+    ctx.provide('sessionPersistence', { stat: async () => ({ formatStatus: 'current' }) } as never)
+    ctx.provide('subagents', {
+      rootOf: (agent: unknown) => (agent === rootAgent || live.get(grandSession.id) === agent ? rootAgent : undefined),
+      waitForTreeWork: async () => false,
+    } as never)
+    const emitted: Array<{ type: string; data: unknown }> = []
+    const result = await executeAgent(
+      ctx,
+      { prompt: 'Wake grandchild', resume: rootSession.id },
+      { emit: (type, data) => { emitted.push({ type, data }) } } as never,
+      new AbortController().signal,
+    )
+    expect(result).toMatchObject({ outcome: 'completed', exitCode: 0, text: 'root final' })
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'assistant.message',
+      data: expect.objectContaining({ sessionId: grandSession.id, root: false }),
+    }))
+    await ctx.fiber.dispose()
   })
 })
 

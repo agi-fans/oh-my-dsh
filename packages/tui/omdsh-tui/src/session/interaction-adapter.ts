@@ -240,7 +240,12 @@ export function approvalDetail(tui: TuiService, request: ApprovalRequest, descen
   const context = descendant
     ? call?.type === 'tool/call' ? `${call.data.name} ${call.data.arguments}` : undefined
     : request.callId === undefined ? undefined : tui.toolCallContext(request.callId)
-  const parts = [context, request.reason].filter(
+  const language = tui.prefs === undefined ? 'en' : resolveUiLanguage(tui.prefs().uiLanguage)
+  const localeKey = language === 'zh-CN' ? 'zh' : language
+  const explanation = request.displayReason === undefined
+    ? request.reason
+    : (request.displayReason[language] ?? request.displayReason[localeKey] ?? request.displayReason.en)
+  const parts = [context, explanation].filter(
     (part): part is string => part !== undefined && part !== '',
   )
   return parts.length === 0 ? {} : { detail: parts.join('\n\n') }

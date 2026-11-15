@@ -1327,7 +1327,7 @@ const PROCESS_LABELS: readonly { match: RegExp; label: string }[] = [
     label: 'Search sessions',
   },
   {
-    match: /^(todo_write|update_goal|create_goal|get_goal)$/, label: 'Update plan',
+    match: /^(todo_write|update_goal|create_goal|get_goal|team_task_create|team_task_list|team_task_get|team_task_update)$/, label: 'Update plan',
   },
   {
     match: /^(ask_user_question|ask_user|user_question)$/, label: 'Ask question',
@@ -2294,9 +2294,15 @@ export function formatAgentElapsed(agent: TuiSubagentView, now = Date.now()): st
   return `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1_000)).padStart(2, '0')}s`
 }
 
+function subagentDisplayTitle(agent: { readonly name?: string; readonly label: string }): string {
+  return agent.name !== undefined && agent.name !== '' && agent.name !== agent.label
+    ? `${agent.name} · ${agent.label}`
+    : agent.label
+}
+
 function subagentRowText(agent: TuiSubagentView, theme: Theme): string {
   const indent = agent.depth > 1 ? '  '.repeat(agent.depth - 1) : ''
-  return `${indent}${agent.label} · ${theme.text(agent.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[agent.phase])}`
+  return `${indent}${subagentDisplayTitle(agent)} · ${theme.text(agent.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[agent.phase])}`
 }
 
 /** Choose one viewport for workflows and agents so neither can crowd out the composer. */
@@ -2384,7 +2390,7 @@ export function renderInspectBanner(
     ? theme.text('Ctrl+C stops this agent · Esc to return')
     : inspected.writable ? theme.text('Esc to return') : theme.text('Read-only · Esc to return')
   const line = '  ' + theme.fg('accent', '←') + ' ' + subagentPhaseGlyph(inspected.phase, theme, spinnerFrame)
-    + ' ' + theme.bold(inspected.label)
+    + ' ' + theme.bold(subagentDisplayTitle(inspected))
     + theme.fg('dim', ' · ' + theme.text(inspected.needsApproval ? 'Needs approval' : SUBAGENT_PHASE_LABELS[inspected.phase]))
     + theme.fg('dim', ` · ${guidance}`)
   return [truncateToWidth(line, width)]

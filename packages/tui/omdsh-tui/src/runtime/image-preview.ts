@@ -87,7 +87,7 @@ export async function previewImages(tui: TuiService, images: readonly TuiInputIm
             await writeFile(path, image.data, { signal, mode: 0o600 })
             signal.throwIfAborted()
             retainTemporary(directory)
-            await openSystemFile(path)
+            await openSystemFile(path, signal)
           } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
         }
         feedback = 'Opened in the default application.'

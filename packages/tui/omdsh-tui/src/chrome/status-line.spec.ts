@@ -13,7 +13,9 @@ import {
 } from './status-config.ts'
 import {
   formatDuration,
+  formatPermission,
   formatTokens,
+  renderPermissionBadge,
   renderStatusFooter,
 } from './status-line.ts'
 import { createTheme } from './theme.ts'
@@ -753,5 +755,14 @@ describe('status densities', () => {
     const wider = resolveStatusBarConfig({ ...hidden, density: 'verbose' })
     expect(wider.groups).toEqual(['context', 'tokens', 'speed', 'durations', 'counts'])
     expect(wider.groups).not.toContain('cache')
+  })
+
+  it('formats and paints the Auto review permission badge in English and Simplified Chinese', () => {
+    expect(formatPermission('auto')).toBe('Auto review')
+    const enTheme = createTheme(true, 'truecolor', 'dark', undefined, 'en')
+    const zhTheme = createTheme(true, 'truecolor', 'dark', undefined, 'zh-CN')
+    expect(stripAnsi(renderPermissionBadge('auto', enTheme))).toBe('auto review')
+    expect(renderPermissionBadge('auto', enTheme)).toContain(enTheme.getFgAnsi('warning'))
+    expect(stripAnsi(renderPermissionBadge('auto', zhTheme))).toBe('自动审查')
   })
 })

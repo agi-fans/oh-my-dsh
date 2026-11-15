@@ -309,11 +309,16 @@ function mcpFallback(name: string, raw: string, output: string): PartialToolPres
   }
 }
 
+function formatWaitTimeout(ms: number): string {
+  return ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`
+}
+
 /** Presentation for Harness delegation tools that do not ship presentCall. */
 function subagentFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
   const args = parsedObject(raw) ?? {}
   if (isSubagentToolName(name)) {
     const description = stringField(args, 'description')
+    const agentName = stringField(args, 'name').trim()
     const prompt = stringField(args, 'prompt')
     const background = args.run_in_background === true
     const trimmed = output.trim()
@@ -321,8 +326,11 @@ function subagentFallback(name: string, raw: string, output: string): PartialToo
     const summary = startNotice
       ? trimmed
       : output === '' ? (background ? 'background' : 'running') : ''
+    const title = description === ''
+      ? (agentName === '' ? 'Subagent' : agentName)
+      : (agentName === '' || agentName === description ? description : `${agentName} · ${description}`)
     return {
-      title: description === '' ? 'Subagent' : description,
+      title,
       ...(summary === '' ? {} : { summary }),
       ...(prompt === '' ? {} : { lines: prompt.split('\n') }),
       ...(startNotice ? { hideOutput: true } : {}),
@@ -330,7 +338,7 @@ function subagentFallback(name: string, raw: string, output: string): PartialToo
   }
   if (name === 'send_message') {
     const message = stringField(args, 'message')
-    const id = stringField(args, 'agent_id') || stringField(args, 'subagent_id')
+    const id = stringField(args, 'agent') || stringField(args, 'agent_id') || stringField(args, 'subagent_id')
     return {
       title: 'Message',
       ...(id === '' ? {} : { summary: id }),
@@ -338,13 +346,148 @@ function subagentFallback(name: string, raw: string, output: string): PartialToo
     }
   }
   if (name === 'interrupt_agent') {
-    const id = stringField(args, 'agent_id')
+    const id = stringField(args, 'agent') || stringField(args, 'agent_id')
     return {
       title: 'Interrupt',
       ...(id === '' ? {} : { summary: id }),
     }
   }
+  if (name === 'wait_agent') {
+    const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
+      ? args.timeout_ms
+      : undefined
+    const settled = parsedObject(output)
+    const timedOut = typeof settled?.timedOut === 'boolean' ? settled.timedOut : undefined
+    const summary = timedOut === undefined
+      ? (timeoutMs === undefined ? '' : formatWaitTimeout(timeoutMs))
+      : (timedOut ? 'timed out' : 'ready')
+    return {
+      title: 'Wait',
+      ...(summary === '' ? {} : { summary }),
+      ...(timedOut === undefined ? {} : { hideOutput: true }),
+    }
+  }
   if (name === 'list_agents') return { title: 'Agents' }
+  return undefined
+}
+
+function stringListField(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item !== '') : []
+}
+
+function formatTeamTaskSummary(task: Record<string, unknown>): string {
+  const status = stringField(task, 'status')
+  const owner = stringField(task, 'owner')
+  const revision = typeof task.revision === 'number' ? `rev ${task.revision}` : ''
+  return [status, owner, revision].filter(Boolean).join(' · ')
+}
+
+/** Presentation for Agent Teams task-board tools (`team_task_*`), which ship JSON-only outputs without presentCall. */
+function teamFallback(name: string, raw: string, output: string): PartialToolPresentation | undefined {
+  if (!name.startsWith('team_task_')) return undefined
+  const args = parsedObject(raw) ?? {}
+  const result = parsedObject(output)
+
+  if (name === 'team_task_create') {
+    const subject = stringField(args, 'subject') || (result ? stringField(result, 'subject') : '')
+    const description = stringField(args, 'description')
+    const writeScopes = stringListField(args, 'write_scopes')
+    const blockedBy = stringListField(args, 'blocked_by')
+    const warnings = result ? stringListField(result, 'writeScopeWarnings') : []
+    const taskId = result ? stringField(result, 'id') : ''
+    const summary = taskId !== ''
+      ? `#${taskId} · ${formatTeamTaskSummary(result!)}`
+      : writeScopes.join(', ')
+    const lines = [
+      ...(description === '' ? [] : description.split('\n')),
+      ...(blockedBy.length === 0 ? [] : [`Blocked by: ${blockedBy.map(id => `#${id}`).join(', ')}`]),
+      ...(writeScopes.length === 0 ? [] : [`Write scopes: ${writeScopes.join(', ')}`]),
+    ]
+    return {
+      title: subject === '' ? 'Create task' : `Create task · ${subject}`,
+      ...(summary === '' ? {} : { summary }),
+      lines,
+      ...(warnings.length > 0 ? { outputLines: warnings } : {}),
+      ...(result !== undefined && warnings.length === 0 ? { hideOutput: true } : {}),
+    }
+  }
+
+  if (name === 'team_task_list') {
+    const tasks = Array.isArray(result?.tasks)
+      ? result.tasks.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && !Array.isArray(item))
+      : undefined
+    const filters = [
+      stringField(args, 'status') ? `status=${stringField(args, 'status')}` : '',
+      stringField(args, 'owner') ? `owner=${stringField(args, 'owner')}` : '',
+      typeof args.unowned === 'boolean' ? `unowned=${String(args.unowned)}` : '',
+      typeof args.ready === 'boolean' ? `ready=${String(args.ready)}` : '',
+    ].filter(Boolean).join(' ')
+    const summary = tasks !== undefined
+      ? `${tasks.length} task${tasks.length === 1 ? '' : 's'}${typeof result?.nextCursor === 'number' ? ' · more' : ''}`
+      : filters
+    const outputLines = tasks?.map(task => {
+      const id = stringField(task, 'id')
+      const status = stringField(task, 'status')
+      const owner = stringField(task, 'owner')
+      const subject = stringField(task, 'subject')
+      return `#${id} [${status}]${owner ? ` ${owner} ·` : ''} ${subject}`
+    })
+    return {
+      title: 'Team tasks',
+      ...(summary === '' ? {} : { summary }),
+      lines: [],
+      ...(outputLines === undefined ? {} : outputLines.length === 0 ? { hideOutput: true } : { outputLines }),
+    }
+  }
+
+  if (name === 'team_task_get') {
+    const id = stringField(args, 'task_id') || (result ? stringField(result, 'id') : '')
+    const subject = result ? stringField(result, 'subject') : ''
+    const summary = result ? formatTeamTaskSummary(result) : ''
+    const outputLines = result === undefined ? undefined : [
+      ...(stringField(result, 'description') ? stringField(result, 'description').split('\n') : []),
+      ...(stringListField(result, 'blockedBy').length > 0 ? [`Blocked by: ${stringListField(result, 'blockedBy').map(item => `#${item}`).join(', ')}`] : []),
+      ...(stringListField(result, 'writeScopes').length > 0 ? [`Write scopes: ${stringListField(result, 'writeScopes').join(', ')}`] : []),
+      ...stringListField(result, 'writeScopeWarnings'),
+    ]
+    return {
+      title: id === '' ? 'Task' : subject === '' ? `Task #${id}` : `Task #${id} · ${subject}`,
+      ...(summary === '' ? {} : { summary }),
+      lines: [],
+      ...(outputLines === undefined ? {} : outputLines.length === 0 ? { hideOutput: true } : { outputLines }),
+    }
+  }
+
+  if (name === 'team_task_update') {
+    const id = stringField(args, 'task_id') || (result ? stringField(result, 'id') : '')
+    const action = stringField(args, 'action')
+    const verb: Record<string, string> = {
+      claim: 'Claim task',
+      release: 'Release task',
+      edit: 'Edit task',
+      set_dependencies: 'Set blockers for task',
+      complete: 'Complete task',
+      reopen: 'Reopen task',
+      reassign: 'Reassign task',
+      delete: 'Delete task',
+    }
+    const baseTitle = verb[action] ?? 'Update task'
+    const ownerArg = stringField(args, 'owner')
+    const summary = result !== undefined
+      ? formatTeamTaskSummary(result)
+      : [action, ownerArg ? `→ ${ownerArg}` : ''].filter(Boolean).join(' ')
+    const description = stringField(args, 'description')
+    const warnings = result ? stringListField(result, 'writeScopeWarnings') : []
+    return {
+      title: id === '' ? baseTitle : `${baseTitle} #${id}`,
+      ...(summary === '' ? {} : { summary }),
+      lines: description === '' ? [] : description.split('\n'),
+      ...(warnings.length > 0 ? { outputLines: warnings } : {}),
+      ...(result !== undefined && warnings.length === 0 ? { hideOutput: true } : {}),
+    }
+  }
+
   return undefined
 }
 
@@ -381,6 +524,7 @@ interface PartialToolPresentation {
   summary?: string
   diffStats?: DiffStats
   lines?: readonly string[]
+  outputLines?: readonly string[]
   outputPreview?: 'head' | 'tail'
   /** When set, skip durable output text because the summary already carries it. */
   hideOutput?: boolean
@@ -488,6 +632,7 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   const fallback = input.presentation === undefined
     ? presentFallback(input.name, input.arguments, input.output)
       ?? subagentFallback(input.name, input.arguments, input.output)
+      ?? teamFallback(input.name, input.arguments, input.output)
       ?? mcpFallback(input.name, input.arguments, input.output)
     : undefined
   const call = callPresentation(input.presentation?.call, input.name)
@@ -510,7 +655,7 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
     ?? (semanticCall || fallbackCarriesArgs
       ? []
       : fallback?.lines ?? partialLines ?? fallbackArgumentLines(input.arguments))
-  const outputLines = result.lines ?? (
+  const outputLines = result.lines ?? fallback?.outputLines ?? (
     fallback?.hideOutput === true || input.output === '' ? [] : input.output.split('\n')
   )
   const duplicateDiff = input.presentation?.call?.card === 'diff' && input.presentation.result?.card === 'diff'

@@ -28,11 +28,13 @@ export function omdshCommand() {
     : ['pnpm', ['--dir', 'apps/omdsh', 'omdsh']]
 }
 
-/** Smoke children own synthetic terminals, never their caller's Herdr pane. */
+/** Smoke children own synthetic terminals, never their caller's Herdr or tmux pane. */
 export function smokeEnv(home, extra = {}) {
   const inherited = { ...process.env }
   for (const key of Object.keys(inherited)) {
-    if (key === 'OMDSH' || key.startsWith('HERDR_') || key.startsWith('HC_')) delete inherited[key]
+    if (key === 'OMDSH' || key === 'TMUX' || key === 'TMUX_PANE' || key.startsWith('HERDR_') || key.startsWith('HC_')) {
+      delete inherited[key]
+    }
   }
   return { ...inherited, OMDSH_HOME: home, NO_COLOR: '1', ...extra }
 }

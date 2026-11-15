@@ -57,9 +57,9 @@ macOS arm64，Node 24.18.0，pnpm 11.20.0。测试统一用 `LANG=C LC_ALL=C` �
 
 ## 残余风险与后续工作
 
-- 统一账户包新增了通知列表/内容/事件 API，TUI 目前只消费登录、profile、balance 和过期事件，尚未展示通知；这是可后续接入的产品功能，不是本次回归。
+- `0.27.0` 发布时，统一账户包新增的通知列表/内容/事件 API 尚未展示；随后已在 Unreleased 中随运行态 `dsh-mcp-manager`、默认开启（`$TMUX_PANE` 守卫）的 `dsh-tmux-context`、按会话开启的 `dsh-agent-team`、默认挂载的 `dsh-deliverable-file-references` 与 `dsh-session-title-all-prompts-llm`，以及默认启用的 `dsh-experimental-auto-review`、`dsh-experimental-tool-worktree` 一并接入。
 - 子代理追问不再接受文件，这是上游 host prompt 契约的限制；含文件的草稿会原样恢复到 composer。
-- `dsh-native-command` 只作为 app-boot 的传递依赖安装，未在 Windows 实机验证；Windows CI 覆盖完整测试集。
+- Unreleased 已将 `@agi-fans/dsh-tui` 的系统级文件打开切换为直接调用 `dsh-native-command`（`openNativePath`）；Windows 实机行为仍由 Windows CI 回归覆盖，待实机抽检。
 - rc.1 记录中的 HMR 首次刷新卸载循环仍未在本轮复现或排除，属于上游遗留问题。
 
 ## 回滚

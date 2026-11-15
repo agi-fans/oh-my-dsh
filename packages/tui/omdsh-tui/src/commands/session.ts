@@ -8,6 +8,7 @@ import type { TuiRecentSession, TuiService } from '../definition.ts'
 import type { SessionSearchHit, SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-tool-todo'
+import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '../runtime/session-runtime.ts'
 import { registerCommands } from './registration.ts'
 import { askPrompt, confirmPrompt } from '../prompt-intents.ts'
@@ -62,9 +63,10 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
     let selectedId: string | undefined
     while (!invocation.signal.aborted) {
       const library = readSessionLibrary(libraryPath)
+      const archivedIds = new Set<string>([...library.archived, ...(ctx.get('workspaceRegistry')?.archivedSessionIds ?? [])])
       const inventory = new Map(ctx.omdshSession.recentSessions.map(row => [row.id, row]))
       const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
-      const recent = sortSessionRows(source.filter(row => library.archived.includes(row.id) === archivedView), library.pinned)
+      const recent = sortSessionRows(source.filter(row => archivedIds.has(row.id) === archivedView), library.pinned)
       if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
       const answer = await browse({ localize: ['title', 'question', 'actions'],
         title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
@@ -139,6 +141,19 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
         const target = parts.join(':')
         if (!recent.some(row => row.id === target)) continue
         selectedId = target
+        if (action === 'archive') {
+          const registry = ctx.get('workspaceRegistry')
+          if (registry !== undefined) {
+            try {
+              if (archivedView) await registry.unarchiveSession(SessionId(target))
+              else await registry.archiveSession(SessionId(target))
+            } catch (error) {
+              searchDiagnostic = error instanceof Error ? error.message : String(error)
+              continue
+            }
+          }
+          searchDiagnostic = ''
+        }
         updateSessionLibrary(libraryPath, current => action === 'pin'
           ? { ...current, pinned: togglePinnedSession(current.pinned, target) }
           : { ...current, archived: archivedView ? current.archived.filter(id => id !== target) : [...new Set([...current.archived, target])] })

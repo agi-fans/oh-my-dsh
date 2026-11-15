@@ -84,6 +84,7 @@ export function descendantDepth(
 /** One direct child declared by a durable `subagent/catalog` event. */
 export interface CatalogChild {
   readonly id: string
+  readonly name?: string
   readonly label?: string
   readonly mode?: TuiSubagentView['mode']
 }
@@ -101,10 +102,12 @@ export function catalogChildren(events: readonly SessionEvent[]): CatalogChild[]
   const children = new Map<string, CatalogChild>()
   for (const event of events) {
     if (event.type !== 'subagent/catalog') continue
+    const name = 'name' in event.data ? event.data.name.trim() : undefined
     const label = event.data.label?.trim()
     const mode = event.data.mode
     children.set(event.data.childId, {
       id: event.data.childId,
+      ...(name === undefined || name === '' ? {} : { name }),
       ...(label === undefined || label === '' ? {} : { label }),
       ...(mode === 'unknown' ? {} : { mode }),
     })
@@ -198,15 +201,18 @@ function emptyView(input: {
   id: string
   parentId?: string
   depth: number
+  name?: string
   label?: string
   mode?: TuiSubagentView['mode']
   phase?: TuiSubagentPhase
 }): TuiSubagentView {
+  const name = input.name === undefined || input.name === '' ? undefined : input.name
   return {
     id: input.id,
     ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
     depth: input.depth,
-    label: input.label === undefined || input.label === '' ? shortSessionLabel(input.id) : input.label,
+    ...(name === undefined ? {} : { name }),
+    label: input.label === undefined || input.label === '' ? (name ?? shortSessionLabel(input.id)) : input.label,
     ...(input.mode === undefined ? {} : { mode: input.mode }),
     phase: input.phase ?? 'starting',
     activity: [],
@@ -244,6 +250,10 @@ export class SubagentRoster {
     return this.#agents.has(id)
   }
 
+  depthOf(id: string): number | undefined {
+    return this.#agents.get(id)?.depth
+  }
+
   hasRunning(): boolean {
     for (const agent of this.#agents.values()) {
       if (agent.phase === 'running' || agent.phase === 'starting') return true
@@ -260,6 +270,7 @@ export class SubagentRoster {
     id: string
     parentId?: string
     depth: number
+    name?: string
     label?: string
     mode?: TuiSubagentView['mode']
     phase?: TuiSubagentPhase
@@ -271,21 +282,29 @@ export class SubagentRoster {
       this.#agents.set(input.id, created)
       return created
     }
-    const label = existing.label !== shortSessionLabel(existing.id)
+    const nextName = existing.name ?? (input.name === undefined || input.name === '' ? undefined : input.name)
+    const hasSemanticLabel = existing.label !== shortSessionLabel(existing.id) && existing.label !== existing.name
+    const label = hasSemanticLabel
       ? existing.label
-      : input.label === undefined || input.label === '' ? existing.label : input.label
+      : input.label !== undefined && input.label !== ''
+        ? input.label
+        : existing.label !== shortSessionLabel(existing.id)
+          ? existing.label
+          : nextName ?? existing.label
     const mode = existing.mode ?? input.mode
     const phase = existing.phase === 'starting' ? input.phase ?? existing.phase : existing.phase
-    if (label === existing.label && mode === existing.mode && phase === existing.phase
-      && existing.depth === input.depth && existing.parentId === input.parentId) {
+    const parentId = input.parentId ?? existing.parentId
+    if (label === existing.label && nextName === existing.name && mode === existing.mode && phase === existing.phase
+      && existing.depth === input.depth && existing.parentId === parentId) {
       return existing
     }
     const next: TuiSubagentView = {
       ...existing,
       depth: input.depth,
+      ...(nextName === undefined ? {} : { name: nextName }),
       label,
       phase,
-      ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+      ...(parentId === undefined ? {} : { parentId }),
       ...(mode === undefined ? {} : { mode }),
     }
     this.#snapshot = undefined
@@ -303,23 +322,37 @@ export class SubagentRoster {
    * the live path already knows keeps its own phase.
    * @param parentId - the Session that owns the catalog.
    * @param events - that Session's events, oldest first.
-   * @returns whether any child was added.
+   * @returns whether any child was added or named.
    */
   observeCatalog(parentId: string, events: readonly SessionEvent[]): boolean {
-    let added = false
+    let changed = false
+    const parent = this.#agents.get(parentId)
+    const depth = parent === undefined ? 1 : parent.depth + 1
     for (const child of catalogChildren(events)) {
-      if (this.#agents.has(child.id)) continue
+      const name = child.name === undefined
+        ? undefined
+        : parent?.name === undefined ? child.name : `${parent.name}/${child.name}`
+      const existing = this.#agents.get(child.id)
+      if (existing !== undefined) {
+        if (name !== undefined && existing.name === undefined) {
+          this.#agents.set(child.id, { ...existing, name })
+          this.#snapshot = undefined
+          changed = true
+        }
+        continue
+      }
       this.remember({
         id: child.id,
         parentId,
-        depth: 1,
+        depth,
+        ...(name === undefined ? {} : { name }),
         ...(child.label === undefined ? {} : { label: child.label }),
         ...(child.mode === undefined ? {} : { mode: child.mode }),
         phase: child.mode === 'continuable' ? 'waiting' : 'completed',
       })
-      added = true
+      changed = true
     }
-    return added
+    return changed
   }
 
   hydrate(session: Session, depth: number, agentStatus?: 'idle' | 'running'): TuiSubagentView {
@@ -328,10 +361,11 @@ export class SubagentRoster {
     const catalog = this.#agents.get(id)
     let view = emptyView({
       id,
-      ...(parentId === undefined ? {} : { parentId }),
+      ...(parentId === undefined ? (catalog?.parentId === undefined ? {} : { parentId: catalog.parentId }) : { parentId }),
       depth,
       ...(catalog === undefined ? {} : {
-        ...(catalog.label === shortSessionLabel(id) ? {} : { label: catalog.label }),
+        ...(catalog.name === undefined ? {} : { name: catalog.name }),
+        ...(catalog.label === shortSessionLabel(id) || catalog.label === catalog.name ? {} : { label: catalog.label }),
         ...(catalog.mode === undefined ? {} : { mode: catalog.mode }),
       }),
       phase: agentStatus === 'running' ? 'running' : 'starting',

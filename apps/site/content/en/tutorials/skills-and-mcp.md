@@ -40,7 +40,7 @@ This example assumes you have installed a stdio MCP memory server that provides 
 }
 ```
 
-MCP configuration loads at startup, so restart omdsh if it is already running. A project MCP file can start local programs, so review it before launching omdsh in an unfamiliar repository.
+Static `mcp.json` files load at startup, so restart omdsh if it is already running (to add or manage a user-level server live without restarting, use `/mcp` or `/settings` → **Plugins → Integrations → MCP servers** instead). A project MCP file can start local programs, so review it before launching omdsh in an unfamiliar repository.
 
 Run `/mcp` to inspect the registered MCP tools and available diagnostics, then `/tools` to find them alongside native tools. If they are missing, check the executable and configuration with `omdsh doctor`. Finally, ask the agent to invoke an appropriate tool and inspect its result. A successful call verifies that operation with the current server and credentials.
 

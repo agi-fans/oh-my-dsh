@@ -258,6 +258,34 @@ describe('Session Library archive actions', () => {
     await f.execute('/resume')
     expect(readSessionLibrary(path)).toEqual({ pinned: [], archived: ['session-a'], labels: {} })
   })
+
+  it('forwards archive and restore through workspaceRegistry and surfaces active-session refusals', async () => {
+    const path = isolatedLibrary()
+    const f = await harness({ libraryRows: rows })
+    const archivedSessionIds: SessionId[] = []
+    const archiveSession = vi.fn(async (id: SessionId) => {
+      if (id === SessionId('session-b')) throw new Error('Session has a running subagent.')
+      archivedSessionIds.push(id)
+    })
+    const unarchiveSession = vi.fn(async (id: SessionId) => {
+      const at = archivedSessionIds.indexOf(id)
+      if (at >= 0) archivedSessionIds.splice(at, 1)
+    })
+    f.ctx.provide('workspaceRegistry', { archivedSessionIds, archiveSession, unarchiveSession } as never)
+    f.prompt
+      .mockResolvedValueOnce('archive:session-b')
+      .mockResolvedValueOnce('archive:session-a')
+      .mockResolvedValueOnce('view:')
+      .mockResolvedValueOnce('archive:session-a')
+      .mockResolvedValueOnce(null)
+    await f.execute('/resume')
+    expect(archiveSession).toHaveBeenCalledWith(SessionId('session-b'))
+    expect(f.prompt.mock.calls[1]![0].detail).toContain('Session has a running subagent.')
+    expect(archiveSession).toHaveBeenCalledWith(SessionId('session-a'))
+    expect(unarchiveSession).toHaveBeenCalledWith(SessionId('session-a'))
+    expect(readSessionLibrary(path).archived).toEqual([])
+    await f.ctx.fiber.dispose()
+  })
 })
 
 describe('stored session migration', () => {

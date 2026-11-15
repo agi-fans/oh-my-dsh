@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  DEFAULT_PROFILE_BUNDLES,
   dumpErrorMessage,
   dumpOmdshConfig,
   homePatchPath,
@@ -81,7 +82,7 @@ describe('boot patch assembly', () => {
     }))
     const layers = composeLaunch(cwd, { OMDSH_HOME: home }).layers
     expect(layers.map(layer => layer.label)).toEqual([
-      PRODUCT_BUNDLE,
+      ...DEFAULT_PROFILE_BUNDLES,
       PROFILE_PATCH_LABEL,
       'mcp.json',
     ])
@@ -133,7 +134,7 @@ describe('boot patch assembly', () => {
       },
     }))
     expect(composeLaunch(cwd, { OMDSH_HOME: home }).layers.map(layer => layer.label)).toEqual([
-      PRODUCT_BUNDLE,
+      ...DEFAULT_PROFILE_BUNDLES,
       PROFILE_PATCH_LABEL,
       'mcp.json',
       'lsp.json',
@@ -152,7 +153,7 @@ describe('boot patch assembly', () => {
       mcpServers: { memory: { command: 'memory-server' } },
     }))
     expect(composeLaunch(cwd, { OMDSH_HOME: home }).layers.map(layer => layer.label)).toEqual([
-      PRODUCT_BUNDLE,
+      ...DEFAULT_PROFILE_BUNDLES,
       PROFILE_PATCH_LABEL,
       'cordis.patch.yml',
       'mcp.json',
@@ -457,9 +458,10 @@ describe('dsh spine expansion', () => {
   it('mounts the LLM title provider and the workspace storage chain', () => {
     const rows = productRows()
     const row = (id: string) => rows.find(entry => entry.id === id)
-    // The first-prompt provider is what turns the fallback label into a
-    // summarized title on the recent-session list and the harness web.
-    expect(row('session-title-llm')?.name).toBe('@deepseek-ai/dsh-session-title-first-prompt-llm')
+    // The all-prompts provider summarizes the first prompt and refreshes
+    // automatic titles when later messages materially shift the topic.
+    expect(row('session-title-llm')?.name).toBe('@deepseek-ai/dsh-session-title-all-prompts-llm')
+    expect(row('session-title-llm')?.config).toMatchObject({ maxOutputTokens: 4096 })
     // The registry's injects resolve through this exact mount chain; the
     // order matters (backend before domain, domain before its consumers).
     const chain = ['session-persistence', 'storage', 'storage-json', 'storage-domain', 'session-projection-cache', 'workspace']
@@ -540,6 +542,8 @@ describe('upstream capability adaptation rows', () => {
   it('mounts both subagent providers with distinct tool names', () => {
     const rows = productRows()
     const row = (id: string) => rows.find(entry => entry.id === id)
+    expect(row('subagent-control')?.name).toBe('@deepseek-ai/dsh-tool-subagent-control')
+    expect(row('subagent-control')?.config).toEqual({ interrupt: false })
     expect(row('subagent-fork')?.name).toBe('@deepseek-ai/dsh-subagent-fork-in-process')
     expect(row('subagent-fork')?.config).toMatchObject({ providerName: 'fork' })
     expect(row('tool-subagent')?.config).toMatchObject({ provider: 'spawn', toolName: 'subagent' })
@@ -593,14 +597,16 @@ describe('upstream capability adaptation rows', () => {
     expect(index('terminal-bash')).toBeLessThan(index('tool-terminal'))
   })
 
-  it('mounts the present delivery tool beside the workspace file tools', () => {
+  it('mounts the present delivery tool and file-reference guidance beside the workspace file tools', () => {
     const rows = productRows()
     const index = (id: string) => rows.findIndex(entry => entry.id === id)
     expect(rows[index('tool-present')]?.name).toBe('@deepseek-ai/dsh-tool-present')
+    expect(rows[index('deliverable-file-references')]?.name).toBe('@deepseek-ai/dsh-deliverable-file-references')
     // present resolves paths through the Session filesystem and appends
     // deliverables to the Session log, so those services mount first.
     expect(index('fs')).toBeLessThan(index('tool-present'))
     expect(index('tools')).toBeLessThan(index('tool-present'))
+    expect(index('system-prompt')).toBeLessThan(index('deliverable-file-references'))
   })
 
   it('mounts MCP resource tools after the web tools', () => {
@@ -675,5 +681,17 @@ describe('upstream capability adaptation rows', () => {
     }
     const minimal = pluginTree(presetPlugins('minimal')).map(entry => entry.name)
     expect(minimal).not.toContain('@deepseek-ai/dsh-time-context')
+  })
+
+  it('mounts live MCP manager, opt-in tmux context, and opt-in Agent Teams task board', () => {
+    const rows = productRows()
+    const row = (id: string) => rows.find(entry => entry.id === id)
+    expect(row('mcp-manager')?.name).toBe('@deepseek-ai/dsh-mcp-manager')
+    expect((row('mcp-manager') as { inject?: string[] } | undefined)?.inject).toEqual(['credentials'])
+    expect(row('tmux-context')?.name).toBe('@agi-fans/dsh-tui/tmux-settings')
+    expect(row('agent-team')?.name).toBe('@deepseek-ai/dsh-agent-team')
+    expect(row('agent-team')?.config).toEqual({ maxTasks: 256 })
+    expect(row('tool-agent-team')?.name).toBe('@deepseek-ai/dsh-tool-agent-team')
+    expect(row('tui-command-team')?.name).toBe('@agi-fans/dsh-tui/command-team')
   })
 })

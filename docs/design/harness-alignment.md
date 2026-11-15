@@ -43,7 +43,7 @@ Settings → Models → DeepSeek account、服务商列表的账户项和 `/logi
 
 ## 子代理交互契约
 
-子代理继续使用原地转录与名册，不增加独立面板。Enter 沿用运行中输入偏好，Alt+Enter 排队，Alt+S 插话，完整文本与附件分别经已发布的 `queueHostSubagentPrompt`／`steerHostSubagentPrompt` 交付给确切的直接父代理；冷恢复、接纳与执行归 Harness 管理。一次性子代理只读，外部执行无本地转录。子代理队列只展示自己的日志投影，不显示主会话尚未接收的输入。Alt+Q 与 `/queue` 复用同一列表，支持编辑、撤回、同组排序与 Queue → Steer；Alt+Up 取回该子代理最新的下一回合消息。操作绑定确切的存活后代与查看代次，切换后不修改新会话；附件恢复完成后才撤回，过期结果保留在原草稿。连续提交按顺序进入 Harness，不能因图片存储较慢而倒序。未在本地加载的子代理提示先继续对话，不因打开队列自动恢复。
+子代理继续使用原地转录与名册，不增加独立面板。名册与会话跟踪跨全部委派深度（`depth >= 1`）展示子代理名称或斜杠分隔路径（含恢复会话时的冷后代）；模型侧控制行 `subagent-control` 显式配置 `interrupt: false`（与上游 `dsh-base` 一致，保留 `send_message`、`wait_agent`、`list_agents`）。Enter 沿用运行中输入偏好，Alt+Enter 排队，Alt+S 插话，文本与图片经已发布的 `SubagentRuntime.prompt`（`queue`／`steer`）交付，冷恢复、接纳与执行归 Harness 管理；含文件的追问明确拒绝并保留草稿。一次性子代理只读，外部执行无本地转录。子代理队列只展示自己的日志投影，不显示主会话尚未接收的输入。Alt+Q 与 `/queue` 复用同一列表，支持编辑、撤回、同组排序与 Queue → Steer；Alt+Up 取回该子代理最新的下一回合消息。操作绑定确切的存活后代与查看代次，切换后不修改新会话；附件恢复完成后才撤回，过期结果保留在原草稿。连续提交按顺序进入 Harness，不能因图片存储较慢而倒序。未在本地加载的子代理提示先继续对话，不因打开队列自动恢复。
 
 切换查看对象会取消尚未接收的投递，失败草稿恢复到原子代理并保留较新的草稿。父子草稿隔离在没有磁盘草稿存储的嵌入环境也成立。Ctrl-C 优先中断查看中的子代理，不能落到父会话的 Shell 或 Agent；Esc 负责清空草稿和返回。停止投影为 Stopped，失败为 Failed，可继续的空闲子代理为 Ready；恢复名册不会把可继续对话的孩子显示为已完成。
 
@@ -67,7 +67,7 @@ Settings → Models 的模型服务商入口由现有 settings consumer 提供�
 
 ## Web 搜索与抓取契约
 
-Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek-api.count` 和旧版 `web-search-deepseek` 的密钥、地址、`maxUses`。其他字段进入 Advanced。列表区分未加载与注册但不可用的服务商，保留已保存的未知 ID，注册变化刷新，读取失败保留上次目录并允许重试。默认仍为 DeepSeek Search API／Fetch API，托管抓取规避本地 fake-IP DNS；Direct fetch 保持可选，这一默认值差异是产品选择。
+Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek-api` 的 `count`／`searchBilling`／`fetchBilling`（`auto`／`account`／`api-key`）和旧版 `web-search-deepseek` 的密钥、地址、`maxUses`。`web-deepseek-api` 的其余速率、端点和密钥引用字段进入 Advanced，组合行不写无效的 `apiKeyEnv`。列表区分未加载与注册但不可用的服务商，保留已保存的未知 ID，注册变化刷新，读取失败保留上次目录并允许重试。默认仍为 DeepSeek Search API／Fetch API，托管抓取规避本地 fake-IP DNS；Direct fetch（`http`）保持可选并明确说明可直连本机与内网地址，这一默认值差异是产品选择。
 
 `0.2.2-rc.3` 已发布 `web.listProviders()` 与 `web/providers-changed`，注册、目录、重复 ID 拒绝和事件都由上游拥有。宿主的 `web-runtime` 适配插件仍然保留，但只补一项上游目录没有的信息：每个已注册服务商的 `available()` 快照。它通过公开注册方法跟踪 provider 对象，服务商卸载时清理，事件观察者失败不影响注册；不读取私有注册表，不修改参考仓库。上游目录项只含 id、title 和 description，不判断可用性，因此设置页的不可用标记仍由适配层读取 provider。
 

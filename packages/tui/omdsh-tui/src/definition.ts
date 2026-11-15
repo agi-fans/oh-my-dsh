@@ -344,6 +344,8 @@ export interface TuiSubagentView {
   readonly parentId?: string
   /** Edge distance from the active root session; direct children are `1`. */
   readonly depth: number
+  /** Model-facing subagent path or name when declared by the creator's catalog. */
+  readonly name?: string
   readonly label: string
   readonly mode?: 'one-shot' | 'continuable' | 'external'
   readonly needsApproval?: boolean
@@ -373,6 +375,7 @@ export interface TuiSubagentRoster {
 /** The descendant whose own transcript currently replaces the parent view. */
 export interface TuiInspectedSubagent {
   readonly id: string
+  readonly name?: string
   readonly label: string
   readonly needsApproval?: boolean
   readonly phase: TuiSubagentPhase

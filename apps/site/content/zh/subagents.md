@@ -26,7 +26,7 @@ omdsh 的委派建立在 Harness 的 subagent 服务之上，而不是产品私�
 
 Codex 与 Claude Code bundle 随 omdsh 安装且初始关闭，可从 `/settings → Plugins` 或 `/plugins → Bundles` 启用和配置。它们使用自带的固定版本运行时及原生登录／设置，向所有 preset 提供全局 `subagent_codex` 和 `subagent_claude_code` 工具，执行不支持追问的独立纯文本任务。Model and Permissions 编辑其原生权限策略，独立于父级 Access。Installation status 只报告注册状态；认证与运行时启动成功仍需真实委派验证。见[插件](plugins.md)。
 
-子代理运行时，队列与 composer 上方的名册显示任务名与生命周期状态。“可继续”表示可继续对话的子代理能够接收新消息，“已停止”与“失败”分开显示。composer 为空时按 `↓` 选中一行，`↑`/`↓` 移动，`Enter` 就地打开该子会话的实时转录。名册重新排序时，选中项仍跟随同一个子代理。历史一次性转录保持只读；外部执行没有本地转录，结果返回父对话。
+子代理运行时，队列与 composer 上方的名册会跨全部委派层级显示子代理名称（深层委派使用斜杠分隔路径）、任务说明与生命周期状态，恢复会话时也会包含尚未加载的冷后代。“可继续”表示可继续对话的子代理能够接收新消息，“已停止”与“失败”分开显示。模型侧通过 `send_message`、`wait_agent` 与 `list_agents` 与可继续子代理协作，`interrupt_agent` 默认关闭，将中断控制保留给人类 `Ctrl+C`（可通过 overlay 显式开启）。composer 为空时按 `↓` 选中一行，`↑`/`↓` 移动，`Enter` 就地打开该子会话的实时转录。名册重新排序时，选中项仍跟随同一个子代理。历史一次性转录保持只读；外部执行没有本地转录，结果返回父对话。
 
 检视子会话时，底部状态栏和 Access 角标显示该子会话的信息。活动计数和 token 总量只统计其自有事件，上下文用量包含继承的对话上下文；缺少的模型或权限数据不借用父会话值。返回后恢复父会话信息和目录，终端标题和生命周期通知仍跟随根会话。
 
@@ -40,10 +40,11 @@ composer 为空时，`Ctrl+C` 停止正在查看的子代理并保留其已接�
 
 ## 编排工具
 
-挂载的 Harness 组合在普通委派之外还提供两个编排工具：
+挂载的 Harness 组合在普通委派之外还提供编排与共享任务工具：
 
 - `workflow_run` 接受一段 JavaScript 脚本，把工作按阶段扇出到多个子代理并收集结构化结果。脚本运行在 worker 线程而不是宿主事件循环上，因此大规模扇出不会卡住界面。
 - `ralph` 用一茬茬新 agent 迭代同一个目标，直到某个 worker 报告完成或遇到阻塞。它默认关闭，与上游 base bundle 一致：工具描述本身已把它限制在你明确要求的运行上，而是否完成是 worker 的自述而非独立评估。home overlay 在其行上写 `disabled: false` 即可恢复。
+- `team_task_create`、`team_task_list`、`team_task_get` 与 `team_task_update` 为主代理及其进程内可继续子代理提供基于 Compare-and-Set 的共享任务面板（`@deepseek-ai/dsh-agent-team`，每棵会话树最多 256 项任务），跟踪前置依赖（`blockedBy`）、任务归属与建议性写入范围（`writeScopes`）冲突提示。团队模式在每个会话中默认关闭；运行 `/team on`（或运行 `/team` 打开交互式任务面板）即可从下一步起开放 `team_task_*` 与协作指引，运行 `/team off` 则隐藏工具并保留会话日志中已记录的任务。
 
 `code`（PTC）preset 会 deny `workflow_run`：PTC 把工具注册表呈现为 `run_code` 之上的生成 SDK，否则就会暴露第二个由模型编写的编排面。
 

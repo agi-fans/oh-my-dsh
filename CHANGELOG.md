@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-15
+
+### Added
+
+- Live runtime MCP server management (`@deepseek-ai/dsh-mcp-manager`) in `/mcp` and **Settings → Plugins → Integrations → MCP servers**: add `stdio` or `streamable-http` servers with `${credential:NAME}` secret templates, enable or disable servers, run non-disruptive `probe` checks, `restart` connections, remove or restore inherited definitions, and inspect live connection status alongside static `mcp.json` entries.
+- Opt-in Agent Teams shared task board (`@deepseek-ai/dsh-agent-team` and `@deepseek-ai/dsh-tool-agent-team`): toggle session-scoped Team mode and inspect tasks, dependencies, owners, and write-scope overlap warnings with `/team [on|off|status]`, with dedicated `team_task_*` transcript cards.
+- **Tmux location context** (`@deepseek-ai/dsh-tmux-context`) in **Settings → Plugins → Tools**, enabled by default: mounts automatically inside real POSIX tmux panes (`$TMUX_PANE`) with zero overhead outside tmux and injects session, window, pane, and layout context when the pane layout changes.
+- Active account notifications in **Settings → Models → DeepSeek account**, with localized content, action links, and per-notice dismissal without interrupting turns.
+- **Search billing** and **Fetch billing** (`auto`, `account`, or `api-key`) in **Settings → Plugins → Web search and fetch** for the DeepSeek Search and Fetch APIs.
+- **Details** (bundle README and documentation) and **Update** (registry version picker and Git commit updates with cancellation and rollback summaries) in `/plugins` → Bundles, plus `Update available` and `Included with omdsh` statuses in **Discover** with in-place bundle updates.
+- Default-enabled `@deepseek-ai/dsh-experimental-tool-worktree` bundle (can be disabled in `/plugins` → Bundles), exposing `create_worktree` and **Keep worktrees when archiving** in **Settings → Plugins → Tools** seeded to On (`retainOnArchive: true`) so archiving a session in `/resume` preserves its session-created worktrees unless turned off.
+- Default-enabled `@deepseek-ai/dsh-experimental-auto-review` bundle (can be disabled in `/plugins` → Bundles), adding the session-scoped **Auto review** Access mode in `/permission` behind explicit confirmation (while keeping **Workspace write** as the default Access), with model pre-execution review and localized approval reasons whose remembered rules remain language-invariant.
+- Shared deliverable and workspace file-reference prompt guidance (`@deepseek-ai/dsh-deliverable-file-references`) in the Standard, PTC (`code`), and Creator (`cordis`) presets.
+- Fallback tool-card formatting for `wait_agent` and named subagent catalog entries (`name` and slash-separated `path`) across transcript cards, the subagent roster, and `/trajectory`.
+
+### Changed
+
+- Automatic session titles use `@deepseek-ai/dsh-session-title-all-prompts-llm` by default (`maxOutputTokens: 4096`, matching upstream `dsh-base`), summarizing the first prompt and refreshing automatic titles only when later messages materially shift the topic while leaving manual renames untouched.
+- `subagent-control` defaults `interrupt: false` to match upstream `dsh-base`, leaving model coordination on `send_message`, `wait_agent`, and `list_agents` while keeping manual `Ctrl+C` interruption in child inspection.
+- Subagent roster and `omdsh exec` tracking include delegated descendants across all depths (`depth >= 1`), including cold grandchildren on resumed sessions.
+- Session Library archive and restore actions (`Alt+A` in `/resume`) synchronize with the Harness workspace registry.
+
+### Fixed
+
+- System **Open** actions in the file reader, image preview, `/attach`, and `/export` use `@deepseek-ai/dsh-native-command`, honoring cancellation, preferring `$BROWSER` or browser opening for `.html`/`.htm`/`.svg` files, handing WSL paths to the Windows desktop via `wslpath -w`, and treating Windows `explorer.exe` delegated exit code `1` as success with URI-character escaping.
+- `send_message` and `interrupt_agent` tool cards read the `0.2.2-rc.3` `{ agent }` argument before legacy ID fields, and `subagent` / `subagent_fork` cards include `args.name` when present.
+- Removed the unused `apiKeyEnv` override on `web-deepseek-api` in the shipped composition, aligned its settings field mapping with `0.2.2-rc.3`, and updated the **Direct fetch** (`http`) description to state accurately that local and intranet addresses are reachable.
+
+### Removed
+
+- Dropped the unmounted `@deepseek-ai/dsh-command-feedback` and `@deepseek-ai/dsh-message-feedback` runtime dependencies.
+
 ## [0.27.0] - 2026-11-14
 
 ### Changed
@@ -1087,7 +1119,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.25.0...v0.26.0

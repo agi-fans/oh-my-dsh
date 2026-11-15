@@ -24,7 +24,7 @@ TUI 不维护第二份命令、工具或模型注册表。插件进入树之后�
 | 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 设置使用 Profile 补丁，密钥值使用凭据存储 |
 | 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
 | Skill | Harness Skill Registry | 以 `/<skill-name>` 展示 |
-| MCP Server | 每个 Server 对应一行 `dsh-mcp-client` | 出现在 `/mcp` 和 `/tools` 中 |
+| MCP Server | 实时 `dsh-mcp-manager` Profile 条目或静态 `dsh-mcp-client` 行 | 出现在 `/mcp` 和 `/tools` 中 |
 
 只需要这些缝的插件，不必再写 TUI 展示适配器。
 
@@ -101,7 +101,9 @@ omdsh 不会从某个 extensions 目录加载 TypeScript 文件。那是另一�
 
 Codex 与 Claude Code 子代理 bundle 随 omdsh 默认安装，初始关闭。Bundles 选择器显示 Installed · Disabled，打开 **Integration settings** 并选择 Enable integration 即可使用，无需在 Profile 中下载；该入口与 `/settings → Integrations` 使用同一套表单。随包集成跟随 omdsh 更新。缺失的软件包提供匹配当前 Harness 版本的 Install；Profile 安装的软件包还提供 Reinstall。安装进度忽略 Enter，避免误取消；Esc 或 Ctrl+C 取消并等待文件恢复。失败或取消不会报告已启用，每次操作后选择器重新读取软件包状态。这些 bundle 自带固定版本的平台运行时，不会回退到 PATH 上的命令。正因为固定，两者在你明确开启前都保持关闭：Codex bundle 把自己的 `@openai/codex` 钉在 0.153.4，与你安装的 CLI 版本无关，而它的 README 要求重新生成上游 schema 证据才能移动这个版本——所以 Codex 子代理按它构建时的协议运行，而不是按你 `codex` 命令所讲的协议。Claude Code bundle 不钉 CLI 版本，但两者是同一个决定：把一个自带运行时、带自己协议的外部代理接进会话。认证与用户／项目设置仍由原生产品管理；omdsh 不负责登录，也不检查凭证。
 
-Profile 自行安装的 bundle 提供 Uninstall，确认后卸载插件并移除该 Profile 的软件包，影响使用此 Profile 的全部会话；保留原生 Codex／Claude 登录与用户设置。没有对应 Profile 依赖的条目提供 Remove from profile，仅移除启用选择。随 omdsh 安装的软件包不能单独卸载，可在集成设置中通过 Disable integration 关闭，并随 omdsh 更新。
+另外两个实验性 Harness 能力 bundle 随 omdsh 默认安装并在 `/plugins` → Bundles 中默认启用（新建或升级 Profile 时仅初始化一次，你在 `/plugins` 中关闭后会保持关闭）：`@deepseek-ai/dsh-experimental-tool-worktree`（提供 `create_worktree`，见[工具](tools.md)）和 `@deepseek-ai/dsh-experimental-auto-review`（提供当前会话的 **Auto review** 权限模式，见[权限与 Access](permissions.md)）。
+
+Profile 自行安装的 bundle 提供 **Details**（打开 bundle 的 README 或说明文档）、**Update**（registry bundle 可选择兼容的新版本，Git bundle 可输入目标 commit 与版本号，支持中途取消并展示回滚结果）以及 **Uninstall**（确认后卸载插件并移除该 Profile 的软件包），这些操作影响使用此 Profile 的全部会话；保留原生 Codex／Claude 登录与用户设置。没有对应 Profile 依赖的条目提供 Remove from profile，仅移除启用选择。**Discover** 会区分未安装、已安装、可更新、随 omdsh 内置和已安装其他版本等状态，选择可更新条目时会直接走就地更新流程，而不是重复执行全新安装。随 omdsh 安装的软件包不能单独卸载，可在集成设置中通过 Disable integration 关闭，并随 omdsh 更新。
 
 Integration settings 中的 Installation status 打开结构化阅读页，展示包是否可用、Profile 是否启用及组件加载状态。Refresh 重新读取注册信息，Copy details 复制当前报告，Back 返回原先选中的操作。集成菜单展示简短摘要，完整说明放在 Usage notes 中；缺失的软件包也在 Bundles 中提供 Check profile status，不验证原生运行时启动或认证。Provider 有可编辑的 Settings 配置段后，Model and Permissions 会在共用的版本检查产品表单中打开这两个字段；未指定 model 时沿用原生设置。孩子的权限独立于父级 Access。显式 `env` 覆盖写在 Provider 的 Profile 补丁中；凭证类环境变量会被清除，因此不能假定父级 API key 自动继承。这些集成执行独立的纯文本任务，最终结果返回父会话，不提供追问或本地子转录。见[子智能体](subagents.md)。
 

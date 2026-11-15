@@ -51,6 +51,16 @@ describe('approvalDetail', () => {
     const tui = { toolCallContext: () => undefined }
     expect(approvalDetail(tui as unknown as TuiService, request({}))).toEqual({})
   })
+
+  it('prefers localized displayReason over the English audit reason across UI languages', () => {
+    const displayReason = { en: 'Auto review denied this call: force push', zh: 'Auto review 拒绝了此调用：force push' }
+    const enTui = { toolCallContext: () => 'bash · git push -f', prefs: () => ({ uiLanguage: 'en' }) }
+    const zhTui = { toolCallContext: () => 'bash · git push -f', prefs: () => ({ uiLanguage: 'zh-CN' }) }
+    expect(approvalDetail(enTui as unknown as TuiService, request({ callId: 'call-1', reason: 'audit reason', displayReason })))
+      .toEqual({ detail: 'bash · git push -f\n\nAuto review denied this call: force push' })
+    expect(approvalDetail(zhTui as unknown as TuiService, request({ callId: 'call-1', reason: 'audit reason', displayReason })))
+      .toEqual({ detail: 'bash · git push -f\n\nAuto review 拒绝了此调用：force push' })
+  })
 })
 
 describe('bindHumanInteraction', () => {

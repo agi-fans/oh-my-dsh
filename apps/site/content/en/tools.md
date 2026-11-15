@@ -19,7 +19,7 @@ The mounted tools come from published Harness plugins and from the session's Age
 
 ## Git worktrees
 
-Enable the Git Worktrees bundle in `/plugins` → Bundles, and turn on **Enable worktree creation** in its settings, to expose `create_worktree`. The bundle ships with omdsh but stays off by default; Minimal still restricts its model tools. `/worktree` lets you create from a local revision, enter an existing registered checkout, or return to the session’s original directory with `/worktree return`. The conversation, original project and Access remain unchanged; file operations, new shells and the footer follow the current directory.
+`@deepseek-ai/dsh-experimental-tool-worktree` ships enabled by default (and can be disabled in `/plugins` → Bundles) to expose `create_worktree`; Minimal still restricts its model tools. omdsh defaults **Keep worktrees when archiving** (`retainOnArchive: true` in `/settings` → Plugins → Tools) so archiving a session in `/resume` preserves its session-created worktrees unless you turn that setting off. `create_worktree` creates a separate Git checkout from a local revision (`HEAD` by default) and switches the session's working directory into it, while `working_directory` switches to another checkout or returns to the session's original directory. The conversation, original project, and Access remain unchanged; file operations, new shells, and the footer follow the current directory.
 
 Creation requires Git 2.45 or newer and Node in the same execution environment. It checks out committed files only, skips configured Git filters and does not initialize submodules or install dependencies. Source changes stay in the original checkout. Leaving, disabling the bundle or cancelling creation never automatically deletes branches or files; failures may retain partial artifacts. Return explicitly and review retained artifacts before managing them with Git.
 
@@ -29,7 +29,7 @@ Creation requires Git 2.45 or newer and Node in the same execution environment. 
 
 ## Web
 
-`web_fetch` retrieves public pages. `web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and the credential reference stored by `/login`. Page fetch therefore does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local HTTP fetch providers remain mounted; **Settings → Plugins → Web search and fetch** switches between them. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
+`web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and configurable `auto`, `account`, or `api-key` billing in **Settings → Plugins → Web search and fetch** (defaulting to `auto` with the credential reference stored by `/login` or the active DeepSeek account). Hosted fetch does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local **Direct fetch** (`http`) providers remain mounted: switch to Direct fetch when you need this machine to reach local or intranet addresses directly. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
 
 ## Code intelligence
 
@@ -37,7 +37,7 @@ The read-only `lsp` tool answers definitions, references, implementations, and h
 
 ## Task and session
 
-`todo_write` tracks implementation items, `ask_user_question` asks you when inspection cannot decide a user-owned choice, `present` records finished deliverables so they stay findable after the turn, and `skill` loads a matching `SKILL.md` on demand.
+`todo_write` tracks implementation items, `ask_user_question` asks you when inspection cannot decide a user-owned choice, `present` records finished deliverables so they stay findable after the turn (paired with `@deepseek-ai/dsh-deliverable-file-references` in Standard, PTC, and Creator for deliverable and `#L…` workspace file-link guidance), and `skill` loads a matching `SKILL.md` on demand.
 
 omdsh uses `timed` questions with a default 120-second wait. Editing an answer or pressing `Ctrl+T` pauses the question countdown; `Ctrl+S` explicitly skips one question, and `Esc` leaves a finite timed question pending. When the wait ends, the model can continue independent work; a timeout grants no approval. A pending-question indicator and `/questions` let you answer later, including after resuming the session. Late answers appear in the transcript and reach the next model step. `Ctrl+C` interrupts instead of submitting an empty answer. In line-input mode, a blank answer line explicitly skips a question; EOF cancels the answer UI.
 
@@ -53,7 +53,7 @@ The `cordis` preset adds read-only runtime inspection on top of the native catal
 
 ## Delegation
 
-`subagent`, `subagent_fork`, and `subagent_isolated` delegate to child agents, and `workflow_run` fans work out across children from a script. `ralph` iterates fresh agents toward one objective but ships disabled, matching the upstream base bundle; a home overlay restores it with `disabled: false` on its row. The `code` preset denies `workflow_run`, so a PTC session authors its orchestration through `run_code` alone. See [Subagents and delegation](subagents.md).
+`subagent`, `subagent_fork`, and `subagent_isolated` delegate to child agents (with an optional `name` for sibling or slash-separated path addressing), `send_message`, `wait_agent`, and `list_agents` coordinate continuable children (`interrupt_agent` stays off by default, matching upstream `dsh-base`, while manual `Ctrl+C` remains available in child inspection), and `workflow_run` fans work out across children from a script. Enabling session Team mode with `/team on` adds `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` for shared task-board coordination across the root agent and its continuable children. `ralph` iterates fresh agents toward one objective but ships disabled, matching the upstream base bundle; a home overlay restores it with `disabled: false` on its row. The `code` preset denies `workflow_run`, so a PTC session authors its orchestration through `run_code` alone. See [Subagents and delegation](subagents.md).
 
 ## Related
 

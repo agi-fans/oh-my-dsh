@@ -141,7 +141,7 @@ describe('SubagentTracker.observeCatalog/sync', () => {
   it('rebuilds from sessions then merges the durable child listing', async () => {
     const entries: SubagentTrackerChild[] = [
       { id: SessionId('cold-1'), mode: 'one-shot', label: 'Cold task' },
-      { id: SessionId('cold-2'), mode: 'continuable', label: 'Cold worker' },
+      { id: SessionId('cold-2'), parentId: SessionId('cold-1'), depth: 2, name: 'reviewer/checker', mode: 'continuable', label: 'Cold worker' },
     ]
     const { tracker, published, sessions } = make({
       listChildren: () => Promise.resolve(entries),
@@ -155,7 +155,8 @@ describe('SubagentTracker.observeCatalog/sync', () => {
     const merged = published.at(-1)
     expect(merged?.agents.map(a => a.id).sort()).toEqual(['child-1', 'cold-1', 'cold-2'])
     expect(merged?.agents.find(a => a.id === 'cold-1')).toMatchObject({ label: 'Cold task', phase: 'waiting' })
-    expect(merged?.agents.find(a => a.id === 'cold-2')?.phase).toBe('running')
+    expect(merged?.agents.find(a => a.id === 'cold-2')).toMatchObject({ depth: 2, parentId: 'cold-1', name: 'reviewer/checker', phase: 'running' })
+    expect(tracker.depthOf('cold-2')).toBe(2)
   })
 
   it('drops a stale listing when the root changed mid-flight', async () => {

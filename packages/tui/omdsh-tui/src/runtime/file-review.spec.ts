@@ -1,16 +1,17 @@
 import sharp from 'sharp'
-import { ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TuiService } from '../definition.ts'
+import { openSystemFile } from './file-open.ts'
 import { changedFiles, changedPaths, codeDocument, fileDocument, filePreview, formatQuoteReference, MAX_PREVIEW_BYTES, PREVIEW_BYTES, reviewFiles } from './file-review.ts'
 import { renderMarkdown } from '../chrome/markdown.ts'
 import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 
-vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), spawn: vi.fn() }))
+vi.mock('./file-open.ts', () => ({ openSystemFile: vi.fn().mockResolvedValue(undefined) }))
 
 const roots: string[] = []
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }) })
@@ -151,17 +152,13 @@ describe('file inspection', () => {
   })
 
   it.each([false, true])('reports the external Open result in the preview (failure=%s)', async failure => {
-    vi.mocked(spawn).mockImplementationOnce(() => {
-      const child = new ChildProcess()
-      queueMicrotask(() => failure ? child.emit('error', new Error('Default app unavailable')) : child.emit('exit', 0))
-      return child as ReturnType<typeof spawn>
-    })
+    if (failure) vi.mocked(openSystemFile).mockRejectedValueOnce(new Error('Default app unavailable'))
+    else vi.mocked(openSystemFile).mockResolvedValueOnce(undefined)
     const prompt = vi.fn<TuiService['prompt']>()
     for (const answer of ['open', null, null]) prompt.mockResolvedValueOnce(answer)
     await reviewFiles({ prompt, notice: vi.fn() } as unknown as TuiService, 'File', '/workspace',
       [{ path: 'a.txt', label: 'a' }], async () => 'Content', signal(), 0, false)
-    expect(spawn).toHaveBeenLastCalledWith(process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open',
-      [resolve('/workspace', 'a.txt')], { stdio: 'ignore' })
+    expect(openSystemFile).toHaveBeenLastCalledWith(resolve('/workspace', 'a.txt'), expect.any(AbortSignal))
     expect(prompt.mock.calls[1]![0].detail).toContain(failure ? 'Default app unavailable' : 'Opened in the default application.')
   })
 

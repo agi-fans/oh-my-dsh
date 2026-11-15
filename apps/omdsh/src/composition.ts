@@ -13,12 +13,15 @@ import type { LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environm
 import { composeLaunch, NAME } from './profile.ts'
 
 export {
+  AUTO_REVIEW_BUNDLE,
+  DEFAULT_PROFILE_BUNDLES,
   homePatchPath,
   INSTALL_ANCHOR,
   NAME,
   PRODUCT_BUNDLE,
   PROFILE_NAME,
   PROFILE_PATCH_LABEL,
+  WORKTREE_BUNDLE,
 } from './profile.ts'
 
 /**

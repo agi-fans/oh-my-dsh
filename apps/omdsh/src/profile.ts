@@ -7,7 +7,7 @@
  * @module @agi-fans/oh-my-dsh
  */
 
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -30,8 +30,111 @@ type PatchOptions = ConfigDumpLayer['patches'][number]
 export const NAME = 'omdsh'
 export const PROFILE_NAME = 'omdsh'
 export const PRODUCT_BUNDLE = '@agi-fans/oh-my-dsh'
+export const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
+export const WORKTREE_BUNDLE = '@deepseek-ai/dsh-experimental-tool-worktree'
+export const DEFAULT_PROFILE_BUNDLES = [
+  PRODUCT_BUNDLE,
+  AUTO_REVIEW_BUNDLE,
+  WORKTREE_BUNDLE,
+] as const
 export const PROFILE_ROOT_FILENAME = 'cordis.yml'
 export const PROFILE_PATCH_LABEL = 'profiles/omdsh/cordis.patch.yml'
+
+interface BundleDefaults {
+  readonly autoReviewBundle?: boolean
+  readonly worktreeBundle?: boolean
+  readonly worktree?: boolean
+}
+
+const SEEDED_BUNDLES: ReadonlyArray<{
+  readonly key: 'autoReviewBundle' | 'worktreeBundle'
+  readonly bundle: string
+}> = [
+  { key: 'autoReviewBundle', bundle: AUTO_REVIEW_BUNDLE },
+  { key: 'worktreeBundle', bundle: WORKTREE_BUNDLE },
+]
+
+const WORKTREE_RETENTION_PATCH = `- id: worktree\n  name: '@deepseek-ai/dsh-experimental-worktree'\n  config:\n    retainOnArchive: true\n`
+
+function bundleDefaultsPath(home: string): string {
+  return join(home, NAME, 'bundle-defaults.json')
+}
+
+function readBundleDefaults(home: string): BundleDefaults {
+  const path = bundleDefaultsPath(home)
+  if (!existsSync(path)) return {}
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as BundleDefaults
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+export function hasBundleDefault(home: string, key: keyof BundleDefaults): boolean {
+  return readBundleDefaults(home)[key] === true
+}
+
+function recordBundleDefaults(home: string, keys: readonly (keyof BundleDefaults)[]): void {
+  if (keys.length === 0) return
+  const next: Record<string, boolean> = { ...readBundleDefaults(home) }
+  for (const key of keys) next[key] = true
+  mkdirSync(join(home, NAME), { recursive: true })
+  writeFileSync(bundleDefaultsPath(home), JSON.stringify(next, undefined, 2) + '\n')
+}
+
+export function recordBundleDefault(home: string, key: keyof BundleDefaults): void {
+  recordBundleDefaults(home, [key])
+}
+
+/** Seed product defaults once for shipped bundles without overriding user edits. */
+function seedOptionalBundleDefaults(home: string, dir: string): void {
+  const defaults = readBundleDefaults(home)
+  let manifest = readProfileManifest(NAME, dir)
+  const missing = SEEDED_BUNDLES.filter(entry => defaults[entry.key] !== true)
+  if (missing.length > 0) {
+    const shippedSet = new Set<string>(DEFAULT_PROFILE_BUNDLES)
+    const current = [...(manifest.dsh?.profile?.bundles ?? [PRODUCT_BUNDLE])]
+    const toInsert = missing.map(entry => entry.bundle).filter(bundle => !current.includes(bundle))
+    if (toInsert.length > 0) {
+      const wantedShipped = new Set<string>([
+        PRODUCT_BUNDLE,
+        ...current.filter(bundle => shippedSet.has(bundle)),
+        ...toInsert,
+      ])
+      const next = [
+        ...DEFAULT_PROFILE_BUNDLES.filter(bundle => wantedShipped.has(bundle)),
+        ...current.filter(bundle => !shippedSet.has(bundle)),
+      ]
+      manifest = {
+        ...manifest,
+        dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: next } },
+      }
+      writeProfileManifest(dir, manifest)
+    }
+    recordBundleDefaults(home, missing.map(entry => entry.key))
+  }
+  if (!manifest.dsh?.profile?.bundles?.includes(WORKTREE_BUNDLE) || hasBundleDefault(home, 'worktree')) return
+  const patchPath = join(dir, PROFILE_PATCH_FILENAME)
+  const before = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
+  const existing = loadOptionalPatches(NAME, patchPath)
+  if (existing?.some(patch => (patch as { id?: string }).id === 'worktree')) {
+    recordBundleDefault(home, 'worktree')
+    return
+  }
+  if (existing === undefined || existing.length === 0) {
+    const comments = before.split('\n').filter(line => line.trimStart().startsWith('#')).join('\n')
+    writeFileSync(patchPath, `${comments === '' ? '' : `${comments}\n`}${WORKTREE_RETENTION_PATCH}`)
+    recordBundleDefault(home, 'worktree')
+    return
+  }
+  if (!before.trimStart().startsWith('[')) {
+    writeFileSync(patchPath, `${before}${before.endsWith('\n') ? '' : '\n'}${WORKTREE_RETENTION_PATCH}`)
+    recordBundleDefault(home, 'worktree')
+  }
+}
 
 /** Absolute path of this installation's package.json (src/ and lib/ both sit one level under apps/omdsh). */
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
@@ -70,7 +173,8 @@ export function ensureOmdshProfile(home: string): string {
   if (!existsSync(join(dir, 'package.json'))) {
     // Only fresh profiles adopt Follow UI. An existing patch may predate its manifest.
     const hasPatch = existsSync(join(dir, PROFILE_PATCH_FILENAME))
-    initProfile(dir, [PRODUCT_BUNDLE])
+    initProfile(dir, [...DEFAULT_PROFILE_BUNDLES])
+    recordBundleDefaults(home, ['autoReviewBundle', 'worktreeBundle'])
     if (!hasPatch) writeFileSync(join(dir, PROFILE_PATCH_FILENAME),
       '# Response language for this profile; UI language is configured separately.\n- id: agent-behavior\n  config:\n    language: follow-ui\n')
   }
@@ -84,7 +188,8 @@ export function ensureOmdshProfile(home: string): string {
  * resolved Profile after this function returns.
  */
 export function prepareProfile(home: string, userLayer = true): Profile {
-  ensureOmdshProfile(home)
+  const dir = ensureOmdshProfile(home)
+  if (userLayer) seedOptionalBundleDefaults(home, dir)
   const profile = loadProfile(NAME, PROFILE_NAME, INSTALL_ANCHOR, home, { userLayer })
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   return profile

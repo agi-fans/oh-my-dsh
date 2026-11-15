@@ -19,7 +19,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Git worktree
 
-在 `/plugins` → Bundles 启用 `@deepseek-ai/dsh-experimental-tool-worktree`，模型即可使用 `create_worktree`。bundle 随 omdsh 提供，默认关闭；Minimal 仍限制其模型工具。该 bundle 的设置里可以打开 **启用 worktree 创建**，模型随后能创建 checkout 并进入已有注册 checkout；对话、原始项目和 Access 保持不变，文件操作、新 shell 和状态栏跟随当前目录。
+`@deepseek-ai/dsh-experimental-tool-worktree` 随 omdsh 默认启用（可在 `/plugins` → Bundles 中关闭），为模型暴露 `create_worktree`；Minimal 仍限制其模型工具。omdsh 默认开启 **归档时保留 worktree**（`/settings` → Plugins → Tools 中的 `retainOnArchive: true`），因此在 `/resume` 中归档会话时默认保留该会话创建的 worktree，除非你主动关闭此项。`create_worktree` 基于本地修订（默认 `HEAD`）创建独立的 Git checkout 并将会话当前工作目录切入其中，切换到其他 checkout 或返回会话最初的工作目录则使用 `working_directory`。对话、原始项目和 Access 保持不变，文件操作、新 shell 和底部状态栏跟随当前目录。
 
 创建需要同一执行环境中的 Git 2.45 或更高版本及 Node。它只检出已提交的文件，跳过配置的 Git filter，不初始化 submodule 或安装依赖；源 checkout 的改动留在原处。离开、禁用 bundle 或取消创建都不会自动删除分支或文件，失败也可能留下部分产物。请明确返回，并检查保留的产物后再用 Git 管理它们。
 
@@ -29,7 +29,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## Web
 
-`web_fetch` 抓取公开网页。`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并使用 `/login` 保存的凭据引用。因此抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本地 HTTP 抓取仍保留在组合中，可在 **设置 → Plugins → Web search and fetch** 切换。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
+`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并可在 **设置 → Plugins → 网页搜索与抓取** 中分别选择 `auto`、`account` 或 `api-key` 计费模式（默认 `auto`，按当前会话的 DeepSeek 账户或 `/login` 保存的凭据引用鉴权）。托管抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本机 **直接抓取**（`http`）仍保留在组合中；需要直接访问本机或内网地址时，可切换为直接抓取。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
 
 ## 代码智能
 
@@ -37,7 +37,7 @@ description: "omdsh 中模型可用的工具，按能力分组，并说明 Acces
 
 ## 任务与会话
 
-`todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到；`skill` 按需加载匹配的 `SKILL.md`。
+`todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到（在 Standard、PTC 与 Creator 中配套 `@deepseek-ai/dsh-deliverable-file-references` 提供交付物及 `#L…` 工作区文件引用指引）；`skill` 按需加载匹配的 `SKILL.md`。
 
 omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T` 会暂停问答倒计时；`Ctrl+S` 明确跳过单题，`Esc` 将有限时等待的问题留为待答。等待结束后，模型可以继续独立工作，但超时不代表批准。待答提示和 `/questions` 可用于之后补答，恢复会话后也能使用。补答会显示在转录中，并进入下一个模型步骤。`Ctrl+C` 表示中断，不会提交空答案。行输入模式下，空答案行明确跳过单题；EOF 取消回答界面。
 
@@ -53,7 +53,7 @@ omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T`
 
 ## 委派
 
-`subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理，`workflow_run` 用脚本把工作扇出到多个子代理。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
+`subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理（可选传入 `name`，按同级名称或斜杠分隔路径寻址），`send_message`、`wait_agent` 与 `list_agents` 负责与可继续子代理协作（`interrupt_agent` 默认关闭，与上游 `dsh-base` 一致，查看子代理时仍可用 `Ctrl+C` 手动中断），`workflow_run` 用脚本把工作扇出到多个子代理。通过 `/team on` 为当前会话启用团队模式后，还会向主代理及可继续子代理开放共享任务面板工具 `team_task_create`、`team_task_list`、`team_task_get` 与 `team_task_update`。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
 
 ## 相关
 

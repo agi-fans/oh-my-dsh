@@ -55,6 +55,7 @@ describe('preset tool presentation on the wire', () => {
     const minimal = await bootTuiTurn({ preset: 'minimal', home: temp('omdsh-schedule-minimal-') })
     expect(minimal.status, minimal.output.slice(-2000)).toBe(0)
     expect(requestToolNames(minimal.bodies[0])).not.toContain('schedule_create')
+    expect(requestToolNames(minimal.bodies[0])).not.toContain('create_worktree')
   }, 240_000)
 
   it('samples child model selection into new-session tools while fork keeps its parent route', async () => {
@@ -94,7 +95,7 @@ describe('preset tool presentation on the wire', () => {
   it('sends the native catalog for the standard preset', async () => {
     const names = await wireToolNames('standard')
     expect(names).toContain('workflow_run')
-    expect(names).not.toContain('create_worktree')
+    expect(names).toContain('create_worktree')
     // Exactly one shell stack mounts per host: the bash tool gates off Windows
     // and its PowerShell twin gates off everything else.
     expect(names).toContain(process.platform === 'win32' ? 'pwsh' : 'bash')

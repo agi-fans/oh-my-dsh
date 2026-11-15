@@ -296,4 +296,21 @@ describe('SubagentRoster.observeCatalog', () => {
       { id: 'child-1', phase: 'running', label: shortSessionLabel('child-1') },
     ])
   })
+
+  it('threads v3 catalog names and nested paths onto live and cold descendants', () => {
+    const roster = new SubagentRoster()
+    roster.reset('root')
+    roster.remember({ id: 'child-1', parentId: 'root', depth: 1, label: 'Audit upgrade', phase: 'running' })
+    expect(roster.observeCatalog('root', [
+      ev('subagent/catalog', { version: 3, childId: 'child-1', childCreatedAt: 1, name: 'reviewer', mode: 'continuable', label: 'Audit upgrade' }, 1),
+    ])).toBe(true)
+    expect(roster.observeCatalog('child-1', [
+      ev('subagent/catalog', { version: 3, childId: 'grand-1', childCreatedAt: 2, name: 'checker', mode: 'continuable', label: 'Run tests' }, 2),
+    ])).toBe(true)
+    expect(roster.depthOf('grand-1')).toBe(2)
+    expect(roster.snapshot()?.agents).toMatchObject([
+      { id: 'child-1', parentId: 'root', depth: 1, name: 'reviewer', label: 'Audit upgrade', phase: 'running' },
+      { id: 'grand-1', parentId: 'child-1', depth: 2, name: 'reviewer/checker', label: 'Run tests', phase: 'waiting' },
+    ])
+  })
 })

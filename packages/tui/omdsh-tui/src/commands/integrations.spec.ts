@@ -125,3 +125,43 @@ it('keeps the MCP filter and server selection after reading details and refreshi
     expect(h.prompt.mock.calls[1]![0].presentation).toBe('document')
   } finally { await h.ctx.fiber.dispose() }
 })
+
+it('renders live mcpManager servers in line mode and routes managed server selection to live actions', async () => {
+  const h = await fixture(false)
+  const restart = vi.fn(async () => {})
+  h.ctx.provide('mcpManager', {
+    list: () => [
+      { name: 'docs', configured: true, status: { state: 'connected', toolCount: 1, connectedAt: 500 } },
+      { name: 'staging', configured: true, status: { state: 'disabled' } },
+    ],
+    restart,
+    probe: vi.fn(),
+  } as never)
+  try {
+    const lineResult = (await h.execute())?.result
+    expect(lineResult?.kind).toBe('success')
+    expect(lineResult?.text).toContain('### Managed servers')
+    expect(lineResult?.text).toContain('- docs · connected · 1 tools')
+    expect(lineResult?.text).toContain('- staging · disabled')
+  } finally { await h.ctx.fiber.dispose() }
+
+  const interactive = await fixture(true)
+  const interactiveRestart = vi.fn(async () => {})
+  interactive.ctx.provide('mcpManager', {
+    list: () => [{ name: 'docs', configured: true, status: { state: 'connected', toolCount: 1, connectedAt: 500 } }],
+    restart: interactiveRestart,
+    probe: vi.fn(),
+  } as never)
+  interactive.prompt
+    .mockResolvedValueOnce('managed:docs')
+    .mockResolvedValueOnce('restart')
+    .mockResolvedValueOnce('back')
+    .mockResolvedValueOnce(null)
+  try {
+    await interactive.execute()
+    expect(interactive.prompt.mock.calls[0]![0].options).toContainEqual(
+      expect.objectContaining({ label: 'docs', value: 'managed:docs', description: 'connected · 1 tools' }),
+    )
+    expect(interactiveRestart).toHaveBeenCalledWith('docs')
+  } finally { await interactive.ctx.fiber.dispose() }
+})

@@ -12,7 +12,7 @@ function harness(answers: Answer[], language = 'en') {
   const make = (ns: string, schema: z, value: object): SettingsDescriptor => ({ ns: ns as SettingsDescriptor['ns'], schema: schema.toJSON(), value, base: value, user: {}, revision: 1, autoGenerate: true, applies: 'live' })
   const sections = [
     make('web', z.object({ searchProvider: z.string(), fetchProvider: z.string() }), { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' }),
-    make('web-deepseek-api', z.object({ count: z.number().min(1).max(50).default(10), baseURL: z.string() }), { count: 10, baseURL: 'https://api.example' }),
+    make('web-deepseek-api', z.object({ count: z.number().min(1).max(50).default(10), searchBilling: z.union(['auto', 'account', 'api-key']).default('auto'), fetchBilling: z.union(['auto', 'account', 'api-key']).default('auto'), searchBaseURL: z.string() }), { count: 10, searchBilling: 'auto', fetchBilling: 'auto', searchBaseURL: 'https://api.example' }),
     make('web-search-deepseek', z.object({ maxUses: z.number().min(1).default(5), baseURL: z.string(), apiKeyEnv: z.string(), apiKey: z.string().role('secret') }), { maxUses: 5, baseURL: 'https://legacy.example', apiKeyEnv: 'SHARED_KEY' }),
   ]
   const mutate = vi.fn(async (ns: string, ops: readonly SettingsPathOp[], revision?: number) => {
@@ -45,7 +45,7 @@ describe('Web search and fetch settings', () => {
     try {
       const rows = pluginSettingsEntries(h.ctx)
       expect(rows.filter(row => row.section === 'integrations').map(row => row.id)).toEqual(['web:settings'])
-      expect(rows.find(row => row.id === 'advanced:web-deepseek-api')?.fields).toEqual(['baseURL'])
+      expect(rows.find(row => row.id === 'advanced:web-deepseek-api')?.fields).toEqual(['searchBaseURL'])
       expect(rows.find(row => row.id === 'advanced:web-search-deepseek')?.fields).toEqual(['apiKeyEnv'])
       expect(h.describeSettings).toHaveBeenCalledWith({ redactSecrets: true })
       await editSettingsEntry(h.ctx, 'web:settings', h.signal)
@@ -58,6 +58,31 @@ describe('Web search and fetch settings', () => {
     const h = harness(['count', '20', 'fetch', 'provider:http', 'cancel'])
     try { await openWebSettings(h.ctx, h.signal); expect(h.mutate).not.toHaveBeenCalled(); expect(h.set).not.toHaveBeenCalled() }
     finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('edits search and fetch billing, restores inheritance, and describes direct fetch accurately', async () => {
+    const h = harness([
+      'searchBilling', 'account',
+      'fetchBilling', 'api-key',
+      'fetchBilling', '@inherit',
+      'fetch', request => {
+        const direct = request.options?.find(row => row.value === 'provider:http')
+        expect(direct?.preview).toContain('intranet and local addresses')
+        expect(direct?.preview).not.toContain('private addresses are blocked')
+        return null
+      },
+      request => {
+        expect(request.options?.find(row => row.value === 'searchBilling')?.description).toBe('DeepSeek account · Draft')
+        expect(request.options?.find(row => row.value === 'fetchBilling')?.description).toBe('Automatic · Inherited')
+        return 'apply'
+      },
+    ])
+    try {
+      await openWebSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls).toEqual([
+        ['web-deepseek-api', [{ op: 'set', path: ['searchBilling'], value: 'account' }], 1],
+      ])
+    } finally { await h.ctx.fiber.dispose() }
   })
 
   it('validates counts, preserves input and saves provider parameters before selection', async () => {

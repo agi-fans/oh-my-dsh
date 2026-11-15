@@ -105,7 +105,7 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
     if (signal.aborted || action === null || action === 'done') break
     try {
       if (action === 'open') {
-        await openSystemFile(path)
+        await openSystemFile(path, signal)
         feedback = t('File opened.')
       } else if (action === 'copy') {
         await tui.copyText?.(path, 'Export path')

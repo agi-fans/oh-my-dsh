@@ -17,7 +17,7 @@ Type `/` in the composer to browse the live catalog with inline argument hints. 
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session. |
-| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory, resume the chosen hit, and open transcript search with the same query; with an id, resume it directly. In the library, `Alt+P` pins a session and `Alt+R` renames it. |
+| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory, resume the chosen hit, and open transcript search with the same query; with an id, resume it directly. In the library, `Alt+P` pins a session, `Alt+R` renames it, `Alt+A` archives or restores it, and `Alt+V` switches between active and archived sessions. |
 | `/continue` | Continue an eligible failed model generation without resending the prompt. |
 | `/retry` | Resend the latest human prompt with its images and files as a new turn. |
 | `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
@@ -30,7 +30,7 @@ The Session Library can load additional content-search matches. A failed resume 
 |---|---|
 | `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Creator. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
 | `/agent creator` | Enter Creator (`cordis`) to author plugins. Reuses a blank session or starts a new one after existing conversation content; preserves session drafts and does not change the default preset or submit a prompt. |
-| `/permission` | Choose the session Access level, or inspect and revoke remembered approval rules. |
+| `/permission` | Choose the session Access level (including session-scoped Auto review), or inspect and revoke remembered approval rules. |
 | `/login` | Sign in to a provider: a catalog entry, an API key, a DeepSeek account browser sign-in (or an existing shared grant), or a custom provider with its own id, base URL, protocol, and model ids. |
 | `/logout` | Remove a file-stored provider credential or sign out the shared DeepSeek account; environment-owned values are left untouched. |
 | `/settings` | Open General, Models, Agent presets, Plugins, Terminal and Advanced settings. Alias: `/set`. |
@@ -60,6 +60,7 @@ DeepSeek API-key validation and storage failures can be retried in place. Custom
 | `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
 | `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images and files travel with the planning request. |
 | `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
+| `/team [on\|off\|status]` | Toggle session-scoped Agent Teams mode (`on`/`off`) to expose shared `team_task_*` tools to the session and its continuable subagents, or inspect the shared task board. |
 | `/compact` | Compact older conversation history; keep typing and queue input during compaction, then read the saved summary with Ctrl+O. |
 | `/jobs [<id>\|kill <id>]` | Browse live jobs, inspect retained output, or confirm stopping a job. Line mode prints a snapshot and observer narration. |
 
@@ -95,11 +96,11 @@ The answer streams into a pane docked above the composer while the consultation 
 | `/diff [path\|turn [number]]` | Browse current Git changes against HEAD, or a retained Turn snapshot with `turn`. Click a Changed heading or file row in the transcript to open that turn’s comparison directly. Control summary visibility in Settings → General → File change summary. Plain mode keeps the text summary. Never stages or commits. |
 | `/trajectory` | Inspect turns, steps and tool calls with readable summaries, recorded status, duration and token usage. Context entries and nested subcalls start folded. Details provide Overview, decoded Input, Result, Raw event data and Schema when recorded; tool results remain plain text. Click or use the keyboard, search hidden records, filter problems, visit slow calls, enlarge details and copy content. The timing bars marked Σ show accumulated recorded durations, not elapsed time; measured parent calls include their PTC children once. Requires an interactive terminal. |
 | `/schedule` | Manage this session's durable reminders: pause, resume, run now, edit a name or instruction, delete, and browse delivery history. |
-| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, or remove them, or browse a configured plugin index under **Discover**. Plugin entries open scrollable, copyable details with load state and diagnostics, including read-only entries. Installation can be cancelled before application. |
+| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, update, or remove them, or browse a configured plugin index under **Discover**. Plugin and bundle entries open scrollable, copyable details with README documentation, load state, and diagnostics, including read-only entries. Installation and updates can be cancelled before application. |
 | `/tools` | Search the tools visible to the agent, then read a selected tool’s full description. Returning restores the filter and selected row. Line mode prints the catalog. |
-| `/mcp` | Browse MCP registration diagnostics, available tools and the session’s latest ten calls; refresh the snapshot. Live connection and authentication status are unavailable. |
+| `/mcp` | Manage live MCP servers (add, enable/disable, probe, restart, remove) alongside static `mcp.json` registration diagnostics, available tools, and the session’s latest ten calls. |
 
-Plugin discovery retains loaded results and the search query, offers **Load more** and retries for failed sources, and permits cancellation while loading. Installation results and diagnostics remain beside the plugin controls.
+Plugin discovery retains loaded results and the search query, updates **Update available** profile bundles in place, offers **Load more** and retries for failed sources, and permits cancellation while loading. Installation results and diagnostics remain beside the plugin controls.
 
 ### Scheduled reminders
 
@@ -129,7 +130,7 @@ Stored text attachments open directly in the file reader, with **Open** availabl
 
 Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
 
-In ordinary file previews, use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application; Editor uses **Terminal → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
+In ordinary file previews, use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application (preferring a browser for HTML and SVG files, and handing WSL paths to the Windows desktop); Editor uses **Terminal → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
 
 A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. Deliberately typed slash commands carry their attachments through Harness command admission, including while a turn runs. Commands that do not accept attachments, unknown commands, and failed or cancelled submissions restore the text, images and files to the original session. Pasted literal text and explicit Steer submissions remain model messages. Mixed attachments retain their displayed order through retries and queue recall. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
 

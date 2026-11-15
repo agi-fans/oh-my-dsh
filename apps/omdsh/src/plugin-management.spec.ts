@@ -55,7 +55,13 @@ try {
   assert.equal(ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'advisor'), undefined)
   const bundles = await manager.listBundles()
   assert.equal(bundles.find(row => row.name === '@agi-fans/oh-my-dsh').readOnlyReason, 'management-required')
-  for (const name of ['@deepseek-ai/dsh-subagent-codex', '@deepseek-ai/dsh-subagent-claude-code']) {
+  const plugins = await manager.listPlugins()
+  assert.ok(plugins.some(row => row.patchId === 'deliverable-file-references' && row.enabled === true), 'deliverable-file-references mounted')
+  assert.ok(plugins.some(row => row.patchId === 'session-title-llm' && row.moduleName === '@deepseek-ai/dsh-session-title-all-prompts-llm' && row.enabled === true), 'all-prompts title provider mounted by default')
+  for (const name of [
+    '@deepseek-ai/dsh-subagent-codex',
+    '@deepseek-ai/dsh-subagent-claude-code',
+  ]) {
     const bundle = bundles.find(row => row.name === name)
     assert.equal(bundle.availability, 'installation', name + ' ships with omdsh')
     assert.equal(bundle.enabled, false, name + ' starts disabled')
@@ -64,6 +70,28 @@ try {
     assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, true)
     assert.equal((await manager.setBundleEnabled(name, false)).application, 'applied')
     assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, false)
+  }
+  for (const name of [
+    '@deepseek-ai/dsh-experimental-auto-review',
+    '@deepseek-ai/dsh-experimental-tool-worktree',
+  ]) {
+    const bundle = bundles.find(row => row.name === name)
+    assert.equal(bundle.availability, 'installation', name + ' ships with omdsh')
+    assert.equal(bundle.enabled, true, name + ' starts enabled by default')
+    assert.equal(bundle.removable, false, name + ' is installation-owned')
+    if (name === '@deepseek-ai/dsh-experimental-auto-review') {
+      assert.equal(ctx.permissionPresets.names.includes('auto'), true, 'auto preset registered by default')
+    }
+    assert.equal((await manager.setBundleEnabled(name, false)).application, 'applied')
+    assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, false)
+    if (name === '@deepseek-ai/dsh-experimental-auto-review') {
+      assert.equal(ctx.permissionPresets.names.includes('auto'), false, 'auto preset removed when auto-review is disabled')
+    }
+    assert.equal((await manager.setBundleEnabled(name, true)).application, 'applied')
+    assert.equal((await manager.listBundles()).find(row => row.name === name).enabled, true)
+    if (name === '@deepseek-ai/dsh-experimental-auto-review') {
+      assert.equal(ctx.permissionPresets.names.includes('auto'), true, 'auto preset restored when auto-review is re-enabled')
+    }
   }
   const installed = await manager.installBundle(${JSON.stringify(bundle)})
   assert.equal(installed.application, 'applied', JSON.stringify(installed))

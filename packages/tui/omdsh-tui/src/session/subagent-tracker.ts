@@ -12,9 +12,12 @@ import type { SubagentRunInfo, SubagentRunEndInfo } from '@deepseek-ai/dsh-subag
 import type { TuiSubagentActivity, TuiSubagentRoster } from '../definition.ts'
 import { SubagentRoster } from './subagent-roster.ts'
 
-/** The durable direct-child facts the roster needs from a catalog listing. */
+/** The durable descendant facts the roster needs from a catalog listing. */
 export interface SubagentTrackerChild {
   readonly id: SessionId
+  readonly parentId?: SessionId
+  readonly depth?: number
+  readonly name?: string
   readonly mode: 'one-shot' | 'continuable' | 'external' | 'unknown'
   readonly label?: string
 }
@@ -50,6 +53,11 @@ export class SubagentTracker {
   /** Whether the roster already tracks this session id. */
   owns(id: string): boolean {
     return this.#roster.owns(id)
+  }
+
+  /** Known edge distance from the active root, even when intermediate parents are cold. */
+  depthOf(id: string): number | undefined {
+    return this.#roster.depthOf(id)
   }
 
   /** The current published snapshot, or undefined for an empty roster. */
@@ -186,7 +194,9 @@ export class SubagentTracker {
       for (const entry of entries) {
         this.#roster.remember({
           id: entry.id,
-          depth: 1,
+          ...(entry.parentId === undefined ? {} : { parentId: entry.parentId }),
+          depth: entry.depth ?? 1,
+          ...(entry.name === undefined ? {} : { name: entry.name }),
           // A listing may declare that it does not know the child's mode.
           ...(entry.mode === 'unknown' ? {} : { mode: entry.mode }),
           ...(entry.label === undefined ? {} : { label: entry.label }),

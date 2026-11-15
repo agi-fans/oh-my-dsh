@@ -1,7 +1,7 @@
 {
   "name": "@agi-fans/dsh-tui",
   "description": "Library-only Cordis plugin suite for DeepSeek Harness terminal presentation and interaction",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "homepage": "https://omdsh.agi.fans/",
   "keywords": [
     "omdsh",
@@ -139,6 +139,14 @@
       "types": "./lib/runtime/hook-settings.d.ts",
       "default": "./lib/runtime/hook-settings.js"
     },
+    "./tmux-settings": {
+      "types": "./lib/runtime/tmux-settings.d.ts",
+      "default": "./lib/runtime/tmux-settings.js"
+    },
+    "./command-team": {
+      "types": "./lib/commands/team.d.ts",
+      "default": "./lib/commands/team.js"
+    },
     "./btw-policy": {
       "types": "./lib/runtime/btw-policy.d.ts",
       "default": "./lib/runtime/btw-policy.js"
@@ -171,6 +179,7 @@
     "@deepseek-ai/dsh-agent": "0.2.2-rc.3",
     "@deepseek-ai/dsh-agent-default-model": "0.2.2-rc.3",
     "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-agent-team": "0.2.2-rc.3",
     "@deepseek-ai/dsh-attachment": "0.2.2-rc.3",
     "@deepseek-ai/dsh-authorization": "0.2.2-rc.3",
     "@deepseek-ai/dsh-cmdline": "0.2.2-rc.3",
@@ -188,7 +197,9 @@
     "@deepseek-ai/dsh-jobs": "0.2.2-rc.3",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
     "@deepseek-ai/dsh-llm-retry": "0.2.2-rc.3",
-    "@deepseek-ai/dsh-message-feedback": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-mcp-client": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-mcp-manager": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-native-command": "0.2.2-rc.3",
     "@deepseek-ai/dsh-permission-presets": "0.2.2-rc.3",
     "@deepseek-ai/dsh-plan-mode": "0.2.2-rc.3",
     "@deepseek-ai/dsh-plugin-manager": "0.2.2-rc.3",
@@ -204,12 +215,16 @@
     "@deepseek-ai/dsh-session-stats": "0.2.2-rc.3",
     "@deepseek-ai/dsh-session-title": "0.2.2-rc.3",
     "@deepseek-ai/dsh-settings": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-shell": "0.2.2-rc.3",
     "@deepseek-ai/dsh-skill": "0.2.2-rc.3",
     "@deepseek-ai/dsh-subagent": "0.2.2-rc.3",
     "@deepseek-ai/dsh-subprocess": "0.2.2-rc.3",
     "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.3",
     "@deepseek-ai/dsh-terminal": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-tmux-context": "0.2.2-rc.3",
     "@deepseek-ai/dsh-token-meter": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-util-values": "0.2.2-rc.3",
     "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.3",
     "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.3",
     "@deepseek-ai/dsh-tool-present": "0.2.2-rc.3",

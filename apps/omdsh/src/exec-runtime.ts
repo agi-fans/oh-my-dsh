@@ -38,10 +38,32 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
   let text = '', resultError: ExecResult['error'], requiresInput = false
   let terminalReason: string | undefined
   const owned = new Set<Agent>()
+  const knownSessionIds = new Set<string>()
   const stopped = new AbortController()
   const lifetime = AbortSignal.any([signal, stopped.signal])
   const off: Array<() => void> = []
-  const belongs = (agent: Agent): boolean => owned.has(agent)
+  const isTreeMember = (agent: Agent): boolean => {
+    if (root === undefined || agent === root) return false
+    try {
+      return ctx.get('subagents')?.rootOf(agent) === root
+    } catch {
+      return false
+    }
+  }
+  const claim = (agent: Agent): boolean => {
+    if (owned.has(agent)) return true
+    const parentId = agent.session.header.parentSession
+    if (
+      (parentId !== undefined && (parentId === root?.id || knownSessionIds.has(String(parentId))))
+      || isTreeMember(agent)
+    ) {
+      owned.add(agent)
+      knownSessionIds.add(String(agent.id))
+      return true
+    }
+    return false
+  }
+  const belongs = (agent: Agent): boolean => claim(agent)
   const cancel = (): void => { root?.cancel({ kind: 'user' }) }
   lifetime.addEventListener('abort', cancel, { once: true })
   const needInput = (kind: 'approval' | 'question', data: unknown): void => {
@@ -50,11 +72,12 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
     stopped.abort(new Error('Execution requires human input.'))
   }
   off.push(ctx.on('agent/created', ({ agent }): undefined => {
-    // Runtime tree membership publishes after the created edge, so follow the
-    // durable creator link the child already carries; unrelated roots stay out.
-    const parentId = agent.session.header.parentSession
-    if (parentId === undefined) return
-    if (parentId === root?.id || [...owned].some(owner => owner.id === parentId)) owned.add(agent)
+    claim(agent)
+  }))
+  off.push(ctx.on('subagent/start', (info): undefined => {
+    if (!info.local) return
+    const child = agents.get(info.id)
+    if (child !== undefined) claim(child)
   }))
   off.push(ctx.on('agent/disposed', ({ agent }) => { if (agent !== root) owned.delete(agent) }))
   off.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
@@ -64,7 +87,11 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
     if (agent === root) resultError = failure(error)
   }))
   off.push(ctx.on('session/event', (session, event: SessionEvent) => {
-    const owner = [...owned].find(agent => agent.session === session)
+    let owner = [...owned].find(agent => agent.session === session)
+    if (owner === undefined) {
+      const candidate = agents.get(session.id)
+      if (candidate?.session === session && claim(candidate)) owner = candidate
+    }
     if (owner === undefined) return
     const identity = { sessionId: String(session.id), root: owner === root, eventSequence: event.seq, time: event.time }
     if (event.type === 'assistant/message') {
@@ -97,6 +124,7 @@ export async function executeAgent(ctx: Context, request: ExecRequest, output: E
     const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
       root = agent
       owned.add(agent)
+      knownSessionIds.add(String(agent.id))
       await configureAgentContext(agentCtx, agent)
     }
     if (request.resume !== undefined) {

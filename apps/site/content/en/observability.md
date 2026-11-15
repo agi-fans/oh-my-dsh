@@ -37,7 +37,7 @@ Every completed turn ends with a record of the files that turn changed, with the
 
 ## Tools and integrations: `/tools` and `/mcp`
 
-`/tools` opens a searchable catalog with a description preview. Enter opens the complete description, and Esc returns to the list. `/mcp` offers server entries with tool counts and recent calls, a searchable tool catalog, and rendered diagnostic pages. These views reflect exposed tools and recorded outcomes. Live connection and authentication status are unavailable in the published Harness API. Reopen `/tools` or refresh `/mcp` after a catalog change. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
+`/tools` opens a searchable catalog with a description preview. Enter opens the complete description, and Esc returns to the list; the catalog updates automatically when a reconnected MCP server changes its exposed tools. `/mcp` manages live Profile-backed MCP servers (add, enable/disable, one-shot `probe` diagnostics, `restart`, and remove) alongside static `mcp.json` entries, showing live connection status (`connected`, `connecting`, `waiting for credentials`, `reconnecting`, `disabled`, `failed`), grouped tools, rendered diagnostic pages, and the session’s latest ten calls, with non-disruptive Refresh. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
 
 ## Herdr pane integration
 

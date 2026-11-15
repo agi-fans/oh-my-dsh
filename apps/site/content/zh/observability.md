@@ -37,7 +37,7 @@ omdsh 展示的一切都读自 Harness 的 projection 和持久会话日志；�
 
 ## 工具与集成：`/tools` 与 `/mcp`
 
-`/tools` 打开可搜索的目录并预览说明，Enter 阅读完整说明，Esc 返回列表。`/mcp` 按服务器提供工具数量与最近调用入口，同时提供可搜索的工具目录和排版后的诊断页面。这些视图展示已暴露的工具和已记录的结果，当前发布的 Harness API 尚未提供实时连接与认证状态。目录变化后可重新打开 `/tools` 或刷新 `/mcp`。超过上下文预算的工具结果会溢写到私有文件，转录中保留有界预览，原始内容仍可用 `read` 或 `grep` 读取。
+`/tools` 打开可搜索的目录并预览说明，Enter 阅读完整说明，Esc 返回列表；重连后的 MCP 服务器暴露工具变化时，目录会自动刷新。`/mcp` 管理实时 Profile MCP 服务器（添加、启停、单次 `probe` 探测诊断、`restart` 重连与移除）并同时展示静态 `mcp.json` 条目，提供实时连接状态（`connected`、`connecting`、`waiting for credentials`、`reconnecting`、`disabled`、`failed`）、分组工具目录、排版后的诊断页面以及本会话最近十次调用，且支持不打断浏览位置的刷新。超过上下文预算的工具结果会溢写到私有文件，转录中保留有界预览，原始内容仍可用 `read` 或 `grep` 读取。
 
 ## Herdr 面板集成
 

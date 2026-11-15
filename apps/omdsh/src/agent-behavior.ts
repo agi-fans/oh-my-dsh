@@ -9,6 +9,8 @@ import type {} from '@deepseek-ai/dsh-settings'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
 import { resolveUiLanguage, type TuiAgentBehaviorSettingsBinding } from '@agi-fans/dsh-tui'
+import { omdshHome } from './config-paths.ts'
+import { hasBundleDefault, recordBundleDefault } from './profile.ts'
 
 export const name = 'omdsh-agent-behavior'
 export const inject = ['settings', 'systemPrompt']
@@ -106,4 +108,23 @@ export function apply(ctx: Context, config: Config): void {
       'bind Agent behavior settings to TUI',
     )
   })
+  const worktreeServices: string[] = ['worktrees']
+  ctx.inject(worktreeServices, (worktreeCtx) => {
+    void seedWorktreeArchiveDefault(worktreeCtx).catch(error => worktreeCtx.logger.warn(error))
+  })
+}
+
+/** Seed `retainOnArchive: true` once when the optional worktree bundle activates live. */
+export async function seedWorktreeArchiveDefault(ctx: Context, home: string = omdshHome()): Promise<boolean> {
+  if (hasBundleDefault(home, 'worktree') || !ctx.settings.writable) return false
+  const section = ctx.settings.describe().find(row => String(row.ns) === 'worktree')
+  if (section === undefined) return false
+  const user = section.user
+  if (typeof user === 'object' && user !== null && Object.hasOwn(user, 'retainOnArchive')) {
+    recordBundleDefault(home, 'worktree')
+    return false
+  }
+  await ctx.settings.mutate('worktree', [{ op: 'set', path: ['retainOnArchive'], value: true }], section.revision)
+  recordBundleDefault(home, 'worktree')
+  return true
 }
