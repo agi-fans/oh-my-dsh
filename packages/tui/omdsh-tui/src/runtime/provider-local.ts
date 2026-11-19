@@ -490,6 +490,10 @@ export class LocalTui implements TuiService {
   #search: HistorySearchState | null = null
   #transcriptSearch: TranscriptSearchState | null = null
   #settings: SettingsState | null = null
+  /** Settings paused for a multi-step flow so intermediate steps never flash Settings back. */
+  #suspendedSettings: SettingsState | null = null
+  /** Displaced Settings awaiting a microtask to see if a command opens a follow-up prompt. */
+  #pendingSettingsRestore: SettingsState | null = null
   /** Optional-feature state read from the Profile patch this process booted with. */
   #features: FeatureStates | undefined
   /** Profile patch the Tools feature controls write; absent hides those controls. */
@@ -1181,6 +1185,8 @@ export class LocalTui implements TuiService {
     this.#selection.clear()
     this.#trajectory = null
     this.#settings = null
+    this.#suspendedSettings = null
+    this.#pendingSettingsRestore = null
     this.#search = null
     this.#ac = null
     const browser = new FileBrowser({ ...request, canQuote: request.canQuote && (this.#inspected === undefined || this.#inspected.writable) }, () => { if (!this.#disposed) this.#render() }, () => {
@@ -1214,6 +1220,8 @@ export class LocalTui implements TuiService {
     this.#closeFileBrowser()
     this.#trajectory = createTrajectory(events)
     this.#settings = null
+    this.#suspendedSettings = null
+    this.#pendingSettingsRestore = null
     this.#search = null
     this.#ac = null
     this.#render()
@@ -2069,9 +2077,13 @@ export class LocalTui implements TuiService {
     if (this.#goalAbort !== undefined) return
     const abort = new AbortController()
     this.#goalAbort = abort
+    const suspended = this.#suspendSettings()
     void this.#goalHandler(abort.signal).catch(error => {
       if (!abort.signal.aborted && !this.#disposed) this.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
-    }).finally(() => { if (this.#goalAbort === abort) this.#goalAbort = undefined })
+    }).finally(() => {
+      if (this.#goalAbort === abort) this.#goalAbort = undefined
+      if (suspended) this.#resumeSuspendedSettings('action:goal')
+    })
   }
 
   setQueueHandler(handler: (signal: AbortSignal) => Promise<void>): () => void {
@@ -2196,6 +2208,8 @@ export class LocalTui implements TuiService {
     this.#plain.dispose()
     this.#offAgentBehaviorWatch?.()
     this.#offAgentBehaviorWatch = undefined
+    this.#suspendedSettings = null
+    this.#pendingSettingsRestore = null
     this.#settlePending(null)
     this.#finishPrompt(null)
     this.#disposeTask = Promise.all([this.#herdr.release(), this.#prefsSaveTask]).then(() => {})
@@ -2434,6 +2448,8 @@ export class LocalTui implements TuiService {
     if (this.#deferInitialRender) return
     // Rows committed to scrollback are immutable; the first real paint waits for the probe so it already uses the reported colors.
     if (this.#probeGate) return
+    // Multi-step settings flows transition directly between prompts without flashing Settings or the composer in between.
+    if (this.#prompt === null && (this.#suspendedSettings !== null || this.#pendingSettingsRestore !== null)) return
     const width = this.#term.width()
     const alternateSendKey = keysForAction(Object.fromEntries(Object.entries(this.#keybindings).filter(([key]) => {
       if (key === 'super+enter') return this.#receivedModifiedEnter.has(key)
@@ -4279,17 +4295,17 @@ export class LocalTui implements TuiService {
     if (command.kind === 'reset') {
       if (this.#prefsSaveTask !== undefined) return
       if (this.#pluginSettings?.reset === undefined) { void this.#settingsError('Restoring inheritance requires a writable Profile settings service.'); return }
-      this.#runPluginSettings((binding, signal) => binding.reset!(command.id, command.entry, signal, command.label))
+      this.#runPluginSettings((binding, signal) => binding.reset!(command.id, command.entry, signal, command.label), true)
       return
     }
     if (command.kind === 'open-plugin') {
       if (this.#prefsSaveTask !== undefined) return
-      this.#runPluginSettings((binding, signal) => binding.edit(command.id, signal))
+      this.#runPluginSettings((binding, signal) => binding.edit(command.id, signal), true)
       return
     }
     if (command.kind === 'set-plugin') {
       if (this.#prefsSaveTask !== undefined) return
-      this.#runPluginSettings(async (binding, signal) => { await binding.set?.(command.entry, command.value, signal) })
+      this.#runPluginSettings(async (binding, signal) => { await binding.set?.(command.entry, command.value, signal) }, false)
       return
     }
     if (command.kind === 'update') {
@@ -4329,11 +4345,32 @@ export class LocalTui implements TuiService {
     }
   }
 
-  #runPluginSettings(operation: (binding: PluginSettingsBinding, signal: AbortSignal) => Promise<void>): void {
+  #suspendSettings(): boolean {
+    if (this.#settings === null) return false
+    this.#suspendedSettings = this.#settings
+    this.#settings = null
+    this.#pendingSettingsRestore = null
+    return true
+  }
+
+  #resumeSuspendedSettings(focus?: string, entries?: readonly PluginSettingsEntry[]): void {
+    const state = this.#suspendedSettings
+    this.#suspendedSettings = null
+    if (state === null || this.#disposed) return
+    if (this.#prompt === null && this.#fileBrowser === null && this.#trajectory === null && this.#settings === null) {
+      this.#settings = state
+      this.#rebuildSettings(entries ?? this.#pluginSettings?.entries() ?? [], focus)
+      if (entries === undefined) this.#refreshSettingsCatalog()
+      if (this.#tty) this.#render()
+    }
+  }
+
+  #runPluginSettings(operation: (binding: PluginSettingsBinding, signal: AbortSignal) => Promise<void>, suspend = true): void {
     const binding = this.#pluginSettings
     if (binding === undefined) return
     const closing = new AbortController()
     const selected = this.#settings === null ? undefined : tuiSettingItems(this.#settings.prefs, this.#settings.agent, this.#settings.features, this.#settings.plugins, this.#settings.editors, this.#settings.actions)[this.#settings.selected]?.id
+    const suspended = suspend ? this.#suspendSettings() : false
     this.#catalogVersion++
     this.#pluginSettingsAbort = closing
     this.#pluginSettingsTask = Promise.resolve().then(() => operation(binding, closing.signal)).catch(async (error: unknown) => {
@@ -4344,6 +4381,10 @@ export class LocalTui implements TuiService {
       const entries = await this.#pluginSettings?.refresh?.().catch(() => this.#pluginSettings?.entries() ?? []) ?? this.#pluginSettings?.entries() ?? []
       this.#pluginSettingsAbort = undefined
       this.#pluginSettingsTask = undefined
+      if (suspended) {
+        this.#resumeSuspendedSettings(selected, entries)
+        return
+      }
       if (!this.#disposed) this.#rebuildSettings(entries, selected)
       if (this.#tty && !this.#disposed) this.#render()
     })
@@ -4817,6 +4858,8 @@ export class LocalTui implements TuiService {
     this.#ac = null
     this.#search = null
     this.#settings = null
+    this.#suspendedSettings = null
+    this.#pendingSettingsRestore = null
     this.#trajectory = null
     // Image placeholders are TUI-owned. Mixed image+slash drafts stay a
     // submission so restore can keep the original markers; the runner strips
@@ -5007,13 +5050,17 @@ export class LocalTui implements TuiService {
 
   /** Save and close the visible overlay so a prompt owns both input and screen. */
   #displaceSurface(): DisplacedSurface | null {
+    const pendingSettings = this.#pendingSettingsRestore
+    this.#pendingSettingsRestore = null
     const displaced: DisplacedSurface | null = this.#fileBrowser !== null
       ? { kind: 'fileBrowser', browser: this.#fileBrowser }
       : this.#trajectory !== null
       ? { kind: 'trajectory', state: this.#trajectory }
       : this.#settings !== null
         ? { kind: 'settings', state: this.#settings }
-        : this.#search !== null ? { kind: 'search', state: this.#search } : null
+        : pendingSettings !== null
+          ? { kind: 'settings', state: pendingSettings }
+          : this.#search !== null ? { kind: 'search', state: this.#search } : null
     this.#fileBrowser = null
     this.#trajectory = null
     this.#settings = null
@@ -5029,9 +5076,20 @@ export class LocalTui implements TuiService {
     if (displaced.kind === 'fileBrowser') this.#fileBrowser = displaced.browser
     else if (displaced.kind === 'trajectory') this.#trajectory = displaced.state
     else if (displaced.kind === 'settings') {
-      this.#settings = displaced.state
-      this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])
-      this.#refreshSettingsCatalog()
+      // Wait one microtask before repainting Settings: a multi-step command
+      // launched from Settings (e.g. /model, /login, /plugins) opens its next
+      // prompt in that turn and adopts this state without flashing Settings.
+      const state = displaced.state
+      this.#pendingSettingsRestore = state
+      queueMicrotask(() => {
+        if (this.#pendingSettingsRestore !== state || this.#disposed) return
+        this.#pendingSettingsRestore = null
+        if (this.#prompt !== null || this.#settings !== null || this.#fileBrowser !== null || this.#trajectory !== null) return
+        this.#settings = state
+        this.#rebuildSettings(this.#pluginSettings?.entries() ?? [])
+        this.#refreshSettingsCatalog()
+        if (this.#tty) this.#render()
+      })
     } else this.#search = displaced.state
   }
 
@@ -5151,15 +5209,15 @@ export class LocalTui implements TuiService {
   #syncSettingsActions(): void {
     if (this.#disposed) return
     const entries = this.#pluginSettings?.entries() ?? []
+    const refresh = (state: SettingsState): SettingsState => refreshSettings(
+      state,
+      createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, entries, discoverEditors(this.#externalEditor), this.#settingsActions()),
+    )
     if (this.#settings !== null) this.#rebuildSettings(entries)
+    if (this.#suspendedSettings !== null) this.#suspendedSettings = refresh(this.#suspendedSettings)
+    if (this.#pendingSettingsRestore !== null) this.#pendingSettingsRestore = refresh(this.#pendingSettingsRestore)
     if (this.#promptDisplaced?.kind === 'settings') {
-      this.#promptDisplaced = {
-        kind: 'settings',
-        state: refreshSettings(
-          this.#promptDisplaced.state,
-          createSettings(this.prefs(), undefined, this.#agentBehavior, this.#features, entries, discoverEditors(this.#externalEditor), this.#settingsActions()),
-        ),
-      }
+      this.#promptDisplaced = { kind: 'settings', state: refresh(this.#promptDisplaced.state) }
     }
   }
 
@@ -5667,79 +5725,84 @@ export class LocalTui implements TuiService {
 
   async #editKeybindings(): Promise<void> {
     if (this.#keybindingsPath === undefined) return
-    while (!this.#disposed) {
-      const options = [
-        { label: 'Test keys', value: '__test_keys__', description: 'See what the terminal sends without running an action.' },
-        ...TUI_ACTIONS.map(action => {
-          const keys = keysForAction(this.#keybindings, action)
-          const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
-          return {
-            label: `${TUI_ACTION_LABELS[action]} · ${keys}`,
-            value: action,
-            description: keys === defaultKeys ? `Action: ${action}` : `Action: ${action} (default: ${defaultKeys})`,
+    const suspended = this.#suspendSettings()
+    try {
+      while (!this.#disposed) {
+        const options = [
+          { label: 'Test keys', value: '__test_keys__', description: 'See what the terminal sends without running an action.' },
+          ...TUI_ACTIONS.map(action => {
+            const keys = keysForAction(this.#keybindings, action)
+            const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
+            return {
+              label: `${TUI_ACTION_LABELS[action]} · ${keys}`,
+              value: action,
+              description: keys === defaultKeys ? `Action: ${action}` : `Action: ${action} (default: ${defaultKeys})`,
+            }
+          }),
+          {
+            label: 'Reset all keybindings to defaults',
+            value: '__reset_all__',
+            description: 'Restore default shortcuts in keybindings.json',
+          },
+        ]
+        const choice = await this.prompt({ localize: true,
+          title: 'Keybindings',
+          question: 'Choose an action to remap, or Esc to return to /settings.',
+          options,
+          filterable: true,
+          allowCustom: false,
+          notify: false,
+        })
+        if (choice === null || this.#disposed) break
+        if (choice === '__test_keys__') { if (!await this.#testKeys()) break; continue }
+        if (choice === '__reset_all__') {
+          try {
+            saveKeybindings(this.#keybindingsPath, DEFAULT_KEYBINDINGS)
+            this.#keybindings = loadKeybindings(this.#keybindingsPath)
+            if (this.#settings !== null) this.#rebuildSettings(this.#pluginSettings?.entries() ?? [], 'action:keybindings')
+            this.notice('Reset keybindings to defaults.', { transient: true })
+          } catch (error) {
+            this.notice(`Could not save keybindings: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
           }
-        }),
-        {
-          label: 'Reset all keybindings to defaults',
-          value: '__reset_all__',
-          description: 'Restore default shortcuts in keybindings.json',
-        },
-      ]
-      const choice = await this.prompt({ localize: true,
-        title: 'Keybindings',
-        question: 'Choose an action to remap, or Esc to return to /settings.',
-        options,
-        filterable: true,
-        allowCustom: false,
-        notify: false,
-      })
-      if (choice === null || this.#disposed) break
-      if (choice === '__test_keys__') { if (!await this.#testKeys()) break; continue }
-      if (choice === '__reset_all__') {
+          continue
+        }
+        const action = choice as TuiAction
+        if (!TUI_ACTIONS.includes(action)) continue
+        const currentRawKeys = Object.entries(this.#keybindings).filter(([, bound]) => bound === action).map(([key]) => key)
+        const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
+        const entered = await this.prompt({ localize: true,
+          title: `Remap ${TUI_ACTION_LABELS[action]}`,
+          question: `Enter key chord (e.g. ctrl+s, alt+k), "default" (${defaultKeys}), or "none" to unbind.`,
+          initialInput: currentRawKeys[0] ?? '',
+          allowCustom: true,
+          notify: false,
+        })
+        if (entered === null || this.#disposed) continue
+        const normalized = normalizeKeyId(entered)
+        if (normalized === '') continue
+        const next: Record<string, TuiAction> = { ...this.#keybindings }
+        for (const [key, bound] of Object.entries(next)) {
+          if (bound === action) delete next[key]
+        }
+        if (normalized === 'default') {
+          for (const [key, bound] of Object.entries(DEFAULT_KEYBINDINGS)) {
+            if (bound === action) next[key] = action
+          }
+        } else if (normalized !== 'none' && normalized !== 'unbind') {
+          next[normalized] = action
+        }
         try {
-          saveKeybindings(this.#keybindingsPath, DEFAULT_KEYBINDINGS)
+          saveKeybindings(this.#keybindingsPath, next)
           this.#keybindings = loadKeybindings(this.#keybindingsPath)
           if (this.#settings !== null) this.#rebuildSettings(this.#pluginSettings?.entries() ?? [], 'action:keybindings')
-          this.notice('Reset keybindings to defaults.')
         } catch (error) {
           this.notice(`Could not save keybindings: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
         }
-        continue
       }
-      const action = choice as TuiAction
-      if (!TUI_ACTIONS.includes(action)) continue
-      const currentRawKeys = Object.entries(this.#keybindings).filter(([, bound]) => bound === action).map(([key]) => key)
-      const defaultKeys = keysForAction(DEFAULT_KEYBINDINGS, action)
-      const entered = await this.prompt({ localize: true,
-        title: `Remap ${TUI_ACTION_LABELS[action]}`,
-        question: `Enter key chord (e.g. ctrl+s, alt+k), "default" (${defaultKeys}), or "none" to unbind.`,
-        initialInput: currentRawKeys[0] ?? '',
-        allowCustom: true,
-        notify: false,
-      })
-      if (entered === null || this.#disposed) continue
-      const normalized = normalizeKeyId(entered)
-      if (normalized === '') continue
-      const next: Record<string, TuiAction> = { ...this.#keybindings }
-      for (const [key, bound] of Object.entries(next)) {
-        if (bound === action) delete next[key]
-      }
-      if (normalized === 'default') {
-        for (const [key, bound] of Object.entries(DEFAULT_KEYBINDINGS)) {
-          if (bound === action) next[key] = action
-        }
-      } else if (normalized !== 'none' && normalized !== 'unbind') {
-        next[normalized] = action
-      }
-      try {
-        saveKeybindings(this.#keybindingsPath, next)
-        this.#keybindings = loadKeybindings(this.#keybindingsPath)
-        if (this.#settings !== null) this.#rebuildSettings(this.#pluginSettings?.entries() ?? [], 'action:keybindings')
-      } catch (error) {
-        this.notice(`Could not save keybindings: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' })
-      }
+    } finally {
+      if (suspended) this.#resumeSuspendedSettings('action:keybindings')
+      else if (this.#tty && !this.#disposed) this.#render()
     }
-    if (this.#tty && !this.#disposed) this.#render()
   }
 
   /**

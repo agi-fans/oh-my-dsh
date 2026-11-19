@@ -10,6 +10,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createTheme, SPINNER, SYMBOL } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import type { TranscriptState } from './transcript-types.ts'
+import { tuiSettingItems } from './settings-list.ts'
 
 /** Fixture builder: a session event with a sequence number. */
 function ev(type: string, data: unknown, seq: number): SessionEvent {
@@ -2068,7 +2069,7 @@ describe('renderView', () => {
     expect(composerStart(frame.lines)).toBe(-1)
   })
 
-  it('replaces the editor with the settings overlay', () => {
+  it('replaces the editor with the docked settings panel above the live footer', () => {
     const frame = renderView(initialTranscript(), {
       width: 60,
       height: 24,
@@ -2085,9 +2086,112 @@ describe('renderView', () => {
     expect(text).toContain('←→ change')
     expect(text).not.toContain('draft')
     expect(frame.lines).toHaveLength(24)
-    expect(frame.lines[0]).toMatch(/^╭─ .*Settings/)
+    const panelStart = frame.lines.findIndex(line => /^╭─ .*Settings/.test(line))
+    expect(panelStart).toBeGreaterThan(0)
+    expect(frame.lines[frame.lines.length - 2]).toContain('m')
     expect(frame.cursorVisible).toBe(false)
-    expect(frame.cursor?.row).toBeGreaterThan(0)
+    expect(frame.cursor?.row).toBeGreaterThan(panelStart)
+  })
+
+  it('applies status-line settings directly to the live footer below docked Settings without duplicating a preview', () => {
+    const basePrefs = { theme: 'dark' as const, colors: true }
+    const modelIndex = tuiSettingItems(basePrefs).findIndex(item => item.id === 'statusItem:model')
+    const focused = renderView(initialTranscript(), {
+      width: 100,
+      height: 28,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+      pwd: '~/project',
+      branch: 'main *1',
+      input: '',
+      inputCursor: 0,
+      colors: true,
+      settings: { selected: modelIndex, prefs: basePrefs },
+    })
+    const plain = focused.lines.map(stripAnsi).join('\n')
+    expect(plain).not.toContain('Preview · example data')
+    expect(focused.lines[focused.lines.length - 2]).toContain('\x1b[4m')
+    expect(stripAnsi(focused.lines[focused.lines.length - 2]!)).toContain('deepseek-chat')
+    const hiddenModel = renderView(initialTranscript(), {
+      width: 100,
+      height: 28,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+      pwd: '~/project',
+      branch: 'main *1',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      statusBar: { density: 'standard', hidden: ['model'] },
+      settings: { selected: modelIndex, prefs: { ...basePrefs, statusBar: { density: 'standard', hidden: ['model'] } } },
+    })
+    expect(hiddenModel.lines[hiddenModel.lines.length - 2]).not.toContain('deepseek-chat')
+    expect(hiddenModel.lines[hiddenModel.lines.length - 2]).toContain('high')
+  })
+
+  it('keeps short-session transcript anchored above bottom cards instead of jumping to the top', () => {
+    const state = applyEvent(initialTranscript(), ev('user/message', {
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: 'keep me near the card' }],
+    }, 1))
+    const idle = renderView(state, {
+      width: 80,
+      height: 40,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+    })
+    const withCard = renderView(state, {
+      width: 80,
+      height: 40,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      promptSelector: {
+        request: { title: 'Models', question: 'Choose model', allowCustom: false, options: [{ label: 'deepseek-chat' }] },
+        selected: 0,
+        checked: new Set(),
+      },
+    })
+    const idleRow = idle.lines.findIndex(line => line.includes('keep me near the card'))
+    const cardRow = withCard.lines.findIndex(line => line.includes('keep me near the card'))
+    const cardTop = withCard.lines.findIndex(line => line.includes('╭─── Models'))
+    expect(idleRow).toBeGreaterThan(15)
+    expect(cardRow).toBeGreaterThan(10)
+    expect(cardTop - cardRow).toBeLessThanOrEqual(4)
+  })
+
+  it('collapses unfocused todos and subagents to single-line summaries on cramped terminals', () => {
+    const state: TranscriptState = {
+      ...initialTranscript(),
+      todos: [
+        { content: 'first task', status: 'completed' },
+        { content: 'active task', status: 'in_progress' },
+        { content: 'third task', status: 'pending' },
+      ],
+    }
+    const frame = renderView(state, {
+      width: 80,
+      height: 16,
+      model: 'm',
+      input: '',
+      inputCursor: 0,
+      colors: false,
+      sessionControls: { goal: { phase: 'active', objective: 'Ship fix', roundsStarted: 1, maxGoalRounds: 3 } },
+      subagents: {
+        agents: [
+          { id: 'a1', label: 'worker-1', phase: 'running', depth: 1 },
+          { id: 'a2', label: 'worker-2', phase: 'completed', depth: 1 },
+        ],
+      },
+    })
+    const text = frame.lines.join('\n')
+    expect(text).toContain('Todos · 1/3 · ⟳ active task')
+    expect(text).not.toContain('third task')
+    expect(text).toContain('Agents · 1 running · 1 done')
+    expect(text).not.toContain('worker-1')
   })
 })
 

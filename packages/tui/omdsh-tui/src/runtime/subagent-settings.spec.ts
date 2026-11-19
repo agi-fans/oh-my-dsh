@@ -113,7 +113,7 @@ describe('combined subagent settings', () => {
     try {
       await openSubagentSettings(h.ctx, h.signal)
       expect(h.mutate.mock.calls.map(call => call[0])).toEqual(['subagent', MODELS, MODELS])
-      expect(h.notice).toHaveBeenCalledWith('Subagent settings saved.')
+      expect(h.notice).toHaveBeenCalledWith('Subagent settings saved.', { transient: true })
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -124,7 +124,7 @@ describe('combined subagent settings', () => {
     try {
       await openSubagentSettings(h.ctx, h.signal)
       expect(h.mutate.mock.calls.map(call => call[0])).toEqual(['subagent'])
-      expect(h.notice).not.toHaveBeenCalledWith('Subagent settings saved.')
+      expect(h.notice).not.toHaveBeenCalledWith('Subagent settings saved.', expect.anything())
     } finally { await h.ctx.fiber.dispose() }
   })
 

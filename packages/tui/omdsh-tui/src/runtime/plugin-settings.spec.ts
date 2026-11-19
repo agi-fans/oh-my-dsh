@@ -135,7 +135,7 @@ describe('plugin configuration', () => {
       expect(h.prompt.mock.calls[0]![0]).toMatchObject({ title: 'File recovery snapshots', options: expect.arrayContaining([expect.objectContaining({ label: 'Snapshots' })]) })
       expect(h.prompt.mock.calls[1]![0].options?.map(option => option.label)).toEqual(['off', 'one', 'two'])
       expect(h.mutate).toHaveBeenCalledWith('file-recovery', [{ op: 'set', path: ['enabled'], value: 'two' }], 7)
-      expect(h.notice).toHaveBeenCalledWith('Snapshots: saved.')
+      expect(h.notice).toHaveBeenCalledWith('Snapshots: saved.', { transient: true })
     } finally { await h.ctx.fiber.dispose() }
   })
 
@@ -349,7 +349,7 @@ describe('plugin configuration', () => {
       ])
       await config.editSettingsEntry(h.ctx, ns, new AbortController().signal)
       expect(h.mutate).toHaveBeenCalledWith(ns, [{ op: 'unset', path: ['timeoutMs'] }], 7)
-      expect(h.notice).toHaveBeenCalledWith('Shell: Settings saved.')
+      expect(h.notice).toHaveBeenCalledWith('Shell: Settings saved.', { transient: true })
     } finally { await h.ctx.fiber.dispose() }
   })
 

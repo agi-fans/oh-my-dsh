@@ -5,6 +5,8 @@ import {
   createSettings,
   renderSettings,
   refreshSettings,
+  SETTINGS_ITEM_ROW,
+  settingsPanelHeight,
   tuiSettingItems,
   type TuiPrefs,
 } from './settings-list.ts'
@@ -335,10 +337,6 @@ describe('applySettingsEvent', () => {
     // Identity stays left and place stays right. A reader cannot drag a path to
     // the left column, because the line is read positionally: model and effort
     // answer "with what", path and branch answer "where".
-    const preview = renderSettings(createSettings(prefs, 'statusItem:git'), theme, 80, 16).lines.join('\n')
-    expect(preview).toMatch(/deepseek · max\s+~\/project · main \*1/)
-    // The column is not a setting: no key can move an item to the other side,
-    // and a document that still names a side is reduced on read.
     const open = createSettings(prefs, 'statusItem:git')
     for (const id of ['enter', 'left', 'right', 'up', 'down']) {
       const result = applySettingsEvent(open, key(id))
@@ -439,49 +437,33 @@ describe('renderSettings', () => {
     const terminalStatus = renderSettings(createSettings(prefs, 'terminalState'), theme, 40, 12).lines.join('\n')
     expect(terminalStatus).toContain('Terminal status')
     expect(terminalStatus).toContain('Show activity and progress')
-    const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50).lines.join('\n')
+    const status = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 50, 24).lines.join('\n')
     expect(status).toContain('Status line')
     expect(status).toContain('Show session metrics')
+    expect(status).not.toContain('Preview · example data')
     const metrics = renderSettings(createSettings(prefs, 'statusItem:speed'), theme, 50, 24).lines.join('\n')
     expect(metrics).toContain('Context')
     expect(metrics).toContain('Latency')
-    expect(status).toContain('deepseek')
-    expect(status).toContain('Cache 99%')
     expect(status).toContain('Model')
     expect(status).toContain('Git')
     expect(status).toContain('deepseek')
     expect(status).toContain('~/project')
-    const wide = renderSettings(createSettings(prefs, 'statusItem:git'), theme, 120, 20).lines.join('\n')
-    expect(wide).toMatch(/deepseek · max\s+~\/project · main \*1/)
-    // The preview draws the density's own row, so `standard` shows latency and
-    // not the durations that arrive with `verbose`.
-    expect(wide).toContain('TTFT 1.2s')
-    expect(wide).not.toMatch(/main \*1…|TTFT…/u)
-    const textPreview = renderSettings(createSettings(prefs, 'statusItem:context'), theme, 120, 14).lines.join('\n')
-    expect(textPreview).toContain('Ctx 1.6%')
+    expect(metrics).toContain('Ctx 1.6%')
+    expect(metrics).toContain('Cache 99%')
+    expect(metrics).toContain('TTFT 1.2s')
   })
 
-  it('previews metadata when telemetry is disabled, matching the live footer', () => {
-    const hidden = applySettingValue(prefs, 'statusEnabled', 'off')
-    const preview = renderSettings(createSettings(hidden, 'statusEnabled'), theme, 140, 20).lines.slice(3, 5).join('\n')
-    expect(preview).toContain('deepseek')
-    expect(preview).toContain('main *1')
-    expect(preview).not.toContain('Cache')
-    expect(preview).not.toContain('Ctx')
-  })
-
-  it('previews the session title when enabled and keeps English samples in Chinese settings', () => {
+  it('keeps English row samples in Chinese settings without duplicating the live footer', () => {
     const chinese = createTheme(false, 'truecolor', 'dark', undefined, 'zh-CN')
     const base = { ...prefs, uiLanguage: 'zh-CN' as const }
     const before = renderSettings(createSettings(base, 'statusItem:session'), chinese, 140, 24)
-    expect(before.lines[3]).not.toContain('Fix the parser')
+    expect(before.lines.join('\n')).not.toContain('预览 · 示例数据')
+    expect(before.lines.join('\n')).toContain('Fix the parser')
+    expect(before.lines.join('\n')).toContain('Cache 99%')
+    expect(before.lines.join('\n')).toContain('Ctx 1.6%')
+    expect(before.lines.join('\n')).toContain('会话')
     const enabled = applySettingValue(base, 'statusItem:session', 'shown')
     const after = renderSettings(createSettings(enabled, 'statusItem:session'), chinese, 140, 24)
-    expect(after.lines[3]).toContain('Fix the parser')
-    expect(after.lines[2]).toContain('预览 · 示例数据 · 固定英文')
-    expect(after.lines[4]).toContain('Cache 99%')
-    expect(after.lines[4]).toContain('Ctx 1.6%')
-    expect(after.lines.join('\n')).toContain('会话')
     expect(before.lines).toHaveLength(after.lines.length)
   })
 
@@ -492,9 +474,28 @@ describe('renderSettings', () => {
     expect(item.description).toContain('Session metrics are off')
     const view = renderSettings(createSettings(disabled, item.id), theme, 140, 24)
     expect(view.lines.join('\n')).toMatch(/Cache.*on/)
-    expect(view.lines.slice(3, 4).join('\n')).not.toContain('Cache 99%')
-    const enabled = applySettingValue(disabled, 'statusEnabled', 'on')
-    expect(renderSettings(createSettings(enabled, item.id), theme, 140, 24).lines[4]).toContain('Cache 99%')
+    expect(view.lines.join('\n')).toContain('Session metrics are off')
+  })
+
+  it('keeps the list top row fixed across sections, exposes search cursor, and shows transient notices', () => {
+    const appearance = renderSettings(createSettings(prefs, 'theme'), theme, 80, 20)
+    const statusLine = renderSettings(createSettings(prefs, 'statusEnabled'), theme, 80, 20)
+    expect(appearance.lines[SETTINGS_ITEM_ROW - 1]).toMatch(/^├─+┤$/)
+    expect(statusLine.lines[SETTINGS_ITEM_ROW - 1]).toMatch(/^├─+┤$/)
+    expect(statusLine.lines.join('\n')).not.toContain('Preview · example data')
+    expect(appearance.cursorVisible).toBe(false)
+    expect(statusLine.cursorVisible).toBe(false)
+    const searched = applySettingsEvent(createSettings(prefs, 'theme'), { type: 'text', value: '主题' })
+    if (searched.kind !== 'update') throw new Error('expected search state')
+    const zh = createTheme(false, 'truecolor', 'dark', undefined, 'zh-CN')
+    const zhSearch = renderSettings(searched.state, zh, 80, 20)
+    expect(zhSearch.cursorVisible).toBe(true)
+    expect(zhSearch.cursor).toEqual({ row: 2, column: 2 + visibleWidth('搜索：主题') })
+    const withNotice = renderSettings(createSettings(prefs, 'theme'), theme, 80, 20, 'Snapshots: saved.')
+    expect(withNotice.lines[withNotice.lines.length - 2]).toContain('Snapshots: saved.')
+    expect(settingsPanelHeight(60, 2)).toBe(20)
+    expect(settingsPanelHeight(24, 2)).toBe(13)
+    expect(settingsPanelHeight(10, 2)).toBe(7)
   })
 
   it.each([false, true])('fits the localized settings and fixed English preview (colors=%s)', colors => {

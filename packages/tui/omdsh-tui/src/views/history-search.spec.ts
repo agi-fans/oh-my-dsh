@@ -104,4 +104,18 @@ describe('renderHistorySearch / highlightTokens', () => {
     expect(painted).not.toBe('git commit')
   })
 
+  it('uses shared list edge markers and (n/total) counter when windowed', () => {
+    const many = Array.from({ length: 12 }, (_, index) => `prompt-${index}`)
+    let state = createHistorySearch(many)
+    for (let step = 0; step < 5; step++) {
+      const next = applyHistorySearchEvent(state, key('down'), many)
+      if (next.kind === 'update') state = next.state
+    }
+    const frame = renderHistorySearch(state, theme, 50, 4)
+    const rendered = frame.lines.join('\n')
+    expect(rendered).toContain('↑ ')
+    expect(rendered).toContain('↓ ')
+    expect(rendered).toContain('(6/12)')
+  })
+
 })

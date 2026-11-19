@@ -25,7 +25,7 @@ async function preview(ctx: Context, operation: RecoveryOperation, signal: Abort
     return source.binary ? `Binary · ${state.size} bytes · ${state.hash}` : codeDocument(source.text, source.language ?? '')
       + (source.truncated ? '\n\nPreview truncated; complete bytes are retained.' : '')
   }
-  return `## ${pathLabel(operation.path)}\n\n### Before Turn\n\n${await side(operation.before)}\n\n### After Turn\n\n${await side(operation.after)}`
+  return `### Before Turn\n\n${await side(operation.before)}\n\n### After Turn\n\n${await side(operation.after)}`
 }
 
 export async function reviewFileRecovery(ctx: Context, agent: Agent, sessionId: string, turn: number, upstream: AbortSignal,

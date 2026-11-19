@@ -307,7 +307,7 @@ export async function setSettingsEntry(ctx: Context, entry: PluginSettingsEntry,
   const field = configFields(new z(section.schema as Partial<z>)).find(field => field.path.join('.') === inline.path.join('.') && field.path.join('.') === form?.inline)
   if (field === undefined || field.secret || field.protected) throw new Error('This setting is no longer editable. Refresh and retry.')
   await saveValue(ctx, section, field, parseConfigValue(field, choice))
-  ctx.tui.notice(`${form?.fields[field.path.join('.')] ?? entry.label}: saved.`)
+  ctx.tui.notice(`${form?.fields[field.path.join('.')] ?? entry.label}: saved.`, { transient: true })
 }
 
 /** Route a product row to its original owner; installation remains in /plugins. */
@@ -418,7 +418,7 @@ export async function resetSettingsControl(ctx: Context, id: string, entry: Plug
     }
   }
   if (changes.length > 0) await ctx.settings.mutate(ns, changes, revision)
-  ctx.tui.notice('Inherited setting restored.')
+  ctx.tui.notice('Inherited setting restored.', { transient: true })
 }
 
 export async function editPluginSettings(ctx: Context, ns: string, signal: AbortSignal, allowedFields?: readonly string[], presentation?: Pick<ProductForm, 'label' | 'fields'>, resetOnly = false): Promise<void> {
@@ -489,7 +489,7 @@ export async function editPluginSettings(ctx: Context, ns: string, signal: Abort
         const value = presentation === undefined ? parseConfigValue(field, text) : parseProductValue(field, text)
         await saveValue(ctx, section, field, value)
       }
-      ctx.tui.notice(`${presentation === undefined ? `${ns}.${field.path.join('.')}` : label}: ${action === 'reset' ? 'inherited value restored' : 'saved'}.`)
+      ctx.tui.notice(`${presentation === undefined ? `${ns}.${field.path.join('.')}` : label}: ${action === 'reset' ? 'inherited value restored' : 'saved'}.`, { transient: true })
       if (directField && !resetOnly) return
     } catch (error) {
       // Secret validation messages may echo their input.

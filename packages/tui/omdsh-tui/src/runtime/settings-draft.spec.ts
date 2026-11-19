@@ -190,7 +190,7 @@ describe('staged Shell and tool parallelism settings', () => {
       expect(request.options?.find(row => row.value === 'timeoutMs')?.preview).toContain('作用于新命令')
       return 'timeoutMs'
     }, '30s', '@apply'], 'bash', 'zh-CN')
-    try { await h.run(); expect(h.notice).toHaveBeenCalledWith('Shell: 设置已保存。') }
+    try { await h.run(); expect(h.notice).toHaveBeenCalledWith('Shell: 设置已保存。', { transient: true }) }
     finally { await h.ctx.fiber.dispose() }
   })
 })

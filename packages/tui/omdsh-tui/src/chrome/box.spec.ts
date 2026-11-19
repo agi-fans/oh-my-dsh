@@ -288,7 +288,7 @@ describe('renderEditor', () => {
       border: 'border',
       note: 'Thinking: hidden',
     }, theme)
-    expect(frame.lines[2]).toContain('Thinking: hidden')
+    expect(frame.lines[2]).toContain('── Thinking: hidden ──')
     expect(frame.lines[1]).not.toContain('Thinking: hidden')
     expect(oracleWidth(frame.lines[2] ?? '')).toBe(40)
     // The input row and the cursor keep their positions, so a note never moves

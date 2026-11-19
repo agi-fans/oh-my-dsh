@@ -1,6 +1,6 @@
 /** File comparison layout; terminal ownership and asynchronous reads stay in the controller. */
 import type { TuiDocumentPosition, TuiDocumentSource, TuiReviewFile } from '../definition.ts'
-import { paintSurface, type Theme } from '../chrome/theme.ts'
+import { paintSurface, SYMBOL, type Theme } from '../chrome/theme.ts'
 import { padToWidth, stripAnsi, truncateToWidth, wrapText } from '../chrome/width.ts'
 import { documentLayout, documentMarkdown, documentMatches, documentPosition, documentStart } from './document-reader.ts'
 
@@ -120,7 +120,7 @@ export function renderFileBrowser(state: FileBrowserState, theme: Theme, width: 
       const directory = slash < 0 ? '' : path.slice(0, slash)
       const summary = item.description?.split(' · ')[0] ?? ''
       const delta = /^(?:\+|binary)/u.test(summary) ? ' ' + clean(summary) : ''
-      const prefix = `${at === state.selected ? '›' : ' '} ${item.status ?? '·'} `
+      const prefix = `${at === state.selected ? SYMBOL.cursor : ' '} ${item.status ?? '·'} `
       const room = Math.max(1, listWidth - prefix.length - delta.length - 2)
       const label = truncateToWidth(name, room) + (directory === '' ? '' : theme.fg('dim', `  ${directory}`))
       left = fit(prefix + truncateToWidth(label, room), Math.max(0, listWidth - delta.length - 1)) + theme.fg('dim', delta) + ' '
@@ -133,7 +133,7 @@ export function renderFileBrowser(state: FileBrowserState, theme: Theme, width: 
     if (state.help) right = theme.fg('dim', browserHelp(doc.documentWidth)[state.helpScroll + row] ?? '')
     else if (state.menu !== undefined) {
       const action = actions[Math.max(0, (state.menu ?? 0) - doc.page + 1) + row]
-      right = action === undefined ? '' : `${row + Math.max(0, (state.menu ?? 0) - doc.page + 1) === state.menu ? '›' : ' '} ${action.key.toUpperCase()}  ${action.label}`
+      right = action === undefined ? '' : `${row + Math.max(0, (state.menu ?? 0) - doc.page + 1) === state.menu ? SYMBOL.cursor : ' '} ${action.key.toUpperCase()}  ${action.label}`
       if (row + Math.max(0, (state.menu ?? 0) - doc.page + 1) === state.menu) right = paintSurface(theme, 'userMessageBg', 'userMessageText', right)
     }
     const rightWidth = width - (doc.split ? doc.left + 1 : 0)

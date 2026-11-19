@@ -29,6 +29,7 @@ describe('help reader', () => {
     const answers = ['shortcuts', null, null]
     await browseHelp({ prompt: async request => { requests.push(request); return answers.shift() ?? null } }, commands, {}, 'en', false, new AbortController().signal)
     expect(requests.map(request => request.title)).toEqual(['Help', 'Help · Shortcuts', 'Help'])
+    expect(requests[1]?.detail).toMatch(/^## Essential\b/u)
     expect(requests[1]?.detail).toContain('Diff / file browser')
   })
 })

@@ -115,7 +115,7 @@ function metric(label: string, value: string, tone: StatusTone = 'value'): Statu
   return [part(label + ' ', 'label'), part(value, tone)]
 }
 
-/** Fixed English metric labels shared by the live footer and settings preview. */
+/** Fixed English metric labels for the live status footer. */
 function buildStatusGroups(stats: TuiSessionStats, config: ResolvedStatusBarConfig): StatusGroup[] {
   const groups: StatusGroup[] = []
   if (stats.contextWindow !== undefined && stats.contextWindow > 0) {

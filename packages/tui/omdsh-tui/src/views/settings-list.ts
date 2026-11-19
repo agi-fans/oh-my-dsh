@@ -25,7 +25,6 @@ import {
   type StatusItemId,
   type StatusPreset,
 } from '../chrome/status-config.ts'
-import { renderStatusFooter } from '../chrome/status-line.ts'
 import { BOX, THEME_NAMES, type Theme, type ThemeColor, type ThemeName, isThemeName } from '../chrome/theme.ts'
 import { padToWidth, truncateToWidth, visibleWidth, wrapTextStable } from '../chrome/width.ts'
 import type { TuiAgentBehaviorSettings } from '../definition.ts'
@@ -463,7 +462,8 @@ export function createSettings(
   }
 }
 
-function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
+/** Status footer item currently selected in Settings, when any. */
+export function selectedStatusItem(state: SettingsState): StatusItemId | undefined {
   const id = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)[state.selected]?.id
   if (id?.startsWith('statusItem:') !== true) return undefined
   const item = id.slice('statusItem:'.length)
@@ -798,55 +798,28 @@ function renderSectionTabs(
     : ` ‹ ${tab(active, sections[current]?.label ?? active)} · ${current + 1}/${sections.length} ›` , width)
 }
 
-const STATUS_PREVIEW_STATS = {
-  turns: 3,
-  steps: 24,
-  llmMs: 1_011_000,
-  toolMs: 213_000,
-  ttftMs: 3_600,
-  ttftSteps: 3,
-  decodeMs: 922_500,
-  decodeTokens: 73_800,
-  inputTokens: 5_900_000,
-  outputTokens: 73_800,
-  cacheReadTokens: 5_841_000,
-  cacheWriteTokens: 0,
-  contextTokens: 16_400,
-  contextWindow: 1_000_000,
+/**
+ * Docked height for the settings panel above the live status footer.
+ *
+ * Capped so tall terminals keep the conversation visible above the panel and
+ * avoid an empty canyon between items and their description, while holding one
+ * steady height across section tabs so `Tab` never bounces the top border.
+ */
+export function settingsPanelHeight(height: number, footerRows = 2): number {
+  const ceiling = Math.max(1, height - footerRows - 1)
+  if (ceiling <= 10) return ceiling
+  const preferred = Math.max(12, Math.min(20, Math.floor(height * 0.55)))
+  return Math.min(preferred, Math.max(10, height - footerRows - 3))
 }
 
-const STATUS_PREVIEW_META = {
-  model: 'deepseek',
-  reasoningEffort: 'max',
-  pwd: '~/project',
-  branch: 'main *1',
-  sessionTitle: 'Fix the parser',
-}
-
-function renderStatusPreview(state: SettingsState, theme: Theme, width: number, rows: number): string[] {
-  const config = resolveStatusBarConfig(state.prefs.statusBar, state.prefs.statusPreset)
-  const inner = Math.max(0, width - 4)
-  const prefix = theme.text('Preview') + '  '
-  const label = theme.fg('dim', prefix)
-  const focus = selectedStatusItem(state)
-  const preview = renderStatusFooter({
-    ...STATUS_PREVIEW_META,
-    stats: STATUS_PREVIEW_STATS,
-    config,
-    width: inner,
-    ...(focus === undefined ? {} : { focus }),
-  }, theme)
-  if (preview.length === 0) return [framedRow(theme, label + theme.fg('muted', theme.text('disabled')), width)]
-  return preview.slice(0, Math.max(1, rows)).map(line => framedRow(theme, line, width))
-}
-
-/** Fullscreen OMP-style settings frame with stable chrome and section tabs. */
+/** Docked settings panel with stable chrome and section tabs above the live footer. */
 export function renderSettings(
   state: SettingsState,
   theme: Theme,
   width: number,
-  height: number = 24,
-): { lines: string[]; cursor: { row: number; column: number } } {
+  height: number = 20,
+  notice?: string,
+): { lines: string[]; cursor: { row: number; column: number }; cursorVisible: boolean } {
   const items = tuiSettingItems(state.prefs, state.agent, state.features, state.plugins, state.editors, state.actions)
   const index = Math.max(0, Math.min(state.selected, Math.max(0, items.length - 1)))
   const viewState = index === state.selected ? state : { ...state, selected: index }
@@ -856,15 +829,9 @@ export function renderSettings(
   const sectionStart = section.start
   const sectionEnd = section.end
   const sectionItems = items.slice(sectionStart, sectionEnd)
-  const descriptionRows = height >= 12 ? 2 : height >= 10 ? 1 : 0
-  const maxPreviewContent = items[index]?.group === 'Status line'
-    ? (height >= 13 ? 3 : height >= 11 ? 2 : height >= 9 ? 1 : 0)
-    : 0
-  const previewLines = maxPreviewContent > 0
-    ? renderStatusPreview(state, theme, width, maxPreviewContent)
-    : []
-  const previewRows = previewLines.length === 0 ? 0 : previewLines.length + 1
   const matches = state.search === undefined ? undefined : settingsMatches(state)
+  const searchRows = matches === undefined ? 0 : 1
+  const descriptionRows = height - searchRows >= 13 ? 2 : height - searchRows >= 10 ? 1 : 0
   type Row = { item: SettingItem; index: number; section?: string } | { group: string }
   let previousGroup: string | undefined
   const rows: readonly Row[] = matches ?? sectionItems.flatMap<Row>((item, offset) => {
@@ -872,7 +839,7 @@ export function renderSettings(
     previousGroup = item.group
     return [...heading, { item, index: sectionStart + offset }]
   })
-  const viewportHeight = Math.max(1, height - 6 - descriptionRows - previewRows - (matches === undefined ? 0 : 1))
+  const viewportHeight = Math.max(1, height - 6 - descriptionRows - searchRows)
   const localSelection = rows.findIndex(row => 'item' in row && row.index === index)
   const visibleCount = Math.min(viewportHeight, rows.length)
   const start = Math.max(0, Math.min(
@@ -882,12 +849,16 @@ export function renderSettings(
   const visibleItems = rows.slice(start, start + visibleCount)
   const selected = matches?.length === 0 ? undefined : items[index]
   const lines = [topBorder(theme, width), renderSectionTabs(active, sections, theme, width)]
-  if (matches !== undefined) lines.push(framedRow(theme, theme.text('Search: {query} · {count} matches', { query: state.search || theme.text('type to filter'), count: matches.length }), width))
-  lines.push(divider(theme, width, previewLines.length > 0 ? theme.text('Preview · example data · English') : undefined))
-  if (previewLines.length > 0) {
-    lines.push(...previewLines, divider(theme, width))
+  let searchCursorColumn = 2
+  if (matches !== undefined) {
+    const queryText = state.search || theme.text('type to filter')
+    const searchText = theme.text('Search: {query} · {count} matches', { query: queryText, count: matches.length })
+    const prefix = theme.text('Search: {query} · {count} matches', { query: '\0', count: matches.length }).split('\0')[0] ?? ''
+    searchCursorColumn = Math.min(Math.max(2, width - 3), 2 + visibleWidth(prefix + (state.search ?? '')))
+    lines.push(framedRow(theme, searchText, width))
   }
-  let cursorRow = SETTINGS_ITEM_ROW
+  lines.push(divider(theme, width))
+  let cursorRow = SETTINGS_ITEM_ROW + searchRows
   for (let row = 0; row < viewportHeight; row += 1) {
     const entry = visibleItems[row]
     if (entry === undefined) {
@@ -922,13 +893,16 @@ export function renderSettings(
         : selected?.id.startsWith('statusItem:') === true
           ? 'Space show/hide · / search · Ctrl+R reset · Esc back'
           : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints()
-  const hints = theme.fg('dim', theme.text(width < 60
-    ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
-    : fullHint))
+  const hints = notice !== undefined && notice !== ''
+    ? theme.fg('accent', notice)
+    : theme.fg('dim', theme.text(width < 60
+      ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
+      : fullHint))
   lines.push(framedRow(theme, hints, width), bottomBorder(theme, width))
   return {
     lines,
-    cursor: { row: cursorRow, column: 2 },
+    cursor: matches !== undefined ? { row: 2, column: searchCursorColumn } : { row: cursorRow, column: 2 },
+    cursorVisible: matches !== undefined,
   }
 }
 

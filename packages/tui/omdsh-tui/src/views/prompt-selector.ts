@@ -150,8 +150,8 @@ function treePreview(option: PromptOption | undefined, theme: Theme, width: numb
 function treePageLayout(request: TuiPrompt, width: number, height: number, language: UiLanguage = 'en') {
   const actions = (request.actions ?? []).map(item => `${item.key} ${item.label}`).join(' · ')
   const hint = [uiText(language, '↑↓ · ←→ fold'), ...(width >= 90 ? [uiText(language, 'type search')] : []), ...(actions === '' ? [] : [actions]), ...(width >= 90 ? [uiText(language, 'Ctrl+↑↓ preview')] : [])].join(' · ')
-  const hints = wrapTextStable(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 6) / 2)))
-  const middle = height - 6 - hints.length
+  const hints = wrapTextStable(hint, width - 4).slice(0, Math.max(1, Math.floor((height - 5) / 2)))
+  const middle = height - 5 - hints.length
   const listHeight = width >= 90 ? middle : Math.max(1, Math.floor((middle - 1) / 2))
   const previewHeight = width >= 90 ? middle : middle - listHeight - 1
   return { hints, middle, listHeight, previewHeight }
@@ -170,7 +170,7 @@ export function promptTreePageSize(request: TuiPrompt, width: number, height: nu
 /** A hierarchical choice with an independently scrollable content preview. */
 export function renderPromptTreePage(
   state: PromptSelectorState, theme: Theme, width: number, height: number,
-  input: string, inputCursor: number, appName: string,
+  input: string, inputCursor: number, _appName?: string,
 ): PromptSelectorFrame {
   if (height < 10 || width < 20) return renderPromptSelector(state, theme, width, input, inputCursor, Math.max(1, height - 8))
   const rows = promptTreeRows(state.request, state.collapsed, input)
@@ -217,7 +217,7 @@ export function renderPromptTreePage(
   const preview = treePreview(option, theme, Math.max(1, previewWidth))
   const maxScroll = Math.max(0, preview.length - previewHeight)
   const scroll = Math.max(0, Math.min(state.previewScroll ?? 0, maxScroll))
-  const lines = [pageTop(theme, width, appName), pageRow(theme, theme.bold(state.request.title), width),
+  const lines = [pageTop(theme, width, state.request.title),
     pageRow(theme, theme.fg('dim', '> ') + input, width), pageDivider(theme, width)]
   if (split) {
     for (let at = 0; at < middle; at++) lines.push(pageRow(theme,
@@ -231,9 +231,9 @@ export function renderPromptTreePage(
   const navigation = option === undefined || option.disabled === true ? theme.text('Esc back') : theme.text(`Enter ${action} · Esc back`)
   lines.push(pageRow(theme, theme.fg('dim', navigation), width),
     ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageBottom(theme, width))
-  return { lines, choices: rows.slice(range.start, range.end).map((row, index) => ({ row: 4 + index, column: 2, width: listWidth, index: range.start + index, value: row.option.value ?? row.option.label })), cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
+  return { lines, choices: rows.slice(range.start, range.end).map((row, index) => ({ row: 3 + index, column: 2, width: listWidth, index: range.start + index, value: row.option.value ?? row.option.label })), cursor: { row: 1, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
     document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight,
-      preview: { row: split ? 4 : 5 + listHeight, column: split ? listWidth + 5 : 2, height: previewHeight },
+      preview: { row: split ? 3 : 4 + listHeight, column: split ? listWidth + 5 : 2, height: previewHeight },
     }, cursorVisible: true }
 }
 
@@ -325,13 +325,18 @@ function pageRow(theme: Theme, content: string, width: number): string {
   return pageBorder(theme, BOX.vertical) + ' ' + fit(content, inner) + ' ' + pageBorder(theme, BOX.vertical)
 }
 
-function pageTop(theme: Theme, width: number, appName: string): string {
+function pageTop(theme: Theme, width: number, label: string, position = ''): string {
   const inner = Math.max(0, width - 2)
-  const title = truncateToWidth(` ${appName} `, Math.max(0, inner - 1))
-  const fill = Math.max(0, inner - 1 - visibleWidth(title))
+  const right = position === '' ? '' : truncateToWidth(' ' + position + ' ', Math.max(0, inner - 4))
+  const rightWidth = visibleWidth(right)
+  const titleBudget = Math.max(0, inner - 1 - rightWidth - (rightWidth === 0 ? 0 : 1))
+  const title = truncateToWidth(` ${label} `, titleBudget)
+  const fill = Math.max(0, inner - 1 - visibleWidth(title) - rightWidth - (rightWidth === 0 ? 0 : 1))
   return pageBorder(theme, BOX.topLeft + BOX.horizontal)
-    + theme.fg('muted', title)
-    + pageBorder(theme, BOX.horizontal.repeat(fill) + BOX.topRight)
+    + theme.bold(theme.fg('accent', title))
+    + pageBorder(theme, BOX.horizontal.repeat(fill))
+    + (rightWidth === 0 ? '' : theme.fg('muted', right) + pageBorder(theme, BOX.horizontal))
+    + pageBorder(theme, BOX.topRight)
 }
 
 function pageDivider(theme: Theme, width: number, position = ''): string {
@@ -394,6 +399,54 @@ export function highlightMatches(line: string, spans: readonly { start: number; 
   return out
 }
 
+function normalizeDocumentHeading(text: string): string {
+  return text
+    .trim()
+    .replace(/^\/+/u, '')
+    .replace(/\s*·\s*/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .toLowerCase()
+}
+
+/**
+ * Omit a leading document title or section heading that merely repeats the
+ * reader frame's own title or subtitle. Raw `request.detail` stays intact for
+ * copying and plain-mode output.
+ */
+function stripRedundantDocumentTitle(detail: string, title: string, question: string): string {
+  const normalized = detail.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+  const lines = normalized.split('\n')
+  let start = 0
+  while (start < lines.length && lines[start]!.trim() === '') start++
+  if (start >= lines.length) return detail
+  const first = lines[start]!.trim()
+  const headingMatch = /^(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(first)
+  const isHeading = headingMatch !== null
+  const isStandalonePlainLine = !isHeading
+    && !/^(?:[-*+>]|\d+[.)]|\||`{3}|~{3})/u.test(first)
+    && (start + 1 >= lines.length || lines[start + 1]!.trim() === '')
+  if (!isHeading && !isStandalonePlainLine) return detail
+
+  const candidate = normalizeDocumentHeading(isHeading ? headingMatch[2]! : first)
+  if (candidate === '') return detail
+
+  const targets = new Set<string>()
+  const normQuestion = normalizeDocumentHeading(question)
+  if (normQuestion !== '') targets.add(normQuestion)
+  const normTitle = normalizeDocumentHeading(title)
+  if (normTitle !== '') targets.add(normTitle)
+  if (headingMatch?.[1] === '#') {
+    const normSegment = normalizeDocumentHeading(title.split('·')[0] ?? '')
+    if (normSegment !== '') targets.add(normSegment)
+  }
+  if (!targets.has(candidate)) return detail
+
+  let next = start + 1
+  while (next < lines.length && lines[next]!.trim() === '') next++
+  const rest = lines.slice(next).join('\n')
+  return rest === '' ? detail : rest
+}
+
 /** The rows a rendered document shows, shared with the find that searches them. */
 export function documentRows(request: TuiPrompt, theme: Theme, width: number): string[] {
   let cache = documentCache.get(request)
@@ -401,7 +454,8 @@ export function documentRows(request: TuiPrompt, theme: Theme, width: number): s
   const key = `${width}:${theme.name}:${theme.getFgAnsi('accent')}`
   const cached = cache.get(key)
   if (cached !== undefined) return cached
-  const lines = renderMarkdown(request.detail ?? '', theme, width)
+  const text = stripRedundantDocumentTitle(request.detail ?? '', request.title, request.question)
+  const lines = renderMarkdown(text, theme, width)
   if (cache.size >= 4) cache.clear()
   cache.set(key, lines)
   return lines
@@ -451,14 +505,14 @@ function documentActionRows(state: PromptSelectorState, theme: Theme, width: num
 
 /** Reserve a bordered, padded rectangle; graphics never become display-row content. */
 export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme, width: number, height: number,
-  appName: string, protocol?: ImageProtocol, cell?: { width: number; height: number }): PromptSelectorFrame {
+  _appName?: string, protocol?: ImageProtocol, cell?: { width: number; height: number }): PromptSelectorFrame {
   const image = state.request.documentImage!
   if (width < 16 || height < 10) return renderPromptSelector({ ...state, request: { ...state.request,
     detail: image.description + '\nEnlarge the terminal or use Open to view the image.' } }, theme, width, '', 0, Math.max(1, height - 8))
   const { lines: actionRows, actions } = documentActionRows(state, theme, width, height)
   const hints = 'Tab/←→ actions · Enter activate · Esc back'
   const bodyRows = Math.max(1, height - 8 - actionRows.length)
-  const lines = [pageTop(theme, width, appName + ' · ' + state.request.title), pageRow(theme, state.request.question, width),
+  const lines = [pageTop(theme, width, state.request.title), pageRow(theme, state.request.question, width),
     pageRow(theme, theme.fg('muted', image.description), width), pageDivider(theme, width)]
   const top = lines.length
   const canOpen = state.request.options?.some(option => option.value === 'open') === true
@@ -481,7 +535,7 @@ export function renderPlanReviewPage(
   height: number,
   input: string,
   inputCursor: number,
-  appName: string,
+  _appName?: string,
 ): PromptSelectorFrame {
   const pageHeight = Math.max(1, height)
   const source = state.request.documentSource
@@ -498,7 +552,7 @@ export function renderPlanReviewPage(
     : ['↑↓/PgUp/PgDn/wheel scroll', '/ find', 'Ctrl+N/P match', ...customHints,
       ...(state.request.options && state.request.options.length > 1 ? ['Tab actions · Enter'] : []), 'Esc back'].join(' · '), Math.max(1, width - 4)) : []
 
-  const maxRenderedHints = Math.max(1, pageHeight - (state.request.question === '' ? 5 : 6) - actionRows.length - (readerInput || state.documentQuery ? 1 : 0))
+  const maxRenderedHints = Math.max(1, pageHeight - (state.request.question === '' ? 4 : 6) - actionRows.length - (readerInput || state.documentQuery ? 1 : 0))
   if (renderedHints.length > maxRenderedHints) renderedHints = [...renderedHints.slice(0, maxRenderedHints - 1), '/ find · Esc back']
   let readerHints = source === undefined ? [] : wrapTextStable(readerInput ? 'Enter apply · Esc cancel'
     : (state.request.interrupt === undefined ? '' : 'Ctrl+C interrupt · ') + 'W wrap · Alt+←→ pan · ↑↓/PgUp/PgDn/wheel scroll · ' + (state.request.documentTail === true ? 'Home start · End follow' : 'Home/End edges') + ' · / find · Ctrl+N/P match · G line' + (source.diff ? ' · [/] hunk' : '')
@@ -507,11 +561,12 @@ export function renderPlanReviewPage(
   if (readerHints.length > maxHints) readerHints = [...readerHints.slice(0, maxHints - 1), 'Tab actions · Enter · Esc back']
   const compactReader = source !== undefined && pageHeight < 10
   if (compactReader) readerHints = []
+  const hasSubtitle = !compactReader && !(renderedReader && state.request.question === '')
   const renderedSearchRows = readerInput || state.documentQuery ? 1 : 0
   const hintRows = renderedReader ? renderedHints.length - 1 + renderedSearchRows : readerHints.length
   const footerRows = feedback ? 5 : actionRows.length + 3 + hintRows
-  const headerRows = renderedReader ? 2 + Number(state.request.question !== '')
-    : source === undefined ? 5 : compactReader ? 2 : 3
+  const headerRows = renderedReader ? (hasSubtitle ? 3 : 1)
+    : source === undefined ? 5 : compactReader ? 1 : 3
   const bodyRows = Math.max(1, pageHeight - headerRows - footerRows)
   const markdownWidth = Math.max(1, width - 6)
   const layout = source === undefined ? undefined : documentLayout(source, theme, markdownWidth, {
@@ -546,13 +601,15 @@ export function renderPlanReviewPage(
   }
   while (visible.length < bodyRows) visible.push('')
 
+  const scrollPosition = source === undefined && document.length > bodyRows
+    ? `${start + 1}–${Math.min(start + bodyRows, document.length)}/${document.length}`
+    : undefined
   const lines = [
-    pageTop(theme, width, `${appName} · ${compactReader ? state.request.question : state.request.title}`),
+    pageTop(theme, width, compactReader ? state.request.question : state.request.title, hasSubtitle ? undefined : scrollPosition),
     ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
-    ...(compactReader || renderedReader && state.request.question === '' ? [] : [pageRow(theme, ' ' + theme.bold(state.request.question), width)]),
+    ...(hasSubtitle ? [pageRow(theme, ' ' + theme.bold(state.request.question), width)] : []),
     ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
-    pageDivider(theme, width, source === undefined && document.length > bodyRows
-      ? `${start + 1}–${Math.min(start + bodyRows, document.length)}/${document.length}` : undefined),
+    ...(hasSubtitle ? [pageDivider(theme, width, scrollPosition)] : []),
     ...visible.map(line => pageRow(theme, '  ' + line, width)),
     pageDivider(theme, width),
   ]
@@ -790,9 +847,12 @@ export function renderPromptSelector(
     for (const action of actions) if (action.row >= detailRow) action.row += detailRows
   }
 
+  const cardState = state.request.attentionKind === 'permission' || state.request.armMs !== undefined
+    ? 'warning'
+    : 'info'
   const card = renderFramedBlock({
     header: state.request.title,
-    state: 'warning',
+    state: cardState,
     lines: body,
     width,
     applyBg: false,

@@ -9,9 +9,12 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ### Changed
 
 - Upgraded DeepSeek Harness to `0.2.2-rc.5`. The terminal displays DeepSeek’s content-refusal error, and `omdsh exec --json` reports **`CONTENT_REFUSED`** for these refusals in place of `MALFORMED_RESPONSE`.
+- Docked `/settings` as a compact panel above the live status footer so the live transcript and footer remain visible while editing. Status line changes apply and highlight directly on the real footer below the panel (removing the duplicate in-panel example preview), and save confirmations display transiently in the panel instead of appending transcript notices.
+- Reserved warning-colored prompt card borders for permission approvals and armed confirmations while routine pickers use calm borders. Removed the redundant `omdsh · ` prefix from reader, plan-review, image-preview, and session-tree headers, omitted the empty double header line on subtitle-free document readers, deduplicated leading document and section headings that repeat the frame title or subtitle, and aligned the `/context` 5×8 occupancy grid with its summary rows. Unified history search and file browser selection chrome (`❯`, edge scroll markers, and `(n/total)` counters), and collapsed unfocused Todos and Subagents to single-line summaries on cramped terminals.
 
 ### Fixed
 
+- Multi-step flows launched from `/settings` transition directly between prompts without flashing Settings or the composer between steps. Opening a bottom card on a short session keeps the transcript anchored above the card instead of jumping to the top. Settings search now displays a cursor at the query position, and composer bottom-border confirmations keep symmetrical padding.
 - Settings, history search, and completion handle their own navigation keys. The composer navigates wrapped lines and displays pasted tabs. Kitty keypad digits enter text, and history editing preserves whole emoji.
 - Model menus keep all selected modalities and reasoning levels, and choice lists reject disabled items. Long prompt details page separately while keeping choices or the answer field visible.
 - Transcript search opens with a draft in the composer, accepts pasted queries, and jumps to the matching row in expanded command output and side answers while preserving native scrollback. Sticky prompt labels mask secrets.

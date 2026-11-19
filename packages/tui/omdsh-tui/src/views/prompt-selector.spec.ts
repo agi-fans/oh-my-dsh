@@ -105,7 +105,8 @@ describe('plan review page', () => {
 
     expect(frame.lines).toHaveLength(30)
     expect(frame.lines.every(line => visibleWidth(line) === 100)).toBe(true)
-    expect(text).toContain('omdsh · Plan review')
+    expect(text).toContain('Plan review')
+    expect(text).not.toContain('omdsh · ')
     expect(text).toContain('Implementation plan')
     expect(text).toMatch(/1–\d+\/\d+/u)
     expect(text).toContain('[ Approve ]')
@@ -632,4 +633,77 @@ it.each([false, true])('pages a long card detail with its choices and mouse targ
   expect(next.lines.map(stripAnsi).join('\n')).toContain(`detail row ${first.document!.pageSize + 1}`)
   expect(stripAnsi(next.lines[next.choices![0]!.row]!)).toContain('Allow')
   expect(stripAnsi(next.lines[next.actions![0]!.row]!)).toContain('[ Enter select ]')
+})
+
+it('reserves warning borders for permission and armed prompts while routine pickers use calm borders', () => {
+  const colored = createTheme(true, 'truecolor', 'dark')
+  const picker = renderPromptSelector({
+    request: { title: 'Models', question: 'Choose model', allowCustom: false, options: [{ label: 'deepseek-chat' }] },
+    selected: 0,
+    checked: new Set(),
+  }, colored, 60, '', 0)
+  const approval = renderPromptSelector({
+    request: { title: 'Approval', question: 'Allow shell?', attentionKind: 'permission', allowCustom: false, options: [{ label: 'Allow' }] },
+    selected: 0,
+    checked: new Set(),
+  }, colored, 60, '', 0)
+  const armed = renderPromptSelector({
+    request: { title: 'Restore', question: 'Overwrite?', armMs: 500, allowCustom: false, options: [{ label: 'Cancel' }] },
+    selected: 0,
+    checked: new Set(),
+  }, colored, 60, '', 0)
+  expect(picker.lines[0]).toContain(colored.getFgAnsi('border'))
+  expect(picker.lines[0]).not.toContain(colored.getFgAnsi('warning'))
+  expect(approval.lines[0]).toContain(colored.getFgAnsi('warning'))
+  expect(armed.lines[0]).toContain(colored.getFgAnsi('warning'))
+})
+
+it('omits the redundant header divider when a document reader has no subtitle and shows scroll position in the top border', () => {
+  const theme = createTheme(false)
+  const frame = renderPlanReviewPage({
+    request: {
+      title: 'Help · Shortcuts',
+      question: '',
+      presentation: 'document',
+      detail: Array.from({ length: 30 }, (_, index) => `- Row ${index + 1}`).join('\n'),
+      allowCustom: false,
+      options: [{ label: 'Back', value: 'back' }],
+    },
+    selected: 0,
+    checked: new Set(),
+  }, theme, 70, 14, '', 0)
+  expect(frame.lines[0]).toMatch(/^╭─ Help · Shortcuts ─+ 1–\d+\/30 ─╮$/)
+  expect(frame.lines[1]).not.toMatch(/^├─/)
+  expect(frame.lines[1]).toContain('Row 1')
+})
+
+it('omits a leading document title or section heading that duplicates the reader frame header', () => {
+  const theme = createTheme(false)
+  const render = (title: string, question: string, detail: string) => renderPlanReviewPage({
+    request: { title, question, presentation: 'document', detail, allowCustom: false, options: [{ label: 'Back', value: 'back' }] },
+    selected: 0,
+    checked: new Set(),
+  }, theme, 70, 14, '', 0).lines.map(stripAnsi)
+
+  // Plain title line matching `Title · Subtitle` (e.g. `/context` -> Details)
+  const contextLines = render('Context · Details', '', 'Context Details\n\n**1.7% used** · 1M tokens remaining')
+  expect(contextLines[0]).toContain('Context · Details')
+  expect(contextLines[1]).toContain('1.7% used')
+  expect(contextLines.slice(1).join('\n')).not.toContain('Context Details')
+
+  // Section view where `question` repeats the leading Markdown heading
+  const sectionLines = render('Help · Shortcuts', 'Essential', '## Essential\n\n- `Enter` — Send the message')
+  expect(sectionLines[1]).toContain('Essential')
+  expect(sectionLines.slice(3).join('\n')).not.toContain('## Essential')
+  expect(sectionLines[3]).toContain('Enter')
+
+  // Exact heading, slash-prefixed command heading, and H1 bundle-name prefix
+  expect(render('#1 · Implement parser', '', '## #1 · Implement parser\n\nStatus: in progress')[1]).toContain('Status: in progress')
+  expect(render('/mcp', '', '## MCP\n\nManaged servers')[1]).toContain('Managed servers')
+  expect(render('@scope/pkg · Details', '', '# @scope/pkg\n\nBundle overview')[1]).toContain('Bundle overview')
+  expect(render('@scope/pkg · Details', '', '## @scope/pkg\n\nSubsection')[1]).toContain('## @scope/pkg')
+
+  // Preserves headings that carry additional info (e.g. changelog date) or single-line documents
+  expect(render('Changelog · v0.1.0', '', '## [0.1.0] - 2026-04-01\n\n### Added\n- Item')[1]).toContain('2026-04-01')
+  expect(render('Same', '', '# Same')[1]).toContain('Same')
 })

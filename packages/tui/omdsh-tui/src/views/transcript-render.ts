@@ -21,7 +21,7 @@ import { HISTORY_SEARCH_MAX_VISIBLE, type HistorySearchState, renderHistorySearc
 import { DEEP_DRIVING_LABEL, renderEditor, renderFramedBlock, renderWelcome } from '../chrome/box.ts'
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownStyle } from '../chrome/markdown.ts'
 import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/renderer.ts'
-import { renderSettings, type SettingsState } from './settings-list.ts'
+import { renderSettings, selectedStatusItem, settingsPanelHeight, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
 import {
   filteredPromptOptions,
@@ -2258,6 +2258,16 @@ export function renderAside(panel: AsidePanel, theme: Theme, width: number, avai
     truncateToWidth(hint, width), rule]
 }
 
+function compactTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {
+  if (todos.length === 0 || width <= 0) return []
+  const completed = todos.filter(todo => todo.status === 'completed').length
+  const active = todos.find(todo => todo.status === 'in_progress')
+  const line = '  ' + theme.bold(theme.fg('accent', 'Todos'))
+    + theme.fg('dim', ` · ${completed}/${todos.length}`)
+    + (active === undefined ? '' : theme.fg('dim', ' · ') + theme.fg('accent', SYMBOL.running + ' ' + active.content))
+  return [truncateToWidth(line, width)]
+}
+
 /** Compact, unframed Todo tree placed above queued messages. */
 export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {
   if (todos.length === 0 || width <= 0) return []
@@ -2564,16 +2574,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       documentRows: null,
     }
   }
-  if (options.settings !== undefined && options.promptSelector === undefined) {
-    const settings = renderSettings(options.settings, theme, width, height)
-    return {
-      lines: fitFrame(settings.lines, width),
-      cursor: settings.cursor,
-      cursorVisible: false,
-      // A full-screen surface drew no transcript body.
-      documentRows: null,
-    }
-  }
   if (options.promptSelector?.renderDocument === undefined && (options.promptSelector?.request.presentation === 'plan-review' || options.promptSelector?.request.presentation === 'document')) {
     const review = options.promptSelector.request.documentImage === undefined ? renderPlanReviewPage(
       options.transientStatus === undefined ? options.promptSelector : { ...options.promptSelector, notice: options.transientStatus },
@@ -2658,6 +2658,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const sessionTitle = viewed === undefined ? options.sessionTitle : viewed.label
   const controls = viewed === undefined ? options.sessionControls : viewed.controls
   const stats = viewed === undefined ? options.sessionStats : viewed.stats
+  const settingsFocus = options.settings !== undefined && options.promptSelector === undefined
+    ? selectedStatusItem(options.settings)
+    : undefined
   const statusFooter = renderStatusFooter({
     model,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
@@ -2667,6 +2670,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ...(pwd === '' ? {} : { pwd }),
     ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
     ...(stats === undefined ? {} : { stats }),
+    ...(settingsFocus === undefined ? {} : { focus: settingsFocus }),
     config: statusBar,
     width,
   }, theme)
@@ -2676,11 +2680,11 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ...(options.selectionActions === 'copy' ? [] : [{ action: 'quote' as const, label: '[' + uiText(options.language ?? 'en', 'Quote') + ']' }]),
   ]
   // Drop whole buttons on narrow terminals; never expose a clipped click target.
-  while (selectionLabels.length > 0 && visibleWidth(selectionLabels.map(item => item.label).join(' ')) + 4 > width) selectionLabels.pop()
+  while (selectionLabels.length > 0 && visibleWidth(selectionLabels.map(item => item.label).join(' ')) + 5 > width) selectionLabels.pop()
   const selectionNote = selectionLabels.map(item => item.label).join(' ')
   const selectionHint = selectionNote + ' · ' + (options.transientStatus ?? uiText(options.language ?? 'en', 'Esc cancel'))
   const editorNote = selectionNote === '' ? options.transientStatus
-    : visibleWidth(selectionHint) + 4 <= width ? selectionHint : options.transientStatus ?? selectionNote
+    : visibleWidth(selectionHint) + 5 <= width ? selectionHint : options.transientStatus ?? selectionNote
   const editorOpts: Parameters<typeof renderEditor>[0] = {
     width,
     input: options.input,
@@ -2704,7 +2708,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
       : {}),
     ...(inlineHint !== null ? { inlineHint } : {}),
-    ...(editorNote === undefined ? {} : { note: truncateToWidth(editorNote, Math.max(0, width - 4)) }),
+    ...(editorNote === undefined ? {} : { note: truncateToWidth(editorNote, Math.max(0, width - 5)) }),
     ...(activityLabelText === undefined ? {} : {
       activity: {
         frame: motion === 'off' ? SYMBOL.running : SPINNER[Math.max(0, spinnerFrame) % SPINNER.length] ?? SYMBOL.running,
@@ -2741,7 +2745,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   let promptVisibleRows = Math.max(1, Math.min(10, promptHeight, cardOptions))
   const documentPanel = options.promptSelector?.renderDocument === undefined ? undefined : renderPlanReviewPage(
     options.transientStatus === undefined ? options.promptSelector : { ...options.promptSelector, notice: options.transientStatus }, theme, width,
-    Math.max(10, Math.min(height - working.length - 4, options.promptSelector.renderDocument(theme, Math.max(1, width - 6)).length + 8)),
+    Math.max(10, Math.min(height - working.length - 4, options.promptSelector.renderDocument(theme, Math.max(1, width - 6)).length + (options.promptSelector.request.question === '' ? 6 : 8))),
     options.input, options.inputCursor, appName,
   )
   let promptSelector = documentPanel ?? treeRows ?? (options.promptSelector === undefined
@@ -2764,7 +2768,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   }
   const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
-    : renderSettings(options.settings, theme, width)
+    : renderSettings(
+      options.settings,
+      theme,
+      width,
+      settingsPanelHeight(height, statusFooter.length),
+      options.transientStatus,
+    )
   const search = promptSelector !== undefined || settings !== undefined || options.historySearch === undefined
     ? undefined
     : renderHistorySearch(
@@ -2787,7 +2797,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const turnError = editor === undefined || options.inspected !== undefined || state.turnError === undefined
     ? []
     : renderTurnError(state.turnError, theme, width, options.canContinue === true)
-  const todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
+  let todos = editor === undefined || options.inspected !== undefined ? [] : renderTodos(state.todos, theme, width)
   const aside = editor === undefined || options.inspected !== undefined || options.aside === undefined
     ? []
     : renderAside(options.aside, theme, width, Math.max(4, Math.floor(height / 2)))
@@ -2799,7 +2809,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ? []
     : [truncateToWidth(theme.fg('warning', ` ${pendingCount} pending ${pendingCount === 1 ? 'question' : 'questions'} · /questions to answer`), width)]
   const inspect = editor === undefined ? [] : renderInspectBanner(options.inspected, theme, width, spinnerFrame)
-  const subagents = editor === undefined
+  let subagents = editor === undefined
     ? []
     : renderSubagents(options.subagents, theme, width, spinnerFrame, options.inspected?.id, options.subagentSelection)
   const autocomplete = promptSelector !== undefined || settings !== undefined || search !== undefined
@@ -2808,7 +2818,16 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : renderAutocomplete(options.autocomplete.items, options.autocomplete.selected, theme, width)
   const inputLines = promptSelector?.lines ?? settings?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
-  const reserved = aside.length + inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
+  const countReserved = (): number => aside.length + inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
+  // On cramped terminals where stacked docked bars would squeeze the transcript
+  // below a few readable rows, collapse unfocused trees to their summary row.
+  if (editor !== undefined && height - countReserved() < 6) {
+    if (todos.length > 1) todos = compactTodos(state.todos, theme, width)
+    if (height - countReserved() < 6 && subagents.length > 1 && options.subagentSelection === undefined) {
+      subagents = subagents.slice(0, 1)
+    }
+  }
+  const reserved = countReserved()
   const budget = Math.max(0, height - reserved)
   const focusIndex = options.focusBlock === undefined
     ? undefined
@@ -2867,7 +2886,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
    * Not while scrolled: a window is already full, and padding a scrollback view
    * would shift the rows the reader deliberately positioned.
    */
-  const topPad = windowed === undefined && transcript.lines.length > 0 ? fill : 0
+  const tailUnclipped = windowed === undefined
+    || (requestedStart === Number.POSITIVE_INFINITY && windowed.hiddenAbove === 0 && windowed.hiddenBelow === 0)
+  const topPad = tailUnclipped && transcript.lines.length > 0 ? fill : 0
   if (topPad === 0) lines.push(...Array.from({ length: fill }, () => ''))
   lines.push(...aside)
   lines.push(...working)
@@ -2920,7 +2941,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // it as "no body" would clear the record on every ordinary follow frame.
   const windowRange: DocumentRows | null | undefined = windowed === undefined
     ? (body.length === 0 ? null : { documentStart: 0, documentEnd: body.length + topPad, frameStart: 0 })
-    : windowed.documentRows
+    : topPad > 0 && windowed.documentRows !== null && windowed.documentRows !== undefined
+      ? { ...windowed.documentRows, documentEnd: windowed.documentRows.documentEnd + topPad }
+      : windowed.documentRows
   const bodySource: DocumentRows | null = windowRange === undefined
     ? null
     : windowRange
@@ -2994,7 +3017,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     },
     cursorVisible: (options.selectedProcess !== undefined && !hasOverlay) || (options.inspected !== undefined && options.inspected.writable !== true)
       ? false
-      : promptSelector?.cursorVisible ?? (settings === undefined),
+      : promptSelector?.cursorVisible ?? settings?.cursorVisible ?? true,
     liveStart,
     livePinned,
     // A transient frame is either a full-screen surface or the user browsing

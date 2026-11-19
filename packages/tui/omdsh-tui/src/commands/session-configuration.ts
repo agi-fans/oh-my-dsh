@@ -109,7 +109,7 @@ export async function presetDiagnostics(registry: AgentPresetRegistry, agent: Ag
   const rows = requested === undefined ? declared : declared.filter(row => row.id === requested)
   if (rows.length === 0) return `No declared preset: ${requested ?? '(none)'}`
   return [
-    '# Agent compositions',
+    '# Agent composition',
     'Current declarations apply to new sessions. Existing sessions retain their mounted revision.',
     ...rows.flatMap(row => [
       '', `## ${row.name ?? row.id} (${row.id})${row.isDefault ? ' · default' : ''}${row.broken === undefined ? '' : ' · unavailable'}`,

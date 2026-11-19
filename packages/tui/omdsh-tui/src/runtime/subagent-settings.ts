@@ -206,7 +206,7 @@ export async function openSubagentSettings(ctx: Context, signal: AbortSignal, re
         const entry = fields().find(entry => entry.field === answer)
         if (answer === 'restore') await restore()
         else if (answer === 'apply') {
-          if (await save()) { ctx.tui.notice('Subagent settings saved.'); return }
+          if (await save()) { ctx.tui.notice('Subagent settings saved.', { transient: true }); return }
         } else if (entry !== undefined) {
           if (answer === 'allowedModels') await pickModels()
           else if (answer === 'enabled') {

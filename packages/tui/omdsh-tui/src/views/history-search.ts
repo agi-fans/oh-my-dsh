@@ -11,6 +11,7 @@ import { SYMBOL, type Theme } from '../chrome/theme.ts'
 import { truncateToWidth } from '../chrome/width.ts'
 import { formatOverlayHint, type HotkeyRow } from './hotkey-format.ts'
 import { edgeIndex, listNavigation, navigateIndex } from './list-navigation.ts'
+import { listVisibleRange, renderListCounter } from './list-view.ts'
 
 /** Visible result rows (OMP history-search window). */
 export const HISTORY_SEARCH_MAX_VISIBLE = 10
@@ -21,10 +22,7 @@ export function historyVisibleRange(
   selected: number,
   maxVisible = HISTORY_SEARCH_MAX_VISIBLE,
 ): { start: number; end: number } {
-  const max = Math.max(1, maxVisible)
-  const index = Math.max(0, Math.min(selected, Math.max(0, count - 1)))
-  const start = Math.max(0, Math.min(index - Math.floor(max / 2), Math.max(0, count - max)))
-  return { start, end: Math.min(count, start + max) }
+  return listVisibleRange(count, selected, maxVisible)
 }
 
 /** Result cap matching OMP's overlay. */
@@ -262,10 +260,10 @@ export function renderHistorySearch(
   const visible = Math.max(1, maxVisible)
   const resultLines = renderHistoryResults(state, tokens, theme, width, visible)
   const hints = ' ' + theme.fg('dim', formatOverlayHint([HOTKEY_NAVIGATE, HOTKEY_SELECT, HOTKEY_CANCEL], 'lowercase', theme.language))
-  const lines = ['', title, '', ...editor.lines, '', ...resultLines, '', truncateToWidth(hints, width)]
+  const lines = [title, ...editor.lines, ...resultLines, truncateToWidth(hints, width)]
   return {
     lines,
-    cursor: { row: 3 + editor.cursor.row, column: editor.cursor.column },
+    cursor: { row: 1 + editor.cursor.row, column: editor.cursor.column },
   }
 }
 
@@ -286,15 +284,18 @@ function renderHistoryResults(
   for (let i = start; i < end; i += 1) {
     const prompt = state.results[i] ?? ''
     const isSelected = i === index
-    const cursor = isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
+    const edge = i === start && start > 0 ? 'up' : i === end - 1 && end < state.results.length ? 'down' : undefined
+    const cursor = edge !== undefined
+      ? theme.fg('dim', (edge === 'up' ? '↑' : '↓') + ' ')
+      : isSelected ? theme.fg('accent', SYMBOL.cursor + ' ') : '  '
     const normalized = prompt.replace(/\s+/g, ' ').trim()
     const plain = truncateToWidth(normalized, Math.max(1, width - 2))
     const painted = highlightTokens(plain, tokens, theme)
     const body = isSelected ? theme.bold(painted) : painted
     lines.push(truncateToWidth(cursor + body, width))
   }
-  if (state.results.length > maxVisible) {
-    lines.push(theme.fg('dim', '  ' + String(index + 1) + '/' + String(state.results.length)))
+  if (end - start < state.results.length) {
+    lines.push(renderListCounter(theme, index, state.results.length, width))
   }
   return lines
 }

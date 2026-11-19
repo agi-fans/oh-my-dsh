@@ -329,10 +329,10 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
     lines.push(padding(padX) + body + linePad + padding(padX))
   }
   const note = options.note === undefined || options.note === '' ? '' : theme.fg('dim', options.note)
-  if (note === '' || visibleWidth(note) + 4 > width) {
+  if (note === '' || visibleWidth(note) + 5 > width) {
     lines.push(border(h.repeat(width)))
   } else {
-    const head = border(h.repeat(padX + 1)) + note
+    const head = border(h.repeat(padX + 1)) + ' ' + note
     lines.push(head + border(' ' + h.repeat(Math.max(0, width - visibleWidth(head) - 1))))
   }
 

@@ -240,7 +240,7 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
           catch { throw new Error('Configuration saved, but the key could not be stored. Your key draft is kept; Apply retries saving it.') }
           key = ''
         }
-        ctx.tui.notice('Provider saved. The selected model is unchanged.')
+        ctx.tui.notice('Provider saved. The selected model is unchanged.', { transient: true })
         return
       }
       if (choice === 'delete') {

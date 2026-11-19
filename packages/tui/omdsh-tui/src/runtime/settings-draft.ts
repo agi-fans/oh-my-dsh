@@ -127,7 +127,7 @@ export async function editSettingsDraft(ctx: Context, section: SettingsDescripto
       for (const field of fields) if (changes.has(field.key) && effective(field) !== undefined) field.validate(effective(field))
       const ops: SettingsPathOp[] = [...changes].map(([key, value]) => value === undefined ? { op: 'unset', path: [key] } : { op: 'set', path: [key], value })
       await ctx.settings.mutate(baseline.ns, ops, baseline.revision)
-      if (!signal.aborted) ctx.tui.notice(`${text(title)}: ${text('Settings saved.')}`)
+      if (!signal.aborted) ctx.tui.notice(`${text(title)}: ${text('Settings saved.')}`, { transient: true })
       return
     } catch (cause) {
       if (signal.aborted) return

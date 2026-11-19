@@ -26,6 +26,11 @@ describe('context overview', () => {
     expect(text).toContain('64K / 128K')
     expect(text).toContain('≈ 50.1K')
     expect(text).toContain('Input 280K · Output 18K')
+    const rows = renderContextOverview(snapshot, createTheme(false), 80).map(stripAnsi)
+    // 5×8 dot grid aligns one-to-one with the 5 occupancy + session rows, followed by a blank separator.
+    expect(rows.slice(0, 5).every(row => /^[■·](?: [■·]){7} {4}\S/u.test(row))).toBe(true)
+    expect(rows[5]).toBe('')
+    expect(rows[6]).toBe('Estimated composition')
   })
 
   it('reports missing measurements and over-capacity values honestly', () => {

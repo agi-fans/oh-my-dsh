@@ -286,7 +286,7 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
           key = ''; keyRef = ''
         }
         await commit('web')
-        ctx.tui.notice('Web search and fetch settings saved.')
+        ctx.tui.notice('Web search and fetch settings saved.', { transient: true })
         return
       } catch (error) {
         if (signal.aborted) return

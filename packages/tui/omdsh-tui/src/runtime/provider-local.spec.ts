@@ -3309,7 +3309,9 @@ describe('LocalTui (tty)', () => {
       await flushAsyncPaste()
       press(term, '\r')
       await flushAsyncPaste()
-      expect(stripAnsi(term.captured)).toContain('Keyboard Shortcuts')
+      expect(stripAnsi(term.captured)).toContain('Help · Shortcuts')
+      expect(stripAnsi(term.captured)).toContain('Essential')
+      expect(stripAnsi(term.captured)).not.toContain('Keyboard Shortcuts')
       const pending = tui.prompt({ title: 'Approval required', question: 'Continue?', options: [{ label: 'Yes' }], allowCustom: false })
       await flushAsyncPaste()
       expect(stripAnsi(term.captured)).toContain('Approval required')
@@ -3317,7 +3319,7 @@ describe('LocalTui (tty)', () => {
       press(term, '\x03')
       await pending
       await flushAsyncPaste()
-      expect(stripAnsi(term.captured)).not.toContain('Keyboard Shortcuts')
+      expect(stripAnsi(term.captured)).not.toContain('Help · Shortcuts')
     } finally { tui.dispose() }
   })
 
@@ -3356,7 +3358,9 @@ describe('LocalTui (tty)', () => {
     const tui = new LocalTui(term, 'm', false)
     press(term, '/help full\r')
     await flushAsyncPaste()
-    expect(stripAnsi(term.captured)).toContain('Keyboard Shortcuts')
+    expect(stripAnsi(term.captured)).toContain('Help · Shortcuts')
+    expect(stripAnsi(term.captured)).toContain('Essential')
+    expect(stripAnsi(term.captured)).not.toContain('Keyboard Shortcuts')
     press(term, '/')
     press(term, 'Comparison')
     await flushAsyncPaste()
@@ -5886,8 +5890,14 @@ it('persists Mermaid source mode and refreshes the live reply after leaving Sett
     const row = tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'mermaidMode')
     press(term, '\t' + '\x1b[B'.repeat(row - tuiSettingItems(tui.prefs()).findIndex(item => item.id === 'theme')) + '\r')
     expect(persist.mock.calls[0]?.[0].mermaidMode).toBe('source')
+    // Docked Settings keeps the live reply visible above the panel as soon as the mode flips.
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('A[First] --> B[Second]')
     press(term, '\x1b')
-    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('A[First] --> B[Second]'))
+    await vi.waitFor(() => {
+      const screen = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+      expect(screen).not.toContain('Mermaid in replies')
+      expect(screen).toContain('A[First] --> B[Second]')
+    })
     const restored = new LocalTui(new FakeTerminal(), 'm', false)
     try {
       restored.applyStoredPrefs(persist.mock.calls[0]![0])
@@ -5895,6 +5905,64 @@ it('persists Mermaid source mode and refreshes the live reply after leaving Sett
     } finally { restored.dispose() }
     press(term, 'ok\r')
     expect(await pending).toBe('ok')
+  } finally { tui.dispose() }
+})
+
+it('transitions directly between multi-step plugin settings prompts without flashing Settings in between', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  term.resize(80, 30)
+  let step2: Promise<string | null> | undefined
+  const unbind = tui.bindPluginSettings({
+    entries: () => [{ id: 'shell', label: 'Shell', description: 'Shell limits', section: 'tools', fields: ['timeoutMs'] }],
+    edit: async () => {
+      const first = await tui.prompt({ title: 'Shell', question: 'Step one', allowCustom: false, notify: false, options: [{ label: 'Timeout', value: 'timeout' }] })
+      if (first !== 'timeout') return
+      step2 = tui.prompt({ title: 'Timeout', question: 'Step two', allowCustom: true, notify: false })
+      await step2
+    },
+  })
+  try {
+    press(term, '/settings\r')
+    // Switch to Plugins section and open Shell.
+    press(term, '\t\r')
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Step one'))
+    const beforeStep2 = term.captured.length
+    press(term, '\r')
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Step two'))
+    const between = stripAnsi(term.captured.slice(beforeStep2))
+    expect(between).not.toContain('╭─ Settings')
+    expect(between).not.toContain('🐳')
+    press(term, '\x1b')
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('╭─ Settings'))
+  } finally { await unbind(); tui.dispose() }
+})
+
+it('transitions directly between multi-step slash prompts launched from Settings without flashing Settings', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  term.resize(80, 30)
+  tui.setCommands([{ name: 'model', description: 'Choose model' }])
+  const pending = tui.readInput()
+  try {
+    press(term, '/settings\r')
+    // Models tab -> Enter opens /model.
+    press(term, '\t\r')
+    const submitted = await pending
+    expect(submitted?.text).toBe('/model')
+    const flow = (async () => {
+      const first = await tui.prompt({ title: 'Model', question: 'Pick model', allowCustom: false, notify: false, options: [{ label: 'deepseek-chat' }] })
+      if (first === null) return
+      await tui.prompt({ title: 'Effort', question: 'Pick effort', allowCustom: false, notify: false, options: [{ label: 'high' }] })
+    })()
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Pick model'))
+    const beforeStep2 = term.captured.length
+    press(term, '\r')
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('Pick effort'))
+    const between = stripAnsi(term.captured.slice(beforeStep2))
+    expect(between).not.toContain('╭─ Settings')
+    expect(between).not.toContain('🐳')
+    press(term, '\r')
+    await flow
+    await vi.waitFor(() => expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('╭─ Settings'))
   } finally { tui.dispose() }
 })
 
