@@ -1,3 +1,5 @@
+import { PassThrough } from 'node:stream'
+import { LocalTui } from '../runtime/provider-local.ts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
@@ -480,6 +482,26 @@ describe('interaction ownership across session replacement', () => {
       expect(answer.answers[0]?.custom).toBe('New answer')
     } finally { await off(); await ctx.fiber.dispose() }
   })
+
+  it.each([['y', 'allowed-once'], ['yes', 'allowed-once'], ['allow', 'allowed-once'], ['no', 'rejected']])(
+    'preserves the plain approval answer %s', async (answer, result) => {
+      const { default: ApprovalService } = await import('@deepseek-ai/dsh-user-approval')
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(ApprovalService, { policy: 'ask' })
+      const id = SessionId('approval-pipe')
+      const agent = { id, session: Session.create(id) } as unknown as Agent
+      agent.session.append('turn/start', { turn: 1 })
+      const input = new PassThrough()
+      const tui = new LocalTui({ input, output: { write() {} }, width: () => 80, height: () => 24 }, 'm', false)
+      const off = bindHumanInteraction(ctx, tui, () => agent)
+      try {
+        const request = ctx.approval.request({ agent, toolName: 'probe' })
+        input.end(answer + '\n')
+        expect(await request).toBe(result)
+      } finally { await off(); await tui.dispose(); await ctx.fiber.dispose() }
+    },
+  )
 
   it.each(['Allow once', 'reject-note', 'remember-allow'])('ignores a late %s answer after the presentation scope ends', async action => {
     const { default: ApprovalService } = await import('@deepseek-ai/dsh-user-approval')

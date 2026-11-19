@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Fixed
 
+- Settings, history search, and completion handle their own navigation keys. The composer navigates wrapped lines and displays pasted tabs. Kitty keypad digits enter text, and history editing preserves whole emoji.
+- Model menus keep all selected modalities and reasoning levels, and choice lists reject disabled items. Long prompt details page separately while keeping choices or the answer field visible.
+- Transcript search opens with a draft in the composer, accepts pasted queries, and jumps to the matching row in expanded command output and side answers while preserving native scrollback. Sticky prompt labels mask secrets.
+- Clearing a recalled follow-up releases the queue. If recall displaced an unsent draft, cancellation restores it and returns the original message to the queue for delivery. Other waiting messages resume delivery without another keypress, and cleared drafts remain undoable. Deleting a pasted command clears its literal-text guard, and undo restores it.
+- Status settings restore inherited density and item visibility. Document paging keeps boundary lines readable. File review restores the previous reading position on filter cancellation and blocks actions when the filter finds no files.
+- Settings and history search scroll with the mouse. The session tree scrolls its preview under the pointer, image preview actions respond to clicks, and in-progress todos have a distinct marker in monochrome.
+- Invalid attachment paths and MCP wizard fields stay open for correction. Esc can interrupt a running Shell command from an empty composer.
+- Terminal wrapping preserves Markdown styling, hyperlink boundaries, and tool-output indentation. Narrow settings rows retain their values, and triple-click selects a line from its trailing space. Piped prompts accept input before the composer starts, preserve approval answers such as `yes`, and accept numbered choices with custom text. Buffered input resumes when a progress prompt closes.
 - Slash completion selects the best match as the query changes. File and session completion counts only selectable results.
 - Sticky transcript labels leave visible transcript content intact. During a turn, Ctrl+C clears a draft or interrupts work. At idle, a prompt confirms the second-press exit gesture.
 - Expanded PTC cards show source and output in separate sections. Shell cards show the exit code once when a job reports it.

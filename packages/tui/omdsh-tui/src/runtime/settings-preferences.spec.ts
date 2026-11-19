@@ -18,9 +18,9 @@ describe('Profile preference edits', () => {
       .toEqual([{ op: 'set', path: ['statusBar', 'groups'], value: groups }])
   })
 
-  it('restores a single field or color, and removes both forms of a complete layout override', () => {
+  it('restores a single field, and removes both forms of a complete layout override', () => {
     expect(preferencePaths('theme')).toEqual([['theme']])
-    expect(preferencePaths('statusItem:context')).toEqual([['statusBar', 'colors', 'context']])
+    expect(preferencePaths('statusDensity')).toEqual([['statusBar', 'density']])
     expect(preferencePaths('statusReset')).toEqual([['statusBar'], ['statusPreset']])
     expect(preferencePaths('statusItem:unknown')).toBeUndefined()
     expect(preferencePaths('unknown')).toBeUndefined()

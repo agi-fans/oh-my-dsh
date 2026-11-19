@@ -114,7 +114,7 @@ async function editModel(ctx: Context, original: Model, others: readonly Model[]
         initialValues: Array.isArray(draft[options.inputField]) ? draft[options.inputField] as string[] : ['text'],
         options: [{ label: text(ctx, 'Text'), value: 'text' }, { label: text(ctx, 'Image'), value: 'image' }], signal })
       if (picked === null) continue
-      const values = picked.split(',').filter(value => value === 'text' || value === 'image')
+      const values = picked.split(',').map(value => value.trim()).filter(value => value === 'text' || value === 'image')
       if (!values.length) { ctx.tui.notice('Select at least one input type', { level: 'error' }); continue }
       draft[options.inputField] = values
       if (options.inputField === 'inputModalities' && !values.includes('image')) { delete draft.imagePixelBudget; delete draft.imageMaxBytes }
@@ -156,7 +156,7 @@ async function editReasoning(ctx: Context, initial: unknown, levels: readonly st
         initialValues: value === undefined || value === false ? levels.filter(level => ['off', 'low', 'medium', 'high'].includes(level)) : Object.keys(entries).filter(level => levels.includes(level)),
         options: levels.map(level => ({ label: level, value: level })), signal })
       if (picked === null) continue
-      const selected = new Set(picked.split(','))
+      const selected = new Set(picked.split(',').map(value => value.trim()))
       value = { ...Object.fromEntries(Object.entries(entries).filter(([level]) => !levels.includes(level))),
         ...Object.fromEntries(levels.filter(level => selected.has(level)).map(level => [level, Object.hasOwn(entries, level) ? entries[level] : level === 'off' ? null : level])) }
       error = ''; continue

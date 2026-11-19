@@ -230,7 +230,7 @@ export async function openWebSettings(ctx: Context, signal: AbortSignal): Promis
           { label: text(ctx, 'Refresh'), value: 'refresh' }, { label: text(ctx, 'Apply'), value: 'apply', disabled: !writable }, { label: text(ctx, 'Cancel'), value: 'cancel' },
         ], signal })
       if (answer === null || answer === 'cancel') return
-      if (answer === 'refresh') { dirty = true; continue }
+      if (answer === 'refresh') { dirty = true; diagnostic = ''; continue }
       if (!writable) continue
       try {
         if (answer === 'reload') {

@@ -161,10 +161,10 @@ export class TextSelection {
 
   #unitRange(point: SelectionPoint): { start: SelectionPoint; end: SelectionPoint } {
     const line = units(this.#rows[point.row] ?? '')
-    let first = line.findIndex(unit => point.column < unit.end)
+    let first = this.#granularity === 'line' && line.length > 0 ? 0 : line.findIndex(unit => point.column < unit.end)
     if (first < 0) return { start: point, end: point }
     let last = first
-    if (this.#granularity === 'line') { first = 0; last = line.length - 1 }
+    if (this.#granularity === 'line') last = line.length - 1
     else if (this.#granularity === 'word') {
       const category = (text: string): string => /^\s+$/u.test(text) ? 'space'
         : /^[\p{L}\p{N}_./~:@%+\\-]+$/u.test(text) ? 'word' : 'punctuation'

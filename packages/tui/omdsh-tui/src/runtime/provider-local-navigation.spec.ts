@@ -15,7 +15,7 @@ function fixture(colors = false, width = 64, height = 24, paths: ConstructorPara
   const tui = new LocalTui({ input, output: { isTTY: true, write: chunk => {
     pending = pending.then(() => new Promise<void>(resolve => { screen.write(chunk, resolve) }))
   } }, width: () => screen.cols, height: () => screen.rows, onResize: listener => { resize = listener; return () => {} } }, 'model', colors, 'dark', async () => {}, { streamRenderMs: 0, imageProtocol: 'none', ...paths })
-  tui.applyStoredPrefs({ colors, motion: 'off', mouseInteraction: 'tui', pasteProtection: false, notifications: 'off', copyOnSelect: false })
+  tui.applyStoredPrefs({ theme: 'dark', colors, motion: 'off', mouseInteraction: 'tui', pasteProtection: false, notifications: 'off', copyOnSelect: false })
   tui.setSession({ id: 'root', recent: [] })
   const submission = tui.readInput()
   const flush = async () => { await new Promise<void>(resolve => { setImmediate(resolve) }); await pending }
@@ -374,4 +374,106 @@ it('disables file quotes while inspecting a read-only child', async () => {
   expect(f.rows().join('\n')).not.toContain('hidden quote')
   await f.tui.dispose()
   await reading
+})
+
+it('confirms a pasted transcript search on the matching row while keeping a draft', async () => {
+  const f = fixture(false, 64, 16)
+  f.tui.commandOutput('Long command', Array.from({ length: 80 }, (_, index) =>
+    `record ${index} ${index === 47 ? 'MATCH_HERE' : ''}`).join('\n'))
+  f.input.write('draft to keep\x1b[102;6u\x1b[200~MATCH_HERE\x1b[201~\r')
+  await f.flush()
+  expect(f.rows().join('\n')).toContain('record 47 MATCH_HERE')
+  expect(f.rows().join('\n')).toContain('(1/1)')
+  f.input.write('\x1b[27u\r')
+  expect((await f.submission)?.text).toBe('draft to keep')
+})
+
+it('gives settings search first refusal on Ctrl+C and Ctrl+D', async () => {
+  const f = fixture()
+  f.input.write('/settings\r/appearance\x04')
+  await f.flush()
+  expect(f.rows().join('\n')).toContain('appearance')
+  f.input.write('\x03')
+  await f.flush()
+  expect(f.rows().join('\n')).toContain('type to filter')
+  expect(f.rows().join('\n')).toContain('Settings')
+  f.input.write('\x1b[27u\x1b[27uhello\r')
+  expect((await f.submission)?.text).toBe('hello')
+})
+
+it('deletes a whole grapheme and reverses result selection in history search', async () => {
+  const f = fixture()
+  f.input.write('earlier prompt\rlater prompt\r')
+  await f.submission
+  expect(await f.tui.readline()).toBe('later prompt')
+  const pending = f.tui.readline()
+  f.input.write('\x12prompt🐳\x1b[D\x04\x12\x1b[Z\x12\r\r')
+  expect(await pending).toBe('earlier prompt')
+})
+
+it('scrolls a short approval card without moving the selected choice', async () => {
+  const f = fixture(true, 48, 15)
+  const answer = f.tui.prompt({ title: 'Approval required', question: 'Review details', allowCustom: false,
+    options: [{ label: 'Reject' }, { label: 'Allow once' }],
+    detail: Array.from({ length: 50 }, (_, index) => `review detail ${index + 1}`).join('\n'),
+  })
+  await f.flush()
+  const first = f.rows().join('\n')
+  expect(first).toContain('review detail 1')
+  expect(first).toContain('Reject')
+  expect(first).toContain('[ Enter select ]')
+  f.input.write('\x1b[6~')
+  await f.flush()
+  expect(f.rows().join('\n')).not.toMatch(/review detail 1(?:\s|$)/u)
+  f.input.write('\r')
+  expect(await answer).toBe('Reject')
+})
+
+it('moves vertically within a soft-wrapped composer line', async () => {
+  const f = fixture(false, 20, 16)
+  f.input.write('word1 word2 word3 word4\x1b[Aw\r')
+  expect((await f.submission)?.text).toBe('word1w word2 word3 word4')
+})
+
+it('scrolls the tree preview under the pointer without moving to the next branch', async () => {
+  const f = fixture(false, 100, 30)
+  const answer = f.tui.prompt({ title: 'Session tree', question: 'Choose a branch', presentation: 'tree',
+    filterable: true, allowCustom: false, options: [
+      { label: 'First branch', preview: Array.from({ length: 40 }, (_, index) => `branch detail: ${index + 1}`).join('\n') },
+      { label: 'Second branch', preview: 'second preview' },
+    ] })
+  await f.flush()
+  const row = f.rows().findIndex(line => /branch detail: 1\s/u.test(line))
+  expect(row).toBeGreaterThanOrEqual(0)
+  f.input.write(`\x1b[<65;85;${row + 1}M`)
+  await f.flush()
+  expect(f.rows().join('\n')).not.toMatch(/branch detail: 1\s/u)
+  f.input.write('\r')
+  expect(await answer).toBe('First branch')
+})
+
+
+it('moves to the preceding row when hard-wrapped text shares an index at the boundary', async () => {
+  const f = fixture(false, 12, 18)
+  const text = 'a' + '甲'.repeat(9)
+  f.input.write(text + '\x1b[A!\r')
+  expect((await f.submission)?.text).toBe('a' + '甲'.repeat(3) + '!' + '甲'.repeat(6))
+})
+
+it.each([false, true])('pages details on a card without visible choices (custom=%s)', async allowCustom => {
+  const f = fixture(false, 55, 18)
+  const answer = f.tui.prompt({
+    title: 'Card', question: 'Read this first', allowCustom,
+    ...(allowCustom ? {} : { filterable: true, options: [{ label: 'One' }] }),
+    detail: Array.from({ length: 24 }, (_, index) => `unique-detail-${String(index + 1).padStart(2, '0')}`).join('\n'),
+  })
+  if (!allowCustom) f.input.write('nomatch')
+  await f.flush()
+  expect(f.rows().join('\n')).toContain('unique-detail-01')
+  f.input.write('\x1b[6~')
+  await f.flush()
+  expect(f.rows().join('\n')).not.toContain('unique-detail-01')
+  if (allowCustom) f.input.write('typed answer\r')
+  else f.input.write('\x03')
+  expect(await answer).toBe(allowCustom ? 'typed answer' : null)
 })

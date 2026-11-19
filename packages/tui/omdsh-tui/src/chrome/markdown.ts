@@ -10,7 +10,7 @@ import { highlightCodeLines, normalizeLanguage } from './code-highlight.ts'
 import { mathLayout } from './math.ts'
 import { mermaidLines } from './mermaid.ts'
 import { ink, openBase, paintBase, paintBold, paintFg, paintItalic, paintStrike, type MarkdownStyle } from './md-style.ts'
-import { expandTabs, graphemeWidth, sliceCells, stripAnsi, visibleWidth, wrapCode, wrapText, wrapTextStable } from './width.ts'
+import { expandTabs, graphemeWidth, sliceCells, stripAnsi, visibleWidth, wrapCode, wrapTextStable } from './width.ts'
 
 export type { MarkdownStyle } from './md-style.ts'
 
@@ -201,7 +201,7 @@ function decodeEntities(text: string): string {
 }
 
 function wrapStyled(text: string, width: number): string[] {
-  return wrapText(text, Math.max(1, width))
+  return wrapTextStable(text, Math.max(1, width))
 }
 
 function safeHref(href: string): string {

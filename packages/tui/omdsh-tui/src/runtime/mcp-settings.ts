@@ -254,22 +254,37 @@ export async function promptAddMcpServer(
     tui.notice?.(t('MCP manager configuration is unavailable in this host.'), { level: 'error' })
     return null
   }
-  const rawName = await tui.prompt(askPrompt({
+  const readField = async <T>(
+    request: Parameters<typeof askPrompt>[0],
+    parse: (raw: string) => T,
+    optional = false,
+  ): Promise<T | null> => {
+    let initialInput: string | undefined
+    let detail = request.detail ?? ''
+    while (!signal.aborted) {
+      const input = await tui.prompt({ ...askPrompt({
+        ...request, detail, signal, ...(initialInput === undefined ? {} : { initialInput }),
+      }), ...(optional ? { skippable: true } : {}) })
+      if (input === null || signal.aborted) return null
+      initialInput = input
+      try { return parse(input) }
+      catch (error) { detail = [request.detail, t(error instanceof Error ? error.message : String(error))].filter(Boolean).join('\n') }
+    }
+    return null
+  }
+  const name = await readField({
     title: t('Add MCP server'),
     question: t('Server name'),
     detail: t('Use 1–32 letters, digits, hyphens, or underscores (for example: docs). Tools register as mcp__<name>__<tool>.'),
-    signal,
-  }))
-  if (rawName === null || signal.aborted) return null
-  const name = rawName.trim()
-  if (!SERVER_NAME_PATTERN.test(name)) {
-    throw new Error(t('Server name must match [A-Za-z0-9_-]{1,32}.'))
-  }
-  const existing = ctx.get('mcpManager')?.list().some(view => view.name === name && view.configured)
-    || Object.hasOwn(configuredServerMap(section.value), name)
-  if (existing) {
-    throw new Error(t('Server "{name}" already exists.', { name }))
-  }
+  }, raw => {
+    const candidate = raw.trim()
+    if (!SERVER_NAME_PATTERN.test(candidate)) throw new Error(t('Server name must match [A-Za-z0-9_-]{1,32}.'))
+    const existing = ctx.get('mcpManager')?.list().some(view => view.name === candidate && view.configured)
+      || Object.hasOwn(configuredServerMap(section.value), candidate)
+    if (existing) throw new Error(t('Server "{name}" already exists.', { name: candidate }))
+    return candidate
+  })
+  if (name === null) return null
 
   const transport = await tui.prompt(choosePrompt({
     title: t('Add MCP server'),
@@ -284,34 +299,38 @@ export async function promptAddMcpServer(
 
   let entry: Record<string, unknown>
   if (transport === 'stdio') {
-    const command = (await tui.prompt(askPrompt({
+    const command = await readField({
       title: name,
       question: t('Executable command'),
       detail: t('Executable started without a shell (for example: npx, uvx, or node).'),
-      signal,
-    })))?.trim() ?? ''
-    if (!command || signal.aborted) return null
-    assertTemplateSyntax(command, `servers.${name}.command`)
+    }, raw => {
+      const value = raw.trim()
+      assertTemplateSyntax(value, `servers.${name}.command`)
+      return value
+    })
+    if (!command) return null
 
-    const rawArgs = await tui.prompt(askPrompt({
+    const args = await readField({
       title: name,
       question: t('Arguments (optional)'),
-      detail: t('Space-separated arguments or a JSON array (for example: -y @modelcontextprotocol/server-memory). Leave empty for none.'),
-      signal,
-    }))
-    if (rawArgs === null || signal.aborted) return null
-    const args = parseMcpArgs(rawArgs)
-    args.forEach((arg, index) => assertTemplateSyntax(arg, `servers.${name}.args[${index}]`))
+      detail: t('Space-separated arguments or a JSON array (for example: -y @modelcontextprotocol/server-memory).'),
+    }, raw => {
+      const values = parseMcpArgs(raw)
+      values.forEach((arg, index) => assertTemplateSyntax(arg, `servers.${name}.args[${index}]`))
+      return values
+    }, true)
+    if (args === null) return null
 
-    const rawEnv = await tui.prompt(askPrompt({
+    const env = await readField({
       title: name,
       question: t('Environment variables (optional)'),
       detail: t('Enter KEY=VALUE pairs (separated by ";" or newlines). Use ${credential:NAME} to reference stored secrets.'),
-      signal,
-    }))
-    if (rawEnv === null || signal.aborted) return null
-    const env = parseMcpKeyValues(rawEnv, 'env')
-    for (const [key, value] of Object.entries(env)) assertTemplateSyntax(value, `servers.${name}.env.${key}`)
+    }, raw => {
+      const values = parseMcpKeyValues(raw, 'env')
+      for (const [key, value] of Object.entries(values)) assertTemplateSyntax(value, `servers.${name}.env.${key}`)
+      return values
+    }, true)
+    if (env === null) return null
 
     entry = {
       transport: 'stdio',
@@ -321,24 +340,27 @@ export async function promptAddMcpServer(
       enabled: true,
     }
   } else {
-    const url = (await tui.prompt(askPrompt({
+    const url = await readField({
       title: name,
       question: t('MCP endpoint URL'),
       detail: t('HTTP or HTTPS Streamable HTTP endpoint (for example: https://example.com/mcp).'),
-      signal,
-    })))?.trim() ?? ''
-    if (!url || signal.aborted) return null
-    assertTemplateSyntax(url, `servers.${name}.url`)
+    }, raw => {
+      const value = raw.trim()
+      assertTemplateSyntax(value, `servers.${name}.url`)
+      return value
+    })
+    if (!url) return null
 
-    const rawHeaders = await tui.prompt(askPrompt({
+    const headers = await readField({
       title: name,
       question: t('Request headers (optional)'),
       detail: t('Enter Header=Value pairs (separated by ";" or newlines). Use ${credential:NAME} to reference stored secrets.'),
-      signal,
-    }))
-    if (rawHeaders === null || signal.aborted) return null
-    const headers = parseMcpKeyValues(rawHeaders, 'headers')
-    for (const [key, value] of Object.entries(headers)) assertTemplateSyntax(value, `servers.${name}.headers.${key}`)
+    }, raw => {
+      const values = parseMcpKeyValues(raw, 'headers')
+      for (const [key, value] of Object.entries(values)) assertTemplateSyntax(value, `servers.${name}.headers.${key}`)
+      return values
+    }, true)
+    if (headers === null) return null
 
     entry = {
       transport: 'streamable-http',

@@ -1054,7 +1054,7 @@ export function applyTrajectoryEvent(
     if (event.id === 'escape' || event.id === 'ctrl+c') return { state: { ...state, searching: false } }
     return { state }
   }
-  if (event.type === 'text' && state.query === '') {
+  if (event.type === 'text') {
     if (event.value === ' ') return { state: toggleGroup(state) }
     if (event.value === 'f' && state.details) return { state: { ...state, fullDetail: !state.fullDetail, focus: 'detail', following: false } }
     if (event.value === 'e') {
@@ -1132,7 +1132,8 @@ export function applyTrajectoryEvent(
   }
   const navigation = listNavigation(event)
   if (navigation.kind === 'close') {
-    // One layer per press: an open detail panel closes before the ledger does.
+    if (state.query !== '') return { state: { ...state, query: '', searchFocus: null } }
+    // An open detail panel closes before the ledger does.
     if (state.details) return { state: { ...state, details: false, fullDetail: false, focus: 'list', detailScroll: 0 } }
     return { close: true }
   }

@@ -5,7 +5,7 @@
  */
 
 import { BOX, DEEPSEEK_LOGO, gradientLogo, paintSurface, type Theme, type ThemeColor } from './theme.ts'
-import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped } from './width.ts'
+import { expandTabs, padToWidth, padding, truncateToWidth, visibleWidth, wrapIndexed, wrapTextStable, cursorOnWrapped, type IndexedLine } from './width.ts'
 
 /** Visual state that drives border + fill color. */
 export type BoxState = 'idle' | 'info' | 'running' | 'ok' | 'error' | 'warning'
@@ -201,7 +201,7 @@ export interface EditorActivity {
 export interface EditorFrame {
   lines: string[]
   cursor: { row: number; column: number }
-  inputRows: { row: number; column: number; text: string; start: number; end: number }[]
+  inputRows: (IndexedLine & { row: number; column: number })[]
 }
 
 /** The pieces {@link topBorderWithActivity} composes, already painted. */
@@ -310,18 +310,19 @@ export function renderEditor(options: EditorOptions, theme: Theme): EditorFrame 
       topLeft, topRight, status, trailing, fillWidth, border, theme, h,
     })
 
-  const layout = wrapIndexed(options.input, contentWidth)
+  const layout = wrapIndexed(options.input, contentWidth, Math.min(8, contentWidth))
   const caret = cursorOnWrapped(layout, options.inputCursor, options.input)
-  const rows = layout.length > 0 ? layout : [{ text: '', start: 0, end: 0 }]
+  const rows = layout
 
   const lines = [top]
   for (let i = 0; i < rows.length; i += 1) {
-    const text = rows[i]?.text ?? ''
+    const row = rows[i]!
     const hint = options.inlineHint
-    const atCaretEnd = i === caret.row && caret.column >= visibleWidth(text)
-    let body = options.paintInput?.(text, rows[i]?.start ?? 0) ?? text
+    let body = options.paintInput?.(row.text, row.start) ?? row.text
+    if (row.tabWidth !== undefined) body = expandTabs(body, row.tabWidth)
+    const atCaretEnd = i === caret.row && caret.column >= visibleWidth(body)
     if (atCaretEnd && hint !== undefined && hint !== '') {
-      const budget = Math.max(0, contentWidth - visibleWidth(text))
+      const budget = Math.max(0, contentWidth - visibleWidth(body))
       if (budget > 0) body += theme.fg('dim', truncateToWidth(hint, budget))
     }
     const linePad = padding(Math.max(0, contentWidth - visibleWidth(body)))

@@ -225,27 +225,32 @@ export function truncateToWidth(text: string, width: number, ellipsis = '…'): 
   let out = ''
   let used = 0
   let reset = ''
+  let link = ''
   for (const part of splitAnsi(text)) {
     if (part.ansi) {
       out += part.value
       if (part.value.endsWith('m')) reset = '\x1b[0m'
+      if (part.value.startsWith('\x1b]8;')) link = /^\x1b\]8;[^;]*;(?:\x07|\x1b\\)$/u.test(part.value) ? '' : '\x1b]8;;\x07'
       continue
     }
     for (const cluster of clusters(part.value)) {
       const cw = graphemeWidth(cluster)
-      if (used + cw > budget) return out + ellipsis + reset
+      if (used + cw > budget) return out + ellipsis + link + reset
       out += cluster
       used += cw
     }
   }
-  return out + ellipsis + reset
+  return out + ellipsis + link + reset
 }
 
 /** Pad (or truncate) so the line occupies exactly `width` cells. */
 export function padToWidth(text: string, width: number): string {
   const used = visibleWidth(text)
   if (used === width) return text
-  if (used > width) return truncateToWidth(text, width)
+  if (used > width) {
+    const shortened = truncateToWidth(text, width)
+    return shortened + padding(width - visibleWidth(shortened))
+  }
   return text + padding(width - used)
 }
 
@@ -284,23 +289,16 @@ export function sliceCells(text: string, start: number, width: number): string {
 function splitWordsPreservingAnsi(text: string): string[] {
   const words: string[] = []
   let buf = ''
-  let inEsc = false
-  for (const ch of text) {
-    if (ch === '\x1b') {
-      inEsc = true
-      buf += ch
+  for (const part of splitAnsi(text)) {
+    if (part.ansi) {
+      buf += part.value
       continue
     }
-    if (inEsc) {
-      buf += ch
-      if (ch >= '@' && ch <= '~') inEsc = false
-      continue
-    }
-    if (ch === ' ') {
+    const pieces = part.value.split(' ')
+    buf += pieces[0] ?? ''
+    for (const piece of pieces.slice(1)) {
       if (buf !== '') words.push(buf)
-      buf = ''
-    } else {
-      buf += ch
+      buf = piece
     }
   }
   if (buf !== '') words.push(buf)
@@ -450,23 +448,21 @@ function reopenSgr(state: SgrState): string {
  */
 export function restabilizeWrapSegments(segments: readonly string[]): string[] {
   if (segments.length <= 1) return [...segments]
-  const out: string[] = [segments[0] ?? '']
+  const out: string[] = []
   let state = emptySgr()
   for (let i = 0; i < segments.length; i += 1) {
     const seg = segments[i] ?? ''
     // Reopen the state accumulated from *prior* rows before this row's own
     // escapes run, so the continuation inherits the active style rather than
     // re-applying escapes that already occur in this row.
-    if (i > 0) {
-      const reopen = reopenSgr(state)
-      out.push(reopen === '' ? seg : reopen + seg)
-    }
+    const reopen = i === 0 ? '' : reopenSgr(state)
     WRAP_STYLE_RE.lastIndex = 0
     for (const match of seg.matchAll(WRAP_STYLE_RE)) {
       state = match[1] === undefined
         ? { ...state, link: match[2] === '' ? '' : match[0] }
         : applySgr(state, match[1])
     }
+    out.push(reopen + seg + (state.link === '' ? '' : '\x1b]8;;\x07'))
   }
   return out
 }
@@ -491,6 +487,7 @@ export interface IndexedLine {
   text: string
   start: number
   end: number
+  tabWidth?: number
 }
 
 /** Source offset at a display cell; clicks inside a wide grapheme select its start. */
@@ -507,12 +504,10 @@ export function indexAtCell(text: string, cell: number): number {
  * Wrap plain `text` (no ANSI) to `width`, carrying source offsets so a cursor
  * index can be mapped to (row, column).
  *
- * Tabs are deliberately not expanded here: a literal tab is a completion key in
- * the composer rather than buffer content, and expanding would invalidate the
- * UTF-16 offsets this returns. A tab that did reach the buffer would measure as
- * zero cells, so callers must keep it out of the text.
+ * With tab stops enabled, tabs stay in the source spans and are expanded only
+ * when painting each row.
  */
-export function wrapIndexed(text: string, width: number): IndexedLine[] {
+export function wrapIndexed(text: string, width: number, tabWidth = 0): IndexedLine[] {
   if (width <= 0) return [{ text: '', start: 0, end: 0 }]
   const lines: IndexedLine[] = []
   const spans = clusterSpans(text)
@@ -520,7 +515,8 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
   let used = 0
   let breakAt = -1
   const flush = (end: number): void => {
-    lines.push({ text: text.slice(start, end), start, end })
+    const row = text.slice(start, end)
+    lines.push({ text: row, start, end, ...(tabWidth > 0 && row.includes('\t') ? { tabWidth } : {}) })
   }
   for (const span of spans) {
     const i = span.index
@@ -532,7 +528,7 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
       breakAt = -1
       continue
     }
-    const cw = graphemeWidth(cluster)
+    let cw = indexedClusterWidth(cluster, used, tabWidth)
     if (used + cw > width && i > start) {
       const cut = breakAt >= start ? breakAt : i
       flush(cut)
@@ -543,7 +539,15 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
         if (inner.index < start) continue
         if (inner.index >= i) break
         if (inner.cluster === ' ') breakAt = inner.index
-        used += graphemeWidth(inner.cluster)
+        used += indexedClusterWidth(inner.cluster, used, tabWidth)
+      }
+      cw = indexedClusterWidth(cluster, used, tabWidth)
+      if (used + cw > width && i > start) {
+        flush(i)
+        start = i
+        used = 0
+        breakAt = -1
+        cw = indexedClusterWidth(cluster, used, tabWidth)
       }
     }
     if (cluster === ' ') breakAt = i
@@ -553,12 +557,16 @@ export function wrapIndexed(text: string, width: number): IndexedLine[] {
   return lines.length > 0 ? lines : [{ text: '', start: 0, end: 0 }]
 }
 
+function indexedClusterWidth(cluster: string, column: number, tabWidth: number): number {
+  return cluster === '\t' && tabWidth > 0 ? tabWidth - column % tabWidth : graphemeWidth(cluster)
+}
+
 /** Map a visible column on a wrapped row back to a source index. */
 export function indexOnWrapped(line: IndexedLine, column: number, source: string): number {
   const target = Math.max(0, column)
   let col = 0
   for (const span of clusterSpans(source.slice(line.start, line.end))) {
-    const width = graphemeWidth(span.cluster)
+    const width = indexedClusterWidth(span.cluster, col, line.tabWidth ?? 0)
     if (col + width > target) return line.start + span.index
     col += width
   }
@@ -578,10 +586,11 @@ export function cursorOnWrapped(
     const next = lines[i + 1]
     if (next !== undefined && cursor === line.end && next.start === cursor) continue
     if (cursor >= line.start && cursor <= line.end) {
-      return { row: i, column: visibleWidth(source.slice(line.start, cursor)) }
+      const prefix = source.slice(line.start, cursor)
+      return { row: i, column: visibleWidth(line.tabWidth === undefined ? prefix : expandTabs(prefix, line.tabWidth)) }
     }
   }
   const last = lines[lines.length - 1]
   if (last === undefined) return { row: 0, column: 0 }
-  return { row: lines.length - 1, column: visibleWidth(last.text) }
+  return { row: lines.length - 1, column: visibleWidth(last.tabWidth === undefined ? last.text : expandTabs(last.text, last.tabWidth)) }
 }

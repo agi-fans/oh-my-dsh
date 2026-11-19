@@ -362,8 +362,12 @@ function pickDistinctPaletteEntries(
   // same fallback table the foreground codes come from, so the two can never
   // disagree about which slot a colour occupies.
   const takenByInk = new Set(CARD_INK_COLORS
-    .map(color => Number.parseInt(ANSI16[name][color], 10))
-    .filter(code => Number.isInteger(code) && code < 8))
+    .flatMap(color => {
+      const code = Number.parseInt(ANSI16[name][color], 10)
+      if (code >= 30 && code <= 37) return [code - 30]
+      if (code >= 90 && code <= 97) return [code - 90 + 8]
+      return []
+    }))
   const ceiling = SURFACE_MAX_LUMINANCE[name]
   // A light card's ink is a black that owns slot 0, so its fills come from the
   // bright end instead; the test is "far enough from the ink", not "dark".
@@ -433,12 +437,13 @@ function assignDistinct(
   const result: Partial<Record<ThemeColor, string>> = {}
   for (let at = 0; at < states.length; at += 1) {
     const state = states[at]!
-    let index = preferred[at] ?? 0
-    for (let step = 1; used.has(index) && step < 8; step += 1) {
-      // Alternate lighter and darker so a nudge stays close to the intent.
-      index = preferred[at]! + (step % 2 === 1 ? -step : step)
+    const target = preferred[at]!
+    let index = target
+    for (let step = 1; (used.has(index) || index < 232 || index > 255) && step <= 46; step += 1) {
+      const distance = Math.ceil(step / 2)
+      index = target + (step % 2 === 1 ? -distance : distance)
     }
-    if (used.has(index)) return undefined
+    if (used.has(index) || index < 232 || index > 255) return undefined
     used.add(index)
     result[state] = encode(index)
   }

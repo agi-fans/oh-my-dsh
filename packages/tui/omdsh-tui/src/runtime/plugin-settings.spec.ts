@@ -173,15 +173,31 @@ describe('plugin configuration', () => {
     } finally { await h.ctx.fiber.dispose() }
   })
 
-  it.each(['theme', 'statusItem:context', 'statusReset', 'agentLanguage'])('restores only the chosen %s override after confirmation', async id => {
+  it.each(['theme', 'statusDensity', 'statusReset', 'agentLanguage'])('restores only the chosen %s override after confirmation', async id => {
     const h = await harness(['restore'])
     h.section.ns = id === 'agentLanguage' ? 'agent-behavior' : 'tui'
     h.section.schema = z.object({ theme: z.string(), language: z.string(), statusBar: z.object({ colors: z.object({ context: z.string() }) }) }).toJSON()
     try {
       await config.resetSettingsControl(h.ctx, id, undefined, new AbortController().signal, 'Readable label')
-      const paths = id === 'statusReset' ? [['statusBar'], ['statusPreset']] : id === 'statusItem:context' ? [['statusBar', 'colors', 'context']] : [[id === 'agentLanguage' ? 'language' : 'theme']]
-      expect(h.prompt.mock.calls[0]![0].question).toBe(id.startsWith('statusItem:') ? 'Readable label color' : 'Readable label')
+      const paths = id === 'statusReset' ? [['statusBar'], ['statusPreset']] : id === 'statusDensity' ? [['statusBar', 'density']] : [[id === 'agentLanguage' ? 'language' : 'theme']]
+      expect(h.prompt.mock.calls[0]![0].question).toBe('Readable label')
       expect(h.mutate).toHaveBeenCalledWith(h.section.ns, paths.map(path => ({ op: 'unset', path })), 7)
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('restores only the selected status item visibility', async () => {
+    const h = await harness(['restore'])
+    h.describe.mockReturnValue([{ ...h.section, ns: 'tui',
+      base: { timeout: 10, statusBar: { shown: ['context'] } },
+      user: { timeout: 12, statusBar: { hidden: ['context', 'effort'], shown: ['speed'] } },
+    } as typeof h.section])
+    try {
+      await config.resetSettingsControl(h.ctx, 'statusItem:context', undefined, new AbortController().signal, 'Context')
+      expect(h.prompt.mock.calls[0]![0].question).toBe('Context')
+      expect(h.mutate).toHaveBeenCalledWith('tui', [
+        { op: 'set', path: ['statusBar', 'hidden'], value: ['effort'] },
+        { op: 'set', path: ['statusBar', 'shown'], value: ['speed', 'context'] },
+      ], 7)
     } finally { await h.ctx.fiber.dispose() }
   })
 

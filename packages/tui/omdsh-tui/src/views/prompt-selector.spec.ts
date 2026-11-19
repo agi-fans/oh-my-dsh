@@ -107,7 +107,7 @@ describe('plan review page', () => {
     expect(frame.lines.every(line => visibleWidth(line) === 100)).toBe(true)
     expect(text).toContain('omdsh · Plan review')
     expect(text).toContain('Implementation plan')
-    expect(text).toContain('later plan lines')
+    expect(text).toMatch(/1–\d+\/\d+/u)
     expect(text).toContain('[ Approve ]')
     expect(frame.document?.maxStart).toBeGreaterThan(0)
     expect(frame.cursorVisible).toBe(false)
@@ -123,7 +123,7 @@ describe('plan review page', () => {
       0,
       'omdsh',
     )
-    expect(stripAnsi(scrolled.lines.join('\n'))).toContain('earlier plan lines')
+    expect(stripAnsi(scrolled.lines.join('\n'))).toMatch(/[2-9]\d*–(\d+)\/\1/u)
     expect(scrolled.document?.start).toBe(scrolled.document?.maxStart)
 
     const feedback = renderPlanReviewPage(
@@ -328,7 +328,7 @@ describe('image preview page', () => {
       expect(frame.image!.column).toBeGreaterThanOrEqual(4)
       expect(frame.image!.column + frame.image!.columns).toBeLessThanOrEqual(width! - 4)
       expect(frame.image!.row + frame.image!.rows).toBeLessThanOrEqual(height! - 4)
-      expect(stripAnsi(frame.lines.join('\n'))).toContain('› [ Open ]')
+      expect(stripAnsi(frame.lines[frame.actions!.find(action => action.index === 1)!.row]!)).toContain('› [ Open ]')
       expect(frame.cursorVisible).toBe(false)
     }
     const fallback = renderImagePreviewPage(state, createTheme(colors), 80, 24, 'omdsh')
@@ -602,4 +602,34 @@ it('expands tabs before laying out a plain tree preview', () => {
   const frame = renderPromptTreePage(state, createTheme(false), 80, 30, '', 0, 'omdsh')
   expect(frame.lines.join('')).not.toContain('\t')
   expect(frame.lines.every(line => visibleWidth(line) <= 80)).toBe(true)
+})
+
+it('keeps disabled values out of toggles and legacy answers', () => {
+  const state: PromptSelectorState = {
+    request: { title: 'Models', question: '', multiSelect: true, options: [
+      { label: 'Disabled', disabled: true }, { label: 'Available' },
+    ] },
+    selected: 0,
+    checked: new Set([0, 1]),
+  }
+  expect(togglePromptSelection(state)).toBe(state)
+  expect(selectedPromptAnswer(state)).toBe('Available')
+})
+
+it.each([false, true])('pages a long card detail with its choices and mouse targets in view (colors=%s)', colors => {
+  const state: PromptSelectorState = {
+    request: { title: 'Review', question: 'Read the requested command', allowCustom: false,
+      detail: Array.from({ length: 75 }, (_, index) => `detail row ${index + 1}`).join('\n'),
+      options: [{ label: 'Allow' }, { label: 'Reject' }],
+    },
+    selected: 0, checked: new Set(),
+  }
+  const theme = createTheme(colors)
+  const first = renderPromptSelector(state, theme, 48, '', 0, 2, 15)
+  expect(first.lines).toHaveLength(15)
+  expect(first.lines.map(stripAnsi).join('\n')).toContain('PgUp/PgDn')
+  const next = renderPromptSelector({ ...state, documentScroll: first.document!.pageSize }, theme, 48, '', 0, 2, 15)
+  expect(next.lines.map(stripAnsi).join('\n')).toContain(`detail row ${first.document!.pageSize + 1}`)
+  expect(stripAnsi(next.lines[next.choices![0]!.row]!)).toContain('Allow')
+  expect(stripAnsi(next.lines[next.actions![0]!.row]!)).toContain('[ Enter select ]')
 })

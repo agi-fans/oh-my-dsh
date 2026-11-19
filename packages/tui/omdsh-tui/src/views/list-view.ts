@@ -193,14 +193,22 @@ export function renderListRowWithValue(
 ): string {
   const room = Math.max(1, width)
   const cursor = listCursorCell(theme, options)
+  const rawValue = row.value ?? ''
+  const available = Math.max(0, room - LIST_CURSOR_CELLS)
+  const desiredLabel = Math.max(primaryWidth, visibleWidth(row.label))
+  const desiredValue = visibleWidth(rawValue)
+  const valueRoom = desiredLabel + desiredValue + 1 <= available ? desiredValue
+    : available < 3 ? 0 : Math.min(desiredValue, Math.max(Math.floor(available / 3), available - desiredLabel - 1))
+  const valueText = truncateToWidth(rawValue, valueRoom)
+  const valueCells = visibleWidth(valueText)
+  const primaryCells = Math.min(desiredLabel, available - (valueCells > 0 ? valueCells + 1 : 0))
+  const labelText = truncateToWidth(row.label, primaryCells)
   const label = options.selected
-    ? theme.bold(theme.fg('accent', row.label))
-    : row.tone === 'accent' ? theme.fg('accent', row.label)
-      : row.secondary === true ? theme.fg('dim', row.label) : row.label
-  const value = row.value === undefined || row.value === '' ? '' : theme.fg(options.selected ? 'accent' : 'muted', row.value)
-  const primaryCells = Math.max(primaryWidth, visibleWidth(row.label))
-  const primary = label + ' '.repeat(Math.max(0, primaryCells - visibleWidth(row.label)))
-  const valueCells = visibleWidth(row.value ?? '')
+    ? theme.bold(theme.fg('accent', labelText))
+    : row.tone === 'accent' ? theme.fg('accent', labelText)
+      : row.secondary === true ? theme.fg('dim', labelText) : labelText
+  const primary = padToWidth(label, primaryCells)
+  const value = valueCells === 0 ? '' : theme.fg(options.selected ? 'accent' : 'muted', valueText)
   const descriptionRoom = room - LIST_CURSOR_CELLS - primaryCells - COLUMN_GAP - valueCells
   const descriptionText = row.description === undefined || row.description === '' || descriptionRoom <= MIN_DESCRIPTION_WIDTH
     ? ''
@@ -210,7 +218,7 @@ export function renderListRowWithValue(
   // Only a right-aligned value earns trailing padding. A row that ends in its
   // description stops there, so the line's last cell still belongs to something
   // the reader can see — and two adjacent rows never differ by invisible spaces.
-  if (value === '') return truncateToWidth(body.trimEnd() === '' ? body : body, room)
+  if (value === '') return truncateToWidth(body, room)
   const fill = Math.max(1, room - LIST_CURSOR_CELLS - primaryCells - visibleWidth(description) - valueCells)
   return truncateToWidth(body + ' '.repeat(fill) + value, room)
 }

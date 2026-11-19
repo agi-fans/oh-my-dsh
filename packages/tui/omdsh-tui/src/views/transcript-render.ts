@@ -24,9 +24,11 @@ import type { DocumentRows, FoldMark, Frame, TranscriptScroll } from '../chrome/
 import { renderSettings, type SettingsState } from './settings-list.ts'
 import { renderTrajectory, type TrajectoryState } from './trajectory.ts'
 import {
+  filteredPromptOptions,
   renderImagePreviewPage,
   renderPlanReviewPage,
   renderPromptSelector,
+  promptTreeHeight,
   renderPromptTreePage,
   type PromptSelectorState,
 } from './prompt-selector.ts'
@@ -105,6 +107,7 @@ export interface ViewOptions {
   input: string
   /** Cursor column inside the input buffer (0-based, before the prefix). */
   inputCursor: number
+  literalInput?: boolean
   /** Number of client-owned image drafts represented by input markers. */
   inputImages?: number
   /** Local input awaiting Harness admission or recovery confirmation. */
@@ -555,7 +558,7 @@ function toolOutputLines(block: Extract<Block, { kind: 'tool' }>, output: readon
   const painted = language === undefined
     ? output.map(line => theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line))
     : highlightedLines(output, language, theme, block.status === 'error' ? 'error' : undefined)
-  return painted.flatMap(line => wrapTextStable(line, width))
+  return painted.flatMap(line => language === undefined ? wrapTextStable(line, width) : wrapCode(line, width))
 }
 
 /** Tool content shared by a running turn and a completed turn opened for reading. */
@@ -873,7 +876,7 @@ function highlightedLines(
 ): string[] {
   const highlighted = highlightToolText(lines.join('\n'), language, theme)
   const rows = highlighted.map(line => errorInk === undefined ? line : theme.fg(errorInk, line))
-  return width === undefined ? rows : rows.flatMap(line => wrapTextStable(line, width))
+  return width === undefined ? rows : rows.flatMap(line => wrapCode(line, width))
 }
 
 /** A notice that reports on the run's work, as one of its rows. */
@@ -1188,6 +1191,7 @@ interface TranscriptBodyCache {
   openedGroups: string
   /** Query/focus/match signature; search painting must invalidate the cache. */
   searchKey: string
+  searchRow: number | undefined
   /** A settled turn's length lands on its run's header without touching a block. */
   turnSpans: TranscriptState['turnSpans']
   /**
@@ -1559,6 +1563,7 @@ interface TranscriptBody {
   liveFrom: number | undefined
   /** Every query occurrence in this layout, for the composer hint's count. */
   occurrences: readonly TranscriptSearchMatch[]
+  searchRow: number | undefined
 }
 
 /**
@@ -1656,12 +1661,15 @@ function renderTranscriptBody(
       foldShape: cached.foldShape,
       foldMarks: cached.foldMarks,
       liveFrom: cached.liveFrom,
+      searchRow: cached.searchRow,
       // Recomputed on a cache hit from the same input, so the hint's count is
       // never a stale number left over from an earlier query.
       occurrences,
     }
   }
 
+  const focusHit = search === undefined ? undefined : occurrences[search.focus]
+  let searchRow: number | undefined
   const matches = new Set(occurrences.map(match => match.block))
   const lines: string[] = []
   const fileRegions: TranscriptFileRegion[] = []
@@ -1705,9 +1713,11 @@ function renderTranscriptBody(
   const absorbed = new Set<number>()
   // Thoughts a search hit has to show in full, beyond what the reader opened.
   const openedThoughts = new Set<string>(options.expandedReasoning ?? [])
+  const searchOutputs = new Set(options.expandedOutputs)
   for (const index of matches) {
     const block = state.blocks[index]
     if (block?.kind === 'assistant' && block.reasoning !== '') openedThoughts.add(reasoningKey(block))
+    if (block?.kind === 'commandOutput' || block?.kind === 'aside') searchOutputs.add(block)
   }
   // Where each answer's thought is actually drawn, for its fold mark. The
   // navigation offset below may point elsewhere; the mark must not follow it.
@@ -1740,7 +1750,7 @@ function renderTranscriptBody(
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, depth, width: options.width,
-    matches, occurrences, options: { ...options, expandedReasoning: openedThoughts },
+    matches, occurrences, options: { ...options, expandedReasoning: openedThoughts, expandedOutputs: searchOutputs },
     openedThoughts,
     spinnerFrame,
   }
@@ -1842,6 +1852,11 @@ function renderTranscriptBody(
         )
         const thoughtLines = thoughtHit
           ? groupMemberLines(group.answer, context, true).length + 1 : 0
+        if (focusHit?.block === group.answer && thoughtRow !== undefined && thoughtLines > 0) {
+          searchRow = focusHit.row < thoughtLines
+            ? bodyRow + thoughtRow + focusHit.row
+            : lines.length + focusHit.row - thoughtLines
+        }
         const answerHits = thoughtLines === 0 ? occurrences : occurrences.map(hit => hit.block === group.answer ? { ...hit, row: hit.row - thoughtLines } : hit)
         for (const line of paintSearch(rendered, group.answer, answerHits, theme)) lines.push(line)
         if (thoughtHit && thoughtRow !== undefined) blockStarts[group.answer] = bodyRow + thoughtRow
@@ -1930,6 +1945,10 @@ function renderTranscriptBody(
       block, context.options, theme, themeName, depth, expanded,
       absorbed.has(index),
     )
+    if (block.kind === 'commandOutput' || block.kind === 'aside' || block.kind === 'notice' && block.detail !== undefined) {
+      const detailOpen = searchOutputs.has(block) || block.kind === 'notice' && expanded
+      if (detailOpen && rendered.length > 1) foldMarks.push({ key: `output:${index}`, row: lines.length })
+    }
     if (block.kind === 'commandOutput' && block.text.trimEnd().includes('\n')) {
       const foldable = /^ [▸▾] /u.test(stripAnsi(rendered[0] ?? ''))
       disclosures.push({ block: index, row: lines.length, column: 0, width: foldable ? Math.max(0, options.width - 8) : 0,
@@ -1977,6 +1996,7 @@ function renderTranscriptBody(
     openedGroups,
     expandedOutputs,
     searchKey,
+    searchRow,
     turnSpans: state.turnSpans,
     status: state.status,
     focusBlock: options.focusBlock,
@@ -1987,7 +2007,7 @@ function renderTranscriptBody(
     lines,
     blockStarts,
   })
-  return { lines, blockStarts, blockDrawStarts, fileRegions, disclosures, foldShape, foldMarks, liveFrom, occurrences }
+  return { lines, blockStarts, blockDrawStarts, fileRegions, disclosures, foldShape, foldMarks, liveFrom, occurrences, searchRow }
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -2003,7 +2023,7 @@ const promptSummaryCache = new WeakMap<Block, string>()
 function promptSummary(block: Extract<Block, { kind: 'user' }>): string {
   const cached = promptSummaryCache.get(block)
   if (cached !== undefined) return cached
-  const summary = block.text.replace(/\s+/gu, ' ').trim()
+  const summary = maskSecrets(block.text).replace(/\s+/gu, ' ').trim()
   promptSummaryCache.set(block, summary)
   return summary
 }
@@ -2259,7 +2279,7 @@ export function renderTodos(todos: readonly TodoItem[], theme: Theme, width: num
       return branch + theme.fg('success', SYMBOL.success + ' ' + theme.strikethrough(todo.content))
     }
     if (todo.status === 'in_progress') {
-      return branch + theme.fg('accent', SYMBOL.pending + ' ' + todo.content)
+      return branch + theme.fg('accent', SYMBOL.running + ' ' + todo.content)
     }
     return branch + theme.fg('dim', SYMBOL.pending + ' ' + todo.content)
   })]
@@ -2671,7 +2691,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // says so the moment the character is typed — before the reader commits to
     // running anything. Green is the one ink that means "this runs on your
     // machine", which is also what a successful tool card uses.
-    border: options.inspected === undefined && options.input.trimStart().startsWith('!')
+    border: options.inspected === undefined && !options.literalInput && options.input.startsWith('!')
       ? 'shellMode'
       : options.inspected !== undefined && options.inspected.writable !== true
         || state.status === 'idle'
@@ -2708,12 +2728,17 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       options.promptSelector,
       theme,
       width,
-      Math.max(10, Math.min(height - 8, Math.floor(height * 0.6))),
+      promptTreeHeight(height),
       options.input,
       options.inputCursor,
       appName,
     )
-  let promptVisibleRows = Math.max(3, Math.min(10, height - working.length - 14))
+  const spacer = 1
+  // Keep a transcript row visible besides the scroll indicator and the gap.
+  const promptHeight = Math.max(1, height - working.length - statusFooter.length - spacer - 2)
+  const cardOptions = options.promptSelector === undefined || treeRows !== undefined ? 0
+    : filteredPromptOptions(options.promptSelector.request, options.input, options.promptSelector.collapsed).length
+  let promptVisibleRows = Math.max(1, Math.min(10, promptHeight, cardOptions))
   const documentPanel = options.promptSelector?.renderDocument === undefined ? undefined : renderPlanReviewPage(
     options.transientStatus === undefined ? options.promptSelector : { ...options.promptSelector, notice: options.transientStatus }, theme, width,
     Math.max(10, Math.min(height - working.length - 4, options.promptSelector.renderDocument(theme, Math.max(1, width - 6)).length + 8)),
@@ -2728,12 +2753,14 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
       options.input,
       options.inputCursor,
       promptVisibleRows,
+      promptHeight,
     ))
-  // Details and live notices consume rows too. Window choices before they push
-  // the navigation hints and fixed footer outside a short terminal.
-  while (documentPanel === undefined && treeRows === undefined && options.promptSelector?.request.allowCustom === false
-    && promptSelector !== undefined && promptSelector.lines.length > height - working.length - 3 && promptVisibleRows > 3) {
-    promptSelector = renderPromptSelector(options.promptSelector, theme, width, options.input, options.inputCursor, --promptVisibleRows)
+  // Make room for the footer and for details that can fit by windowing choices.
+  while (documentPanel === undefined && treeRows === undefined && options.promptSelector !== undefined
+    && promptSelector !== undefined && promptVisibleRows > 1) {
+    const hiddenDetailRows = promptSelector.document?.maxStart ?? 0
+    if (promptSelector.lines.length <= promptHeight && (hiddenDetailRows === 0 || hiddenDetailRows >= promptVisibleRows)) break
+    promptSelector = renderPromptSelector(options.promptSelector, theme, width, options.input, options.inputCursor, --promptVisibleRows, promptHeight)
   }
   const settings = promptSelector !== undefined || options.settings === undefined
     ? undefined
@@ -2781,7 +2808,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : renderAutocomplete(options.autocomplete.items, options.autocomplete.selected, theme, width)
   const inputLines = promptSelector?.lines ?? settings?.lines ?? search?.lines
     ?? (editor === undefined ? [] : editor.lines)
-  const spacer = 1
   const reserved = aside.length + inputLines.length + working.length + inspect.length + subagents.length + todos.length + goal.length + questions.length + queuedSubmissions.length + turnError.length + spacer + autocomplete.length + statusFooter.length
   const budget = Math.max(0, height - reserved)
   const focusIndex = options.focusBlock === undefined
@@ -2792,10 +2818,13 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     : Math.max(0, Math.min(options.focusBlock, state.blocks.length - 1))
   const focusRow = focusIndex === undefined ? undefined : transcript.blockStarts[focusIndex]
   const detailEnd = focusIndex === undefined ? undefined : transcript.disclosures.find(target => target.block === focusIndex)?.detailEnd
+  const focusHit = options.transcriptSearch === undefined ? undefined : transcript.occurrences[options.transcriptSearch.focus]
   const focusOffset = Math.max(0, Math.min(options.focusBlockOffset ?? 0, (detailEnd ?? 0) - (focusRow ?? 0) - 1))
   const focusStart = focusIndex === undefined ? undefined : options.focusBlockEdge === 'end'
     ? Math.max(0, (transcript.blockStarts[focusIndex + 1] ?? transcript.lines.length) - Math.max(1, budget - 2))
-    : focusRow === undefined ? undefined : focusRow + focusOffset
+    : focusRow === undefined ? undefined : focusHit !== undefined && focusHit.block === focusIndex
+      ? transcript.searchRow ?? focusRow + focusHit.row
+      : focusRow + focusOffset
   const requestedStart = focusStart === undefined
     ? (options.scrollStart ?? Number.POSITIVE_INFINITY)
     : transcriptStart + focusStart
@@ -2950,7 +2979,12 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     // The tree's preview is a scrollable document too: without its coordinates
     // the advertised Ctrl+↑↓ had nothing to move, because the card path never
     // reported them.
-    ...(promptSelector?.document === undefined ? {} : { promptDocument: promptSelector.document }),
+    ...(promptSelector?.document === undefined ? {} : { promptDocument: {
+      ...promptSelector.document,
+      ...(promptSelector.document.preview === undefined ? {} : {
+        preview: { ...promptSelector.document.preview, row: promptSelector.document.preview.row + editorStart + topPad },
+      }),
+    } }),
     ...(promptSelector?.choices === undefined ? {} : { promptChoices: promptSelector.choices.map(choice => ({ ...choice, row: choice.row + editorStart + topPad })) }),
     ...(promptSelector?.actions === undefined ? {} : { promptActions: promptSelector.actions.map(action => ({ ...action, row: action.row + editorStart + topPad })) }),
     documentRows: bodySource,

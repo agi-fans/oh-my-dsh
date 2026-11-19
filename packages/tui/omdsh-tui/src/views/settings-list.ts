@@ -43,7 +43,7 @@ import { MERMAID_MODES, type MermaidMode } from '../chrome/mermaid.ts'
 import type { FoldDensity } from '../session/fold-policy.ts'
 import type { HotkeyRow } from './hotkey-format.ts'
 import { listNavigation } from './list-navigation.ts'
-import { LIST_CURSOR_CELLS, renderListRowWithValue, type ListRow } from './list-view.ts'
+import { renderListRowWithValue, type ListRow } from './list-view.ts'
 import { FEATURE_TOGGLES, type FeatureStates } from '../session/feature-toggles.ts'
 import { rankSearchResults } from '../input/fuzzy-search.ts'
 import { moveGraphemeLeft } from '../chrome/grapheme.ts'
@@ -299,7 +299,7 @@ function generalSettingItems(prefs: TuiPrefs, editors: readonly EditorChoice[] =
     {
       id: 'notifications',
       label: 'Notifications',
-      description: 'Notify when a long turn finishes or input is required. Away also waits until the terminal loses focus; Always reports regardless of focus.',
+      description: 'Notify when input is required. Away reports long turns after the terminal loses focus. Always reports every turn.',
       value: resolveNotificationMode(prefs.notifications, prefs.notificationFocus),
       values: NOTIFICATION_MODES,
     },
@@ -898,14 +898,14 @@ export function renderSettings(
     const item = entry.item
     const selectedRow = entry.index === index
     if (selectedRow) cursorRow = lines.length
-    const above = start > 0 && row === 0 ? theme.fg('dim', '↑ ') : ''
-    const below = start + visibleCount < rows.length && row === viewportHeight - 1 ? theme.fg('dim', '↓ ') : ''
+    const edge = start > 0 && row === 0 ? 'up'
+      : start + visibleCount < rows.length && row === viewportHeight - 1 ? 'down' : undefined
     lines.push(framedRow(theme, renderSettingRow(
       entry.section === undefined ? item : { ...item, label: `${item.label} · ${entry.section}` },
       selectedRow,
       theme,
       Math.max(1, width - 4),
-      above || below,
+      edge,
       false,
     ), width))
   }
@@ -920,7 +920,7 @@ export function renderSettings(
     : selected?.action !== undefined ? 'Enter open · Tab sections · / search · Esc back'
       : selected?.id.startsWith('plugin:') === true ? `Enter configure${selected.values.length > 0 ? ' · ←→ change' : ''} · Tab sections · / search${selected.resettable ? ' · Ctrl+R reset' : ''} · Esc back`
         : selected?.id.startsWith('statusItem:') === true
-          ? 'Space show/hide · / search · Esc back'
+          ? 'Space show/hide · / search · Ctrl+R reset · Esc back'
           : selected?.resettable === false ? '←→ change · Tab sections · / search · Esc back' : settingsHints()
   const hints = theme.fg('dim', theme.text(width < 60
     ? matches !== undefined ? 'Type filter · ↑↓ · Esc clear/back' : 'Tab sections · / search · Esc back'
@@ -937,7 +937,7 @@ function renderSettingRow(
   selected: boolean,
   theme: Theme,
   width: number,
-  edge = '',
+  edge?: 'up' | 'down',
   moving = false,
 ): string {
   // A colour value keeps its swatch tone only when the row is not selected;
@@ -953,13 +953,9 @@ function renderSettingRow(
     secondary: item.hidden === true,
     value,
   }
-  const rendered = renderListRowWithValue(row, theme, width, visibleWidth(row.label), {
+  return renderListRowWithValue(row, theme, width, visibleWidth(row.label), {
     selected,
+    ...(edge === undefined ? {} : { edge }),
     ...(moving ? { moving } : {}),
   })
-  // An edge mark replaces the cursor cell, which the shared row already
-  // reserved, so the row cannot shift when the reader reaches either end.
-  if (edge === '') return rendered
-  const mark = theme.fg('dim', edge.trimStart() + ' ')
-  return truncateToWidth(mark + rendered.slice(LIST_CURSOR_CELLS), width)
 }

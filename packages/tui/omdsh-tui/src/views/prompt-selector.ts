@@ -1,5 +1,6 @@
 /** Interactive terminal selector used by resume, approval, and user questions. */
 
+import type { Frame } from '../chrome/renderer.ts'
 import { uiText, type UiLanguage } from '../locale/index.ts'
 import { imageSize, type ImageProtocol } from '../chrome/terminal-images.ts'
 import type { TuiDocumentPosition, TuiPrompt } from '../definition.ts'
@@ -48,7 +49,7 @@ export interface PromptSelectorFrame {
   image?: import('../chrome/terminal-images.ts').ImagePlacement
   lines: string[]
   cursor: { row: number; column: number }
-  document?: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition }
+  document?: Frame['promptDocument']
   cursorVisible?: boolean
 }
 
@@ -156,6 +157,11 @@ function treePageLayout(request: TuiPrompt, width: number, height: number, langu
   return { hints, middle, listHeight, previewHeight }
 }
 
+/** Height of the tree panel above the composer. */
+export function promptTreeHeight(height: number): number {
+  return Math.max(10, Math.min(height - 8, Math.floor(height * 0.6)))
+}
+
 /** Page movement follows the list space remaining after wrapped action hints. */
 export function promptTreePageSize(request: TuiPrompt, width: number, height: number, language: UiLanguage = 'en'): number {
   return height < 10 || width < 20 ? Math.max(1, height - 8) : treePageLayout(request, width, height, language).listHeight
@@ -226,7 +232,9 @@ export function renderPromptTreePage(
   lines.push(pageRow(theme, theme.fg('dim', navigation), width),
     ...hints.map(hint => pageRow(theme, theme.fg('dim', hint), width)), pageBottom(theme, width))
   return { lines, choices: rows.slice(range.start, range.end).map((row, index) => ({ row: 4 + index, column: 2, width: listWidth, index: range.start + index, value: row.option.value ?? row.option.label })), cursor: { row: 2, column: Math.min(width - 3, 4 + visibleWidth(input.slice(0, inputCursor))) },
-    document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight }, cursorVisible: true }
+    document: { start: scroll, maxStart: maxScroll, pageSize: previewHeight,
+      preview: { row: split ? 4 : 5 + listHeight, column: split ? listWidth + 5 : 2, height: previewHeight },
+    }, cursorVisible: true }
 }
 
 /** Fold/unfold a subtree or move to its parent, preserving selection by value. */
@@ -326,8 +334,11 @@ function pageTop(theme: Theme, width: number, appName: string): string {
     + pageBorder(theme, BOX.horizontal.repeat(fill) + BOX.topRight)
 }
 
-function pageDivider(theme: Theme, width: number): string {
-  return pageBorder(theme, BOX.teeRight + BOX.horizontal.repeat(Math.max(0, width - 2)) + BOX.teeLeft)
+function pageDivider(theme: Theme, width: number, position = ''): string {
+  const inner = Math.max(0, width - 2)
+  const label = position === '' ? '' : truncateToWidth(' ' + position + ' ', inner)
+  return pageBorder(theme, BOX.teeRight + BOX.horizontal.repeat(inner - visibleWidth(label)))
+    + theme.fg('muted', label) + pageBorder(theme, BOX.teeLeft)
 }
 
 function pageBottom(theme: Theme, width: number): string {
@@ -444,9 +455,9 @@ export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme,
   const image = state.request.documentImage!
   if (width < 16 || height < 10) return renderPromptSelector({ ...state, request: { ...state.request,
     detail: image.description + '\nEnlarge the terminal or use Open to view the image.' } }, theme, width, '', 0, Math.max(1, height - 8))
-  const { lines: actions } = documentActionRows(state, theme, width, height)
+  const { lines: actionRows, actions } = documentActionRows(state, theme, width, height)
   const hints = 'Tab/←→ actions · Enter activate · Esc back'
-  const bodyRows = Math.max(1, height - 8 - actions.length)
+  const bodyRows = Math.max(1, height - 8 - actionRows.length)
   const lines = [pageTop(theme, width, appName + ' · ' + state.request.title), pageRow(theme, state.request.question, width),
     pageRow(theme, theme.fg('muted', image.description), width), pageDivider(theme, width)]
   const top = lines.length
@@ -455,9 +466,10 @@ export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme,
     + (canOpen ? 'Use Open to view the original.' : 'This attachment has no local original to open.'), width - 8) : []
   for (let at = 0; at < bodyRows; at++) lines.push(pageRow(theme, '  ' + (fallback[at] ?? ''), width))
   lines.push(pageDivider(theme, width), pageRow(theme, theme.fg('muted', (state.request.detail ?? '').replace(/[\r\n]+/gu, ' ')), width),
-    ...actions.map(row => pageRow(theme, ' ' + row, width)), pageRow(theme, theme.fg('dim', hints), width), pageBottom(theme, width))
+    ...actionRows.map(row => pageRow(theme, ' ' + row, width)), pageRow(theme, theme.fg('dim', hints), width), pageBottom(theme, width))
   const size = imageSize(image, width - 8, bodyRows, cell)
   return { lines, cursor: { row: height - 1, column: 0 }, cursorVisible: false,
+    actions: actions.map(action => ({ ...action, row: action.row + top + bodyRows + 2 })),
     ...(protocol === undefined ? {} : { image: { image, protocol, row: top + Math.floor((bodyRows - size.rows) / 2),
       column: 4 + Math.floor((width - 8 - size.columns) / 2), ...size } }) }
 }
@@ -533,18 +545,14 @@ export function renderPlanReviewPage(
     }
   }
   while (visible.length < bodyRows) visible.push('')
-  const subject = state.request.presentation === 'document' ? 'document' : 'plan'
-  if (source === undefined && start > 0) visible[0] = theme.fg('dim', `… ↑ ${start} earlier ${subject} lines`)
-  if (source === undefined && start + bodyRows < document.length) {
-    visible[Math.max(0, visible.length - 1)] = theme.fg('dim', `… ↓ ${document.length - start - bodyRows} later ${subject} lines`)
-  }
 
   const lines = [
     pageTop(theme, width, `${appName} · ${compactReader ? state.request.question : state.request.title}`),
     ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
     ...(compactReader || renderedReader && state.request.question === '' ? [] : [pageRow(theme, ' ' + theme.bold(state.request.question), width)]),
     ...(source === undefined && !renderedReader ? [pageRow(theme, '', width)] : []),
-    pageDivider(theme, width),
+    pageDivider(theme, width, source === undefined && document.length > bodyRows
+      ? `${start + 1}–${Math.min(start + bodyRows, document.length)}/${document.length}` : undefined),
     ...visible.map(line => pageRow(theme, '  ' + line, width)),
     pageDivider(theme, width),
   ]
@@ -617,7 +625,7 @@ export function renderPlanReviewPage(
     lines,
     cursor,
     actions,
-    document: { start, maxStart, pageSize: Math.max(1, bodyRows - 1),
+    document: { start, maxStart, pageSize: source === undefined ? bodyRows : Math.max(1, bodyRows - 1),
       ...(layout === undefined ? state.request.presentation === 'document' ? { position: { row: start, wrap: 0, query } } : {} : { position: { ...documentPosition(layout, start, query),
         ...(state.request.documentTail === true ? { following: state.documentScroll === Number.POSITIVE_INFINITY } : {}) } }) },
     cursorVisible: feedback || readerInput,
@@ -640,6 +648,7 @@ export function renderPromptSelector(
   input: string,
   inputCursor: number,
   maxVisible: number = PROMPT_SELECTOR_MAX_VISIBLE,
+  maxHeight = Number.POSITIVE_INFINITY,
 ): PromptSelectorFrame {
   const options = filteredPromptOptions(state.request, input, state.collapsed)
   const filtering = input !== ''
@@ -654,7 +663,9 @@ export function renderPromptSelector(
       ? theme.text('Take your time · waiting for your answer')
       : theme.text('Continues in {seconds}s · {key} take time', { seconds: remaining, key: formatHotkeyKeys(HOTKEY_TAKE_TIME) })))
   }
-  if (state.request.detail !== undefined && state.request.detail !== '') body.push('', state.request.detail)
+  const detail = state.request.detail ?? ''
+  const detailIndex = body.length
+  const detailRow = bodyRow()
   if (options.length > 0) {
     const { start, end } = promptSelectorVisibleRange(options.length, state.selected, maxVisible)
     body.push('')
@@ -744,6 +755,41 @@ export function renderPromptSelector(
     if (line !== '') body.push(line)
   } else if (actionHints.length > 0) body.push(theme.fg('dim', actionHints.join(' · ')))
 
+  const hasEditor = state.request.allowCustom !== false && state.request.presentation !== 'progress'
+  const secret = state.request.secret === true
+  const displayInput = secret ? maskPromptSecret(input) : input
+  const separateEditor = hasEditor && (options.length > 0 || detail !== '' || state.request.wait !== undefined)
+    ? renderEditor({
+      width,
+      input: displayInput,
+      inputCursor,
+      status: theme.fg('muted', secret ? theme.text('API key · hidden') : input === '' ? theme.text('answer') : theme.text('custom answer')),
+      border: 'accent',
+    }, theme) : undefined
+  let detailWindow: PromptSelectorFrame['document']
+  let detailRows = 0
+  if (detail !== '') {
+    const rows = wrapTextStable(expandTabs(detail, 8, 2), contentWidth)
+    const available = maxHeight - bodyRow() - 1 - (separateEditor === undefined ? 0 : separateEditor.lines.length + 1)
+    let visible = rows
+    let label = ''
+    if (rows.length + 1 > available && state.request.presentation !== 'progress') {
+      const pageSize = Math.max(1, available - 1)
+      const maxStart = Math.max(0, rows.length - pageSize)
+      const start = Math.min(maxStart, state.documentScroll ?? 0)
+      visible = rows.slice(start, start + pageSize)
+      const position = `${start + 1}–${start + visible.length}/${rows.length} · PgUp/PgDn`
+      label = theme.fg('dim', truncateToWidth(position, contentWidth))
+      detailWindow = { start, maxStart, pageSize,
+        preview: { row: detailRow, column: 2, height: visible.length + 1 },
+      }
+    }
+    body.splice(detailIndex, 0, label, ...visible)
+    detailRows = visible.length + 1
+    for (const choice of choices) if (choice.row >= detailRow) choice.row += detailRows
+    for (const action of actions) if (action.row >= detailRow) action.row += detailRows
+  }
+
   const card = renderFramedBlock({
     header: state.request.title,
     state: 'warning',
@@ -751,20 +797,19 @@ export function renderPromptSelector(
     width,
     applyBg: false,
   }, theme)
-  if (state.request.allowCustom === false || state.request.presentation === 'progress') {
+  if (!hasEditor) {
     // With a filter line the caret follows the editor's insertion point;
     // without one it stays on body padding, because the selector glyph
     // owns focus while no text editor is present.
     return {
       lines: card, choices, actions,
+      ...(detailWindow === undefined ? {} : { document: detailWindow }),
       cursor: filterRow === undefined
         ? { row: Math.min(1, Math.max(0, card.length - 1)), column: 1 }
-        : { row: filterRow, column: 4 + visibleWidth(input.slice(0, inputCursor)) },
+        : { row: filterRow + detailRows, column: 4 + visibleWidth(input.slice(0, inputCursor)) },
       cursorVisible: filterRow !== undefined,
     }
   }
-  const secret = state.request.secret === true
-  const displayInput = secret ? maskPromptSecret(input) : input
   /**
    * A question that is only text is the composer, not a card above it.
    *
@@ -780,8 +825,7 @@ export function renderPromptSelector(
    * genuinely is two things. So does one that carries supporting copy, and one
    * counting down a deadline — both need rows the bottom rule cannot give them.
    */
-  const detail = state.request.detail ?? ''
-  if (options.length === 0 && detail === '' && state.request.wait === undefined) {
+  if (separateEditor === undefined) {
     const label = secret ? `${state.request.title} · hidden` : state.request.title
     const editor = renderEditor({
       width,
@@ -796,17 +840,11 @@ export function renderPromptSelector(
     }, theme)
     return { lines: editor.lines, cursor: editor.cursor, cursorVisible: true }
   }
-  const editor = renderEditor({
-    width,
-    input: displayInput,
-    inputCursor,
-    status: theme.fg('muted', secret ? theme.text('API key · hidden') : input === '' ? theme.text('answer') : theme.text('custom answer')),
-    border: 'accent',
-  }, theme)
   const editorStart = card.length + 1
   return {
-    lines: [...card, '', ...editor.lines], choices, actions,
-    cursor: { row: editorStart + editor.cursor.row, column: editor.cursor.column },
+    lines: [...card, '', ...separateEditor.lines], choices, actions,
+    ...(detailWindow === undefined ? {} : { document: detailWindow }),
+    cursor: { row: editorStart + separateEditor.cursor.row, column: separateEditor.cursor.column },
     cursorVisible: true,
   }
 }
@@ -824,8 +862,8 @@ export function movePromptSelection(
 
 /** Toggle the active row for a multi-select prompt. */
 export function togglePromptSelection(state: PromptSelectorState, query = ''): PromptSelectorState {
-  const option = filteredPromptOptions(state.request, query)[state.selected]
-  if (state.request.multiSelect !== true || option === undefined) return state
+  const option = filteredPromptOptions(state.request, query, state.collapsed)[state.selected]
+  if (state.request.multiSelect !== true || option === undefined || option.disabled === true) return state
   const index = state.request.options?.indexOf(option) ?? -1
   if (index < 0) return state
   const checked = new Set(state.checked)
@@ -854,7 +892,7 @@ export function selectedPromptAnswer(state: PromptSelectorState): string | null 
     if (option?.disabled === true) return null
     return option?.value ?? option?.label ?? null
   }
-  const labels = options.flatMap((option, index) => state.checked.has(index) ? [option.value ?? option.label] : [])
+  const labels = structuredPromptAnswer(state, '').selected
   return labels.length === 0 ? state.request.allowEmptySelection === true ? '' : null : labels.join(', ')
 }
 

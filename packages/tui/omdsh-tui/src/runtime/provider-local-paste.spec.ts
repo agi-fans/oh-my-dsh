@@ -302,3 +302,22 @@ it('keeps composer images while bracketed text answers a question', async () => 
     expect((await pending)?.images.map(image => image.name)).toEqual(['probe.png'])
   } finally { tui.dispose() }
 })
+
+it.each([false, true])('preserves shell paste protection through deletion and undo (undo=%s)', async undo => {
+  const { term, tui } = fixture()
+  try {
+    const pending = tui.readInput()
+    term.press('\x1b[200~!echo blocked\x1b[201~')
+    await tick()
+    term.press('\x15')
+    if (undo) {
+      term.press('\x1f\r')
+      expect(await pending).toMatchObject({ text: '!echo blocked', literal: true })
+    } else {
+      term.press('fresh prompt\r')
+      const sent = await pending
+      expect(sent?.text).toBe('fresh prompt')
+      expect(sent?.literal).toBeUndefined()
+    }
+  } finally { tui.dispose() }
+})

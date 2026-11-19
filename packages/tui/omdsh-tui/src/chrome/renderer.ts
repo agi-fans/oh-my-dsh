@@ -7,6 +7,8 @@
  * @module @agi-fans/dsh-tui
  */
 
+import type { IndexedLine } from './width.ts'
+
 /** Transcript viewport after the height clip (OMP ScrollView equivalent). */
 export interface TranscriptScroll {
   /** The left disclosure gutter is clickable; titles remain selectable text. */
@@ -105,7 +107,7 @@ export interface DocumentRows {
 /** One display frame: exact lines plus an optional final cursor position. */
 export interface Frame {
   /** Composer source offsets and completion indexes in the painted frame. */
-  inputRows?: readonly { row: number; column: number; text: string; start: number; end: number }[]
+  inputRows?: readonly (IndexedLine & { row: number; column: number })[]
   autocompleteRows?: readonly { row: number; index: number }[]
   /** Selection buttons on the composer rule; row is relative to the full frame. */
   selectionActions?: readonly { row: number; column: number; width: number; action: 'copy' | 'quote' }[]
@@ -138,7 +140,13 @@ export interface Frame {
   /** Full-screen prompt review document scroll state, when one is active. */
   promptActions?: readonly { row: number; column: number; width: number; index: number; key?: string }[]
   promptChoices?: readonly { row: number; column: number; width: number; value: string; index: number }[]
-  promptDocument?: { start: number; maxStart: number; pageSize: number; position?: import('../definition.ts').TuiDocumentPosition }
+  promptDocument?: {
+    start: number
+    maxStart: number
+    pageSize: number
+    position?: import('../definition.ts').TuiDocumentPosition
+    preview?: { row: number; column: number; height: number }
+  }
   /** First line that is still live/mutable for main-screen scrollback; rows before this are committed. */
   liveStart?: number
   /** True when the live region must stay in the viewport instead of scrolling as frozen snapshots. */

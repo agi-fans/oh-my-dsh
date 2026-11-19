@@ -4,6 +4,7 @@
  * @module @agi-fans/dsh-tui
  */
 
+import { moveGraphemeLeft, moveGraphemeRight } from '../chrome/grapheme.ts'
 import { renderEditor } from '../chrome/box.ts'
 import type { KeyEvent } from '../input/keys.ts'
 import { SYMBOL, type Theme } from '../chrome/theme.ts'
@@ -150,20 +151,20 @@ export function applyHistorySearchEvent(
   switch (event.id) {
     case 'left':
     case 'ctrl+b':
-      return { kind: 'update', state: moveQuery(state, state.cursor - 1) }
+      return { kind: 'update', state: moveQuery(state, moveGraphemeLeft(state.query, state.cursor)) }
     case 'right':
     case 'ctrl+f':
-      return { kind: 'update', state: moveQuery(state, state.cursor + 1) }
+      return { kind: 'update', state: moveQuery(state, moveGraphemeRight(state.query, state.cursor)) }
     case 'ctrl+a':
       return { kind: 'update', state: moveQuery(state, 0) }
     case 'ctrl+e':
       return { kind: 'update', state: moveQuery(state, state.query.length) }
     case 'backspace':
-      return { kind: 'update', state: deleteRange(state, state.cursor - 1, state.cursor, history) }
+      return { kind: 'update', state: deleteRange(state, moveGraphemeLeft(state.query, state.cursor), state.cursor, history) }
     case 'delete':
     case 'ctrl+d':
       if (state.query === '') return { kind: 'cancel' }
-      return { kind: 'update', state: deleteRange(state, state.cursor, state.cursor + 1, history) }
+      return { kind: 'update', state: deleteRange(state, state.cursor, moveGraphemeRight(state.query, state.cursor), history) }
     case 'ctrl+w':
     case 'alt+backspace':
       return { kind: 'update', state: deleteRange(state, moveWordLeft(state.query, state.cursor), state.cursor, history) }

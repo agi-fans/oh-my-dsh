@@ -404,13 +404,20 @@ if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End')
 }
 mark = out.length
 term.write('/settings\r')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1006l\x1b[?1002l\x1b[?1000l') && cleanOutput(out.slice(mark)).includes('Settings'), 'settings suspends transcript mouse tracking', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Settings'), 'settings opens while browsing the transcript', deadline))) {
+  term.kill()
+  process.exit(1)
+}
+mark = out.length
+term.write('\x1b[<65;5;5M')
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('❯ Response language'), 'mouse wheel moves the settings selection', deadline))) {
+  console.error(cleanOutput(out.slice(mark)).slice(-2000))
   term.kill()
   process.exit(1)
 }
 mark = out.length
 term.write('\x1b[27u')
-if (!(await waitFor(() => out.slice(mark).includes('\x1b[?1000h\x1b[?1002h\x1b[?1006h'), 'mouse restored after settings', deadline))) {
+if (!(await waitFor(() => cleanOutput(out.slice(mark)).includes('Latest · End'), 'inspected transcript restored after settings', deadline))) {
   term.kill()
   process.exit(1)
 }

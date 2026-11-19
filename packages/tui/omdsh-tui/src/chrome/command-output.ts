@@ -2,7 +2,7 @@
 
 import { renderMarkdown } from './markdown.ts'
 import { BOX, paintSurface, type Theme } from './theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth, wrapText, wrapTextStable } from './width.ts'
+import { padToWidth, truncateToWidth, visibleWidth, wrapCode, wrapText } from './width.ts'
 
 /** Rows of command output shown before the rest folds behind one line. */
 export const COMMAND_OUTPUT_PREVIEW = 12
@@ -102,7 +102,7 @@ export function renderShell(block: { command: string; output: string; status: 'r
   const inset = width > 4 ? 2 : 0
   const room = Math.max(1, width - inset * 2)
   const rows = block.output.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replace(/\s+$/u, '')
-  const heading = `$ ${block.command}`
+  const heading = (block.status === 'running' ? '⟳ ' : '') + `$ ${block.command}`
   // The command is the reader's own intent, so it is one ink and never syntax
   // coloured — the same rule a tool card's command line follows. A Shell card
   // carries a fill because it is a block of machine output, not prose: without
@@ -121,7 +121,7 @@ export function renderShell(block: { command: string; output: string; status: 'r
     const ink = block.status === 'error' ? 'error' : 'toolOutput'
     body.push('')
     for (const line of visible) {
-      for (const row of wrapTextStable(theme.fg(ink, line), room)) body.push(truncateToWidth(row, room))
+      for (const row of wrapCode(theme.fg(ink, line), room)) body.push(truncateToWidth(row, room))
     }
     if (omitted > 0) {
       body.push(theme.fg('dim', `… ${omitted} ${block.status === 'running' ? 'earlier' : 'more'} ${omitted === 1 ? 'line' : 'lines'}`))

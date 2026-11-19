@@ -93,12 +93,22 @@ async function attachments(ctx: Context, invocation: CommandInvocation): Promise
     })
     if (answer === null) break
     if (answer === ADD_CANDIDATE_PREFIX && ctx.tui.stageFileAttachment !== undefined) {
-      const input = await prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Attach file', question: 'Path to the file', signal: invocation.signal }))
-      if (invocation.signal.aborted) break
-      if (input === null || input.trim() === '') continue
-      const staged = await stageAttachment(ctx, invocation, input)
-      if (staged.kind === 'error') return staged
-      // The list the reader just left is now stale; reopen it with the new row.
+      let initialInput: string | undefined
+      let detail: string | undefined
+      while (!invocation.signal.aborted) {
+        const input = await prompt(askPrompt({ localize: ['title', 'question', 'actions'], title: 'Attach file',
+          question: 'Path to the file', ...(initialInput === undefined ? {} : { initialInput }),
+          ...(detail === undefined ? {} : { detail }), signal: invocation.signal }))
+        if (input === null || input.trim() === '' || invocation.signal.aborted) break
+        initialInput = input
+        try {
+          const staged = await stageAttachment(ctx, invocation, input)
+          if (staged.kind === 'success') break
+          detail = staged.text
+        } catch (error) {
+          detail = error instanceof Error ? error.message : String(error)
+        }
+      }
       continue
     }
     const ref = refs[Number(answer)]

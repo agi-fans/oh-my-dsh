@@ -995,7 +995,7 @@ describe('applyEvent', () => {
     expect(lines.slice(todo - 2, todo + 1)).toEqual([
       '  Todos · 1/2',
       '  ├─ ✔ Inspect the projection chain',
-      '  └─ ○ Render todos above the composer',
+      '  └─ ⟳ Render todos above the composer',
     ])
   })
 
@@ -1513,7 +1513,7 @@ describe('renderView', () => {
     expect(lines.map(stripAnsi)).toEqual([
       '  Todos · 5/7',
       '  ├─ … 5 earlier',
-      '  ├─ ○ current work',
+      '  ├─ ⟳ current work',
       '  └─ ○ next task with a…',
     ])
     expect(lines.every(line => visibleWidth(line) <= 24)).toBe(true)

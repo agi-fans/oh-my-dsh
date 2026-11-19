@@ -210,3 +210,17 @@ describe('a search that opens a thought the run took', () => {
     expect([...opened]).toEqual([runKey(state)])
   })
 })
+
+it.each(['commandOutput', 'aside'] as const)('reports when search reveals a folded %s', kind => {
+  const body = Array.from({ length: 25 }, (_, index) => `output line ${index}`).join('\n\n')
+  const output = kind === 'commandOutput' ? { kind, command: '/log', text: 'Log\n\n' + body }
+    : { kind, question: 'Question', text: body }
+  const state: TranscriptState = { ...initialTranscript(), blocks: [output] }
+  const options = { width: 60, height: 90, model: 'm', input: '', inputCursor: 0, colors: false }
+  const folded = renderView(state, options)
+  const open = renderView(state, { ...options, transcriptSearch: { query: 'output line 21', focus: 0, editing: true } })
+  expect(folded.lines.join('\n')).not.toContain('output line 21')
+  expect(open.lines.join('\n')).toContain('output line 21')
+  expect(open.transcript?.foldShape).not.toBe(folded.transcript?.foldShape)
+  expect(open.transcript?.foldMarks).toContainEqual({ key: 'output:0', row: open.transcript?.blockStarts[0] })
+})

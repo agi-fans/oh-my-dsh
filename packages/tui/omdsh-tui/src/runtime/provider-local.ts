@@ -51,7 +51,7 @@ import { ComposerDraftStore, type ComposerDraft } from '../session/composer-draf
 import { mergeJobSettlement } from '../session/job-notice.ts'
 import { PlainTui, type PendingRead } from './plain-tui.ts'
 import { documentDestination, documentLayout, documentLineRow, documentMatches, documentModel, documentPosition, documentStart } from '../views/document-reader.ts'
-import type { TuiDocumentPosition, TuiSubagentView } from '../definition.ts'
+import type { TuiSubagentView } from '../definition.ts'
 
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -137,7 +137,7 @@ import {
   createHistorySearch,
   type HistorySearchState,
 } from '../views/history-search.ts'
-import { type EditorCommand, InputEditor, lineEnd, lineStart } from '../input/editor.ts'
+import { type EditorCommand, InputEditor, lineEnd, lineStart, moveGraphemeLeft } from '../input/editor.ts'
 import {
   applySettingsEvent,
   createSettings,
@@ -197,7 +197,7 @@ import { flushPending, normalizeKeyId, parseKeys, type KeyEvent } from '../input
 import { sanitizeDisplayLine, type Frame, type FoldMark, type TranscriptDisclosure, type RenderSink } from '../chrome/renderer.ts'
 import { blockFileAction, type FileAction } from '../views/file-actions.ts'
 import { fileDocument, reviewFiles } from './file-review.ts'
-import { indexAtCell, stripAnsi } from '../chrome/width.ts'
+import { cursorOnWrapped, indexOnWrapped, stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { supportsHyperlinks } from './terminal-probe.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
@@ -226,6 +226,7 @@ import {
   searchPromptSelection,
   filteredPromptOptions,
   refreshPromptOptions,
+  promptTreeHeight,
   promptTreePageSize,
   selectedPromptAnswer,
   structuredPromptAnswer,
@@ -470,7 +471,6 @@ export class LocalTui implements TuiService {
   }
   #history: string[] = []
   #historyIndex = 0
-  #literalInput = false
   #draft = ''
   #historyDraft: ComposerDraft | undefined
   #clearedDraft: { draft: ComposerDraft; revision: number } | undefined
@@ -505,6 +505,9 @@ export class LocalTui implements TuiService {
   get #queueEditNewer(): TuiSubmission[] | null { return this.#pendingInputs.session(this.#pendingScope()).newer }
   set #queueEditNewer(value: TuiSubmission[] | null) { this.#pendingInputs.session(this.#pendingScope()).newer = value }
   #queueEditPending = false
+  readonly #queueRecallDrafts = new WeakMap<TuiSubmission, ComposerDraft>()
+  readonly #recalledInputs = new WeakMap<TuiSubmission[], TuiSubmission>()
+  readonly #recoveredRecallInputs = new WeakMap<TuiSubmission, TuiSubmission>()
   #queueRecall: { request: TuiQueueEditRequest; abort: AbortController } | undefined
   #quitRequested = false
   #resumeHintRequested = false
@@ -708,7 +711,7 @@ export class LocalTui implements TuiService {
   #promptActionPress: (NonNullable<Frame['promptActions']>[number] & { selectedValue: string | undefined }) | undefined
   #promptChoices: NonNullable<Frame['promptChoices']> = []
   #promptChoicePress: { value: string; row: number; dragged: boolean } | undefined
-  #promptDocument: { start: number; maxStart: number; pageSize: number; position?: TuiDocumentPosition } | undefined
+  #promptDocument: Frame['promptDocument']
   /**
    * 24-bit switch for the current color preference, re-derived whenever that
    * preference changes so a session that starts colorless can still enable
@@ -1584,14 +1587,13 @@ export class LocalTui implements TuiService {
         if (request.options !== undefined && request.options.length > 0) {
           lines.push('', ...request.options.map((option, index) =>
             `${index + 1}. ${option.label}${option.description === undefined ? '' : ' — ' + option.description}`))
-          lines.push('', request.allowCustom === false
-            ? 'Choose a label or number.'
-            : request.multiSelect === true
-              ? 'Choose labels/numbers separated by commas, or type a custom answer.'
-              : 'Choose a label/number, or type a custom answer.')
+          const instruction = request.multiSelect === true
+            ? 'Choose labels or numbers separated by commas' : 'Choose a label or number'
+          lines.push('', instruction + (request.allowCustom === false ? '.' : ', or type a custom answer.'))
         }
         if (request.skippable === true) lines.push('', 'A blank line skips this question.')
         this.notice(`${request.title}\n${lines.join('\n')}`)
+        this.#plain.prompt()
       }
     })
   }
@@ -1911,7 +1913,8 @@ export class LocalTui implements TuiService {
         files.restoreSnapshot(existing.files)
       }
       images.restore(submission, files.adopt(submission.files ?? []))
-      const draft = { editor: editor.snapshot(), images: images.copies(), files: files.snapshot(editor.text), literal: existing?.literal === true || submission.literal === true }
+      editor.literal = existing?.literal === true || submission.literal === true
+      const draft = { editor: editor.snapshot(), images: images.copies(), files: files.snapshot(editor.text), literal: editor.literal }
       if (current && this.#prompt !== null) {
         const answer = this.#editor.snapshot()
         this.#restoreDraft(draft)
@@ -1930,7 +1933,7 @@ export class LocalTui implements TuiService {
       this.#pendingInputs.finish(submission)
       return
     }
-    this.#literalInput ||= submission.literal === true
+    this.#editor.literal ||= submission.literal === true
     this.#images.restore(submission, this.#files.adopt(submission.files ?? []))
     this.#draftDirty = true
     this.#flushDraft()
@@ -1953,11 +1956,20 @@ export class LocalTui implements TuiService {
       }
       return
     }
-    if (this.#queueEditNewer === null) this.#queueEditNewer = []
-    if (this.#hasComposerContent()) {
-      this.#queueEditNewer.unshift(this.#currentSubmission())
-    }
+    const editing = this.#queueEditNewer !== null
+    this.#queueEditNewer ??= []
+    if (this.#hasComposerContent()) this.#parkQueueInput(this.#queueEditNewer, !editing)
     this.#replaceInput(submission)
+  }
+
+  #parkQueueInput(newer: TuiSubmission[], composerDraft = false): void {
+    const current = this.#currentSubmission()
+    if (composerDraft) this.#queueRecallDrafts.set(current, this.#captureDraft())
+    const recalled = this.#recalledInputs.get(newer)
+    if (recalled !== undefined && this.#pendingInputs.receipt(recalled)?.recovered === true) {
+      this.#recoveredRecallInputs.set(current, recalled)
+    }
+    newer.unshift(current)
   }
 
   #currentSubmission(): TuiSubmission {
@@ -1965,9 +1977,10 @@ export class LocalTui implements TuiService {
   }
 
   #replaceInput(submission: TuiSubmission): void {
-    this.#literalInput = submission.literal === true
+    if (this.#queueEditNewer !== null) this.#recalledInputs.set(this.#queueEditNewer, submission)
     this.#files.clear()
     this.#images.replace(submission, this.#files.adopt(submission.files ?? []))
+    this.#editor.literal = submission.literal === true
     this.#historyIndex = 0
     this.#draftDirty = true
     this.#flushDraft()
@@ -2315,18 +2328,18 @@ export class LocalTui implements TuiService {
   #captureDraft(): ComposerDraft {
     if (this.#historyIndex > 0 && this.#historyDraft !== undefined) return this.#historyDraft
     const editor = this.#prompt?.savedInput ?? this.#editor.snapshot()
-    return { editor, images: this.#images.copies(editor), files: this.#files.snapshot(editor.text), literal: this.#literalInput }
+    return { editor, images: this.#images.copies(editor), files: this.#files.snapshot(editor.text), literal: editor.literal === true }
   }
 
   #restoreDraft(draft: ComposerDraft): void {
     this.#editor.restore(draft.editor)
     this.#images.restoreSnapshot(draft.images)
     this.#files.restoreSnapshot(draft.files)
-    this.#literalInput = draft.literal
+    this.#editor.literal = draft.literal
   }
 
   #draftKey(): string {
-    return [this.#editor.revision, this.#editor.cursor, this.#images.revision, this.#files.revision, this.#literalInput].join(':')
+    return [this.#editor.revision, this.#editor.cursor, this.#images.revision, this.#files.revision, this.#editor.literal].join(':')
   }
 
   #watchDraft(): void {
@@ -2445,6 +2458,7 @@ export class LocalTui implements TuiService {
         ...(this.#reasoningEffort === undefined ? {} : { reasoningEffort: this.#reasoningEffort }),
         input: this.#editor.text,
         inputCursor: this.#editor.cursor,
+        literalInput: this.#editor.literal || this.#editor.startsWithPaste,
         inputImages: this.#images.count,
         canContinue: this.#canContinue(),
         queuedSubmissionScope: this.#pendingScope(),
@@ -2523,7 +2537,7 @@ export class LocalTui implements TuiService {
     this.#jumpToLatest = frame.jumpToLatest
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
     this.#inputFrame = frame.inputRows === undefined ? undefined : frame
-    this.#setMouseTracking(this.#inputFrame !== undefined || this.#fileBrowser !== null || this.#trajectory !== null || this.#documentMouseEnabled() || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
+    this.#setMouseTracking(this.#inputFrame !== undefined || this.#fileBrowser !== null || this.#trajectory !== null || this.#settings !== null || this.#search !== null || this.#documentMouseEnabled() || frame.promptDocument?.preview !== undefined || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
       && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
@@ -2758,8 +2772,7 @@ export class LocalTui implements TuiService {
 
   #deliverPasteEmission(event: PasteEmission): void {
     if (event.type === 'paste') {
-      this.#literalInput ||= this.#editor.cursor === 0 && event.value.startsWith('!')
-      this.#editor.paste(event.value.replaceAll('\r\n', '\n').replaceAll('\r', '\n'))
+      this.#editor.paste(event.value.replaceAll('\r\n', '\n').replaceAll('\r', '\n'), this.#editor.cursor === 0 && event.value.startsWith('!'))
       this.#refreshAutocomplete()
       this.#render()
     }
@@ -2816,11 +2829,16 @@ export class LocalTui implements TuiService {
         prompt.offTick?.()
         this.#prompt = { ...prompt, waitHeld: true }
       }
-      this.#editor.handle({ type: 'text', value: text })
-      this.#render()
+      if (prompt.request.filterable === true) this.#handlePrompt({ type: 'text', value: text.replaceAll('\n', ' ') })
+      else if (prompt.request.allowCustom !== false && prompt.request.presentation !== 'progress') {
+        this.#editor.handle({ type: 'text', value: text })
+        this.#render()
+      }
       return
     }
-    if (this.#settings !== null) return
+    if (this.#trajectory !== null) { this.#applyTrajectoryInput({ type: 'text', value: text }); return }
+    if (this.#transcriptSearch !== null) { this.#applyTranscriptSearch({ type: 'text', value: text.replaceAll('\n', ' ') }); return }
+    if (this.#settings !== null) { this.#applySettings({ type: 'text', value: text }); return }
     if (this.#search !== null) {
       this.#applySearch({ type: 'text', value: text })
       return
@@ -2849,8 +2867,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
-    this.#literalInput ||= this.#editor.cursor === 0 && text.startsWith('!')
-    this.#editor.paste(text)
+    this.#editor.paste(text, this.#editor.cursor === 0 && text.startsWith('!'))
     this.#refreshAutocomplete()
     this.#render()
   }
@@ -2981,7 +2998,7 @@ export class LocalTui implements TuiService {
       if (event.action === 'press' && !event.shift && (inputRow !== undefined || completionRow !== undefined)) {
         const completion = completionRow === undefined ? undefined : this.#ac?.items[completionRow.index]
         this.#inputPress = { row: event.row, column: event.column, text: this.#editor.text,
-          ...(inputRow === undefined ? {} : { cursor: inputRow.start + indexAtCell(inputRow.text, Math.max(0, event.column - inputRow.column)) }),
+          ...(inputRow === undefined ? {} : { cursor: indexOnWrapped(inputRow, event.column - inputRow.column, this.#editor.text) }),
           ...(completion === undefined ? {} : { completion }) }
       } else if (event.action === 'drag') this.#inputPress = undefined
       else if (event.action === 'release') {
@@ -2995,7 +3012,7 @@ export class LocalTui implements TuiService {
             this.#ac.selected = completionRow.index
             this.#applySelectedCompletion()
           } else if (pressed.cursor !== undefined && inputRow !== undefined
-            && pressed.cursor === inputRow.start + indexAtCell(inputRow.text, Math.max(0, event.column - inputRow.column))) {
+            && pressed.cursor === indexOnWrapped(inputRow, event.column - inputRow.column, this.#editor.text)) {
             this.#editor.setCursor(pressed.cursor)
             this.#refreshAutocomplete()
           }
@@ -3383,6 +3400,14 @@ export class LocalTui implements TuiService {
     if (event.type === 'wheel') {
       if (this.#fileBrowser !== null) { this.#applyFileBrowserInput(event); return }
       if (this.#trajectory !== null) { this.#applyTrajectoryInput(event); return }
+      if (this.#settings !== null || this.#search !== null) {
+        if (this.#mouseTracking) {
+          const key = { type: 'key' as const, id: event.direction }
+          if (this.#settings !== null) this.#applySettings(key)
+          else this.#applySearch(key)
+        }
+        return
+      }
       if (this.#ac !== null && this.#inputFrame?.autocompleteRows?.some(row => row.row === this.#renderer.frameRowAt(event.row ?? -1))) {
         this.#ac.selected = nextSelectableAutocompleteIndex(this.#ac.items, this.#ac.selected + (event.direction === 'up' ? -1 : 1), event.direction === 'up' ? -1 : 1)
         this.#render()
@@ -3399,8 +3424,20 @@ export class LocalTui implements TuiService {
               this.#prompt.offTick?.()
               this.#prompt = { ...this.#prompt, waitHeld: true }
             }
-            const count = filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed).length
-            this.#prompt = movePromptSelection(this.#prompt, Math.max(0, Math.min(count - 1, this.#prompt.selected + step.lines)), count) as PendingPrompt
+            const document = this.#promptDocument
+            const preview = document?.preview
+            const row = this.#renderer.frameRowAt(event.row ?? -1)
+            if (document !== undefined && preview !== undefined && row !== undefined && row >= preview.row && row < preview.row + preview.height && (event.column ?? -1) >= preview.column) {
+              const next = document.start + step.lines
+              if (this.#prompt.request.presentation !== 'tree') {
+                this.#scrollPromptDocument(next)
+                return
+              }
+              this.#prompt = { ...this.#prompt, previewScroll: Math.max(0, Math.min(next, document.maxStart)) }
+            } else {
+              const count = filteredPromptOptions(this.#prompt.request, this.#editor.text, this.#prompt.collapsed).length
+              this.#prompt = movePromptSelection(this.#prompt, Math.max(0, Math.min(count - 1, this.#prompt.selected + step.lines)), count) as PendingPrompt
+            }
             this.#render()
           } else if (this.#documentMouseEnabled()) this.#scrollPromptDocument(this.#promptDocument!.start + step.lines)
           else this.#scrollBy(step.lines)
@@ -3461,19 +3498,23 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
+    if (this.#settings !== null) { this.#applySettings(event); return }
+    if (this.#search !== null) {
+      const action = event.type === 'key' ? this.#boundAction(event.id) : undefined
+      if (action === 'search-history') this.#applySearch({ type: 'key', id: 'down' })
+      else this.#applySearch(event)
+      return
+    }
     if (event.type === 'key') {
+      if (event.id === 'shift+tab' && this.#handleAutocomplete(event)) return
       const action = this.#boundAction(event.id)
-      if (action !== undefined && this.#runAction(action, confirmsExit)) return
+      if (action !== undefined && this.#runAction(action, confirmsExit, event.id)) return
     }
     if (this.#inspected !== undefined && this.#inspected.writable !== true && event.type === 'text'
       && this.#prompt === null && this.#settings === null && this.#search === null) {
       return
     }
-    if (this.#settings !== null) {
-      this.#applySettings(event)
-      return
-    }
-    if (this.#search === null && this.#handleProcessNavigation(event)) return
+    if (this.#handleProcessNavigation(event)) return
     /**
      * The side pane is a companion, not a mode: it answers where the reader is
      * already working, so it must not take keys the composer is using. It reads
@@ -3495,10 +3536,6 @@ export class LocalTui implements TuiService {
       return
     }
 
-    if (this.#search !== null) {
-      this.#applySearch(event)
-      return
-    }
     if (this.#handleAutocomplete(event)) {
       if (event.type === 'key' && event.id === 'escape') this.#lastEscapeTime = 0
       return
@@ -3524,6 +3561,22 @@ export class LocalTui implements TuiService {
       this.#refreshAutocomplete()
       this.#render()
       return
+    }
+    const rows = this.#inputFrame?.inputRows
+    if (rows !== undefined && event.type === 'key' && (event.id === 'up' || event.id === 'down')) {
+      const caret = cursorOnWrapped(rows, this.#editor.cursor, this.#editor.text)
+      const nextRow = caret.row + (event.id === 'up' ? -1 : 1)
+      const next = rows[nextRow]
+      if (next !== undefined) {
+        const text = this.#editor.text
+        const index = indexOnWrapped(next, caret.column, text)
+        // A hard wrap shares its end index with the next row's start.
+        const cursor = index === next.end && index === rows[nextRow + 1]?.start && index > next.start
+          ? moveGraphemeLeft(text, index) : index
+        this.#editor.setCursor(cursor)
+        this.#applyCommand({ kind: 'changed' })
+        return
+      }
     }
     this.#applyCommand(this.#editor.handle(event))
   }
@@ -3551,11 +3604,16 @@ export class LocalTui implements TuiService {
     // with a draft clears it first — the same order the reader expects from
     // any other depth.
     if (this.#inspected !== undefined) {
-      if (this.#inspected.writable === true && this.#hasComposerContent()) {
+      if (this.#inspected.writable === true
+        && (this.#hasComposerContent() || this.#queueEditNewer !== null || this.#queueEditPending)) {
         this.#clearComposerWithUndo()
         return true
       }
       this.#closeInspect()
+      return true
+    }
+    if (this.#shellAbort !== undefined && !this.#hasComposerContent()) {
+      this.#shellAbort()
       return true
     }
     if (this.#state.status !== 'idle') {
@@ -3589,12 +3647,9 @@ export class LocalTui implements TuiService {
       this.#shellAbort()
       return true
     }
-    if (this.#settings !== null) { this.#settings = null; this.#render(); return true }
-    if (this.#search !== null) { this.#search = null; this.#render(); return true }
-    if (this.#transcriptSearch !== null) { this.#transcriptSearch = null; this.#render(); return true }
     const hasDraft = this.#hasComposerContent()
     if (this.#state.status !== 'idle') {
-      if (hasDraft) this.#clearComposerWithUndo()
+      if (hasDraft || this.#queueEditNewer !== null || this.#queueEditPending) this.#clearComposerWithUndo()
       else for (const listener of this.#interrupts) listener()
       return true
     }
@@ -3603,6 +3658,7 @@ export class LocalTui implements TuiService {
       return true
     }
     this.#clearComposerWithUndo()
+    if (this.#hasComposerContent()) return true
     const key = keysForAction(this.#keybindings, 'clear-composer')
     this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), 'Press {key} again to exit', { key }), DOUBLE_CTRL_C_MS)
     this.#exitArmedUntil = Date.now() + DOUBLE_CTRL_C_MS
@@ -3724,6 +3780,11 @@ export class LocalTui implements TuiService {
       this.#render()
       return true
     }
+    if (prompt.request.presentation !== 'tree' && this.#promptDocument !== undefined
+      && (event.id === 'pageUp' || event.id === 'pageDown')) {
+      this.#scrollPromptDocument(this.#promptDocument.start + (event.id === 'pageUp' ? -1 : 1) * this.#promptDocument.pageSize)
+      return true
+    }
     if (count === 0) {
       if (prompt.request.filterable !== true) return false
       if (event.id === 'enter') return true
@@ -3738,7 +3799,7 @@ export class LocalTui implements TuiService {
     // the other lists about what `tab` or `pageUp` means. `enter` stays below
     // because what it submits depends on the editor and on multi-select.
     const page = prompt.request.presentation === 'tree'
-      ? promptTreePageSize(prompt.request, this.#term.width(), this.#term.height(), resolveUiLanguage(this.#uiLanguage)) : 10
+      ? promptTreePageSize(prompt.request, this.#term.width(), promptTreeHeight(this.#term.height()), resolveUiLanguage(this.#uiLanguage)) : 10
     const navigation = listNavigation(event)
     if (navigation.kind === 'move' || navigation.kind === 'page') {
       // The tree clamps: its rows are a structure, and wrapping past the last
@@ -3937,10 +3998,10 @@ export class LocalTui implements TuiService {
       const matches = findInRows(rows(), prompt.documentQuery ?? '')
       if (matches.length === 0) return true
       const current = prompt.documentTarget ?? prompt.documentScroll ?? 0
-      const from = event.id === 'ctrl+n'
-        ? (matches.findIndex(match => match.row > current) + matches.length) % matches.length
-        : (matches.findLastIndex(match => match.row < current) + matches.length) % matches.length
-      jumpTo(matches[from]!.row)
+      const next = event.id === 'ctrl+n'
+        ? matches.find(match => match.row > current) ?? matches[0]!
+        : matches.findLast(match => match.row < current) ?? matches.at(-1)!
+      jumpTo(next.row)
       this.#render()
       return true
     }
@@ -4431,11 +4492,7 @@ export class LocalTui implements TuiService {
         void search.then((result) => {
           if (this.#disposed || controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
           this.#autocompleteAbort = null
-          // An empty answer for a `@` query means "nothing matched yet", not
-          // "close the menu": keeping the live list is what stops the flash when
-          // a prefix has no rows of its own.
-          if (result !== null) this.#setAutocomplete(result, atPrefix)
-          else if (!this.#acDescribes(atPrefix)) this.#setAutocomplete(null)
+          this.#setAutocomplete(result ?? (!fuzzyAt ? pathSuggestions(text, cursor, pathOptions, commands) : null), atPrefix)
           this.#render()
         }).catch((error: unknown) => {
           if (controller.signal.aborted || requestId !== this.#autocompleteRequestId) return
@@ -4488,6 +4545,10 @@ export class LocalTui implements TuiService {
   #applySelectedCompletion(): void {
     const item = this.#ac?.items[this.#ac.selected]
     if (item === undefined || item.kind === 'heading') return
+    if (this.#ac?.query !== undefined) {
+      const { line, col } = editorLineAt(this.#editor.text, this.#editor.cursor)
+      if (activeAtToken(line, col)?.query.replaceAll('\\', '/') !== this.#ac.query) return
+    }
     const next = item.kind === 'path' || item.kind === 'session'
       ? applyPathCompletion(this.#editor.text, this.#editor.cursor, item)
       : applySlashCompletion(this.#editor.text, this.#editor.cursor, item)
@@ -4560,7 +4621,7 @@ export class LocalTui implements TuiService {
     this.#closedReasoning.clear()
     const persist = this.#persistPrefs
     if (persist !== null) void persist(this.prefs(), [{ op: 'set', path: ['hideThinking'], value: next }])
-    this.#showTransientStatus(next ? 'Thinking: hidden' : 'Thinking: shown')
+    this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), next ? 'Thinking: hidden' : 'Thinking: shown'))
   }
 
   /** Hand the terminal to the shell and stop until SIGCONT brings it back. */
@@ -4611,7 +4672,7 @@ export class LocalTui implements TuiService {
     if (this.#queueEditNewer !== null) {
       const previous = this.#queuedSubmissions.pop()
       if (previous !== undefined) {
-        this.#queueEditNewer.unshift(this.#currentSubmission())
+        this.#parkQueueInput(this.#queueEditNewer)
         this.#replaceInput(previous)
         return true
       }
@@ -4625,7 +4686,8 @@ export class LocalTui implements TuiService {
     if (!allowNonEmpty && hasDraft) return false
     const submission = this.#queuedSubmissions.pop()
     if (submission !== undefined) {
-      this.#queueEditNewer = hasDraft ? [this.#currentSubmission()] : []
+      this.#queueEditNewer = []
+      if (hasDraft) this.#parkQueueInput(this.#queueEditNewer, true)
       this.#replaceInput(submission)
       return true
     }
@@ -4683,7 +4745,7 @@ export class LocalTui implements TuiService {
       : splitComposerAttachmentMarkers(text, images, markers, images.length > 0 && text === this.#editor.expandedText ? ranges : undefined)
     const submittedText = images.length === 0 ? this.#files.text(text)
       : segments.flatMap(segment => segment.kind === 'text' ? [segment.text] : []).join('')
-    const literal = text === this.#editor.expandedText && (this.#literalInput || this.#editor.startsWithPaste)
+    const literal = text === this.#editor.expandedText && (this.#editor.literal || this.#editor.startsWithPaste)
     const historyText = submittedText.replace(/[ \t]{2,}/gu, ' ').trim()
     return {
       submission: {
@@ -4733,6 +4795,7 @@ export class LocalTui implements TuiService {
     const { submission, historyText } = this.#buildSubmission(text)
     const { images, files = [], text: submittedText } = submission
     const queueEditNewer = this.#queueEditNewer
+    for (const draft of queueEditNewer ?? []) this.#queueRecallDrafts.delete(draft)
     // Commands keep their own routing; recalled follow-ups remain next-turn messages.
     if (delivery === 'steer') submission.literal = true
     const command = !submission.literal && (submittedText.trimStart().startsWith('/') || (images.length === 0 && files.length === 0 && submittedText.startsWith('!')))
@@ -4745,7 +4808,7 @@ export class LocalTui implements TuiService {
     }
     this.#historyIndex = 0
     this.#draft = ''
-    this.#literalInput = false
+    this.#editor.literal = false
     this.#queueEditNewer = null
     this.#cancelQueueRecall()
     this.#editor.setText('')
@@ -4791,7 +4854,7 @@ export class LocalTui implements TuiService {
     this.#cancelQueueRecall()
     this.#historyIndex = 0
     this.#draft = ''
-    this.#literalInput = false
+    this.#editor.literal = false
     this.#editor.setText('')
     this.#images.clear()
     this.#files.clear()
@@ -4813,6 +4876,7 @@ export class LocalTui implements TuiService {
       this.#dispatchInput(inspectSubmission)
     }
     for (const draft of newer ?? []) {
+      this.#queueRecallDrafts.delete(draft)
       this.#dispatchInput({ ...draft, delivery: 'queue' })
     }
     this.#pendingInputs.flush(this.#pendingScope())
@@ -4934,6 +4998,7 @@ export class LocalTui implements TuiService {
     this.#draftFingerprint = this.#draftKey()
     pending.resolve(answer)
     this.#restoreDisplacedSurface()
+    if (!this.#tty && pending.request.presentation === 'progress') this.#plain.resumeInput()
     if (this.#promptDocument?.position !== undefined) {
       try { pending.request.onDocumentPosition?.(this.#promptDocument.position) }
       catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
@@ -5192,7 +5257,7 @@ export class LocalTui implements TuiService {
   }
 
   /** Run one configured action; returns true when the event was consumed. */
-  #runAction(action: TuiAction, confirmsExit = false): boolean {
+  #runAction(action: TuiAction, confirmsExit = false, key?: string): boolean {
     // `interrupt` is resolved further down, after every surface that wants to
     // interpret Escape itself — a settings search clears before the overlay
     // closes. Claiming it here would skip that layering.
@@ -5269,7 +5334,7 @@ export class LocalTui implements TuiService {
     }
     if (action === 'expand-paste') {
       if (this.#search !== null) return false
-      this.#literalInput ||= this.#editor.startsWithPaste
+      this.#editor.literal ||= this.#editor.startsWithPaste
       this.#editor.expandPaste()
       this.#refreshAutocomplete()
       this.#render()
@@ -5299,7 +5364,7 @@ export class LocalTui implements TuiService {
       }
       return true
     }
-    if (action === 'quote-selection') return true
+    if (action === 'quote-selection') return false
     if (action === 'tool-actions') {
       const anchor = this.#viewportBlock()
       const block = anchor === undefined ? undefined : this.#state.blocks[anchor]
@@ -5395,8 +5460,7 @@ export class LocalTui implements TuiService {
     if (action === 'search-transcript') {
       // An empty composer has no forward-char target, so Ctrl+F searches the
       // transcript there; a non-empty draft keeps the editor's own binding.
-      if (this.#search !== null) return false
-      if (this.#editor.text !== '' || this.#images.count > 0) return false
+      if (key === 'ctrl+f' && this.#hasComposerContent()) return false
       this.#transcriptSearch = createTranscriptSearch()
       this.#ac = null
       this.#render()
@@ -5445,7 +5509,7 @@ export class LocalTui implements TuiService {
     if (action !== 'external-editor') return false
     try {
       this.#handTerminal(() => {
-        this.#literalInput ||= this.#editor.startsWithPaste
+        this.#editor.literal ||= this.#editor.startsWithPaste
         const text = editExternally(this.#editor.expandedText, this.#externalEditor)
         while (this.#editor.expandPaste()) { /* Keep marker positions aligned with expanded source. */ }
         this.#editor.replaceText(text)
@@ -5485,24 +5549,49 @@ export class LocalTui implements TuiService {
     return this.#inspected?.id ?? this.#sessionId ?? '__default__'
   }
 
-  #clearComposerWithUndo(options: { clearQueueEdit?: boolean; closeSearch?: boolean } = {}): void {
+  #clearComposerWithUndo(): void {
     const hadContent = this.#hasComposerContent()
     const snapshot = hadContent ? this.#captureDraft() : undefined
-    this.#literalInput = false
     this.#editor.clear()
     this.#images.clear()
     this.#files.clear()
-    if (options.clearQueueEdit) {
-      if (this.#queueEditNewer !== null) this.#queuedSubmissions.push(...this.#queueEditNewer)
-      this.#queueEditNewer = null
-      this.#cancelQueueRecall()
+    const newer = this.#queueEditNewer
+    const returned: TuiSubmission[] = []
+    if (newer !== null) {
+      const recalled = this.#recalledInputs.get(newer)
+      const original = newer.find(submission => this.#queueRecallDrafts.has(submission))
+      const originalDraft = original === undefined ? undefined : this.#queueRecallDrafts.get(original)
+      if (original !== undefined) this.#queueRecallDrafts.delete(original)
+      if (originalDraft !== undefined && recalled !== undefined) returned.push(recalled)
+      for (const submission of newer) {
+        if (submission !== original) returned.push(this.#recoveredRecallInputs.get(submission) ?? submission)
+      }
+      if (originalDraft !== undefined) this.#restoreDraft(originalDraft)
     }
-    if (options.closeSearch) this.#search = null
+    const queue = this.#queuedSubmissions
+    queue.push(...returned)
+    this.#queueEditNewer = null
+    this.#cancelQueueRecall()
+    this.#pendingInputs.flush(this.#pendingScope())
     this.#historyIndex = 0
     this.#clearDraft()
     this.#ac = null
-    if (snapshot !== undefined) {
-      this.#clearedDraft = { draft: snapshot, revision: this.#editor.revision }
+    if (this.#hasComposerContent()) this.#refreshAutocomplete()
+    else if (snapshot !== undefined) this.#clearedDraft = { draft: snapshot, revision: this.#editor.revision }
+    if (returned.length > 0) {
+      if (this.#inspected === undefined) this.#drainPendingInput()
+      else if (this.#inspected.writable) {
+        // Child submissions bypass the root reader. Keep the rest queued until
+        // their own dispatch so each transfer preserves the pending receipt.
+        for (const submission of returned) {
+          if (this.#pendingInputs.receipt(submission)?.recovered === true) continue
+          const index = queue.indexOf(submission)
+          if (index < 0) continue
+          queue.splice(index, 1)
+          submission.delivery = 'queue'
+          this.#dispatchInput(submission)
+        }
+      }
     }
     this.#render()
   }
@@ -5517,7 +5606,7 @@ export class LocalTui implements TuiService {
         this.#restoreDraft(stashed)
         this.notice('Swapped composer draft with stashed draft.')
       } else {
-        this.#literalInput = false
+        this.#editor.literal = false
         this.#editor.setText('')
         this.#images.clear()
         this.#files.clear()

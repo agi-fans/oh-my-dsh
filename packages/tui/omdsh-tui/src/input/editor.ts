@@ -32,6 +32,7 @@ interface Snapshot {
   cursor: number
   pastes: PasteAtom[]
   markers?: EditorMarker[]
+  literal?: boolean
 }
 
 export type EditorSnapshot = Snapshot
@@ -125,6 +126,7 @@ export class InputEditor {
   #markers: EditorMarker[] = []
   #pasteId = 0
   #text = ''
+  literal = false
   #revision = 0
   #cursor = 0
   #undo: Snapshot[] = []
@@ -210,10 +212,10 @@ export class InputEditor {
   }
 
   /** Admit one paste as a single undoable edit, compacting large payloads. */
-  paste(text: string): void {
+  paste(text: string, literal = false): void {
     const lines = text.split('\n').length
     const chars = [...text].length
-    if (lines <= 10 && chars <= 1000) { this.#insert(text); return }
+    if (lines <= 10 && chars <= 1000) { this.#insert(text); this.literal ||= literal; return }
     this.#pushUndo()
     const marker = `[Pasted #${++this.#pasteId}: ${lines > 10 ? `${lines} lines` : `${chars} chars`}]`
     const start = this.#cursor
@@ -221,6 +223,7 @@ export class InputEditor {
     this.#pastes.push({ start, end: start + marker.length, content: text })
     this.#pastes.sort((a, b) => a.start - b.start)
     this.#cursor += marker.length
+    this.literal ||= literal
     this.#last = 'none'
   }
 
@@ -244,11 +247,13 @@ export class InputEditor {
 
   snapshot(): Snapshot {
     return { text: this.#text, cursor: this.#cursor, pastes: this.#pastes.map(atom => ({ ...atom })),
+      ...(this.literal ? { literal: true } : {}),
       ...(this.#markers.length === 0 ? {} : { markers: this.markers() }) }
   }
 
   restore(snapshot: Snapshot): void {
     this.setText(snapshot.text, snapshot.cursor)
+    this.literal = snapshot.literal === true
     this.#pastes = snapshot.pastes.map(atom => ({ ...atom }))
     this.#markers = (snapshot.markers ?? []).map(marker => ({ ...marker }))
     this.#cursor = this.#snapCursor(snapshot.cursor)
@@ -258,7 +263,12 @@ export class InputEditor {
 
   /** Replace visible text during completion or attachment edits, retaining live pastes. */
   replaceText(text: string, cursor = text.length): void {
-    if (this.#pastes.length === 0 && this.#markers.length === 0) { this.setText(text, cursor); return }
+    const literal = text !== '' && this.literal
+    if (this.#pastes.length === 0 && this.#markers.length === 0) {
+      this.setText(text, cursor)
+      this.literal = literal
+      return
+    }
     const pastes: PasteAtom[] = []
     const markers: EditorMarker[] = []
     let oldAt = 0
@@ -281,6 +291,7 @@ export class InputEditor {
       if (!change.removed) newAt += change.value.length
     }
     this.setText(text, cursor)
+    this.literal = literal
     this.#pastes = pastes
     this.#markers = markers
     this.#cursor = this.#snapCursor(this.#cursor)
@@ -292,6 +303,7 @@ export class InputEditor {
     this.#pastes = []
     this.#markers = []
     this.#text = text
+    this.literal = false
     this.#cursor = this.#snapCursor(Math.max(0, Math.min(cursor, text.length)))
     this.#undo = []
     this.#last = 'none'
@@ -311,6 +323,7 @@ export class InputEditor {
     this.#revision++
     this.#pushUndo()
     this.#text = ''
+    this.literal = false
     this.#pastes = []
     this.#markers = []
     this.#cursor = 0
@@ -477,6 +490,7 @@ export class InputEditor {
     this.#pushUndo()
     const killed = this.textRange(start, end)
     this.#replaceRange(start, end, '')
+    if (this.#text === '') this.literal = false
     this.#cursor = start
     this.#kills.push(killed, { prepend: direction === 'backward', accumulate: this.#last === 'kill' })
     this.#last = 'kill'
@@ -566,6 +580,7 @@ export class InputEditor {
     this.#markers = (snap.markers ?? []).map(marker => ({ ...marker }))
     this.#revision++
     this.#text = snap.text
+    this.literal = snap.literal === true
     this.#cursor = snap.cursor
     this.#last = 'none'
     this.#yankLen = 0

@@ -2,7 +2,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { TuiPrefs } from '../views/settings-list.ts'
-import { isStatusItemId } from '../chrome/status-config.ts'
 
 export function preferenceChanges(previous: TuiPrefs, next: TuiPrefs): SettingsPathOp[] {
   const edits: SettingsPathOp[] = []
@@ -17,11 +16,10 @@ export function preferenceChanges(previous: TuiPrefs, next: TuiPrefs): SettingsP
   return edits
 }
 
-/** Footer rows restore their color; the layout action restores the entire inherited layout. */
+/** Configuration paths for controls that restore complete fields. */
 export function preferencePaths(id: string): string[][] | undefined {
   if (id === 'statusReset') return [['statusBar'], ['statusPreset']]
-  if (id.startsWith('statusItem:') && isStatusItemId(id.slice('statusItem:'.length))) return [['statusBar', 'colors', id.slice('statusItem:'.length)]]
-  const status: Record<string, string> = { statusEnabled: 'enabled', statusLabels: 'labels', statusContextStyle: 'contextStyle' }
+  const status: Record<string, string> = { statusEnabled: 'enabled', statusDensity: 'density', statusLabels: 'labels', statusContextStyle: 'contextStyle' }
   if (Object.hasOwn(status, id)) return [['statusBar', status[id]!]]
   if (['uiLanguage', 'theme', 'colors', 'motion', 'mathMode', 'mermaidMode', 'hideThinking', 'showFileChanges', 'editor', 'terminalTitle', 'terminalState', 'busyEnter', 'pasteProtection', 'copyOnSelect', 'mouseInteraction', 'checkUpdates', 'startupChangelog', 'notifications', 'notificationFocus', 'notificationThreshold'].includes(id)) return [[id]]
   return undefined

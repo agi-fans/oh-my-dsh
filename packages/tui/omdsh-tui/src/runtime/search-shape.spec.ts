@@ -71,7 +71,7 @@ describe('a search that opens a thought the run took', () => {
    * the wrong place — leaving the first unfrozen answer row in a hole that no
    * later write could fill.
    */
-  it('does not skip the rows the opening made reachable', () => {
+  it('does not skip the rows the opening made reachable', async () => {
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false)
     // Long enough that scrolling actually pushes transcript rows into history;
@@ -115,13 +115,14 @@ describe('a search that opens a thought the run took', () => {
     term.input.write('\x06') // ctrl+f opens transcript search
     term.input.write('anchor body 0')
     term.input.write('\r')
-    expect(term.visible().join('\n')).toContain('anchor body 39')
+    expect(term.visible().join('\n')).toContain('anchor body 0')
     // The run is open; its thought is still folded.
     expect(term.visible().join('\n')).not.toContain('anchor thought 20')
 
     // Replace the whole query in one write: same block, run stays open, and the
     // thought opens while the navigation offset moves onto it.
     term.input.write('anchor thought 9')
+    term.input.write('\r')
     const afterSearch = term.visible().join('\n')
 
     // The thought's rows are on screen because the search reached into it.
@@ -155,21 +156,15 @@ describe('a search that opens a thought the run took', () => {
     // history, and asserting on it would be asserting the impossible.
     const tail = `anchor body ${indexes.length}`
     expect(beforeSearch).not.toContain(tail)
-    expect(term.visible().join('\n')).toContain(tail)
-
-    // Confirm the thought query first. Typing leaves the search *editing*, and
-    // in that state the next text event is appended, so writing the body query
-    // straight away would produce `anchor thought 9anchor body 0` — a query
-    // that matches nothing, folding the run, and testing nothing.
-    term.input.write('\r')
     term.input.write('anchor body 0')
     term.input.write('\r')
-    expect(term.visible().join('\n')).toContain('anchor body 39')
+    expect(term.visible().join('\n')).toContain('anchor body 0')
 
     // Close the search and let the turn keep writing. The answer is long, so
     // this pushes real transcript rows through the ordinary flush: some of them
     // were never frozen, and they have to arrive exactly once.
-    term.input.write('\x1b')
+    term.input.write('\x1b[27uagain\r')
+    expect(await tui.readline()).toBe('again')
     tui.event(ev('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'again' }] }, 9))
     tui.event(ev('turn/start', { turn: 2 }, 10))
     tui.event(ev('assistant/message', {
@@ -203,7 +198,7 @@ describe('a search that opens a thought the run took', () => {
     // navigation offset instead of the answer's own position would over-freeze
     // this tail along with everything after it, and it would never be sent.
     for (const row of ['anchor body 0', tail]) {
-      expect(transcript.filter(entry => entry === row).length).toBe(1)
+      expect(transcript.filter(entry => entry === row).length, row).toBe(1)
     }
     tui.dispose()
   })

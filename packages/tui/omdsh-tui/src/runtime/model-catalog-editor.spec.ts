@@ -53,13 +53,13 @@ describe('model catalog drafts', () => {
   })
 
   it('edits pi-ai input separately and resets optional capacities without writing defaults', async () => {
-    const h = await edit(['model:0', 'input', 'choose', 'text,image', 'contextWindow', '0', '-1', '9007199254740992', '', 'keep', '@keep'], [{ id: 'one', contextWindow: 6000, maxTokens: 2000 }])
+    const h = await edit(['model:0', 'input', 'choose', 'text, image', 'contextWindow', '0', '-1', '9007199254740992', '', 'keep', '@keep'], [{ id: 'one', contextWindow: 6000, maxTokens: 2000 }])
     expect(h.result).toEqual([{ id: 'one', maxTokens: 2000, input: ['text', 'image'] }])
   })
 
   it('preserves unknown reasoning keys and off values, and edits only thinking API values', async () => {
     const h = await edit(['model:0', 'reasoning', request => { expect(request.options?.find(row => row.value === 'level:off')?.disabled).toBe(true); return '@levels' },
-      'off,high,future', 'level:high', 'custom-high', '@done', 'keep', '@keep'], [{ id: 'one', reasoningEfforts: { off: 'disabled', high: 'old-high', unknown: 'keep' } }], { reasoningLevels: levels })
+      'off, high, future', 'level:high', 'custom-high', '@done', 'keep', '@keep'], [{ id: 'one', reasoningEfforts: { off: 'disabled', high: 'old-high', unknown: 'keep' } }], { reasoningLevels: levels })
     expect(h.result).toEqual([{ id: 'one', reasoningEfforts: { off: 'disabled', high: 'custom-high', future: 'future', unknown: 'keep' } }])
   })
 

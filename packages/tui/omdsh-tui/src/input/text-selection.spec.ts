@@ -89,3 +89,14 @@ describe('highlightCells', () => {
     expect(highlightCells(line, 1, 2)).not.toContain('\x1b[27mc')
   })
 })
+
+it('selects a short line when the third click lands beyond the last cell', () => {
+  const selection = new TextSelection()
+  const rows = ['short line']
+  const p = point(0, 30)
+  for (const time of [1000, 1100, 1200]) {
+    selection.begin(rows, p, time)
+    const text = selection.release(p)
+    expect(text).toBe(time === 1200 ? 'short line' : undefined)
+  }
+})

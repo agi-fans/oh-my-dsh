@@ -934,15 +934,13 @@ describe('LocalTui folds against a scrolling terminal', () => {
           ...(surface === 'plan-review' ? { approveValue: 'Approve' } : {}),
         })
         expect(term.visible()).not.toEqual(screen)
-        const releasesMouse = surface === 'settings'
-        if (releasesMouse) expect(term.captured.slice(mark)).toContain('\x1b[?1000l')
-        else expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
+        expect(term.captured.slice(mark)).not.toContain('\x1b[?1000l')
         const restore = term.captured.length
         press(term, '\x1b[27u')
         if (answer !== undefined) expect(await answer).toBeNull()
         expect(term.visible()).toEqual(screen)
         expect(term.scrollback()).toEqual(history)
-        if (releasesMouse) expect(term.captured.slice(restore)).toContain('\x1b[?1000h')
+        expect(term.captured.slice(restore)).not.toContain('\x1b[?1000h')
         // Scroll down so the check also works when paging reached the top.
         press(term, '\x1b[<65;5;5M')
         expect(term.visible()).not.toEqual(screen)
@@ -1913,7 +1911,7 @@ describe('LocalTui (tty)', () => {
       allowCustom: true,
     })
 
-    expect(stripAnsi(term.captured)).toContain('later plan lines')
+    expect(stripAnsi(term.captured)).toMatch(/1–\d+\/61/u)
     press(term, '\r')
     expect(await answer).toBe('Approve')
     tui.dispose()
@@ -7404,7 +7402,7 @@ describe('terminal key tester', () => {
         press(term, '\x1b[27u'); await flushAsyncPaste()
         expect(term.visible().join('\n')).toContain('Test keys')
         press(term, '\x1b[27u'); await flushAsyncPaste()
-        press(term, '\x03')
+        press(term, '\x03\x03\x03')
         expect(term.visible().join('\n')).toContain('keep draft')
         press(term, '\x1b[17~'); await flushAsyncPaste()
         expect(copy).toHaveBeenCalledWith('keep draft')

@@ -103,7 +103,7 @@ describe('transcript search', () => {
     expect(applyTranscriptSearchEvent(result, key('escape'), matches)).toEqual({ kind: 'close' })
     expect(applyTranscriptSearchEvent(result, key('ctrl+c'), matches)).toEqual({ kind: 'close' })
     expect(applyTranscriptSearchEvent({ ...result, editing: true }, key('enter'), matches))
-      .toMatchObject({ kind: 'update', state: { editing: false } })
+      .toMatchObject({ kind: 'focus', match: { block: 2 }, state: { editing: false, focus: 1 } })
   })
 
   it('reports the match position and a zero-match state', () => {

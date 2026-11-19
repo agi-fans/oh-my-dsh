@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream'
 import type { TuiPrompt } from '../definition.ts'
 import type { Block } from '../views/event-views.ts'
 import { PlainTui } from './plain-tui.ts'
-import type { TerminalLike } from './provider-local.ts'
+import { LocalTui, type TerminalLike } from './provider-local.ts'
 
 class FakeTerm implements TerminalLike {
   captured = ''
@@ -172,4 +172,60 @@ describe('PlainTui.print', () => {
     plain.print()
     expect(term.captured).toBe(once + once)
   })
+})
+
+it('reads piped choices before composer input and buffers successive lines through EOF', async () => {
+  const input = new PassThrough()
+  const tui = new LocalTui({ input, width: () => 80, height: () => 24, output: { write() {} } }, 'm', false)
+  try {
+    const first = tui.prompt({
+      title: 'Choose levels', question: '', multiSelect: true, allowCustom: false,
+      options: [{ label: 'Low', value: 'low' }, { label: 'High', value: 'high' }],
+    })
+    input.end('1, 2\n2\nnext message\n')
+    expect(await first).toBe('low, high')
+    expect(await tui.prompt({
+      title: 'Disabled', question: '', allowCustom: false,
+      options: [{ label: 'Allowed' }, { label: 'Disabled', disabled: true }],
+    })).toBeNull()
+    expect(await tui.readline()).toBe('next message')
+    expect(await tui.readline()).toBeNull()
+  } finally { tui.dispose() }
+})
+
+it('resumes a pending read from the closed pipe when progress finishes', async () => {
+  const term = new FakeTerm()
+  const tui = new LocalTui(term, 'm', false)
+  const done = new AbortController()
+  try {
+    const progress = tui.prompt({ presentation: 'progress', title: 'Working', question: '', signal: done.signal })
+    const read = tui.readInput()
+    term.input.end('piped message\n')
+    await tick()
+    done.abort()
+    expect(await progress).toBeNull()
+    expect(await read).toMatchObject({ text: 'piped message' })
+    expect(await tui.readInput()).toBeNull()
+  } finally { tui.dispose() }
+})
+
+it('settles unanswered progress at EOF without a buffered line', async () => {
+  const term = new FakeTerm()
+  const tui = new LocalTui(term, 'm', false)
+  try {
+    const progress = tui.prompt({ presentation: 'progress', title: 'Working', question: '' })
+    term.input.end()
+    expect(await progress).toBeNull()
+  } finally { tui.dispose() }
+})
+
+it('keeps numbered choices and custom text together in a structured answer', async () => {
+  const term = new FakeTerm()
+  const tui = new LocalTui(term, 'm', false)
+  try {
+    const prompt = tui.prompt({ title: 'Pick', question: '', answerFormat: 'json', multiSelect: true, allowCustom: true,
+      options: [{ label: 'First' }, { label: 'Second', value: 'b' }] })
+    term.input.end('2, keep this, too\n')
+    expect(JSON.parse((await prompt)!)).toEqual({ selected: ['b'], custom: 'keep this, too' })
+  } finally { tui.dispose() }
 })

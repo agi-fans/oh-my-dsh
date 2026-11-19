@@ -90,8 +90,9 @@ export class FileBrowser {
     if (s.editing !== undefined) {
       if (key === 'escape' || key === 'ctrl+c') {
         if (this.#origin !== undefined) {
-          s.position = this.#origin.position; s.filter = this.#origin.filter
+          s.filter = this.#origin.filter
           this.select(this.#origin.selected)
+          this.state.position = this.#origin.position
         }
         this.state.editing = undefined
       } else if (key === 'enter') {
@@ -135,7 +136,7 @@ export class FileBrowser {
       if (!doc.split && s.focus === 'document') s.focus = 'files'
       else { this.close(); return }
     } else if (key === 'tab' || key === 'shift+tab') s.focus = s.focus === 'files' ? 'document' : 'files'
-    else if (key === 'enter') s.focus = 'document'
+    else if (key === 'enter' && doc.files.length > 0) s.focus = 'document'
     else if (key === '/' || key === 'ctrl+f' || key === 'g' || key === 'ctrl+g') {
       if (s.markdown && s.focus === 'document') { this.#save(); s.markdown = false; this.#restore() }
       s.editing = key === 'g' || key === 'ctrl+g' ? 'line' : s.focus === 'files' ? 'filter' : 'search'
@@ -143,7 +144,7 @@ export class FileBrowser {
       s.input = s.editing === 'filter' ? s.filter : s.editing === 'search' ? s.position.query : ''
       this.#editor.setText(s.input)
       s.inputCursor = this.#editor.cursor
-    } else if (key === 'v') {
+    } else if (key === 'v' && doc.files.length > 0) {
       this.#save(); s.mode = s.mode === 'diff' ? 'source' : 'diff'; s.markdown = false; this.#restore(); void this.#load()
     } else if (key === 'n' || key === 'p') {
       const files = browserFiles(s), at = Math.max(0, files.indexOf(s.selected))
@@ -172,6 +173,7 @@ export class FileBrowser {
   #action(key: string): void {
     const s = this.state
     if (key === '?') { s.help = true; s.helpScroll = 0; return }
+    if (browserFiles(s).length === 0) return
     if (key === 'r') { void this.#load(); return }
     if (key === 'l' && s.truncated && s.limit < 4 * 1024 * 1024) { this.#limits.set(s.selected, s.limit * 2); void this.#load(); return }
     if (key === 'm' && s.mode === 'source' && /\.md$/iu.test(s.files[s.selected]?.path ?? '')) { this.#save(); s.markdown = !s.markdown; this.#restore(); return }

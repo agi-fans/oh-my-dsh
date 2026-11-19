@@ -160,13 +160,17 @@ describe('runtime MCP server CRUD and actions', () => {
     ])
 
     h.prompt
+      .mockResolvedValueOnce('bad server name')
       .mockResolvedValueOnce('remote_docs')
       .mockResolvedValueOnce('streamable-http')
       .mockResolvedValueOnce('https://mcp.example.com/sse')
+      .mockResolvedValueOnce('Authorization')
       .mockResolvedValueOnce('Authorization=Bearer ${credential:MCP_DOCS_TOKEN}')
 
     const added = await promptAddMcpServer(h.ctx, h.ctx.tui, abort.signal)
     expect(added).toBe('remote_docs')
+    expect(h.prompt.mock.calls[1]?.[0]).toMatchObject({ initialInput: 'bad server name', detail: expect.stringContaining('Server name must match') })
+    expect(h.prompt.mock.calls[5]?.[0]).toMatchObject({ initialInput: 'Authorization', detail: expect.stringContaining('Header=Value') })
     expect(h.mutate).toHaveBeenCalledWith(
       MCP_MANAGER_NS,
       [{

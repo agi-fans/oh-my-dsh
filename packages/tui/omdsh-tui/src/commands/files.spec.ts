@@ -181,3 +181,17 @@ it('opens a stored text attachment directly with file actions', async () => {
     expect(requests[1]?.options).toContainEqual(expect.objectContaining({ value: 'open' }))
   } finally { await ctx.fiber.dispose() }
 })
+
+it('offers to correct a missing attachment path before returning to the browser', async () => {
+  const h = await harness()
+  const requests: TuiPrompt[] = []
+  const answers = ['add:', 'missing.txt', 'report.txt', null]
+  Object.assign(h.ctx.tui, { prompt: async (request: TuiPrompt) => { requests.push(request); return answers.shift() ?? null } })
+  try {
+    await attachFile(h.ctx, { ...h.invocation, rawInput: '', agent: {
+      session: { header: h.invocation.agent.session.header, snapshotEvents: () => [] },
+    } as unknown as Agent })
+    expect(requests[2]).toMatchObject({ initialInput: 'missing.txt', detail: expect.stringContaining('missing.txt') })
+    expect(h.stageFileAttachment.mock.calls).toEqual([[h.ref]])
+  } finally { await h.ctx.fiber.dispose() }
+})

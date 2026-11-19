@@ -172,7 +172,12 @@ export function applyTranscriptSearchEvent(
     }
     return { kind: 'update', state }
   }
-  if (event.type === 'key' && event.id === 'enter') return { kind: 'update', state: { ...state, editing: false } }
+  if (event.type === 'key' && event.id === 'enter') {
+    const focus = Math.min(Math.max(0, state.focus), matches.length - 1)
+    const next = { ...state, editing: false, focus }
+    const match = matches[focus]
+    return match === undefined ? { kind: 'update', state: next } : { kind: 'focus', state: next, match }
+  }
   if (event.type === 'key' && event.id === 'backspace') {
     const cursor = moveGraphemeLeft(state.query, state.query.length)
     return { kind: 'update', state: { query: state.query.slice(0, cursor), editing: true, focus: -1 } }

@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-workspace-changes'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes'
 import { paintDiffStats } from '../chrome/diff-render.ts'
 import type { Theme } from '../chrome/theme.ts'
-import { truncateToWidth, visibleWidth } from '../chrome/width.ts'
+import { sliceCells, truncateToWidth, visibleWidth } from '../chrome/width.ts'
 import type { WorkspaceBlock } from './transcript-types.ts'
 
 /** File rows a collapsed changed-files block paints before folding. */
@@ -94,8 +94,9 @@ function paintRows(rows: readonly WorkspaceFileRow[], theme: Theme, width: numbe
     width - visibleWidth(FILE_PREFIX) - GUTTER.length - widestStats,
   ))
   return rows.map((row) => {
-    const path = visibleWidth(row.display) > column
-      ? `…${row.display.slice(-(column - 1))}`
+    const cells = visibleWidth(row.display)
+    const path = cells > column
+      ? '…' + sliceCells(row.display, cells - column + 1, column - 1).trimStart()
       : row.display
     const stats = row.note === undefined
       ? paintDiffStats(row.added, row.deleted, theme)

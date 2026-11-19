@@ -202,3 +202,10 @@ it.each(['P', 'Q', 'R', 'S'].map((code, i) => [code, `f${i + 1}`] as const))('de
 it('does not reinterpret Option-produced Unicode text as an Alt shortcut', () => {
   expect(parseKeys('å¥中文').events).toEqual([{ type: 'text', value: 'å¥中文' }])
 })
+
+it('decodes Kitty keypad digits separately from Escape', () => {
+  expect(parseKeys('\x1b[57399u\x1b[57408u\x1b[57399;5u\x1b[27u').events).toEqual([
+    { type: 'text', value: '0' }, { type: 'text', value: '9' },
+    { type: 'key', id: 'ctrl+0' }, { type: 'key', id: 'escape' },
+  ])
+})

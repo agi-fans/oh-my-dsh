@@ -45,18 +45,19 @@ export class PlainTui {
     this.#deps = deps
   }
 
+  prompt(): void {
+    this.#startReader()
+    this.#pump()
+  }
+
+  resumeInput(): void {
+    queueMicrotask(() => this.#pump())
+  }
+
   readline(signal?: AbortSignal): Promise<TuiSubmission | null> {
+    if (signal?.aborted) return Promise.resolve(null)
+    this.#startReader()
     return new Promise((resolve) => {
-      if (this.#lineReader === null) {
-        this.#lineReader = createInterface({ input: this.#deps.term.input })
-        // Permanent listeners: once() handlers would auto-pause the input
-        // stream after one line and miss the EOF close.
-        this.#lineReader.on('line', (line: string) => { this.#resolveLine(line) })
-        this.#lineReader.on('close', () => {
-          this.#closed = true
-          this.#resolveLine(null)
-        })
-      }
       const pending: PendingRead = { resolve, signal: signal ?? null }
       this.#pending = pending
       if (signal !== undefined) {
@@ -72,50 +73,37 @@ export class PlainTui {
     })
   }
 
-  /**
-   * Queue one readline delivery, then drain. A single stream chunk can carry
-   * several lines; every line is buffered until the runner asks for the next
-   * read, and EOF waits for the queue before closing the reader.
-   */
-  #resolveLine(line: string | null): void {
-    const request = this.#deps.promptRequest()
-    if (request !== undefined && line !== null) {
-      const value = line.trim()
-      if (value === '') {
-        this.#deps.finishPrompt(request.skippable === true ? '' : null)
-      } else if (request.allowCustom === false) {
-        const options = request.options ?? []
-        const numeric = /^\d+$/u.test(value) ? Number(value) - 1 : -1
-        const option = numeric >= 0
-          ? options[numeric]
-          : options.find(item => item.label.toLowerCase() === value.toLowerCase())
-        this.#deps.finishPrompt(option?.value ?? option?.label ?? null)
-      } else {
-        this.#deps.finishPrompt(value)
-      }
-      return
-    }
-    if (request !== undefined) this.#deps.finishPrompt(null)
-    if (line !== null) this.#queue.push(line)
-    this.#pump()
+  #startReader(): void {
+    if (this.#lineReader !== null || this.#closed) return
+    this.#lineReader = createInterface({ input: this.#deps.term.input })
+    this.#lineReader.on('line', (line: string) => {
+      this.#queue.push(line)
+      this.#pump()
+    })
+    this.#lineReader.on('close', () => {
+      this.#closed = true
+      this.#pump()
+    })
   }
 
-  /** Resolve the pending read from the queue, or close it after EOF drained. */
   #pump(): void {
+    if (this.#queue.length === 0 && !this.#closed) return
+    const request = this.#deps.promptRequest()
+    if (request?.presentation === 'progress' && (this.#queue.length > 0 || !this.#closed)) return
+    if (request !== undefined) {
+      const line = this.#queue.shift()
+      this.#deps.finishPrompt(line === undefined ? null : promptAnswer(request, line))
+      if (line !== undefined) {
+        if (this.#pending !== null) queueMicrotask(() => this.#pump())
+        return
+      }
+    }
     const pending = this.#pending
     if (pending === null) return
     const line = this.#queue.shift()
-    if (line !== undefined) {
-      pending.offAbort?.()
-      this.#pending = null
-      pending.resolve({ text: line, images: [] })
-      return
-    }
-    if (this.#closed) {
-      pending.offAbort?.()
-      this.#pending = null
-      pending.resolve(null)
-    }
+    pending.offAbort?.()
+    this.#pending = null
+    pending.resolve(line === undefined ? null : { text: line, images: [] })
   }
 
   /** Print blocks that settled since the last flush. */
@@ -146,4 +134,37 @@ export class PlainTui {
   dispose(): void {
     this.#lineReader?.close()
   }
+}
+
+function promptAnswer(request: TuiPrompt, line: string): string | null {
+  const value = line.trim()
+  if (value === '') {
+    if (request.skippable === true || request.multiSelect === true && request.allowEmptySelection === true) {
+      return request.answerFormat === 'json' ? JSON.stringify({ selected: [] }) : ''
+    }
+    return null
+  }
+  const options = request.options ?? []
+  const findOption = (token: string) => {
+    if (/^\d+$/u.test(token)) return options[Number(token) - 1]
+    return options.find(option => option.label.toLowerCase() === token.toLowerCase() || option.value === token)
+  }
+  const exact = findOption(value)
+  const tokens = exact !== undefined || request.multiSelect !== true ? [value] : value.split(',').map(token => token.trim())
+  const selected = new Set<string>()
+  const unmatched: string[] = []
+  for (const token of tokens) {
+    const option = findOption(token)
+    if (option?.disabled === true) return null
+    if (option === undefined) unmatched.push(token)
+    else selected.add(option.value ?? option.label)
+  }
+  if (unmatched.length === 0) {
+    return request.answerFormat === 'json' ? JSON.stringify({ selected: [...selected] }) : [...selected].join(', ')
+  }
+  if (request.allowCustom === false) return null
+  const original = request.preserveWhitespace === true ? line : value
+  if (request.answerFormat !== 'json') return original
+  const custom = selected.size === 0 ? original : unmatched.join(', ')
+  return JSON.stringify({ selected: [...selected], ...(custom === '' ? {} : { custom }) })
 }

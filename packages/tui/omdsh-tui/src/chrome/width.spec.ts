@@ -204,3 +204,19 @@ describe('wrapTextStable', () => {
     expect(wrapTextStable(single, 40)).toEqual([single])
   })
 })
+
+it('closes a clipped OSC 8 link and pads around wide graphemes', () => {
+  const open = '\x1b]8;;https://example.test/a b\x07'
+  const close = '\x1b]8;;\x07'
+  expect(truncateToWidth(open + 'long label' + close, 5)).toBe(open + 'long…' + close)
+  expect(wrapTextStable(open + 'long label' + close, 5).map(stripAnsi)).toEqual(['long', 'label'])
+  expect(padToWidth('中文', 2)).toBe('… ')
+})
+
+it('maps visual tab stops back to the original buffer indices', () => {
+  const input = 'a\t🐳z'
+  const rows = wrapIndexed(input, 12, 8)
+  expect(cursorOnWrapped(rows, 2, input)).toEqual({ row: 0, column: 8 })
+  expect(indexOnWrapped(rows[0]!, 5, input)).toBe(1)
+  expect(indexOnWrapped(rows[0]!, 9, input)).toBe(2)
+})

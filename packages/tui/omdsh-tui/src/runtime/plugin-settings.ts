@@ -2,9 +2,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-llm'
-import type { SettingsDescriptor } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { BundleInfo } from '@deepseek-ai/dsh-plugin-manager'
 import z from '@deepseek-ai/schemastery'
 
@@ -24,7 +25,7 @@ import { externalAgentDiagnostic, externalAgentGuide, externalAgentSummary } fro
 import { resolveUiLanguage, uiText } from '../locale/index.ts'
 import { readReference } from './reference-reader.ts'
 import { preferencePaths } from './settings-preferences.ts'
-import { resolveStatusBarConfig } from '../chrome/status-config.ts'
+import { isStatusItemId, resolveStatusBarConfig, statusItemVisible } from '../chrome/status-config.ts'
 
 interface ProductForm {
   label: string
@@ -378,27 +379,45 @@ export async function resetSettingsControl(ctx: Context, id: string, entry: Plug
   if (entry !== undefined && entry.inline === undefined) { await editSettingsEntry(ctx, entry.id, signal, true); return }
   const ns = entry?.namespace ?? (id === 'agentLanguage' ? 'agent-behavior' : 'tui')
   const paths = entry?.inline === undefined ? id === 'agentLanguage' ? [['language']] : preferencePaths(id) : [[...entry.inline.path]]
-  if (paths === undefined || !ctx.settings.writable) throw new Error('This setting cannot be restored in this profile.')
+  const item = id.startsWith('statusItem:') ? id.slice('statusItem:'.length) : undefined
+  if (paths === undefined && !isStatusItemId(item) || !ctx.settings.writable) throw new Error('This setting cannot be restored in this profile.')
   const section = ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === ns)
   if (section === undefined || entry?.inline !== undefined && section.revision !== entry.inline.revision) throw new Error('Configuration changed. Refresh and retry.')
   const revision = section.revision
   const fields = configFields(new z(section.schema as Partial<z>))
   const status = resolveStatusBarConfig(configValue(section.base, ['statusBar']) as never, configValue(section.base, ['statusPreset']) as never)
-  const inherited = id === 'statusReset' ? `Context: ${status.contextStyle}\nTelemetry: ${status.groups.length} items\nHeader: ${status.meta.length} items` : paths.map(path => {
+  const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
+  const inherited = isStatusItemId(item) ? uiText(language, statusItemVisible(status, item) ? 'Shown' : 'Hidden')
+    : id === 'statusReset' ? `Context: ${status.contextStyle}\nTelemetry: ${status.groups.length} items\nHeader: ${status.meta.length} items` : paths!.map(path => {
     let value = configValue(section.base, path)
     if (path[0] === 'statusBar') value = configValue(status, path.slice(1))
     const field = fields.find(field => field.path.join('.') === path.join('.'))
     if (value === undefined) value = field?.schema.meta.default
     return `${path[0] === 'statusBar' && path.length === 1 ? 'Layout' : label}: ${display(value)}`
   }).join('\n')
-  const choice = await ctx.tui.prompt({ localize: true, title: 'Restore inherited setting', question: id.startsWith('statusItem:') ? `${label} color` : label,
+  const choice = await ctx.tui.prompt({ localize: true, title: 'Restore inherited setting', question: label,
     detail: `${inherited}\nOnly these Profile overrides will be removed.`, options: [{ label: 'Restore inherited value', value: 'restore' }], allowCustom: false, notify: false, signal })
   if (choice !== 'restore' || signal.aborted) return
   if (entry?.inline !== undefined) {
     const field = configFields(new z(section.schema as Partial<z>)).find(field => field.path.join('.') === entry.inline!.path.join('.'))
     if (field === undefined || field.secret || field.protected) throw new Error('This setting is no longer editable.')
   }
-  await ctx.settings.mutate(ns, paths.map(path => ({ op: 'unset' as const, path })), revision)
+  const changes: SettingsPathOp[] = paths?.map(path => ({ op: 'unset', path })) ?? []
+  if (isStatusItemId(item)) {
+    for (const field of ['hidden', 'shown']) {
+      const path = ['statusBar', field]
+      const override = configValue(section.user, path)
+      if (!Array.isArray(override)) continue
+      const base = configValue(section.base, path)
+      const inherited = Array.isArray(base) ? base : []
+      const restore = inherited.includes(item)
+      if (override.includes(item) === restore) continue
+      const next = override.filter(value => value !== item)
+      if (restore) next.push(item)
+      changes.push(isDeepStrictEqual(next, inherited) ? { op: 'unset', path } : { op: 'set', path, value: next })
+    }
+  }
+  if (changes.length > 0) await ctx.settings.mutate(ns, changes, revision)
   ctx.tui.notice('Inherited setting restored.')
 }
 

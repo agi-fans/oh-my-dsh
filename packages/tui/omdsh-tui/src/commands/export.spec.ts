@@ -149,7 +149,7 @@ it('keeps export actions available after open fails and after copying', async ()
   for (const answer of ['html', path, 'open', 'copy', 'open', 'done']) h.prompt.mockResolvedValueOnce(answer)
   try {
     expect((await h.run('/export'))?.result.kind).toBe('success')
-    expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Export complete', question: path, detail: expect.stringContaining('No associated application') })
+    expect(h.prompt.mock.calls[3]![0]).toMatchObject({ title: 'Export complete', question: path, localize: ['title', 'options'], detail: expect.stringContaining('No associated application') })
     expect(h.prompt.mock.calls[4]![0].detail).toBe('Path copied.')
     expect(h.prompt.mock.calls[5]![0].detail).toBe('File opened.')
     expect(h.copyText).toHaveBeenCalledWith(path, 'Export path')

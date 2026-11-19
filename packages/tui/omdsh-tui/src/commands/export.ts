@@ -99,7 +99,7 @@ async function exportTranscript(ctx: Context, invocation: CommandInvocation): Pr
   if (signal.aborted) return { kind: 'success' }
   let feedback = ''
   while (interactive && !signal.aborted) {
-    const action = await prompt(choosePrompt({ localize: ['title', 'question', 'options'], title: 'Export complete', question: path, detail: feedback, signal,
+    const action = await prompt(choosePrompt({ localize: ['title', 'options'], title: 'Export complete', question: path, detail: feedback, signal,
       options: [{ label: 'Done', value: 'done' }, { label: 'Open file', value: 'open' },
         ...(tui.copyText === undefined ? [] : [{ label: 'Copy path', value: 'copy' }])] }))
     if (signal.aborted || action === null || action === 'done') break

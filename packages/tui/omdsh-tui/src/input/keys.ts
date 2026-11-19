@@ -93,7 +93,6 @@ const KITTY: Record<number, string> = {
   13: 'enter',
   27: 'escape',
   127: 'backspace',
-  57399: 'escape',
 }
 
 const ALT_SPECIAL: Record<string, string> = {
@@ -123,7 +122,7 @@ function asEvent(id: string): KeyEvent {
 }
 
 function kittyEvent(code: number, modifier: number): KeyEvent {
-  const named = KITTY[code]
+  const named = code >= 57399 && code <= 57408 ? String(code - 57399) : KITTY[code]
   if (named !== undefined) return asEvent(withMods(named, modifier))
   if (code >= 32 && code < 127) return asEvent(withMods(String.fromCharCode(code), modifier))
   return { type: 'key', id: withMods(`code${code}`, modifier) }

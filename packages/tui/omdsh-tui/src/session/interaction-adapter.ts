@@ -262,6 +262,7 @@ async function askApproval(ctx: Context, tui: TuiService, request: ApprovalReque
     localize: true, title: agentLabel === undefined ? 'Approval required' : `${agentLabel} · ${t('Approval required')}`,
     question: t('Allow {tool} once?', { tool: request.toolName }),
     armMs: 500,
+    allowCustom: tui.interactive !== true,
     detail: approvalDetail(tui, request, agentLabel !== undefined).detail ?? request.toolName,
     options: [
       { label: 'Allow once', description: 'Run only this requested action.' },

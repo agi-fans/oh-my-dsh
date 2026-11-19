@@ -35,6 +35,7 @@ export function browserFiles(state: FileBrowserState): number[] {
 }
 
 export function browserActions(state: FileBrowserState): { label: string; key: string }[] {
+  if (browserFiles(state).length === 0) return [{ label: 'Keyboard help', key: '?' }]
   return [
     { label: 'Open original', key: 'o' },
     ...(state.canEdit ? [{ label: 'Open in editor', key: 'e' }] : []),
@@ -62,7 +63,7 @@ export function fileBrowserGeometry(state: FileBrowserState, width: number, heig
 
 export function fileBrowserDocument(state: FileBrowserState, theme: Theme, width: number, height: number) {
   const geometry = fileBrowserGeometry(state, width, height)
-  const layout = state.source === undefined || state.markdown ? undefined : documentLayout(state.source, theme, geometry.documentWidth, state.position)
+  const layout = geometry.files.length === 0 || state.source === undefined || state.markdown ? undefined : documentLayout(state.source, theme, geometry.documentWidth, state.position)
   const rows = geometry.files.length === 0 ? ['No matching files.'] : state.loading ? ['Loading…'] : layout?.rows ?? (state.markdown && state.source !== undefined
     ? documentMarkdown(state.source, theme, geometry.documentWidth)
     : wrapText(state.message || 'No content.', geometry.documentWidth))
@@ -93,7 +94,7 @@ export function browserHelp(width: number): string[] {
 
 export function renderFileBrowser(state: FileBrowserState, theme: Theme, width: number, height: number) {
   const doc = fileBrowserDocument(state, theme, width, height)
-  const file = state.files[state.selected]
+  const file = doc.files.length === 0 ? undefined : state.files[state.selected]
   const fit = (text: string, cells: number) => padToWidth(truncateToWidth(text, Math.max(0, cells)), Math.max(0, cells))
   const lines = [fit(' ' + theme.bold(clean(state.title)) + theme.fg('dim', ` · ${state.files.length} files`), width),
     fit(' ' + theme.fg('dim', clean(file?.previousPath ? `${file.previousPath} → ${file.path}` : file?.path ?? 'No files') + (file?.description ? ` · ${clean(file.description)}` : '')), width),
