@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -184,6 +186,32 @@ describe('independent exec CLI', () => {
     const rows = records(result.stdout)
     expect(rows.at(-1)).toMatchObject({ type: 'run.finished', data: { outcome: 'failed', exitCode: 1 } })
     expect(rows.at(-1).data.error.code).toBeTruthy()
+  }, 35_000)
+
+  it('reports a DeepSeek content refusal in the turn and final result', async () => {
+    const h = fixture()
+    const explanation = 'The provider refused this request.'
+    const events = [
+      { type: 'message_start', message: { usage: { input_tokens: 12, output_tokens: 0 } } },
+      { type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: { type: 'refusal', explanation } }, usage: { output_tokens: 5 } },
+      { type: 'message_stop' },
+    ]
+    const server = createServer((request, response) => {
+      request.resume()
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''))
+    })
+    await once(server.listen(0, '127.0.0.1'), 'listening')
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP listener.')
+      const result = await launch(h.cwd, h.home, `http://127.0.0.1:${address.port}`, ['Ping']).result
+      expect(result.status, result.stderr + result.stdout).toBe(1)
+      const rows = records(result.stdout)
+      const error = { code: 'CONTENT_REFUSED', message: expect.stringContaining(explanation) }
+      expect(rows.find(row => row.type === 'turn.finished')).toMatchObject({ data: { reason: { kind: 'error', error } } })
+      expect(rows.at(-1)).toMatchObject({ type: 'run.finished', data: { outcome: 'failed', exitCode: 1, error } })
+    } finally { await once(server.close(), 'close') }
   }, 35_000)
 
   it('returns a machine-readable invalid-input result before booting', async () => {

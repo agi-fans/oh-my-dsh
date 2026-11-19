@@ -1,13 +1,13 @@
 # DeepSeek Harness 集成与兼容
 
-当前工作区为 omdsh `0.27.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.3`，下表依据 manifest 与 lockfile 核对。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
+当前工作区为 omdsh `0.28.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.5`。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
 
 ## 依赖基线
 
 | 层 | 当前版本与来源 |
 | --- | --- |
-| omdsh 根、CLI、TUI | `0.27.0`，保持同步，后续行为变更记录在 Unreleased |
-| 直接 DSH 运行时依赖 | npm `0.2.2-rc.3`，精确 pin，lockfile 保持单一 DSH cohort |
+| omdsh 根、CLI、TUI | `0.28.0`，保持同步，后续行为变更记录在 Unreleased |
+| 直接 DSH 运行时依赖 | npm `0.2.2-rc.5`，锁文件中 191 个 DSH 包统一使用该版本 |
 | Cordis / Loader / Timer / Schemastery | `4.1.0` / `1.1.0` / `1.2.0` / `3.19.0`，Cosmokit 为 `1.9.0` |
 | pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.5.0` |
 
@@ -23,7 +23,9 @@
 
 2026-11-04 升级至 `0.2.2-rc.1`，模型选择改由 `agent.model` 与 Session 持久投影拥有，工具执行使用独立 native/PTC 执行器，定时提醒通过 `schedule.edit` 更新，子模型选择和发现分别配置。发布产物检查、兼容适配和验证范围见[升级记录](../history/dsh-0.2.2-rc.1-upgrade.md)。
 
-2026-11-14 升级至 `0.2.2-rc.3`。上游把 DeepSeek 账户与浏览器登录合并进 `dsh-deepseek-account`，`dsh-deepseek-account-platform` 不再发布；子代理的 live lineage 与 host prompt 入口移入 `dsh-subagent`，`AgentRegistry.roots()`/`isOwnedBy()` 与 `@deepseek-ai/dsh-subagent/internal` 被移除；账户 `watch()` 改为返回 `AccountUpdate`；Creator 的四个 skill 合并为 `dsh-doc`。随后在 Unreleased 中补齐 `0.2.2-rc.3` 细粒度对齐与新能力接入：移除未使用的 `dsh-command-feedback` 与 `dsh-message-feedback` 运行时依赖，清理 `web-deepseek-api` 行上的无效 `apiKeyEnv` 配置并补入 `searchBilling`/`fetchBilling` 设置，`subagent-control` 显式配置 `interrupt: false` 并适配 `{ agent }`/`{ name }`/`wait_agent` 卡片与全深度后代名册，默认启用 `dsh-experimental-tool-worktree` 并一次性写入 `retainOnArchive: true` 且 `/resume` 归档操作同步 `workspaceRegistry`，`/plugins` 增加 bundle `Details`、`Update` 与 Discover 就地更新，系统级文件打开切换为 `dsh-native-command`（`openNativePath`），默认挂载 `dsh-deliverable-file-references` 补充交付物与 `#L…` 文件引用提示，默认启用 `dsh-experimental-auto-review`（会话级 `Auto review` 风险确认、警告徽标与 `displayReason` 本地化展示，默认会话权限仍为 `workspace-write`），将默认会话自动标题切换为 `dsh-session-title-all-prompts-llm`（`maxOutputTokens: 4096`），同时挂载运行态 `dsh-mcp-manager`（`/mcp` 与 Settings → Integrations）、默认开启并带 `$TMUX_PANE` 守卫的 `dsh-tmux-context`（Settings → Plugins → Tools）、按会话开启的 `dsh-agent-team` + `dsh-tool-agent-team`（`/team` 与 `team_task_*` 卡片），并在 DeepSeek 账户页接入通知阅读、动作与忽略上报。适配与初始验证范围见[升级记录](../history/dsh-0.2.2-rc.3-upgrade.md)。
+2026-11-14 升级至 `0.2.2-rc.3`。上游把 DeepSeek 账户与浏览器登录合并进 `dsh-deepseek-account`，`dsh-deepseek-account-platform` 不再发布；子代理的 live lineage 与 host prompt 入口移入 `dsh-subagent`，`AgentRegistry.roots()`/`isOwnedBy()` 与 `@deepseek-ai/dsh-subagent/internal` 被移除；账户 `watch()` 改为返回 `AccountUpdate`；Creator 的四个 skill 合并为 `dsh-doc`。随后发布的 omdsh `0.28.0` 补齐了该版本的细节适配与新能力接入：移除未使用的 `dsh-command-feedback` 与 `dsh-message-feedback` 运行时依赖，清理 `web-deepseek-api` 行上的无效 `apiKeyEnv` 配置并补入 `searchBilling`/`fetchBilling` 设置，`subagent-control` 显式配置 `interrupt: false` 并适配 `{ agent }`/`{ name }`/`wait_agent` 卡片与全深度后代名册，默认启用 `dsh-experimental-tool-worktree` 并一次性写入 `retainOnArchive: true` 且 `/resume` 归档操作同步 `workspaceRegistry`，`/plugins` 增加 bundle `Details`、`Update` 与 Discover 就地更新，系统级文件打开切换为 `dsh-native-command`（`openNativePath`），默认挂载 `dsh-deliverable-file-references` 补充交付物与 `#L…` 文件引用提示，默认启用 `dsh-experimental-auto-review`（会话级 `Auto review` 风险确认、警告徽标与 `displayReason` 本地化展示，默认会话权限仍为 `workspace-write`），将默认会话自动标题切换为 `dsh-session-title-all-prompts-llm`（`maxOutputTokens: 4096`），同时挂载运行态 `dsh-mcp-manager`（`/mcp` 与 Settings → Integrations）、默认开启并带 `$TMUX_PANE` 守卫的 `dsh-tmux-context`（Settings → Plugins → Tools）、按会话开启的 `dsh-agent-team` + `dsh-tool-agent-team`（`/team` 与 `team_task_*` 卡片），并在 DeepSeek 账户页接入通知阅读、动作与忽略上报。适配与初始验证范围见[升级记录](../history/dsh-0.2.2-rc.3-upgrade.md)。
+
+升级至 [`0.2.2-rc.5`](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.2.2-rc.3...dsh-v0.2.2-rc.5) 后，DeepSeek 流式拒答以 `CONTENT_REFUSED` 结束。终端展示提供方的错误消息，`omdsh exec --json` 会在 `turn.finished` 和 `run.finished` 中透传该错误码。产品组合继续显式选择 `deepseek-search-api` 和 `deepseek-fetch-api`。Harness 会在未指定搜索提供方时按模型路由选择搜索后端。
 
 ## 工作目录
 

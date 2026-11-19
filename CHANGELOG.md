@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded DeepSeek Harness to `0.2.2-rc.5`. The terminal displays DeepSeek’s content-refusal error, and `omdsh exec --json` reports **`CONTENT_REFUSED`** for these refusals in place of `MALFORMED_RESPONSE`.
+
 ## [0.28.0] - 2026-11-15
 
 ### Added
