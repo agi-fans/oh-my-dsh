@@ -435,7 +435,7 @@ export async function openModelPicker(ctx: Context, invocation: Pick<CommandInvo
           ...(sessionOnly ? [] : [{ key: 'ctrl+d', label: 'This session only', valuePrefix: SESSION_SCOPE }]),
           { key: 'alt+f', label: 'Favorite/unfavorite', valuePrefix: '\u0000favorite:' },
           { key: 'alt+a', label: favoritesOnly ? 'All models' : 'Favorites', valuePrefix: '\u0000view', scope: 'list' },
-          { key: 'alt+r', label: 'refresh', valuePrefix: '\u0000refresh', scope: 'list' },
+          { key: 'alt+r', label: 'Refresh', valuePrefix: '\u0000refresh', scope: 'list' },
         ], signal: invocation.signal,
       }, 'models')
       if (picked === null || invocation.signal.aborted) return { kind: 'success' }

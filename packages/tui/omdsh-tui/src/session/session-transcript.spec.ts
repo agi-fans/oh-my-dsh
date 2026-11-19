@@ -9,7 +9,7 @@ import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { TuiSubmission } from '../definition.ts'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionLogOffset, type SessionEvent, type CreateSessionOptions } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '../chrome/width.ts'
 import { LocalTui, type TerminalLike } from '../runtime/provider-local.ts'
@@ -410,6 +410,37 @@ describe('session transcript boundaries', () => {
       expect(f.output()).toContain('session opened · earlier output retained')
       expect(f.output()).toContain('resumed prompt')
       expect(f.output().indexOf('session opened')).toBeLessThan(f.output().indexOf('resumed prompt'))
+    } finally { await f.dispose() }
+  })
+
+  it('opens replayed PTC details with Ctrl+O after the resume confirmation', async () => {
+    const f = await fixture(true, undefined, true)
+    try {
+      await f.runtime.start()
+      const durable = f.ctx.sessions.create(SessionId('session-ptc-replay'))
+      const callId = ToolCallId('replayed-program')
+      durable.append('turn/start', { turn: 1 })
+      durable.append('user/message', {
+        source: { kind: 'user' }, content: [{ type: 'text', text: 'Run the program' }],
+      }, { surfaceOp: 'append' })
+      durable.append('tool/call', {
+        turn: 1, step: 1, callId, name: 'run_code', arguments: JSON.stringify({ code: 'const value = "replayed"\nreturn value', description: 'Run program' }),
+      })
+      durable.append('tool/result', {
+        turn: 1, step: 1, message: createToolResultMessage({ callId, isError: false, content: [{ type: 'text', text: 'replayed result' }] }),
+      }, { surfaceOp: 'append' })
+      durable.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      registerCommands(f.ctx, [{ name: 'resume', description: 'Resume a session', handler: async invocation => {
+        await f.runtime.resumeSession(invocation.agent, durable.id, invocation.signal)
+        return { kind: 'success', text: `Resumed ${durable.id}.` }
+      } }], 'resume fixture')
+      await f.runtime.execute(`/resume ${durable.id}`, new AbortController().signal)
+      expect(f.terminal!.visible().join('\n')).toContain(`Resumed ${durable.id}.`)
+      void f.tui.readline()
+      f.input.write('\x0f\r')
+      const visible = f.terminal!.visible().join('\n')
+      expect(visible).toContain('const value = "replayed"')
+      expect(visible).toContain('replayed result')
     } finally { await f.dispose() }
   })
 

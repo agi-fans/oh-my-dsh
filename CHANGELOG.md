@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 - Upgraded DeepSeek Harness to `0.2.2-rc.5`. The terminal displays DeepSeek’s content-refusal error, and `omdsh exec --json` reports **`CONTENT_REFUSED`** for these refusals in place of `MALFORMED_RESPONSE`.
 
+### Fixed
+
+- Slash completion selects the best match as the query changes. File and session completion counts only selectable results.
+- Sticky transcript labels leave visible transcript content intact. During a turn, Ctrl+C clears a draft or interrupts work. At idle, a prompt confirms the second-press exit gesture.
+- Expanded PTC cards show source and output in separate sections. Shell cards show the exit code once when a job reports it.
+- Ctrl+O opens tool details after resuming a session.
+- Chinese UI copy covers transcript summaries, completion hints, and more command and model-picker labels.
+- Narrow footers keep the end of the workspace path and prioritize the Git branch. Throughput waits for a measurable decode interval, and transcript summaries label sub-second turns as `<1s`.
+
 ## [0.28.0] - 2026-11-15
 
 ### Added

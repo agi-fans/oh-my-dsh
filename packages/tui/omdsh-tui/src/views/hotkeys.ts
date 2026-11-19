@@ -151,7 +151,7 @@ function hotkeySections(bindings: HotkeyBindings, enhancedKeys: boolean): readon
       title: 'Session',
       rows: [
         { keys: `${keysForAction(bindings, 'interrupt')} twice`, action: 'Browse conversation turns and branches' },
-        { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Clear the composer, then exit' },
+        { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Exit while idle' },
         { keys: keysForAction(bindings, 'quit'), action: 'Exit when the composer is empty' },
         { keys: keysForAction(bindings, 'suspend'), action: 'Suspend to the background' },
         { keys: keysForAction(bindings, 'reset-display'), action: 'Repaint the terminal display' },
@@ -191,7 +191,7 @@ export function formatEssentialHotkeysText(bindings: HotkeyBindings = DEFAULT_DI
     { keys: newlineKeys(bindings, enhancedKeys), action: 'Insert a new line' },
     { keys: keysForAction(bindings, 'follow-up'), action: 'Queue the draft for after the active turn' },
     { keys: `${keysForAction(bindings, 'interrupt')} twice`, action: 'Browse conversation turns and branches' },
-    { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Clear the composer, then exit' },
+    { keys: `${keysForAction(bindings, 'clear-composer')} twice`, action: 'Exit while idle' },
     { keys: keysForAction(bindings, 'toggle-thinking'), action: 'Show or hide thinking in the transcript' },
     { keys: keysForAction(bindings, 'search-history'), action: 'Search prompt history' },
     { keys: keysForAction(bindings, 'search-transcript'), action: 'Search the current transcript' },

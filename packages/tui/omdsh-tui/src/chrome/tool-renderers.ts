@@ -1,6 +1,7 @@
 /** Provider-neutral Harness tool views mapped into terminal card content. */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { FileDiff, ToolCallView, ToolResultView, WebSource } from '@deepseek-ai/dsh-tools'
 import { alignFileDiffs, countDiffStats, formatDiffRows, formatDiffStats, type DiffStats } from './diff-render.ts'
 import {
@@ -35,6 +36,8 @@ export interface ToolPresentation {
   diffStats?: DiffStats
   /** Human- or tool-authored call input, retained after the result settles. */
   input: readonly string[]
+  /** Program text carried by the reserved PTC transport. */
+  inputKind?: 'code'
   /** Result content, kept separate so the view can render an Output section. */
   output: readonly string[]
   /** Terminal output favors its most recent rows; other cards favor their start. */
@@ -644,6 +647,11 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
   // A streamed prefix has no card yet, so a decoded preview replaces the raw
   // JSON fragment. Predicates such as `present` still own their richer fallback.
   const partialLines = input.partial === true ? partialArgumentLines(input.arguments) : undefined
+  // The executor's reserved transport is outside the tool registry, so its
+  // durable arguments are the source for this card on both live and replay.
+  const code = input.name !== RUN_CODE_NAME ? undefined
+    : input.partial === true ? extractedStringField(input.arguments, 'code') : parsedObject(input.arguments)?.code
+  const program = typeof code === 'string' ? code.split('\n') : undefined
   /**
    * A fallback that already put the arguments on its summary line has decided how
    * the call reads. Printing the raw JSON underneath would say the same thing
@@ -651,7 +659,7 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
    * a fallback, one brace per row.
    */
   const fallbackCarriesArgs = fallback?.lines === undefined && fallback?.summary !== undefined
-  const callLines = call.lines
+  const callLines = call.lines ?? program
     ?? (semanticCall || fallbackCarriesArgs
       ? []
       : fallback?.lines ?? partialLines ?? fallbackArgumentLines(input.arguments))
@@ -666,6 +674,7 @@ export function renderTool(input: ToolRenderInput): ToolPresentation {
     ...(summary === undefined || summary === '' ? {} : { summary }),
     ...(diffStats === undefined ? {} : { diffStats }),
     input: duplicateDiff ? [] : callLines,
+    ...(program === undefined ? {} : { inputKind: 'code' as const }),
     output: outputLines,
     outputPreview: call.outputPreview ?? 'head',
   }

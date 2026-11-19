@@ -230,18 +230,19 @@ it('jumps across prompts with a nonempty draft without forking or changing nativ
   await f.flush()
   const frozen = f.history()
   const topPrompt = () => Number(f.rows().find(line => line.includes('PROMPT-'))?.match(/PROMPT-(\d+)/)?.[1])
-  const tailPrompt = topPrompt()
-  for (let step = 1; step <= 3; step++) {
+  expect(f.rows()[0]).toMatch(/answer 14 line \d+/u)
+  expect(topPrompt()).toBe(15)
+  for (const turn of [14, 13, 12]) {
     const previous = f.rows().slice(1)
     f.input.write('\x1b[1;6A')
     await f.flush()
-    expect(topPrompt()).toBe(tailPrompt - step + 1)
+    expect(topPrompt()).toBe(turn)
     expect(f.rows().slice(1)).not.toEqual(previous)
   }
-  for (let step = 2; step >= 1; step--) {
+  for (const turn of [13, 14]) {
     f.input.write('\x1b[1;6B')
     await f.flush()
-    expect(topPrompt()).toBe(tailPrompt - step + 1)
+    expect(topPrompt()).toBe(turn)
   }
   expect(f.history()).toEqual(frozen)
   const sent = f.submission

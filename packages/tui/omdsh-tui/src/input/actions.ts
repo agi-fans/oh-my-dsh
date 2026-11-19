@@ -44,7 +44,7 @@ const WINDOWS_KEYS = useWindowsKeybindings()
 
 export const TUI_ACTION_CATALOG: readonly TuiActionDefinition[] = [
   { id: 'interrupt', primary: ['escape'], label: 'Cancel, interrupt, or leave the current surface', scope: 'turn' },
-  { id: 'clear-composer', primary: ['ctrl+c'], label: 'Clear the composer; twice exits', scope: 'composer' },
+  { id: 'clear-composer', primary: ['ctrl+c'], label: 'Clear the composer or interrupt. Press twice at idle to exit.', scope: 'composer' },
   { id: 'quit', primary: ['ctrl+d'], label: 'Exit when the composer is empty', scope: 'session' },
   {
     id: 'suspend',

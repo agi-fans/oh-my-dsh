@@ -30,7 +30,7 @@
  */
 import { deleteImage, imageSequence, type ImagePlacement } from './terminal-images.ts'
 import { sanitizeDisplayLine, type Frame, type RenderSink } from './renderer.ts'
-import { visibleWidth } from './width.ts'
+import { stripAnsi, visibleWidth } from './width.ts'
 
 const DISABLE_AUTOWRAP = '\x1b[?7l'
 const ENABLE_AUTOWRAP = '\x1b[?7h'
@@ -1051,7 +1051,7 @@ export class MainScreenRenderer {
     // is filtered inside the recorder, not here.
     const header = this.#paintStickyHeader(frame, target)
     this.#screenRows = target.rows
-    this.#recordSource(frame, target)
+    this.#recordSource(frame, target, header !== '')
     return this.#finishPaint(exitAlt + body + flush + header, target, next.length, cursor, cursorVisible)
   }
 
@@ -1345,7 +1345,7 @@ export class MainScreenRenderer {
     this.#transient = false
     const header = this.#paintStickyHeader(frame, target)
     this.#screenRows = target.rows
-    this.#recordSource(frame, target)
+    this.#recordSource(frame, target, header !== '')
     this.#reflowFrom = undefined
     if (candidatePhysical >= this.#physical) this.#frozenViewport = false
     this.#followRows = next
@@ -1354,17 +1354,15 @@ export class MainScreenRenderer {
     return this.#finishPaint(exitAlt + body + header, target, next.length, cursor, cursorVisible)
   }
 
-  #stickyHeader(frame: Frame, target: ScreenTarget): string | undefined {
-    const range = frame.documentRows
-    if (range === undefined || range === null || target.offset > 0) return undefined
-    const document = range.documentStart + Math.max(0, target.start - range.frameStart)
-    return frame.stickyHeaders?.findLast(header => document >= header.start && document < header.end)?.text
-  }
-
-  /** Paint after document flushes so the label never becomes a transcript row. */
+  /** Use scroll chrome or a blank document row for the transient label. */
   #paintStickyHeader(frame: Frame, target: ScreenTarget): string {
-    const header = this.#stickyHeader(frame, target)
+    const top = target.rows[0]
+    const range = frame.documentRows
+    if (top === undefined || range === null || range === undefined || target.offset > 0) return ''
+    const document = range.documentStart + Math.max(0, target.start - range.frameStart)
+    const header = frame.stickyHeaders?.findLast(header => document >= header.start && document < header.end)?.text
     if (header === undefined) return ''
+    if (target.start >= range.frameStart && stripAnsi(top).trim() !== '') return ''
     target.rows[0] = sanitizeDisplayLine(header)
     return this.#writeRun(target.rows, 0, 0)
   }
@@ -1536,7 +1534,7 @@ export class MainScreenRenderer {
    * frame is a different buffer entirely and leaves the main screen's record
    * alone.
    */
-  #recordSource(frame: Frame, target: ScreenTarget): void {
+  #recordSource(frame: Frame, target: ScreenTarget, pinned: boolean): void {
     if (this.#altActive) return
     this.#screenFrameRows = target.rows.map((_, row) => target.start + row - target.offset)
     const range = frame.documentRows
@@ -1559,7 +1557,6 @@ export class MainScreenRenderer {
     this.#screenRowSource = []
     let lowest: number | undefined
     let highest: number | undefined
-    const pinned = this.#stickyHeader(frame, target) !== undefined
     for (let at = 0; at < target.rows.length; at += 1) {
       const frameRow = target.start + at - target.offset
       const document = range.documentStart + (frameRow - range.frameStart)

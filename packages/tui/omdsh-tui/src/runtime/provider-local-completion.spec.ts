@@ -4,6 +4,22 @@ import { LocalTui } from './provider-local.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { matchArgumentOptions } from '../session/session-controller.ts'
 
+it('submits the top-ranked command when typing narrows the slash query', async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} })
+  const tui = new LocalTui({ input, output: { isTTY: true, write() {} }, width: () => 90, height: () => 24 }, 'model', false)
+  try {
+    tui.setCommands([
+      { name: 'model', description: 'Reset the model and reasoning' },
+      { name: 'resume', description: 'Resume a session' },
+    ])
+    const submitted = tui.readline()
+    input.write('/')
+    input.write('res')
+    input.write('\r')
+    expect(await submitted).toBe('/resume')
+  } finally { tui.dispose() }
+})
+
 it.each(['\r', '\t\r'])('renders session titles and submits the selected ID through %j', async keys => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} })
   let output = ''

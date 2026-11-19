@@ -23,7 +23,7 @@ import {
   type StatusMetaId,
 } from './status-config.ts'
 import type { Theme, ThemeColor } from './theme.ts'
-import { padToWidth, truncateToWidth, visibleWidth } from './width.ts'
+import { padToWidth, sliceCells, truncateToWidth, visibleWidth } from './width.ts'
 
 type StatusTone = 'label' | 'value' | 'positive' | 'warning' | 'error' | 'token' | 'separator'
 
@@ -40,11 +40,10 @@ interface StatusGroup {
 const GROUP_SEPARATOR = ' • '
 const FOOTER_PADDING = 2
 const COLUMN_GAP = 3
+const MIN_DECODE_SAMPLE_MS = 100
 /**
  * Fewest cells a clipped metadata item may keep. The ellipsis costs one cell,
- * so 8 cells leave a seven-character prefix such as `deepseek…` or `~/Works…`
- * that still identifies the item; a shorter fragment is a lone initial whose
- * only content is the ellipsis announcing that content is missing.
+ * so 8 cells leave seven characters that can still identify the item.
  */
 const MIN_CLIPPED_CELLS = 8
 /** Context needed to render the fixed session footer. */
@@ -90,9 +89,9 @@ export function formatDuration(ms: number): string {
   return restMinutes === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h${restMinutes}m`
 }
 
-/** Human-readable model throughput with the same precision as dsh web. */
+/** Compact throughput with fractional precision for single-digit rates. */
 export function formatTokensPerSecond(value: number): string {
-  return value >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
+  return value >= 10 ? formatTokens(Math.round(value)) : String(Math.round(value * 10) / 10)
 }
 
 function formatContextPercent(tokens: number, window: number): string {
@@ -154,9 +153,10 @@ function buildStatusGroups(stats: TuiSessionStats, config: ResolvedStatusBarConf
     if (durations.length > 0) groups.push({ id: 'durations', parts: durations })
 
     const speed: StatusPart[] = []
+    const showRate = stats.decodeMs >= MIN_DECODE_SAMPLE_MS
     if (stats.ttftSteps > 0) speed.push(...metric('TTFT', formatDuration(stats.ttftMs / stats.ttftSteps)))
-    if (stats.ttftSteps > 0 && stats.decodeMs > 0) speed.push(part(' · ', 'separator'))
-    if (stats.decodeMs > 0) {
+    if (showRate) {
+      if (speed.length > 0) speed.push(part(' · ', 'separator'))
       speed.push(part(`${formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000))} tok/s`, 'value'))
     }
     if (speed.length > 0) groups.push({ id: 'speed', parts: speed })
@@ -417,10 +417,25 @@ function metadataColumns(
   const statusPainted = statuses.map((status, index) =>
     (index === 0 ? '' : theme.fg('dim', separator)) + theme.fg(status.tone, status.text)).join('')
   const metaLeft = packPreviewParts(columns.left, theme, Math.max(1, leftWidth - (statusWidth === 0 ? 0 : visibleWidth(separator) + statusWidth)), focus)
-  const left = metaLeft === ''
+  const leftParts = metaLeft === ''
     ? statusPainted
     : statusPainted === '' ? metaLeft : metaLeft + theme.fg('dim', separator) + statusPainted
-  const right = packPreviewParts(columns.right, theme, rightWidth, focus)
+  const left = truncateToWidth(leftParts, leftWidth)
+  rightWidth = Math.max(rightWidth, Math.min(rightNatural, innerWidth - visibleWidth(left) - gap))
+  const path = columns.right.find(part => part.id === 'path')
+  const git = columns.right.find(part => part.id === 'git')
+  let rightParts = columns.right
+  if (path !== undefined && git !== undefined && rightWidth < rightNatural) {
+    const available = rightWidth - visibleWidth(separator)
+    const minPath = Math.min(visibleWidth(path.text), MIN_CLIPPED_CELLS)
+    const branchWidth = visibleWidth(git.text)
+    const branchBudget = Math.min(branchWidth, available - minPath)
+    // Keep the branch whole when possible. When both fields can still show
+    // a meaningful fragment, a long branch shares the column with the path.
+    rightParts = branchBudget < Math.min(branchWidth, MIN_CLIPPED_CELLS) ? [git]
+      : rightParts.map(part => ({ ...part, text: clipMetadata(part, part === git ? branchBudget : available - branchBudget) }))
+  }
+  const right = packPreviewParts(rightParts, theme, rightWidth, focus)
   return { left, right }
 }
 
@@ -483,6 +498,13 @@ function selectFooterRows(
   return rows
 }
 
+function clipMetadata(part: { text: string; id?: StatusItemId }, width: number): string {
+  const cells = visibleWidth(part.text)
+  if (cells <= width) return part.text
+  if (part.id !== 'path') return truncateToWidth(part.text, width)
+  return '…' + sliceCells(part.text, cells - width + 1, width - 1).trimStart()
+}
+
 /**
  * Pack metadata items into one column. Every item is painted whole or dropped
  * as a unit: a clip shorter than `MIN_CLIPPED_CELLS` says nothing about the
@@ -516,7 +538,7 @@ function packPreviewParts(
     const remaining = width - used - prefix
     if (remaining < MIN_CLIPPED_CELLS) break
     if (out !== '') out += theme.fg('dim', separator)
-    out += paint(truncateToWidth(part.text, remaining))
+    out += paint(clipMetadata(part, remaining))
     break
   }
   return out

@@ -22,7 +22,7 @@ it('maps physical transcript rows while excluding chrome, sticky labels and alte
   expect(renderer.documentRowAt(rows.findIndex(row => row === 'footer'))).toBeUndefined()
   renderer.render({ lines: ['overlay'], liveStart: 0, transientSurface: 'overlay', documentRows: null })
   expect(renderer.documentRowAt(0)).toBeUndefined()
-  renderer.render({ lines: Array.from({ length: 10 }, (_, at) => `row${at}`), liveStart: 9,
+  renderer.render({ lines: Array.from({ length: 10 }, (_, at) => at === 4 ? '' : `row${at}`), liveStart: 9,
     documentRows: { documentStart: 0, documentEnd: 9, frameStart: 0 }, stickyHeaders: [{ start: 1, end: 10, text: 'pinned' }] })
   expect(renderer.viewport()[0]).toBe('pinned')
   expect(renderer.documentRowAt(0)).toBeUndefined()
@@ -5993,10 +5993,20 @@ describe('a protection scroll and a rewritten document row', () => {
 
 
 describe('viewport prompt labels', () => {
+  it('keeps a content row at the live viewport top visible and selectable', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
+    const rows = Array.from({ length: 20 }, (_, index) => index === 12 ? '╭───┬───╮' : `document-${index}`)
+    renderer.render({ ...frame(rows, 20), stickyHeaders: [{ start: 1, end: 20, text: 'Pinned prompt' }] })
+    expect(emu.normalScreen()[0]).toBe('╭───┬───╮')
+    expect(renderer.documentRowAt(0)).toBe(12)
+    expect(emu.scrollback).not.toContain('╭───┬───╮')
+  })
+
   it('replaces the prompt with tool context only within its detail range', () => {
     const emu = new Emulator(8)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
-    const rows = Array.from({ length: 40 }, (_, index) => `document-${index}`)
+    const rows = Array.from({ length: 40 }, (_, index) => index === 22 || index === 32 ? '' : `document-${index}`)
     const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }, { start: 10, end: 26, text: 'Current tool' }]
     renderer.render({ ...frame(rows.slice(0, 30), 30), stickyHeaders })
     expect(emu.normalScreen()[0]).toBe('Current tool')
@@ -6007,10 +6017,10 @@ describe('viewport prompt labels', () => {
     expect(emu.scrollback).not.toContain('Pinned prompt')
   })
 
-  it('retains covered document rows when a pinned viewport shrinks', () => {
+  it('retains content rows when a pinned viewport shrinks', () => {
     const emu = new Emulator(8)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
-    const rows = Array.from({ length: 30 }, (_, index) => `document-${index}`)
+    const rows = Array.from({ length: 30 }, (_, index) => index === 12 ? '' : `document-${index}`)
     const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }]
     renderer.render({ ...frame(rows.slice(0, 20), 20), stickyHeaders })
     emu.resize(6)
@@ -6018,13 +6028,13 @@ describe('viewport prompt labels', () => {
     renderer.render({ ...frame(rows.slice(0, 20), 20), stickyHeaders })
     renderer.render({ ...frame(rows, 30), stickyHeaders })
     const held = [...emu.scrollback, ...emu.normalScreen()]
-    for (const row of rows.slice(0, 24)) expect(held.filter(value => value === row), row).toHaveLength(1)
+    for (const row of rows.slice(0, 24).filter(Boolean)) expect(held.filter(value => value === row), row).toHaveLength(1)
   })
 
-  it('paints labels over the viewport without committing them as document rows', () => {
+  it('paints labels in blank rows without committing them as document rows', () => {
     const emu = new Emulator(8)
     const renderer = new MainScreenRenderer(emu, { width: 80, height: 8, synchronized: false })
-    const rows = Array.from({ length: 30 }, (_, index) => `document-${index}`)
+    const rows = Array.from({ length: 30 }, (_, index) => index === 12 || index === 22 ? '' : `document-${index}`)
     const stickyHeaders = [{ start: 1, end: 40, text: 'Pinned prompt' }]
     const first = { ...frame(rows.slice(0, 20), 20), stickyHeaders }
     renderer.render(first)
@@ -6035,9 +6045,9 @@ describe('viewport prompt labels', () => {
     renderer.render({ ...frame(rows, 30), stickyHeaders })
     expect(emu.normalScreen()[0]).toBe('Pinned prompt')
     expect(emu.scrollback).not.toContain('Pinned prompt')
-    for (const row of rows.slice(0, 22)) expect(emu.scrollback.filter(value => value === row)).toHaveLength(1)
+    for (const row of rows.slice(0, 22).filter(Boolean)) expect(emu.scrollback.filter(value => value === row)).toHaveLength(1)
     renderer.render(frame(rows, 30))
-    expect(emu.normalScreen()[0]).toBe('document-22')
+    expect(emu.normalScreen()[0]).toBe('')
   })
 })
 

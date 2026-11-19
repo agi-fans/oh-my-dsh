@@ -24,6 +24,33 @@ const view = (state: TranscriptState, colors = false, width = 100, expanded = fa
 const text = (state: TranscriptState) => view(state).lines.map(stripAnsi).join('\n')
 
 describe('live content followed by a completed turn summary', () => {
+  it('localizes a sub-second turn summary and the program label', () => {
+    let state = applyEvent(initialTranscript(), event('turn/start', { turn: 1 }, 1_000))
+    state = applyEvent(state, event('tool/call', {
+      turn: 1, step: 1, callId: 'program', name: 'run_code', arguments: '{"code":"return 1"}',
+    }, 1_100))
+    const options = { width: 100, height: 60, colors: false, model: 'm', input: '', inputCursor: 0, language: 'zh-CN' as const }
+    expect(renderView(state, { ...options, language: 'en' }).lines.join('\n')).toContain('Run code')
+    expect(renderView(state, options).lines.join('\n')).toContain('运行代码')
+    state = applyEvent(state, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 1_400))
+    expect(renderView(state, { ...options, language: 'en' }).lines.join('\n')).toContain('Worked for <1s')
+    const closed = renderView(state, options).lines.join('\n')
+    expect(closed).toContain('处理耗时 <1s')
+    expect(closed).toContain('Ctrl+O 展开')
+  })
+
+  it('renders a PTC program as source and separates its output on expand', () => {
+    const code = 'const title = "hello"\nreturn title'
+    const state = finish(result(call(start(), 'program', 'run_code', { code, description: 'Return a title' }), 'program', 'hello'))
+    const options = { width: 80, height: 60, colors: false, model: 'm', input: '', inputCursor: 0, expandedTools: new Set(['program']) }
+    const lines = renderView(state, options).lines.map(stripAnsi).map(line => line.trim())
+    const input = lines.indexOf('Input')
+    expect(input).toBeGreaterThanOrEqual(0)
+    expect(lines.slice(input, input + 6)).toEqual(['Input', 'const title = "hello"', 'return title', '', 'Output', 'hello'])
+    expect(lines).not.toContain('Raw arguments')
+    expect(renderView(state, { ...options, rawTools: new Set(['program']) }).lines.join('\n')).toContain('Raw arguments')
+  })
+
   it('shows compact live process rows and folds only the process on completion', () => {
     let state = applyStreamChunk(start(), {
       turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'Inspect the manifests.\n\nThen check the source.' },
@@ -102,14 +129,21 @@ describe('live content followed by a completed turn summary', () => {
   })
 
   it('separates a job settlement line from the command output', () => {
-    let state = result(call(start(), 'c1', 'bash', { command: 'sleep 1' }), 'c1', 'started background job bash-1')
+    let state = call(start(), 'c1', 'bash', { command: 'sleep 1' })
+    state = applyEvent(state, event('tool/result', {
+      message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'started background job bash-1' }] },
+    }, 3000), { result: { card: 'terminal', output: 'done', exitCode: 0 } })
     state = mergeJobSettlement(state, {
       id: 'bash-1', label: 'sleep 1', status: 'completed', startedAt: 2500, detail: 'exit code: 0',
     })!
-    const rows = view(state, false, 100, true).lines.map(stripAnsi)
+    const rows = renderView(state, {
+      width: 100, height: 60, colors: false, model: 'm', input: '', inputCursor: 0, expandedTools: new Set(['c1']),
+    }).lines.map(stripAnsi)
     const jobRow = rows.findIndex(row => row.includes('Job bash-1'))
     expect(jobRow).toBeGreaterThan(0)
     expect(rows[jobRow - 1]!.trim()).toBe('')
+    expect(rows[jobRow]).toContain('exit code: 0')
+    expect(rows.some(row => row.trim() === 'exit 0')).toBe(false)
   })
 
   it('renders a read_image result card from the tool facts', () => {

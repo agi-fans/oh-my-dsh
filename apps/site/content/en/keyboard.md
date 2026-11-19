@@ -70,7 +70,7 @@ Narrow tables show labelled records when their columns would become unreadable. 
 
 Details show all text received by the TUI; they cannot recover content already truncated or spilled to a file by a tool. `/trajectory` provides event-level inspection, and `Ctrl+Shift+F` searches content outside the previews and reveals matches; `Ctrl+F` still does when the composer is empty, and keeps moving the caret when it is not.
 
-When earlier messages are in view, a `↓ Latest · End` label appears above the composer area. Once a user prompt scrolls out of view, a one-line summary stays at the top while its reply is visible. The pinned prompt follows the turn being read. Inside an expanded tool result, the same top row shows the tool title until its details leave the viewport; it then returns to the prompt summary. These labels are viewport controls, not conversation content.
+When earlier messages are in view, a `↓ Latest · End` label appears above the composer area. Once a prompt scrolls out of view, its summary uses the top scroll indicator or a blank top row while its reply is visible. Inside an expanded tool result, the tool title takes the same space. Transcript rows take priority whenever the top row contains content.
 
 | Shortcut | Action |
 |---|---|
@@ -115,7 +115,7 @@ Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt
 |---|---|
 | `Esc` | Cancel or leave whatever has the screen: a prompt, an overlay, a search, a subagent inspection. During a turn it interrupts while preserving accepted Queue and Steer messages. With nothing typed it opens the Session Tree when pressed twice. |
 | `Ctrl+C` once | Clear the composer, or interrupt the active turn while the composer is empty. |
-| `Ctrl+C` twice | Exit; a durable session prints an `omdsh --resume <session-id>` hint. |
+| `Ctrl+C` twice while idle | The first press shows an exit prompt. Press again while the prompt is visible to exit. A durable session prints an `omdsh --resume <session-id>` hint. |
 | `Ctrl+Z` | Suspend to the background. |
 | `Alt+L` | Redraw the live display, preserving native scrollback. |
 | `Ctrl+R` | Search prompt history. |

@@ -619,6 +619,8 @@ describe('LocalTui folds against a scrolling terminal', () => {
       press(term as never, '\x03')
       expect(interrupted).toHaveBeenCalledOnce()
       expect(copy).not.toHaveBeenCalled()
+      tui.setStatus('idle')
+      press(term as never, '\x03')
       press(term as never, '\x03')
       expect(await pending).toBeNull()
     } finally { tui.dispose() }
@@ -1661,7 +1663,7 @@ describe('LocalTui (tty)', () => {
     tui.dispose()
   })
 
-  it('interrupts a question with Ctrl+C and keeps the second-press exit contract', async () => {
+  it('interrupts a question before accepting the idle exit gesture', async () => {
     const term = new FakeTerminal()
     const tui = new LocalTui(term, 'm', false)
     const line = tui.readline()
@@ -1674,6 +1676,10 @@ describe('LocalTui (tty)', () => {
     expect(await answer).toBeNull()
     expect(domainInterrupt).toHaveBeenCalledOnce()
     expect(interrupted).toHaveBeenCalledOnce()
+    tui.setStatus('idle')
+    const mark = term.captured.length
+    press(term, '\x03')
+    expect(term.captured.slice(mark)).toContain('Press Ctrl+C again to exit')
     press(term, '\x03')
     expect(await line).toBeNull()
     tui.dispose()
@@ -2008,6 +2014,43 @@ describe('LocalTui (tty)', () => {
     press(term, '\x03')
     expect(fired).toBe(1)
     tui.dispose()
+  })
+
+  it('clears a draft, interrupts the turn, and asks for confirmation before quitting idle', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const line = tui.readline()
+    const interrupt = vi.fn(() => { tui.setStatus('idle') })
+    tui.onInterrupt(interrupt)
+    try {
+      tui.setStatus('running')
+      press(term, 'unsent draft\x03')
+      expect(interrupt).not.toHaveBeenCalled()
+      press(term, '\x03')
+      expect(interrupt).toHaveBeenCalledOnce()
+      const from = term.captured.length
+      press(term, '\x03')
+      expect(term.captured.slice(from)).toContain('Press Ctrl+C again to exit')
+      press(term, '\x03')
+      expect(await line).toBeNull()
+    } finally { tui.dispose() }
+  })
+
+  it('requires a new exit confirmation after Ctrl+C closes a prompt', async () => {
+    const term = new FakeTerminal()
+    const tui = new LocalTui(term, 'm', false)
+    const line = tui.readline()
+    try {
+      press(term, '\x03')
+      const prompt = tui.prompt({ title: 'Question', question: 'Continue?' })
+      press(term, '\x03')
+      expect(await prompt).toBeNull()
+      const mark = term.captured.length
+      press(term, '\x03')
+      expect(term.captured.slice(mark)).toContain('Press Ctrl+C again to exit')
+      press(term, '\x03')
+      expect(await line).toBeNull()
+    } finally { tui.dispose() }
   })
 
   it('queues composer input during compaction and keeps interruption available', async () => {

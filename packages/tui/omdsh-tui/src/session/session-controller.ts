@@ -1098,7 +1098,9 @@ export class SessionRuntime {
     const presented = result.kind === 'success' && result.sourceEventSeq !== undefined
       && agent.session.snapshotEvents().some(event => event.seq === result.sourceEventSeq && event.type === 'compaction/summary')
     if (result.text !== undefined && !presented) {
-      if (result.kind === 'error') this.#tui.notice(result.text, { level: 'error', focus: true })
+      // A session switch confirmation belongs beside the restored turn.
+      const confirmation = this.agent !== undefined && this.agent !== agent && !result.text.trimEnd().includes('\n')
+      if (result.kind === 'error' || confirmation) this.#tui.notice(result.text, { level: result.kind === 'error' ? 'error' : 'info', focus: true })
       else this.#tui.commandOutput(parsed.name, result.text, { focus: true })
     }
     return true

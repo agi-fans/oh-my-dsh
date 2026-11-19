@@ -432,9 +432,11 @@ export function renderAutocomplete(
   }
   const pathMode = items.some(item => item.kind === 'path' || item.kind === 'session')
   if (pathMode) {
-    const position = items.length > 1 ? `${index + 1}/${items.length} · ` : ''
+    const choices = items.filter(item => item.kind !== 'heading')
+    const ordinal = choices.indexOf(items[index]!) + 1
+    const position = ordinal > 0 && choices.length > 1 ? `${ordinal}/${choices.length} · ` : ''
     lines.push(theme.fg('dim', truncateToWidth(
-      `  ${position}↑↓ select · Tab insert · Enter send · Esc close`,
+      '  ' + position + theme.text('↑↓ select · Tab insert · Enter send · Esc close'),
       width,
     )))
   } else if (items.length > AUTOCOMPLETE_MAX_VISIBLE) {

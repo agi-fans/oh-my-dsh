@@ -94,9 +94,9 @@ function footerRows(width: number): string[] {
   }, createTheme(false))
 }
 
-/** Cell widths of the ellipsis-terminated fragments a row shows. */
+/** Cell widths of the clipped fragments a row shows. */
 function clippedCells(line: string): number[] {
-  return [...stripAnsi(line).matchAll(/\S*…/gu)].map(match => oracleWidth(match[0]))
+  return [...stripAnsi(line).matchAll(/…\S+|\S+…/gu)].map(match => oracleWidth(match[0]))
 }
 
 /**
@@ -127,9 +127,9 @@ const FOOTER_WIDTH_CASES: ReadonlyArray<{
   /** Telemetry rows drawn: the totals row only appears once the first is whole. */
   rows: number
 }> = [
-  { width: 30, first: ['deepseek', '~/Workspace'], dropped: ['max', 'main *3'], groups: [0], clipped: true, rows: 1 },
-  { width: 40, first: ['deepseek', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: true, rows: 1 },
-  { width: 50, first: ['deepseek-v4-pro', '~/Workspace/dsh-tui'], dropped: ['max', 'main *3'], groups: [0, 1], clipped: false, rows: 1 },
+  { width: 30, first: ['deepseek', 'main *3'], dropped: ['max', 'dsh-tui'], groups: [0], clipped: true, rows: 1 },
+  { width: 40, first: ['deepseek', '…/dsh-tui', 'main *3'], dropped: ['max', '~/Workspace'], groups: [0, 1], clipped: true, rows: 1 },
+  { width: 50, first: ['deepseek-v4-pro', '/dsh-tui', 'main *3'], dropped: ['max', '~/Workspace'], groups: [0, 1], clipped: true, rows: 1 },
   // The first telemetry row is complete from here, so the totals row joins it.
   { width: 60, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
   { width: 70, first: ['deepseek-v4-pro · max', '~/Workspace/dsh-tui · main *3'], dropped: [], groups: [0, 1, 2, 3, 4], clipped: false, rows: 2 },
@@ -381,9 +381,8 @@ describe('session status line', () => {
         ? [row(testCase.groups)]
         : [row(testCase.groups.filter(index => index < 3)), row(testCase.groups.filter(index => index >= 3))]
       expect(lines.slice(1).map(twoColumnShape), label).toEqual(expected)
-      // A separator never precedes an ellipsis, and a clip only survives with a
-      // readable prefix: a metadata item is shown whole, clipped, or not at all.
-      expect(first, label).not.toMatch(/·\s*…/u)
+      // Keep room for meaningful metadata on either side of an ellipsis.
+      expect(first, label).not.toMatch(/·\s*…(?:\s|$)/u)
       if (testCase.clipped) expect(clippedCells(first), label).not.toHaveLength(0)
       else expect(first, label).not.toContain('…')
       for (const cells of clippedCells(first)) expect(cells, label).toBeGreaterThanOrEqual(8)
@@ -391,15 +390,15 @@ describe('session status line', () => {
   })
 
   it('drops a clipped metadata item instead of keeping a fragment', () => {
-    // 50 columns is the reported case: `deepseek-v4-pro · …` and `main *3`
-    // clipped to `m…` named nothing, so both items go away whole.
+    // The model and branch fit whole. The path keeps its end and the effort
+    // drops before it would turn into an isolated ellipsis.
     const narrow = footerRows(50).map(stripAnsi)
     expect(narrow[0]).toContain('deepseek-v4-pro')
-    expect(narrow[0]).toContain('~/Workspace/dsh-tui')
-    expect(narrow[0]).not.toContain('…')
+    expect(narrow[0]).toContain('/dsh-tui · main *3')
+    expect(narrow[0]).not.toContain('max')
     expect(narrow[1]).not.toContain('…')
 
-    // A clip survives only when the free cells still hold a readable prefix:
+    // A clip survives only when the free cells still hold a readable fragment:
     // 8 cells are seven characters plus the ellipsis.
     for (const width of [30, 40]) {
       const fragments = clippedCells(footerRows(width)[0] ?? '')
@@ -680,6 +679,33 @@ describe('session status line', () => {
     expect(stripAnsi(lines[0] ?? '')).toMatch(/^  deepseek · max\s+~\/project · main \*1  $/)
     expect(lines.join('\n')).not.toContain('…')
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80)
+  })
+
+  it('keeps the leaf and branch on the right in a narrow terminal', () => {
+    const [line] = renderStatusFooter({
+      model: 'deepseek · high', pwd: '/private/tmp/开发/🐳-workspace/ws', branch: 'fix/ux',
+      config: statusBar(), width: 48,
+    }, createTheme(false))
+    expect(line).toMatch(/…[^…]*\/ws · fix\/ux  $/u)
+    expect(line).not.toContain('/private')
+    expect(visibleWidth(line!)).toBe(48)
+  })
+
+  it('keeps the path leaf visible beside a clipped long branch', () => {
+    const [line] = renderStatusFooter({
+      model: 'deepseek · high', pwd: '/private/tmp/omdsh-recheck/ws', branch: 'feature/very-long-branch-name-for-footer-test',
+      config: statusBar(), width: 48,
+    }, createTheme(false))
+    expect(line).toMatch(/…[^…]*\/ws · feature\/[^…]*…  $/u)
+    expect(visibleWidth(line!)).toBe(48)
+  })
+
+  it('keeps TTFT when decode time is too short and compacts higher measured rates', () => {
+    const tiny = telemetryRows({ ...stats, decodeMs: 10, decodeTokens: 1_370 }).join('\n')
+    expect(tiny).toContain('TTFT 1.2s')
+    expect(tiny).not.toContain('tok/s')
+    const measured = telemetryRows({ ...stats, decodeMs: 500, decodeTokens: 3_150 }).join('\n')
+    expect(measured).toContain('6.3K tok/s')
   })
 
   it('shows the session title only when the session meta item is enabled', () => {

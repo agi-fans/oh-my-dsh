@@ -19,6 +19,7 @@ import { readSessionLibrary, sortSessionRows, togglePinnedSession, updateSession
 import { contextOverviewDetails, type ContextOverview } from '../session/context-diagnostics.ts'
 import { readReference } from '../runtime/reference-reader.ts'
 import { currentWorkingDirectory } from '../session/working-directory.ts'
+import { resolveUiLanguage, uiText } from '../locale/index.ts'
 
 export const name = 'omdsh-command-session'
 export const inject = ['commands', 'omdshSession', 'tui']
@@ -67,7 +68,9 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
       const inventory = new Map(ctx.omdshSession.recentSessions.map(row => [row.id, row]))
       const source = search === undefined ? ctx.omdshSession.recentSessions : search.rows.map(row => ({ ...row, ...inventory.get(row.id), ...(row.preview === undefined ? {} : { preview: row.preview }) }))
       const recent = sortSessionRows(source.filter(row => archivedIds.has(row.id) === archivedView), library.pinned)
-      if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) return { kind: 'success', text: 'No durable sessions found.' }
+      if ((search?.rows ?? ctx.omdshSession.recentSessions).length === 0) {
+        return { kind: 'success', text: uiText(resolveUiLanguage(ctx.tui.prefs?.().uiLanguage), 'No durable sessions found.') }
+      }
       const answer = await browse({ localize: ['title', 'question', 'actions'],
         title: `Session Library${search === undefined ? '' : ' · Search'}${archivedView ? ' · Archived' : ''}`,
         detail: [searchDiagnostic, search === undefined ? '' : `Content search: ${search.query} · ${search.rows.length} matches loaded`].filter(Boolean).join('\n'),
@@ -190,6 +193,7 @@ async function resumeSession(ctx: Context, invocation: CommandInvocation, search
 }
 
 async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, id: string, prompt: TuiService['prompt'], query?: string): Promise<{ result: CommandResult; opened: boolean }> {
+  const language = resolveUiLanguage(ctx.tui.prefs?.().uiLanguage)
   try {
     const stored = await ctx.get('sessionPersistence')?.stat(SessionId(id))
     if (stored?.formatStatus === 'migration-required' && ctx.tui.interactive === true) {
@@ -208,10 +212,10 @@ async function resumeStoredSession(ctx: Context, invocation: CommandInvocation, 
       ctx.tui.searchTranscript(query)
       return { result: { kind: 'success' }, opened: true }
     }
-    return { result: { kind: 'success', text: `Resumed ${id}.` }, opened: true }
+    return { result: { kind: 'success', text: uiText(language, 'Resumed {id}.', { id }) }, opened: true }
   } catch (error: unknown) {
     if (ctx.omdshSession.agent?.id === id) {
-      const text = `Resumed ${id}. Session Library refresh failed: ${error instanceof Error ? error.message : String(error)}`
+      const text = uiText(language, 'Resumed {id}. Session Library refresh failed: {error}', { id, error: error instanceof Error ? error.message : String(error) })
       if (query !== undefined && ctx.tui.interactive === true && ctx.tui.searchTranscript !== undefined) {
         ctx.tui.notice(text, { level: 'error' })
         ctx.tui.searchTranscript(query)

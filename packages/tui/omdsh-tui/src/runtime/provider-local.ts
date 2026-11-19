@@ -253,7 +253,7 @@ import {
 import { APP_DISPLAY_NAME, APP_NAME, APP_VERSION } from '../session/package-metadata.ts'
 import type { StartupChangelogMode } from '../session/release-notes.ts'
 
-const DOUBLE_CTRL_C_MS = 500
+const DOUBLE_CTRL_C_MS = 1_500
 /**
  * Whether an open completion menu still speaks for the `@` token being typed.
  *
@@ -486,7 +486,7 @@ export class LocalTui implements TuiService {
    * The open completion menu. `query` is the `@` prefix the rows were built for,
    * so the next keystroke can tell "that token, extended" from "a different one".
    */
-  #ac: { items: AutocompleteItem[]; selected: number; query?: string } | null = null
+  #ac: { items: AutocompleteItem[]; selected: number; prefix: string; query?: string } | null = null
   #search: HistorySearchState | null = null
   #transcriptSearch: TranscriptSearchState | null = null
   #settings: SettingsState | null = null
@@ -508,7 +508,7 @@ export class LocalTui implements TuiService {
   #queueRecall: { request: TuiQueueEditRequest; abort: AbortController } | undefined
   #quitRequested = false
   #resumeHintRequested = false
-  #lastSigintTime = 0
+  #exitArmedUntil = 0
   #lastEscapeTime = 0
   readonly #receivedModifiedEnter = new Set<string>()
   #inspectEscapeFenceUntil = 0
@@ -3331,8 +3331,9 @@ export class LocalTui implements TuiService {
   }
 
   #dispatch(event: KeyEvent): void {
-    // Any input makes the last confirmation stale; a note that survives typing
-    // starts competing with the command the reader is writing.
+    // A confirmation is only valid for the next key, even when an overlay
+    // consumes that key before the composer sees it.
+    const confirmsExit = event.type === 'key' && this.#exitArmedUntil !== 0 && Date.now() < this.#exitArmedUntil
     if (event.type === 'key' || event.type === 'text') this.#clearTransientStatus()
     if (event.type === 'cell-size') {
       this.#imageCellSize = { width: event.width, height: event.height }
@@ -3462,7 +3463,7 @@ export class LocalTui implements TuiService {
     }
     if (event.type === 'key') {
       const action = this.#boundAction(event.id)
-      if (action !== undefined && this.#runAction(action)) return
+      if (action !== undefined && this.#runAction(action, confirmsExit)) return
     }
     if (this.#inspected !== undefined && this.#inspected.writable !== true && event.type === 'text'
       && this.#prompt === null && this.#settings === null && this.#search === null) {
@@ -3579,13 +3580,8 @@ export class LocalTui implements TuiService {
     return false
   }
 
-  /**
-   * Empty the composer, or exit on a second press.
-   *
-   * Ctrl+C is a composer gesture everywhere else on a terminal; keeping
-   * interrupt on Escape leaves this to do exactly one job.
-   */
-  #runClearComposer(): boolean {
+  /** Clear a draft or interrupt work before offering an idle exit. */
+  #runClearComposer(confirmsExit: boolean): boolean {
     if (this.#prompt !== null) { this.#finishPrompt(null); this.#editor.setText(''); this.#render(); return true }
     // A running Shell line owns Ctrl+C before the composer does: the reader is
     // watching a command, and the key they press to stop it is the same one.
@@ -3596,20 +3592,20 @@ export class LocalTui implements TuiService {
     if (this.#settings !== null) { this.#settings = null; this.#render(); return true }
     if (this.#search !== null) { this.#search = null; this.#render(); return true }
     if (this.#transcriptSearch !== null) { this.#transcriptSearch = null; this.#render(); return true }
-    const now = Date.now()
-    if (now - this.#lastSigintTime < DOUBLE_CTRL_C_MS) {
-      this.#lastSigintTime = 0
+    const hasDraft = this.#hasComposerContent()
+    if (this.#state.status !== 'idle') {
+      if (hasDraft) this.#clearComposerWithUndo()
+      else for (const listener of this.#interrupts) listener()
+      return true
+    }
+    if (!hasDraft && confirmsExit) {
       this.#quit()
       return true
     }
-    this.#lastSigintTime = now
-    // A running turn keeps Ctrl+C as the familiar abort while the composer is
-    // empty; Escape already covers it, and refusing the reflex would be worse.
-    if (this.#state.status !== 'idle' && !this.#hasComposerContent()) {
-      for (const listener of this.#interrupts) listener()
-      return true
-    }
     this.#clearComposerWithUndo()
+    const key = keysForAction(this.#keybindings, 'clear-composer')
+    this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), 'Press {key} again to exit', { key }), DOUBLE_CTRL_C_MS)
+    this.#exitArmedUntil = Date.now() + DOUBLE_CTRL_C_MS
     return true
   }
 
@@ -3618,7 +3614,6 @@ export class LocalTui implements TuiService {
     if (prompt === null) return false
     const disarmed = prompt.armedUntil !== undefined && Date.now() < prompt.armedUntil
     if (event.type === 'key' && event.id === 'ctrl+c' && prompt.request.interrupt !== undefined) {
-      this.#lastSigintTime = Date.now()
       const handled = prompt.request.interrupt()
       this.#finishPrompt(null)
       if (handled !== true && this.#state.status !== 'idle') for (const listener of this.#interrupts) listener()
@@ -4470,13 +4465,16 @@ export class LocalTui implements TuiService {
       this.#ac = null
       return
     }
-    const prev = this.#ac?.items[this.#ac.selected]?.value
+    const previous = this.#ac
+    const sameQuery = previous !== null && previous.query === query
+      && (query !== undefined || previous.prefix === result.prefix)
+    const prev = sameQuery ? previous.items[previous.selected]?.value : undefined
     let selected = nextSelectableAutocompleteIndex(result.items, 0, 1)
     if (prev !== undefined) {
       const idx = result.items.findIndex((item) => item.value === prev && item.kind !== 'heading')
       if (idx >= 0) selected = idx
     }
-    this.#ac = { items: result.items, selected, ...(query === undefined ? {} : { query }) }
+    this.#ac = { items: result.items, selected, prefix: result.prefix, ...(query === undefined ? {} : { query }) }
   }
 
   #moveAutocomplete(dir: -1 | 1): void {
@@ -4527,6 +4525,7 @@ export class LocalTui implements TuiService {
    * the second one did, which is what the reader is looking for.
    */
   #showTransientStatus(text: string, ttlMs = TRANSIENT_STATUS_MS): void {
+    this.#exitArmedUntil = 0
     this.#transientStatus = text
     if (this.#transientTimer !== null) clearTimeout(this.#transientTimer)
     this.#transientTimer = setTimeout(() => {
@@ -4541,6 +4540,7 @@ export class LocalTui implements TuiService {
 
   /** Any keystroke makes the last confirmation stale. */
   #clearTransientStatus(): void {
+    this.#exitArmedUntil = 0
     if (this.#transientStatus === undefined) return
     this.#transientStatus = undefined
     if (this.#transientTimer !== null) { clearTimeout(this.#transientTimer); this.#transientTimer = null }
@@ -5192,7 +5192,7 @@ export class LocalTui implements TuiService {
   }
 
   /** Run one configured action; returns true when the event was consumed. */
-  #runAction(action: TuiAction): boolean {
+  #runAction(action: TuiAction, confirmsExit = false): boolean {
     // `interrupt` is resolved further down, after every surface that wants to
     // interpret Escape itself — a settings search clears before the overlay
     // closes. Claiming it here would skip that layering.
@@ -5205,7 +5205,7 @@ export class LocalTui implements TuiService {
       else this.#render()
       return true
     }
-    if (action === 'clear-composer') return this.#runClearComposer()
+    if (action === 'clear-composer') return this.#runClearComposer(confirmsExit)
     if (action === 'quit') {
       if (this.#hasComposerContent() || this.#editor.text !== '') return false
       this.#quit()

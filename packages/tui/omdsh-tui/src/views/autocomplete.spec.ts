@@ -291,7 +291,16 @@ describe('formatHelpText / renderAutocomplete', () => {
     expect(lines.some((line) => line.includes('Files & folders') && !line.includes('❯'))).toBe(true)
     expect(lines.some((line) => line.includes('❯') && line.includes('README.md'))).toBe(true)
     expect(lines.some((line) => line.includes('notes') && !line.includes('/notes'))).toBe(true)
-    expect(lines.at(-1)).toContain('↑↓ select')
+    expect(lines.at(-1)).toContain('1/2 · ↑↓ select')
+  })
+
+  it('localizes the single-file menu without counting its heading', () => {
+    const lines = renderAutocomplete([
+      { value: '', label: 'Files & folders', kind: 'heading' },
+      { value: '@README.md', label: 'README.md', kind: 'path' },
+    ], 1, createTheme(false, false, 'dark', undefined, 'zh-CN'), 80)
+    expect(lines[0]).toContain('文件与文件夹')
+    expect(lines.at(-1)?.trim()).toBe('↑↓ 选择 · Tab 插入 · Enter 发送 · Esc 关闭')
   })
 })
 

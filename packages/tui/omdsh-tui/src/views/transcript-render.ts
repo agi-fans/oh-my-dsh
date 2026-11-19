@@ -249,9 +249,9 @@ function colorDepthOf(options: ViewOptions): ColorDepth {
   return options.colorDepth ?? 'ansi16'
 }
 
-/** Cache key for everything the color depth and the reported terminal colors can change. */
+/** Cache key for terminal styling and the language of rendered labels. */
 function terminalKey(options: ViewOptions): string {
-  return `${colorDepthOf(options)}|${terminalColorsKey(options.terminal)}`
+  return `${colorDepthOf(options)}|${terminalColorsKey(options.terminal)}|${options.language ?? 'en'}`
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -577,6 +577,7 @@ function toolBlockLines(
   const args = toolArgsObject(block.args)
   const call = block.presentation?.call
   const result = block.presentation?.result
+  const programInput = presentation.inputKind === 'code'
   const shell = COMMAND_TOOL.test(block.name) || call?.card === 'terminal'
   const read = block.name === 'read' || result?.card === 'read'
   const diffs = exclusiveDiffs(block.presentation)
@@ -609,15 +610,19 @@ function toolBlockLines(
       : toolOutputLines(block, output, subject, theme, room)
     body = [
       ...wrapTextStable(theme.fg('dim', theme.text('Input')), room),
-      // The arguments are JSON here (they were re-serialized above), so they are
-      // highlighted as JSON whatever the tool itself reads.
-      ...highlightedLines(input.split('\n'), 'json', theme, undefined, room),
+      ...(programInput
+        ? highlightedLines(presentation.input, 'typescript', theme, undefined, room)
+        : highlightedLines(input.split('\n'), 'json', theme, undefined, room)),
       '', ...wrapTextStable(theme.fg('dim', theme.text('Output')), room),
       ...outputRows,
     ]
+    if (programInput) {
+      body.push('', ...wrapTextStable(theme.dim(theme.text('Raw arguments')), room),
+        ...highlightedLines(input.split('\n'), 'json', theme, undefined, room))
+    }
     // Keep the tool's rich presentation, but expose received text it replaced.
     if (block.output !== '' && (diffs !== undefined || block.output !== output.join('\n'))) {
-      body.push('', ...wrapTextStable(theme.fg('dim', 'Raw result'), room))
+      body.push('', ...wrapTextStable(theme.dim(theme.text('Raw result')), room))
       for (const line of block.output.split('\n')) {
         body.push(...wrapTextStable(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
       }
@@ -630,7 +635,13 @@ function toolBlockLines(
     const input = presentation.input.length > 0 && !shell && !read && (call?.card === 'generic' || (call === undefined && !/^(grep|glob|find|ls|search|write|edit)$/.test(block.name)))
       ? presentation.input.flatMap(line => wrapCode(theme.fg('toolOutput', line), room))
       : []
-    body = [...input, ...output]
+    if (programInput) {
+      body = [
+        ...wrapTextStable(theme.dim(theme.text('Input')), room),
+        ...highlightedLines(presentation.input, 'typescript', theme, undefined, room),
+        ...(output.length === 0 ? [] : ['', ...wrapTextStable(theme.dim(theme.text('Output')), room), ...output]),
+      ]
+    } else body = [...input, ...output]
     // Writes carry their content in arguments before the result arrives.
     if (body.length === 0 && block.name === 'write' && typeof args?.['content'] === 'string') {
       body = highlightedLines(args['content'].split('\n'), toolPayloadLanguage('write', subject) ?? 'text', theme, undefined, room)
@@ -655,7 +666,9 @@ function toolBlockLines(
     if (rows.length > 0) rows.push('')
     for (const row of body) rows.push(row)
   }
-  if (!showTitle && mode !== 'details' && presentation.summary && (result?.card === 'terminal' || result?.card === 'search')) {
+  const exitReportedByJob = result?.card === 'terminal' && result.exitCode !== undefined
+    && block.job?.detail === `exit code: ${result.exitCode}`
+  if (!showTitle && mode !== 'details' && presentation.summary && !exitReportedByJob && (result?.card === 'terminal' || result?.card === 'search')) {
     rows.push(...wrapTextStable(theme.dim(presentation.summary), room))
   }
   if (block.status === 'error') rows.push(...wrapTextStable(theme.fg('error', 'Tool failed'), room))
@@ -908,11 +921,11 @@ function processGroupBody(group: ProcessGroup, context: GroupRenderContext): { l
 
 /** A completed turn's duration and any failures remain visible when folded. */
 function processGroupHeader(group: ProcessGroup, theme: Theme, width: number, elapsed?: string, expandKey = 'Ctrl+O'): string[] {
-  const label = elapsed === undefined ? 'Worked' : `Worked for ${elapsed}`
-  const failure = group.failures === 0 ? '' : theme.fg('error', ` · ${group.failures} failed`)
+  const label = elapsed === undefined ? theme.text('Worked') : theme.text('Worked for {elapsed}', { elapsed })
+  const failure = group.failures === 0 ? '' : theme.fg('error', ' · ' + theme.text('{count} failed', { count: group.failures }))
   const labelRoom = Math.max(1, width - 6 - visibleWidth(failure))
   const summary = `  ${SYMBOL.folded} ${theme.fg('dim', truncateToWidth(label, labelRoom))}${failure}`
-  const hint = ` · ${expandKey} to expand`
+  const hint = ' · ' + theme.text('{key} to expand', { key: expandKey })
   const suffix = expandKey !== 'Disabled' && visibleWidth(summary) + visibleWidth(hint) <= width - 2
     ? theme.fg('dim', hint) : ''
   return [padToWidth(truncateToWidth(summary + suffix, Math.max(1, width - 2)), width)]
@@ -961,7 +974,7 @@ export function blockLines(
     }
     if (block.interrupted === true) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
-      lines.push(...assistantContentLines([theme.fg('dim', '· interrupted')], width, paddingX))
+      lines.push(...assistantContentLines([theme.fg('dim', '· ' + theme.text('interrupted'))], width, paddingX))
     }
     return lines
   }
@@ -1003,7 +1016,8 @@ export function blockLines(
     const prefix = '  '
     const continuation = ' '.repeat(visibleWidth(prefix))
     const tone = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'dim'
-    return wrapTextStable(block.text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
+    const text = block.text === 'interrupted' ? theme.text(block.text) : block.text
+    return wrapTextStable(text, Math.max(1, width - visibleWidth(prefix))).map((line, index) =>
       truncateToWidth((index === 0 ? prefix : continuation) + theme.fg(tone, line), width))
   }
   const state = block.level === 'error' ? 'error' : block.level === 'warning' ? 'warning' : 'info'
@@ -1025,11 +1039,7 @@ export function blockLines(
 /** Why the transcript was replaced. */
 export type TranscriptSeam = 'session-opened' | 'cleared'
 
-/**
- * Seam labels live in one table with the row that draws them, so a later
- * language layer moves the strings in one edit rather than chasing them through
- * the runtime. English until that layer exists.
- */
+/** Source labels for the reasons a new transcript begins. */
 const SEAM_LABELS: Record<TranscriptSeam, string> = {
   'session-opened': 'session opened · earlier output retained',
   cleared: 'transcript cleared · earlier output retained',
@@ -1050,11 +1060,12 @@ export function transcriptSeam(reason: TranscriptSeam): Block {
  */
 function renderTranscriptBoundary(label: string, theme: Theme, width: number): string {
   if (width <= 0) return ''
-  const labelText = theme.fg('dim', label)
+  const text = theme.text(label)
+  const labelText = theme.fg('dim', text)
   const rule = theme.fg('border', BOX.horizontal)
   // A terminal too narrow for a rule on either side still gets the label, since
   // the label is the part that carries the fact.
-  const room = width - visibleWidth(label) - 2
+  const room = width - visibleWidth(text) - 2
   if (room < 2) return truncateToWidth(labelText, Math.max(1, width))
   const left = Math.floor(room / 2)
   return rule.repeat(left) + ' ' + labelText + ' ' + rule.repeat(room - left)
@@ -1302,12 +1313,8 @@ function cachedBlockLines(
 }
 
 /**
- * What a stretch of the transcript was doing, as a short English label.
- *
- * Status strings are English until a language layer exists, so every label a
- * reader can see is resolved from this one table rather than spelled into the
- * rendering code. A tool with no family is reported by its own name, which is
- * still more informative than dropping it.
+ * Localizable labels for tool families. Tools outside these families display
+ * their registered name.
  */
 const PROCESS_LABELS: readonly { match: RegExp; label: string }[] = [
   { match: /^read$/, label: 'Read file' },

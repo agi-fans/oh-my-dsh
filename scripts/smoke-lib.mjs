@@ -36,7 +36,8 @@ export function smokeEnv(home, extra = {}) {
       delete inherited[key]
     }
   }
-  return { ...inherited, OMDSH_HOME: home, NO_COLOR: '1', ...extra }
+  // The smoke assertions use English labels regardless of the caller's locale.
+  return { ...inherited, LC_ALL: 'C', OMDSH_HOME: home, NO_COLOR: '1', ...extra }
 }
 
 /** Strip ANSI escapes and carriage returns from captured terminal output. */
