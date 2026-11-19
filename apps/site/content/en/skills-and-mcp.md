@@ -1,81 +1,112 @@
 ---
-description: Configure omdsh Skills and MCP servers through DeepSeek Harness discovery paths, SKILL.md files, and per-server MCP clients.
+description: Complete reference for Skills (SKILL.md directories and frontmatter) and MCP servers (live /mcp management, ${credential:NAME} secrets, all 7 states, and static mcp.json).
 ---
 
 # Skills and MCP
 
-omdsh keeps both capabilities behind DeepSeek Harness interfaces. Skills are discovered by the Harness skill registry and filesystem provider; MCP servers run either as live Profile entries managed by `@deepseek-ai/dsh-mcp-manager` or as static per-server `@deepseek-ai/dsh-mcp-client` entries loaded from `mcp.json`. The TUI does not implement either protocol.
+Capture repeatable team workflows as **Skills**, and connect external tools or data sources via **MCP (Model Context Protocol)**—neither requires writing a plugin. For a hands-on walkthrough see [Extend projects with Skills and MCP](tutorials/skills-and-mcp.md).
 
-## Skills
+## 1. Skills (`SKILL.md`)
 
-Skills are enabled by default. The filesystem provider searches these roots in priority order:
+### Discovery locations
 
-- `<project>/.dsh/skills`
-- `<project>/.agents/skills`
-- `$OMDSH_HOME/skills` (or `$DSH_HOME/skills`, then `~/.dsh/skills`)
-- `~/.agents/skills`
+omdsh discovers `<skill-name>/SKILL.md` automatically at startup (project definitions override user definitions of the same name):
 
-A skill may be a directory containing `SKILL.md` or a flat Markdown file. For example:
+| Scope | Path | Purpose |
+|---|---|---|
+| **Project** | `<repo>/.dsh/skills/<skill-name>/SKILL.md` | Checked into Git and shared across the team |
+| **User** | `$OMDSH_HOME/skills/<skill-name>/SKILL.md` (defaults to `~/.dsh/skills/`) | Personal workflows available in every repo |
 
-```text
-.dsh/skills/code-review/SKILL.md
-```
+### Format and frontmatter fields
 
 ```markdown
 ---
-name: code-review
-description: Review a change for correctness and maintainability.
+name: release-check
+description: Verify changelog entries, version alignment, and build checks before cutting a release
+user-invocable: true
 ---
 
-Review the current diff, run focused tests, and report findings by severity.
+When running a release check, verify each item in order:
+
+1. Confirm the root manifest and workspace package versions match.
+2. Confirm CHANGELOG.md Unreleased covers every user-visible change.
+3. Run typecheck, test, and build and report any failures.
 ```
 
-Type `/` and a skill name, such as `/code-review`, to find it alongside commands. The list shows its description and marks skills that require an explicit user request as **User only**. Invoking a skill sends the request and any staged images or files together; Harness loads its instructions before the model responds. Skills that allow model invocation also remain available through the `skill` tool. When a skill shares a name with a command, the command takes precedence in the list. Invoke that skill within a sentence instead, such as “Please use `/review` to check these changes.”
+| Field | Required | Effect |
+|---|---|---|
+| `name` | Yes | Lowercase identifier (hyphens allowed); exposed as `/<name>`. |
+| `description` | Yes | Shown in `/` completion and used by the model to decide when to load the Skill. |
+| `user-invocable` | No | Set to `true` to mark as user-only—runs only when you explicitly type `/<name>`. |
 
-## MCP
+### Invocation and precedence
 
-omdsh supports both live Profile-managed MCP servers and static file-backed `mcp.json` definitions. Live servers can be added, enabled or disabled, probed, restarted, or removed in `/mcp` or `/settings` → **Plugins → Integrations → MCP servers**, saving to the active Profile's `mcp-manager` section and reconciling immediately without restarting omdsh. Both `stdio` and `streamable-http` transports are supported, and string values accept `${NAME}`, `${NAME:-default}`, and `${credential:NAME}` templates so secrets stay in the Harness credential store or environment rather than plain configuration.
+- Type `/<name>` directly (supports images and file attachments).
+- Unless marked user-only, the model can load matching Skills automatically when relevant.
+- Built-in slash commands take precedence on name collisions; you can still reference the Skill in plain text (for example “Use the `release-check` skill”).
 
-Static file-backed MCP configuration continues to load alongside managed servers from:
+---
 
-1. `$OMDSH_HOME/mcp.json`, `$DSH_HOME/mcp.json`, or `~/.dsh/mcp.json`
-2. `<project>/.dsh/mcp.json`
+## 2. MCP servers
 
-Project definitions override same-named user definitions. A project MCP file can start local programs, so review it before launching omdsh in an unfamiliar repository.
+omdsh supports both **live management in `/mcp`** and **static `mcp.json` files**:
 
-The document uses the common `mcpServers` shape. A stdio server:
+| Aspect | Live `/mcp` manager (recommended) | Static `mcp.json` file |
+|---|---|---|
+| **Restart required** | **No**—add, toggle, restart, and remove apply live | Yes, after editing the file |
+| **Secrets** | Native `${credential:NAME}` references in local credentials store | Use environment variables; avoid committing raw tokens |
+| **Operations** | Non-disruptive **`Probe`**, **`Restart`**, **`Disable`** | Read-only registration status and diagnostics |
+| **Best for** | Personal servers, remote HTTP endpoints, private tokens | Team-standard servers committed into Git |
+
+### Managing servers live in `/mcp`
+
+Run `/mcp` (or open `/settings` → **`Plugins` → `Integrations` → `MCP servers`**):
+
+- **Add server (`Add server…`):**
+- `stdio`: local executable, args, and optional environment variables.
+- `streamable-http`: remote HTTP endpoint URL and optional headers.
+- **Safe secrets with `${credential:NAME}`:** Reference secrets as `${credential:MY_API_TOKEN}` in env vars or headers so raw secrets stay in the local credentials store rather than plain config.
+- **Live controls:** Select any managed server to **`Probe`** (checks connectivity and tools without restarting), **`Restart`**, **`Enable/Disable`**, **`Remove`**, or restore inherited definitions.
+
+### Static `mcp.json` (for Git-shared setups)
+
+Place in `<repo>/.dsh/mcp.json` (project) or `$OMDSH_HOME/mcp.json` (user; project overrides user on name match):
 
 ```json
 {
   "mcpServers": {
     "memory": {
-      "command": "mcp-server-memory",
-      "args": [],
-      "env": {
-        "MEMORY_FILE_PATH": "/absolute/path/to/memory.jsonl"
-      }
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "docs": {
+      "type": "streamable-http",
+      "url": "https://mcp.example.com/mcp"
     }
   }
 }
 ```
 
-A Streamable HTTP server:
+### All seven connection states
 
-```json
-{
-  "mcpServers": {
-    "github": {
-      "url": "https://example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer token"
-      }
-    }
-  }
-}
-```
+| State | Meaning and next action |
+|---|---|
+| `connected` | Healthy and ready; displays exposed tool count |
+| `connecting` | Establishing initial connection |
+| `waiting-credentials` | A referenced `${credential:...}` secret is missing; store it and **`Restart`** |
+| `reconnecting` | Attempting to recover after a drop |
+| `disabled` | Manually turned off; its tools stay out of model context |
+| `closed` | Connection closed; choose **`Restart`** when needed |
+| `failed` | Startup or connection error; inspect diagnostics, then **`Probe`** or **`Restart`** |
 
-Supported optional fields are `enabled`, `timeout` (or `toolCallTimeoutMs`), `failOnStartupError`, and the Harness `reconnect` object. Stdio entries additionally accept `cwd`; HTTP entries accept `headers`. String values support `${NAME}` and `${NAME:-default}` environment expansion, so credentials do not need to be stored directly in the JSON file. An unresolved placeholder without a default remains literal.
+### Tools, resources, and recent calls
 
-Discovered tools use `mcp__<server>__<tool>` names and enter the normal Harness tool registry. `/mcp` opens a keyboard-selectable management and diagnostic page with live connection status (`connected`, `connecting`, `waiting for credentials`, `reconnecting`, `disabled`, or `failed`) for both managed servers and mounted `mcp.json` entries, one-shot `probe` diagnostics that verify transport and list tools without disturbing a live connection, `restart` to reset retry budgets, available tools grouped by server, and the latest ten MCP tool calls in the current session, including programmatic sub-calls. Historical call errors remain readable after resume and do not establish a current connection failure. Refresh reloads the snapshot without restarting servers; a failed refresh retains the last loaded state and marks it stale. `/tools` shows MCP tools alongside native tools, and tool-list changes after a reconnect update the catalog automatically.
+- Connected tools appear as `mcp__<server>__<tool>` alongside `mcp-resources` in `/tools` and `/mcp` → **`Available tools`**.
+- Text resources enter conversation history; binary payloads stay available to programmatic callers (such as `PTC` `run_code`).
+- Open `/mcp` → **`Recent calls in this session`** to review outcomes and error details for the last 10 calls (note: an error may come from the remote tool itself rather than the connection).
 
-With at least one server configured, the model can also list and read that server's resources through the shared `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource` tools, each named for the server it queries. Resource text enters the conversation history; binary payloads stay available to programmatic callers. MCP prompt templates remain unsupported.
+## Related
+
+- [Extend projects with Skills and MCP (tutorial)](tutorials/skills-and-mcp.md) — comparison table and step-by-step walkthrough
+- [Status and diagnostics](observability.md) — checking how tool schemas affect context budget
+- [Language servers](language-servers.md) — configuring read-only `lsp` code navigation

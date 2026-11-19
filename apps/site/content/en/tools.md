@@ -1,62 +1,58 @@
 ---
-description: "The tools the model can use in omdsh, grouped by capability, and how Access, LSP configuration, and result spill affect them."
+description: Compare the four Agent presets (Standard, PTC, Minimal, Creator) and browse every built-in tool category available to the model.
 ---
 
-# Tools
+# Tools and presets
 
-The mounted tools come from published Harness plugins and from the session's Agent preset; omdsh adds the terminal presentation layer, not a second tool registry. `/tools` lists exactly what the active session exposes, and the list follows the preset you chose with `/agent`. Access still gates what each mutating tool may touch.
+Run `/tools` anytime to search every tool visible to the model and read its full description. The active toolset is determined by your session’s **Agent preset** plus enabled built-in features, MCP servers, and language servers.
 
-## Shell
+## Comparing the four Agent presets
 
-| Tool | Behavior |
-|---|---|
-| `bash` / `pwsh` | One-shot commands in the confined shell for the host. The shipped default timeout is 120 seconds. Settings → Plugins → Shell controls default and maximum timeouts; explicit per-call timeouts are capped by that maximum. Background commands appear in `/jobs`. |
-| `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, `terminal_list` | Persistent terminal sessions that retain cwd, environment, and interactive children across calls. |
+Switch presets on a blank session with `/agent`, or set the default for new sessions under `/settings` → **`Agent presets`**:
 
-## Working directory
+| Preset | Focus | Tools included | Best for |
+|---|---|---|---|
+| **`Standard`** (default) | Full everyday coding agent | File read/write/search, sandboxed shell, persistent terminal, web search/fetch, Todo, goal/jobs/schedule, Plan mode, subagents, session history, Agent Teams (when `/team on` is active) | **95% of everyday coding, debugging, and refactors** |
+| **`PTC`** (`code`) | Programmatic tool orchestration | Exposes the tool registry as a generated SDK inside **`run_code`** (hides `workflow_run`) | Batching dozens of reads, filters, or checks in one script with fewer model round-trips |
+| **`Minimal`** | Lean two-tool setup | Minimal file and shell pair only | Tight context budgets or minimal baseline comparisons |
+| **`Creator`** (`cordis`) | Plugin authoring | Standard catalog plus the bundled `dsh-doc` authoring skill and read-only runtime inspection (`cordis_inspect_list`, `cordis_inspect_query`) | Building or debugging omdsh plugins via `/agent creator` (without changing your default preset) |
 
-`working_directory` reads the current directory, or changes it with `cd` to an existing directory. Later file operations, shell launches, file completion and the footer follow that directory. The original project still groups the session and determines its existing permissions; changing directory does not widen Access or move an already running terminal. Minimal keeps its two-tool catalog.
+> Once the first message is sent, a session’s preset is locked to keep tool history consistent. Run `/agent inspect` anytime to inspect what is mounted.
 
-## Git worktrees
+## Built-in tool categories
 
-`@deepseek-ai/dsh-experimental-tool-worktree` ships enabled by default (and can be disabled in `/plugins` → Bundles) to expose `create_worktree`; Minimal still restricts its model tools. omdsh defaults **Keep worktrees when archiving** (`retainOnArchive: true` in `/settings` → Plugins → Tools) so archiving a session in `/resume` preserves its session-created worktrees unless you turn that setting off. `create_worktree` creates a separate Git checkout from a local revision (`HEAD` by default) and switches the session's working directory into it, while `working_directory` switches to another checkout or returns to the session's original directory. The conversation, original project, and Access remain unchanged; file operations, new shells, and the footer follow the current directory.
+### 1. Files and code intelligence
+- **Filesystem & search** (`read`, `write`, `edit`, `glob`, `grep`, etc.): Governed by `/permission`; oversized outputs keep a bounded preview in context so huge files never blow out your window.
+- **Code intelligence (`lsp`):** Mounted only when `lsp.json` configures a language server, providing `goToDefinition`, `findReferences`, `goToImplementation`, and `hover`. See [Language servers](language-servers.md).
 
-Creation requires Git 2.45 or newer and Node in the same execution environment. It checks out committed files only, skips configured Git filters and does not initialize submodules or install dependencies. Source changes stay in the original checkout. Leaving, disabling the bundle or cancelling creation never automatically deletes branches or files; failures may retain partial artifacts. Return explicitly and review retained artifacts before managing them with Git.
+### 2. Shell and persistent terminals
+- **Sandboxed shell (`bash` / `pwsh`):** Platform-native shell (`bash` on macOS/Linux, `pwsh` on Windows) for tests and one-shot commands; 120s default timeout, tunable under `/settings` → **`Plugins` → `Shell`**.
+- **Persistent terminals (`terminal_*`):** Interactive sessions that retain state across steps.
+- **Background jobs (`jobs`):** Tracks commands that keep running after a turn; inspecting them in `/jobs` never interferes with the agent’s own reads.
 
-## Files and search
+### 3. Web search and fetch
+- **`web_search` and `web_fetch`:** Default to hosted DeepSeek APIs (`deepseek-search-api` / `deepseek-fetch-api`), avoiding local proxy/DNS issues.
+- To fetch `localhost` or internal corporate URLs, switch fetch to **`Direct fetch`** (`http`) under `/settings` → **`Plugins` → `Integrations` → `Web search and fetch`**.
 
-`read`, `write`, `edit`, and `str_replace_editor` cover file content, while `grep` and `glob` search the workspace. Mutating tools honor the session Access preset, and a mutation outside the sandbox returns the shared denial described in [Permissions and access](permissions.md). Results over the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
+### 4. Planning, long goals, and schedules
+- **Todos and Plan mode (`exit_plan_mode`):** Tracks multi-step checklists and submits plans for review under `/plan`.
+- **Long goals (`goal`):** Pairs with `/goal` and `Alt+G` for multi-turn objectives.
+- **Scheduled reminders (`schedule_*`):** Creates and updates time-based reminders managed via `/schedule`.
 
-## Web
+### 5. Subagents, teams, and external extensions
+- **Subagents & teams:** Built-in `subagent`, `subagent_fork`, `subagent_isolated`, `workflow_run` (`Standard` preset; hidden in `PTC`), `team_task_*` when `/team on` is enabled, plus `subagent_codex` / `subagent_claude_code` when enabled. See [Subagents and Agent Teams](subagents.md).
+- **Session history (`session_*`):** Lets the model search and trace past sessions; disable under `/settings` → **`Plugins` → `Optional features`** if you want to save context.
+- **MCP tools and resources (`mcp__*`, `mcp-resources`):** Appear automatically when MCP servers connect via `/mcp` or `mcp.json`.
 
-`web_search` and `web_fetch` use DeepSeek's Search and Fetch APIs by default: one direct API request per operation, no auxiliary model turn, and configurable `auto`, `account`, or `api-key` billing in **Settings → Plugins → Web search and fetch** (defaulting to `auto` with the credential reference stored by `/login` or the active DeepSeek account). Hosted fetch does not depend on local DNS, which matters behind a proxy's fake-IP resolver; the target URL is retrieved by DeepSeek's Fetch API rather than contacted from this machine. The Messages search and local **Direct fetch** (`http`) providers remain mounted: switch to Direct fetch when you need this machine to reach local or intranet addresses directly. A deployment that wants no search turns off `search` on the `tool-web` row in its own overlay.
+## Turning optional tools on or off
 
-## Code intelligence
-
-The read-only `lsp` tool answers definitions, references, implementations, and hover for configured language servers. No `lsp` tool appears until an `lsp.json` registers a server; see [Language servers](language-servers.md).
-
-## Task and session
-
-`todo_write` tracks implementation items, `ask_user_question` asks you when inspection cannot decide a user-owned choice, `present` records finished deliverables so they stay findable after the turn (paired with `@deepseek-ai/dsh-deliverable-file-references` in Standard, PTC, and Creator for deliverable and `#L…` workspace file-link guidance), and `skill` loads a matching `SKILL.md` on demand.
-
-omdsh uses `timed` questions with a default 120-second wait. Editing an answer or pressing `Ctrl+T` pauses the question countdown; `Ctrl+S` explicitly skips one question, and `Esc` leaves a finite timed question pending. When the wait ends, the model can continue independent work; a timeout grants no approval. A pending-question indicator and `/questions` let you answer later, including after resuming the session. Late answers appear in the transcript and reach the next model step. `Ctrl+C` interrupts instead of submitting an empty answer. In line-input mode, a blank answer line explicitly skips a question; EOF cancels the answer UI.
-
-The model can request `timeout: -1` when it must wait indefinitely, and a Profile can still select `legacy` mode. PTC has a separate execution budget: its default is 180 seconds, so Take time does not keep a `run_code` program alive indefinitely. If a PTC program ends before its question result is recorded, that question cannot be restored for a late answer.
-
-Five read-only tools let the agent reach work it did in an earlier session: `session_search` and `session_event_search` find it, `session_trace` and `session_event_trace` follow lineage and relationships, and `session_event_read` returns exact event data. Without them a model that already solved something can only be told again, because `/resume` is yours to reach and not the agent's.
-
-They are workspace-scoped: cross-session reads are authorized only when the target session's working directory exactly matches the caller's, and a session with no working directory can inspect only itself. Turning the row off in a home overlay with `disabled: true` removes all five tools and their guidance.
-
-## Runtime inspection
-
-The `cordis` preset adds read-only runtime inspection on top of the native catalog: `cordis_inspect_list` discovers providers, and `cordis_inspect_query` reads exact Service, Event, and Tool APIs. It also adds published Harness authoring Skills and the `plugin_manager` tool for profile-wide management. That tool requires full host access or approval for the call; dependency scripts require separate explicit approval. `/plugins` offers the human management surface.
-
-## Delegation
-
-`subagent`, `subagent_fork`, and `subagent_isolated` delegate to child agents (with an optional `name` for sibling or slash-separated path addressing), `send_message`, `wait_agent`, and `list_agents` coordinate continuable children (`interrupt_agent` stays off by default, matching upstream `dsh-base`, while manual `Ctrl+C` remains available in child inspection), and `workflow_run` fans work out across children from a script. Enabling session Team mode with `/team on` adds `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` for shared task-board coordination across the root agent and its continuable children. `ralph` iterates fresh agents toward one objective but ships disabled, matching the upstream base bundle; a home overlay restores it with `disabled: false` on its row. The `code` preset denies `workflow_run`, so a PTC session authors its orchestration through `run_code` alone. See [Subagents and delegation](subagents.md).
+Most toggles live directly in `/settings` → **`Plugins`** (no manual file editing required):
+- Toggle **Record file changes**, **Session history tools**, **Ralph loop**, and **Repeat tool reminder** under Optional features.
+- Only advanced overrides (such as disabling `search` inside `tool-web` while keeping `fetch`, or enabling `interrupt_agent`) require editing `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`.
 
 ## Related
 
-- [Commands](commands.md) — `/tools` and the rest of the catalog
-- [Permissions and access](permissions.md) — what the sandbox gates
-- [Skills and MCP](skills-and-mcp.md) — extending the catalog with Skills and MCP tools
+- [Permissions and safety](permissions.md) — how access levels constrain files and shell
+- [Subagents and Agent Teams](subagents.md) — delegation and `/team` task boards
+- [Skills and MCP](skills-and-mcp.md) — connecting external MCP tools
+- [Language servers](language-servers.md) — configuring read-only `lsp` code navigation

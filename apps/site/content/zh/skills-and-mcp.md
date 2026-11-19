@@ -1,81 +1,114 @@
 ---
-description: 通过 DeepSeek Harness 的发现路径、SKILL.md 和按服务器拆分的 MCP 客户端，配置 omdsh 的 Skills 与 MCP。
+description: 全面掌握 Skills（SKILL.md 目录与 frontmatter 字段）和 MCP 服务器（/mcp 免重启管理、${credential:NAME} 凭据模板、7 种连接状态与静态 mcp.json）。
 ---
 
 # Skills 与 MCP
 
-omdsh 将这两类能力都保留在 DeepSeek Harness 接口之后。Skills 由 Harness Skill Registry 和文件系统 Provider 发现；MCP Server 既可由 `@deepseek-ai/dsh-mcp-manager` 作为实时 Profile 条目托管，也可从 `mcp.json` 按服务器拆分为静态 `@deepseek-ai/dsh-mcp-client` 插件实例。TUI 不实现这两种协议。
+通过 **Skills** 把团队规范沉淀成可复用指令，通过 **MCP（Model Context Protocol）** 把外部工具与数据源接入模型——两者都不需要写插件代码。如果你是第一次配，可以先跟着[用 Skills 与 MCP 扩展能力](tutorials/skills-and-mcp.md)动手跑通一遍。
 
-## Skills
+## 一、Skills（`SKILL.md`）
 
-Skills 默认启用。文件系统 Provider 按以下优先级搜索：
+### 发现位置
 
-- `<project>/.dsh/skills`
-- `<project>/.agents/skills`
-- `$OMDSH_HOME/skills`（若未设置，则依次使用 `$DSH_HOME/skills` 和 `~/.dsh/skills`）
-- `~/.agents/skills`
+omdsh 启动时自动扫描以下目录中的 `<技能名>/SKILL.md`（同名时项目级覆盖个人级）：
 
-Skill 可以是包含 `SKILL.md` 的目录，也可以是一个独立的 Markdown 文件。例如：
+| 作用域 | 目录路径 | 用途 |
+|---|---|---|
+| **项目级** | `<项目>/.dsh/skills/<技能名>/SKILL.md` | 随 Git 仓库共享给团队成员 |
+| **个人级** | `$OMDSH_HOME/skills/<技能名>/SKILL.md`（默认 `~/.dsh/skills/`） | 跨所有项目复用的个人工作流 |
 
-```text
-.dsh/skills/code-review/SKILL.md
-```
+### `SKILL.md` 格式与常用字段
 
 ```markdown
 ---
-name: code-review
-description: Review a change for correctness and maintainability.
+name: release-check
+description: 发版前检查 CHANGELOG、版本号同步和构建验证清单
+user-invocable: true
 ---
 
-Review the current diff, run focused tests, and report findings by severity.
+执行发版检查时，依次核对以下项目并输出逐项结果：
+
+1. 检查根 manifest 与各子包版本号是否一致。
+2. 核对 CHANGELOG.md 的 Unreleased 小节是否已完整记录用户可见变更。
+3. 运行完整 typecheck、test 与 build，汇报任何失败项。
 ```
 
-输入 `/` 和技能名，例如 `/code-review`，即可在命令列表中查找技能。列表展示技能说明，并将需要用户主动请求的技能标为“仅用户调用”。调用时，请求会与暂存的图片、文件一起提交，由 Harness 在模型回复前加载技能指令。允许模型调用的技能仍可通过 `skill` 工具按需加载。技能与命令同名时，列表保留命令；仍可在正文中引用该技能，例如“请用 `/review` 检查这些改动”。
+| Frontmatter 字段 | 必填 | 作用 |
+|---|---|---|
+| `name` | 是 | 技能名（全小写、可用连字符），对应手动斜杠命令 `/<name>`。 |
+| `description` | 是 | 简明说明技能用途，显示在 `/` 补全列表并供模型判断是否自动加载。 |
+| `user-invocable` | 否 | 设为 `true` 时标记为“仅用户调用”：只在你显式输入 `/<name>` 时触发，模型不会自动调用。 |
 
-## MCP
+### 调用方式与优先级
 
-omdsh 同时支持实时托管的 Profile MCP 服务器和基于 `mcp.json` 文件的静态定义。你可以在 `/mcp` 或 `/settings` → **Plugins → 集成 → MCP 服务器**中添加、启停、探测、重启或移除实时服务器；修改保存在当前 Profile 的 `mcp-manager` 配置段中，无需重启 omdsh 即可立即对账生效。实时服务器支持 `stdio` 与 `streamable-http` 两种传输方式，字符串值可使用 `${NAME}`、`${NAME:-default}` 与 `${credential:NAME}` 模板引用环境变量或 Harness 凭据库中的密钥，避免明文落盘。
+- 输入 `/` 加技能名可直接触发（支持附带图片和文件）；
+- 未标记“仅用户调用”的技能，当你的问题与 `description` 高度匹配时，模型也会按需加载；
+- 若技能名与内置斜杠命令重名，内置命令优先；可以在普通提问中直接提及它（例如“请按 `release-check` 技能检查”）。
 
-基于文件的静态 MCP 配置继续与托管服务器并存，按以下顺序读取：
+---
 
-1. `$OMDSH_HOME/mcp.json`、`$DSH_HOME/mcp.json` 或 `~/.dsh/mcp.json`
-2. `<project>/.dsh/mcp.json`
+## 二、MCP 服务器
 
-项目级定义会覆盖同名的用户级定义。项目 MCP 文件可以启动本地程序，因此在不熟悉的仓库中运行 omdsh 前，应先检查该文件。
+omdsh 同时支持**实时托管管理（`/mcp`）**和**静态配置文件（`mcp.json`）**两种方式，按需选择：
 
-配置文件使用常见的 `mcpServers` 结构。以下是一个 stdio Server：
+| 维度 | `/mcp` 实时管理（推荐） | 静态 `mcp.json` 文件 |
+|---|---|---|
+| **是否需要重启** | **免重启**，添加、启停、重启、移除立即生效 | 修改文件后需重启 omdsh |
+| **安全密钥** | 原生支持 `${credential:NAME}` 加密凭据引用 | 建议通过环境变量传递，避免明文提交 |
+| **交互操作** | 支持不中断连接的 **`探测`（`Probe`）**、一键 **`重启`**、随时 **`禁用`** | 仅查看注册状态与诊断 |
+| **适用场景** | 个人高频工具、远程 HTTP 服务、含私有 Token 的服务 | 需要随 Git 仓库共享给整个团队的标准配置 |
+
+### 1. 在 `/mcp` 中实时管理服务器
+
+运行 `/mcp`（或 `/settings` → **`插件` → `集成` → `MCP 服务器`**）：
+
+- **添加服务器（`添加服务器…`）**：
+- `stdio`：本地命令行服务器（填写可执行命令、参数和可选环境变量）；
+- `streamable-http`：远程 HTTP 服务器（填写 URL 和可选请求头）。
+- **用 `${credential:NAME}` 安全托管密钥**：在环境变量或请求头中写入 `${credential:MY_API_TOKEN}`，omdsh 会引导你将真实密钥存入本地加密凭据库，配置文件中绝不出现明文密钥。
+- **日常操作**：在列表选中任意托管服务器后可执行 **`探测`**（不重启即可检测连通性与最新工具）、**`重启`**、**`启用/禁用`**、**`移除`** 或恢复继承定义。
+
+### 2. 静态 `mcp.json` 配置（团队共享）
+
+放在 `<项目>/.dsh/mcp.json`（项目级）或 `$OMDSH_HOME/mcp.json`（个人级，同名项目级覆盖个人级）：
 
 ```json
 {
   "mcpServers": {
     "memory": {
-      "command": "mcp-server-memory",
-      "args": [],
-      "env": {
-        "MEMORY_FILE_PATH": "/absolute/path/to/memory.jsonl"
-      }
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "docs": {
+      "type": "streamable-http",
+      "url": "https://mcp.example.com/mcp"
     }
   }
 }
 ```
 
-以下是一个 Streamable HTTP Server：
+### 3. 七种实时连接状态与排查指南
 
-```json
-{
-  "mcpServers": {
-    "github": {
-      "url": "https://example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer token"
-      }
-    }
-  }
-}
-```
+在 `/mcp` 中可以直观看到每个服务器的当前连接状态：
 
-可选字段包括 `enabled`、`timeout`（或 `toolCallTimeoutMs`）、`failOnStartupError` 以及 Harness `reconnect` 对象。stdio 配置还接受 `cwd`，HTTP 配置则接受 `headers`。字符串值支持 `${NAME}` 和 `${NAME:-default}` 环境变量展开，因此凭据不必直接写入 JSON 文件。没有默认值且无法解析的占位符会保持原样。
+| 状态（英文 / 中文） | 含义与处理方式 |
+|---|---|
+| `connected` / 已连接 | 正常就绪，同时显示已发现的工具数 |
+| `connecting` / 连接中 | 正在建立初始化连接 |
+| `waiting-credentials` / 等待凭据 | 缺少引用的 `${credential:...}` 密钥，补录后点 **`重启`** |
+| `reconnecting` / 重连中 | 连接中断后正在尝试重连 |
+| `disabled` / 已禁用 | 已手动停用，其工具不进入模型上下文 |
+| `closed` / 已关闭 | 连接已关闭，需要时点 **`重启`** 恢复 |
+| `failed` / 失败 | 启动或连接报错，选中查看详细诊断，排查后点 **`探测`** 或 **`重启`** |
 
-发现的工具使用 `mcp__<server>__<tool>` 名称，进入普通 Harness 工具注册表。`/mcp` 打开支持键盘选择的管理与诊断页，展示托管服务器与已挂载 `mcp.json` 条目的实时连接状态（已连接、正在连接、等待凭据、正在重连、已关闭或失败），提供不影响当前运行实例的一次性连接探测（`probe`）与重置重试计数的重启（`restart`），同时列出按服务器分组的可用工具及当前会话最近十次 MCP 工具调用（包括程序化子调用）。恢复会话后仍可阅读历史调用错误，但不能据此判定当前连接故障。刷新会重新读取快照，不会重启服务器；刷新失败时保留上次加载的状态，并标明它可能已过时。`/tools` 将 MCP 工具与原生工具一起展示，重连后的工具列表变化会自动更新目录。
+### 4. 模型如何看到 MCP 工具与资源
 
-只要配置了至少一个 Server，模型还可以通过共享的 `list_mcp_resources`、`list_mcp_resource_templates` 与 `read_mcp_resource` 工具列出并读取该 Server 的资源，每次调用都要点名它查询的 Server。资源文本会进入对话历史；二进制载荷仍只对程序化调用方可用。MCP Prompt 模板仍不受支持。
+- 已连接服务器暴露的工具统一以 `mcp__<服务器名>__<工具名>` 注册，并连同 `mcp-resources` 资源读取能力一并出现在 `/tools` 和 `/mcp` → **`可用工具`** 中；
+- 文本类型的资源内容可直接进入对话历史（二进制载荷仅供 `PTC` 代码模式等程序化调用方处理）；
+- 在 `/mcp` → **`本次会话的最近调用`** 可以回看最近 10 次 MCP 调用的结果与报错详情（注意：报错可能来自外部工具逻辑本身，而非连接故障）。
+
+## 相关
+
+- [用 Skills 与 MCP 扩展能力（教程）](tutorials/skills-and-mcp.md) —— 选型对比与一步步实战
+- [状态与诊断](observability.md) —— 检查工具 schema 对上下文容量的占用
+- [语言服务器（LSP）](language-servers.md) —— 配置只读代码跳转工具

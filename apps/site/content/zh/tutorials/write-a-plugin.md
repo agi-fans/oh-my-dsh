@@ -1,27 +1,46 @@
 ---
-description: 编写、安装、检查并发布一个添加 omdsh 斜杠命令的 dsh.bundle 插件。
+description: 面向开发者：使用 /agent creator 或从零编写一个包含斜杠命令、模型工具与设置项的 omdsh 插件包，在本地调试并发布。
 ---
 
-# 编写插件
+# 开发者进阶：编写与发布插件
 
-读完本教程，你将从零构建、安装并验证一个添加 `/greet` 命令的小插件，并知道如何修改和发布它。你需要 `PATH` 上有 `pnpm`。
+当你需要的能力超出 `SKILL.md` 和 MCP 的范围——例如想新增一个交互式斜杠命令、注册一个新的内置模型工具、或者接入一套自定义运行时服务——就需要编写一个 omdsh 插件包（本质是一个带 `dsh.bundle.patch` 声明的 npm 包，基于 DeepSeek Harness 的 Cordis 插件架构）。
 
-omdsh 插件是一个声明了 `dsh.bundle.patch` 的 npm 软件包，挂载在与随包产品相同的插件树中。它不是 Skill 文件，不是 MCP Server 文档，也不是丢进 extensions 目录的 TypeScript 文件。可以复制 [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) 再改名；本教程从零搭建一个小的 `greet-plugin`，让每个文件的职责都看得见。
+开始前请确认 `PATH` 上已安装 `pnpm`。
 
-### 创建软件包
+## 捷径：直接用内置的 `/agent creator` 辅助编写
 
-创建一个不属于 omdsh workspace 的目录。不要把它写进 `pnpm-workspace.yaml`，也不要使用 `workspace:` 依赖：
+omdsh 内置了专门用于编写和调试插件的 **Creator** 预设（自带 `dsh-doc` 权威开发指南与运行时只读检查工具）：
+
+1. 在新目录启动 `omdsh` 后运行 **`/agent creator`**（或在 `/plugins` 里选择 **`让代理创建插件`**）。该操作不会修改你的全局默认预设。
+2. 直接描述你想做的插件功能，Creator 会参考当前运行时的真实接口帮你生成代码、补丁文件和测试。
+
+如果你想完全手工掌握每个文件的职责，按下面步骤从零写一个 `greet-plugin` 只需 5 分钟（也可以参考仓库里的最小示例 [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello)）。
+
+## 第一步：查清当前 omdsh 对应的运行时版本
+
+插件包必须把 `@deepseek-ai/*` 声明在 `peerDependencies` 中，并与本机安装的 `omdsh` 保持同一套 DeepSeek Harness（DSH）版本，否则安装器会拒绝安装（避免进程里出现两份冲突的 Cordis/Harness 运行时）。
+
+先用一行命令查出你本机 `omdsh` 使用的精确版本：
+
+```sh
+omdsh --dump-config | head -n 20
+```
+
+也可以查看已安装 `@agi-fans/oh-my-dsh` 的 `package.json` 中 `@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-commands` 的版本号，填到下面的 `peerDependencies` 里。
+
+## 第二步：创建插件目录与 3 个核心文件
+
+在任意独立目录创建插件（**不要**放进 omdsh 仓库的 workspace，也不要使用 `workspace:` 依赖）：
 
 ```sh
 mkdir greet-plugin
 cd greet-plugin
 ```
 
-这个包需要三个文件：`package.json`、`cordis.patch.yml` 和 `index.js`。
+一个最小插件包包含 3 个文件：`package.json`、`cordis.patch.yml`、`index.js`。
 
-### 声明 bundle
-
-`package.json` 给出包名，指向插件模块，并导出 patch 文件：
+### 1. `package.json`：声明插件包入口与补丁
 
 ```json
 {
@@ -37,19 +56,17 @@ cd greet-plugin
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
-    "@deepseek-ai/dsh-commands": "0.2.2-rc.5"
+    "@deepseek-ai/dsh-commands": "<与当前 omdsh 一致的 DSH 版本>"
   }
 }
 ```
 
-两条规则保证安装安全：
+两条安全硬规则：
 
-- 把 `@deepseek-ai/*` peer 固定到 omdsh 随包发布的同一 DSH 版本，并保留在 `peerDependencies` 中。把它们写进 `dependencies` 会让 `omdsh plugin` 拒绝安装，因为第二份 Cordis 或 Harness 副本会破坏共享的插件树。
-- 让 `dsh.bundle.patch` 指向 patch 文件。没有该字段的包仍能安装，但只作为普通库：omdsh 会打印警告，并且不加层。那种形态留给给其他 bundle import 的辅助库。
+- `@deepseek-ai/*` 必须放在 `peerDependencies`，绝不放进 `dependencies`；
+- `dsh.bundle.patch` 必须指向补丁文件。如果漏写它，插件只会被当作普通依赖库安装，不会自动挂载到 omdsh 里（那种形态仅用于给其他插件包 `import` 的纯工具库）。
 
-### Insert 一行插件
-
-`cordis.patch.yml` 是 Cordis include 补丁组成的 YAML 数组，常见写法是一个 `insert` 列表：
+### 2. `cordis.patch.yml`：告诉运行时要挂载哪一行
 
 ```yaml
 - insert:
@@ -57,11 +74,12 @@ cd greet-plugin
       name: greet-plugin
 ```
 
-行里的 `name` 必须是 npm 包名，这样 Node 才能解析已安装的模块；行 `id` 在组合后的树里必须唯一。之后针对该 id 的 patch 会整份替换 `config` 对象，而不是深合并。patch 点到不存在的 id 时会在启动时被静默跳过：报告该问题的 loader logger 在 TUI 宿主里没有接到 stderr。
+- `name` 必须是 npm 包名，Node 据此解析模块；
+- `id` 在整棵插件树里必须唯一。如果后续补丁针对同一个 `id` 写入 `config`，会整块替换原配置而不是深度合并；如果补丁指向不存在的 `id`，启动时会静默跳过。
 
-### 注册斜杠命令
+### 3. `index.js`：编写 Cordis 插件逻辑
 
-`index.js` 就是普通的 Cordis 插件：导出 `name`，在 `inject` 中声明所需的宿主服务，并在 `apply` 里注册工作，使其随插件一起销毁：
+下面是一个同时示范 **注册斜杠命令** 和 **暴露配置项** 的清晰例子：
 
 ```js
 export const name = 'greet-plugin'
@@ -82,41 +100,45 @@ export function apply(ctx) {
 }
 ```
 
-命令名是小写，没有前导斜杠。`rawInput` 是命令名后面的原文。
+编写插件时牢记 4 条实用边界：
 
-两条边界保证产品一致性：向人提问只能在 inject 了 `tui` 之后走 `ctx.tui.prompt`，密钥走 `ctx.credentials`。不要接管 TTY、监听原始终端字节、再开一套斜杠命令表，也不要往 `/settings` 加行——那些界面仍由产品拥有。[用户插件](../plugins.md) 列出了完整的兼容性约定。
+- **命令名**：全小写、不带前导 `/`，`invocation.rawInput` 是命令名后面的原始参数字符串。
+- **向用户提问**：需要弹出选择框、输入框或文档阅读器时，先在 `inject` 里声明 `'tui'`，再调用 `ctx.tui.prompt(...)`；**不要**直接接管 TTY 或监听底层终端字节。
+- **保存密钥**：通过 `ctx.credentials` 读写敏感凭据，不要明文写进配置文件。
+- **提供用户设置**：通过 `ctx.settings` 声明 schema 配置项即可——omdsh 会自动把你的插件设置呈现在 `/settings → 高级` 中供用户编辑和校验，不需要（也不应）自行侵入 `/settings` 界面。
 
-### 安装并检查
+## 第三步：本地安装、验证与迭代调试
 
-在包含 `greet-plugin` 的目录执行：
+回到 `greet-plugin` 的上一级目录执行安装与检查：
 
 ```sh
 omdsh plugin add ./greet-plugin
 omdsh --dump-config
 ```
 
-`./path` 相对调用时的工作目录；若该路径不存在，omdsh 会沿父目录查找同一相对路径，仍找不到则失败，因此不会装上坏掉的链接。
+按以下两步验收：
 
-分两步检查结果：
+1. 在 `omdsh --dump-config` 的输出中，确认 `greet-plugin` 出现在 `@agi-fans/oh-my-dsh` 之后，且包含 `id: greet`。
+2. 重新启动 `omdsh`，分别运行 `/greet`、`/greet Ada` 和 `/help`：
+- 交互模式下，`/help` 的搜索列表里能直接搜到 `/greet`；
+- 非交互纯文本模式下，插件注册的命令会归在 **`扩展`（`Extensions`）** 分类下。
 
-1. `--dump-config` 会在 `@agi-fans/oh-my-dsh` 之后列出 `greet-plugin`，并出现 `id: greet`。
-2. 这次 CLI 安装后重启 omdsh，然后运行 `/greet`、`/greet Ada` 和 `/help`。新命令出现在 Agent Commands 下。
+### 修改代码如何生效
 
-### 修改插件
+- 通过本地路径（`./greet-plugin`）安装时，用户配置目录已链接到你的本地目录：修改 `index.js` 或 `cordis.patch.yml` 后**重启 `omdsh`** 即可看到变化。
+- 调试完毕想卸载测试插件时，运行 `omdsh plugin remove greet-plugin` 即可同时清理依赖与配置行。
 
-- 通过本地路径或 `link:` 安装时，Profile 已经指向该 checkout：编辑 `index.js` 或 `cordis.patch.yml` 后重启 omdsh 即可加载新模块。
-- 通过 registry 安装时，运行 `omdsh plugin update greet-plugin` 或添加新版本，然后重启。
+## 第四步：分发与发布
 
-后续版本若增加 `dsh.bundle.patch`，会在下一次成功的 `omdsh plugin` 运行时加入层列表。用 `omdsh plugin remove greet-plugin` 移除时，会同时去掉依赖和对应的层。随包的 `@agi-fans/oh-my-dsh` 层不是 Profile 依赖，永远不会被移除。
+准备分享给团队或社区时，支持三种分发渠道：
 
-### 发布
+- **npm 仓库**：发布后用户可通过 `/plugins` 或 `omdsh plugin add greet-plugin` 安装；
+- **本地压缩包（Tarball）**：运行 `pnpm pack` 生成 `.tgz`，用户执行 `omdsh plugin add ./greet-plugin-0.1.0.tgz`；
+- **Git 仓库**：用户执行 `omdsh plugin add github:<owner>/greet-plugin`（如果仓库在 `prepare` 阶段需要编译，用户可能需在 `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml` 的 `allowBuilds` 里放行构建脚本）。
 
-- npm：发布软件包后，用 `omdsh plugin add greet-plugin` 安装。
-- Tarball：用 `pnpm pack` 打出 tarball，再执行 `omdsh plugin add ./greet-plugin-0.1.0.tgz`。
-- Git：用 `omdsh plugin add github:<owner>/greet-plugin` 安装。若包在 `prepare` 里构建，而 pnpm 拦截了该脚本，可能需要在 `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml` 里加入 `allowBuilds`。
+发布前请确认：仅导入各包公开导出的接口，不依赖 Web UI 或 HTTP 服务（TUI 宿主不挂载它们）。
 
-只导入已发布的软件包导出，不要进入 `refs/`，也不要假定挂载了 Host、HTTP 或 Web UI。[用户插件](../plugins.md) 定义了 bundle 可以依赖的界面。
+## 下一步
 
-### 下一步
-
-继续开发集成时，可以通过[用户插件](../plugins.md)查阅 bundle 兼容约定，通过[插件内部机制](../plugin-internals.md)了解公开的终端接口。
+- 查阅完整的工具展示、交互提示与设置 schema 代码示例：[插件开发内部机制](../plugin-internals.md)。
+- 查阅插件兼容性契约与宿主能力边界：[插件与内置集成参考](../plugins.md) 和 [架构概览](../architecture.md)。

@@ -2,36 +2,37 @@ import { localizedPath, type Locale } from './i18n'
 
 export type NavEntry = { slug: string; en: string; zh: string }
 
-export const tutorialsIndex: NavEntry = { slug: 'tutorials', en: 'Tutorials', zh: '教程' }
+export const tutorialsIndex: NavEntry = { slug: 'tutorials', en: 'Tutorials', zh: '教程导读' }
 
 export const tutorialEntries: NavEntry[] = [
-  { slug: 'tutorials/first-task', en: 'Complete your first task', zh: '完成第一个任务' },
-  { slug: 'tutorials/environment', en: 'Tune the working environment', zh: '调整工作环境' },
-  { slug: 'tutorials/precise-context', en: 'Give the agent precise context', zh: '提供精确的项目上下文' },
-  { slug: 'tutorials/guide-a-turn', en: 'Guide an active turn', zh: '引导运行中的任务' },
-  { slug: 'tutorials/long-session', en: 'Recover and manage a long session', zh: '恢复并管理长会话' },
-  { slug: 'tutorials/skills-and-mcp', en: 'Extend a project with Skills and MCP', zh: '使用 Skills 与 MCP 扩展项目' },
-  { slug: 'tutorials/install-plugin', en: 'Install the example plugin', zh: '安装示例插件' },
-  { slug: 'tutorials/write-a-plugin', en: 'Write a plugin', zh: '编写插件' },
+  { slug: 'tutorials/first-task', en: 'Complete your first change', zh: '快速上手：完成第一个改动' },
+  { slug: 'tutorials/environment', en: 'Tune your terminal and models', zh: '调好终端与模型偏好' },
+  { slug: 'tutorials/precise-context', en: 'Give precise context and quick inputs', zh: '精准上下文与快捷操作' },
+  { slug: 'tutorials/guide-a-turn', en: 'Steer long tasks and background work', zh: '掌控长任务与后台作业' },
+  { slug: 'tutorials/multi-agent', en: 'Subagents and Agent Teams', zh: '多智能体协作与 Agent Teams' },
+  { slug: 'tutorials/long-session', en: 'Manage long sessions and recover files', zh: '管理长会话与安全回退' },
+  { slug: 'tutorials/skills-and-mcp', en: 'Extend projects with Skills and MCP', zh: '用 Skills 与 MCP 扩展能力' },
+  { slug: 'tutorials/install-plugin', en: 'Install plugins and built-in integrations', zh: '安装插件与内置集成' },
+  { slug: 'tutorials/write-a-plugin', en: 'Write and publish a plugin', zh: '开发者进阶：编写与发布插件' },
 ]
 
 export const referenceEntries: NavEntry[] = [
-  { slug: 'commands', en: 'Commands', zh: '命令' },
-  { slug: 'keyboard', en: 'Keyboard and keys', zh: '键盘与快捷键' },
-  { slug: 'sessions', en: 'Sessions and history', zh: '会话与历史' },
-  { slug: 'subagents', en: 'Subagents and delegation', zh: '子智能体与委派' },
-  { slug: 'observability', en: 'Observability', zh: '可观测性' },
+  { slug: 'commands', en: 'Commands', zh: '命令参考' },
+  { slug: 'keyboard', en: 'Keyboard and mouse', zh: '快捷键与鼠标' },
+  { slug: 'sessions', en: 'Sessions and recovery', zh: '会话与恢复' },
+  { slug: 'subagents', en: 'Subagents and Agent Teams', zh: '子智能体与团队协作' },
+  { slug: 'observability', en: 'Status and diagnostics', zh: '状态与诊断' },
   { slug: 'settings', en: 'Settings', zh: '设置' },
-  { slug: 'permissions', en: 'Permissions and access', zh: '权限与 Access' },
-  { slug: 'cli', en: 'Command line', zh: '命令行' },
-  { slug: 'tools', en: 'Tools', zh: '工具' },
+  { slug: 'permissions', en: 'Permissions and safety', zh: '权限与安全' },
+  { slug: 'cli', en: 'Command line', zh: '命令行与脚本模式' },
+  { slug: 'tools', en: 'Tools and presets', zh: '内置工具与预设' },
   { slug: 'troubleshooting', en: 'Troubleshooting', zh: '故障排查' },
   { slug: 'skills-and-mcp', en: 'Skills and MCP', zh: 'Skills 与 MCP' },
-  { slug: 'language-servers', en: 'Language servers', zh: '语言服务器' },
-  { slug: 'plugins', en: 'User plugins', zh: '用户插件' },
-  { slug: 'plugin-internals', en: 'Plugin internals', zh: '插件内部机制' },
-  { slug: 'architecture', en: 'Architecture', zh: '架构' },
-  { slug: 'performance', en: 'Performance', zh: '性能' },
+  { slug: 'language-servers', en: 'Language servers', zh: '语言服务器（LSP）' },
+  { slug: 'plugins', en: 'Plugins and integrations', zh: '插件与内置集成' },
+  { slug: 'plugin-internals', en: 'Plugin internals', zh: '插件开发内部机制' },
+  { slug: 'architecture', en: 'Architecture', zh: '架构概览' },
+  { slug: 'performance', en: 'Performance', zh: '性能与边界' },
 ]
 
 /** Sidebar order, flattened so prev/next can walk it. */

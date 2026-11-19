@@ -1,53 +1,63 @@
 ---
-description: Learn omdsh step by step, from your first project inspection to everyday coding, long sessions, and optional extensions.
+description: Learn omdsh step by step, from your first code edit to everyday workflows, multi-agent collaboration, long-session recovery, and extensions.
 ---
 
 # Tutorials
 
-oh-my-dsh aims to be the best TUI companion for DeepSeek Harness. A TUI is an interactive terminal interface. In omdsh, you write requests, read replies, and inspect the agent's work through keyboard and mouse controls. Thinking and tools unfold as you need them, while the input area and status footer stay within reach.
+omdsh is a coding agent that lives in your terminal. You describe a task in the input box at the bottom; it reads your codebase, edits files, runs commands, and shows its work in a clean, readable layout.
 
-These tutorials follow the way you use the application. Start with one successful task, then learn how to give better context and guide longer work. Each page states its outcome and points to the next step. Reference pages hold the detailed command, setting, and behavior descriptions.
+These tutorials follow the order you actually grow into the tool: finish one real code change first, then learn sharper context, mid-turn steering, multi-agent collaboration, and extensions. You do not need to read everything up front—pick up each guide when you need it.
 
-## Start here
+## Stage 1: Get started
 
-You need Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer, an interactive terminal, and a DeepSeek account or API key for model requests.
-
-| Tutorial | What you will accomplish |
-|---|---|
-| [Complete your first task](tutorials/first-task.md) | Install, sign in, select a model, inspect a project, and learn to read the interface. |
-| [Tune the working environment](tutorials/environment.md) | Choose appearance, language, and model preferences. This step is optional if the defaults suit you. |
-
-## Build an everyday workflow
-
-Continue with the same project and conversation. These tutorials introduce the controls when you have a reason to use them.
+Before you begin, have Node.js 22.19+ (22.x) or Node.js 24+, an interactive terminal, and a DeepSeek account or API key ready.
 
 | Tutorial | What you will accomplish |
 |---|---|
-| [Give the agent precise context](tutorials/precise-context.md) | Refer to files and earlier sessions, attach a screenshot, and write a clear request. |
-| [Guide an active turn](tutorials/guide-a-turn.md) | Send a follow-up, correct work in progress, review a plan, and follow task progress. |
-| [Recover and manage a long session](tutorials/long-session.md) | Resume work, explore a branch, inspect context usage, compact, and export. |
+| [Complete your first change](tutorials/first-task.md) | Install, sign in, pick a model, inspect a project, make a small edit, approve an action, and verify it in `/diff`. |
+| [Tune your terminal and models](tutorials/environment.md) | Adjust theme, language, live status line, favorite models, and reasoning effort in the bottom-docked `/settings` panel (optional if defaults feel right). |
 
-## Add capabilities when you need them
+## Stage 2: Everyday coding workflows
 
-Skills provide reusable instructions. MCP servers connect external tools. Plugin bundles can add commands, tools, and providers through Harness. Choose the extension that fits your task.
+These four guides cover the controls that keep you in the driver’s seat during real development work.
 
 | Tutorial | What you will accomplish |
 |---|---|
-| [Extend a project with Skills and MCP](tutorials/skills-and-mcp.md) | Add a project Skill and configure an MCP server, then inspect the available capabilities. |
-| [Install the example plugin](tutorials/install-plugin.md) | Install and try a local bundle using `omdsh plugin`. This developer exercise requires a repository checkout and `pnpm`. |
-| [Write a plugin](tutorials/write-a-plugin.md) | Build your own command bundle, install it, and prepare it for distribution. |
+| [Give precise context and quick inputs](tutorials/precise-context.md) | Choose between `@file`, `/attach`, `@session`, and pasted screenshots; run quick shell commands with `!cmd` and side questions with `/btw`. |
+| [Steer long tasks and background work](tutorials/guide-a-turn.md) | Shape plans with `/plan`, choose between queueing, steering, and interrupting mid-turn, and track work with `/goal`, `/jobs`, and `/schedule`. |
+| [Subagents and Agent Teams](tutorials/multi-agent.md) | Know when to use built-in subagents, Codex/Claude Code integrations, or `/team` Agent Teams to split larger tasks in parallel. |
+| [Manage long sessions and recover files](tutorials/long-session.md) | Resume sessions, branch in the session tree, restore file snapshots with `Alt+R`, and compact or export long histories. |
 
-For an existing published bundle, go directly to [User plugins](plugins.md). For code intelligence, see [Language servers](language-servers.md).
+## Stage 3: Extend your project
 
-## Find an answer while working
+Read these when you want reusable team conventions, external tools, or extra capabilities.
+
+| Tutorial | What you will accomplish |
+|---|---|
+| [Extend projects with Skills and MCP](tutorials/skills-and-mcp.md) | Understand when to choose Skills, MCP, LSP, or plugins; create a project Skill and add an MCP server live in `/mcp` without restarting. |
+| [Install plugins and built-in integrations](tutorials/install-plugin.md) | Browse and install plugins in `/plugins`, and configure built-in Codex, Claude Code, Git Worktree, Auto review, and Tmux context integrations. |
+
+If you want accurate go-to-definition and symbol references, see [Language servers](language-servers.md).
+
+## Stage 4: Build your own plugin
+
+When you want to author custom commands, tools, or provider extensions for your team or the community:
+
+| Tutorial | What you will accomplish |
+|---|---|
+| [Write and publish a plugin](tutorials/write-a-plugin.md) | Build a plugin package from scratch (or with `/agent creator`), test it locally, and prepare it for publishing. |
+
+## Quick reference while working
 
 | You need to | Read |
 |---|---|
-| Find a command or input gesture | [Commands](commands.md) and [Keyboard and keys](keyboard.md) |
-| Understand a setting or permission | [Settings](settings.md) and [Permissions and access](permissions.md) |
-| Inspect tools, context, or file changes | [Observability](observability.md) and [Tools](tools.md) |
-| Understand session recovery or delegated work | [Sessions and history](sessions.md) and [Subagents and delegation](subagents.md) |
-| Resolve a startup, sign-in, or terminal problem | [Troubleshooting](troubleshooting.md) |
-| Understand the implementation | [Architecture](architecture.md), [Plugin internals](plugin-internals.md), and [Performance](performance.md) |
+| Look up a slash command or shortcut | [Commands](commands.md), [Keyboard and mouse](keyboard.md) |
+| Understand permission levels and approvals | [Permissions and safety](permissions.md) |
+| Customize preferences or keybindings | [Settings](settings.md) |
+| Inspect context usage, execution traces, or diffs | [Status and diagnostics](observability.md) |
+| Find sessions, compact history, or recover files | [Sessions and recovery](sessions.md) |
+| Run non-interactively in scripts or CI | [Command line](cli.md) |
+| Fix startup, sign-in, key, or mouse issues | [Troubleshooting](troubleshooting.md) |
+| Explore built-in tools, plugin APIs, and architecture | [Tools and presets](tools.md), [Plugin internals](plugin-internals.md), [Architecture](architecture.md) |
 
-Inside omdsh, `/help` searches commands and `/help full` shows current shortcuts. `/changelog` shows recent release notes.
+Inside omdsh, run `/help` to search commands, `/help full` to inspect your active shortcuts, and `/changelog` for recent release notes.

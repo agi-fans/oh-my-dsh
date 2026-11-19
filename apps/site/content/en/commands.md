@@ -1,165 +1,115 @@
 ---
-description: Complete omdsh slash-command reference with arguments for sessions, configuration, turn control, observability, clipboard output, and Skills.
+description: Complete omdsh slash-command reference — sessions, models and settings, turn and team control, /diff and file/image readers, clipboard/export, and Skills.
 ---
 
 # Commands
 
-Command completion prioritizes common tasks and shares localized name, alias, description and task-keyword matching with Help, including common Chinese task words. Arguments that name something in the running process complete too — `/model dee` lists matching models across providers and `/resume` lists existing sessions. Enter accepts a highlighted completion and runs the resulting command. `/login` opens the provider chooser. `/help` puts common commands first, and third-party contributions remain discoverable.
+Type `/` in the input box to search commands by name, alias, description, or localized task keywords. Commands that operate on existing items—such as `/model` and `/resume`—also complete their arguments. `[brackets]` mark optional arguments, `|` marks alternatives, and commands with interactive pickers work without arguments.
 
-Type `/` in the composer to browse the live catalog with inline argument hints. `/help` opens a filterable command list assembled from active plugins, including Skills and user bundles. Enter inserts the selected command into the composer for review and submission. Choose Keyboard shortcuts or press Alt+K to open the shortcut catalog, starting with essential operations. `/help full` opens that catalog directly, including Diff and file-browser shortcuts. In text readers, the mouse wheel or trackpad scrolls the preview, dragging selects text, and right-click copies the selection. Native mouse mode leaves selection and scrolling to the terminal. `/` searches, Ctrl+N/Ctrl+P move between matches, S chooses a section, and Y copies the current page. Esc returns to the preceding view.
-
-`/changelog` lists releases with change counts. Choose a version, then press S to read a category such as Added or Fixed. `/changelog full` opens the complete release history. Other command results stay in the transcript, showing a twelve-row preview when long. Click their heading or use Ctrl+O to expand, and click Read or press Alt+A to open the searchable reader. Diagnostic fields such as session IDs can be copied individually through Y. Closing a reader restores the conversation reading position and composer draft. In non-interactive mode, Help and Changelog return plain text.
-
-`[brackets]` mark optional arguments and `|` separates alternatives. A command with a picker runs without arguments.
+> Common document-reader keys (`/help full`, `/changelog`, `/context` details, and `[Read]` on long command output): wheel or `↑`/`↓`/`PgUp`/`PgDn` to scroll, `/` to find, `Ctrl+N`/`Ctrl+P` to cycle matches, `S` for sections, `Y` to copy the page or a field, `Esc` to go back.
 
 ## Sessions
 
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/new` | Start a new session. |
-| `/resume [session-id\|query]` | Without an argument, open the Session Library for the current directory; with a query, search durable session content in that directory, resume the chosen hit, and open transcript search with the same query; with an id, resume it directly. In the library, `Alt+P` pins a session, `Alt+R` renames it, `Alt+A` archives or restores it, and `Alt+V` switches between active and archived sessions. |
-| `/continue` | Continue an eligible failed model generation without resending the prompt. |
-| `/retry` | Resend the latest human prompt with its images and files as a new turn. |
-| `/clear` | Clear the visible transcript, leaving a seam. The running turn, status, todos, and queued follow-ups keep their state. |
+| `/new` | Start a fresh, empty session (use `/agent` before sending the first message to change presets). |
+| `/resume [session-id\|query]` | Open the current directory’s Session Library; pass a query for full-text search, or an ID to resume directly. |
+| `/continue` | Continue a transiently failed generation without re-sending your prompt (`Alt+R` when empty). |
+| `/retry` | Re-send your last user prompt with its original text, images, and files as a new turn. |
+| `/clear` | Clear visible transcript below a labeled divider (native scrollback, active queues, and Todos stay intact). |
+| `/name <title>` | Rename the active session (manual titles are not overwritten by auto-titling). |
 
-The Session Library can load additional content-search matches. A failed resume or cancelled migration returns to the loaded results with the filter and selection preserved.
+## Models, accounts, and configuration
 
-## Session configuration
-
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/agent` | Choose the Agent preset: Standard, PTC, Minimal, or Creator. Available on blank sessions; unavailable presets show their failure. `/agent inspect [preset-id]` reads declarations and this session's retained composition. The `code` (PTC) preset presents the registry as a generated SDK and hides `workflow_run`. |
-| `/agent creator` | Enter Creator (`cordis`) to author plugins. Reuses a blank session or starts a new one after existing conversation content; preserves session drafts and does not change the default preset or submit a prompt. |
-| `/permission` | Choose the session Access level (including session-scoped Auto review), or inspect and revoke remembered approval rules. |
-| `/login` | Sign in to a provider: a catalog entry, an API key, a DeepSeek account browser sign-in (or an existing shared grant), or a custom provider with its own id, base URL, protocol, and model ids. |
-| `/logout` | Remove a file-stored provider credential or sign out the shared DeepSeek account; environment-owned values are left untouched. |
-| `/settings` | Open General, Models, Agent presets, Plugins, Terminal and Advanced settings. Alias: `/set`. |
+| `/login` | Sign in with a DeepSeek account, save an API key, activate a built-in provider, or add a custom API provider. |
+| `/logout` | Sign out of the shared DeepSeek account or remove locally stored API keys (environment variables stay untouched). |
+| `/settings` (alias `/set`) | Open the bottom-docked settings panel directly above the live status footer. |
+| `/permission` | Switch session access (`Read only` / `Workspace write` / `Full access` / `Auto review`) or manage remembered approval rules. |
+| `/agent` | Pick an Agent preset on a blank session (`Standard`, `PTC`, `Minimal`, `Creator`); `/agent inspect [preset-id]` inspects composition; `/agent creator` launches Creator without changing your default preset. |
 
-### `/model`
+### `/model` forms
 
 | Form | Effect |
 |---|---|
-| `/model` | Open one searchable list of every model across every provider, with the current model marked. `Alt+F` adds or removes a favorite, and `Alt+A` switches between all models and favorites. Search and selection survive these actions. `Enter` switches the saved default; `Ctrl+D` applies the choice to this session only. The selected model’s default reasoning effort applies without a second prompt; use `/model reasoning` to change it. |
-| `/model <query>` | Resolve a `provider/model` or fuzzy model name; an exact match switches immediately and an ambiguous match opens the list filtered to the matches. |
-| `/model --session` | The same list, scoped to the active session without writing the saved default. Accepts a query as well. Does not combine with a subcommand. |
+| `/model` | Open the searchable model picker across all providers: `Enter` updates the saved default, `Ctrl+D` applies to this session only; `Alt+F` toggles favorite, `Alt+A` switches all/favorites, `Alt+R` refreshes. |
+| `/model <query>` | Resolve `provider/model` or fuzzy match; switches immediately on an exact hit or opens a filtered picker. |
+| `/model --session [query]` | Switch for this session only without changing the saved default. |
+| `/model favorite` / `/model unfavorite` | Add or remove the active model from your quick-cycle favorites (`Ctrl+P` / `Alt+P`). |
+| `/model favorites` | Open the favorite-models picker. |
 | `/model next` / `/model previous` | Cycle to the next or previous favorite model. |
-| `/model reasoning` | Cycle the current model's reasoning effort. |
-| `/model favorite` / `/model unfavorite` | Add or remove the current model from the local favorites list, stored in `$OMDSH_HOME/omdsh/model-favorites.json`. |
-| `/model favorites` | Open the favorite-model picker. `Alt+F` adds or removes the selected favorite, and `Alt+A` switches to all models. Line mode prints the list. |
+| `/model reasoning` | Cycle reasoning effort for the active model. |
 
-Model catalogs load independently. Healthy providers stay available while others load or fail; `Alt+R` refreshes the list. A successful live switch remains selected if saving the default fails, with **Retry saving default** and **Keep for this session** actions.
+## Turn control, long tasks, and teams
 
-DeepSeek API-key validation and storage failures can be retried in place. Custom-provider setup preserves non-secret fields when stepping back through the form.
-
-## Turn control
-
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/queue` | Review, edit, delete, and reorder pending human messages. |
-| `/btw <question>` | Ask a separate question from the current committed conversation snapshot, answered in a pane above the composer. |
-| `/questions` | Answer questions left pending after a timed wait, including in resumed sessions. |
-| `/plan [off\|<message>]` | Enter Plan mode and optionally send the first planning request, or leave it with `off`. Composer images and files travel with the planning request. |
-| `/goal [<objective>\|clear\|edit <objective>\|pause\|resume]` | Set or inspect a long-running goal for the session. |
-| `/team [on\|off\|status]` | Toggle session-scoped Agent Teams mode (`on`/`off`) to expose shared `team_task_*` tools to the session and its continuable subagents, or inspect the shared task board. |
-| `/compact` | Compact older conversation history; keep typing and queue input during compaction, then read the saved summary with Ctrl+O. |
-| `/jobs [<id>\|kill <id>]` | Browse live jobs, inspect retained output, or confirm stopping a job. Line mode prints a snapshot and observer narration. |
+| `/plan [off\|<message>]` | Enter Plan mode (optionally sending an initial prompt with attachments); `off` exits. |
+| `/btw <question>` | Ask a read-only side question against committed conversation context without polluting the main thread. |
+| `/queue` | Inspect, edit, reorder, promote to steer, or delete pending messages (`Alt+Q`). |
+| `/goal [<objective>\|edit <objective>\|pause\|resume\|clear]` | Set or manage a multi-turn session goal (`Alt+G` opens the panel). |
+| `/team [on\|off\|status]` | Toggle Agent Teams (`on`/`off`), open the interactive shared task board (`/team`), or print a Markdown summary (`/team status`). |
+| `/jobs [<id>\|kill <id>]` | Browse background jobs, tail output live, or confirm stopping a job. |
+| `/schedule` | Manage scheduled reminders for this session (pause, resume, run now, edit, delete, delivery history). |
+| `/questions` | Answer questions left waiting after a countdown (including after `/resume`). |
+| `/compact [focus]` | Summarize earlier conversation history while keeping queued inputs working (`Ctrl+O` opens the saved summary). |
 
-## Goal controls
+### Key workflow details
 
-`/goal` keeps the Harness command syntax. Press `Alt+G`, or open **Settings → General → Current goal**, to edit, pause, resume or clear the current goal without submitting the composer draft. Clearing requires confirmation. Edits keep their draft after a rejected concurrent change; reopening Edit uses that draft until saved or the manager closes. The goal bar distinguishes durable active state from live continuation authority: **Goal waiting** means the goal is saved but this process is not armed to continue. Cold resume does not itself authorize another round; choose Resume goal. A used-up round limit disables Resume; ask the agent to raise the limit first.
+- **Plan mode (`/plan`):** The agent investigates and submits a plan in a scrollable review view. Choose **`Approve`** to exit Plan mode and implement, or **`Keep planning`** to send revision feedback (`Ctrl+X` opens your external editor). Execution permissions remain controlled by `/permission`.
+- **Side queries (`/btw`):** Runs in an isolated read-only context using the active model and effort (no tools, 8,192-token output cap) and streams above the input box. Dismissing with `Esc` folds it into a `/btw <question>` row without adding it to future main-thread context; expand later with `Ctrl+O` or copy with `/copy`.
+- **Long goals (`/goal`):** Press `Alt+G` for the control panel. After restarting and resuming a session with an active goal, the bar waits in **`Goal waiting`** until you explicitly authorize continuing.
+- **Agent Teams (`/team`):** `/team on` exposes `team_task_*` tools to the root agent and continuable subagents. The interactive board shows status (`pending (ready)`, `pending (blocked)`, `in progress`, `completed`), owner, and write-scope overlap warnings; press `Enter` on any task for full details. Running `/team` inside a subagent resolves to the root agent. See [Subagents and Agent Teams](subagents.md).
+- **Background jobs (`/jobs`):** Streams up to the latest ~256 KiB / 10,000 lines (scroll up to pause, `End` to follow) **without affecting the agent’s own output reading**. Stopping requires confirmation.
+- **Scheduled reminders (`/schedule`):** Supports one-click `Run now` (without altering the schedule) and paginated delivery history (20 receipts per page; receipts confirm inbox delivery, not model completion). Creating or changing schedules is done via the agent’s `schedule_*` tools.
 
-## Background jobs
+## Diagnostics, extensions, and tools
 
-`/jobs` opens a searchable list with running jobs first, progress, elapsed time and terminal reasons. Select a job to open its output directly. **Stop job** and **Refresh** are available inside the reader; stopping defaults to **Keep running** and rechecks the task after confirmation. Lists update while open, retain the last state after refresh failure, and offer Refresh to retry. A failed read disables task actions until a successful refresh.
-
-The output reader observes stdout, stderr and narration through the non-consuming Harness API, so viewing output never advances the model’s read cursor. It follows new output at the bottom; scrolling up or searching freezes the displayed snapshot, and End resumes following. Each snapshot shows at most the latest roughly 256K characters and 10,000 lines, with a notice for clipped or discarded output. Output retention belongs to Harness and does not promise persistence after process exit. Closing the reader releases its subscription without stopping the job; session replacement, plugin unload and cancellation close the browser. Approval prompts take precedence. In line mode, `/jobs <id>` retains its narration-only output and `/jobs kill <id>` requests a stop directly.
-
-## Plan mode
-
-`/plan` enters Plan mode; `/plan off` leaves it. Idle changes apply immediately, while changes during a turn take effect at the next step boundary. The English footer shows the active or pending Plan state, and the empty composer invites a planning task when Plan is the effective target. Plan guides the model to investigate and propose before implementation; it does not change Access or enforce a filesystem sandbox.
-
-When the model submits a plan, the review reader shows its original text. Use PgUp/PgDn to scroll, Tab/Shift+Tab to select **Approve** or **Keep planning**, and Enter to confirm. Approve leaves Plan mode and lets execution continue. Keep planning opens an optional feedback field; submit changes or choose **Continue without feedback** to continue planning. Esc from feedback returns to the review and retains the draft. Esc from the review ends the current turn without approval and keeps Plan mode for your next message. Interrupting or losing the review never counts as approval.
-
-Plans remain in the session’s tool history after review, resume, and a fork that includes the call. Use Ctrl+O to open the completed run and Alt+O to show full tool inputs and results. Composer images and files can accompany `/plan <message>` in their displayed order. `/plan off` rejects attachments and restores the complete draft for correction.
-
-## Side questions
-
-`/btw` uses the current model and reasoning selection in a separate, durable session. The question captures committed messages at invocation; later main-session messages and unfinished streaming text are excluded. The consultation cannot use tools, even after resume; it starts with Read only Access and clears copied Goal and Plan execution state without changing the parent. Replies have an 8,192-token output limit.
-
-The answer streams into a pane docked above the composer while the consultation runs. The pane is not part of the conversation: it belongs to the side session, so nothing about it is written into the transcript, and `Esc` closes it and returns the composer exactly as it was. `↑`/`↓` scroll it. Closing the pane folds the exchange into one `/btw <question>` line in the transcript, with the answer behind `Ctrl+O`, so reclaiming the screen never costs the text; `/copy` also offers it. Ctrl+C interrupts only the consultation, and parent approvals take priority. The advice is not sent to the primary model: quote it into the composer with `Alt+C` or your usual copy path if you want the conversation to continue from it. Model requests, including the copied input context, incur separate charges; the displayed usage covers only this consultation’s latest request attempts, not inherited history. The consultation’s own session log is stored under `OMDSH_HOME`.
-
-## Observability
-
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/context` | Open live context occupancy and session statistics. Details shows configuration and diagnostic samples; actions copy the session ID or open compaction. |
-| `/diff [path\|turn [number]]` | Browse current Git changes against HEAD, or a retained Turn snapshot with `turn`. Click a Changed heading or file row in the transcript to open that turn’s comparison directly. Control summary visibility in Settings → General → File change summary. Plain mode keeps the text summary. Never stages or commits. |
-| `/trajectory` | Inspect turns, steps and tool calls with readable summaries, recorded status, duration and token usage. Context entries and nested subcalls start folded. Details provide Overview, decoded Input, Result, Raw event data and Schema when recorded; tool results remain plain text. Click or use the keyboard, search hidden records, filter problems, visit slow calls, enlarge details and copy content. The timing bars marked Σ show accumulated recorded durations, not elapsed time; measured parent calls include their PTC children once. Requires an interactive terminal. |
-| `/schedule` | Manage this session's durable reminders: pause, resume, run now, edit a name or instruction, delete, and browse delivery history. |
-| `/plugins` | Inspect profile plugins and bundles; enable, disable, install, update, or remove them, or browse a configured plugin index under **Discover**. Plugin and bundle entries open scrollable, copyable details with README documentation, load state, and diagnostics, including read-only entries. Installation and updates can be cancelled before application. |
-| `/tools` | Search the tools visible to the agent, then read a selected tool’s full description. Returning restores the filter and selected row. Line mode prints the catalog. |
-| `/mcp` | Manage live MCP servers (add, enable/disable, probe, restart, remove) alongside static `mcp.json` registration diagnostics, available tools, and the session’s latest ten calls. |
+| `/context` | Open the live 5×8 occupancy grid, estimated breakdown, and session stats, with `Details`, `Copy session ID`, and `Compact` actions. |
+| `/diff [path\|turn [number]]` | Open the interactive diff viewer for current Git changes or a saved turn snapshot (`/diff turn`); never stages or commits. |
+| `/trajectory` | Inspect turns, steps, and tool calls with duration, status, decoded input/result, and raw events; supports slowest-first (`s`), errors-only (`e`), and full search (`/`). |
+| `/mcp` | Add, enable/disable, `probe`, `restart`, and remove live MCP servers, plus inspect static `mcp.json` entries, tools, and the last 10 calls. |
+| `/plugins` | Browse `Discover`, install/update/remove plugins, configure built-in integrations (Codex, Claude Code, Worktree, Auto review), or launch `/agent creator`. |
+| `/tools` | Search every tool visible to the agent and read its full description. |
 
-Plugin discovery retains loaded results and the search query, updates **Update available** profile bundles in place, offers **Load more** and retries for failed sources, and permits cancellation while loading. Installation results and diagnostics remain beside the plugin controls.
+## `/diff`, file attachments, and image viewer
 
-### Scheduled reminders
-
-`/schedule` lists reminders involving the current session. The list and task details refresh as tasks change; use the arrow keys and Enter to choose an action, and Esc to go back. **Run now** delivers the instruction without moving the scheduled occurrence. Tasks that are queued or running cannot be edited, paused, resumed, deleted, or triggered again; the page explains minimum run intervals and unavailable archived destinations. Creating reminders and changing their timing or time zone still use the agent's `schedule_*` tools.
-
-**View delivery history** loads twenty saved receipts at a time; **Load older records** adds the next page. Open a receipt to read its saved instruction, scheduled and delivered times, and destination session. A receipt confirms inbox delivery, not completed model execution. Retention limits and unavailable historical instructions are reported explicitly. Failed refreshes keep the loaded records, and **Refresh** retries from the newest page. Deleting a reminder requires confirmation and leaves destination sessions and messages already delivered intact.
-
-## Files and terminals
-
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/attach [path]` | Stream a file into durable storage and stage a reference in the composer without submitting a message. Without a path, open this session’s stored attachments, where **Add a file** stages another one. |
+| `/attach [path]` | Stage a file attachment in your draft without sending; run without a path to list stored session attachments and preview images. |
 
-Type `!command` in the composer to run a line in a persistent Shell without adding output to model context, or `!!command` to share the output to the conversation on return; see [Composer Shell](keyboard.md#composer-shell).
+Start a line with `!command` in an empty input box to run a persistent shell command locally (`!!command` shares output with the model). See [Keyboard and mouse](keyboard.md#shortcut-shell-command-and-command).
 
-Diff review keeps file navigation beside content at widths of 100 columns or more. Narrow terminals show one pane at a time. `Tab` switches panes; `Enter` reads the selected file. `/` filters paths in the file pane and searches content in the reading pane. Click a file row to select it; the wheel scrolls the pane under the pointer, while dragging selects text. File rows show change type and available line deltas; the header identifies staged, unstaged or untracked changes. `A` opens a selectable actions menu and `?` shows keyboard help. `R` reloads the current file; the file list is a snapshot taken when the browser opens. Esc closes a wide browser, or returns from content to the list in a narrow browser.
+### Diff and source reader controls
 
-`V` switches between the comparison and the current workspace file, with independent reading positions. Untracked files show additions. Missing historical comparisons are explicitly unavailable; current content appears only when you request it. Image files offer **Preview image** from Actions in the current-file view.
+- **Layout:** Side-by-side file list and viewer at ≥100 columns, single-pane on narrower terminals (`Tab` switches panes, `Enter` opens, `A` actions menu, `?` help).
+- **Views & movement:** `V` toggles diff vs. current file; `[` / `]` jumps hunks; `/` or `Ctrl+F` searches (`Ctrl+N`/`Ctrl+P` matches); `G` jumps to a line; `W` toggles wrap and `Alt+←`/`Alt+→` pans horizontally; `M` toggles Markdown source/rendered view.
+- **Large files:** Loads the first 128 KiB and doubles with `L` (`Load more`) up to 4 MiB. Press `O` to open in your system app or `E` for your configured external editor.
+- **Quote straight into your prompt:** Select lines and press **`Alt+Y`** or **`Q`** to append a Markdown quote into the input box (with no selection, `Q` inserts `@path:line`).
 
-File documents scroll with arrows, PgUp/PgDn and Home/End. `N`/`P` change files; `V` switches diff/preview, `O` opens the original, `E` uses the editor selected in Settings, and `Q` quotes `@path:line` into the composer. In single-pane file previews, Esc returns to the picker. Source views retain the reading position and search query separately for each file and diff, including after an editor action. External editors temporarily receive the real terminal and omdsh restores raw input afterward.
+### Image preview and attachment notes
 
-Tool cards and Changed files also open this reader through right-click when no text is selected. `Alt+V` previews declared tool files at the reading position, otherwise retaining its Turn-comparison behavior. The preview uses the original invocation or summary directory and reads current file contents; provider-declared line locations initialize the source position within the loaded prefix. These actions do not submit a model message, change Access, or create a file checkpoint.
+- Press **`Alt+M`** to preview draft images (or the latest session image), or open stored images from `/attach` (supports PNG, JPEG, WebP, GIF).
+- Inline graphics render automatically in Kitty, Ghostty, WezTerm, Warp, iTerm2, and compatible terminals; in tmux/screen/Zellij use **`Open`** for your system viewer, or override detection with `OMDSH_IMAGE_PROTOCOL=kitty|iterm2|none`.
+- Preview decoding supports up to 32 MiB / 40 MP (scaled to 2048 px per side); model attachments support up to 20 MiB per image.
 
-In source views, `/` or `Ctrl+F` opens a case-insensitive literal search over the loaded text; Enter keeps the query, `Ctrl+N`/`Ctrl+P` cycle through matching lines, and Esc cancels an edit without closing the reader. `G` or `Ctrl+G` jumps to a file line. Diff views use one fixed gutter showing each line’s own side, use new-file line numbers for jumps, and navigate hunks with `[`/`]`; lines outside the displayed hunks cannot be reached. Text loads start at 128 KiB; `L` or **Load more** doubles the loaded prefix up to 4 MiB. Open reads the original beyond that limit; other binary formats open in their application.
+## Clipboard, export, Skills, and app
 
-Stored text attachments open directly in the file reader, with **Open** available for the original file. PNG, JPEG, WebP and GIF files open in an image preview page. The `/attach` list includes stored images from user messages and declared tool/model output, and previews their bytes when the provider has no local path; `Alt+M` previews composer images, or the newest conversation image when the composer has none. Known direct Kitty, Ghostty, WezTerm, Warp, Herdr, Rex and iTerm2 terminals display the image within the page; set `OMDSH_IMAGE_PROTOCOL=kitty`, `iterm2` or `none` when detection is wrong, and `omdsh doctor` reports the detected protocol. tmux, screen, Zellij and unknown terminals show image information with an Open action when an original is available. Esc restores the previous view and draft. Previews preserve aspect ratio, fit the available cells and show the first frame of animated images; decoding is limited to 32 MiB and 40 million pixels, and preview PNGs are at most 2048 px per side. These limits do not change the original attachment or the model’s image admission rules.
-
-Code previews use Prism syntax highlighting with the selected terminal theme. Language detection uses the filename, including `Dockerfile` and `Makefile`. Markdown files open as source with line numbers; `M` switches between source and rendered Markdown. Search and line jumps are available in the source view. Multiline comments and strings retain their syntax colors within the highlighting budget; large previews fall back to plain text. Unknown languages remain plain, and disabling colors preserves the source text.
-
-In ordinary file previews, use Tab or Left/Right to select a document action, then Enter to activate it; `›` marks the selection. Letter shortcuts accept either case. A preview opened from a tool card includes its sibling files for Previous/Next navigation; those actions are omitted when only one file is available. `F` returns to the file list. Open uses the system’s default application (preferring a browser for HTML and SVG files, and handing WSL paths to the Windows desktop); Editor uses **Terminal → Editor** in `/settings`, with installed-editor detection by default. Save and close the editor’s file to return to omdsh. Failures and external-open confirmations stay visible in the preview, and file navigation does not send attention notifications.
-
-A staged `/attach` draft displays a file marker and byte-count receipt; deleting the marker removes that draft. Add your message and press Enter to send both. File-only submissions work, and queued messages and rewind retain file references. Deliberately typed slash commands carry their attachments through Harness command admission, including while a turn runs. Commands that do not accept attachments, unknown commands, and failed or cancelled submissions restore the text, images and files to the original session. Pasted literal text and explicit Steer submissions remain model messages. Mixed attachments retain their displayed order through retries and queue recall. Cancel the attachment operation with Ctrl+C; cancelled operations do not stage a draft.
-
-## Clipboard and output
-
-| Command | What it does |
+| Command | Action |
 |---|---|
-| `/copy` | Choose what to copy in the composer card: the last assistant reply, its fenced code blocks, the last terminal command and its output, and a finished `/btw` answer. `Alt+C` copies the selection first when there is one. |
-| `/export [html\|markdown\|archive] [path]` | Choose a format and destination, then open the exported file or copy its path. Explicit arguments export directly. Existing files require a different destination. Interactive save failures retain the format and editable path for retry. |
-| `/changelog [full]` | Choose a release and browse its categories, or read the complete packaged history with `full`. |
-
-If export succeeds but copying, previewing or opening fails, the result page keeps the saved path and offers retry. A failed `!!` share retains the Shell output and retries delivery without running the command again.
-
-## Skills
-
-User-invocable Skills appear as `/<name>`, with descriptions and a **User only** marker when model invocation is disabled. Type `/` and the name to find a skill, then submit it with optional images and files. Commands take precedence over same-named skills; invoke those skills within a sentence, such as “Please use `/review` to check these changes.” See [Skills and MCP](skills-and-mcp.md).
-
-## Application
-
-| Command | What it does |
-|---|---|
-| `/help [full]` | Find and insert a command; Alt+K opens shortcuts, and `full` opens the complete shortcut reader directly. Aliases: `/h`, `/?`. |
-| `/quit` | Quit the application. Aliases: `/q`, `/exit`. |
+| `/copy` | Pick what to copy: recent assistant replies, individual fenced code blocks, recent shell output, or completed `/btw` answers (`Alt+C` copies active text selections first). |
+| `/export [markdown\|html\|archive] [path]` | Export as Markdown, HTML, or a ZIP archive with child subagents and original attachments (refuses to overwrite existing files). |
+| `/changelog [full]` | Browse release notes by version (`S` for categories); `full` shows the complete packaged history. |
+| `/<skill-name>` | Run an installed project or user Skill (accepts images and files); built-in commands take precedence on name collisions. See [Skills and MCP](skills-and-mcp.md). |
+| `/help [full]` (aliases `/h`, `/?`) | Search and insert commands; `Alt+K` or `full` opens active keyboard shortcuts. |
+| `/quit` (aliases `/q`, `/exit`) | Exit omdsh. |
 
 ## Related
 
-- [Keyboard and keys](keyboard.md) — editing keys, overlays, and `keybindings.json`
-- [Settings](settings.md) — every row behind `/settings`
-- [Permissions and access](permissions.md) — the presets behind `/permission`
-- [Command line](cli.md) — the `omdsh` binary, flags, and environment variables
-- [Tutorials](tutorials.md) — task-based walkthroughs for these commands
-- [Skills and MCP](skills-and-mcp.md) — Skills discovery and MCP configuration
+- [Keyboard and mouse](keyboard.md) — editing, navigation, and `keybindings.json`
+- [Settings](settings.md) — every option under `/settings`
+- [Permissions and safety](permissions.md) — access levels and approval rules
+- [Command line](cli.md) — CLI flags, `omdsh doctor`, and `omdsh exec`

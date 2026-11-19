@@ -1,61 +1,75 @@
 ---
-description: "How omdsh delegates work: the three subagent transports, reading a child's transcript, steering child agents, Workflow and Ralph orchestration, and background jobs."
+description: Complete reference for built-in subagents, /team Agent Teams shared task boards, Codex and Claude Code integrations, and depth/concurrency limits.
 ---
 
-# Subagents and delegation
+# Subagents and Agent Teams
 
-omdsh runs delegation on the Harness subagent services rather than a product-private task runner. The model decides when to delegate; you follow the children from the keyboard, open local child transcripts in place, and steer the runs that support it.
+For a guided walkthrough with real examples, see [Subagents and Agent Teams tutorial](tutorials/multi-agent.md). This page documents the complete behavior and configuration reference.
 
-## Transports
+## 1. Built-in subagent modes
 
-Three transports coexist and are chosen per delegation rather than configured globally. The shipped persona routes heavyweight or parallel self-contained work to the isolated transport and keeps in-process children for work that may need steering or continuation.
+The main agent delegates work through three channels depending on isolation and context needs:
 
-| Transport | Runs | Inherits the parent conversation | Steerable after dispatch | Use it for |
-|---|---|---|---|---|
-| `subagent` | In-process, on the TUI event loop | No | Yes | Work you may need to guide or follow up |
-| `subagent_fork` | In-process, on the TUI event loop | Yes — completed parent turns seed the child so the inherited prefix stays cache-eligible | Yes | Work that benefits from the parent's context |
-| `subagent_isolated` | A separate process over ACP | No | No | Heavy or parallel self-contained work that should not share the render loop |
+| Tool | Execution mode | Context | Typical use |
+|---|---|---|---|
+| **`subagent`** | In-process, fresh context | Starts clean | Parallel module audits, independent tests, focused research |
+| **`subagent_fork`** | In-process, forked from parent | Inherits committed parent history and model route | Deepening an investigation already underway in the main thread |
+| **`subagent_isolated`** | Isolated child process | Separate process/profile (requires `dsh` with an `acp` profile on `PATH`) | Heavyweight self-contained work needing process isolation |
 
-The isolated transport trades features for isolation: it accepts no model, persona, or tool filter, carries no parent-enforced recursion cap, and cannot be steered or followed up after dispatch. It boots its own Harness profile from an isolated home, so it needs a `dsh` on `PATH` that can serve the `acp` profile; `OMDSH_ACP_COMMAND` and `OMDSH_ACP_ARGS` override the launcher.
+### Inspecting, following up, and steering
 
-The host `subagent` settings section defaults `maxDepth` to 1 for tools that inherit it: a direct child cannot delegate further through those tools. An explicit tool depth, including `provider-managed`, takes precedence. `maxActiveSubagents` defaults to 8 and caps live or materializing local and external children in the same activation tree; the root parent consumes no slot. Waiting, pending input and stopping children remain counted until cleanup releases their slots. Raising the setting admits more children; lowering it keeps resident children and refuses further admissions until usage drops. Admission is refused rather than queued.
+- **Subagent list:** Whenever a session has child subagents (including earlier unloaded children after `/resume`), a live list appears above the input box showing name, status, and elapsed time.
+- **Enter & return:** Press **`↓`** from an empty input box (or click a row) and press `Enter` to open a subagent’s transcript; press `Esc` to return to the parent.
+- **Follow-ups and steering:** For continuable subagents, send follow-ups directly in the subagent’s input box or press `Alt+S` to steer mid-run.
+- **Attachment rule:** Subagent follow-ups accept **text and images only**; file attachments are rejected with an error.
+- **Approvals:** Subagent approval prompts clearly name the requesting child and queue sequentially; switching the main session cancels pending approvals from the previous session and its local children.
 
-Every delegation returns an activation id while the Harness runtime owns execution, settlement and result delivery. Local children can accept follow-ups; ACP and other external executions have no local Session transcript. Their results return to the parent conversation. In pipe mode, EOF waits for progressing children and the parent’s resulting work before exiting. Session teardown drains managed descendants before releasing their parent.
+## 2. Agent Teams (`/team` shared task board)
 
-## Follow and steer
+When multiple continuable subagents edit different parts of the same codebase concurrently, use `/team` to coordinate ownership and prevent collisions:
 
-Codex and Claude Code bundles ship disabled with omdsh and can be enabled and configured in `/settings → Plugins` or `/plugins → Bundles`. They use their own pinned runtimes and native login/settings, expose global `subagent_codex` and `subagent_claude_code` tools to every preset, and run fresh text-only tasks without continuation. Model and Permissions edits their native policies, independently of the parent’s Access. Installation status reports registration only; successful authentication and payload startup require a real delegation. See [Plugins](plugins.md).
+- **Toggle:** `/team on` exposes `team_task_*` tools across the current session tree (root agent + continuable subagents); `/team off` hides the tools on future steps while keeping recorded tasks.
+- **Inspect:**
+- `/team` opens the interactive board with filtering, refresh, toggle, and task details (`Enter` shows full description, `blockedBy` dependencies, and write-scope overlap warnings).
+- `/team status` prints a Markdown board summary (also works non-interactively).
+- Running `/team` while viewing a subagent automatically resolves to the root agent’s board.
+- **Concurrency & safety:** Backed by Compare-and-Set updates (up to **256** tasks per session tree). Tasks declare **`writeScopes`** so overlapping file/directory scopes surface explicit warnings before agents collide.
 
-While children run, a roster sits above the queue and composer with delegated names (or slash-separated paths across deeper delegation levels), task descriptions, and lifecycle states, including cold descendants on resumed sessions. Ready means a continuable child can receive another message; Stopped is separate from Failed. Model-side coordination uses `send_message`, `wait_agent`, and `list_agents`, while `interrupt_agent` ships disabled so human `Ctrl+C` owns interruption unless an overlay opts in. On an empty composer, press `↓` to select a row, `↑`/`↓` to move, and `Enter` to open that child's live transcript. Selection stays with the same child when the roster reorders. Historical one-shot transcripts remain read-only; external executions have no local transcript and return their results to the parent.
+## 3. External subagent integrations: Codex and Claude Code
 
-While inspecting a child, the footer and Access badge describe that child. Activity counts and token totals cover its own events; context usage includes inherited conversation context. Unavailable model or permission data stays unspecified. Returning restores the parent’s metadata and directory; terminal titles and lifecycle notifications continue to follow the root session.
+omdsh bundles native **Codex** (`@deepseek-ai/dsh-subagent-codex`) and **Claude Code** (`@deepseek-ai/dsh-subagent-claude-code`) integrations (disabled by default):
 
-In a continuable child, Enter follows the same Queue or Steer preference as the parent while a turn runs. `Alt+Enter` always queues for the next turn and `Alt+S` steers the next step; idle Enter sends another turn. Text, images and files use the same delivery path. Accepted child messages appear above its composer. In the child view, `Alt+Q` or `/queue` opens its own queue for editing, withdrawal, reordering and Queue-to-Steer transfer. `Alt+Up` recalls its latest next-turn message into the composer; Enter resubmits recalled messages as Queue, even when the running-input preference is Steer. Queue controls require a locally loaded child: send a message to continue an unloaded child first. Parent and child drafts stay separate, and a submission cancelled before acceptance or rejected during delivery returns to its original child draft, including when you have already returned to the parent.
+- **Where to configure:** `/settings` → **`Plugins` → `Agents`** (or `/plugins` → `Bundles` → `Integration settings`).
+- **Key behavior:**
+- Runs each bundle’s pinned platform runtime (no executable from `PATH` is required).
+- Native Codex/Claude login and settings remain authoritative—omdsh never reads or stores those credentials.
+- Child `permissionMode` is independent of the parent session and starts conservative (**`never`** for Codex, **`dontAsk`** for Claude Code).
+- **One-shot text-only tasks:** Returns only the final result to the parent, with no continuation or local child transcript.
+- Credential-shaped ambient environment variables are scrubbed so parent API keys are not leaked implicitly.
 
-With an empty composer, `Ctrl+C` stops the inspected child and preserves its accepted inbox; it does not stop the parent turn or the parent's Shell command. `Esc` clears a child draft first, then returns to the parent. A second `Ctrl+C` exits the application. Local child approval requests identify the requesting child and mark it as needing approval until the request settles. Harness rejects direct user questions from delegated children: unresolved questions must return in their result to the parent. See [Keyboard and keys](keyboard.md) for the complete overlay keys.
+## 4. Limits and advanced overrides
 
-Recorded Workflow runs share the roster with agents, within the same bounded preview. Select a workflow with `↓` and `Enter` to browse its phases and members; `←`/`→` folds groups, and typing filters the list. Names and membership come from the session log, and status updates preserve the current selection. Enter opens a member only while both the member and its owned local child are running; completed, unavailable and external members remain visible without a cold-session opener. Esc closes the workflow list and restores the previous view and draft.
+### Depth, concurrency, and allowed models
 
-A normal turn ending does not stop a background workflow. An unfinished run is shown as Interrupted only when its originating turn was closed after a crash or at a fork boundary. This changes the display, not the tool result. Only top-level `workflow_run` calls produce these records; the complete event history remains available through `/trajectory`.
+Configure under `/settings` → **`Plugins` → `Agents` → `Subagents`**:
 
-## Orchestration tools
+- **Max depth (`maxDepth`):** Defaults to `1` (root is `0`, direct children are `1`; stricter tool-level limits take precedence).
+- **Concurrency cap:** Caps active local and external children across the session tree (excluding the root); lowering it affects new spawns without killing running children.
+- **Allowed models:** Off by default; when enabled, restricts new subagent sessions to the chosen allowlist (`subagent_fork` keeps the parent route).
 
-The mounted Harness composition adds orchestration and shared-task tools on top of plain delegation:
+### Orchestration tools and optional toggles
 
-- `workflow_run` takes a JavaScript script that fans work out across delegated children with phases and structured results. The script runs on a worker thread rather than the host event loop, so a large fan-out does not stall the interface.
-- `ralph` iterates fresh agents toward one objective until a worker reports completion or a blocker. It ships disabled, matching the upstream base bundle: its tool description already restricts it to runs you asked for explicitly, and completion is a worker self-report rather than an independent evaluation. A home overlay restores it with `disabled: false` on its row.
-- `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` coordinate a shared Compare-and-Set task board (`@deepseek-ai/dsh-agent-team`, up to 256 tasks per session tree) across the root agent and its continuable in-process subagents, tracking `blockedBy` dependencies, task owners, and advisory `writeScopes` overlap warnings. Team mode starts disabled for each session; run `/team on` (or `/team` to open the interactive task board) to expose `team_task_*` and collaboration guidance on subsequent steps, and `/team off` to hide the tools while keeping recorded tasks in the session log.
+- **`workflow_run`:** Available under `Standard` for multi-step workflows (intentionally hidden under `PTC` so `run_code` remains the sole orchestration surface).
+- **Enable `ralph` loop:** Turn on `/settings` → **`Plugins` → `Optional features` → `Ralph loop`**.
+- **Enable `interrupt_agent`:** Disabled by default; to re-enable, add this entry to `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` and restart `omdsh`:
 
-The `code` (PTC) preset denies `workflow_run`, because PTC presents the registry as a generated SDK over `run_code` and would otherwise expose a second model-authored orchestration surface.
-
-Use `/plan` to enter planning and `/plan off` to return to direct work. Plan mode is independent of workflow orchestration. See [Commands](commands.md).
-
-## Background jobs
-
-Long-running work that continues after a turn shows up in `/jobs` with status and elapsed time; `/jobs kill <id>` stops one. A finished background job posts a single completion notice in the session. Jobs are session-scoped and do not survive switching or resuming a session.
+```yaml
+- id: tool-interrupt-agent
+  disabled: false
+```
 
 ## Related
 
-- [Architecture](architecture.md) — subagent ownership and lifecycle boundaries
-- [Commands](commands.md) — `/jobs` and the rest of the catalog
-- [Guide an active turn](tutorials/guide-a-turn.md) — queueing, Plan mode, and task progress
+- [Subagents and Agent Teams tutorial](tutorials/multi-agent.md) — hands-on examples
+- [Tools and presets](tools.md) — orchestration tools per preset
+- [Plugins and integrations](plugins.md) — managing built-in integrations and external plugins

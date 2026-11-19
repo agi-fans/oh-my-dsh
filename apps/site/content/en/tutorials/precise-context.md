@@ -1,61 +1,106 @@
 ---
-description: Point omdsh at exact files and sessions with @ mentions, paste clipboard images, and write structured multiline prompts.
+description: Choose between @file, /attach, @session, and screenshots, run quick shell commands with !cmd, and ask side questions with /btw.
 ---
 
-# Give the agent precise context
+# Give precise context and quick inputs
 
-By the end of this walkthrough you can point the agent at exact files and sessions, attach screenshots, and write structured multi-line prompts.
+The fastest way to get accurate edits from a coding agent is to hand it exact context up front—and to run quick lookups or shell checks without derailing your main conversation. This guide covers the six everyday input habits that pay off immediately.
 
-### Mention files and sessions
+## Choose the right way to share context
 
-Type `@` followed by part of a project path or session title. The popup lists workspace files first, then other sessions; move with the arrow keys and press `Tab` to insert the selected row.
+| Method | What it does | Best for |
+|---|---|---|
+| `@path` or `./path` | Inserts a highlighted file path so the agent reads the file on demand | **Everyday default.** Pointing to source, config, or test files inside your repo without flooding context. |
+| `/attach <path>` | Explicitly attaches a file to your next message | Sharing reference specs, logs, or files outside the current directory. |
+| `@session` (type `@` and pick a session) | Inserts a read-only snapshot of an earlier session without switching away | Carrying yesterday’s debugging conclusions into a fresh task. |
+| Paste or attach an image | Sends a screenshot or mockup to a vision-capable model | Error screenshots, UI layout bugs, terminal comparisons, or diagrams. |
 
-A file mention inserts the path only: the agent reads the file with its normal tools, and no file contents are uploaded with your message. A session mention inserts a marker that omdsh replaces with a read-only snapshot of that session for the model; it does not resume or fork the source session. Mentions stay highlighted in the composer.
+## 1. Point to files and past sessions with `@`
 
-Try mentioning two related files from your project. The following example uses paths from the omdsh repository. Replace them with files selected through `@` in your workspace.
+Type `@` in the input box and keep typing any part of a filename (for example `@auth` or `@user.spec`). A completion list appears below the input box:
 
-```text
-Compare @packages/tui/omdsh-tui/src/chrome/renderer.ts with @packages/tui/omdsh-tui/src/chrome/renderer.spec.ts and explain the missing edge case before editing.
-```
+- Use `↑` / `↓` to pick an entry and `Tab` or `Enter` to insert it.
+- Typing `./` or `~/` also triggers path completion for relative or home-directory paths.
 
-Typing `./` or `~/` opens plain path completion. It inserts a path; it does not bypass tool permissions or upload contents.
+A strong prompt states **the goal, the exact files, and the boundary or verification**:
 
-### Add screenshots and images
-
-Copy an image and press `Ctrl+V`. The composer inserts a compact image marker; add any explanatory text and submit them as one message, or send the image with `/goal` or `/plan`. Pasting an image file path also imports that image when it can be read.
-
-Press `Alt+M` to inspect draft images before sending. Use Tab and Enter for the preview actions, or `P`/`N` to switch between images and `O` to open the original. Esc closes the preview and keeps the draft. Stored images remain accessible through `/attach` with no path; [Files and terminals](../commands.md#files-and-terminals) describes terminal support and preview limits.
-
-Image paste needs the platform clipboard reader. On Linux it uses `wl-paste` under Wayland or `xclip` under X11; if neither is installed, text paste keeps working but clipboard images are unavailable.
-
-The default DeepSeek catalog includes the image-capable `deepseek-flash`; the other default DeepSeek models stay text-only. A deployment that wants native image requests on another model must list `inputModalities: [text, image]` on that model.
-
-### Write structured prompts
-
-Use `Shift+Enter` or `Ctrl+J` for a newline. `Alt+Enter` queues the draft. For a longer request, press `Ctrl+X` to use the editor chosen in **Settings → Terminal → Editor**. Auto honors `$VISUAL` or `$EDITOR`, then detects an installed editor. Save and close to return the text to the composer.
+- Vague: `Login seems broken, please check.` (forces the agent to search broadly and guess your intent)
+- Precise:
 
 ```text
-Goal: remove the duplicate loading row.
-
-Constraints:
-- keep the composer anchored
-- preserve CJK display width
-- add a regression test
-
-Verification: run the focused TUI test and typecheck.
+@src/auth/session.ts @src/auth/session.spec.ts
+Check whether token refresh has a race condition when two requests expire at once. Keep the public signature unchanged, add a failing test first, then fix it.
 ```
 
-### Image limits
+### Reference an earlier session
 
-Pasted images are checked on admission and normalized for storage:
+To pull context from a previous conversation without dragging in hundreds of old turns, type `@` and select the earlier session:
 
-- Sources are accepted up to 20 MiB, 64,000,000 pixels, and 8192px per side.
-- An accepted image is stored under a 2048×2048 total-pixel budget, an 8192px long-edge cap, and a 4 MiB encoded-size target. The budget governs, so an extreme aspect ratio keeps its short-edge resolution instead of being clamped to a 2048px long edge.
-- A refused image shows an error notice and stays out of the prompt.
-- A message with several images is admitted as one ordered batch; if any image is refused, the composer text and drafts stay put.
+```text
+Using the findings from @payment-timeout-investigation, check whether @src/orders/checkout.ts has the same retry timeout risk.
+```
 
-These checks apply at paste and storage time; the vision model applies its own image budget later, when the request is prepared. A route that rejects the request as over that budget drops the oldest images locally and retries instead of failing the turn, and the session log keeps every image, so a resumed or forked session still knows what was omitted.
+omdsh attaches a read-only snapshot of that session while leaving the original session untouched.
 
-### Next
+## 2. Attach files explicitly with `/attach`
 
-Next, [guide an active turn](guide-a-turn.md) to queue a follow-up or correct the task while it runs.
+When a file lives outside your workspace or you want to attach it directly to the message:
+
+```text
+/attach ../specs/api-v2.md
+```
+
+You can attach multiple files before sending your prompt. Running `/attach` with no arguments opens the viewer for stored image attachments.
+
+## 3. Paste and preview screenshots
+
+> **Check model vision support first:** Many default text models reject images. With DeepSeek, switch via `/model` to an image-capable model (such as `deepseek-flash`) before sending screenshots.
+
+Three ways to attach an image:
+
+- **Paste from clipboard:** `Cmd+V` (or `Ctrl+V`) on macOS, `Ctrl+V` on Linux, `Ctrl+Alt+V` on Windows/WSL.
+- **Drag and drop** an image file onto the terminal, or run `/attach /path/to/screenshot.png`.
+
+The input box displays a compact placeholder like `[Image #1]`:
+
+- Press `Alt+M` to preview draft images (inline in Kitty, Ghostty, WezTerm, iTerm2, and compatible terminals, with an `Open` option for your system viewer).
+- Press `Backspace` on the placeholder to remove the whole image.
+- **Size note:** Individual images can be up to 20 MiB; oversized resolutions are automatically scaled before sending to protect your context budget. See [Commands](../commands.md) for exact limits.
+
+## 4. Draft long prompts cleanly
+
+- **Multiline and external editor:** Press `Shift+Enter` or `Ctrl+J` for newlines. For long specs or detailed review feedback, press `Ctrl+X` to write in your external editor and return automatically when you save and close.
+- **Stash a draft:** Need to ask something else mid-draft? Press `Ctrl+S` to stash the current text and press `Ctrl+S` again later to restore it.
+- **Large pastes:** Multi-line pastes fold into a `[Pasted N lines]` token so the input box stays tidy. Press `Alt+I` to expand and edit inline. Pasted text starting with `/` is kept literal rather than accidentally running as a slash command.
+
+## 5. Run quick shell commands with `!command`
+
+When you want to check `git status`, run a single test, or inspect a port without leaving omdsh or spending model tokens:
+
+- Type **`!`** in an empty input box (the border turns green), then your command:
+
+```text
+!git status -sb
+```
+
+- **`!command` (single bang):** Runs locally and prints output for you only—**never added to model context**.
+- **`!!command` (double bang):** Runs locally and **automatically shares the output with the agent** so it can analyze the error or test output immediately.
+- The shortcut shell is **persistent**, so `!cd packages/api` carries over to the next `!` command. Press `Ctrl+C` (or `Esc` from an empty input box) to stop a long-running command.
+
+## 6. Ask side questions with `/btw` without cluttering the thread
+
+If a side question pops up mid-refactor (“Does Node 22 support `AbortSignal.any`?” or “Is that status enum hardcoded in our SQL migrations?”), send it with `/btw`:
+
+```text
+/btw Is the OrderStatus enum we just changed hardcoded anywhere in the migration scripts?
+```
+
+- `/btw` runs a **read-only side query** using the committed conversation context, without editing files or adding the answer to future main-thread context.
+- The answer streams into a compact side view; press `Esc` to dismiss it and keep going.
+- You can always re-expand the collapsed `/btw` row later with `Ctrl+O` or copy it with `/copy`.
+
+## Next steps
+
+Now that your inputs are sharp, learn how to steer the agent once it is actively running:
+
+- [Steer long tasks and background work](guide-a-turn.md) — `/plan`, queueing vs. steering vs. interrupting, `/goal`, `/jobs`, and `/schedule`.

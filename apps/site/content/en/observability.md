@@ -1,50 +1,66 @@
 ---
-description: "Inspect what omdsh is doing: the /trajectory event ledger, /context usage and session details, and the /diff workspace summary."
+description: Use the live status footer, /context, /trajectory, /diff, and /mcp to diagnose context pressure, slow tool calls, code edits, and server health.
 ---
 
-# Observability
+# Status and diagnostics
 
-omdsh reads everything it shows from Harness projections and the durable session log; the views below are presentations of that data, not counters invented by the TUI.
+Every metric in omdsh—context occupancy, cache hit rate, latency, changed files, and tool traces—comes straight from the runtime’s durable logs and metering rather than ad-hoc UI counters.
 
-## Session ledger: `/trajectory`
+## Pick the right view for the question
 
-`/trajectory` opens an interactive ledger grouped by turns and model steps. Tool rows show readable command or file summaries and recorded status. Context records and nested calls start folded. A timing overview helps locate expensive steps, and the list follows new records until you move away from the live tail.
+| What you want to know | Tool to use |
+|---|---|
+| Is context nearly full, and what is taking space? | Glance at `Ctx` in the footer, or run **`/context`** |
+| Why was that turn slow, or which tool failed? | Run **`/trajectory`**, press **`s`** (slowest first) or **`e`** (errors only) |
+| Which exact lines did the agent just edit? | Click the turn’s **`Changed`** summary, or run **`/diff`** / **`/diff turn`** |
+| Are my MCP servers connected and succeeding? | Run **`/mcp`** for live status and the last 10 calls |
 
-- Click a row or press `Enter` to inspect it. Available sections include Overview, decoded Input, Result, Raw, and Schema. Tool results use plain text; structured inputs and raw JSON retain code formatting. Long lines wrap with a separate line-number gutter.
-- `Tab` switches focus between the list and details. Arrow keys and page keys operate on the focused pane, and the mouse wheel scrolls the pane under the pointer. `f` enlarges details, `y` copies the current section, and `Esc` returns through details to the conversation.
-- `Space` expands context or nested calls, `t` folds turns, and `c` folds calls. `e` filters problems; `s` visits calls by descending duration.
-- `/` searches all records, including folded content. `n`/`N` steps between matches, or `Ctrl+N`/`Ctrl+P` while typing. Enter locates a match and opens the content that contains it.
+---
 
-Durations and token counts come from recorded events. Missing durations stay blank. The ledger requires an interactive TTY; the full key reference is in [Keyboard and keys](keyboard.md).
+## 1. Live status footer
 
-## Context and session overview
+Anchored right below the input box with **fixed left/right semantics** so numbers never jump sides:
 
-`/context` opens a live panel with projected occupancy, remaining capacity, estimated composition, and session activity. Wide terminals show a compact occupancy grid; narrow terminals show a bar. The categories use heuristic estimates, independently of the calibrated occupancy total. Missing measurements are labelled unavailable.
+- **Line 1:** Identity on the left (model, reasoning effort, optional session title) and workspace on the right (path and Git branch/dirty count).
+- **Line 2 (session metrics):** Occupancy and duration on the left (`Ctx`, `Cache`), throughput and work on the right (`TTFT`, `tok/s` / tokens).
+- **Line 3 (`verbose` density on wide terminals only):** Cumulative session duration on the left and total turns/steps on the right.
+- **Narrow-screen degradation:** Drops lowest-priority items in strict order (**Turns → Duration → Latency/Tokens/Cache**) so nothing reappears out of order as the window grows.
+- Customize in `/settings` → **`Terminal` → `Status line`**—changes apply **live on the real footer beneath the panel with the focused item underlined**.
 
-Use Tab and Enter or click an action to open Details, copy the session ID, or invoke the available `/compact` command. Details contains model, reasoning, workflow, access, queue counts, cumulative provider usage, and the latest token samples. The panel supports wheel scrolling, search, and text selection. Updates pause during text selection, and Esc restores the conversation position and draft. Non-interactive output includes the complete text report.
+## 2. `/context`: occupancy and breakdown
 
-The footer shows context pressure as a percentage in minimal and standard density. Verbose adds used/window token counts. Warning and error colors mark rising occupancy. See [Tune the working environment](tutorials/environment.md) for status controls.
+Running `/context` opens a compact live overview:
 
-## Workspace diff: `/diff`
+- A **5×8 occupancy dot grid** aligned row-for-row with the five occupancy and session summary lines (used/window tokens, remaining budget, turns/steps, cumulative input/output, active preset and access level).
+- Occupancy turns warning color above **75%** and error color above **90%**.
+- An **Estimated composition** section splits usage across **System prompt**, **Tool schemas** (watch this when many MCP servers are enabled), and **Conversation messages**.
+- Actions at the bottom open full **`Details`**, **`Copy session ID`**, or trigger **`Compact`** immediately.
 
-`/diff` opens a file browser for current Git changes against HEAD, including staged, unstaged and untracked files. `/diff <path>` opens one file, and `/diff turn [number]` reads a retained turn comparison. Missing historical comparisons are marked unavailable; `V` explicitly switches to current content. Plain mode retains the text summary and patch output. These commands only read Git state and never stage or commit.
+## 3. `/trajectory`: execution traces and latency
 
-## Per-turn changed files
+When a turn runs dozens of tool calls or spawns subagents, `/trajectory` gives you an event-level ledger:
 
-Every completed turn ends with a record of the files that turn changed, with the turn's line totals and each path's own added and removed counts. It is attributed to the turn that produced it, so a long session shows which change belongs to which request rather than one cumulative total. The list folds past eight files and `Ctrl+O` expands it; a turn that changed nothing says so, and binary or oversized files are marked instead of given counts. Because the record is derived from the turn's own snapshots, a session opened later shows the turn without its file list.
+- Shows turns, steps, tool calls, and named subagents with status, duration, and token counts (context entries and nested subcalls start folded; press `Space` to expand).
+- Press `Enter` on any entry to inspect **`Overview`**, decoded **`Input`**, **`Result`**, raw event **`Raw`**, and **`Schema`** (`←`/`→` switches tabs).
+- **Three highest-leverage shortcuts:**
+- **`s`:** Sort calls slowest-first to pinpoint bottlenecks.
+- **`e`:** Filter to failures and errors only.
+- **`/`:** Search across every record (including folded ones); `y` copies the active section; `f` zooms details.
+- Bars marked `Σ` show summed recorded durations (not wall-clock time); parent calls already include `PTC` child calls without double counting.
 
-`/diff` and this record answer different questions: `/diff` reports the working tree as it stands now, while the per-turn record reports what one turn changed.
+## 4. `/diff` and turn change summaries
 
-## Tools and integrations: `/tools` and `/mcp`
+- Turns that modify files display a clickable **`Changed`** summary in the transcript—click the header for the full turn diff or any file row to jump straight to it (hideable via `/settings` → `General` → `File change summary` while keeping `/diff turn` available).
+- Run `/diff` for current Git changes or `/diff turn [number]` for a saved turn snapshot.
+- Wide terminals (≥100 columns) split file navigation and diff side by side, with `V` (diff/current file), `[`/`]` (hunks), `/` (find), `G` (line jump), and **`Alt+Y` / `Q` to quote selected lines directly back into your input box**.
 
-`/tools` opens a searchable catalog with a description preview. Enter opens the complete description, and Esc returns to the list; the catalog updates automatically when a reconnected MCP server changes its exposed tools. `/mcp` manages live Profile-backed MCP servers (add, enable/disable, one-shot `probe` diagnostics, `restart`, and remove) alongside static `mcp.json` entries, showing live connection status (`connected`, `connecting`, `waiting for credentials`, `reconnecting`, `disabled`, `failed`), grouped tools, rendered diagnostic pages, and the session’s latest ten calls, with non-disruptive Refresh. Tool results larger than the context budget spill to a private file with a bounded preview in the transcript; the original stays readable with `read` or `grep`.
+## 5. `/mcp` and native terminal status
 
-## Herdr pane integration
-
-Inside a Herdr pane, omdsh registers as a first-class agent over the local socket (`working` during turns and compaction, `idle`, and `blocked` with the pending approval or question), reports the resumable session id, and releases the pane on exit; nested omdsh child processes stay inert so they do not overwrite the parent pane. In terminals driven by `herdr-core` (including Herdr App), omdsh reports live `idle`, `working`, `blocked`, `done`, and `error` lifecycle states and session titles over OSC 7501 and clears them on suspend, external editors, or exit.
+- **`/mcp`:** Shows live states (`connected`, `connecting`, `waiting-credentials`, `reconnecting`, `disabled`, `closed`, `failed`), exposed tool counts, and the last 10 MCP calls.
+- **Native terminal and Herdr integration:** In compatible terminals (such as Herdr or terminals supporting OSC 9;4 progress), tabs and sidebars automatically reflect whether omdsh is working, blocked waiting for approval/input, done, or errored, and sync the working directory for new splits. Configure under `/settings` → **`Terminal` → `Terminal title` / `Terminal status`**.
 
 ## Related
 
-- [Commands](commands.md) — `/trajectory`, `/context`, `/diff`, and the rest of the catalog
-- [Keyboard and keys](keyboard.md) — ledger and overlay keys
-- [Performance](performance.md) — how the transcript and ledger stay fast on long sessions
+- [Manage long sessions and recover files](tutorials/long-session.md) — when to run `/compact`
+- [Commands](commands.md) — full `/context`, `/trajectory`, and `/diff` controls
+- [Settings](settings.md) — customizing the status footer and notifications

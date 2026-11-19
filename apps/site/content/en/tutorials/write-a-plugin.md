@@ -1,27 +1,46 @@
 ---
-description: Author, install, inspect, and publish a dsh.bundle plugin that adds an omdsh slash command.
+description: "For developers: build a plugin package with slash commands, tools, or settings using /agent creator or from scratch, test locally, and publish."
 ---
 
-# Write a plugin
+# Write and publish a plugin
 
-By the end of this walkthrough you will have built, installed, and verified a small plugin that adds a `/greet` command, and you will know how to change and publish it. You need `pnpm` on `PATH`.
+When a task goes beyond what `SKILL.md` or an MCP server can do—such as adding an interactive slash command, registering a new built-in tool, or integrating a custom runtime service—author an omdsh plugin package (an npm package declaring `dsh.bundle.patch` on DeepSeek Harness’s Cordis plugin architecture).
 
-An omdsh plugin is an npm package that declares `dsh.bundle.patch` and mounts in the same plugin tree as the shipped product. It is not a Skill file, not an MCP server document, and not a TypeScript file dropped into an extensions directory. You can copy [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) and rename it; this walkthrough builds a small `greet-plugin` from scratch so each file's job is visible.
+Make sure `pnpm` is available on `PATH` before starting.
 
-### Create the package
+## Shortcut: Use built-in `/agent creator`
 
-Create a directory that is not an omdsh workspace member. Do not add it to `pnpm-workspace.yaml`, and do not use `workspace:` dependencies:
+omdsh ships a dedicated **Creator** preset equipped with the authoritative `dsh-doc` authoring guide and read-only runtime inspection tools:
+
+1. Start `omdsh` in a fresh folder and run **`/agent creator`** (or choose **`Let the agent create a plugin`** inside `/plugins`). This does not change your default preset.
+2. Describe what your plugin should do; Creator inspects live host interfaces and helps generate the package, patch file, and tests.
+
+To understand every file by hand, follow the five-minute `greet-plugin` walkthrough below (or inspect the minimal fixture in [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello)).
+
+## Step 1: Check your installed runtime version
+
+Plugins must declare `@deepseek-ai/*` under `peerDependencies` matching the DeepSeek Harness (DSH) release shipped by your `omdsh` installation. Listing them under `dependencies` causes `omdsh plugin` to reject the install so the shared runtime tree is never duplicated.
+
+Check the active version and composition with:
+
+```sh
+omdsh --dump-config | head -n 20
+```
+
+You can also inspect `@deepseek-ai/cordis` and `@deepseek-ai/dsh-commands` in your installed `@agi-fans/oh-my-dsh/package.json` and mirror those versions in `peerDependencies`.
+
+## Step 2: Create the package and its three core files
+
+Create a standalone directory outside the omdsh workspace (never add it to `pnpm-workspace.yaml` or use `workspace:` dependencies):
 
 ```sh
 mkdir greet-plugin
 cd greet-plugin
 ```
 
-The package needs three files: `package.json`, `cordis.patch.yml`, and `index.js`.
+A minimal plugin needs three files: `package.json`, `cordis.patch.yml`, and `index.js`.
 
-### Declare the bundle
-
-`package.json` names the package, points at the plugin module, and exports the patch file:
+### 1. `package.json`
 
 ```json
 {
@@ -37,19 +56,17 @@ The package needs three files: `package.json`, `cordis.patch.yml`, and `index.js
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
-    "@deepseek-ai/dsh-commands": "0.2.2-rc.5"
+    "@deepseek-ai/dsh-commands": "<DSH version matching your omdsh>"
   }
 }
 ```
 
-Two rules keep the install safe:
+Two rules keep installation safe:
 
-- Pin `@deepseek-ai/*` peers to the same DSH release omdsh ships, and keep them under `peerDependencies`. Listing them under `dependencies` makes `omdsh plugin` reject the install, because a second Cordis or Harness copy would split the shared tree.
-- Keep `dsh.bundle.patch` pointing at the patch file. A package without it still installs, but only as a plain library: omdsh prints a warning and adds no layer. Use that shape for a helper library that other bundles import.
+- Keep all `@deepseek-ai/*` packages in `peerDependencies`, never `dependencies`.
+- Keep `dsh.bundle.patch` pointing to your patch file. Without it, the package installs only as a plain library and mounts no layer (useful only for helper libraries imported by other plugins).
 
-### Insert one plugin row
-
-`cordis.patch.yml` is a YAML array of Cordis include patches, usually one `insert` list:
+### 2. `cordis.patch.yml`
 
 ```yaml
 - insert:
@@ -57,11 +74,10 @@ Two rules keep the install safe:
       name: greet-plugin
 ```
 
-The row `name` must be the npm package name so Node resolves the installed module, and the row `id` must be unique in the composed tree. A later patch that targets an id replaces the whole `config` object for that id; it does not deep-merge. A patch that names a missing id is skipped silently at boot: the loader logger that reports it is not wired to stderr in the TUI host.
+- `name` must match the npm package name so Node resolves the module.
+- `id` must be unique in the plugin tree. A later patch targeting the same `id` replaces its `config` object wholesale rather than deep-merging; a patch targeting a missing `id` is skipped silently at boot.
 
-### Register a slash command
-
-`index.js` is an ordinary Cordis plugin: export `name`, list the host services you need in `inject`, and register work in `apply` so it is disposed automatically with the plugin:
+### 3. `index.js`
 
 ```js
 export const name = 'greet-plugin'
@@ -82,41 +98,43 @@ export function apply(ctx) {
 }
 ```
 
-Command names are lowercase and have no leading slash. `rawInput` is the exact text after the command name.
+Four boundaries keep your plugin well-behaved inside the terminal:
 
-Two boundaries keep the product coherent: ask a human only through `ctx.tui.prompt` after injecting `tui`, and store secrets through `ctx.credentials`. Do not take over the TTY, listen to raw terminal bytes, register a second slash-command table, or add a `/settings` row — those surfaces stay product-owned. [User plugins](../plugins.md) lists the full compatibility contract.
+- **Command names:** Lowercase with no leading `/`. `invocation.rawInput` contains the raw text after the command name.
+- **Prompting the user:** Inject `'tui'` and call `ctx.tui.prompt(...)` for choices, text input, or document readers. Never take over the TTY or read raw terminal bytes directly.
+- **Secrets:** Store sensitive credentials through `ctx.credentials`, never in plain config files.
+- **Plugin settings:** Declare a schema via `ctx.settings`—omdsh automatically renders and validates your fields under `/settings → Advanced`. Do not try to patch the `/settings` UI directly.
 
-### Install and inspect
+## Step 3: Install locally, verify, and iterate
 
-From the directory that contains `greet-plugin`:
+From the parent directory containing `greet-plugin`:
 
 ```sh
 omdsh plugin add ./greet-plugin
 omdsh --dump-config
 ```
 
-A `./path` is relative to the invoking directory; if that path is missing, omdsh walks parent directories for the same relative path and fails if nothing exists, so it does not install a broken link.
+Verify in two steps:
 
-Check the result in two steps:
+1. Confirm `greet-plugin` appears after `@agi-fans/oh-my-dsh` in `omdsh --dump-config` with `id: greet`.
+2. Restart `omdsh`, then test `/greet`, `/greet Ada`, and `/help`:
+- In interactive `/help`, `/greet` appears directly in the searchable command picker.
+- In non-interactive text help, plugin commands are grouped under **`Extensions`**.
 
-1. `--dump-config` lists `greet-plugin` after `@agi-fans/oh-my-dsh` and shows `id: greet`.
-2. Restart omdsh after this CLI installation, then run `/greet`, `/greet Ada`, and `/help`. The new command appears under Agent Commands.
+### Iterating on changes
 
-### Change the plugin
+- With a local path install (`./greet-plugin`), your profile links directly to that folder: edit `index.js` or `cordis.patch.yml` and **restart `omdsh`** to load changes.
+- To clean up afterwards, run `omdsh plugin remove greet-plugin`.
 
-- With a local path or `link:` install, the Profile already points at that checkout: edit `index.js` or `cordis.patch.yml` and restart omdsh to load the new module.
-- With a registry install, run `omdsh plugin update greet-plugin` or add the new version, then restart.
+## Step 4: Publish and distribute
 
-A later version that gains `dsh.bundle.patch` joins the layer list on the next successful `omdsh plugin` run. `omdsh plugin remove greet-plugin` drops both the dependency and the layer. The shipped `@agi-fans/oh-my-dsh` layer is not a Profile dependency and is never removed.
+- **npm:** Publish to npm so users can install via `/plugins` or `omdsh plugin add greet-plugin`.
+- **Tarball:** Run `pnpm pack` and share the `.tgz`; users install with `omdsh plugin add ./greet-plugin-0.1.0.tgz`.
+- **Git:** Users install with `omdsh plugin add github:<owner>/greet-plugin` (if the repo builds during `prepare`, users may need an `allowBuilds` entry in `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml`).
 
-### Publish
+Before publishing, verify that your plugin imports only published package exports and does not assume HTTP or Web UI services (the TUI host does not mount them).
 
-- npm: publish the package, then install with `omdsh plugin add greet-plugin`.
-- Tarball: ship the `pnpm pack` output, then install with `omdsh plugin add ./greet-plugin-0.1.0.tgz`.
-- Git: install with `omdsh plugin add github:<owner>/greet-plugin`. A git-hosted package that builds in `prepare` may need an `allowBuilds` entry in `$OMDSH_HOME/profiles/omdsh/pnpm-workspace.yaml` if pnpm blocks the script.
+## Next steps
 
-Import only published package exports, do not reach into `refs/`, and do not assume Host, HTTP, or a Web UI is mounted. [User plugins](../plugins.md) defines which surfaces a bundle can rely on.
-
-### Next
-
-For the next integration, use [User plugins](../plugins.md) for bundle compatibility and [Plugin internals](../plugin-internals.md) for the public terminal interfaces.
+- Code examples for custom tools, presentation, prompts, and settings schemas: [Plugin internals](../plugin-internals.md).
+- Full compatibility contract and host boundaries: [Plugins and integrations](../plugins.md) and [Architecture](../architecture.md).

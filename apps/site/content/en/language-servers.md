@@ -1,18 +1,18 @@
 ---
-description: Configure local language servers so the omdsh agent can jump to definitions, find references, inspect implementations, and read hover documentation.
+description: Configure local language servers (LSP) so omdsh can jump to definitions, find references, inspect implementations, and read hover docs accurately.
 ---
 
-# Language servers
+# Language servers (LSP)
 
-omdsh can hand the agent a read-only `lsp` tool backed by real language servers. The tool has four operations — `goToDefinition`, `findReferences`, `goToImplementation`, and `hover` — and omdsh does not implement the protocol itself: the DeepSeek Harness `dsh-lsp` seam, the `dsh-lsp-stdio` host, and the `dsh-tool-lsp` tool own server lifecycle, framing, and result normalization.
+Configuring a local language server exposes a read-only **`lsp`** tool to the agent with four precise operations: `goToDefinition`, `findReferences`, `goToImplementation`, and `hover`.
 
-Nothing is mounted until you configure at least one server, so a session without language servers never shows an `lsp` tool that can only fail.
+Nothing is mounted until at least one server is configured, so projects without language servers never see a broken `lsp` tool.
 
-## Prerequisites
+## 1. Prerequisites
 
-Install the server you want and make sure its executable is on `PATH`. omdsh ships no language server and installs none. Common choices:
+Install the language server(s) you need and make sure their executables are on `PATH` (omdsh does not bundle or download servers automatically):
 
-| Language | Server | Command |
+| Language | Common server | Command |
 |---|---|---|
 | TypeScript / JavaScript | `typescript-language-server` | `typescript-language-server --stdio` |
 | Python | `pyright` | `pyright-langserver --stdio` |
@@ -20,9 +20,12 @@ Install the server you want and make sure its executable is on `PATH`. omdsh shi
 | Rust | `rust-analyzer` | `rust-analyzer` |
 | C / C++ | `clangd` | `clangd` |
 
-## Configure servers
+## 2. Configure `lsp.json`
 
-Write `lsp.json` in the same places omdsh reads `mcp.json`: `$OMDSH_HOME/lsp.json` (or `$DSH_HOME/lsp.json`, then `~/.dsh/lsp.json`) for every project, and `<project>/.dsh/lsp.json` for one project. A project definition overrides a user definition with the same server name.
+`lsp.json` lives beside `mcp.json`:
+
+- **User-wide:** `$OMDSH_HOME/lsp.json` (defaults to `~/.dsh/lsp.json`)
+- **Project-scoped (overrides user entries of the same name):** `<repo>/.dsh/lsp.json`
 
 ```json
 {
@@ -44,37 +47,44 @@ Write `lsp.json` in the same places omdsh reads `mcp.json`: `$OMDSH_HOME/lsp.jso
 }
 ```
 
+### Fields
+
 | Field | Required | Meaning |
 |---|---|---|
-| `command` | yes | Executable name resolved on `PATH`, or an absolute path. |
-| `extensionToLanguage` | yes | Lowercase leading-dot extension to LSP language id. At least one entry. |
-| `args` | no | Arguments passed to the executable. |
-| `env` | no | Extra environment merged over the inherited one. Credential-shaped names and `DSH_*` are not forwarded. |
-| `initializationOptions` | no | Static `initialize` options for the server. |
-| `configuration` | no | Static answer to every `workspace/configuration` request. |
-| `enabled` | no | Set `false` to keep a server in the file without mounting it. |
+| `command` | Yes | Executable name on `PATH` or an absolute path. |
+| `extensionToLanguage` | Yes | Lowercase dot-prefixed extensions mapped to LSP language IDs (at least one). |
+| `args` | No | Command-line arguments passed to the executable. |
+| `env` | No | Extra environment variables (credential-like names and `DSH_*` are never forwarded). |
+| `initializationOptions` | No | Static options sent on LSP `initialize`. |
+| `configuration` | No | Static response to `workspace/configuration`. |
+| `enabled` | No | Set `false` to keep the entry in the file without mounting it. |
 
-`${NAME}` and `${NAME:-fallback}` expand from the environment, so a machine-specific path or binary name can stay out of the file:
+`${NAME}` and `${NAME:-fallback}` expand from the environment so machine-specific paths stay out of shared files:
 
 ```json
-{ "servers": { "typescript": {
-  "command": "${LSP_BIN:-typescript-language-server}",
-  "extensionToLanguage": { ".ts": "typescript" }
-} } }
+{
+  "servers": {
+    "typescript": {
+      "command": "${LSP_BIN:-typescript-language-server}",
+      "args": ["--stdio"],
+      "extensionToLanguage": { ".ts": "typescript" }
+    }
+  }
+}
 ```
 
-Restart omdsh after editing `lsp.json`. `omdsh --dump-config` lists the `lsp`, `lsp-stdio`, and `tool-lsp` rows, and `/tools` lists the `lsp` tool.
+## 3. Verify your setup
 
-## What the agent gets
+Restart omdsh after editing `lsp.json`, then check two things:
 
-The agent calls `lsp` with an operation, a file path, and one-based line and character coordinates. Navigation returns `path:line:character` locations grouped by file; `findReferences` always includes the declaration, so impact analysis never misses the defining site. Hover returns normalized text. Empty results are successful no-result answers, not errors.
+1. Run `omdsh --dump-config` and confirm `lsp`, `lsp-stdio`, and `tool-lsp` appear.
+2. Inside omdsh, run `/tools` and search for `lsp`.
 
-Use it when textual search is ambiguous — a common symbol name, an overloaded method, or a change that needs exact call sites — and keep `grep` and `read` for ordinary navigation.
+## 4. Behavior, limits, and quick troubleshooting
 
-## Behavior and limits
-
-- omdsh resolves every configured executable at startup. A missing binary or a malformed `lsp.json` fails the launch with a labelled error instead of silently disabling navigation.
-- Each workspace gets one pooled server process, started on the first query for that workspace. Queries to one server run one at a time; different workspaces run in parallel.
-- Each query opens the current source text transiently and closes it afterwards, so the server always sees what is on disk and no document state accumulates.
-- A configured server runs with the same filesystem and process authority as omdsh. The host rejects query sources that are missing, non-regular, non-UTF-8, oversized, or outside the workspace, but it adds no sandbox of its own — treat a configured server like any other executable you trust.
-- A query for an extension no configured server maps fails with `LSP_UNAVAILABLE`, which the agent can read and route around.
+- **When it shines:** Common symbol names, overloaded methods, and refactors needing exact call sites (`findReferences` always includes the declaration). Plain navigation still uses `grep` and `read`.
+- **On-demand & fresh:** One pooled server per workspace starts on the first query; every query reads the current file from disk so buffers never go stale.
+- **Security note:** Configured servers run with the same filesystem and process permissions as omdsh. The host rejects missing, non-regular, non-UTF-8, oversized, or out-of-workspace targets, but does not sandbox the server binary itself—configure only trusted executables.
+- **Quick fixes:**
+- **Startup fails immediately:** omdsh validates every enabled binary and JSON schema at boot rather than failing silently. Check `which <command>` on `PATH`, or temporarily set `"enabled": false`.
+- **Model sees `LSP_UNAVAILABLE`:** The queried file’s extension is missing from `extensionToLanguage` (for example `.mts` or `.jsx`). Add the mapping and restart omdsh.

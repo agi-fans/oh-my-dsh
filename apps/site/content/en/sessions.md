@@ -1,117 +1,114 @@
 ---
-description: "Where omdsh stores durable sessions and local data, how the Session Library searches, pins and archives sessions, and how older session logs keep working."
+description: Complete reference for session storage, /resume library, Session Tree branching, file recovery snapshots, queueing/steering, drafts, and portable archives.
 ---
 
-# Sessions and history
+# Sessions and recovery
 
-## Durable sessions
+Every omdsh conversation is stored as a durable local log so you can resume work, branch from earlier turns, roll back file edits, compact long context, and export records. For a guided walkthrough see [Manage long sessions and recover files](tutorials/long-session.md); this page is the complete reference.
 
-Every session is a durable JSONL log under `$OMDSH_HOME/sessions`, falling back to `$DSH_HOME` and then `~/.dsh`. The logs are the source of truth for replay, projections, and search.
+## Quick comparison of session commands
 
-- `omdsh --resume <session-id>` reopens a session from the shell; the second `Ctrl+C` prints that command with the id when the session can be resumed.
-- `/resume` opens the Session Library with message previews, age, event counts and completion state; `/resume <session-id>` skips the selector, and `/resume <query>` searches durable message content and resumes the chosen hit. `Alt+S` searches from inside the library, search results keep rename, pin and archive actions, and `Alt+L` returns to all sessions in the current directory.
-- `/new` starts a clean session rather than branching the current one.
-- `/continue` continues an eligible failed generation without resending the original prompt; `Alt+R` does the same with an empty composer.
-- `/retry` explicitly resends the latest human prompt, preserving its ordered text, images and files, as a new turn.
-- `Esc` twice opens the Session Tree to browse this conversation’s turns and forks. Selecting nodes previews their content; Enter on a Turn creates a branch before that message and restores its prompt, while Enter on a branch or `Alt+Enter` continues that branch from its latest state.
+| Action | What it does | When to use it |
+|---|---|---|
+| `/resume` / `omdsh --resume <id>` | Reopens a saved session (with full-text search) | Pick up earlier work |
+| `/continue` / `Alt+R` (empty input) | Resumes a transiently failed generation without re-sending your prompt | Network drop, rate limit, or transient provider error |
+| `/retry` | Re-sends your last human prompt with original text, images, and files | Try a fresh answer after changing models or reasoning effort |
+| `/compact [focus]` | Summarizes earlier turns inside the same session | Context occupancy (`Ctx`) is getting high |
+| `/new` | Starts a fresh, empty session | Switch to an unrelated task (lets you pick a new Agent preset first) |
+| `/clear` | Resets conversation context below a labeled divider | Start fresh while keeping earlier terminal scrollback visible |
 
-See [Recover and manage a long session](tutorials/long-session.md) for the walkthrough.
+> **Native scrollback is never wiped:** `/clear`, switching sessions, `/resume`, and branching all append the new view below a labeled divider while keeping your earlier terminal history intact. Normal startup, preset switches, tool-catalog refreshes, and inspecting subagents add no divider; `/new` adds one only when the previous conversation had real content.
 
-The terminal's native scrollback stays available when you clear the transcript, resume or switch sessions, or fork through rewind. A labelled boundary marks the replacement. A fresh launch, preset or tool-catalog changes, and entering or leaving subagent inspection omit this boundary. `/new` shows it only when the previous transcript has content beyond notices and tool catalogs.
+## 1. Session Library (`/resume`)
 
-## Continue after a model failure
+Running `/resume` opens the library scoped to your current working directory:
 
-Harness applies its automatic retry policy first. After a transient model failure (rate limit, server error, timeout, transport failure, empty response or closed stream), `/continue` requests another generation using the existing conversation. Eligibility survives session resume; reopening a session does not send anything automatically. Completed turns, user interruptions, authentication/configuration errors and tool failures do not qualify.
+- **Directory scoping:** The list, recent shortcuts, completions, and content search include only sessions recorded for the current directory. To open a session from another directory, run `/resume <session-id>` or `omdsh --resume <session-id>`.
+- **Full-text search:** Run `/resume <query>` or press `Alt+S` inside the library to search full session logs (powered by a SQLite FTS5 index built on first search, including compacted or folded turns). Press `Alt+L` to return to the full list.
+- **Organization shortcuts:**
+- `Alt+P` — pin or unpin a session.
+- `Alt+R` — rename a session (manual titles are never overwritten by auto-titling).
+- `Alt+A` — archive or restore a session (synced with the workspace registry for scheduled reminders and Git worktree lifecycle; worktrees are retained on archive by default).
+- `Alt+V` — switch between active and archived sessions.
 
-Continue and Retry require an idle parent session with no pending messages, uploads, blocking questions or approvals. Resolve pending input in `/queue` first. `Alt+R` leaves draft text and attachments untouched and acts only with an empty composer. `/retry` is an explicit new submission, so the model may perform work again.
+## 2. Session Tree (`Esc` twice)
 
-## Session Tree
+Press **`Esc` twice** from an empty input box to browse turns and branches in the current workspace (subagents live in the subagent list above the input box rather than the tree):
 
-The Session Tree places forks at their inherited conversation boundary, marks the active branch, and shows shared turns once. It includes related conversation branches in the same workspace; subagent sessions stay out of the tree; reach them from the roster above the composer.
+- **Navigate & filter:** `↑`/`↓`/`Tab` moves focus, `←`/`→` collapses or expands subtrees, typing filters nodes while keeping ancestor paths, and `Ctrl+↑`/`Ctrl+↓` scrolls the preview pane.
+- **Branch or continue:**
+- Press `Enter` on a **turn** (`edit from here`) to create a branch right before that message and restore its original text, images, and file references into the input box without auto-sending.
+- Press `Enter` on a **branch node** (or `Alt+Enter` on any node, `continue branch`) to resume from the latest state of that branch.
+- **Node labels:** `Alt+L` adds or edits a local label (up to 120 chars; never sent to the model), `Alt+U` clears it, and `Alt+B` toggles filtering to labeled nodes.
 
-Use `↑`/`↓` or `Tab` to select, `←`/`→` to fold or open a subtree, and type to search while retaining matching nodes’ ancestors. The selected user message and final reply appear beside the tree on wide terminals and below it on narrower ones; `Ctrl+↑`/`Ctrl+↓` scroll the preview. `Esc` clears a search first, then closes the tree; cancelling preserves the composer and active session.
+## 3. Recovering turn files (File recovery snapshots)
 
-The footer names the action for Enter: **edit from here** prepares a new branch and restores the original text, images, and file references without sending a model request; **continue branch**, also available through `Alt+Enter` after searching, resumes the selected branch’s latest state. The original branches and terminal scrollback remain available. These actions change conversation history, not workspace files.
+Switching branches changes conversation history only. To also roll back files edited during a turn:
 
-Use `Alt+L` to label a Turn or branch and edit its existing label; `Alt+U` clears it. Labels are searchable and limited to 120 characters. `Alt+B` switches between the full tree and marked nodes with their ancestors, including when no nodes are marked. Labelling and filtering preserve the active session and composer; labels stay local and never enter the model context.
+1. **Enable once:** Turn on **`Settings → Plugins → Tools → File recovery snapshots`** (off by default; takes effect on the next turn).
+2. **Restore in three steps:** Press `Esc` twice → highlight the turn → press **`Alt+R`** → pick files, review before/after previews, and confirm. Press `Alt+H` to read saved recovery reports.
+3. **Safety guarantees and limits:**
+- Every file is checked against its turn-end state—**files modified later by you or another process are flagged as conflicts and left untouched**; displaced files are kept as `.omdsh-recovery-<id>.backup` backups.
+- Restoration preserves messages, the current branch, and the Git index, and reminds the model on the next step to re-read restored files.
+- Blocked under `Read only` access. Changing directories mid-turn, files over 128 MiB, snapshots over 1 GiB, or workspaces over 10,000 entries skip checkpointing rather than creating partial snapshots.
+- Stored locally in `omdsh/file-recovery/` (excluded from `/export archive`) and never pruned automatically; delete the folder anytime to reclaim space.
 
-### Restore Turn files
+## 4. Resuming after model failures (`/continue` and `/retry`)
 
-Enable **File recovery snapshots** in `/settings` → Tools before starting a Turn. It is Off by default because it saves private file contents and adds capture work. In Session Tree, select a Turn and press `Alt+R`, choose files, review their before/after contents and confirm **Restore selected files**; Cancel is selected initially. Changes apply to the next Turn; a capture already started continues when the switch is turned Off. Earlier Turns without complete snapshots cannot be recovered from their diff summaries.
+- After built-in retries exhaust on transient errors (rate limits, server errors, timeouts, dropped streams, empty responses), `/continue` (or `Alt+R` with an empty input box) continues generation without duplicating your prompt.
+- Normal completion, manual interrupts, auth/config errors, and tool errors are not transient failures—use `/retry` when you want a fresh attempt.
+- Both require an idle main session with no pending queue items or open approval prompts.
 
-Recovery keeps messages, the active branch, working directory and Git index unchanged. It restores ordinary file bytes and mode bits, recreates deleted files and removes created files. It rechecks each file against its retained post-Turn version, preserving later user or process changes as conflicts. Snapshot changes cover a time window and may include other processes’ edits; they are not automatically attributed to the model. A working-directory change within a Turn makes that checkpoint unavailable. Restore can target a saved directory after navigation, subject to current Access; Read only blocks restoration, and the worker remains confined even under Full access. The next model step receives a notice to reread affected files.
+## 5. Pending messages while busy (queueing, steering, and recovery)
 
-Open saved reports with `Alt+H` in the recovery file picker; when no files are restorable, that reading page includes the earlier reports. The report distinguishes restored, already-restored, conflict, failed, cancelled and uncertain results. Cancellation can leave a partial restoration. Displaced entries remain under reserved `.omdsh-recovery-<operation-id>.backup` paths; an interrupted receipt’s planned operations have unconfirmed completion and are never automatically retried. Backups retain the original inode so a writer holding its old descriptor does not lose data. Recovery is per file, not an all-files transaction.
+| Mode | Shortcut | When it delivers | Best for |
+|---|---|---|---|
+| **Queue (next turn)** | `Alt+Enter` (`Ctrl+Q` on Windows/WSL), or `Enter` by default | Starts as the next turn after the active turn finishes | Lining up follow-up work while the current turn is on track |
+| **Steer (next step)** | `Alt+S` | Injected before the next model step **without aborting active tools** | Course-correcting or adding a constraint mid-turn |
 
-Git capture covers tracked and nonignored untracked files in the active directory; ignored existing paths, submodules, embedded repositories and Git metadata are excluded or protected. Non-Git capture walks that directory without following links. Private snapshots and receipts stay under `omdsh/file-recovery/` and survive resume. No automatic pruning occurs; deleting this directory removes recovery data, without deleting messages or workspace backups. Empty directories, ownership, ACLs and extended attributes are outside the content contract. Hard links, special files or permission bits, Windows reparse points, ambiguous paths, unstable scans, more than 10,000 entries, files above 128 MiB or snapshots above 1 GiB make capture unavailable rather than produce an incomplete checkpoint.
+Change what `Enter` does while busy under `Settings → Terminal → Input → Busy send behavior`; `Cmd+Enter` / `Ctrl+Enter` always runs the opposite action. Both modes preserve text, images, and file attachments.
 
-## Session Library
+### Managing the queue (`Alt+↑` and `/queue`)
 
-`/resume` opens the Session Library for the current working directory. The list, recent-session shortcuts, argument completion, and content search include only sessions whose recorded directory matches it; parent directories, child directories, and sessions without a recorded directory are excluded. Pins and archived views keep the same scope. An explicit `/resume <session-id>` or `omdsh --resume <session-id>` can still open a session from another directory.
+- **`Alt+↑`** (empty input box) recalls the latest queued item for editing (preserving any displaced draft if you cancel).
+- **`/queue`** (or **`Alt+Q`**) opens the live queue list grouped by `Steer · next step`, `Queue · next turn`, and `Sending · not yet accepted`:
+- `Enter` edits text while keeping attachments; `Alt+S` promotes an accepted queued item to steering while a turn runs; `Alt+D` removes an item; `Alt+↑`/`Alt+↓` reorders within the group; `Esc` closes without losing drafts.
+- **Interrupts & restarts:** Interrupting a turn (`Esc` or `Ctrl+C`) keeps accepted queued items in `/queue`. After a normal exit or session switch, pending items do **not** auto-send on restart—local unaccepted entries appear in `/queue` as **`Recovered · confirm to send`**; press `Alt+R` to send or pull them back into the input box to edit first.
 
-In the library: `Alt+P` pins or unpins a session, `Alt+R` edits its title, and `Alt+A` archives it. `Alt+V` switches to archived sessions, where `Alt+A` restores the selection. View switching works with an empty list or search. Rename and pin shortcuts work while searching. Archiving and restoring synchronize with the Harness workspace registry, which also governs scheduled delivery eligibility and session-created Git worktrees (retained on archive by default when **Keep worktrees when archiving** is enabled). Archived sessions disappear from the default library and recent-session shortcuts, while their logs and attachments remain intact. You can still resume an archived session directly by id or find it with `/resume <query>`; resuming does not automatically restore it to the default list.
+## 6. Unsent drafts and legacy session logs
 
-Pins, archive state, and tree labels are stored in `$OMDSH_HOME/omdsh/session-library.json`. Session titles remain in the Harness session logs, summarized from the first prompt by `@deepseek-ai/dsh-session-title-all-prompts-llm` and refreshed only when later prompts materially shift the topic without overwriting manual renames. These paths fall back to `$DSH_HOME` and then `~/.dsh`.
+- **Automatic drafts:** Unsent input, cursor position, collapsed paste originals, and attachments save automatically per session (including per subagent) on pause, session switch, or exit, and clear when sent or explicitly cleared. Drafts are excluded from exports.
+- **Legacy migrations:** Older logs show `migration required` in `/resume`; confirming writes a versioned successor file while leaving the original untouched. Sessions created in v0.5.0–v0.11.0 may contain an early private event that omdsh still opens; v0.12.0+ sessions are fully readable by standard DSH persistence readers.
 
-`/resume <query>` searches durable session content instead, through the session-query index — SQLite FTS5, persisted in `sessions-query.sqlite` and opened lazily on the first search — and resumes the chosen hit. The search covers the full session log, so matches inside compacted or collapsed history still count.
+## 7. Portable archives (`/export archive`)
 
-## Unsent drafts
+- `/export` supports **Markdown**, **HTML**, and **Archive (`.zip`)**.
+- `/export archive [path]` packages logical session JSONL, child subagent logs, verified original image/file attachments, and `manifest.json` (64 MiB uncompressed cap; refuses to overwrite existing files).
+- Archives are **not redacted** and are intended for backup/inspection rather than automated re-import. File recovery snapshots are not included.
 
-The interactive composer saves unsent text per session after a short idle delay, and flushes it when switching sessions or exiting. Resuming a session restores its draft and cursor, including folded paste content, image bytes, and file attachment references. Parent and inspected subagent sessions keep separate drafts.
+## 8. Local data files
 
-Sending or explicitly clearing the composer removes its saved draft. Browsing input history retains the original unsent draft until you edit or select recalled text. Question answers, secret inputs, and queued messages are not saved as composer drafts. Drafts stay in local files outside the Harness log and are not included in session exports; pipe mode does not save them.
-
-## Logs on disk
-
-Session files may be compressed and carry integrity checks, so do not edit them by hand. Startup and Session Library browsing do not migrate historical logs. The library marks them `migration required`, using a previous cached title when available or the session id otherwise. Interactive `/resume` and selected library or search results ask before opening a migration-required session. Accepting writes a version-named successor (`session.v4.jsonl[.zstd]`) beside the unchanged predecessor; cancelling leaves the session unopened. `omdsh --resume <session-id>` and line-input `/resume <session-id>` explicitly activate and migrate that session without an extra interactive prompt. Other explicit writes, such as renaming, can also migrate the selected log.
-
-Sessions first created with v0.5.0 through v0.11.0 may contain the private `omdsh/tools-selected` event: current omdsh recognizes and resumes them, but an unmodified DSH persistence reader refuses that log. Sessions created with v0.12.0 and later do not write the event, so newly created sessions stay loadable by stock DSH persistence.
-
-## Local files
-
-All of these live under the same home (`$OMDSH_HOME`, else `$DSH_HOME`, else `~/.dsh`):
+All local data lives under `$OMDSH_HOME` (falling back to `$DSH_HOME`, then `~/.dsh`):
 
 | Path | Contents |
 |---|---|
-| `sessions/` | The durable session logs. |
-| `omdsh/file-recovery/` | Private Turn file snapshots, checksummed manifests and recovery receipts. |
-| `omdsh/drafts/` | Unsent composer drafts and their image bytes, grouped by hashed session id. |
-| `omdsh/history.jsonl` | Prompt history behind `Ctrl+R`. |
-| `omdsh/keybindings.json` | Application keybinding overrides. |
-| `omdsh/model-favorites.json` | The favorite model cycle behind `Ctrl+P` and `Alt+P`. |
-| `omdsh/session-library.json` | Session pins, archive state, and local tree labels. |
-| `omdsh/recent-sessions.json` | Session Library labels reused across launches; deleting it re-reads current-format logs and leaves historical logs as header-only rows. |
-| `sessions-query.sqlite` | Derived full-text index behind session content search; delete it to rebuild on the next search. |
-| `profiles/omdsh/` | The user plugin Profile managed by `omdsh plugin`, including the `cordis.patch.yml` that persists settings. |
-
-Settings changed in `/settings` persist through that Profile patch, not a separate settings file.
-
-## Portable archive
-
-`/export archive [path]` creates a ZIP with logical header/event JSONL, descendant subagent sessions, and verified original image/file attachments. `manifest.json` maps opaque session and attachment ids to safe archive paths. Export uses public persistence read handles, so compressed or migrated logs do not need to be copied by hand.
-
-The archive has a 64 MiB uncompressed limit, refuses an existing destination and removes a partial output on write failure or cancellation. Logs and original attachments are not redacted. Running sessions are captured individually, not as one atomic snapshot. The ZIP supports backup and inspection; it is not an automatic session-import format. Markdown and HTML exports remain transcript formats.
+| `sessions/` | Durable session logs (JSONL, possibly compressed with checksums—do not hand-edit). |
+| `sessions-query.sqlite` | Derived full-text search index (rebuilt automatically if deleted). |
+| `storages/` | Persistent key-value data, workspace registry, and scheduled reminders. |
+| `profiles/omdsh/` | User plugin profile and persisted settings patch (`cordis.patch.yml`). |
+| `omdsh/drafts/` | Unsent drafts and draft image bytes per session. |
+| `omdsh/history.jsonl` | Prompt history used by `Ctrl+R`. |
+| `omdsh/keybindings.json` | Custom application keybinding overrides. |
+| `omdsh/model-favorites.json` | Favorite model cycle list (`/model favorite`). |
+| `omdsh/session-library.json` | Pinned/archived flags and local Session Tree labels. |
+| `omdsh/recent-sessions.json` | Cached session-library labels (rebuilt if deleted). |
+| `omdsh/file-recovery/` | Per-turn file recovery snapshots, manifests, and recovery reports. |
+| `omdsh/approval-rules/` | Remembered approval allow/reject rules (up to 500). |
+| `omdsh/btw/` | `/btw` side-query records. |
+| `omdsh/logs/omdsh.log` | Redirected plugin diagnostic logs during interactive runs (delete to reset). |
 
 ## Related
 
-- [Commands](commands.md) — `/resume`, `/retry`, `/new`, and `/export`
-- [Recover and manage a long session](tutorials/long-session.md) — resume, rewind, compact, and export
-- [User plugins](plugins.md) — the Profile directory and `omdsh plugin`
-
-File recovery snapshots and receipts are profile-local and are not included in portable archives.
-
-## Pending messages and recovery
-
-You do not need a special command to continue a running task. By default, Enter during `Deep Driving` places an ordinary message in the next-turn queue, shown immediately above the composer. Settings → Terminal → Input → Send behavior while busy can change Enter to Steer. Cmd/Ctrl+Enter uses the other behavior while running. The composer shows the current action; explicit Queue and Steer shortcuts keep their meaning.
-
-With an empty composer, press `Alt+Up` to withdraw the latest queued message for editing, then `Enter` to submit it again. To edit an older entry, open `/queue` or press `Alt+Q` and select it. These actions keep the current tool call running.
-
-To correct the active task instead, type guidance and press `Alt+S`. The Harness receives it before the next model step; it does not interrupt the current tool call. **Steer · next step** remains visible until the message is claimed, while **Queue · next turn** waits for the current Turn to finish. Both delivery modes accept text, images and files, preserving image placement and file order. `Alt+Enter` always queues (Windows also uses `Ctrl+Q`), while `Alt+S` always steers. Delivery is fixed when submitted; changing the preference does not redirect pending messages. A rejected submission returns as an unsent draft without an automatic retry. If the turn ends while attachments are being saved, steering returns to the composer instead of silently starting a new turn. Idle Enter, commands and editing a recalled follow-up keep their existing behavior.
-
-Press Esc, or Ctrl+C with an empty composer, to interrupt the active turn. Accepted Queue and Steer messages retain their attachments while the session stays mounted; use `/queue` to edit or withdraw them. A second Ctrl+C within the exit window leaves omdsh, so pause before pressing it again if you intend to continue the session.
-
-Open `/queue` or press `Alt+Q` to manage individual pending messages. The live list distinguishes **Steer · next step**, **Queue · next turn**, and **Sending · not yet accepted**. The labels and controls follow the UI language; message text stays literal. Type to filter and use arrows or Tab to select; Enter edits text while keeping its images and file references. While a turn is running, `Alt+S` moves the selected accepted Queue message to Steer with the same text, image and file references. Sending entries and messages already in Steer cannot be promoted. A stopped turn leaves the message queued. `Alt+D` withdraws one entry, and `Alt+↑`/`Alt+↓` move it within its group without crossing plugin-owned queue messages. Esc cancels, preserving the composer draft and accepted input.
-
-The pinned Harness release clears pending inbox messages when its Agent handle is disposed. Normal exit and session-switch cleanup therefore do not preserve the queue for resume. An unclaimed inbox can be replayed from a log that has not been cleared, but this is not a guarantee of recovery after normal exit. Composer drafts and input not yet accepted by Harness are saved separately. On restart, local pending input appears as **Recovered · review before sending** and waits for confirmation. Open `/queue`, select an entry and press `Alt+R` to send it, or recall it into the composer to edit and submit. Entries already recorded as accepted are removed using their Harness message identities. A command or child delivery may have completed before its local confirmation was saved; check the transcript before resending recovered input. Recovery never automatically replays commands or Shell actions.
-
-A tool question takes priority over the queue page. If it interrupts editing, the changed text returns as an unsent composer draft while the queued entry stays unchanged. If the model takes an entry before its edit can be saved, the edit also returns as a draft instead of automatically creating another message. Steer and Queue changes use the Harness’s durable inbox. Input not yet accepted by Harness is saved locally in its original session, including text, attachments, order and delivery intent. If a session switch interrupts an edit, the changed text and attachments are saved as a draft in the original session. A brief composer confirmation appears when Harness takes a pending message for processing; this does not claim the model has answered it.
+- [Manage long sessions and recover files](tutorials/long-session.md) — step-by-step walkthrough
+- [Commands](commands.md) — `/resume`, `/retry`, `/compact`, `/export`
+- [Plugins and integrations](plugins.md) — profile directory and `omdsh plugin`

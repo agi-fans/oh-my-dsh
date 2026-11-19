@@ -1,47 +1,95 @@
 ---
-description: Published plugin interfaces, TUI interaction ownership, response-language integration, and the conditions for adding presentation APIs.
+description: For plugin authors — published extension points, code examples for tool presentation, prompts, settings schemas, and complete personas, plus terminal ownership rules.
 ---
 
 # Plugin internals
 
-Plugin authors extend the running Cordis tree through published Harness services. Start with [User plugins](plugins.md) for installation and [Write a plugin](tutorials/write-a-plugin.md) for an executable example.
+omdsh plugins extend the running Cordis plugin tree through published DeepSeek Harness (DSH) services. For installation and compatibility rules see [Plugins and integrations](plugins.md); for a step-by-step build walkthrough see [Write and publish a plugin](tutorials/write-a-plugin.md).
 
-## Available extension points
+## 1. Available extension points
 
-| Capability | Interface | Terminal behavior |
+| Capability | Service / interface | Terminal behavior |
 |---|---|---|
-| Slash commands | `dsh-commands` metadata, handlers and completion | Commands appear in Help, completion and the runner. |
-| Tools | Harness tool registration and `ToolDefinition.presentCall` / `presentResult` | The TUI renders provider-declared content with its own padding, wrapping and generic fallback. |
-| Models and authorization | `ctx.llm` and registered `ctx.authorization` flows | Models appear in the picker, and `/login` presents the flow’s notices and prompts. |
-| Settings and credentials | `ctx.settings` and `ctx.credentials` | Schema-declared live settings can appear in Advanced, subject to automatic-form policy. Secret values use the credential service. |
-| Questions and notices | `ctx.tui.prompt`, `notice` and `commandOutput` | The local provider owns focus, cancellation, readable results and return to the composer. |
-| Session behavior | Harness Agent/session services and durable events | Plugins observe lifecycle and contribute behavior within their Cordis scope. |
-| Personas and skills | Agent presets and the Harness skill registry | `/agent` selects a preset before model history exists, and `/<skill-name>` invokes a skill. |
+| Slash commands | `commands` (`dsh-commands`) | Enters `/` completion, `/help`, and command execution automatically |
+| Model tools | `tools` (optional `presentCall` / `presentResult`) | Rendered as styled cards with padding, wrapping, and generic fallback |
+| Models & auth | `llm`, `authorization` | Appears in `/model` and `/login` flows automatically |
+| Settings & secrets | `settings`, `credentials` | Live schema fields auto-render under `/settings → Advanced`; secrets stay encrypted |
+| User prompts & notices | `tui` (`prompt`, `notice`, `commandOutput`) | Local terminal owns focus, cancellation, keyboard/mouse input, and composer return |
+| Session behavior | `agent` / `session` services and durable events | Scoped to your plugin’s Cordis lifecycle |
+| Personas & Skills | Agent presets and Skill registry | Chosen via `/agent` (blank sessions) or `/<skill-name>` |
 
-Declare required services in the plugin’s `inject` list and register effects through its Cordis context so unloading releases them. Use the installed package’s exports and types as the contract. The [TUI manifest](https://github.com/agi-fans/oh-my-dsh/blob/main/packages/tui/omdsh-tui/package.json) lists the shipped provider, service definition, runtime and command entry points.
+Declare required services in `inject` and register resources via `ctx.effect(...)` inside `apply(ctx)` so unloading disposes cleanly. See the [TUI manifest](https://github.com/agi-fans/oh-my-dsh/blob/main/packages/tui/omdsh-tui/package.json) for published entry points.
 
-## Terminal ownership
+## 2. Common plugin patterns
 
-The local provider owns raw mode, decoded input routing, cursor state, viewport layout, mouse selection and terminal writes. The runner is the single consumer of `readInput`. Plugin questions use `prompt()` and the request’s cancellation signal. Human approvals have priority over ordinary browsing.
+### Register a tool with clean terminal presentation
 
-The product owns the composer, status footer, theme palettes, transcript layout and Settings categories. Plugins contribute tool presentation intent through `presentCall` and `presentResult`. Advanced exposes eligible live schema fields, while specialized forms use the owning command and prompt service. The fixed footer formats Harness projections and degrades lower-priority metrics as width shrinks.
+Supply `presentCall` and `presentResult` to describe intent—never hand-build borders or ANSI escape codes:
 
-Custom presentation registries remain a design possibility. `ctx.tui.contributions`, custom component factories and theme-pack registration have no published API. Introducing one requires independently owned consumers whose needs exceed the existing tool and prompt contracts. Its lifecycle, compatibility, cancellation, focus restoration and width behavior must be specified and verified before public export. Existing implementation modules remain internal unless the package export map explicitly exposes them.
+```js
+export const name = 'metrics-tool'
+export const inject = ['tools']
 
-Durable events must satisfy the published session schema. Readers can skip an unknown event only when it is explicitly ignorable and safe to omit. A visual extension therefore needs a durable replay contract before it can add new conversation facts. Permission decisions continue through Harness authorization and audit.
+export function apply(ctx) {
+  ctx.effect(function* () {
+    yield ctx.tools.register({
+      name: 'query_metrics',
+      description: 'Query service latency metrics for a time window',
+      parameters: { type: 'object', properties: { service: { type: 'string' } }, required: ['service'] },
+      presentCall: (args) => ({ title: `Metrics · ${args.service}` }),
+      presentResult: (result) => ({ summary: `${result.p95} ms p95` }),
+      async execute(args) {
+        return { p95: 42, service: args.service }
+      },
+    })
+  }, 'metrics-tool')
+}
+```
 
-## Response language and complete personas
+### Prompt the user safely through `ctx.tui.prompt`
 
-The product’s **Response language** setting contributes a system-prompt section. Follow UI resolves the interface language at the next turn; Auto contributes an empty fragment. A custom persona with `complete: true` must append `{{omdsh_agent_behavior}}` to honor the preference because complete personas suppress ordinary sections. The owning plugin and turn snapshot contract are documented in the [Agent behavior design](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/design/agent-behavior.md).
+Never touch `process.stdin` or raw TTY mode directly. Use `ctx.tui.prompt` and forward `signal` so cancellation works cleanly:
 
-## Composition and lifecycle
+```js
+const choice = await ctx.tui.prompt({
+  title: 'Deploy target',
+  question: 'Choose an environment',
+  options: [
+    { label: 'Staging', value: 'staging' },
+    { label: 'Production', value: 'prod' },
+  ],
+  allowCustom: false,
+  signal: invocation.signal,
+})
+if (choice === null) return { kind: 'success' }
+```
 
-`apps/omdsh` owns Profile loading, installation and application composition. The TUI package owns terminal presentation and interaction. User bundles share the published Harness services and must declare compatible peers to preserve service identity. CLI package operations require a restart. Runtime plugin operations report whether they applied live or require a restart, while existing Agent compositions retain their revision.
+### Expose plugin settings via `ctx.settings`
 
-Any future presentation seam must preserve display-cell layout, ANSI handling, CJK and emoji width, composer drafts, attachment order, cancellation and terminal restoration. Verification includes exceptions, unload, resize and nested human prompts. Source lookup and existing tests are described in [Architecture](architecture.md).
+Register a live schema with `ctx.settings` and omdsh automatically renders validated fields (with inherited/override status) under `/settings → Advanced`, persisting edits to the user’s profile patch. Store secret values through `ctx.credentials`.
+
+### Respecting Response language in a `complete: true` persona
+
+omdsh injects the user’s **Response language** preference through a system-prompt section. Because a custom persona with `complete: true` suppresses normal sections, include `{{omdsh_agent_behavior}}` so the preference continues to apply:
+
+```yaml
+complete: true
+template: |
+  You are a focused review assistant.
+  {{omdsh_agent_behavior}}
+```
+
+See [Agent behavior design](https://github.com/agi-fans/oh-my-dsh/blob/main/docs/design/agent-behavior.md) for snapshot timing details.
+
+## 3. Terminal ownership and boundaries
+
+- **Single terminal owner:** The local TUI provider exclusively owns raw mode, key decoding, cursor placement, viewport layout, and mouse tracking. Approvals take priority over routine browsing and restore the prior view on completion.
+- **No speculative UI registries:** Custom widget factories, theme registries, and custom footer segments do not have public APIs until a genuine second independent owner justifies the seam.
+- **Durable events and safety:** Persisted events must obey published session schemas (unknown events are skipped only when explicitly marked ignorable); permission decisions always pass through Harness approval and auditing.
+- **Reload semantics:** CLI package installs require a restart; live `/plugins` actions report whether changes applied immediately or need a restart, and existing sessions keep their mounted preset revision.
 
 ## Related
 
-- [User plugins](plugins.md) — installation and compatibility
-- [Write a plugin](tutorials/write-a-plugin.md) — a runnable bundle
-- [Architecture](architecture.md) — package and runtime ownership
+- [Plugins and integrations](plugins.md) — installation and compatibility contract
+- [Write and publish a plugin](tutorials/write-a-plugin.md) — step-by-step build and publish guide
+- [Architecture](architecture.md) — package boundaries and data flow

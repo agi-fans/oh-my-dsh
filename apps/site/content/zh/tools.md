@@ -1,62 +1,58 @@
 ---
-description: "omdsh 中模型可用的工具，按能力分组，并说明 Access、LSP 配置与结果溢写如何影响它们。"
+description: 了解 omdsh 内置工具与 4 种 Agent 预设（Standard、PTC、Minimal、Creator）的能力差异，以及何时该切换预设。
 ---
 
-# 工具
+# 内置工具与预设
 
-挂载的工具来自已发布的 Harness 插件和会话的 Agent preset；omdsh 增加的是终端呈现层，而不是第二套工具注册表。`/tools` 精确列出当前会话暴露的内容，列表随你用 `/agent` 选择的 preset 变化。对可写工具而言，Access 仍然决定它能够触及的范围。
+运行 `/tools` 可以搜索当前会话对模型可见的所有工具并阅读完整说明。这些工具由当前会话的 **Agent 预设**以及已启用的插件、MCP 服务器和语言服务器共同决定。
 
-## Shell
+## 四种 Agent 预设怎么选
 
-| 工具 | 行为 |
-|---|---|
-| `bash` / `pwsh` | 在宿主对应的受限 shell 中执行一次性命令。随包默认超时为 120 秒。Settings → Plugins → Shell 可调整默认和最大超时，每次调用显式指定的超时受最大值约束。后台命令可在 `/jobs` 查看。 |
-| `terminal_open`、`terminal_send`、`terminal_read`、`terminal_signal`、`terminal_close`、`terminal_list` | 持久终端会话，跨调用保留 cwd、环境与交互式子进程。 |
+在空白会话（发送第一条消息之前）运行 `/agent` 可以切换预设，也可以在 `/settings` → **`Agent 预设`** 里设置新会话的默认预设：
 
-## 工作目录
+| 预设 | 定位 | 包含的工具 | 适用场景 |
+|---|---|---|---|
+| **`Standard`**（默认） | 全功能日常编程助手 | 文件读写搜索、受限 Shell、持久交互终端、网页搜索/抓取、Todo、目标/后台任务/定时提醒、计划模式、子智能体、会话历史工具、团队任务板（开启 `/team` 后） | **95% 的日常开发、调试与重构** |
+| **`PTC`**（`code`） | 程序化工具编排模式 | 通过 **`run_code`** 将全部工具以生成 SDK 形式暴露给一段脚本集中编排（隐藏 `workflow_run`） | 需要在一个步骤里批量组合几十次文件读取、分析或过滤操作，减少多轮往返 |
+| **`Minimal`** | 极简双工具模式 | 仅保留最基础的文件与 Shell 双工具目录 | 极低上下文预算、极简提示或对比测试 |
+| **`Creator`**（`cordis`） | 插件开发专用模式 | 在标准目录上增加内置 `dsh-doc` 插件开发指南和只读运行时检查工具（`cordis_inspect_list` / `cordis_inspect_query`） | 用 `/agent creator` 编写或调试 omdsh 插件（不改默认预设） |
 
-`working_directory` 读取当前目录，也可以用 `cd` 切换到已存在的目录。后续文件操作、新启动的 shell、文件补全与底部路径跟随该目录。会话仍按原始项目归类并沿用已有权限；切换目录不会扩大 Access，也不会移动已经运行的终端。Minimal 保持双工具目录。
+> 已开始对话的会话预设会锁定（保证模型工具历史一致）；随时运行 `/agent inspect` 可查看当前会话实际挂载了哪些组件。
 
-## Git worktree
+## 内置核心工具一览
 
-`@deepseek-ai/dsh-experimental-tool-worktree` 随 omdsh 默认启用（可在 `/plugins` → Bundles 中关闭），为模型暴露 `create_worktree`；Minimal 仍限制其模型工具。omdsh 默认开启 **归档时保留 worktree**（`/settings` → Plugins → Tools 中的 `retainOnArchive: true`），因此在 `/resume` 中归档会话时默认保留该会话创建的 worktree，除非你主动关闭此项。`create_worktree` 基于本地修订（默认 `HEAD`）创建独立的 Git checkout 并将会话当前工作目录切入其中，切换到其他 checkout 或返回会话最初的工作目录则使用 `working_directory`。对话、原始项目和 Access 保持不变，文件操作、新 shell 和底部状态栏跟随当前目录。
+### 1. 文件与代码检索
+- **文件读写、编辑与搜索**（`read` / `write` / `edit` / `glob` / `grep` 等）：严格遵循当前权限模式（`/permission`）；超大输出会自动截断预览并保留完整内容供按需查阅，不撑爆上下文。
+- **代码智能（`lsp`）**：仅在配置了 `lsp.json` 语言服务器时出现，提供精准跳转定义、查找引用、查看实现和类型悬浮文档，详见[语言服务器（LSP）](language-servers.md)。
 
-创建需要同一执行环境中的 Git 2.45 或更高版本及 Node。它只检出已提交的文件，跳过配置的 Git filter，不初始化 submodule 或安装依赖；源 checkout 的改动留在原处。离开、禁用 bundle 或取消创建都不会自动删除分支或文件，失败也可能留下部分产物。请明确返回，并检查保留的产物后再用 Git 管理它们。
+### 2. Shell 与持久终端
+- **受限 Shell（`bash` / `pwsh`）**：按平台挂载（macOS/Linux 用 Bash，Windows 用 PowerShell），适合运行构建、测试与一次性命令；默认超时 120 秒，可在 `/settings` → **`插件` → `Shell`** 调整。
+- **持久交互终端（`terminal_*`）**：适合需要维持会话状态、持续输出或交互式操作的长期终端进程。
+- **后台任务（`jobs`）**：跟踪和读取回合结束后仍在运行的后台命令输出，用户在终端里用 `/jobs` 查看不会干扰模型读取。
 
-## 文件与搜索
+### 3. 网页搜索与抓取
+- **`web_search` 与 `web_fetch`**：默认使用 DeepSeek 托管接口（`deepseek-search-api` / `deepseek-fetch-api`），直接请求官方服务，避免本地代理 DNS 导致的抓取失败。
+- 需要访问 `localhost` 或公司内网页面时，可在 `/settings` → **`插件` → `集成` → `网页搜索与抓取`** 将抓取后端改为 **`直接抓取`（`http`）**。
 
-`read`、`write`、`edit` 与 `str_replace_editor` 处理文件内容，`grep` 与 `glob` 搜索工作区。可写工具遵守会话的 Access preset，沙箱之外的写操作返回[权限与 Access](permissions.md)中描述的共享拒绝。超过上下文预算的结果会溢写到私有文件，转录中只保留有界预览；原始内容仍可用 `read` 或 `grep` 读取。
+### 4. 任务规划、长期目标与定时提醒
+- **Todo 与计划模式（`exit_plan_mode`）**：拆解多步骤任务并在 `/plan` 模式下提交方案供你审核。
+- **长期目标（`goal`）**：配合 `/goal` 与 `Alt+G` 跨回合追踪大目标。
+- **定时提醒（`schedule_*`）**：创建和调整基于时间规则的持久提醒，配合 `/schedule` 管理与查看投递历史。
 
-## Web
+### 5. 多智能体、团队协作与外部扩展
+- **子智能体与团队工具**：内置 `subagent` / `subagent_fork` / `subagent_isolated`、`workflow_run`（`Standard` 预设可用，`PTC` 隐藏），以及开启 `/team on` 后开放的 `team_task_*` 共享任务板工具；启用内置集成后增加 `subagent_codex` / `subagent_claude_code`。详见[子智能体与团队协作](subagents.md)。
+- **会话历史检索（`session_*`）**：让模型检索历史会话与事件记录；如需节省上下文，可在 `/settings` → **`插件` → `可选功能`** 中关闭。
+- **MCP 工具与资源（`mcp__*`、`mcp-resources`）**：在 `/mcp` 连接任意 MCP 服务器后自动出现对应工具与资源读取能力。
 
-`web_search` 与 `web_fetch` 默认走 DeepSeek 的 Search 与 Fetch API：每次操作一次直接 API 请求，不消耗辅助模型回合，并可在 **设置 → Plugins → 网页搜索与抓取** 中分别选择 `auto`、`account` 或 `api-key` 计费模式（默认 `auto`，按当前会话的 DeepSeek 账户或 `/login` 保存的凭据引用鉴权）。托管抓取不依赖本机 DNS，在代理的 fake-IP 解析环境下也能工作；目标 URL 由 DeepSeek 的 Fetch API 代为抓取，而不是从本机直接访问。Messages 搜索与本机 **直接抓取**（`http`）仍保留在组合中；需要直接访问本机或内网地址时，可切换为直接抓取。不需要搜索的部署在自己 overlay 的 `tool-web` 行上关闭 `search`。
+## 按需开关可选工具
 
-## 代码智能
-
-只读的 `lsp` 工具为已配置的语言服务器提供定义、引用、实现与悬停查询。在 `lsp.json` 注册服务器之前不会出现 `lsp` 工具；见[语言服务器](language-servers.md)。
-
-## 任务与会话
-
-`todo_write` 跟踪实现项；当检查无法决定属于用户的取舍时，`ask_user_question` 会来问你；`present` 记录已完成的交付物，使它们在回合结束后仍可被找到（在 Standard、PTC 与 Creator 中配套 `@deepseek-ai/dsh-deliverable-file-references` 提供交付物及 `#L…` 工作区文件引用指引）；`skill` 按需加载匹配的 `SKILL.md`。
-
-omdsh 使用 `timed` 问答，默认等待 120 秒。编辑答案或按 `Ctrl+T` 会暂停问答倒计时；`Ctrl+S` 明确跳过单题，`Esc` 将有限时等待的问题留为待答。等待结束后，模型可以继续独立工作，但超时不代表批准。待答提示和 `/questions` 可用于之后补答，恢复会话后也能使用。补答会显示在转录中，并进入下一个模型步骤。`Ctrl+C` 表示中断，不会提交空答案。行输入模式下，空答案行明确跳过单题；EOF 取消回答界面。
-
-模型可在必须一直等待时设置 `timeout: -1`，Profile 也仍可选择 `legacy` 模式。PTC 有独立的执行预算，默认 180 秒；Take time 不会让 `run_code` 程序无限存活。若 PTC 程序在记录问答结果前结束，该问题就无法恢复用于补答。
-
-五个只读工具让 agent 能取到它自己早先会话里做过的工作：`session_search` 与 `session_event_search` 负责查找，`session_trace` 与 `session_event_trace` 追溯谱系与关联，`session_event_read` 返回精确的事件数据。没有它们，一个曾经解决过某问题的模型只能被重新告知一遍，因为 `/resume` 是你才能触及的能力，而不是 agent 的。
-
-它们按工作区授权：跨会话读取只在目标会话的工作目录与调用方完全一致时才被授权，而没有工作目录的会话只能检查自己。在 home overlay 里写 `disabled: true` 关掉这一行，即可移除全部五个工具及其引导语。
-
-## 运行时检查
-
-`cordis` preset 在原生目录之外增加只读的运行时检查：`cordis_inspect_list` 发现 provider，`cordis_inspect_query` 读取精确的 Service、Event 与 Tool API。它还增加已发布的 Harness 开发 Skills 和用于 Profile 管理的 `plugin_manager` 工具。该工具要求完整宿主访问或逐次审批，依赖脚本另需显式授权。人类管理入口为 `/plugins`。
-
-## 委派
-
-`subagent`、`subagent_fork` 与 `subagent_isolated` 把工作委派给子代理（可选传入 `name`，按同级名称或斜杠分隔路径寻址），`send_message`、`wait_agent` 与 `list_agents` 负责与可继续子代理协作（`interrupt_agent` 默认关闭，与上游 `dsh-base` 一致，查看子代理时仍可用 `Ctrl+C` 手动中断），`workflow_run` 用脚本把工作扇出到多个子代理。通过 `/team on` 为当前会话启用团队模式后，还会向主代理及可继续子代理开放共享任务面板工具 `team_task_create`、`team_task_list`、`team_task_get` 与 `team_task_update`。`ralph` 用一茬茬新 agent 迭代同一个目标，但默认关闭，与上游 base bundle 一致；home overlay 在其行上写 `disabled: false` 即可恢复。`code` preset 会 deny `workflow_run`，因此 PTC 会话只通过 `run_code` 编写编排。见[子智能体与委派](subagents.md)。
+绝大多数常用开关不需要手改配置文件，直接去 `/settings` → **`插件`** 即可：
+- 可选功能区可直接开关 **记录文件变更**、**会话历史工具**、**Ralph 循环** 和 **重复工具提醒**；
+- 仅在需要对底层插件做更细粒度覆写时（例如关闭 `tool-web` 的搜索但保留抓取，或启用默认关闭的 `interrupt_agent`），才需要编辑 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`。
 
 ## 相关
 
-- [命令](commands.md) —— `/tools` 及其余命令目录
-- [权限与 Access](permissions.md) —— 沙箱实际限制的范围
-- [Skills 与 MCP](skills-and-mcp.md) —— 用 Skills 与 MCP 工具扩展目录
+- [权限与安全](permissions.md) —— 4 种权限模式如何约束文件与 Shell 工具
+- [子智能体与团队协作](subagents.md) —— 子智能体与 `/team` 任务板工具详解
+- [Skills 与 MCP](skills-and-mcp.md) —— 给模型接入外部 MCP 工具
+- [语言服务器（LSP）](language-servers.md) —— 配置只读 `lsp` 代码导航工具

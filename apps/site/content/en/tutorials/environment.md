@@ -1,54 +1,96 @@
 ---
-description: Switch omdsh models and reasoning effort, add extra providers, and set UI and response languages and TUI preferences.
+description: Use the bottom-docked /settings panel to customize theme, language, live status line, favorite models, and reasoning effort.
 ---
 
-# Tune the working environment
+# Tune your terminal and models
 
-By the end of this walkthrough you can switch models and reasoning effort, sign in extra providers, choose UI and response languages, and reshape the interface through `/settings`.
+The defaults work well out of the box. Use this guide whenever you want to adjust colors, customize the status footer, set up fast model switching, or make mouse and notification behavior match your terminal habits.
 
-### Set languages and customize the interface
+## Open the bottom-docked `/settings` panel
 
-Run `/settings`. `Tab` and `Shift+Tab` switch between General, Models, Agent presets, Plugins, and Terminal. Advanced appears when plugins expose additional fields. Use arrows to select and change values, `Enter` to open a configuration form, and typing or `/` to search across categories. Forms show their scope and pending changes. Apply saves a draft; Cancel discards unapplied changes. Full options and persistence rules are in [Settings](../settings.md).
+Run `/settings` and press `Enter`. The panel **docks directly above the live status footer** instead of taking over the whole screen—your conversation stays visible above and your real status footer stays visible right underneath.
 
-General separates **UI language** from **Response language**. UI Auto follows the environment locale. Response language offers Follow UI, Auto, Simplified Chinese, and English. New profiles default to Follow UI, resolved when the next turn starts. Existing profiles retain their saved preference, and Auto adds no language instruction. Explicit language requests in the task take precedence. Code, commands, logs, and file contents retain their original form.
+The panel is organized into five main tabs (a sixth `Advanced` tab appears only when an installed plugin exposes raw configuration fields):
 
-In Terminal, Theme offers `dark`, `light`, and `system`. The palettes adapt Catppuccin Mocha and Latte; System follows reported terminal colors. Motion `full` smooths streamed text and animates activity, `reduced` keeps smooth text with quieter activity, and `off` follows provider chunks directly. Settled messages and tool boundaries flush the complete visible text.
+| Tab | What it controls |
+|---|---|
+| `General` | UI language, update checks, and startup release notes |
+| `Models` | DeepSeek account, built-in providers, and custom API endpoints |
+| `Agent presets` | Default preset for new sessions (Standard, PTC code mode, and more) |
+| `Plugins` | Built-in features (file recovery snapshots, Tmux context, Auto review, MCP, Codex/Claude integrations) and third-party plugins |
+| `Terminal` | Theme, motion, mouse mode, keybindings, status footer, notifications, and input behavior |
 
-**Terminal → Status line** controls density and item visibility. `minimal` shows occupancy, `standard` adds latency, and `verbose` adds token and session totals when space permits. `Space` shows or hides a selected item. Model and workspace information occupy fixed sides, and telemetry keeps a stable order as the terminal narrows. Status labels stay English across UI languages.
+Navigation inside `/settings`:
 
-Run `/help` to search available commands, or `/help full` for the current keyboard shortcuts.
+- `←` / `→` or `Tab` switches tabs; `↑` / `↓` moves focus; `Space` or `Enter` toggles or edits the selected row.
+- Press `/` to search across all settings (the cursor stays visible as you type; press `Esc` to clear the search).
+- Visual and status-line preferences **apply and save immediately**, showing a brief confirmation on the panel’s bottom hint line without cluttering your conversation. Multi-field forms (such as shell limits, subagents, or custom providers) let you review changes and save once with `Apply`.
 
-### Select model and reasoning effort
+## Five adjustments that make the biggest difference
 
-Run `/model` to browse models from all active providers in one searchable list. Catalogs load independently, so available models appear while other providers are still loading. Use `Alt+R` to refresh after a provider error, `Alt+F` to toggle a favorite, and `Alt+A` to switch between all models and favorites.
+### 1. Theme and language
 
-Press `Enter` to select a model and save it as the default, or `Ctrl+D` for **This session only**. The selected model supplies its default reasoning effort. Use `/model reasoning` or `Shift+Tab` to change effort explicitly; `Ctrl+T` shows or hides thinking. The current model and effort appear in the footer and persist with the session.
+- **Theme** (`Terminal → Theme`): Choose `Dark` (Catppuccin Mocha), `Light` (Catppuccin Latte), or `System` (adapts to your terminal palette). Pick `System` if you prefer your own terminal color scheme.
+- **Language** (`General → Language`): Defaults to `Auto` (follows your locale between English and Simplified Chinese) or can be locked explicitly.
 
-If the live switch succeeds but saving the default fails, choose **Retry saving default** or **Keep for this session**.
+### 2. Customize the status footer live
 
-### Sign in extra providers
+When you move through `Terminal → Status line`, **changes take effect directly on the real status footer beneath the panel, with the focused item underlined live**:
 
-DeepSeek itself is the first entry: `/login` can start a DeepSeek account browser sign-in (through a loopback callback) or store an API key. The account route appears in `/model`; `/logout` can sign out either the account grant or the file-stored key.
+- **Density:**
+- `minimal` — context occupancy only.
+- `standard` (recommended) — adds cache hit rate, first-token latency, and throughput.
+- `verbose` — uses full labels and adds a third line for session totals when the terminal is wide enough.
+- **Per-item toggles:** Hide or show individual items (model, effort, path, Git branch, session title, or individual metrics). Press `Ctrl+R` to restore inherited defaults.
+- Metric labels (`Ctx`, `Cache`, `TTFT`) stay in English across UI languages so widths and positions never jump around.
 
-To add another catalog provider, run `/login` and choose it from the list. A provider that registered an authorization flow offers that flow's methods instead of a generic API-key prompt; otherwise paste its API key. The route becomes live on the next model request.
+### 3. Mouse and text selection (especially in tmux)
 
-Choose `custom` to add a gateway or local server outside the catalog. Supply a permanent ID, base URL, API protocol, optional key, and one or more model IDs. Later, open **Settings → Models → Connection settings → Endpoints and model lists** to edit or delete a custom provider. `/logout` manages stored authentication.
+Under `Terminal → Mouse interaction`, pick the behavior that matches how you copy text:
 
-### Diagnose the local installation
+| Mode | Best when |
+|---|---|
+| `Auto` (default) | You want scroll-wheel navigation and clickable arrows/buttons; hold `Shift` (or `Option` on some macOS terminals) to select raw text. |
+| `On` | Force in-app mouse wheel and click handling. |
+| `Off` | Hand the mouse completely back to your terminal for effortless drag-to-select while navigating omdsh with the keyboard. |
 
-Run diagnostics from your normal workspace:
+### 4. Desktop notifications for long turns
+
+Enable `Terminal → Notifications` (off by default) to receive a terminal notification when a long turn finishes or when an approval prompt needs your attention while you are in another window.
+
+### 5. External editor
+
+Press `Ctrl+X` in the input box (or when writing plan feedback) to draft in your external editor. omdsh uses `$VISUAL` or `$EDITOR` by default, or you can set an explicit command under `Terminal → External editor` (such as `code --wait` or `nvim`).
+
+## Fast model switching and reasoning effort
+
+Real coding often alternates between a fast model for quick lookups and a stronger reasoning model for hard bugs:
+
+1. **Favorite models:** Run `/model favorite` to add the current model to your quick-cycle list (`/model unfavorite` removes it). Press `Ctrl+P` / `Alt+P` anytime to cycle through favorites.
+2. **Default vs. one-session switch:** Pressing `Enter` in `/model` updates the default for new sessions as well. To switch only for the active conversation, press `Ctrl+D` (`This session only`).
+3. **Reasoning effort:** Press `Shift+Tab` to cycle reasoning effort (shown on the left of the status footer):
+- Lower effort for quick file lookups, copy edits, and small fixes.
+- Higher effort for refactors, tricky debugging, and architecture design.
+4. **Thinking visibility:** Press `Ctrl+T` to show or hide thinking blocks in the conversation.
+
+## Adding other model providers
+
+Beyond DeepSeek, open `/login` or `Settings → Models` to configure other OpenAI- or Anthropic-compatible providers:
+
+- Activate a provider from the built-in list with an API key, or
+- Add a custom provider with your own ID, base URL, API protocol (`OpenAI Chat Completions`, `OpenAI Responses`, or `Anthropic Messages`), and model IDs.
+
+## Quick local health check
+
+If startup fails, models are missing, or sign-in behaves unexpectedly, run:
 
 ```sh
 omdsh doctor
-omdsh doctor --json
 ```
 
-Doctor reads the launch environment, Profile, bundle patches, plugin entry files and DSH peer requirements, Shell executable, MCP/LSP configuration and executables, and credential document metadata. It does not initialize or rewrite a Profile, execute config expressions, import configured plugins, start servers, send terminal probes or make model requests. A missing Profile reports shipped defaults; rejected layers leave explicit incomplete-coverage notices. Credential values and raw parser errors are omitted.
+It checks your runtime environment, credentials, configuration, and plugins, and prints actionable fixes. See [Troubleshooting](../troubleshooting.md) for common symptoms and solutions.
 
-Each check reports `ok` for its stated local fact, `failed` for a detected problem, `not-configured` for an absent optional configuration, or `not-checked` when runtime verification is still needed. Valid configuration and an available executable do not prove authentication or connectivity. Dynamic credential locations require runtime resolution; the default store is inspected separately. Fix failed checks using their guidance, then verify the selected model in `/model` or `/login` and integrations through their normal runtime.
+## Next steps
 
-JSON uses `schemaVersion: 1`, `version` and a `checks` array whose entries contain `id`, `status`, `summary` and an optional `remedy`. Exit code `0` means no failed checks, including reports with unchecked capabilities; `1` means a check failed; `2` means invalid CLI arguments. Neither format includes ANSI styling.
-
-### Next
-
-Next, [give the agent precise context](precise-context.md) with files, screenshots, and a clear request.
+- Ready for daily coding habits? Continue to [Give precise context and quick inputs](precise-context.md).
+- Looking for every option and custom keybinding format? See [Settings](../settings.md).

@@ -1,107 +1,82 @@
 ---
-description: omdsh 如何用已发布的 DeepSeek Harness 插件组成终端编程智能体，包括软件包边界与 TUI 所有权。
+description: omdsh 如何基于已发布的 DeepSeek Harness 插件构建终端编程助手，包括软件包分层、核心组件所有权、渲染保证与验证体系。
 ---
 
-# oh-my-dsh 架构
+# 架构概览
 
-oh-my-dsh 致力于成为 DeepSeek Harness 的最佳 TUI 补充，通过组合已发布的 Harness 软件包，把熟悉的行为带入精心打磨的终端界面。TUI 负责呈现和人机交互，会话、模型、工具、命令、权限、Skills、MCP 集成和投影由 Harness 插件负责。
+oh-my-dsh 构建在已发布的 **DeepSeek Harness（DSH）** 软件包之上：会话、模型、工具、命令、权限、Skills、MCP、LSP 与统计计量均由 Harness 插件负责，omdsh 专注于把这些能力呈现为清晰、流畅、可靠的终端体验，刻意避免重造第二套 Agent Core。
 
-## 边界
+## 一、仓库与依赖边界
 
-- **运行时：** `@deepseek-ai/*` 软件包以固定版本从 npm 安装，并通过其公开导出使用。
-- **产品：** `apps/omdsh` 负责 CLI 和运行时组合；`packages/tui/omdsh-tui` 负责可复用的终端插件套件。
-- **参考项目：** `refs/deepseek-harness`、`refs/oh-my-pi` 和 `refs/pi` 是只读的架构与交互设计参考，不参与依赖解析、构建、测试或运行时执行。
-
-本项目刻意避免建立第二套 Agent Core。它将 Harness 能力适配到本地终端，而不重新实现这些能力的领域状态。
-
-## 软件包布局
+- **运行时依赖**：所有 `@deepseek-ai/*` 软件包均以固定版本从 npm 消费，仅使用公开导出。
+- **产品包**：
+- `apps/omdsh`（`@agi-fans/oh-my-dsh`）：CLI 参数解析、启动引导、`omdsh doctor`、`omdsh exec`、`omdsh plugin` 安装器与运行时组合配置。
+- `packages/tui/omdsh-tui`（`@agi-fans/dsh-tui`）：可复用的终端 UI 套件（服务定义、本地终端 Provider、会话运行时、命令插件、Markdown/工具渲染与交互视图）。
+- **只读参考目录**：`refs/deepseek-harness`、`refs/oh-my-pi`、`refs/pi` 仅作设计与 API 研究参考，绝不参与依赖解析、构建、测试或运行。
 
 ```text
 apps/omdsh/                         @agi-fans/oh-my-dsh
-├── src/bin.ts                      CLI 入口与参数处理
-├── src/boot.ts                     启动 Harness 插件树
-├── src/plugin.ts                   `omdsh plugin` Profile 安装器
-└── config/cordis.yml               产品 bundle insert
+├── src/bin.ts                      CLI 入口与参数解析
+├── src/boot.ts                     启动并组合插件树
+├── src/doctor.ts                   只读诊断 (`omdsh doctor`)
+├── src/exec.ts                     脚本模式 (`omdsh exec --json`)
+├── src/plugin.ts                   `omdsh plugin` 管理命令
+└── config/cordis.yml               默认产品组合清单
 
-packages/tui/omdsh-tui/            @agi-fans/dsh-tui
-├── src/index.ts                    本地 Provider 插件入口
-├── src/definition.ts               与 Provider 无关的 TUI Service
-├── src/runtime/                    终端 Provider、会话运行时、Runner、启动提示
-├── src/commands/                   斜杠命令贡献插件
-├── src/chrome/                     主题、Markdown、渲染、Status、工具卡片
-├── src/input/                      按键、编辑器、剪贴板、粘贴
-├── src/views/                      会话记录、浮层、搜索、复制
-└── src/session/                    会话控制器与 TUI 设置
+packages/tui/omdsh-tui/             @agi-fans/dsh-tui
+├── src/definition.ts               与实现无关的 TUI Service 定义
+├── src/runtime/                    本地终端 Provider、会话运行时、Runner、设置表单
+├── src/commands/                   斜杠命令插件（model/session/team/plugins/mcp 等）
+├── src/chrome/                     主题、显示宽度、Markdown、工具卡片、状态栏
+├── src/input/                      按键解析、编辑器、剪贴板与粘贴保护
+├── src/views/                      对话视口、设置面板、Diff/文件/轨迹/搜索视图
+└── src/session/                    会话状态机与辅助投影
 ```
 
-TUI 软件包从同一个 npm 软件包公开多个 Cordis 入口，因为它们共享依赖与发布周期。只有当一项能力具备独立复用、所有权、依赖或版本管理需求时，才值得拆成新的 npm 软件包。
-
-## 插件所有权
-
-“一切皆插件”描述的是所有权，而不是文件数量。当一项能力拥有独立的生命周期、配置、依赖集合、注册协议、作用域或替换点时，它才应该成为插件。
-
-- 只有本地 Provider 负责 raw mode、按键解码、光标定位、viewport 状态和原子化终端写入。
-- `session-runtime` 负责创建 Agent、创建与恢复持久会话、替换活跃会话、选择模型、挂载 Agent preset、应用 preset 决定的工具暴露方式、读取 Projection 和清理资源。
-- 命令插件通过 `dsh-commands` 注册元数据和处理器；Runner 不维护第二份命令注册表。
-- 工具插件负责工具语义和与 Provider 无关的展示意图。TUI 将 `ToolDefinition.presentCall` 和 `presentResult` 映射为终端卡片，并保留通用回退展示。
-- Harness Projection 插件负责 token、上下文、耗时、标题和会话统计；状态栏只负责格式化这些输出。
-- `session-runtime` 把各委派深度上带 `origin: subagent` 的后代会话投影为 Composer 上方的实时名册，并可以把视口切换到其中一个孩子的 Transcript。可续写的孩子通过公开的 subagent 宿主接口（`@deepseek-ai/dsh-subagent` 的 `SubagentRuntime.prompt`）接收 Composer 的后续文本与图片消息，支持队列与插话投递以及冷子会话恢复，保留用户署名与轮次顺序；一次性运行保持只读。子会话日志留在各自的 Session 中，不会回放到父 Transcript。
-- 三种委托 transport 并存，按次选择而非常量配置。两个进程内后端（`subagent`、`subagent_fork`）在 TUI 自己的事件循环上运行子 Agent，并支持全部由父级强制的启动能力。进程外后端（`subagent_isolated`，基于 `dsh-subagent-acp`）改为派生一整个子运行时，把重负载委托的 CPU 移出该事件循环；它不声明任何启动期能力、也不实现可续写运行，因此这样的孩子在派发后无法被 steering。
-- 人机交互适配器将审批和提问 Service 连接到终端选择器，而不把这些领域迁入终端 Provider。
-
-纯算法仍然保留为内部模块，包括 ANSI 解析、终端显示宽度、Markdown 格式化、编辑器移动、路径匹配、主题映射、帧差分、viewport 切片和 Overlay 状态转换。除非出现第二个拥有独立所有权的适配器并形成真实边界，否则不应将它们改造成运行时插件。
-
-## 运行时组合
-
-[`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 是 `@agi-fans/oh-my-dsh` 产品 bundle，叠在空的 `$OMDSH_HOME/profiles/omdsh` 根上，其中组合了：
-
-- Cordis Loader 与 Timer 基础设施；
-- 官方 DeepSeek API-key 与账户两条 LLM 路由、休眠挂载的 pi-ai 多提供方 Adapter、设置、凭据、默认模型、Agent preset roster、Code Runtime 和 Agent Runtime；
-- DeepSeek 账户 grant 及其仅 loopback 的 OAuth 回调宿主，以及官方 DeepSeek Search/Fetch API Provider 与 Messages/本地 HTTP fallback；
-- 持久化 JSONL 会话、Checkpoint、查询、文件引用与跨会话引用、标题、统计与 Token Projection；
-- 本地附件、文件系统、子进程、Sandbox 和权限 Provider，以及每台主机唯一的一套 Shell 栈（POSIX 上是 `bash`，Windows 上是 `pwsh`）及其对应的模型工具；
-- Standard、PTC、Minimal 与 Cordis 的 Agent-plane 组合（Standard、PTC、Cordis 含上游时钟上下文与交付物行号引用指引；POSIX tmux 窗格在启用时注入窗格布局上下文），以及 Harness 命令、Compaction、Todo、Goal、Plan、审批、提问、Subagent 和按会话开启的 Agent Teams；
-- 文件系统 Skill 发现、实时 Profile MCP 服务器管理，以及静态项目级／用户级 MCP 与 LSP Server Adapter；
-- 本地 TUI Provider、工具展示适配桥、Session Runtime、人机交互适配器、命令贡献插件、启动提示和 Runner。
-
-Skills 与 MCP 的部署细节见 [`skills-and-mcp.md`](skills-and-mcp.md)。新建或升级的 Profile 会预置默认启用的 `@deepseek-ai/dsh-experimental-tool-worktree` 与 `@deepseek-ai/dsh-experimental-auto-review` bundle；`omdsh plugin add` 装入的用户 bundle、Profile 的 `cordis.patch.yml`，以及可选的 `$OMDSH_HOME/cordis.patch.yml` 会在启动时叠加在这棵 composition 之上，`omdsh --dump-config` 打印结果。[`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) 是可安装的编写样例。见 [`plugins.md`](plugins.md)。
-
-## 数据与交互流
+## 二、核心所有权与数据流
 
 ```text
-终端输入
-  → 本地 TUI Provider
-  → Runner 或命令注册表
-  → Session Runtime / Harness 能力
-  → 持久化会话事件与 Projection
-  → 与 Provider 无关的对话和状态 View
-  → 差分终端 Renderer
+终端输入 → 本地 TUI Provider → Runner / 命令注册表 → Session Runtime & Harness 服务
+       → 持久化会话事件 & 计量 Projection → 纯函数视图层 → 差分终端 Renderer
 ```
 
-普通消息通过 `session-runtime` 进入活跃 Agent。Slash Command 通过当前作用域内的 Harness Registry 执行。Agent preset 会在 Agent 发布前完成组合，并通过 Harness 的 Session Metadata 与 Event 记录下来以供重建；工具暴露方式从该 preset 推导，不再写入产品私有 Session Event。产生第一条 Prompt 后，模型可见组合会被锁定。Workflow 与 Access 仍是相互独立、由 Harness 拥有的会话状态。Session Event 是对话回放的持久化事实来源；Projection Service 提供派生状态，TUI 不维护重复计数。工具调用及其结果最终合并为一张卡片，并以 Input 和 Output 分区展示。Composer 旁的 subagent 名册展示任务名称和生命周期状态，后台流式增量不触发名册刷新。子代理名册同时也是入口：`↓` 选中一行、`Enter` 打开该子会话的转录。后台流分片不会刷新它；没有本地转录的外部子代理改为在转录里打印状态与近期活动。
+- **本地终端 Provider**：唯一负责 raw mode、按键解码、光标定位、鼠标事件与原子化终端写入。
+- **Session Runtime**：负责创建/恢复会话、管理模型与预设、挂载工具展示映射、维护子智能体列表（支持通过公开 `SubagentRuntime.prompt` 接口对可续跑子智能体发送文本与图片追问，以及冷子会话恢复）。
+- **工具与命令插件**：命令统一注册到 `dsh-commands`，工具通过 `presentCall`/`presentResult` 表达展示意图，TUI 统一处理留白、配色和回退。
+- **计量与状态栏**：Token、上下文占用、耗时、标题与会话统计全部直接读取自 Harness 计量服务，TUI 不维护第二套计数器。
+- **纯算法模块**：ANSI 宽字符计算、Markdown 排版、帧差分、视图状态转换等保持为纯函数内部模块，不强行拆成运行时插件。
 
-## 终端保证
+## 三、运行时组合概览
 
-- 布局以终端显示单元格为准，正确处理 ANSI 序列、CJK 文本、emoji、组合字符和不可断行的长内容。
-- Composer 和两行状态 Footer 固定在底部，Transcript Viewport 可以独立滚动。
-- `MainScreenRenderer` 将终端原生 scrollback 视为不可改写的视觉快照。在终端尺寸稳定时，已最终化的行会在离开实时屏幕前完成绘制。进行中的回合保持可变且不成组，结束后实时投影将过程折成一段。生产启动等待初始 session projection。打开或替换文档时采用新的行索引：idle 恢复完整重放快照，running 恢复保留可变尾部，并从缓冲事件重建流式内容。preset、工具列表更新和子 agent 检视等投影刷新只采用当前视口，不重放历史。resume、会话切换、fork 和 `/clear` 添加带标签的分界线，`/new` 仅在此前转录存在实际正文时添加；首次启动和投影刷新不需要分界线。原生 scrollback 永不擦除。direct terminal 为全屏界面借用 alternate screen；multiplexer 与 ConPTY 保留宿主 scrollback，multiplexer 的 resize 突发先合并再重新锚定。在鼠标偏好和 multiplexer 策略允许时，终端 provider 会为 composer 光标定位与补全启用 1000/1006 鼠标报告，无需等待转录溢出；转录浏览及支持鼠标的阅读器控件也使用这些报告。不支持鼠标的全屏界面会暂时关闭报告，返回后恢复阅读位置。固定在顶部的用户请求和回到最新消息控件属于视口装饰，不写入转录历史。用户命令返回文本时回到实时底部显示结果，后台通知和更新说明保留阅读位置。报告开启期间无法使用原生拖选，键盘复制路径仍可用。Renderer 负责绘制，每帧包在一次 DEC 2026 同步写入中。
-- 已完成的 Transcript 布局会被缓存，Renderer 只输出发生变化的行，而不重绘整个屏幕。
-- Modal Selector 在交互结束前独占输入和光标可见性，结束后恢复 Composer；Prompt 会暂时移开并恢复它所打断的全屏 Overlay，任何确认都不可能在被遮挡的旧屏幕背后被接受。
-- 第一次 Ctrl-C 清空输入或中断任务，第二次 Ctrl-C 退出。Ctrl-D 直接退出；存在持久会话时会输出 `omdsh --resume <session-id>` 提示。
-- Pipe 模式使用相同的命令与会话语义，但不接管交互式屏幕。
+[`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 将以下模块组合到用户的 `$OMDSH_HOME/profiles/omdsh` 之上：
 
-## 公共接口
+- **基础设施与模型**：Cordis Loader、DeepSeek 账户/API Key 双路由与本地 OAuth 回调宿主、多服务商适配器、凭据库、设置与默认模型；
+- **会话与安全保护**：持久化 JSONL 会话、全文搜索索引（SQLite FTS5）、会话标题与统计计量、审批规则（`approval-rules`）、文件恢复快照（`file-recovery`）、每轮改动汇总（`workspace-changes`）、工具结果剪枝与图片卸载防爆保护；
+- **平台工具与工作流**：按平台挂载单套 Shell（POSIX `bash` / Windows `pwsh`）、持久交互终端（`terminal`）、后台任务（`jobs`）、定时提醒（`schedule`）、网页搜索抓取、Todo、`/goal`、`/plan`、`/btw` 旁路提问、命令钩子（`hook-settings`）；
+- **预设与多智能体**：`Standard` / `PTC` / `Minimal` / `Creator` 预设、三种子智能体通道（`subagent`、`subagent_fork`、`subagent_isolated`）、按会话开启的 Agent Teams（`/team`），以及随包内置的 Codex、Claude Code、Git Worktrees、自动审查与 Tmux 位置上下文扩展；
+- **扩展协议**：文件系统 Skills、实时 `/mcp` 服务器管理、静态 `mcp.json` 与只读 `lsp.json` 语言服务器；
+- **终端层**：本地 TUI Provider、工具展示桥、人机审批交互适配器、斜杠命令集与 Runner。
 
-软件包支持的公开导出包括 Provider、Service Definition、Session Runtime、人机交互适配器、工具展示适配桥、命令组、启动提示和 Runner。Renderer、Editor、Markdown、Width、Overlay、Clipboard 和 Selector 模块仍是实现细节，即使测试通过相对路径导入它们。
+用户通过 `/plugins` 或 `omdsh plugin add` 安装的插件包，以及 `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` 的个人配置，会在启动时叠加在这棵组合树之上（可用 `omdsh --dump-config` 查看最终结果）。
 
-只有在主题、状态栏 Segment、Overlay 或按键 Action 至少出现两个拥有独立所有权的贡献者时，才应引入新的 Contribution Registry。在此之前，配置和内部状态机比预设的公共边界更合适。
+## 四、终端渲染与交互保证
 
-## 验证
+### 1. 主屏与原生滚动历史
+- 严格按终端**显示单元格宽度**排版（正确处理 ANSI 序列、中文、emoji、组合字符与超长命令），底部锚定输入框与状态栏。
+- **绝不擦除终端原生滚动历史**：已滚出视口的行作为当时的不可变快照保留；`/clear`、切换会话、`/resume` 和分叉会在一条带标签的分界线下方追加新视图（`/new` 仅在原对话有实质内容时画分界线）。
+- 仅在真正全屏的浏览界面且为直连终端时借用备用屏幕；在 tmux / screen / ConPTY 下合并 resize 突发并保留宿主滚动历史。
 
-- 纯渲染测试覆盖宽度、ANSI、CJK、emoji、边框、Markdown、工具卡片、viewport 行为和光标目标。
-- Runtime 测试覆盖命令注册、会话创建与恢复、消息队列、Projection、模型与权限选择、人机交互和资源清理。
-- `pnpm smoke:happy` 使用已发布 Harness Mock LLM 路径启动完整组合。
-- `pnpm smoke` 通过真实 PTY 运行构建后的命令，验证 raw input、渲染、中断和退出行为。
-- 依赖边界检查要求使用已发布的 npm 软件包、保持参考子模块干净，并禁止指向 `refs/` 的链接或别名。
+### 2. 增量差分与帧同步
+- 已完成回合的布局按区块缓存，滚动或流式更新时只重绘发生变化的可见行，每帧包裹在一次 DEC 2026 同步写入中减少闪烁。
+- 流式增量在 8 ms 窗口内合并渲染，用户按键、工具状态切换与控制事件仍同步即时刷新。
 
-改动所需执行的具体命令由 [`AGENTS.md`](https://github.com/agi-fans/oh-my-dsh/blob/main/AGENTS.md) 规定。
+### 3. 焦点、鼠标与安全退出
+- 弹窗和底部面板在关闭前独占输入与光标焦点；审批弹窗始终优先于普通浏览，完成后恢复原界面与草稿。
+- 鼠标支持（1000/1006）尊重 `Mouse interaction` 设置及 tmux `mouse off`；原生模式下所有键盘操作完整可用。
+- 运行中 `Ctrl+C` 清草稿或中断，空闲连按两次 `Ctrl+C`（或空输入框 `Ctrl+D`）退出并打印 `--resume` 提示；非 TTY 管道模式复用同一套会话与命令语义。
+
+## 五、验证体系
+
+- **纯渲染与合约测试**：覆盖宽字符、ANSI、Markdown、工具卡片、视口缓存、假终端按键路由与生命周期清理；
+- **端到端冒烟测试**：`pnpm smoke:happy`（模拟模型完整流程）与 `pnpm smoke`（真实 PTY 交互测试）；
+- **边界与文档门禁**：`pnpm check:boundaries` 确保零依赖落入 `refs/`，`pnpm check:md` 与站点构建校验全站双语文档。详见 [`AGENTS.md`](https://github.com/agi-fans/oh-my-dsh/blob/main/AGENTS.md)。

@@ -1,172 +1,60 @@
 ---
-description: Install and author DeepSeek Harness plugins for omdsh with omdsh plugin, Profile layers, and the dsh.bundle.patch contract.
+description: Install, update, and manage third-party plugins and bundled integrations (Codex, Claude Code, Git Worktree, Auto review, and Tmux context) with /plugins and omdsh plugin.
 ---
 
-# User plugins
+# Plugins and integrations
 
-omdsh extends through DeepSeek Harness plugins that mount in the same Cordis tree as the shipped composition. A user-installed capability is an npm package that declares `dsh.bundle.patch`, joins the omdsh Profile layer list, and starts with the rest of the tree.
+omdsh is built on DeepSeek Harness’s plugin architecture: shipped capabilities and installed third-party packages run side by side safely. For a guided user walkthrough see [Install plugins and built-in integrations](tutorials/install-plugin.md); to author your own plugin see [Write and publish a plugin](tutorials/write-a-plugin.md).
 
-Boot applies the shipped [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) as the `@agi-fans/oh-my-dsh` product bundle, then user bundles from `$OMDSH_HOME/profiles/omdsh`, the Profile `cordis.patch.yml`, `$OMDSH_HOME/cordis.patch.yml`, and MCP and LSP insert patches. `omdsh plugin add` and `omdsh plugin remove` install those user bundles. `omdsh --dump-config` prints the composed tree.
+## 1. Managing plugins with `/plugins` and `omdsh plugin`
 
-Skills and MCP remain separate deployment surfaces; see [Skills and MCP](skills-and-mcp.md). TUI richness comes from Cordis contribution services on top of that install layer, not from a TypeScript extensions folder. Theme, overlay, and keybinding registries stay closed until a second independently owned contributor needs them; see [Architecture](architecture.md) and [Plugin internals](plugin-internals.md).
+### Interactive management (`/plugins`)
 
-Use **Settings → Plugins** for plugin configuration or **/plugins → Configure plugins** for the same forms. **Let the agent create a plugin** opens Creator (`cordis`), reusing a blank session or creating a new session after an existing conversation. It sends no prompt and leaves the new-session default unchanged.
+Run `/plugins` inside omdsh for everyday management (changes apply across sessions sharing `$OMDSH_HOME`):
 
-## What already works once a plugin is mounted
+- **`Discover`:** Browse and search configured plugin indexes, install new packages, or update installed ones marked `Update available`.
+- **`Bundles`:** Read each bundle’s README (`Details`), toggle it on or off, update it, or uninstall third-party packages.
+- **`Plugin entries`:** Inspect individual plugin load states and diagnostics (terminal-required core entries are read-only so you cannot break the UI).
+- **`Configure plugins`:** Jump straight to settings for Shell, subagents, web search/fetch, and installed plugins.
+- **`Install bundle`:** Install directly by npm package name, version, Git URL, or local absolute path.
+- **`Let the agent create a plugin`:** Same as `/agent creator`—launches the Creator preset (with the bundled `dsh-doc` authoring skill) without changing your default preset.
 
-The TUI does not keep a second command, tool, or model registry. After a plugin is in the tree, these Harness seams already reach the terminal:
+### Command-line management (`omdsh plugin`)
 
-| Capability | Seam the plugin uses | What the TUI does |
-|---|---|---|
-| Slash command | `dsh-commands` metadata and handler | Appears in `/help`, autocomplete, and the runner |
-| Tool | `ToolDefinition`, including `presentCall` / `presentResult` | Renders a card, or the generic fallback |
-| Model provider | `ctx.llm` routes and settings | Appears in `/model`; `/login` can store a catalog key, run a registered authorization flow, or add a custom profile |
-| Credentials and settings | `ctx.credentials` and `ctx.settings` | Settings use the Profile patch, while secret values use the credential store |
-| Human prompt | `ctx.tui.prompt`, approval, and questions | Terminal selectors own the answer |
-| Skill | Harness skill registry | Appears as `/<skill-name>` |
-| MCP server | Live `dsh-mcp-manager` Profile entries or static `dsh-mcp-client` rows | Appears in `/mcp` and `/tools` |
-
-A plugin that only needs those seams does not require a TUI presentation adapter.
-
-## Current boot
-
-`apps/omdsh/src/boot.ts` initializes `$OMDSH_HOME/profiles/omdsh` when that Profile is missing and mounts an empty Profile root. Patches apply in product → user bundles → Profile patch → home patch → MCP → LSP order. A present patch file that is empty or not a YAML list fails loud. Boot, `omdsh plugin`, and `omdsh --dump-config` share one `loadLayeredEnv` snapshot first, so project and home `.env` files change home lookup and MCP expansion the same way on every path. `--dump-config` prints that composition without starting the TUI.
-
-A package listed in `dsh.profile.bundles` must declare `dsh.bundle.patch` and resolve from the omdsh installation or the Profile `node_modules`. Writing a provider profile into the Profile patch still cannot activate an adapter that the composition never mounted.
-
-`/login` already covers catalog providers and a hand-declared custom route through the shipped, dormant `@deepseek-ai/dsh-llm-pi-ai` adapter. When that adapter or another mounted plugin registers a Harness authorization flow, `/login` lists the flow and methods and the TUI renders only the generic notices and prompts. A provider whose adapter is not in the shipped tree still needs a user-mounted plugin.
-
-## Composition
-
-omdsh keeps a product-owned composition. It does not boot official `@deepseek-ai/dsh-base` as the first layer, and it does not become a skin on the official `web` or `headless` profiles. Those layers mount Host, HTTP, and Web UI rows that the TUI composition excludes.
-
-The first layer is the current omdsh composition, published as the `@agi-fans/oh-my-dsh` bundle through a `dsh.bundle.patch` manifest field. User bundles append after that product layer.
-
-```text
-$OMDSH_HOME/profiles/omdsh/
-  package.json          # dsh.profile.bundles plus user dependencies
-  cordis.yml            # empty root []; Loader baseUrl only
-  cordis.patch.yml      # optional user row patches
-  node_modules/         # user bundles, managed by pnpm
-```
-
-The Profile directory uses the same home omdsh already uses for sessions, settings, credentials, and MCP: `$OMDSH_HOME`, else `$DSH_HOME`, else `~/.dsh`. The Profile name is `omdsh`, so it does not collide with official `web` or `headless` profiles that may share `$DSH_HOME`.
-
-Boot applies patches in this order:
-
-1. The shipped `@agi-fans/oh-my-dsh` bundle (the product `cordis.yml`, expressed as an insert over an empty root).
-2. Additional names in `dsh.profile.bundles`, in list order.
-3. `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`.
-4. `$OMDSH_HOME/cordis.patch.yml` (machine-local overrides for every omdsh Profile).
-5. Existing MCP insert patches from user and project `mcp.json` files.
-6. LSP insert patches from user and project `lsp.json` files.
-
-A later layer wins per row id. An id-targeted patch replaces the whole `config` object; it does not deep-merge. A patch that names a missing id is skipped silently at boot (the loader logger is not wired to stderr in the TUI host), not an error.
-
-The initial runtime resolution is computed from the omdsh installation and the Profile's ordered bundle dependency graph and installed through Node's ESM/CJS resolvers. Runtime plugin transactions publish refreshed resolution tables after successful changes; retained Agent compositions keep their revision. This creates no fallback links: `@deepseek-ai/*` and `@agi-fans/dsh-tui` resolve from the omdsh installation first, user bundles resolve from the Profile `node_modules` and the Profile's linked roots, and a patch that inserts a package Node cannot resolve still fails loud at boot.
-
-omdsh implements `omdsh plugin` against those same published APIs. It does not require the official `dsh` CLI to be installed, and it does not reimplement install directories, version solving, or layer order.
-
-omdsh does not load TypeScript files from an extensions directory. That path is a different product model and would invent a second plugin manager beside Cordis.
-
-## Compatibility boundary
-
-Supported without extra TUI work:
-
-- Commands registered through `dsh-commands`.
-- Tools, including provider-neutral `presentCall` / `presentResult` cards.
-- LLM adapters that register routes on `ctx.llm`.
-- Settings and credential plugins that use the shipped stores.
-- Auth plugins that collect secrets or choices through `ctx.tui.prompt`, notices, or command output.
-- Skills and MCP servers, which keep their existing discovery paths.
-- Reactive plugins that observe durable session events or register Agent presets through Harness.
-
-Not promised:
-
-- Official `dsh-client-ui-*` Web UI plugins. omdsh has no web Profile.
-- Plugins that take over the TTY, listen to raw terminal bytes, or assume a Host / HTTP surface is mounted.
-- Pi's extensions-directory loader, `pi` package manifest, and `/reload` of loose TypeScript files.
-- Pi or oh-my-pi branding. The product keeps the DeepSeek identity.
-- Pi's "no MCP" stance. omdsh already mounts MCP servers through Harness.
-- Custom durable session event types or transcript entries. Persistence rejects an event unknown to a reader unless it carries `ignorable: true` and is safe to skip; omdsh provides no downstream registration or transcript-rendering surface for private event types.
-- Theme packs or overlay components. Those stay closed until a second independently owned contributor needs them.
-- A second tool-call intercept bus. Permission gates stay in the Harness approval plugin so audit is not bypassed.
-- Replacing the composer, keybindings, or any other TTY-owned surface.
-- A second slash-command registry, or an unbounded `/settings` row list.
-- Passing the host TUI instance, raw terminal bytes, or a plugin-owned assistant transcript renderer. A slim `custom()` Component seam, if it ever ships, stays experimental until a real external bundle has used it.
-
-A version mismatch, missing `dsh.bundle` declaration on a listed bundle, or unresolved package name fails at startup through the existing `boot()` / `assertEntriesActivated` path. The largest remaining risk is a user bundle that brings a second copy of Cordis or an incompatible DSH release: service tokens then split, and a plugin can look active while it cannot inject or dispose correctly. Core `@deepseek-ai/*` and `@agi-fans/dsh-tui` packages stay peers of the shipped release; `omdsh plugin` rejects an incompatible range at install time, and boot fails loud if two copies resolve.
-
-`/plugins` inspects live entry enablement and lifecycle state, manages bundles, and installs with progress, cancellation, diagnostic logs, and an explicit pending-build-script approval step. It uses the published Harness Plugin Manager and shares the Profile write lock with `omdsh plugin`. Terminal owners and management infrastructure are read-only in this picker. Installation is offered only after the current turn ends.
-
-Codex and Claude Code subagent bundles ship with omdsh and start disabled. The Bundles picker shows Installed · Disabled; open **Integration settings** and choose Enable integration to use either provider without a profile download. This opens the same form as `/settings → Integrations`. Shipped packages update with omdsh. Missing packages offer Install at the running Harness version; profile-owned packages also offer Reinstall. Installation progress ignores Enter to prevent accidental cancellation; Esc or Ctrl+C cancels and waits for restoration. Failed or cancelled attempts do not report enablement, and the picker rereads package state after each operation. These bundles supply pinned platform runtimes and never fall back to executables on PATH. That pinning is why both stay disabled until you ask for them: the Codex bundle pins its own `@openai/codex` at 0.153.4 regardless of the CLI you have installed, and its README requires regenerating upstream schema evidence to move it — so a Codex subagent runs the protocol it was built against, not the one your `codex` command speaks. The Claude Code bundle does not pin a CLI version, but both are the same decision: putting an external agent with its own runtime into the session. Native authentication and user/project settings remain authoritative; omdsh does not sign in or inspect credentials.
-
-Two experimental Harness capability bundles also ship with omdsh and start enabled by default in `/plugins` → Bundles (seed-once on new or upgraded profiles so disabling either bundle in `/plugins` stays respected): `@deepseek-ai/dsh-experimental-tool-worktree` (`create_worktree`; see [Tools](tools.md)) and `@deepseek-ai/dsh-experimental-auto-review` (the session-scoped **Auto review** Access mode; see [Permissions and access](permissions.md)).
-
-Profile-owned bundles offer **Details** (opening the bundle's README or documentation), **Update** (selecting a compatible newer version for registry bundles or entering a target commit and version for Git bundles, with cancellation and automatic rollback reporting), and **Uninstall** (with confirmation before unloading the bundle and removing its package). These actions affect every session using the profile; native Codex/Claude login and user settings are retained. Remove from profile only deselects a bundle when no profile dependency owns it. In **Discover**, entries report whether they are `Not installed`, `Installed`, `Update available`, `Included with omdsh`, or installed at a different version, and choosing an `Update available` entry updates the existing profile bundle in place instead of re-running fresh installation. Packages included with omdsh cannot be uninstalled separately: use Disable integration in their settings to stop them, and update them by updating omdsh.
-
-Installation status in Integration settings opens a structured reader with package availability, profile selection and component load states. Refresh reloads registration, Copy details copies the visible report, and Back returns to the selected action. Integration menus show a compact summary with full guidance under Usage notes; missing packages also offer Check profile status in Bundles. It does not test native payload startup or authentication. Once the provider has an editable Settings section, Model and Permissions opens those fields in the shared revision-checked product form; an omitted model inherits native settings. Child permissions are independent of the parent’s Access. Explicit `env` overrides belong in the provider’s profile patch; credential-shaped ambient variables are scrubbed, so the parent’s API key is not automatically inherited. These integrations run fresh text-only tasks and return final results to the parent; they have no continuation or local child transcript. See [Subagents](subagents.md).
-
-Profile and home `cordis.patch.yml` changes are watched by HMR. New bundles and configuration changes can apply live; replacing code in an already installed package requires a restart. Keep restarting after CLI package operations; the runtime picker reports whether its change applied, was overridden, failed, or needs a restart. Module-source watching is off by default (`hmr.config.root: []`); a Profile patch can opt into explicit source roots.
-
-Cordis adds the published Harness composition and plugin-development Skills, runtime inspection tools, and `plugin_manager`. That tool retains upstream full-host-access/approval requirements, and build scripts require separate explicit approval. `/agent inspect [preset-id]` reports the current declaration and the exact module composition retained by this session, including activation and isolation failures. Existing sessions do not silently switch to a newly declared preset revision.
-
-## User workflow
-
-Plugin configuration and bundle pages return one level at a time, retaining the parent list’s filter and selection. Operation results appear beside the controls; Alt+D opens full diagnostics and installation logs for reading or copying. Discover retains the current search after cancelling installation or selecting an incompatible entry. Alt+S edits the search and Alt+R refreshes or retries it.
+Ideal for scripts or pre-launch setup (requires `pnpm` on `PATH`):
 
 ```sh
-omdsh plugin add ./examples/hello
-omdsh plugin remove @agi-fans/omdsh-plugin-hello
-omdsh --dump-config
+omdsh plugin add <pkg|git-url|./local-path>
+omdsh plugin update <pkg>
+omdsh plugin remove <pkg>
+omdsh plugin list
 ```
 
-From an omdsh checkout, [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) is a complete bundle that registers `/hello`. `./examples/hello` is relative to the invoking directory; if that path is missing, omdsh walks parent directories for the same relative path and fails if nothing exists, so `pnpm --dir apps/omdsh omdsh plugin add ./examples/hello` still installs the checkout example. After a successful add, restart omdsh and run `/hello`; `--dump-config` should list `@agi-fans/omdsh-plugin-hello` after the product layer. A published package uses the same command with its npm or git spec instead of the local path.
+Any other arguments forward to `pnpm` inside `$OMDSH_HOME/profiles/omdsh/`. Run `omdsh --dump-config` or `omdsh doctor` afterwards to confirm the mounted plugin tree.
 
-`omdsh plugin` initializes `$OMDSH_HOME/profiles/omdsh` on first use, runs `pnpm` in that directory, and reconciles `dsh.profile.bundles` against installed packages that declare `dsh.bundle.patch`. Template / product bundles that are not Profile dependencies stay on the list. A plain library dependency is installed but does not become a layer; a later version that gains `dsh.bundle.patch` joins the list on the next successful `omdsh plugin` run.
+## 2. Bundled integrations shipped with omdsh
 
-`--dump-config` prints the composed entry list through `renderConfigDump`, with comments that name each contributing layer. That dump shows a fresh composition from the saved files; `/plugins` and `/agent inspect` show running observations.
+These integrations ship and update alongside `omdsh` (they cannot be uninstalled individually, but any of them can be disabled in `/plugins` → `Bundles`, and that choice persists across upgrades):
 
-After a successful CLI add, restart omdsh; the runtime picker reports live application separately. New LLM routes appear in `/model`. New commands appear in `/help`. Auth that needs a browser or device-code step owns that lifecycle inside its plugin and uses `ctx.tui.prompt` for any terminal question.
+| Bundled integration | Default | Where to configure | What it adds |
+|---|---|---|---|
+| **Codex / Claude Code subagents** | Off | `/settings` → **`Plugins` → `Agents`** (or `/plugins` → `Bundles`) | Delegates self-contained text tasks to pinned Codex or Claude Code runtimes; inherits native login/model, independent conservative permissions (`never` for Codex, `dontAsk` for Claude Code). |
+| **Git Worktrees** (`@deepseek-ai/dsh-experimental-worktree`) | On | `/plugins` → `Bundles`; archive option in `/settings` → `Plugins` → `Tools` | Isolates experimental work in a separate Git worktree without touching your active branch; retains worktrees on archive by default (`retainOnArchive: true`). |
+| **Auto review** (`@deepseek-ai/dsh-experimental-auto-review`) | On | `/permission` (per-session) and `/plugins` → `Bundles` | Adds `Auto review` mode in `/permission` for an extra model review before sensitive actions. |
+| **Tmux location context** (`@deepseek-ai/dsh-tmux-context`) | On inside tmux | `/settings` → **`Plugins` → `Tools` → `Tmux location context`** | Mounts automatically inside real POSIX tmux panes (`$TMUX_PANE`) to report session/window/pane layout; zero overhead outside tmux. |
 
-## Authoring a bundle
+## 3. Compatibility contract (for authors and power users)
 
-Walk through [Write a plugin](tutorials/write-a-plugin.md) to build and install a bundle, or copy [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello). A bundle is an npm package whose `package.json` contains:
+1. **Standard npm package + `dsh.bundle.patch`:** Point `dsh.bundle.patch` in `package.json` to your patch file (such as `./cordis.patch.yml`). Packages without it install only as plain libraries and mount no plugin layer.
+2. **Single shared runtime:** Declare all `@deepseek-ai/*` packages in `peerDependencies` matching the active DeepSeek Harness version; listing them in `dependencies` is rejected so the runtime tree is never duplicated.
+3. **Automatic TUI support:** Plugins that register slash commands (`commands`), model tools (`tools`), model providers (`llm`), secrets (`credentials`), settings schemas (`settings` → rendered automatically under `/settings → Advanced`), or user prompts (`tui.prompt`) work inside the terminal with zero custom TUI code.
+4. **No Web/HTTP host assumptions:** The TUI host intentionally does not mount a Web UI or HTTP server, and plugins must not hijack the TTY or read raw terminal bytes directly.
 
-```json
-{
-  "name": "@scope/dsh-example",
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  }
-}
-```
-
-`cordis.patch.yml` is a YAML array of Cordis include patches. The usual form is one `insert` list of plugin rows:
-
-```yaml
-- insert:
-    - id: example-provider
-      name: '@scope/dsh-example'
-```
-
-Declare Harness packages as peers compatible with omdsh’s pinned DSH and Cordis versions. If the plugin uses TUI services, declare `@agi-fans/dsh-tui` at a compatible product version. Do not nest a second `cordis` or `dsh-*` copy in the bundle's own dependencies. Import only published package exports. Do not reach into `refs/`. Do not assume Host, HTTP, or a Web UI is present.
-
-Prefer existing seams:
-
-- register commands on `dsh-commands`;
-- register tools with presentation intent on the tool definition;
-- register LLM routes on `ctx.llm`;
-- store secrets through `ctx.credentials`;
-- ask the user through `ctx.tui.prompt`.
-
-Custom transcript blocks, overlays and theme packs need a separately designed presentation API. Current bundles use the published tool and prompt contracts described in [Plugin internals](plugin-internals.md).
+For boot layering, public terminal interfaces, and code examples, see [Plugin internals](plugin-internals.md) and [Architecture](architecture.md).
 
 ## Related
 
-- [Architecture](architecture.md) — product composition and TUI ownership
-- [Plugin internals](plugin-internals.md) — published interfaces and terminal ownership
-- [Skills and MCP](skills-and-mcp.md) — filesystem Skills and MCP server documents
-- [Write a plugin](tutorials/write-a-plugin.md) — write, install, and publish a bundle
+- [Install plugins and built-in integrations (tutorial)](tutorials/install-plugin.md) — user walkthrough
+- [Write and publish a plugin](tutorials/write-a-plugin.md) — build and publish from scratch
+- [Plugin internals](plugin-internals.md) — public interfaces and code examples
+- [Subagents and Agent Teams](subagents.md) — detailed Codex and Claude Code behavior

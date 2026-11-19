@@ -1,107 +1,82 @@
 ---
-description: How omdsh composes published DeepSeek Harness plugins into a terminal coding agent, including package boundaries and TUI ownership.
+description: How oh-my-dsh composes published DeepSeek Harness plugins into a terminal coding agent — package boundaries, ownership, rendering guarantees, and verification.
 ---
 
-# oh-my-dsh Architecture
+# Architecture
 
-oh-my-dsh aims to be the best TUI companion for DeepSeek Harness. It composes published Harness packages into a terminal coding agent, aligning familiar behavior with a carefully designed terminal interface. The TUI owns presentation and human interaction. Harness plugins own sessions, models, tools, commands, permissions, Skills, MCP integrations, and projections.
+oh-my-dsh builds on published **DeepSeek Harness (DSH)** packages: sessions, models, tools, commands, permissions, Skills, MCP, LSP, and metering live in Harness plugins, while omdsh owns terminal presentation and human interaction—deliberately avoiding a second agent core.
 
-## Boundaries
+## 1. Repository and dependency boundaries
 
-- **Runtime:** `@deepseek-ai/*` packages are installed from npm at pinned versions and consumed through their published exports.
-- **Product:** `apps/omdsh` owns the CLI and runtime composition; `packages/tui/omdsh-tui` owns the reusable terminal plugin suite.
-- **References:** `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are read-only sources of architecture and interaction ideas. They never enter dependency resolution, builds, tests, or runtime execution.
-
-The product deliberately avoids a second agent core. It adapts Harness capabilities to a local terminal without reimplementing their domain state.
-
-## Package layout
+- **Runtime dependencies:** Every `@deepseek-ai/*` package is installed at exact published npm versions and consumed strictly through public exports.
+- **Product packages:**
+- `apps/omdsh` (`@agi-fans/oh-my-dsh`): CLI parsing, boot composition, `omdsh doctor`, `omdsh exec`, `omdsh plugin` installer, and default profile manifest.
+- `packages/tui/omdsh-tui` (`@agi-fans/dsh-tui`): reusable terminal UI suite (service definition, local terminal provider, session runtime, slash commands, Markdown/tool rendering, and interactive views).
+- **Read-only references:** `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are research-only and never participate in resolution, builds, tests, or runtime execution.
 
 ```text
 apps/omdsh/                         @agi-fans/oh-my-dsh
-├── src/bin.ts                      CLI entry and argument handling
-├── src/boot.ts                     Harness tree boot
-├── src/plugin.ts                   `omdsh plugin` Profile installer
-└── config/cordis.yml               product bundle insert
+├── src/bin.ts                      CLI entry and argument parsing
+├── src/boot.ts                     Boot and compose plugin tree
+├── src/doctor.ts                   Read-only diagnostics (`omdsh doctor`)
+├── src/exec.ts                     Script mode (`omdsh exec --json`)
+├── src/plugin.ts                   `omdsh plugin` manager
+└── config/cordis.yml               Default product composition
 
-packages/tui/omdsh-tui/            @agi-fans/dsh-tui
-├── src/index.ts                    local provider plugin entry
-├── src/definition.ts               provider-neutral TUI service
-├── src/runtime/                    TTY provider, session runtime, runner, notices
-├── src/commands/                   slash-command contribution plugins
-├── src/chrome/                     theme, markdown, renderer, status, tool cards
-├── src/input/                      keys, editor, clipboard, paste
-├── src/views/                      transcript, overlays, search, copy
-└── src/session/                    session controller and TUI settings
+packages/tui/omdsh-tui/             @agi-fans/dsh-tui
+├── src/definition.ts               Provider-agnostic TUI Service contract
+├── src/runtime/                    Local terminal provider, session runtime, runner, settings forms
+├── src/commands/                   Slash-command plugins (model/session/team/plugins/mcp/etc.)
+├── src/chrome/                     Themes, display width, Markdown, tool cards, status footer
+├── src/input/                      Key decoding, editor, clipboard, paste protection
+├── src/views/                      Transcript viewport, settings panel, diff/file/trajectory/search views
+└── src/session/                    Session controller and helpers
 ```
 
-The TUI package exposes several Cordis entry points from one npm package because they share dependencies and a release cadence. A new npm package is justified only when a capability gains independent reuse, ownership, dependencies, or versioning.
-
-## Plugin ownership
-
-“Everything is a plugin” describes ownership rather than file count. A capability becomes a plugin when it has an independent lifecycle, configuration, dependency set, registration contract, scope, or replacement point.
-
-- The local provider alone owns raw mode, key decoding, cursor placement, viewport state, and atomic terminal writes.
-- `session-runtime` owns Agent creation, durable session creation and recovery, active-session replacement, model selection, Agent preset mounting, preset-derived tool exposure, projections, and cleanup.
-- Command plugins register metadata and handlers through `dsh-commands`; the runner does not maintain a second command registry.
-- Tool plugins own semantics and provider-neutral presentation intent. The TUI maps `ToolDefinition.presentCall` and `presentResult` into terminal cards and retains a generic fallback.
-- Harness projection plugins own token, context, timing, title, and session statistics. The status line only formats their output.
-- `session-runtime` projects origin-classified descendant sessions across all delegation depths into a live roster above the composer and can replace the parent viewport with one child's transcript. Continuable children accept composer follow-ups through the published subagent host API (`SubagentRuntime.prompt` from `@deepseek-ai/dsh-subagent`), which preserves user attribution, text and image attachments, FIFO queue or next-step steer delivery, and cold-child resumption; one-shot runs stay read-only. Child logs stay in their own sessions and are not replayed as parent transcript events.
-- Three delegation transports coexist and are chosen per delegation rather than configured globally. The two in-process backends (`subagent`, `subagent_fork`) run the child Agent on the TUI's own event loop and honor every parent-enforced start capability. The out-of-process one (`subagent_isolated`, over `dsh-subagent-acp`) spawns a whole child runtime instead, keeping a heavy delegation's CPU off that loop; it advertises no start-time capabilities and implements no continuable run, so such a child cannot be steered after dispatch.
-- The human-interaction adapter connects approval and question services to terminal selectors without moving those domains into the provider.
-
-Pure algorithms remain internal modules: ANSI parsing, display-cell width, Markdown formatting, editor movement, path matching, theme projection, frame diffing, viewport slicing, and overlay state transitions. They should not become runtime plugins until a second independently owned adapter creates a real seam.
-
-## Runtime composition
-
-[`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) is the `@agi-fans/oh-my-dsh` product bundle, inserted over an empty `$OMDSH_HOME/profiles/omdsh` root. It composes:
-
-- Cordis loader and timer infrastructure;
-- the official DeepSeek API-key and account LLM routes, the dormant pi-ai multi-provider adapter, settings, credentials, default model, Agent preset roster, Code runtime, and Agent runtime;
-- the DeepSeek account grant with its loopback-only OAuth callback host, and the official DeepSeek Search/Fetch API providers with Messages/local HTTP fallbacks;
-- durable JSONL sessions, checkpointing, query, file and session references, title, statistics, and token projections;
-- local attachment, filesystem, subprocess, sandbox, and permission providers, plus exactly one shell stack per host (`bash` on POSIX, `pwsh` on Windows) with its matching model-facing tool;
-- the Standard, PTC, Minimal, and Cordis Agent-plane compositions (Standard, PTC, and Cordis include upstream clock context and deliverable file-reference guidance; POSIX tmux panes add pane layout context when enabled), plus Harness commands, compaction, todo, goal, plan, approval, questions, subagents, and session-scoped Agent Teams;
-- filesystem skill discovery, live Profile-managed MCP servers, and static project/user MCP and LSP server adapters;
-- the local TUI provider, tool-presentation bridge, session runtime, human-interaction adapter, command contributions, startup notices, and runner.
-
-Skills and MCP deployment details live in [`skills-and-mcp.md`](skills-and-mcp.md). New or upgraded profiles seed the default-enabled `@deepseek-ai/dsh-experimental-tool-worktree` and `@deepseek-ai/dsh-experimental-auto-review` bundles; user bundles from `omdsh plugin add`, the Profile `cordis.patch.yml`, and an optional `$OMDSH_HOME/cordis.patch.yml` overlay that composition at boot, and `omdsh --dump-config` prints the result. [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) is the installable authoring fixture. See [`plugins.md`](plugins.md).
-
-## Data and interaction flow
+## 2. Ownership and data flow
 
 ```text
-terminal input
-  → local TUI provider
-  → runner or command registry
-  → session runtime / Harness capability
-  → durable session events and projections
-  → provider-neutral transcript and status views
-  → differential terminal renderer
+Terminal input → Local TUI Provider → Runner / Command registry → Session Runtime & Harness services
+              → Durable session events & metering projections → Pure view layer → Differential renderer
 ```
 
-Ordinary messages enter the active Agent through `session-runtime`. Slash commands execute through the scoped Harness registry. The Agent preset is composed before publication and recorded through Harness session metadata and events for reconstruction; tool exposure is derived from that preset instead of a product-private session event. Model-visible composition is locked after the first prompt. Workflow and Access remain independent Harness-owned session state. Session events are the durable source for transcript replay; projection services provide derived status rather than TUI-owned counters. Tool calls and results settle into one card with distinct Input and Output sections. The composer-adjacent subagent roster shows task names and lifecycle states, and it is also the way in: `↓` selects a row and `Enter` opens that child's transcript. Background stream chunks do not refresh it, and an external child — which keeps no local transcript — prints its status and recent activity as a result instead of opening one.
+- **Local TUI Provider:** Sole owner of raw mode, key decoding, cursor state, mouse reporting, and atomic terminal writes.
+- **Session Runtime:** Manages session creation/resume, model/preset selection, tool presentation mapping, and live subagent lists (routing text/image follow-ups for continuable subagents through `SubagentRuntime.prompt`).
+- **Commands & tools:** Slash commands register via `dsh-commands`; tools declare presentation intent via `presentCall` / `presentResult` while the TUI handles padding, wrapping, and fallback rendering.
+- **Metering & footer:** Token counts, context pressure, duration, titles, and stats come directly from Harness projections—never duplicate UI counters.
+- **Pure internal modules:** ANSI cell width, Markdown formatting, frame diffing, and view transitions remain plain modules rather than speculative runtime plugins.
 
-## Terminal guarantees
+## 3. Runtime composition
 
-- Layout uses terminal display cells, including ANSI sequences, CJK text, emoji, combining characters, and long unbroken content.
-- The composer and two-line status footer stay anchored at the bottom while the transcript viewport scrolls independently.
-- The `MainScreenRenderer` treats native terminal scrollback as immutable snapshots. During stable geometry, finalized rows are painted immediately before they leave the live screen. A running turn stays mutable and ungrouped; when it ends, the live projection folds its work into one run. Production startup waits for the initial session projection. Opening or replacing a document starts a fresh row index: idle restoration replays the complete snapshot, while running restoration preserves the mutable suffix and rebuilds streaming content from buffered events. Projection refreshes, including preset and tool-catalog updates and subagent inspection, adopt only the current viewport without replaying history. Resume, session switches, forks, and `/clear` add a labelled boundary; `/new` does so only after substantive transcript content. Fresh startup and projection refreshes need no boundary. Native scrollback is never erased. Direct terminals borrow the alternate screen for full-screen surfaces; multiplexers and ConPTY preserve host scrollback, and multiplexer resize bursts are coalesced before re-anchoring. Subject to the mouse preference and multiplexer policy, the terminal provider enables 1000/1006 mouse reports for composer caret placement and completions, even before the transcript overflows, and for transcript browsing and supported reader controls. Unsupported full-screen surfaces suspend reports; returning restores the reading position. The pinned user prompt and jump-to-latest control are viewport decorations and never enter transcript history. Requested command text results reveal the live tail; background notices and release notes preserve the reading position. Native drag selection is unavailable while those reports are enabled; keyboard copy paths remain available. The renderer owns painting and wraps each paint in one DEC 2026 synchronized write.
-- Settled transcript layouts are cached and the renderer emits row-level differences instead of repainting the complete screen.
-- Modal selectors own input and cursor visibility until they settle, then restore the composer; a prompt displaces and restores any full-screen overlay it interrupted, so no confirmation can be accepted behind a stale surface.
-- The first Ctrl-C clears or interrupts; a second Ctrl-C exits. Ctrl-D exits directly, and a durable session produces an `omdsh --resume <session-id>` hint.
-- Pipe mode uses the same command and session semantics without claiming ownership of an interactive screen.
+[`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) layers these capabilities over `$OMDSH_HOME/profiles/omdsh`:
 
-## Public surface
+- **Core & models:** Cordis loader, DeepSeek account + API-key routes with local OAuth callback host, multi-provider adapter, credentials, settings, and default model.
+- **Sessions & guardrails:** Durable JSONL sessions, SQLite FTS5 search index, auto-titling and metering, remembered approval rules (`approval-rules`), turn file recovery snapshots (`file-recovery`), per-turn changed-file tracking (`workspace-changes`), tool-result pruning, image offload, and repeat-tool reminders.
+- **Tools & workflows:** Platform shell (`bash` on POSIX, `pwsh` on Windows), persistent interactive terminals (`terminal`), background jobs (`jobs`), scheduled reminders (`schedule`), web search/fetch, Todo, `/goal`, `/plan`, `/btw` side queries, and command hooks (`hook-settings`).
+- **Presets & multi-agent:** `Standard`, `PTC`, `Minimal`, and `Creator` presets; three subagent transports (`subagent`, `subagent_fork`, `subagent_isolated`); opt-in Agent Teams (`/team`); plus bundled Codex, Claude Code, Git Worktrees, Auto review, and Tmux location context integrations.
+- **Extensions:** Filesystem Skills, live `/mcp` server manager, static `mcp.json`, and read-only `lsp.json` language servers.
+- **Terminal layer:** Local TUI provider, tool presentation bridge, human interaction adapter, slash commands, and runner.
 
-The supported package exports are the provider, service definition, session runtime, human-interaction adapter, tool-presentation bridge, command groups, startup notices, and runner. Renderer, editor, Markdown, width, overlay, clipboard, and selector modules remain implementation details even when tests import them by relative path.
+User-installed plugins (`/plugins` or `omdsh plugin add`) and `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml` layer on top at boot (inspect with `omdsh --dump-config`).
 
-New contribution registries for themes, status segments, overlays, or key actions should be introduced only when at least two independently owned contributors require them. Configuration and internal state machines are preferable to speculative public seams.
+## 4. Terminal rendering guarantees
 
-## Verification
+### Main screen and native scrollback
+- Layout is computed in **terminal display cells** (handling ANSI escapes, CJK text, emoji, combining marks, and unbroken lines), with the input box and status footer anchored at the bottom.
+- **Native scrollback is never erased:** Scrolled-off rows stay immutable snapshots; `/clear`, session switches, `/resume`, and forks append below a labeled divider (`/new` adds one only when the prior transcript had substantive content).
+- Alternate screen is used only for true full-screen overlays on direct terminals; tmux, screen, and ConPTY coalesce resize bursts and preserve host scrollback.
 
-- Pure rendering tests cover width, ANSI, CJK, emoji, borders, Markdown, tool cards, viewport behavior, and cursor targets.
-- Runtime tests cover command registration, session creation and recovery, queueing, projections, model and permission selection, human interaction, and disposal.
-- `pnpm smoke:happy` boots the complete composition against the published Harness mock LLM path.
-- `pnpm smoke` exercises the built command through a real PTY for raw input, rendering, interruption, and exit behavior.
-- Dependency-boundary checks require published npm packages, clean reference submodules, and no links or aliases into `refs/`.
+### Incremental diffing and frame sync
+- Completed transcript blocks cache their formatted rows; scrolling and streaming repaint only changed visible rows inside a single DEC 2026 synchronized write.
+- Streaming deltas coalesce within an 8 ms frame window while user keystrokes, tool state transitions, and control events flush immediately.
 
-The exact commands required for a change are defined in [`AGENTS.md`](https://github.com/agi-fans/oh-my-dsh/blob/main/AGENTS.md).
+### Focus, mouse, and safe exit
+- Overlays and docked panels own focus cleanly; approval prompts always take priority over routine views and restore your prior surface and draft once resolved.
+- Mouse reporting (1000/1006) respects `Mouse interaction` and tmux `mouse off`, with full keyboard parity in native mode.
+- `Ctrl+C` clears drafts or interrupts active work; pressing `Ctrl+C` twice at idle (or `Ctrl+D` when empty) exits with a `--resume` hint. Pipe mode shares the same command and session semantics without taking over the screen.
+
+## 5. Verification
+
+- **Unit & fake-TTY contract tests:** Cell width, ANSI/CJK/emoji layout, Markdown, tool cards, viewport caching, key routing, and lifecycle disposal.
+- **End-to-end smoke tests:** `pnpm smoke:happy` (mock LLM happy path) and `pnpm smoke` (real PTY interaction).
+- **Boundary & doc gates:** `pnpm check:boundaries` guarantees zero references into `refs/`, while `pnpm check:md` and site builds validate bilingual docs. See [`AGENTS.md`](https://github.com/agi-fans/oh-my-dsh/blob/main/AGENTS.md).

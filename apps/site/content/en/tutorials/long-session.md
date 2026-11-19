@@ -1,48 +1,86 @@
 ---
-description: Resume, rewind, compact, and export long omdsh sessions, including omdsh --resume after a two-step Ctrl-C exit.
+description: Resume and organize sessions, explore branches in the session tree, restore file snapshots with Alt+R, and compact or export long conversations.
 ---
 
-# Recover and manage a long session
+# Manage long sessions and recover files
 
-By the end of this walkthrough you can resume a session after leaving, rewind to an earlier turn, compact old history, and export a transcript.
+Real work often spans days, dozens of turns, and a few dead ends. This guide puts together the four skills that keep long sessions safe and manageable: finding past sessions, branching, rolling back unwanted file edits, and trimming context before it fills up.
 
-### Resume after leaving
+## 1. Resume and organize past sessions (`/resume`)
 
-The first `Ctrl+C` clears or interrupts, and a second one exits. When the active session is durable, omdsh prints a command you can paste later:
+Whether you restarted your terminal or want to pick up yesterday’s task:
 
-```sh
-omdsh --resume <session-id>
-```
+- **Direct CLI resume:** When you exit omdsh, it prints `omdsh --resume <session-id>` so you can jump straight back in.
+- **Interactive search:** Inside omdsh, run `/resume` (or `/resume <query>` for full-text search across session content), pick a match, and press `Enter`.
 
-Inside the TUI, `/resume` opens a searchable session selector with the latest human-message preview, age, event count, and completion state. `/resume <session-id>` skips the selector when you already know the identifier. Session logs, the Session Library, and the local data files are documented in [Sessions and history](../sessions.md).
+> **Common pitfall: Why is yesterday’s session missing from `/resume`?** By default, `/resume` shows sessions tied to your **current working directory**. If you launched omdsh from a parent or sibling folder, switch back to the original project directory or resume directly by ID with `omdsh --resume <session-id>`.
 
-### Explore branches without losing history
+Inside the `/resume` list you can keep important sessions tidy:
 
-When the agent is idle and the composer is empty, press `Esc` twice to open the Session Tree. Browse turns and forks with `↑`/`↓`, fold them with `←`/`→`, and type to search while previewing the selected content. Enter on a Turn prepares a new branch before that message and restores its text, images, and file references into the composer without sending it. Enter on a branch or `Alt+Enter` resumes that branch’s latest state. The original branches stay available; these operations do not roll back workspace files.
+- **`Alt+P`:** Pin or unpin a session to the top.
+- **`Alt+R`:** Rename a session (for example, `Order export refactor`) so it is easy to spot later.
+- **`Alt+A` / `Alt+V`:** Archive finished sessions or toggle the archive view.
+- **`/name <title>`:** Rename the active session directly from the prompt.
 
-Two neighboring commands cover other session workflows:
+## 2. Explore alternate paths with the Session Tree (`Esc` twice)
 
-- `/continue` continues an eligible failed model generation without duplicating the prompt. `/retry` resends the latest human prompt with its images and files as a new turn.
-- `/new` starts a clean session instead of branching the current one.
+Suppose turn 3 went fine, but by turn 7 you realize you want to try a different design without losing what you already learned:
 
-### Compact and export
+1. From an empty input box, **press `Esc` twice** to open the Session Tree (wide terminals show the branch tree on the left and a live turn preview on the right).
+2. Select turn 3 with `↑` / `↓` and press `Enter` to **branch from that point**. The earlier branch stays intact so you can always switch back and compare.
+3. **Label milestones:** Highlight any turn and press `Alt+L` to attach a label (such as `Approach A tests green`), then press `Alt+B` to filter to labeled nodes.
 
-Run `/context` to inspect occupancy and the session overview. If the conversation is growing too large, review the category breakdown before deciding to compact. The display distinguishes measured usage from estimates. See [Observability](../observability.md) for details.
+> **Branches vs. files on disk:** Switching branches in the Session Tree changes **conversation history only**; it does not touch files on disk. To roll files back to how they looked before a turn, use File recovery snapshots below.
 
-Run `/compact` while the agent is idle to replace a useful older history span with a summary. The compacting state remains visible until the durable checkpoint finishes. You can keep typing and queue the next message with Enter while compaction runs; it is admitted after compaction ends. Ctrl+C interrupts compaction. If summary generation fails or is cancelled before the checkpoint is written, the original model history remains available. If there is not enough history, the command reports that nothing is compactable.
+## 3. Undo unwanted file edits safely with File recovery snapshots (`Alt+R`)
 
-The completion notice folds the saved summary behind `Ctrl+O`. Press it again to return to the live tail. Saved summaries remain readable after resuming the session; opening them never rewrites terminal scrollback.
+If an edit goes sideways before you have made a Git commit, File recovery snapshots act as a per-turn undo button:
 
-Run `/export` to choose Markdown, HTML, or a session archive, then choose a destination. The result page offers applicable copy, preview, and open actions. To export Markdown directly, supply the format and path.
+1. **Enable once:** Run `/settings` and turn on **`Plugins` → `Tools` → `File recovery snapshots`**. Every new turn from then on captures before/after file snapshots automatically.
+2. **Preview and restore:** Press `Esc` twice to open the Session Tree, highlight the turn you want to undo, and press **`Alt+R`**:
+- Select which files to restore (files you edited manually *after* that turn are flagged as conflicts and skipped so your own edits are never overwritten).
+- Preview the before/after contents for each selected file.
+- Confirm to restore and review the printed recovery report.
+
+> Snapshots stay local to your profile directory and complement—not replace—regular `git commit` checkpoints.
+
+## 4. Easily confused session commands compared
+
+| Command | What it actually does | When to use it |
+|---|---|---|
+| `/continue` | Continues generation from where the previous response stopped | A network glitch, rate limit, or accidental interrupt cut off a good response. |
+| `/retry` | Re-sends your last prompt and attachments as a fresh turn | You want a different attempt after switching models or raising reasoning effort. |
+| `/compact` | Summarizes earlier turns into a compact block inside the same session | Context occupancy (`Ctx`) is turning yellow/red and you want to keep working without starting over. |
+| `/new` | Starts a brand-new session (allowing a fresh Agent preset before the first message) | You are moving to an unrelated task and want a clean slate. |
+| `/clear` | Resets the active conversation below a labeled divider while preserving native terminal scrollback | You want a fresh start in the same workspace while still scrolling up to read earlier terminal output. |
+
+## 5. Watch context usage and compact at the right time
+
+As a conversation grows, every turn sends more history, increasing latency and cost:
+
+1. **Watch the footer:** Keep an eye on `Ctx` in the second footer line. It shifts to warning color above 75% and error color above 90%.
+2. **Inspect details (`/context`):** Run `/context` to see the 5×8 occupancy grid and estimated breakdown across system prompt, tool schemas, and conversation messages. Select **`Details`** for full token counters, or **`Compact`** directly.
+3. **Compact with focus (`/compact`):** Run `/compact` on its own or tell it what must survive:
 
 ```text
-/export markdown docs/session-review.md
+/compact Keep the final API schema, list of modified files, and the 2 remaining failing tests; summarize earlier exploration
 ```
 
-### Understand legacy session compatibility
+Because compaction drops verbatim early details, it works best right after key decisions are captured in code or docs.
 
-omdsh v0.12.0 and later no longer add the private `omdsh/tools-selected` event, so newly created sessions can be loaded by an unmodified DSH persistence reader. Sessions first created with v0.5.0 through v0.11.0 may still contain that event: current omdsh recognizes it and can resume those sessions, but an unmodified DSH reader will refuse the log. Session files may be compressed and include integrity checks, so do not edit them by hand; open these sessions through omdsh. When a log also requires a Harness format migration, interactive resume asks for confirmation and creates a versioned successor alongside the original. See [Session compatibility](../sessions.md) for activation and migration behavior.
+## 6. Export and share a conversation (`/export`)
 
-### Next
+Run `/export` when you want to share an investigation or archive a completed task:
 
-You now have the core everyday workflow. If your project needs reusable instructions or external tools, continue with [Skills and MCP](skills-and-mcp.md).
+| Format | What is included | Best for |
+|---|---|---|
+| **Markdown (`.md`)** | Clean text transcript and code blocks | Pasting into PR descriptions, wikis, or postmortems. |
+| **HTML (`.html`)** | Self-contained styled web page with collapsible sections | Sharing with teammates who do not have omdsh installed. |
+| **Archive (`.zip`)** | Full session log, child subagents, and original image attachments | Long-term archival (read-only backup; archives are not re-imported into omdsh). |
+
+## Next steps
+
+With everyday session control covered, learn how to teach omdsh your team’s conventions and connect external tools:
+
+- [Extend projects with Skills and MCP](skills-and-mcp.md) — choosing between Skills, MCP, LSP, and plugins, plus live `/mcp` setup.
+- [Sessions and recovery](../sessions.md) — local storage paths and full lifecycle details.

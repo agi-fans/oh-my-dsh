@@ -1,59 +1,93 @@
 ---
-description: "Fix common omdsh issues: interrupt and exit behavior, resuming, DeepSeek account sign-in, color environments, multiplexer scrollback, legacy sessions, and plugin boot failures."
+description: Symptom-driven troubleshooting for omdsh startup, sign-in, credentials, keys, mouse and tmux, inline images, MCP/LSP, and plugins.
 ---
 
 # Troubleshooting
 
-## Interrupt and exit
+Start any investigation with the built-in health check—it catches most runtime, credential, config, and plugin problems in one pass:
 
-The first `Ctrl+C` clears the composer; while the composer is empty it interrupts the active turn instead, and the same is always available as `Esc`. A second `Ctrl+C` exits, and `Ctrl+D` exits when the composer is empty; otherwise it deletes forward. A durable session prints `omdsh --resume <session-id>` on exit so the conversation can be reopened in a new terminal.
+```sh
+omdsh doctor
+```
 
-## Find a session id again
+Run `omdsh doctor --json` for machine-readable output. Below are fixes organized by symptom.
 
-`/context` reports the active session's details, and `/resume` opens the searchable selector. `/resume <query>` searches durable session content when you only remember what was discussed. See [Sessions and history](sessions.md).
+## 1. Sign-in, credentials, and model errors
 
-Sessions first created with v0.5.0 through v0.11.0 may contain a private event that an unmodified DSH persistence reader refuses; omdsh still opens them. Do not hand-edit session files, which may be compressed and carry integrity checks.
+### DeepSeek account sign-in opens Desktop or never returns to the terminal
+- Running `/login` → **`DeepSeek account`** opens the authorization flow with a local callback URL and finishes on a page containing `login_source=web` (“Authorization complete”). You can close that browser tab once it reports success; omdsh returns automatically.
+- If the browser launches DeepSeek Harness Desktop (`login_source=desktop` or missing `login_source`), close that tab and start a fresh `/login` flow from omdsh instead of reusing an old link.
+- **Over SSH:** Forward the local callback port printed by omdsh (`ssh -L <port>:127.0.0.1:<port> ...`) so your local browser can reach the remote TUI.
 
-## DeepSeek account sign-in
+### Saved API key does not take effect, or credential file permission errors
+- Environment variables such as `DEEPSEEK_API_KEY` take precedence over stored files and are never modified by `/login` or `/logout`. Check `env | grep DEEPSEEK` for stale exports.
+- On macOS/Linux, `$OMDSH_HOME/.credentials.yaml` must be owner-readable only (`chmod 600 ~/.dsh/.credentials.yaml`).
 
-`/login` → **DeepSeek account** opens the platform authorization page with a loopback callback such as `http://127.0.0.1:<port>/oauth/callback`. After approval, the page should end at `.../dsh/authorized?login_source=web` and show “Authorization complete”. A page that opens DeepSeek Harness Desktop ends with `login_source=desktop` (or no `login_source`); it belongs to a Desktop-initiated attempt, not the TUI. Close that tab and start a fresh `/login` instead of reusing it.
+### Content refusal (`CONTENT_REFUSED`)
+- When DeepSeek refuses a request for policy reasons, the interactive TUI displays the refusal message directly and `omdsh exec --json` returns error code `CONTENT_REFUSED`. Rephrase or trim the triggering input and retry.
 
-The browser may keep the tab open because it was opened from the terminal rather than by `window.open`; close it after the completion message. Successful authorization returns the TUI to the account page automatically. On a remote host, forward the displayed loopback port over SSH so the callback can reach the TUI. Once signed in, the shared account appears in both `/login` and `/logout`; signing out removes the local grant and revokes it in the background.
+## 2. Keyboard, newline, and paste issues
 
-## Logs
+### `Alt+...` inserts characters like `å` or `¥` on macOS
+- macOS terminals default `Option` to special characters instead of sending `Alt/Meta`.
+- **Fix:** Enable “Use Option as Meta key” in your terminal preferences (iTerm2, Ghostty, WezTerm, Apple Terminal), then verify in `/settings` → **`Terminal` → `Input` → `Keybindings` → `Test keys`**.
 
-The interactive TUI redirects plugin `console` output to `$OMDSH_HOME/omdsh/logs/omdsh.log` instead of stdout, so a diagnostic cannot write into the composer or corrupt the frame. The file is local and may contain operational details; `omdsh exec` keeps its own stdout/stderr protocol. Remove the file to reset the log.
+### `Shift+Enter` sends the message instead of inserting a newline
+- Legacy terminals do not distinguish `Shift+Enter` from `Enter`. Use **`Ctrl+J`** (works everywhere), or switch to a terminal supporting the Kitty keyboard protocol (Kitty, Ghostty, WezTerm, modern iTerm2).
 
-## Color
+### Multi-line paste submits early, or typing feels slightly delayed
+- **Paste protection** uses heuristics to stop unmarked multi-line pastes from submitting prematurely. If it interferes with your terminal, turn it off under `/settings` → **`Terminal` → `Input`**; terminals that support bracketed paste still protect pastes safely.
 
-`NO_COLOR` and `FORCE_COLOR=0` stop color output when no explicit preference is set. An explicit choice — plugin configuration or a value chosen in `/settings` — still wins over the environment, and turning color on in `/settings` takes effect immediately without a restart.
+### `Esc` or `Ctrl+C` behaves oddly in your shell after a crash
+- omdsh restores your terminal’s original keyboard mode on exit, `Ctrl+Z`, and external editor handoff. If a hard kill leaves Kitty keyboard mode active, run:
 
-omdsh uses 24-bit color when `COLORTERM` reports it or the terminal is not a known 16-color host. Apple Terminal receives the 256-color palette instead, because its 24-bit support is unreliable; set `COLORTERM=truecolor` to override. On a 16-color terminal, theme colors are matched against the palette the terminal reports.
+```sh
+printf '\033[<u'
+```
 
-## Keyboard protocol
+## 3. Mouse selection, scrollback, colors, and tmux
 
-On terminals that implement the Kitty keyboard protocol, omdsh asks for unambiguous key reporting so `Alt` and `Ctrl` shortcuts are recognized reliably. It gives the terminal its own key encoding back on exit, while suspended with `Ctrl+Z`, while an external editor runs, and if the process exits unexpectedly. If `Esc` or `Ctrl+C` misbehave in your shell after a crash, `printf '\033[<u'` restores the previous encoding.
+### Dragging with the mouse does not select text
+- `Mouse interaction` defaults to `Auto` so scroll-wheel and click controls work inside omdsh. Hold **`Shift`** (or **`Option`** in some macOS terminals) while dragging for native terminal selection, or set `/settings` → **`Terminal` → `Mouse interaction`** to **`Off`** (`native`) to hand mouse selection completely back to your terminal.
+- When in-app selection is enabled, releasing the drag copies automatically unless you disable `Copy on select` (then use `Alt+C` or `Enter`).
 
-## Scrollback and multiplexers
+### Garbled layout after resizing tmux/screen, or older lines look different when scrolling up
+- **Stale screen after resize/reattach:** Press **`Alt+L`** to repaint the live view without clearing scrollback.
+- **Why do scrolled-off lines still show older expanded states?** omdsh never rewrites lines that have crossed into native terminal scrollback—they remain immutable snapshots of what appeared at the time. **Only the live view below the latest divider is the current transcript.**
 
-omdsh keeps the terminal's native scrollback during ordinary updates; only a real full-screen overlay borrows the alternate screen. It also keeps it when the transcript is replaced: `/clear`, a session switch, and `--resume` all append the new document below a labelled seam instead of erasing what is above, because that history holds the output your shell printed before omdsh started. In tmux, screen, and ConPTY, host scrollback is preserved and resize bursts are coalesced before repainting. If the display looks stale after an attach or resize, `Alt+L` redraws the live display while preserving native scrollback.
+### Missing colors or wrong palette
+- `NO_COLOR` or `FORCE_COLOR=0` disables colors unless you explicitly enable colors in `/settings` (which takes effect immediately).
+- Apple Terminal falls back to 256 colors due to unreliable truecolor support; export `COLORTERM=truecolor` to force 24-bit color.
 
-Rows that have scrolled into that history are snapshots of what was shown at the time, and nothing rewrites them. Scrolling up past a seam therefore shows calls that have since finished, or a run that has since folded, laid out as they were when the terminal received them. The seam is the only thing that marks the change, and the live view below it is the source of truth for the current transcript.
+## 4. Inline images, sessions, MCP/LSP, and plugins
 
-## Plugins fail at boot
+### Inline image preview does not render (or fails inside tmux)
+- Inline previews require Kitty or iTerm2 graphics support (Kitty, Ghostty, WezTerm, Warp, iTerm2). In unsupported terminals, click **`Open`** in the preview to launch your system image viewer.
+- Override protocol detection with `OMDSH_IMAGE_PROTOCOL=kitty|iterm2|none`.
 
-An incompatible bundle or unresolved package can prevent plugin loading. A plain library without a `dsh.bundle.patch` declaration installs with a warning and contributes no composition layer. `omdsh --dump-config` shows the composed tree and each entry’s source; `omdsh plugin remove <package>` removes a Profile installation. Check DSH compatibility and duplicate Cordis or Harness copies when services fail to resolve. See [User plugins](plugins.md).
+### `/resume` does not show yesterday’s session
+- `/resume` lists sessions tied to your **current working directory**. Change back to the original project folder, or launch with `omdsh --resume <session-id>`. Use `/resume <query>` inside the original directory to search full session text.
 
-## Updates and notifications
+### MCP server shows `waiting for credentials` or `failed`
+- Open `/mcp` and select the server:
+- `waiting for credentials`: Store the missing `${credential:...}` secret and choose **`Restart`**.
+- `failed`: Read the error detail, verify the binary with `!which <cmd>`, then run **`Probe`**.
 
-The daily update check only reports a newer npm version; it never installs one. Post-upgrade release notes, the update check, and terminal notifications are configured in `/settings` → Terminal. See [Settings](settings.md).
+### Language server (`lsp`) unavailable
+- Verify the language server binary (`typescript-language-server`, `gopls`, `rust-analyzer`, etc.) is on `PATH` and your `lsp.json` is valid. See [Language servers](language-servers.md).
 
-## Piped input
+### Plugin fails to load or its command is missing
+- Run `omdsh doctor` and `omdsh --dump-config` to check DeepSeek Harness version compatibility, missing `dsh.bundle.patch`, or duplicate dependencies.
+- Remove a broken package with `omdsh plugin remove <package>`.
+- In interactive runs, plugin `console` logs are redirected to **`$OMDSH_HOME/omdsh/logs/omdsh.log`** so they never corrupt the TUI—inspect or delete that file anytime.
 
-When input or output is not a TTY, omdsh degrades to line-based input with plain append-only output instead of claiming a screen. This is the mode CI uses.
+### Interrupting, exiting, and piped runs
+- **Interrupt vs. exit:** While busy, `Esc` or `Ctrl+C` (on an empty input box) interrupts only the active turn. At idle, press **`Ctrl+C` twice** (or `Ctrl+D` when empty) to exit and print `omdsh --resume <session-id>`.
+- **Stuck background job or missed prompt:** Check `/jobs` to stop runaway commands or `/questions` for pending questions.
+- **Non-TTY / CI usage:** When stdin or stdout is not a TTY, omdsh switches to line-oriented append-only output. For scripts and CI, prefer `omdsh exec --json`—see [Command line](cli.md).
 
 ## Related
 
-- [Command line](cli.md) — flags and environment variables
-- [Sessions and history](sessions.md) — log compatibility and local files
-- [User plugins](plugins.md) — Profile installs and composition debugging
+- [Command line](cli.md) — `omdsh doctor`, `omdsh exec`, and environment variables
+- [Sessions and recovery](sessions.md) — local file paths and legacy log compatibility
+- [Settings](settings.md) — mouse, theme, notifications, and keybindings

@@ -1,153 +1,117 @@
 ---
-description: "Keyboard reference for omdsh: composer editing, transcript navigation, session lifecycle, overlay keys, and keybindings.json overrides."
+description: Keyboard and mouse reference for omdsh — top 10 daily shortcuts, editing, navigation, panel controls, !command shell, and all 37 keybindings.json action IDs.
 ---
 
-# Keyboard and keys
+# Keyboard and mouse
 
-`/help` opens a filterable command list. Choose Keyboard shortcuts or press Alt+K to show the shortcut catalog, and `/help full` opens it directly. The catalog starts with essential operations and uses the current effective bindings. Press S for sections, including Diff and the file browser, or `/` to search. Application bindings are overridable through `keybindings.json`, while the editor keeps a fixed Vi-like key set.
+Press **`Alt+K`** (or run `/help full`) anytime inside omdsh to inspect every shortcut active in your terminal. Open `/settings` → **`Terminal` → `Input` → `Keybindings`** to rebind keys interactively or run **`Test keys`** to see the exact sequence your terminal sends.
 
-The shortcuts below use literal terminal modifiers: `Ctrl` stays `Ctrl` on macOS; `Cmd` is not a global substitute. `Alt` is the Option key on a Mac keyboard and must reach the terminal as Alt/Meta rather than a composed character. Use **Settings → Terminal → Input → Keybindings → Test keys** to inspect what arrives. Modified Enter and `Ctrl+Shift` chords depend on terminal support; `Ctrl+J` is the portable newline default, and `Alt+P` also selects the previous favorite model.
+## Start with these 10 shortcuts
 
-Windows and local WSL use `Ctrl+Q` for Queue and `Alt+P` for the previous favorite model, retaining `Alt+Enter` and `Ctrl+Shift+P` as alternatives. They also offer `Ctrl+Alt+V` alongside `Ctrl+V` for clipboard input; `Alt+V` keeps its file-preview meaning. macOS and other Linux terminals retain the shared defaults. `Ctrl+Z` suspends on macOS and Linux, including WSL, and is unavailable on Windows. SSH sessions do not use WSL environment variables to infer the client keyboard. `/help` shows the effective bindings.
+You do not need to memorize everything—these ten cover 90% of daily use:
 
-Cmd+Enter on macOS and Ctrl+Enter use the other busy-send behavior when the terminal forwards a distinct key sequence. Ctrl+Enter sends instead of inserting a newline; use Shift+Enter or Ctrl+J for newlines. The running composer advertises modified Enter after keyboard negotiation or receipt of that key; otherwise it advertises the fixed Queue or Steer shortcut. Cmd+Enter is advertised after it is received, since protocol support alone does not prove the terminal forwards Command. Help lists all bindings and puts Ctrl+J first for legacy terminals. Forwarded Cmd+Left/Right move to line edges, Cmd+Backspace deletes to line start, and Cmd+Z undoes, including a cleared draft. macOS also accepts forwarded Cmd+V; the terminal may handle native paste itself.
+| Shortcut | What it does |
+|---|---|
+| `Enter` / `Shift+Enter` (or `Ctrl+J`) | Send message / insert newline (`Ctrl+J` works in almost every terminal) |
+| `Esc` | Interrupt an active turn or close the current panel, search, or subagent view |
+| `Ctrl+C` | Clear a non-empty draft, interrupt while busy, or press twice at idle to exit |
+| `Ctrl+O` | Browse thinking and tool details for completed or active turns |
+| `Ctrl+L` | Open the model and reasoning picker |
+| `Shift+Tab` | Cycle reasoning effort for the active model |
+| `Alt+S` / `Alt+Enter` (`Ctrl+Q` on Win/WSL) | Steer the next step / queue for the next turn while busy |
+| `Ctrl+R` | Search prompt history |
+| `Ctrl+Shift+F` | Search the current transcript (`Ctrl+F` also works when the input box is empty) |
+| `Esc` twice | Open the Session Tree to branch conversations or press `Alt+R` to restore turn files |
 
-## Navigation
+> **Platform notes:** On macOS, `Ctrl` is Control and `Alt` is Option (enable “Use Option as Meta key” in your terminal so Option does not type `å`/`¥`). Windows and local WSL default to `Ctrl+Q` for queueing, `Alt+P` for previous favorite model, and `Ctrl+Alt+V` for clipboard paste (`Alt+V` stays file preview), and do not support `Ctrl+Z` suspend.
+
+## Input box editing and cursor movement
 
 | Shortcut | Action |
 |---|---|
-| Arrow keys | Move the cursor, or browse history when the composer is empty. |
-| `Ctrl+A` / `Home` / `Cmd+Left` | Move to the start of the line. |
-| `Ctrl+E` / `End` / `Cmd+Right` | Move to the end of the line. |
-| `Alt+B` / `Alt+Left` | Move one word left. |
-| `Alt+F` / `Alt+Right` | Move one word right. |
-| `Ctrl+]` then a character | Jump forward to that character. |
-| `Ctrl+Alt+]` then a character | Jump backward to that character. |
+| Arrow keys | Move cursor; browse input history when the input box is empty |
+| `Ctrl+A` / `Home` / `Cmd+←` | Start of line |
+| `Ctrl+E` / `End` / `Cmd+→` | End of line |
+| `Alt+B` / `Alt+←`, `Alt+F` / `Alt+→` | Previous / next word |
+| `Ctrl+W` / `Alt+Backspace`, `Alt+D` | Delete previous / next word |
+| `Ctrl+U` / `Cmd+Backspace`, `Ctrl+K` | Delete to start / end of line |
+| `Ctrl+Y` / `Alt+Y` | Yank deleted text / cycle kill ring (**Note: when text is selected in the view, `Alt+Y` quotes the selection into the input box first**) |
+| `Ctrl+-` / `Cmd+Z` | Undo edit, or restore a just-cleared draft |
+| `Ctrl+D` | Delete forward; exit omdsh when the input box is empty |
+| `Ctrl+V` / `Cmd+V` (macOS) / `Ctrl+Alt+V` (Win/WSL) | Paste clipboard text or an image |
+| `Alt+M` | Preview draft images (or the latest session image when the draft has none) |
+| `Alt+I` | Expand a collapsed paste block (`[Pasted …]`, triggered over 10 lines or 1,000 chars) |
+| `Ctrl+S` | Stash current draft; press again (or send a message) to restore |
+| `Ctrl+X` / `Ctrl+G` | Draft in your external editor and return on save/close |
+| `Alt+C` / `Ctrl+Alt+C` | Copy selection (or whole prompt when nothing is selected) / copy current line |
+| `Cmd+Enter` (macOS) / `Ctrl+Enter` | Use the alternate busy-send mode (queue ↔ steer) while busy; normal send at idle |
+| `Alt+↑` | Recall the latest queued message into an empty input box for editing |
+| `Alt+Q` / `Alt+G` | Open the queue manager / goal manager while keeping your draft |
 
-## Editing
+> **Paste protection** (on by default) detects unmarked multi-line pastes so embedded newlines do not submit early; disable under `/settings` → **`Terminal` → `Input`** if it affects typing in your terminal.
 
-| Shortcut | Action |
-|---|---|
-| `Enter` | Send the message. |
-| `Cmd+Enter` (macOS) / `Ctrl+Enter` | Send with the other behavior while busy; send normally while idle. |
-| `Shift+Enter` / `Ctrl+J` | Insert a new line. |
-| `Ctrl+W` / `Alt+Backspace` | Delete the previous word. |
-| `Alt+D` | Delete the next word. |
-| `Ctrl+U` / `Cmd+Backspace` | Delete to the start of the line. |
-| `Ctrl+K` | Delete to the end of the line. |
-| `Ctrl+Y` | Yank deleted text. |
-| `Alt+Y` | Cycle the yank ring. |
-| `Ctrl+-` / `Cmd+Z` | Undo the last edit or restore a cleared draft. |
-| `Ctrl+D` | Delete forward, or exit when the composer is empty. |
-| `Ctrl+V` / `Cmd+V` (macOS) / `Ctrl+Alt+V` (Windows/local WSL) | Paste clipboard text or an image. |
-| `Alt+M` | Preview composer images without sending them; with no draft image, open the newest image in the conversation. |
-| `Alt+I` | Expand a folded pasted block for editing. |
-| `Alt+Up` | Withdraw the latest queued message into the empty composer for editing; Enter submits it again. |
-| `Alt+G` | Manage the current goal without submitting the draft. |
-| `Alt+Q` | Open Message Queue without submitting the composer draft. |
-| `Ctrl+S` | Stash or restore the current composer draft; a stashed draft returns automatically after you send a message. |
-| `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
-| `Alt+Enter` (macOS/other Linux), `Ctrl+Q` (Windows/local WSL) | Queue the draft for after the active turn, regardless of the Send behavior while busy setting. |
-| `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
-| `Ctrl+Alt+C` | Copy the current line. |
-| `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
+## Transcript navigation and mouse controls
 
-Pastes longer than ten lines or 1,000 characters appear as `[Pasted #1: 120 lines]` or a character-count marker. Arrow keys and deletion treat each block as one unit; `Alt+I` expands the block at or nearest the caret for editing, and `Ctrl+-` undoes insertion, deletion, or expansion. Copying the prompt, using the external editor, and sending a message use the full text. Temporary questions and queued-message editing retain the source. A draft beginning with a folded paste sends its source as a message even if it begins with `/`. A draft queued with `Alt+Enter` is shown as `Queue · next turn` once Harness accepts it and `Alt+Up` recalls it for editing.
-
-Pasted images keep their bytes and position through deletion undo, external editing, and saved drafts. Literal `[Image #…]` and `[Pasted #…]` text keeps its original meaning. Image path batches retain readable images and report paths that cannot be read. Switching sessions, opening a question, or pressing Esc or Ctrl+C cancels an unfinished paste. Clipboard text and bracketed paste normalize CRLF and CR line endings to LF, while image messages retain source indentation and whitespace.
-
-**Paste protection** also recognizes long text chunks, multiline reads, and rapid ASCII key streams when a terminal does not mark pasted input, keeping embedded Enter keys from submitting a message. Wait briefly after the paste finishes, then press Enter to send. Normal typing and individual IME commits appear immediately. This detection is heuristic; turn it off in Settings if it interferes with your terminal. Explicit bracketed paste remains safe with this setting off.
-
-## Transcript
-
-While a turn runs, thinking and tool calls start as compact disclosure rows. Replies use ordinary Markdown; failed calls retain their reason. Opening a thought shows quiet italic text; opening a tool shows readable content with horizontal and vertical padding on a surface that reflects its pending, successful, or failed state. Terminal output stays plain; recognized source files retain syntax colors, with Read line numbers aligned separately from wrapped code. Alt+O exposes complete Input and Output sections. The composer carries activity such as `Deep Driving`, retries and compaction in its top border, and temporary confirmations in its bottom border. When the turn finishes, the process folds to a summary such as `Worked for 16s`; all assistant replies and failure facts remain visible. Items being inspected stay open through completion until the reader returns to the live tail.
-
-Markdown headings use bold text and quiet level markers; quotes use readable text behind a rail. Inline code, links and nested emphasis preserve the surrounding style. Fenced code shows a small language label when supplied. Tables omit dividers between single-line records and retain them around wrapped records. On recognized hyperlink-capable terminals, long named HTTP(S) links show their destination host with an ellipsis and retain the full clickable target. Bare URLs, unknown terminals and no-color output retain full addresses. Copying replies and exporting sessions preserve the original Markdown.
-
-Narrow tables show labelled records when their columns would become unreadable. Complete supported Mermaid diagrams draw with terminal characters when they fit; unsupported, incomplete or oversized diagrams stay visible as code. **Mermaid in replies** in [Settings](settings.md) switches between Auto and Source. Reply formulas follow the **Math in replies** preference in [Settings](settings.md). **Thinking in turns** in [Settings](settings.md) defaults to collapsed, with a one-line `Thinking · …` preview of the latest paragraph. During streaming, a paragraph enters the preview only when its first line is complete; subsequent words in that paragraph do not change the preview. Existing explicit Shown preferences remain effective; `Ctrl+T` switches this preference and individual items can still be opened or closed.
-
-`Ctrl+O` enters process browsing for the running or completed turn under the viewport. Use `↑`/`↓` to select an item, `Enter` to toggle its readable content, and `←`/`→` to close/open it. `Home` returns to the title of the tool being read, or the selected item when no tool detail is under the viewport. Closing and reopening a tool restores its reading position during the same inspection; a changed terminal width or detail format returns to the title. Commands show the command and output; files show their content, edits show diffs, and searches show locations and matches. `Esc`, `Ctrl+O`, or `End` returns to the live tail and resets disclosures; typing or pasting returns focus to the composer while leaving the process open. The draft is retained. `Alt+O` opens complete parameters and results for all tools in the current turn, including PTC sub-calls and new calls that arrive while running; pressing it again restores compact rows. Scrolling past the end also closes inspection. Opening details never rewrites native terminal history. When a compaction notice is under the viewport, `Ctrl+O` opens its saved summary instead.
-
-Details show all text received by the TUI; they cannot recover content already truncated or spilled to a file by a tool. `/trajectory` provides event-level inspection, and `Ctrl+Shift+F` searches content outside the previews and reveals matches; `Ctrl+F` still does when the composer is empty, and keeps moving the caret when it is not.
-
-When earlier messages are in view, a `↓ Latest · End` label appears above the composer area. Once a prompt scrolls out of view, its summary uses the top scroll indicator or a blank top row while its reply is visible. Inside an expanded tool result, the tool title takes the same space. Transcript rows take priority whenever the top row contains content.
+### Keyboard navigation
 
 | Shortcut | Action |
 |---|---|
-| `PgUp` / `PgDn` | Scroll one page. |
-| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to the previous or next prompt without changing the session or draft. |
-| `Shift+Up` / `Shift+Down` | Scroll quickly. |
-| Mouse wheel | Scroll the transcript from the live tail or while inspecting a turn; expanding a turn is not required. |
-| `End` / click jump label | Return to the latest message and close turn inspection. At the live tail, `End` moves to the end of the composer line. |
-| `Ctrl+O` | Browse the running or completed turn: ↑/↓ select, Enter toggles, ←/→ close/open, Home returns to the title, Esc returns. Press again to return to the live tail. On the tool catalog, toggle descriptions. |
-| `Alt+O` | Toggle complete tool inputs and results for the turn being read, including a running turn. |
-| `Alt+A` | Open the current tool’s actions: copy its command or result, or view its declared files. |
-| `Alt+Y` | Append selected text to the draft as a Markdown quote, without sending it. |
-| `Alt+V` | Preview the files the tool under the reading position declared. With no tool there it says so and points at `/diff`, which reviews this turn’s changes. |
-| `Ctrl+Shift+F` | Search the current transcript; `n`/`N` step across matches. `Ctrl+F` does the same when the composer is empty, and moves the caret otherwise. |
-| `Ctrl+T` | Show or hide thinking across the transcript. |
+| `PgUp` / `PgDn`, `Shift+↑` / `Shift+↓` | Page or fast-scroll the transcript |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Jump to previous or next user prompt |
+| `End` | Return to the live bottom and close turn details (moves to line end when already at bottom) |
+| `Ctrl+O` | Browse thinking and tool rows (`↑`/`↓` select, `Enter` or `←`/`→` toggle, `Home` jump to header, `Esc` leave) |
+| `Alt+O` | Toggle full tool inputs and results for every tool in the current turn |
+| `Alt+A` | Open actions for the current tool (copy command/output, preview declared files) |
+| `Alt+V` | Preview files referenced by the current tool (or point to `/diff` if none) |
+| `Alt+Y` | Append selected text as a Markdown quote into the input box |
+| `Ctrl+T` | Show or hide thinking globally across the transcript |
+| `Ctrl+Shift+F` (`Ctrl+F` when empty) | Search transcript (`n`/`N` step through matches) |
 
-When TUI mouse handling is active, omdsh supports mouse dragging within the current viewport in both folded and expanded views. Double-click selects a word or path; triple-click selects a line, and Shift-click extends a selection. Releasing the mouse copies by default. Turn off **Copy on select** in Settings to copy explicitly with `Alt+C`, `Enter`, or right-click; `Esc` clears the selection, and `Ctrl+C` retains its clear/interrupt behavior. With a writable composer, `Alt+Y` appends the selection as a Markdown blockquote, preserving the draft and attachments without sending. The quote is one undoable edit; long quotes fold like pasted text. Scrolling, resizing, typing, or changed selected rows clears the selection.
+### Mouse controls
 
-Click a process row’s left-hand arrow to open or close its content; click a completed turn’s arrow to browse its process. The left gutter, including the arrow and surrounding blank cells before the title, is clickable. Small movements within that gutter and preview updates do not cancel a click. Titles and paths remain selectable; dragging out of the gutter selects text without toggling, even if the pointer returns. Shift-click keeps extending the selection. Keyboard navigation continues from the clicked item.
+- **Scroll and expand:** Use the scroll wheel in the transcript, `/settings`, history search, `/diff`, and `/trajectory`. Click disclosure arrows on thinking/tool rows to toggle them, or click `Changed` file summaries to open `/diff`.
+- **Select and copy:** With in-app mouse handling (`Auto` or `On`), dragging selects text and copies on release (double-click word, triple-click line, `Shift`-click extend) and surfaces `[Copy]` / `[Quote]` buttons below the input box. Disable `Copy on select` in settings to copy manually with `Alt+C`, `Enter`, or right-click.
+- **Right-click preview:** Without a text selection, right-clicking a tool card or `Changed` file row previews the file directly.
+- **Native terminal mouse:** Hold `Shift` while dragging for native selection, or set `/settings` → **`Terminal` → `Mouse interaction`** to **`Off`** (`native`).
 
-The selected tool row also has a `[···]` button for the same actions; the menu identifies the command or file. With text selected, `[Copy]` and `[Quote]` appear beneath the composer when space permits. Clicking them keeps the draft and reading position; dragging outside a button cancels the click. Copy and quote confirmations temporarily replace navigation hints.
-
-For Read results with a retained contiguous range, **Copy source** copies that range without display line numbers or wrapping. **Quote source** appends the file and line range plus a fenced code block to the draft. Both use the content retained by the original call, preserving indentation and long lines; they do not reopen a possibly changed file or recover text the tool did not return. Read-only views offer copying only.
-
-Without a text selection, right-click a tool card with declared file locations to preview its files, or a Changed files row to preview that file. The reader reuses Open and the configured Editor. Relative tool paths retain the invocation’s directory; Changed files retain the summary’s directory. These previews show current host-file contents. `Alt+V` opens the same files for the tool under the reading position, and a completed Turn summary does not make hidden tool cards clickable. Search tools list each declared match by file and line, with its matching text; choosing a match opens that line, including multiple matches in the same file. The reader loads enough text to reach the line within its 4 MiB preview limit; files may have changed since the search. `Alt+A` also offers these files alongside copy actions for the current tool. Closing the menu or reader retains the draft and transcript reading position. Reviewing a turn’s changes is `/diff`. Native mouse mode keeps keyboard access. An approval or another human prompt cancels a file action rather than competing for input.
-
-Click a composer text row to move its caret; wrapped text, CJK and emoji use their displayed positions. Clicking inside a folded paste or attachment marker moves to its boundary. Dragging still selects text for copying. Click a completion to insert it without sending, or use the wheel over the popup to change its selection.
-
-**Mouse interaction** defaults to `auto`, which respects tmux mouse off; `tui` explicitly enables application handling and `native` leaves mouse input to the terminal while keyboard scrolling and `End` remain available. Native terminal history is retained and uses terminal selection or tmux copy-mode.
-
-Text readers, `/context`, `/trajectory`, and `/diff` support mouse-wheel scrolling and text selection. Click rows or section controls to navigate when available; dragging selects text, and copy behavior follows Settings. Native mouse mode delegates mouse input to the terminal. Reading views restore their previous position on close; commands returning transcript text move to the live tail. In Diff, click files and use Tab to switch pane focus. A opens secondary actions and ? opens help.
-
-File and Diff source readers use `/` or `Ctrl+F` to search loaded text, `Ctrl+N`/`Ctrl+P` to cycle matching lines, and `G` or `Ctrl+G` to jump to a file line. `[`/`]` navigate diff hunks. `L` loads more text, `Q` quotes `@path:line` into the composer, and `M` toggles Markdown rendering when available. Enter applies a search or line entry; Esc cancels the entry before returning to the file list. See [File commands](commands.md) for preview limits and view behavior.
-
-In the Diff browser, select text in a comparison or current-file view and press `Alt+Y` or `Q` to append it as a Markdown quote to the draft and return to the composer. The draft and attachments remain unsent. Without a selection, `Q` keeps its file-line reference behavior. Approval and question dialogs retain their own input.
-
-Source readers wrap long lines by default. `W` toggles wrapping; `Alt+Left`/`Alt+Right` pans eight display cells and switches to unwrapped mode. Line numbers stay fixed, and wrapping and horizontal position are retained across reader actions. Ordinary Left/Right still select the action buttons. Background-job output uses the same reading keys.
-
-## Session
+## Session and model shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Esc` | Cancel or leave whatever has the screen: a prompt, an overlay, a search, a subagent inspection. During a turn it interrupts while preserving accepted Queue and Steer messages. With nothing typed it opens the Session Tree when pressed twice. |
-| `Ctrl+C` once | Clear the composer, or interrupt the active turn while the composer is empty. |
-| `Ctrl+C` twice while idle | The first press shows an exit prompt. Press again while the prompt is visible to exit. A durable session prints an `omdsh --resume <session-id>` hint. |
-| `Ctrl+Z` | Suspend to the background. |
-| `Alt+L` | Redraw the live display, preserving native scrollback. |
-| `Ctrl+R` | Search prompt history. |
-| `↓` (empty composer) | Enter the subagent roster; `↑`/`↓` select a child, `Enter` opens its transcript, `Esc` returns to the composer. |
-| `Alt+R` | Continue an eligible failed generation with an empty composer. |
-| `Ctrl+L` | Choose model and reasoning effort. |
-| `Ctrl+P` / `Ctrl+Shift+P` | Cycle to the next or previous favorite model. `Alt+P` also cycles backward. |
-| `Shift+Tab` | Cycle the current model's reasoning effort. |
-| `Ctrl+T` | Show or hide thinking. |
-| `/` | Open slash-command completion. |
-| `@` / `./` / `~/` | Complete file paths. |
-| `Tab` | Accept command or path completion. |
+| `/`, `@` / `./` / `~/`, `Tab` | Command completion / path and session completion / accept completion |
+| `Alt+K` | Open keyboard shortcuts catalog |
+| `Ctrl+L` | Choose model and reasoning effort (`Alt+F` favorite, `Alt+A` toggle all/favorites) |
+| `Ctrl+P` / `Ctrl+Shift+P` (or `Alt+P`) | Cycle forward / backward through favorite models |
+| `Shift+Tab` | Cycle reasoning effort |
+| `Alt+R` | Continue a recoverable failed generation when the input box is empty |
+| `↓` (empty input box) | Focus the subagent list above the input box (`Enter` inspect, `Esc` return) |
+| `Alt+L` | Repaint the live display (useful after window resize or tmux reattach) |
+| `Ctrl+Z` | Suspend to background (macOS / Linux / WSL only) |
 
-## Overlays
+## Panels and readers
 
-| Overlay | Keys |
+| Surface | Keys |
 |---|---|
-| Settings (`/settings`) | `↑`/`↓` move between rows, `←`/`→` change a value, `Space` change a value or show/hide a status item, `Enter` open configuration, change a value, `Tab`/`Shift+Tab` switch sections, `Home`/`End` jump to the edges, `/` or typing searches all categories, `Backspace`/`Ctrl+U` edit the query, `Ctrl+R` restores inheritance, `Esc`/`Ctrl+C` clear search, return to browsing, or close. |
-| History search (`Ctrl+R`) | Type to filter, `↑`/`↓`/`Tab`/`PgUp`/`PgDn`/`Home`/`End` navigate, `Enter` select, `Esc`/`Ctrl+C` cancel; the query accepts the line-editing keys. |
-| Transcript search (`Ctrl+Shift+F`) | Type the query, `Ctrl+N`/`Ctrl+P` step while editing, `Enter` confirm, `n`/`N` step across matches, `/` edit the query, `Esc`/`Ctrl+C` close. |
-| Trajectory (`/trajectory`) | `Enter` opens details; `Tab` switches record/detail focus, `←`/`→` switches sections, and `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` operate on the focused pane. In the list, `End` follows newest records. `Ctrl+N`/`Ctrl+P` selects records; `f` enlarges details and `y` copies section content. `Space` expands context/subcalls, `t` folds turns, `c` folds calls, `e` filters problems, and `s` visits calls by descending duration. `/` searches all records; `n`/`N` steps matches (`Ctrl+N`/`Ctrl+P` while typing). `Esc`/`Ctrl+C` closes details, then the ledger. |
-| Session Library | `Alt+P` pins/unpins and `Alt+R` renames, including while searching; `Alt+A` archives/restores the selection, `Alt+V` switches active/archived lists even when empty or searching. |
-| Session Tree | Type to search; `↑`/`↓`/`Tab` select, `←`/`→` fold, `Ctrl+↑`/`Ctrl+↓` scroll the preview, `Enter` edits a Turn or continues a branch, `Alt+Enter` continues the selected node’s branch, `Alt+L` labels a node, `Alt+U` clears its label, `Alt+B` toggles marked nodes, `Alt+R` reviews Turn file recovery, `Esc` clears search then closes, `Ctrl+C` cancels. |
-| Prompts (resume, permission, model, agent, workflow, login) | Type to filter, `↑`/`↓`/`Tab` navigate, `←`/`→` choose, `Alt+Left` return to the previous question in multi-question prompts, `Ctrl+X` edit Plan Review feedback in the external editor, `PgUp`/`PgDn` and `Home`/`End` move, `Space` multi-select, `Enter` select or submit, `Ctrl+J` submit, `Esc` go back or cancel, `Ctrl+C` cancel. |
+| **Settings (`/settings`)** | `Tab`/`Shift+Tab` switch tabs, `↑`/`↓` move, `←`/`→`/`Space` change value, `Enter` open sub-form, `/` search, `Ctrl+R` reset, mouse wheel scrolls, `Esc` close |
+| **History search (`Ctrl+R`)** | Type tokens to filter, `↑`/`↓`/`PgUp`/`PgDn`/wheel navigate, `Enter` insert, `Esc` cancel |
+| **Transcript search (`Ctrl+Shift+F`)** | Type query, `Ctrl+N`/`Ctrl+P` jump while editing, `Enter` confirm then `n`/`N` jump, `/` edit query, `Esc` close |
+| **Diff & file viewer (`/diff`)** | `Tab` switch panes (wide), `V` diff/current file, `W` toggle wrap, `Alt+←`/`Alt+→` pan, `/` search, `G` go to line, `[`/`]` next/prev hunk, `Q` or `Alt+Y` with selection to quote into input box, `O` system open, `E` editor, `?` help |
+| **Trajectory (`/trajectory`)** | `Enter` open details, `Tab` switch panes, `←`/`→` switch tabs, `Space` expand context/subcalls, `t`/`c` fold turns/calls, `e` errors only, `s` sort slowest first, `f` zoom, `y` copy, `/` search |
+| **Session Library (`/resume`)** | `Alt+S` full-text search, `Alt+L` workspace list, `Alt+P` pin, `Alt+R` rename, `Alt+A` archive/restore, `Alt+V` archived view |
+| **Session Tree (`Esc` twice)** | Type to filter, `←`/`→` fold branches, `Ctrl+↑`/`Ctrl+↓` scroll preview, `Enter` branch or continue, `Alt+L`/`Alt+U`/`Alt+B` labels, `Alt+R` restore turn files |
+| **Document readers (`/help`, `/context` details, etc.)** | `↑`/`↓`/`PgUp`/`PgDn`/wheel scroll, `/` find, `Ctrl+N`/`Ctrl+P` matches, `S` sections, `Y` copy page/fields, `Esc` back |
 
-Choice lists support mouse-wheel navigation and click selection. Use Enter or the visible action buttons to execute the selected action. Drag text to select and copy it. The model picker also offers `Alt+F` to toggle a favorite and `Alt+A` to show all models or favorites.
+## Shortcut Shell (`!command` and `!!command`)
 
-Searchable choice lists accept multiple words, such as `official flash`; every word must match a name, identifier, preview, or description. Short abbreviations such as `flsh` match within a word. Exact names and name prefixes rank ahead of description-only matches, and clearing the query restores the original order. This applies to filtering a picker; transcript search, prompt history, and `/resume <query>` retain their own search rules.
+Start a line in an empty input box with **`!`** (the border turns green) to run commands in a persistent shell scoped to the current session:
 
-## Custom keybindings
+- **`!command`:** Runs locally and displays output for you only—**excluded from model context**.
+- **`!!command`:** Shares the output into the conversation once the command finishes.
+- Obeys the active access level. Press **`Ctrl+C`** (or **`Esc`** from an empty input box) to interrupt a running command. Pasted text starting with `!` stays literal.
 
-Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back to `$DSH_HOME`, then `~/.dsh`), the same home that stores sessions, settings, and MCP files. You can remap or unbind shortcuts interactively in `/settings` under **Terminal → Input → Keybindings** (which saves and applies changes immediately), or edit the JSON file directly:
+## Custom keybindings (`keybindings.json`)
+
+Rebind interactively in `/settings` → **`Terminal` → `Input` → `Keybindings`** (applies immediately), or edit `$OMDSH_HOME/omdsh/keybindings.json` (`"key": "action-id"`, or `null` to unbind):
 
 ```json
 {
@@ -157,53 +121,50 @@ Application bindings live in `$OMDSH_HOME/omdsh/keybindings.json` (falling back 
 }
 ```
 
-Key ids join modifiers with `+` (`ctrl`, `alt`, `shift`, `super`); `control`, `option`, and `cmd`/`command` are accepted aliases, and modifier order is normalized. For example, `cmd+enter` addresses `super+enter`. User overrides apply after platform defaults, including forwarded editor aliases. Spell named keys in lower case (`pageup`, `pagedown`, `escape`, `left`, `right`, `up`, `down`). Values must be one of the action ids below, or `null` to unbind a default key; an unknown action or a malformed file leaves the shipped binding in place for that entry. `/help` shows the effective keys.
+Join modifiers with `+` (`ctrl`/`control`, `alt`/`option`, `shift`, `super`/`cmd`/`command`), plus `f1`–`f12` and lowercase named keys (`escape`, `pageup`, `pagedown`, `left`, `right`, `up`, `down`). All **37** valid action IDs:
 
-**Test keys** in Keybindings shows the text or key sequence the terminal actually sends and any assigned application action. Testing does not run shortcuts, edit the draft, or save bindings; `Esc` or `Ctrl+C` returns. Standard terminal encodings for `F1`–`F12`, including modifiers, are supported (for example, `"f6": "tool-actions"`). A terminal or OS shortcut may intercept a key before omdsh sees it. On macOS, Option may produce characters such as `å` or `¥`; these remain ordinary text. Use a different binding or configure Option/Alt in the terminal, then test again.
-
-| Action id | Default key | Effect |
+| Action ID | Default key | Action |
 |---|---|---|
-| `preview-images` | `Alt+M` | Preview draft images, or the newest conversation image. |
-| `expand-paste` | `Alt+I` | Expand a pasted block for editing. |
-| `manage-goal` | `Alt+G` | Edit, pause, resume or clear the current goal. |
-| `manage-queue` | `Alt+Q` | Manage individual pending messages. |
-| `alternate-send` | `Cmd+Enter` (macOS) / `Ctrl+Enter` | Send with the other behavior while busy; send normally while idle. |
-| `follow-up` | `Alt+Enter` (macOS/other Linux), `Ctrl+Q` (Windows/local WSL) | Queue the draft for the next turn, independently of the busy-send preference. |
-| `steer-turn` | `Alt+S` | Send the draft, including images and files, to the active Turn’s next model step. |
-| `stash-draft` | `Ctrl+S` | Stash or restore the current composer draft. |
-| `external-editor` | `Ctrl+X` / `Ctrl+G` | Edit the prompt in the editor selected in Settings. |
-| `retry` | `Alt+R` | Continue an eligible failed generation with an empty composer. |
-| `paste-clipboard` | `Ctrl+V` / `Cmd+V` (macOS) / `Ctrl+Alt+V` (Windows/local WSL) | Paste clipboard text or an image. |
-| `copy-prompt` | `Alt+C` | Copy the selected text, or the current prompt when nothing is selected. |
-| `copy-line` | `Ctrl+Alt+C` | Copy the current line. |
-| `cycle-model-forward` | `Ctrl+P` | Cycle to the next favorite model. |
-| `cycle-model-backward` | `Ctrl+Shift+P` (macOS/other Linux), `Alt+P` (Windows/local WSL) | Cycle to the previous favorite model (`Alt+P` is equivalent). |
-| `cycle-thinking` | `Shift+Tab` | Cycle the current model's reasoning effort. |
-| `toggle-thinking` | `Ctrl+T` | Show or hide thinking across the transcript. |
-| `toggle-tools` | `Ctrl+O` | Browse the running or completed turn: ↑/↓ select, Enter toggles, ←/→ close/open, Home returns to the title, Esc returns. Press again to return to the live tail. On the tool catalog, toggle descriptions. |
-| `toggle-tool-details` | `Alt+O` | Toggle complete tool inputs and results for the turn being read. |
-| `tool-actions` | `Alt+A` | Copy or open the current tool’s content. |
-| `quote-selection` | `Alt+Y` | Quote selected text in the composer. |
-| `review-changes` | `Alt+V` | Preview the files the tool under the viewport declared. |
-| `previous-turn` | `Ctrl+Shift+Up` | Jump to the previous prompt. |
-| `next-turn` | `Ctrl+Shift+Down` | Jump to the next prompt. |
-| `scroll-page-up` | `PgUp` | Scroll one page up. |
-| `scroll-page-down` | `PgDn` | Scroll one page down. |
-| `scroll-fast-up` | `Shift+Up` | Scroll quickly up. |
-| `scroll-fast-down` | `Shift+Down` | Scroll quickly down. |
-| `search-history` | `Ctrl+R` | Search prompt history. |
-| `search-transcript` | `Ctrl+Shift+F` | Search the current transcript (`Ctrl+F` is equivalent when the composer is empty). |
-
-## Composer Shell
-
-Type `!command` in the composer to run a line in this session’s persistent Shell, or `!!command` to run it and share the output to the conversation. The composer border turns green as soon as the draft starts with `!`, so the mode is visible before you commit to running anything. The Shell uses the current Access level, starts in the current workspace, and retains its own directory and environment across calls. It is separate from the Agent’s tool shells.
-
-The output streams into the transcript as a card under your command and settles in place when the command finishes — there is no reader to open or leave. `Ctrl+C` interrupts the running command. With `!command` the output stays outside model context; `!!command` shares it to the conversation when the command finishes. The configured Access level remains in force.
-
-Shell history and environment last for this live Agent; resuming a saved session creates a new Shell. A marked paste beginning with `!` remains ordinary message text. Type the leading `!` deliberately to execute; an unmarked single-line paste cannot always be distinguished from typing. Attachments keep a submission in message mode. This shortcut requires an interactive terminal; terminal readiness is not reported as a command exit code.
+| `interrupt` | `escape` | Interrupt turn or leave current surface |
+| `clear-composer` | `ctrl+c` | Clear draft or interrupt; press twice at idle to exit |
+| `quit` | `ctrl+d` | Exit when the input box is empty |
+| `suspend` | `ctrl+z` (POSIX only) | Suspend to background |
+| `reset-display` | `alt+l` | Repaint terminal display |
+| `external-editor` | `ctrl+x` / `ctrl+g` | Open prompt in external editor |
+| `stash-draft` | `ctrl+s` | Stash or restore draft |
+| `paste-clipboard` | `ctrl+v` / `cmd+v` / `ctrl+alt+v` | Paste clipboard text or image |
+| `expand-paste` | `alt+i` | Expand collapsed paste block |
+| `preview-images` | `alt+m` | Preview draft or latest session image |
+| `copy-prompt` | `alt+c` | Copy selection or current prompt |
+| `copy-line` | `ctrl+alt+c` | Copy current line |
+| `alternate-send` | `cmd+enter` / `ctrl+enter` | Send with alternate busy behavior |
+| `follow-up` | `alt+enter` / `ctrl+q` | Queue draft for next turn |
+| `dequeue` | `alt+up` | Recall latest queued message |
+| `steer-turn` | `alt+s` | Steer the active turn’s next step |
+| `manage-goal` | `alt+g` | Manage the current goal |
+| `manage-queue` | `alt+q` | Manage queued messages |
+| `retry` | `alt+r` | Continue failed generation when empty |
+| `select-model` | `ctrl+l` | Choose model and reasoning effort |
+| `cycle-model-forward` | `ctrl+p` | Next favorite model |
+| `cycle-model-backward` | `ctrl+shift+p` / `alt+p` | Previous favorite model |
+| `cycle-thinking` | `shift+tab` | Cycle reasoning effort |
+| `toggle-thinking` | `ctrl+t` | Show or hide thinking globally |
+| `tool-actions` | `alt+a` | Open actions for current tool |
+| `quote-selection` | `alt+y` | Quote selected text into input box |
+| `toggle-tools` | `ctrl+o` | Browse thinking and tool calls |
+| `toggle-tool-details` | `alt+o` | Toggle full tool inputs and results for current turn |
+| `review-changes` | `alt+v` | Preview files declared by current tool |
+| `search-history` | `ctrl+r` | Search prompt history |
+| `search-transcript` | `ctrl+shift+f` | Search current transcript |
+| `scroll-page-up` | `pageup` | Scroll up one page |
+| `scroll-page-down` | `pagedown` | Scroll down one page |
+| `scroll-fast-up` | `shift+up` | Fast-scroll up |
+| `scroll-fast-down` | `shift+down` | Fast-scroll down |
+| `previous-turn` | `ctrl+shift+up` | Jump to previous prompt |
+| `next-turn` | `ctrl+shift+down` | Jump to next prompt |
 
 ## Related
 
-- [Commands](commands.md) — the complete slash-command reference
-- [Tune the working environment](tutorials/environment.md) — themes, motion, notifications, and the status line
-- [Recover and manage a long session](tutorials/long-session.md) — resume, rewind, compact, and export
+- [Commands](commands.md) — full slash-command and reader reference
+- [Settings](settings.md) — mouse, theme, notifications, and status line
+- [Troubleshooting](troubleshooting.md) — macOS Option keys, newlines, and tmux tips

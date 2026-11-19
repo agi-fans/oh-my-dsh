@@ -36,7 +36,7 @@ export default function rehypeDocLinks() {
       if (!path.endsWith('.md')) return href
       const rel = relative(localeRoot, resolve(baseDir, path)).replaceAll('\\', '/')
       if (rel.startsWith('..')) return href
-      return `${locale === 'zh' ? '/zh/docs/' : '/docs/'}${rel.slice(0, -'.md'.length)}${anchor}`
+      return `${locale === 'zh' ? '/zh/docs/' : '/docs/'}${rel.slice(0, -'.md'.length)}/${anchor}`
     }
 
     walk(tree)

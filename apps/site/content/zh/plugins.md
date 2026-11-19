@@ -1,172 +1,62 @@
 ---
-description: 使用 omdsh plugin、Profile 层和 dsh.bundle.patch 约定，为 omdsh 安装并编写 DeepSeek Harness 插件。
+description: 使用 /plugins 与 omdsh plugin 安装、更新和管理第三方插件及随包内置集成（Codex、Claude Code、Git Worktree、自动审查与 Tmux 上下文）。
 ---
 
-# 用户插件
+# 插件与内置集成
 
-omdsh 通过 DeepSeek Harness 插件扩展，这些插件与产品自带的 composition 挂在同一棵 Cordis 树上。用户安装的能力是一个声明了 `dsh.bundle.patch` 的 npm 软件包，它加入 omdsh 的 Profile 层列表，并随其余插件一同启动。
+omdsh 构建在 DeepSeek Harness 插件体系之上：内置能力与你安装的第三方扩展共享同一套安全、可组合的插件架构。如果你想跟着走一遍安装和启用流程，先看[安装插件与内置集成教程](tutorials/install-plugin.md)；想自己写插件请看[编写与发布插件](tutorials/write-a-plugin.md)。
 
-启动会把随包发布的 [`apps/omdsh/config/cordis.yml`](https://github.com/agi-fans/oh-my-dsh/blob/main/apps/omdsh/config/cordis.yml) 当作 `@agi-fans/oh-my-dsh` 产品 bundle，再叠加 `$OMDSH_HOME/profiles/omdsh` 里的用户 bundle、Profile 的 `cordis.patch.yml`、`$OMDSH_HOME/cordis.patch.yml`，以及 MCP 与 LSP 的 insert patch。`omdsh plugin add` 和 `omdsh plugin remove` 负责安装这些用户 bundle。`omdsh --dump-config` 会打印组合后的树。
+## 一、日常管理：`/plugins` 与 `omdsh plugin`
 
-Skills 与 MCP 仍是独立的部署面，见 [Skills 与 MCP](skills-and-mcp.md)。TUI 的丰富度来自安装层之上的 Cordis 贡献服务，而不是某个 TypeScript extensions 目录。主题、Overlay 和按键注册表在出现第二个拥有独立所有权的贡献者之前保持关闭，见 [架构](architecture.md) 和 [插件内部机制](plugin-internals.md)。
+### 在终端界面中管理（`/plugins`）
 
-通过 **Settings → Plugins** 配置插件，或从 **/plugins → Configure plugins** 打开同一套表单。**Let the agent create a plugin** 进入 Creator（`cordis`），复用空白会话或在已有对话后新建会话；不会发送提示，也不改变新会话的默认 preset。
+运行 `/plugins` 可以完成几乎所有日常管理，改动对当前 `$OMDSH_HOME` 下的所有会话生效：
 
-## 插件挂上之后已经可用的能力
+- **发现（`Discover`）**：从配置的插件索引浏览、搜索并一键安装插件，已安装但有新版时会标出 `Update available` 支持就地更新；
+- **插件包（`Bundles`）**：查看每个已安装或内置扩展包的 README（`详情`）、启停、更新或卸载；
+- **插件条目（`Plugin entries`）**：查看单个插件的加载状态与诊断信息（终端必需的内置核心条目为只读，无法误关）；
+- **配置插件（`Configure plugins`）**：直达 Shell、子智能体、网页搜索与已安装插件的配置表单；
+- **安装插件包（`Install bundle`）**：直接输入 npm 包名、版本、Git URL 或本地绝对路径安装；
+- **让代理创建插件**：等同 `/agent creator`，启动内置 Creator 预设（含 `dsh-doc` 开发技能）辅助编写插件，不改变你的默认预设。
 
-TUI 不维护第二份命令、工具或模型注册表。插件进入树之后，这些 Harness 缝已经能到达终端：
+### 在命令行中管理（`omdsh plugin`）
 
-| 能力 | 插件使用的缝 | TUI 的行为 |
-|---|---|---|
-| 斜杠命令 | `dsh-commands` 的元数据与处理器 | 出现在 `/help`、自动补全和 Runner 中 |
-| 工具 | `ToolDefinition`，包括 `presentCall` / `presentResult` | 渲染为卡片，否则使用通用回退 |
-| 模型提供方 | `ctx.llm` 的路由与设置 | 出现在 `/model`；`/login` 可以保存目录密钥、运行已注册的授权流程，或添加自定义 profile |
-| 凭据与设置 | `ctx.credentials` 和 `ctx.settings` | 设置使用 Profile 补丁，密钥值使用凭据存储 |
-| 人机提问 | `ctx.tui.prompt`、审批和提问 | 由终端选择器收集答案 |
-| Skill | Harness Skill Registry | 以 `/<skill-name>` 展示 |
-| MCP Server | 实时 `dsh-mcp-manager` Profile 条目或静态 `dsh-mcp-client` 行 | 出现在 `/mcp` 和 `/tools` 中 |
-
-只需要这些缝的插件，不必再写 TUI 展示适配器。
-
-## 当前启动
-
-`apps/omdsh/src/boot.ts` 会在 `$OMDSH_HOME/profiles/omdsh` 缺失时初始化该 Profile，并挂载一个空的 Profile 根。补丁按「产品 → 用户 bundles → Profile patch → home patch → MCP → LSP」的顺序应用。补丁文件存在但为空、或不是 YAML 列表时，启动失败并大声报错。启动、`omdsh plugin` 和 `omdsh --dump-config` 会先共用一次 `loadLayeredEnv` 快照，因此项目级和用户级 `.env` 对 home 路径以及 MCP 变量展开的影响在每条路径上相同。`--dump-config` 打印这棵组合树，但不启动 TUI。
-
-列入 `dsh.profile.bundles` 的软件包必须声明 `dsh.bundle.patch`，并能从 omdsh 安装位置或 Profile 的 `node_modules` 解析。只在 Profile 补丁里写入提供方 profile，仍然无法激活 composition 从未挂载的 adapter。
-
-`/login` 已经能通过随包、默认休眠的 `@deepseek-ai/dsh-llm-pi-ai` adapter 接入目录提供方和手写自定义路由。当该 adapter 或其他已挂载插件注册了 Harness 授权流程时，`/login` 会列出流程和方法，TUI 只渲染通用通知和提问。adapter 不在随包树中的提供方，仍然需要用户挂载插件。
-
-## 组合
-
-omdsh 保留产品自己拥有的 composition。它不会把官方 `@deepseek-ai/dsh-base` 当作第一层启动，也不会变成官方 `web` 或 `headless` Profile 上的一层皮。那些层会挂上 TUI composition 明确排除的 Host、HTTP 和 Web UI 行。
-
-第一层是当前的 omdsh composition，通过 `dsh.bundle.patch` 清单字段发布为 `@agi-fans/oh-my-dsh` bundle。用户 bundle 追加在这层产品层之后。
-
-```text
-$OMDSH_HOME/profiles/omdsh/
-  package.json          # dsh.profile.bundles 以及用户依赖
-  cordis.yml            # 空根 []；只给 Loader 当 baseUrl
-  cordis.patch.yml      # 可选的用户行级补丁
-  node_modules/         # 用户 bundle，由 pnpm 管理
-```
-
-Profile 目录使用 omdsh 已经用于会话、设置、凭据和 MCP 的同一主目录：`$OMDSH_HOME`，否则 `$DSH_HOME`，再否则 `~/.dsh`。Profile 名称是 `omdsh`，因此不会与可能共用 `$DSH_HOME` 的官方 `web` 或 `headless` Profile 冲突。
-
-启动按以下顺序应用补丁：
-
-1. 随包发布的 `@agi-fans/oh-my-dsh` bundle（产品 `cordis.yml`，改写成对空根的 insert）。
-2. `dsh.profile.bundles` 中的其余名称，按列表顺序。
-3. `$OMDSH_HOME/profiles/omdsh/cordis.patch.yml`。
-4. `$OMDSH_HOME/cordis.patch.yml`（作用于每个 omdsh Profile 的机器级覆盖）。
-5. 现有的、来自用户级和项目级 `mcp.json` 的 MCP insert patch。
-6. 来自用户级和项目级 `lsp.json` 的 LSP insert patch。
-
-后一层按行 id 覆盖前一层。针对 id 的补丁会整份替换 `config` 对象，不做深层合并。补丁点名了一个不存在的 id 时，启动时会被静默跳过（TUI 宿主未将加载器日志接到 stderr），而不是报错。
-
-初始运行时解析由 omdsh 安装位置和 Profile 中按顺序排列的 bundle 依赖图算出，并通过 Node 的 ESM/CJS 解析器安装。运行中的插件事务在成功修改后发布更新的解析表；已有 Agent composition 保留原 revision。该过程不创建任何回退链接：`@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 优先从 omdsh 安装位置解析，用户 bundle 从 Profile 的 `node_modules` 以及 Profile 的 linked roots 解析，insert 了 Node 无法解析的软件包时启动仍会失败并大声报错。
-
-omdsh 基于同一套已发布 API 实现 `omdsh plugin`。它不要求安装官方 `dsh` CLI，也不重新实现安装目录、版本求解或分层顺序。
-
-omdsh 不会从某个 extensions 目录加载 TypeScript 文件。那是另一套产品模型，等于在 Cordis 旁边再造一个插件管理器。
-
-## 兼容边界
-
-无需额外 TUI 工作即可支持：
-
-- 通过 `dsh-commands` 注册的命令。
-- 工具，包括与 Provider 无关的 `presentCall` / `presentResult` 卡片。
-- 在 `ctx.llm` 上注册路由的 LLM adapter。
-- 使用随包 Store 的设置与凭据插件。
-- 通过 `ctx.tui.prompt`、notice 或命令输出收集密钥或选项的 Auth 插件。
-- Skills 与 MCP Server，它们继续走现有发现路径。
-- 观察持久化 Session Event，或通过 Harness 注册 Agent preset 的反应型插件。
-
-不承诺：
-
-- 官方 `dsh-client-ui-*` Web UI 插件。omdsh 没有 web Profile。
-- 抢占 TTY、监听原始终端字节，或假定已经挂上 Host / HTTP 面的插件。
-- Pi 的 extensions 目录加载器、`pi` 包清单，以及对散落 TypeScript 文件的 `/reload`。
-- Pi 或 oh-my-pi 的品牌。产品保持 DeepSeek 身份。
-- Pi 的「不要 MCP」立场。omdsh 已经通过 Harness 挂载 MCP Server。
-- 自定义持久化 Session Event 类型或 Transcript 条目。持久化层会拒绝读取器不认识的事件，除非该事件带有 `ignorable: true` 且可以安全跳过；omdsh 不提供供下游注册私有事件或将其渲染进 Transcript 的接口。
-- 主题包或 Overlay 组件。这些在出现第二个拥有独立所有权的贡献者之前保持关闭。
-- 第二套工具调用拦截总线。权限门留在 Harness 审批插件里，避免架空审计。
-- 替换 Composer、按键映射，或任何其他由 TTY 拥有的表面。
-- 第二套斜杠命令注册表，或无限的 `/settings` 行列表。
-- 把宿主 TUI 实例、原始终端字节，或插件拥有的 assistant transcript 渲染器交给插件。瘦身 `custom()` Component 缝如果落地，在真实外部 bundle 用过之前只能是 experimental。
-
-版本不匹配、已列入列表的 bundle 缺少 `dsh.bundle` 声明，或软件包名称无法解析时，沿用现有的 `boot()` / `assertEntriesActivated` 路径在启动阶段失败。剩下最大的风险是用户 bundle 再带一份 Cordis，或带上不兼容的 DSH 版本：service token 会分裂，插件看起来已激活，却无法注入或正确 dispose。核心 `@deepseek-ai/*` 和 `@agi-fans/dsh-tui` 保持为随包发布版本的 peer；`omdsh plugin` 在安装时拒绝不兼容的版本范围，若解析出两份拷贝，启动失败并大声报错。
-
-`/plugins` 查看运行中插件的启用状态与生命周期，管理 bundle，并提供安装进度、取消、诊断日志及待运行构建脚本的显式授权步骤。它使用已发布的 Harness Plugin Manager，与 `omdsh plugin` 共用 Profile 写锁。终端自身及管理基础设施在该选择器中只读。当前回合结束后才能进入安装管理。
-
-Codex 与 Claude Code 子代理 bundle 随 omdsh 默认安装，初始关闭。Bundles 选择器显示 Installed · Disabled，打开 **Integration settings** 并选择 Enable integration 即可使用，无需在 Profile 中下载；该入口与 `/settings → Integrations` 使用同一套表单。随包集成跟随 omdsh 更新。缺失的软件包提供匹配当前 Harness 版本的 Install；Profile 安装的软件包还提供 Reinstall。安装进度忽略 Enter，避免误取消；Esc 或 Ctrl+C 取消并等待文件恢复。失败或取消不会报告已启用，每次操作后选择器重新读取软件包状态。这些 bundle 自带固定版本的平台运行时，不会回退到 PATH 上的命令。正因为固定，两者在你明确开启前都保持关闭：Codex bundle 把自己的 `@openai/codex` 钉在 0.153.4，与你安装的 CLI 版本无关，而它的 README 要求重新生成上游 schema 证据才能移动这个版本——所以 Codex 子代理按它构建时的协议运行，而不是按你 `codex` 命令所讲的协议。Claude Code bundle 不钉 CLI 版本，但两者是同一个决定：把一个自带运行时、带自己协议的外部代理接进会话。认证与用户／项目设置仍由原生产品管理；omdsh 不负责登录，也不检查凭证。
-
-另外两个实验性 Harness 能力 bundle 随 omdsh 默认安装并在 `/plugins` → Bundles 中默认启用（新建或升级 Profile 时仅初始化一次，你在 `/plugins` 中关闭后会保持关闭）：`@deepseek-ai/dsh-experimental-tool-worktree`（提供 `create_worktree`，见[工具](tools.md)）和 `@deepseek-ai/dsh-experimental-auto-review`（提供当前会话的 **Auto review** 权限模式，见[权限与 Access](permissions.md)）。
-
-Profile 自行安装的 bundle 提供 **Details**（打开 bundle 的 README 或说明文档）、**Update**（registry bundle 可选择兼容的新版本，Git bundle 可输入目标 commit 与版本号，支持中途取消并展示回滚结果）以及 **Uninstall**（确认后卸载插件并移除该 Profile 的软件包），这些操作影响使用此 Profile 的全部会话；保留原生 Codex／Claude 登录与用户设置。没有对应 Profile 依赖的条目提供 Remove from profile，仅移除启用选择。**Discover** 会区分未安装、已安装、可更新、随 omdsh 内置和已安装其他版本等状态，选择可更新条目时会直接走就地更新流程，而不是重复执行全新安装。随 omdsh 安装的软件包不能单独卸载，可在集成设置中通过 Disable integration 关闭，并随 omdsh 更新。
-
-Integration settings 中的 Installation status 打开结构化阅读页，展示包是否可用、Profile 是否启用及组件加载状态。Refresh 重新读取注册信息，Copy details 复制当前报告，Back 返回原先选中的操作。集成菜单展示简短摘要，完整说明放在 Usage notes 中；缺失的软件包也在 Bundles 中提供 Check profile status，不验证原生运行时启动或认证。Provider 有可编辑的 Settings 配置段后，Model and Permissions 会在共用的版本检查产品表单中打开这两个字段；未指定 model 时沿用原生设置。孩子的权限独立于父级 Access。显式 `env` 覆盖写在 Provider 的 Profile 补丁中；凭证类环境变量会被清除，因此不能假定父级 API key 自动继承。这些集成执行独立的纯文本任务，最终结果返回父会话，不提供追问或本地子转录。见[子智能体](subagents.md)。
-
-HMR 会监视 Profile 和主目录的 `cordis.patch.yml`。新 bundle 与配置修改可以实时应用；替换已安装包的代码仍需重启。CLI 包操作后仍应重启；运行中选择器会明确报告修改是已应用、被覆盖、失败还是需要重启。源码监视默认关闭（`hmr.config.root: []`），可通过 Profile 补丁指定源码目录。
-
-Cordis 增加已发布的 Harness 组合与插件开发 Skills、运行时只读查询工具及 `plugin_manager`。该工具保留上游的完整宿主访问或逐次审批要求，构建脚本另需显式授权。`/agent inspect [preset-id]` 查看当前声明及此会话保留的实际模块组成，包含激活失败和隔离错误。已有会话不会静默切换到新声明的 preset revision。
-
-## 用户流程
-
-插件配置与插件包页面逐级返回，并保留上一级列表的筛选词和选中项。操作结果显示在当前页面，Alt+D 打开完整诊断和安装日志供阅读、复制。Discover 在取消安装或选择不兼容条目后保留当前搜索；Alt+S 修改搜索词，Alt+R 刷新或重试。
+适合脚本化部署或在启动前安装（需要 `PATH` 上有 `pnpm`）：
 
 ```sh
-omdsh plugin add ./examples/hello
-omdsh plugin remove @agi-fans/omdsh-plugin-hello
-omdsh --dump-config
+omdsh plugin add <包名|Git地址|./本地路径>
+omdsh plugin update <包名>
+omdsh plugin remove <包名>
+omdsh plugin list
 ```
 
-在 omdsh 的 checkout 里，[`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello) 是一个完整的 bundle，会注册 `/hello`。`./examples/hello` 相对调用时的工作目录；若该路径不存在，omdsh 会沿父目录查找同一相对路径，仍找不到则失败。因此 `pnpm --dir apps/omdsh omdsh plugin add ./examples/hello` 仍会装到仓库里的示例。成功添加后重启 omdsh 并运行 `/hello`；`--dump-config` 应在产品层之后列出 `@agi-fans/omdsh-plugin-hello`。已发布的包用同样的命令，只是把本地路径换成 npm 或 git spec。
+任何未识别的子参数都会直接转发给用户配置目录（`$OMDSH_HOME/profiles/omdsh/`）下的 `pnpm`。安装或移除后可运行 `omdsh --dump-config` 或 `omdsh doctor` 核对最终挂载结果。
 
-`omdsh plugin` 在首次使用时初始化 `$OMDSH_HOME/profiles/omdsh`，在该目录运行 `pnpm`，并对照已安装且声明了 `dsh.bundle.patch` 的软件包，调和 `dsh.profile.bundles`。不属于 Profile 依赖的模板 / 产品 bundle 留在列表中。普通库依赖会被安装，但不会成为一层；后续版本若增加 `dsh.bundle.patch`，会在下一次成功的 `omdsh plugin` 运行时加入列表。
+## 二、随包内置的集成与扩展包
 
-`--dump-config` 通过 `renderConfigDump` 打印组合后的入口列表，并用注释标出每一层的来源。该转储展示按已保存文件重新组合的结果；`/plugins` 与 `/agent inspect` 展示运行中观察值。
+安装 `omdsh` 后即自带以下扩展，随版本一起更新（不能单独卸载，但随时可以在 `/plugins` → `插件包` 中禁用，禁用选择在升级后会保留）：
 
-CLI 成功添加后重启 omdsh；运行中选择器会单独报告实时应用结果。新的 LLM 路由出现在 `/model`。新命令出现在 `/help`。需要浏览器或 device-code 步骤的 Auth 由插件自己拥有该生命周期，并使用 `ctx.tui.prompt` 提出任何终端问题。
+| 内置扩展 | 默认状态 | 配置入口 | 作用 |
+|---|---|---|---|
+| **Codex / Claude Code 子智能体** | 默认关闭 | `/settings` → **`插件` → `子代理`**（或 `/plugins` → `插件包`） | 把独立纯文本子任务委派给内置的 Codex 或 Claude Code 平台运行时；登录沿用原生配置，权限独立且默认保守（Codex `never`、Claude Code `dontAsk`）。 |
+| **Git Worktrees**（`@deepseek-ai/dsh-experimental-worktree`） | 默认开启 | `/plugins` → `插件包`；归档保留项在 `/settings` → `插件` → `工具` | 在独立 Git 工作树里做实验性改动，不影响当前分支；归档会话时默认保留 worktree（`retainOnArchive: true`）。 |
+| **自动审查**（`@deepseek-ai/dsh-experimental-auto-review`） | 默认开启 | `/permission`（当前会话切换）与 `/plugins` → `插件包` | 在 `/permission` 中提供 `自动审查`（`Auto review`）模式，在写操作前进行额外模型审查。 |
+| **Tmux 位置上下文**（`@deepseek-ai/dsh-tmux-context`） | 在 tmux 内默认开启 | `/settings` → **`插件` → `工具` → `Tmux 位置上下文`** | 仅在真实 POSIX tmux 窗格（`$TMUX_PANE`）内自动挂载，同步窗格与布局变化；非 tmux 零开销。 |
 
-## 编写 bundle
+## 三、插件包兼容性契约（给作者与高级用户）
 
-按 [编写插件](tutorials/write-a-plugin.md) 从零编写并安装 bundle，或复制 [`examples/hello`](https://github.com/agi-fans/oh-my-dsh/tree/main/examples/hello)。bundle 是一个 npm 软件包，其 `package.json` 包含：
+第三方插件进入 omdsh 时遵循以下清晰边界，保证终端体验稳定、不冲突：
 
-```json
-{
-  "name": "@scope/dsh-example",
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  }
-}
-```
+1. **标准 npm 包 + `dsh.bundle.patch`**：在 `package.json` 中通过 `dsh.bundle.patch` 指向补丁文件（如 `./cordis.patch.yml`）。缺少该字段的普通库安装时会收到警告，只作为依赖库保留，不挂载任何插件行。
+2. **共享单一运行时**：所有 `@deepseek-ai/*` 包必须放在 `peerDependencies` 且与当前 `omdsh` 所搭载的 DeepSeek Harness 版本兼容；放在 `dependencies` 会被安装器拒绝，防止进程内出现两套分裂的运行时。
+3. **现成可用、无需自写 TUI 代码的能力**：只要通过标准 Harness 接口注册斜杠命令（`commands`）、模型工具（`tools`）、模型服务商（`llm`）、凭据（`credentials`）、配置项（`settings`，自动出现在 `/settings → 高级`）、审批或人类提问（`tui.prompt`），omdsh 会自动完成终端呈现。
+4. **不依赖 Web / HTTP 宿主**：TUI 宿主刻意不挂载 Web UI 或外部 HTTP 服务；插件不应假定它们存在，也不应直接抢占 TTY 或读取原始键盘字节流。
 
-`cordis.patch.yml` 是 Cordis include 补丁组成的 YAML 数组。常见写法是一个 `insert` 列表，列出插件行：
+关于插件启动加载顺序、终端接口细节与可运行代码示例，请参阅[插件开发内部机制](plugin-internals.md)和[架构概览](architecture.md)。
 
-```yaml
-- insert:
-    - id: example-provider
-      name: '@scope/dsh-example'
-```
+## 相关
 
-将 Harness 包声明为 peer，与 omdsh 固定的 DSH 和 Cordis 版本兼容。使用 TUI 服务时，为 `@agi-fans/dsh-tui` 声明兼容的产品版本。不要在 bundle 自己的 dependencies 里再嵌一份 `cordis` 或 `dsh-*`。只导入已发布的软件包导出。不要进入 `refs/`。不要假定存在 Host、HTTP 或 Web UI。
-
-优先使用现有缝：
-
-- 在 `dsh-commands` 上注册命令；
-- 在工具定义上注册带展示意图的工具；
-- 在 `ctx.llm` 上注册 LLM 路由；
-- 通过 `ctx.credentials` 存储密钥；
-- 通过 `ctx.tui.prompt` 向用户提问。
-
-自定义 Transcript 块、overlay 和主题包需要独立设计展示 API。当前 bundle 使用已发布的工具与 prompt 契约，详见[插件内部机制](plugin-internals.md)。
-
-## 相关文档
-
-- [架构](architecture.md) — 产品 composition 与 TUI 所有权
-- [插件内部机制](plugin-internals.md) — 已发布接口与终端归属
-- [Skills 与 MCP](skills-and-mcp.md) — 文件系统 Skills 与 MCP Server 文档
-- [编写插件](tutorials/write-a-plugin.md) — 编写、安装并发布 bundle
+- [安装插件与内置集成（教程）](tutorials/install-plugin.md) —— 面向用户的快速上手
+- [开发者进阶：编写与发布插件](tutorials/write-a-plugin.md) —— 从零写一个插件并发布
+- [插件开发内部机制](plugin-internals.md) —— 公共接口与代码示例
+- [子智能体与团队协作](subagents.md) —— Codex / Claude Code 子智能体详细行为

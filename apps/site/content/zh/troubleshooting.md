@@ -1,59 +1,93 @@
 ---
-description: "排查常见 omdsh 问题：中断与退出行为、恢复会话、DeepSeek 账户登录、颜色环境变量、复用器滚动回看、旧会话以及插件启动失败。"
+description: 按真实故障现象快速排查 omdsh 启动、登录、认证、按键、鼠标、tmux、图片显示、MCP/LSP 与插件问题。
 ---
 
 # 故障排查
 
-## 中断与退出
+遇到问题时，先在终端运行内置自检命令，它能一口气定位大多数环境、登录、配置和插件故障：
 
-第一次 `Ctrl+C` 清空 composer；composer 为空时改为中断活动回合，`Esc` 始终都能中断。第二次 `Ctrl+C` 退出，输入框为空时 `Ctrl+D` 退出，有文字时向前删除字符。持久会话退出时会打印 `omdsh --resume <session-id>`，方便在新终端里重新打开这段对话。
+```sh
+omdsh doctor
+```
 
-## 找回会话 id
+如果想把检查结果发给他人或在脚本里解析，运行 `omdsh doctor --json`。下面是按常见症状整理的排查清单。
 
-`/context` 报告活动会话的详细信息，`/resume` 打开可搜索的选择器。只记得聊过什么时，用 `/resume <查询>` 搜索持久会话内容。见[会话与历史](sessions.md)。
+## 一、登录、认证与模型报错
 
-最初使用 v0.5.0 至 v0.11.0 创建的会话可能包含一个未经扩展的 DSH 持久化读取器会拒绝的私有事件；omdsh 仍能打开它们。不要手工修改会话文件——它们可能被压缩并带有完整性校验。
+### 1. DeepSeek 账户浏览器登录跳到了桌面端或一直没返回
+- 正常走 `/login` → **`DeepSeek 账户`** 时，浏览器会通过本地回调地址完成授权，最终停在带 `login_source=web` 的完成页（看到“授权已完成”后手动关闭标签页即可，omdsh 会自动切回界面）。
+- 如果页面拉起了 DeepSeek Harness Desktop（地址带 `login_source=desktop` 或缺少 `login_source`），说明打开了旧的桌面端授权链接。关掉该标签页，回到 omdsh 重新跑 `/login` 打开新地址。
+- **远程 SSH 服务器上登录**：把终端提示的 `127.0.0.1:<端口>` 通过 SSH 端口转发（`ssh -L <端口>:127.0.0.1:<端口> ...`）映射回本机，浏览器回调才能送达远程终端。
 
-## DeepSeek 账户登录
+### 2. API Key 保存了但不生效，或提示权限错误
+- 进程里已经设置了 `DEEPSEEK_API_KEY` 等环境变量时，环境变量优先且不会被 `/login` 或 `/logout` 覆盖。用 `env | grep DEEPSEEK` 检查是否被旧环境变量盖住了。
+- 凭据文件（`$OMDSH_HOME/.credentials.yaml`）要求仅当前用户可读，如在 Linux/macOS 上手工改动过权限，执行 `chmod 600 ~/.dsh/.credentials.yaml`。
 
-`/login` → **DeepSeek account** 会用 loopback 回调地址（例如 `http://127.0.0.1:<port>/oauth/callback`）打开平台授权页。授权完成后，页面应结束在 `.../dsh/authorized?login_source=web` 并显示“授权已完成”。如果页面拉起 DeepSeek Harness Desktop，它的地址会带 `login_source=desktop`（或没有 `login_source`），属于 Desktop 发起的授权，不是 TUI；关闭那个标签页，重新从 `/login` 获取新地址，不要复用旧标签页。
+### 3. 模型返回内容拒绝（`CONTENT_REFUSED`）
+- 当 DeepSeek 服务端因安全策略拒绝当前请求时，交互终端会明确展示内容拒绝原因，脚本模式 `omdsh exec --json` 会返回错误码 `CONTENT_REFUSED`。调整提示词表述或移除敏感片段后重试即可。
 
-由于标签页是从终端打开而不是由 `window.open` 打开，浏览器可能不会自动关闭它；看到完成提示后可手动关闭，授权成功后 TUI 自动返回账户页面。远程主机需要把 TUI 显示的 loopback 端口通过 SSH 转发到本机，回调才能到达 TUI。登录后共享账户会同时出现在 `/login` 与 `/logout`；登出会删除本地 grant，并在后台尝试撤销。
+## 二、按键、换行与剪贴板问题
 
-## 日志
+### 1. macOS 上 `Alt+...` 快捷键打出了 `å`、`¥`、`∑` 等字符
+- macOS 终端默认把 `Option` 当作输入特殊字符，而不是发送 `Alt/Meta` 修饰键。
+- **解决办法**：在终端偏好设置中开启 “Use Option as Meta key”（iTerm2 / Ghostty / WezTerm / Apple Terminal 均有此项），然后进入 `/settings` → **`终端` → `输入` → `快捷键` → `测试按键`** 确认实际收到的键名。
 
-交互式 TUI 会把插件的 `console` 输出重定向到 `$OMDSH_HOME/omdsh/logs/omdsh.log`，而不是 stdout，诊断文本不会写进 composer 或破坏画面。文件只保留在本机，可能包含运行细节；`omdsh exec` 仍使用自己的 stdout/stderr 协议。删除该文件即可重置日志。
+### 2. `Shift+Enter` 没法换行，直接把消息发出去了
+- 较旧的终端不会区分 `Shift+Enter` 和普通 `Enter`。请改用 **`Ctrl+J`**（全平台通用换行键），或在支持 Kitty 键盘协议的终端（Kitty / Ghostty / WezTerm / iTerm2 新版）中使用。
 
-## 颜色
+### 3. 粘贴多行内容时被提前发送，或正常打字感觉有延迟
+- **Paste protection**（粘贴保护）会在不支持原生括号粘贴标记的终端里用启发式方式防止误发。如果它在你的终端上造成打字停顿，可在 `/settings` → **`终端` → `输入`** 中关闭；支持括号粘贴的现代终端关闭后依然不会误提交。
 
-在未设置显式颜色偏好时，`NO_COLOR` 与 `FORCE_COLOR=0` 会关闭彩色输出。显式选择——插件配置或在 `/settings` 中选择的值——仍然优先于环境变量；在 `/settings` 中开启颜色会立即生效，无需重启。
+### 4. 程序异常退出后，Shell 里的 `Esc` 或 `Ctrl+C` 表现怪异
+- 正常退出、`Ctrl+Z` 挂起和打开外部编辑器时，omdsh 都会自动恢复终端的原始键盘协议。如果进程被强杀导致协议未还原，在 Shell 里运行一次：
 
-当 `COLORTERM` 报告支持 24 位色，或终端不属于已知的 16 色环境时，omdsh 使用 24 位色。Apple Terminal 的 24 位色支持不可靠，因此改用 256 色调色板；设置 `COLORTERM=truecolor` 可以覆盖。在 16 色终端中，主题颜色会与终端报告的调色板做匹配。
+```sh
+printf '\033[<u'
+```
 
-## 键盘协议
+## 三、鼠标、选字复制、滚动与 tmux
 
-在实现了 Kitty 键盘协议的终端中，omdsh 会请求无歧义的按键上报，使 `Alt` 和 `Ctrl` 快捷键被可靠识别。退出、`Ctrl+Z` 挂起、外部编辑器运行期间，以及进程意外退出时，omdsh 都会把终端原本的按键编码还给终端。如果崩溃后 shell 中的 `Esc` 或 `Ctrl+C` 表现异常，执行 `printf '\033[<u'` 即可恢复。
+### 1. 鼠标直接拖选复制不了文字
+- 默认 `鼠标交互` 为 `自动`，开启了界面内滚轮滚动与按钮点击。需要用终端原生拖选时，按住 **`Shift`**（macOS 部分终端为 **`Option`**）再拖动；如果你平时几乎不用鼠标点界面、只想随时自由拖选复制，在 `/settings` → **`终端` → `鼠标交互`** 中改为 **`关闭`**（`native`）。
+- 如果使用内置选区复制：拖选松手默认自动复制（可在设置中关闭 `选中即复制` 改为 `Alt+C` / `Enter` 复制）。
 
-## 滚动回看与复用器
+### 2. 在 tmux / screen 里窗口缩放后画面错乱，或向上滚动看到旧内容
+- **画面错位**：按 **`Alt+L`** 立刻重绘当前实时视图（不会破坏上方滚动历史）。
+- **为什么向上滚动会看到已经折叠的工具旧样子？** omdsh 刻意不改写已滚出视口进入终端原生滚动历史的行——它们是当时的忠实快照，**分界线之下的实时视图才是当前最新对话记录的为准状态**。
 
-普通更新期间 omdsh 保留终端原生滚动回看；只有真正的全屏浮层会借用备用屏幕。替换转录时同样保留：`/clear`、切换会话与 `--resume` 都会在带标签的接缝下方追加新文档，而不是清掉上面的内容——那段历史里还有 omdsh 启动前你 shell 打印的东西。在 tmux、screen 与 ConPTY 下，宿主滚动回看会被保留，resize 突发会先合并再重绘。附加或 resize 后如果显示看起来过期，用 `Alt+L` 重绘实时视图，终端原生历史继续保留。
+### 3. 颜色显示不正常或没有真彩色
+- 环境变量 `NO_COLOR` 或 `FORCE_COLOR=0` 会关闭彩色输出；在 `/settings` 里显式开启颜色可覆盖环境变量并立即生效。
+- Apple Terminal 默认回退到 256 色以避开其 24 位色渲染缺陷；如需强制 24 位色，启动前设置 `COLORTERM=truecolor`。
 
-已经滚进那段历史的行，是当时显示内容的快照，之后不会被改写。因此向上滚过接缝时，会看到已经结束的工具调用、或已经折叠成组头的工作段，仍按终端收到它们时的样子排列。接缝是唯一标记这次更替的地方，接缝之下的实时视图才是当前转录的准。
+## 四、内联图片、会话、MCP / LSP 与插件问题
 
-## 插件启动失败
+### 1. 截图粘贴后不能在终端里直接预览（或 tmux 里看不到图）
+- 内联图片预览需要终端支持 Kitty 或 iTerm2 图形协议（如 Kitty、Ghostty、WezTerm、Warp、iTerm2）；在不支持的终端或嵌套复用器中，可在预览页点 **`打开`** 调用系统看图软件。
+- 如自动识别不准，可通过环境变量强制指定或关闭：`OMDSH_IMAGE_PROTOCOL=kitty|iterm2|none`。
 
-不兼容的 bundle 或无法解析的包可能阻止插件加载。没有声明 `dsh.bundle.patch` 的普通库安装时会收到警告，并且不贡献组合层。`omdsh --dump-config` 显示组合树及各条目的来源，`omdsh plugin remove <package>` 移除 Profile 安装。服务无法解析时，请检查 DSH 兼容性及是否存在重复的 Cordis 或 Harness 副本。见[用户插件](plugins.md)。
+### 2. `/resume` 里找不到昨天聊过的会话
+- `/resume` 默认只列出**当前工作目录**关联的会话。切回原来的项目目录再启动，或直接运行 `omdsh --resume <会话ID>`。如果忘了 ID，先在原目录用 `/resume <聊过的关键词>` 全文检索。
 
-## 更新与通知
+### 3. MCP 服务器显示 `等待凭据` 或 `失败`
+- 运行 `/mcp` 选中该服务器：
+- 显示 `等待凭据`：补录 `${credential:...}` 对应的密钥后再点 **`重启`**；
+- 显示 `失败`：点进服务器详情查看具体报错，并用 `!which <命令>` 确认本地命令在 `PATH` 上，确认后再点 **`探测`** 验证。
 
-每日更新检查只会提示存在新的 npm 版本，从不自动安装。升级后的版本说明、更新检查与终端通知都在 `/settings` → Terminal 中配置。见[设置](settings.md)。
+### 4. LSP 不可用或找不到语言服务器
+- 确认对应语言的服务器二进制已在 `PATH` 上（例如 `typescript-language-server`、`gopls`、`rust-analyzer`），且项目或用户目录的 `lsp.json` 语法无误，详见[语言服务器（LSP）](language-servers.md)。
 
-## 管道输入
+### 5. 插件安装后启动报错或命令未出现
+- 运行 `omdsh doctor` 与 `omdsh --dump-config` 检查该插件包是否与当前 DeepSeek Harness 版本兼容、是否声明了 `dsh.bundle.patch`、是否存在重复依赖。
+- 如某插件导致异常，直接执行 `omdsh plugin remove <包名>` 移除即可恢复。
+- 交互模式下插件的 `console` 诊断输出全部重定向到 **`$OMDSH_HOME/omdsh/logs/omdsh.log`**，不会破坏终端画面，排查时可直接查看该日志（删除即可清空）。
 
-当输入或输出不是 TTY 时，omdsh 退化为按行输入与纯追加式输出，而不是占用屏幕。CI 使用的就是这种模式。
+### 6. 中断、退出与管道模式
+- **中断 vs 退出**：模型运行时按 `Esc` 或空输入框按 `Ctrl+C` 只中断当前回合；空闲时**连按两次 `Ctrl+C`**（或空输入框按 `Ctrl+D`）退出，并打印 `omdsh --resume <会话ID>`。
+- **卡在后台任务或提问**：用 `/jobs` 查看并停止失控的后台命令；如果曾错过超时提问，运行 `/questions` 检查。
+- **在管道或 CI 中运行**：当 stdin/stdout 不是 TTY 时，omdsh 自动切到按行输入与纯追加输出模式；自动化集成更推荐使用 `omdsh exec --json`，详见[命令行与脚本模式](cli.md)。
 
 ## 相关
 
-- [命令行](cli.md) —— flags 与环境变量
-- [会话与历史](sessions.md) —— 日志兼容性与本地文件
-- [用户插件](plugins.md) —— Profile 安装与组合调试
+- [命令行与脚本模式](cli.md) —— `omdsh doctor`、`omdsh exec` 与全部环境变量
+- [会话与恢复](sessions.md) —— 本地数据路径与旧日志兼容
+- [设置](settings.md) —— 鼠标、主题、通知与快捷键配置
