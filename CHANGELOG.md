@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-20
+
 ### Changed
 
 - Upgraded DeepSeek Harness to `0.2.2-rc.5`. The terminal displays DeepSeek’s content-refusal error, and `omdsh exec --json` reports **`CONTENT_REFUSED`** for these refusals in place of `MALFORMED_RESPONSE`.
@@ -1143,7 +1145,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.0...v0.26.1
