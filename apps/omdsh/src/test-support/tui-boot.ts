@@ -54,10 +54,10 @@ export async function bootTuiTurn(options: {
   cwd?: string
 }): Promise<{ bodies: unknown[], output: string, status: number | null }> {
   writeTurnConfig(options.home, options.preset)
+  // Disable background session-title LLM calls so they never race ahead of the
+  // main turn request and steal `bodies[0]` (or mock sequence slots) under load.
+  appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), '- id: session-title-llm\n  disabled: true\n')
   if (options.patch !== undefined) appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), options.patch)
-  if (options.toolCall !== undefined) {
-    appendFileSync(join(options.home, 'profiles', 'omdsh', 'cordis.patch.yml'), '- id: session-title-llm\n  disabled: true\n')
-  }
   const server = await startMockLlmServer({
     port: 0,
     sequence: options.toolCall === undefined ? ['success'] : ['tool_call_success', 'success'],
