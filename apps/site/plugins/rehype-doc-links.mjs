@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Rewrites relative Markdown links between content files to site routes.
  * Sources under content/ stay GitHub-readable (plain relative `*.md` links);
@@ -7,7 +6,7 @@
  * page's locale tree — pass through untouched, so references leaving the
  * documentation set must be written as full GitHub URLs in the source.
  */
-import { dirname, relative, resolve, sep } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const contentDir = fileURLToPath(new URL('../content', import.meta.url))
@@ -17,7 +16,7 @@ export default function rehypeDocLinks() {
   return (tree, file) => {
     const filePath = file?.history?.[0] ?? file?.path ?? ''
     const baseDir = dirname(filePath)
-    const locale = filePath.includes(`${sep}content${sep}zh${sep}`) ? 'zh' : 'en'
+    const locale = filePath.replaceAll('\\', '/').includes('/content/zh/') ? 'zh' : 'en'
     const localeRoot = resolve(contentDir, locale)
 
     const walk = (node) => {
